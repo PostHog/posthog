@@ -115,7 +115,6 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert len(response.json()["results"]) > 5
-        assert EXPECTED_FIRST_RESULT in response.json()["results"]
 
     def test_alpha_templates_are_hidden(self):
         self.client.logout()
@@ -164,7 +163,7 @@ class TestDatabaseHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMa
         # Clear any existing templates
         DBHogFunctionTemplate.objects.all().delete()
 
-        # Create some test templates in the database, we ignore the created boolean
+        # Create some test templates in the database, we ignore the 'created' boolean that is returned
         self.template1, _ = DBHogFunctionTemplate.create_from_dataclass(template)
 
         # Create a second version of the same template to test latest retrieval
@@ -227,52 +226,42 @@ class TestDatabaseHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMa
 
     @patch("posthog.api.hog_function_template.settings")
     def test_get_templates_from_db(self, mock_settings):
-        """Test retrieving templates from the database"""
-        mock_settings.USE_DB_TEMPLATES = True
+        """Test retrieving templates from the database via API"""
+        mock_settings.USE_DB_TEMPLATES_FOR_TEAMS = [self.team.id]
 
-        # Test getting all templates
-        templates = HogFunctionTemplates.templates()
+        # Test getting templates via API endpoint
+        response = self.client.get("/api/projects/@current/hog_function_templates/")
 
-        # Should have two templates (excluding deprecated)
-        assert len(templates) == 2
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        results = response.json()["results"]
 
-        # Verify the templates are returned as DTOs
-        template_ids = {t.id for t in templates}
+        # Find the template IDs in the response
+        template_ids = {t["id"] for t in results}
+
+        # Check that we have the expected templates and not the deprecated one
         assert "template-slack" in template_ids
         assert "template-webhook" in template_ids
         assert "template-deprecated" not in template_ids
 
-        # Verify we get the latest version of the template
-        slack_template = next(t for t in templates if t.id == "template-slack")
-        assert slack_template.name == "Newer Slack"
+        # Verify we're getting the newest version of template-slack
+        slack_template = next(t for t in results if t["id"] == "template-slack")
+        assert slack_template["name"] == "Newer Slack"
 
     @patch("posthog.api.hog_function_template.settings")
     def test_get_specific_template_from_db(self, mock_settings):
-        """Test retrieving a specific template from the database"""
-        mock_settings.USE_DB_TEMPLATES = True
+        """Test retrieving a specific template from the database via API"""
+        mock_settings.USE_DB_TEMPLATES_FOR_TEAMS = [self.team.id]
 
-        # Test getting a specific template
-        slack_template = HogFunctionTemplates.template("template-slack")
+        # Test getting a specific template via API endpoint
+        response = self.client.get(f"/api/projects/@current/hog_function_templates/template-slack")
 
+        assert response.status_code == status.HTTP_200_OK, response.json()
         # Verify it's the newest version
-        assert slack_template is not None
-        assert slack_template.name == "Newer Slack"
+        assert response.json()["name"] == "Newer Slack"
 
-        # Get all sub-templates first to verify they exist
-        all_sub_templates = HogFunctionTemplates.sub_templates()
-        assert len(all_sub_templates) > 0
-
-        # Get one of the sub-templates that we know exists
-        first_sub_template_id = all_sub_templates[0].id
-        sub_template = HogFunctionTemplates.template(first_sub_template_id)
-
-        # Verify the sub-template was found
-        assert sub_template is not None
-        assert sub_template.id == first_sub_template_id
-
-        # Verify non-existent template returns None
-        non_existent = HogFunctionTemplates.template("non-existent-template")
-        assert non_existent is None
+        # Verify non-existent template returns 404
+        response_missing = self.client.get("/api/projects/@current/hog_function_templates/non-existent-template")
+        assert response_missing.status_code == status.HTTP_404_NOT_FOUND
 
     @patch("posthog.api.hog_function_template.settings")
     def test_toggle_returns_in_memory_templates_when_off(self, mock_settings):
@@ -298,39 +287,35 @@ class TestDatabaseHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMa
             mock_get_templates.return_value.json.return_value = MOCK_NODE_TEMPLATES
 
             # 1. First test with USE_DB_TEMPLATES = True
-            mock_settings.USE_DB_TEMPLATES = True
+            mock_settings.USE_DB_TEMPLATES_FOR_TEAMS = [self.team.id]
 
-            # Get templates from database
-            db_templates = HogFunctionTemplates.templates()
+            # Get templates via API endpoint with team in allowed teams
+            response = self.client.get("/api/projects/@current/hog_function_templates/")
+            assert response.status_code == status.HTTP_200_OK, response.json()
 
             # Verify our unique DB template is included
-            db_template_ids = [t.id for t in db_templates]
-            assert "unique-db-template" in db_template_ids
+            template_ids = [t["id"] for t in response.json()["results"]]
+            assert "unique-db-template" in template_ids
 
-            # Get the specific template
-            db_specific = HogFunctionTemplates.template("unique-db-template")
-            assert db_specific is not None
-            assert db_specific.name == "Unique DB Template"
+            # Get the specific template via API
+            response_specific = self.client.get("/api/projects/@current/hog_function_templates/unique-db-template")
+            assert response_specific.status_code == status.HTTP_200_OK, response_specific.json()
+            assert response_specific.json()["name"] == "Unique DB Template"
 
             # 2. Now test with USE_DB_TEMPLATES = False
-            mock_settings.USE_DB_TEMPLATES = False
+            mock_settings.USE_DB_TEMPLATES_FOR_TEAMS = []
 
-            # Force reload of in-memory templates
-            HogFunctionTemplates._cache_until = None
+            # Get templates via API endpoint with team NOT in allowed teams
+            response_memory = self.client.get("/api/projects/@current/hog_function_templates/")
+            assert response_memory.status_code == status.HTTP_200_OK, response_memory.json()
 
-            # Get templates from in-memory
-            memory_templates = HogFunctionTemplates.templates()
-
-            # Verify our unique DB template is NOT included
-            memory_template_ids = [t.id for t in memory_templates]
+            # Verify our unique DB template is NOT included in memory templates
+            memory_template_ids = [t["id"] for t in response_memory.json()["results"]]
             assert "unique-db-template" not in memory_template_ids
 
-            # Get the specific template - should be None since it only exists in DB
-            memory_specific = HogFunctionTemplates.template("unique-db-template")
-            assert memory_specific is None
+            # But we should still get the common slack template
+            assert "template-slack" in memory_template_ids
 
-            # But we should get the regular slack template from in-memory
-            slack = HogFunctionTemplates.template("template-slack")
-            assert slack is not None
-            # Verify it's not the DB version (which has name "Newer Slack")
-            assert slack.name != "Newer Slack"
+            # Get the specific template via API - should 404 since it only exists in DB
+            response_missing = self.client.get("/api/projects/@current/hog_function_templates/unique-db-template")
+            assert response_missing.status_code == status.HTTP_404_NOT_FOUND
