@@ -24,6 +24,7 @@ class TokenRestrictionConfig(UUIDModel):
     token = models.CharField(max_length=100)
     restriction_type = models.CharField(max_length=100, choices=RestrictionType.choices)
     distinct_ids = ArrayField(models.CharField(max_length=450), default=list, blank=True, null=True)
+    enabled = models.BooleanField(default=True)
 
     # Redis key prefixes for caching
     SKIP_PERSON_KEY_FORMAT = "skip_person:{}"
@@ -49,6 +50,9 @@ def update_redis_cache_with_config(sender, instance, **kwargs):
 
     redis_key = instance.get_redis_key()
     if redis_key:
+        if not instance.enabled:
+            redis_client.delete(redis_key)
+            return
         if instance.distinct_ids:
             redis_client.set(redis_key, json.dumps(instance.distinct_ids))
         else:
