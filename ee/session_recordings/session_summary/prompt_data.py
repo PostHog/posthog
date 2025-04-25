@@ -74,9 +74,14 @@ class SessionSummaryPromptData:
             # Simplify Window IDs
             if window_id_index is not None:
                 event_window_id = event[window_id_index]
-                if not isinstance(event_window_id, str):
-                    raise ValueError(f"Window ID is not a string: {event_window_id}")
-                simplified_event[window_id_index] = self._simplify_window_id(event_window_id)
+                if event_window_id is None:
+                    # Non-browser events (like Python SDK ones) could have no window ID
+                    simplified_event[window_id_index] = None
+                else:
+                    # If the window ID is present - it should be a string -> simplify it
+                    if not isinstance(event_window_id, str):
+                        raise ValueError(f"Window ID is not a string: {event_window_id}")
+                    simplified_event[window_id_index] = self._simplify_window_id(event_window_id)
             # Simplify URLs
             if current_url_index is not None:
                 event_current_url = event[current_url_index]

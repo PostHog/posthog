@@ -438,14 +438,8 @@ def enrich_raw_session_summary_with_meta(
             enriched_event["current_url"] = full_current_url
             # Add window ID of the event
             window_id = event_mapping_data[window_id_index]
-            full_window_id = window_mapping_reversed.get(window_id)
-            if not full_window_id:
-                # Each processed event should have a full window ID stored in the mapping
-                # TODO: Check why some events lack window IDs (maybe it's ok and I should just skip them)
-                raise ValueError(
-                    f"Full window ID not found for event_id {event_id} when summarizing session_id {session_id}: {event_mapping_data}"
-                )
-            enriched_event["window_id"] = full_window_id
+            # Some events (like Python SDK ones) could have no window ID (as it's added by the web library)
+            enriched_event["window_id"] = window_mapping_reversed.get(window_id)
             # Add event type (if applicable)
             event_type = event_mapping_data[event_type_index]
             if event_type:
