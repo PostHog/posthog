@@ -508,7 +508,7 @@ export class DB {
         const queryString = `
             SELECT (octet_length(properties)::bigint +
                 octet_length(properties_last_updated_at)::bigint +
-                octet_length(properties_last_operation)::bigint) AS total_props_bytes::bigint
+                octet_length(properties_last_operation)::bigint) AS total_props_bytes
             FROM posthog_person
             JOIN posthog_persondistinctid ON (posthog_persondistinctid.person_id = posthog_person.id)
             WHERE
