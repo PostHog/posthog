@@ -253,14 +253,20 @@ mod tests {
             token: Some("".to_string()),
             ..Default::default()
         };
-        assert!(matches!(flag_request.extract_token(), Err(FlagError::NoTokenError)));
+        assert!(matches!(
+            flag_request.extract_token(),
+            Err(FlagError::NoTokenError)
+        ));
 
         // Test missing token
         let flag_request = FlagRequest {
             token: None,
             ..Default::default()
         };
-        assert!(matches!(flag_request.extract_token(), Err(FlagError::NoTokenError)));
+        assert!(matches!(
+            flag_request.extract_token(),
+            Err(FlagError::NoTokenError)
+        ));
     }
 
     #[tokio::test]

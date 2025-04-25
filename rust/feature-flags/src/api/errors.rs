@@ -20,6 +20,18 @@ pub enum ClientFacingError {
 }
 
 #[derive(Error, Debug)]
+pub enum FlagDefinitionsError {
+    #[error("No personal_api_key in request")]
+    NoPersonalApiKeyError,
+    #[error("Personal api key is not valid")]
+    PersonalApiKeyValidationError,
+    #[error("failed to decode request: {0}")]
+    RequestDecodingError(String),
+    #[error("failed to parse request: {0}")]
+    RequestParsingError(#[from] serde_json::Error),
+}
+
+#[derive(Error, Debug)]
 pub enum FlagError {
     #[error(transparent)]
     ClientFacing(#[from] ClientFacingError),
@@ -69,6 +81,30 @@ pub enum FlagError {
     StaticCohortMatchesNotCached,
     #[error(transparent)]
     CookielessError(#[from] CookielessManagerError),
+}
+
+impl IntoResponse for FlagDefinitionsError {
+    fn into_response(self) -> Response {
+        match self {
+            FlagDefinitionsError::NoPersonalApiKeyError => (
+                StatusCode::UNAUTHORIZED,
+                "No personal API key provided".to_string(),
+            ),
+            FlagDefinitionsError::PersonalApiKeyValidationError => (
+                StatusCode::UNAUTHORIZED,
+                "Invalid personal API key".to_string(),
+            ),
+            FlagDefinitionsError::RequestDecodingError(msg) => (
+                StatusCode::BAD_REQUEST,
+                format!("Failed to decode request: {}", msg),
+            ),
+            FlagDefinitionsError::RequestParsingError(err) => (
+                StatusCode::BAD_REQUEST,
+                format!("Failed to parse request: {}", err),
+            ),
+        }
+        .into_response()
+    }
 }
 
 impl IntoResponse for FlagError {

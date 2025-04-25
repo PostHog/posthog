@@ -71,6 +71,9 @@ pub struct FlagsQueryParams {
     /// Optional timestamp indicating when the request was sent
     #[serde(alias = "_")]
     pub sent_at: Option<i64>,
+
+    /// Optional personal API key.
+    pub personal_api_key: Option<String>,
 }
 pub struct RequestContext {
     /// Shared state holding services (DB, Redis, GeoIP, etc.)
