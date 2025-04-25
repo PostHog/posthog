@@ -1,4 +1,6 @@
 import { decodeParams, encodeParams } from 'kea-router'
+import { dayjs } from 'lib/dayjs'
+import { humanFriendlyDuration } from 'lib/utils'
 
 import {
     AssistantMessage,
@@ -95,4 +97,17 @@ export function getConversationUrl({
         chat: conversationId,
     })
     return `${pathname}${strParams ? `?${strParams}` : ''}#panel=${SidePanelTab.Max}`
+}
+
+export function formatConversationDate(updatedAt: string | null): string {
+    if (!updatedAt) {
+        return 'Some time ago'
+    }
+
+    const diff = dayjs().diff(dayjs(updatedAt), 'seconds')
+    if (diff < 60) {
+        return 'Just now'
+    }
+    const humanFriendlyLabel = humanFriendlyDuration(diff)
+    return humanFriendlyLabel.split(' ')[0]
 }

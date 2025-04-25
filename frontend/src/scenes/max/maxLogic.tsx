@@ -90,7 +90,7 @@ export const maxLogic = kea<maxLogicType>([
         setVisibleSuggestions: (suggestions: string[]) => ({ suggestions }),
         shuffleVisibleSuggestions: true,
         retryLastMessage: true,
-        scrollThreadToBottom: true,
+        scrollThreadToBottom: (behavior: 'smooth' | 'instant' = 'smooth') => ({ behavior }),
         setConversationId: (conversationId: string) => ({ conversationId }),
         setConversation: (conversation: Conversation) => ({ conversation }),
         setTraceId: (traceId: string) => ({ traceId }),
@@ -185,7 +185,7 @@ export const maxLogic = kea<maxLogicType>([
             false,
             {
                 toggleConversationHistory: (state, { visible }) => visible ?? !state,
-                cleanThread: () => false,
+                startNewConversation: () => false,
             },
         ],
     }),
@@ -210,7 +210,13 @@ export const maxLogic = kea<maxLogicType>([
         conversationHistory: [
             [] as ConversationDetail[],
             {
-                loadConversationHistory: async () => {
+                loadConversationHistory: async (
+                    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Used for conversation restoration
+                    _?: {
+                        /** If true, the current thread will not be updated with the retrieved conversation. */
+                        doNotUpdateCurrentThread: boolean
+                    }
+                ) => {
                     const response = await api.conversations.list()
                     return response.results
                 },
@@ -405,7 +411,7 @@ export const maxLogic = kea<maxLogicType>([
             }
         },
 
-        scrollThreadToBottom: () => {
+        scrollThreadToBottom: ({ behavior }) => {
             requestAnimationFrame(() => {
                 // On next frame so that the message has been rendered
                 const threadEl = document.getElementsByClassName('@container/thread')[0]
@@ -417,7 +423,7 @@ export const maxLogic = kea<maxLogicType>([
                 if (scrollableEl) {
                     scrollableEl.scrollTo({
                         top: threadEl.scrollHeight,
-                        behavior: 'smooth',
+                        behavior,
                     })
                 }
             })
@@ -434,11 +440,11 @@ export const maxLogic = kea<maxLogicType>([
 
         completeThreadGeneration: () => {
             // Update the conversation history to include the new conversation
-            actions.loadConversationHistory()
+            actions.loadConversationHistory({ doNotUpdateCurrentThread: true })
         },
 
-        loadConversationHistorySuccess: ({ conversationHistory }) => {
-            if (!values.conversationId) {
+        loadConversationHistorySuccess: ({ conversationHistory, payload }) => {
+            if (!values.conversationId || payload?.doNotUpdateCurrentThread) {
                 return
             }
 
@@ -447,6 +453,11 @@ export const maxLogic = kea<maxLogicType>([
             const conversation = conversationHistory.find((c) => c.id === values.conversationId)
             if (conversation) {
                 actions.loadThread(conversation)
+
+                // react-markdown renders the messages asynchronously
+                setTimeout(() => {
+                    actions.scrollThreadToBottom('instant')
+                }, 250)
             } else {
                 // If the conversation is not found, clean the thread so that the UI is consistent
                 actions.cleanThread()

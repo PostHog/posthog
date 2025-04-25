@@ -1,13 +1,11 @@
 import { Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
-import { dayjs } from 'lib/dayjs'
-import { humanFriendlyDuration } from 'lib/utils'
 
 import { Conversation } from '~/types'
 
 import { maxLogic } from './maxLogic'
-import { getConversationUrl } from './utils'
+import { formatConversationDate, getConversationUrl } from './utils'
 
 export function ConversationHistory(): JSX.Element {
     const { location } = useValues(router)
@@ -42,9 +40,7 @@ function ConversationCard({
             to={getConversationUrl({ pathname, search, conversationId: conversation.id })}
         >
             <span className="flex-1 line-clamp-1">{conversation.title}</span>
-            <span className="text-secondary">
-                {humanFriendlyDuration(dayjs().diff(dayjs(conversation.updated_at), 'seconds'))}
-            </span>
+            <span className="text-secondary">{formatConversationDate(conversation.updated_at)}</span>
         </Link>
     )
 }
