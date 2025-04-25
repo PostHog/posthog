@@ -147,6 +147,11 @@ class CoreMemory(UUIDModel):
     def is_scraping_finished(self) -> bool:
         return self.scraping_status in [CoreMemory.ScrapingStatus.COMPLETED, CoreMemory.ScrapingStatus.SKIPPED]
 
+    def append_initial_memory(self, text: str):
+        self.initial_text = self.initial_text + "\n" + text
+        self.initial_text = self.initial_text.strip()
+        self.save()
+
     def set_core_memory(self, text: str):
         self.text = text
         self.initial_text = text

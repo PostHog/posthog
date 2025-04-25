@@ -10,13 +10,13 @@ import { maxLogic } from './maxLogic'
 export function QuestionSuggestions(): JSX.Element {
     const { visibleSuggestions, allSuggestionsLoading, dataProcessingAccepted } = useValues(maxLogic)
     const { askMax, shuffleVisibleSuggestions } = useActions(maxLogic)
-    const { coreMemory, coreMemoryLoading } = useValues(maxSettingsLogic)
+    const { coreMemoryLoading, isOnboarding } = useValues(maxSettingsLogic)
     const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
 
-    if (!coreMemoryLoading && !coreMemory) {
+    if (!coreMemoryLoading && isOnboarding) {
         return (
             <LemonButton
-                size="xsmall"
+                size="small"
                 type="primary"
                 onClick={() => askMax('Ready, steady, go!')}
                 disabledReason={!dataProcessingAccepted ? 'Please accept OpenAI processing data' : undefined}

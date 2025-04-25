@@ -17,6 +17,7 @@ export const maxSettingsLogic = kea<maxSettingsLogicType>([
 
     actions({
         setIsLoading: (isLoading: boolean) => ({ isLoading }),
+        setIsOnboarding: (isOnboarding: boolean) => ({ isOnboarding }),
     }),
 
     reducers({
@@ -40,6 +41,13 @@ export const maxSettingsLogic = kea<maxSettingsLogicType>([
                 updateCoreMemoryFailure: () => false,
             },
         ],
+
+        isOnboarding: [
+            false,
+            {
+                setIsOnboarding: (_, { isOnboarding }: { isOnboarding: boolean }) => isOnboarding,
+            },
+        ],
     }),
 
     loaders(({ values }) => ({
@@ -52,12 +60,12 @@ export const maxSettingsLogic = kea<maxSettingsLogicType>([
             updateCoreMemory: async (data: CoreMemoryForm) => {
                 if (!values.coreMemory) {
                     const response = await api.coreMemory.create(data)
-                    lemonToast.success('The Max’s memory has been created.')
+                    lemonToast.success("The Max's memory has been created.")
                     return response
                 }
 
                 const response = await api.coreMemory.update(values.coreMemory.id, data)
-                lemonToast.success('The Max’s memory has been updated.')
+                lemonToast.success("The Max's memory has been updated.")
                 return response
             },
         },
@@ -75,6 +83,7 @@ export const maxSettingsLogic = kea<maxSettingsLogicType>([
     listeners(({ actions }) => ({
         loadCoreMemorySuccess: ({ coreMemory }) => {
             actions.setCoreMemoryFormValue('text', coreMemory.text)
+            actions.setIsOnboarding(coreMemory.scraping_status === 'pending')
         },
     })),
 

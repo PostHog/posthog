@@ -21,6 +21,7 @@ from .memory.nodes import (
     MemoryCollectorToolsNode,
     MemoryInitializerInterruptNode,
     MemoryInitializerNode,
+    MemoryOnboardingEnquiryNode,
     MemoryOnboardingNode,
 )
 from .query_executor.nodes import QueryExecutorNode
@@ -337,15 +338,21 @@ class AssistantGraph(BaseAssistantGraph):
         memory_onboarding = MemoryOnboardingNode(self._team)
         memory_initializer = MemoryInitializerNode(self._team)
         memory_initializer_interrupt = MemoryInitializerInterruptNode(self._team)
+        memory_onboarding_enquiry = MemoryOnboardingEnquiryNode(self._team)
 
         builder.add_node(AssistantNodeName.MEMORY_ONBOARDING, memory_onboarding)
         builder.add_node(AssistantNodeName.MEMORY_INITIALIZER, memory_initializer)
         builder.add_node(AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT, memory_initializer_interrupt)
+        builder.add_node(AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY, memory_onboarding_enquiry)
 
         builder.add_conditional_edges(
             AssistantNodeName.START,
             memory_onboarding.should_run,
-            path_map={True: AssistantNodeName.MEMORY_ONBOARDING, False: next_node},
+            path_map={
+                "onboarding_start": AssistantNodeName.MEMORY_ONBOARDING,
+                "onboarding_enquiry": AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY,
+                "continue": next_node,
+            },
         )
         builder.add_conditional_edges(
             AssistantNodeName.MEMORY_ONBOARDING,
@@ -355,9 +362,17 @@ class AssistantGraph(BaseAssistantGraph):
         builder.add_conditional_edges(
             AssistantNodeName.MEMORY_INITIALIZER,
             memory_initializer.router,
-            path_map={"continue": next_node, "interrupt": AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT},
+            path_map={
+                "continue": AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY,
+                "interrupt": AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT,
+            },
         )
-        builder.add_edge(AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT, next_node)
+        builder.add_edge(AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT, AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY)
+        builder.add_conditional_edges(
+            AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY,
+            memory_onboarding_enquiry.router,
+            path_map={"continue": next_node, "enquire_more": AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY},
+        )
 
         return self
 

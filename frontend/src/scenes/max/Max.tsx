@@ -6,6 +6,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { maxSettingsLogic } from 'scenes/settings/environment/maxSettingsLogic'
 import { urls } from 'scenes/urls'
 
 import { SidePanelPaneHeader } from '~/layout/navigation-3000/sidepanel/components/SidePanelPaneHeader'
@@ -68,6 +69,7 @@ export function MaxInstance({ sidePanel }: MaxInstanceProps): JSX.Element {
     const { startNewConversation } = useActions(maxLogic)
     const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
     const { closeSidePanel } = useActions(sidePanelLogic)
+    const { isOnboarding } = useValues(maxSettingsLogic)
 
     const headerButtons = (
         <>
@@ -118,7 +120,7 @@ export function MaxInstance({ sidePanel }: MaxInstanceProps): JSX.Element {
             {!threadGrouped.length ? (
                 <div className="@container/max-welcome relative flex flex-col gap-3 px-4 pb-8 items-center grow justify-center">
                     <Intro />
-                    <QuestionInput />
+                    {!isOnboarding && <QuestionInput />}
                     <QuestionSuggestions />
                 </div>
             ) : (

@@ -59,13 +59,13 @@ Do NOT make speculative or assumptive statements, just output that sentence when
 The provided bundle ID{{#bundle_ids.length > 1}}s are{{/bundle_ids.length > 1}}{{^bundle_ids.length > 1}} is{{/bundle_ids.length > 1}} {{#bundle_ids}}"{{.}}"{{^last}}, {{/last}}{{/bundle_ids}}.
 """.strip()
 
+ONBOARDING_INITIAL_MESSAGE = "Ready, steady, go!"
+
 SCRAPING_INITIAL_MESSAGE = (
     "Hey, my name is Max! Before we begin, let me find and verify information about your product…"
 )
 
-FAILED_SCRAPING_MESSAGE = """
-Unfortunately, I couldn't find any information about your product – but please tell me to remember specific information, and I'll do so. You can also edit my initial memory directly in Settings.
-""".strip()
+SCRAPING_SUCCESS_MESSAGE = "This is what I found about your product:\n\n"
 
 SCRAPING_VERIFICATION_MESSAGE = "Does this look like a good summary of what your product does?"
 
@@ -73,7 +73,7 @@ SCRAPING_CONFIRMATION_MESSAGE = "Yes, save this"
 
 SCRAPING_REJECTION_MESSAGE = "No, not quite right"
 
-SCRAPING_TERMINATION_MESSAGE = "All right, let's skip this step then. You can always ask me to update my memory."
+SCRAPING_TERMINATION_MESSAGE = "I couldn't find any information about your product. I'll ask you a few questions to help me understand your business better."
 
 SCRAPING_MEMORY_SAVED_MESSAGE = (
     "Thanks! I've updated my initial memory. Remember that you can always ask me to remember information!"
@@ -81,6 +81,22 @@ SCRAPING_MEMORY_SAVED_MESSAGE = (
 
 COMPRESSION_PROMPT = """
 Your goal is to shorten paragraphs in the given text to have only a single sentence for each paragraph, preserving the original meaning and maintaining the cohesiveness of the text. Remove all found headers. You must keep the original structure. Remove linking words. Do not use markdown or any other text formatting.
+""".strip()
+
+ONBOARDING_COMPRESSION_PROMPT = """
+Your goal is to shorten these questions and answers in a series of paragraphs, each with a single sentence, preserving the original meaning and maintaining the cohesiveness of the text. Remove linking words. Do not use markdown or any other text formatting.
+Example:
+
+Question: What is your business model?
+Answer: We sell products to engineers.
+
+Question: What is your product?
+Answer: We sell a mobile app.
+
+Output:
+
+The company sells products to engineers.
+The product is a mobile app.
 """.strip()
 
 MEMORY_COLLECTOR_PROMPT = """
@@ -175,4 +191,33 @@ I previously generated an insight with the following JSON schema:
 ```json
 {{{schema}}}
 ```
+""".strip()
+
+MEMORY_ONBOARDING_ENQUIRY_PROMPT = """You are Max, PostHog's onboarding assistant. You are tasked with gathering information about a user's company information.
+
+In particular, you need to find out:
+1. What the company does and what is the company's business model.
+2. What is the company's product and what are the product's features.
+3. What is the company's customer profile.
+
+These are a list of questions and answers you have already asked the user:
+
+<product_memory>
+{{core_memory}}
+</product_memory>
+
+<instructions>
+- First, reason out loud about the information you still need to gather.
+- If you have gathered all the information you need, output "[Done]", your job is complete.
+- Otherwise, ask a question to the user to gather more information.
+- Ask one question at a time.
+- Make sure to ask follow up questions if needed.
+- Make sure to be friendly and engaging.
+- Ask a maximum of 3 questions. You have {{questions_left}} questions left.
+</instructions>
+
+<format_instructions>
+Output your question in a single sentence, directed to the user.
+IMPORTANT: DO NOT OUTPUT Markdown or headers. It must be plain text. Add === between your reasoning and the question.
+</format_instructions>
 """.strip()
