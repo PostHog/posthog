@@ -1,19 +1,15 @@
 import { ConsumerGlobalConfig, GlobalConfig, KafkaConsumer, Message } from 'node-rdkafka'
+import { exponentialBuckets, Gauge, Histogram } from 'prom-client'
 
 import { logger } from '../utils/logger'
 import { retryIfRetriable } from '../utils/retries'
-import { ensureTopicExists } from './admin'
+import { createAdminClient, ensureTopicExists } from './admin'
 import {
-    consumedBatchDuration,
-    consumedMessageSizeBytes,
     consumeMessages,
-    consumerBatchSize,
     countPartitionsPerTopic,
     createKafkaConsumer,
     disconnectConsumer,
-    gaugeBatchUtilization,
     instrumentConsumerMetrics,
-    kafkaAbsolutePartitionCount,
     storeOffsetsForMessages,
 } from './consumer'
 
@@ -70,6 +66,7 @@ export const startBatchConsumer = async ({
     consumerErrorBackoffMs,
     fetchBatchSize,
     batchingTimeoutMs,
+    topicCreationTimeoutMs,
     eachBatch,
     queuedMinMessages = 100000,
     callEachBatchWhenEmpty = false,
@@ -94,6 +91,7 @@ export const startBatchConsumer = async ({
     consumerErrorBackoffMs: number
     fetchBatchSize: number
     batchingTimeoutMs: number
+    topicCreationTimeoutMs: number
     eachBatch: (messages: Message[], context: { heartbeat: () => void }) => Promise<void>
     queuedMinMessages?: number
     callEachBatchWhenEmpty?: boolean
@@ -220,7 +218,9 @@ export const startBatchConsumer = async ({
     // our testing of it, we end up getting "Unknown topic or partition" errors
     // on consuming, possibly similar to
     // https://github.com/confluentinc/confluent-kafka-dotnet/issues/1366.
-    await ensureTopicExists(connectionConfig, topic)
+    const adminClient = createAdminClient(connectionConfig)
+    await ensureTopicExists(adminClient, topic, topicCreationTimeoutMs)
+    adminClient.disconnect()
 
     // The consumer has an internal pre-fetching queue that sequentially pools
     // each partition, with the consumerMaxWaitMs timeout. We want to read big
@@ -390,3 +390,35 @@ export const startBatchConsumer = async ({
 
     return { isHealthy, stop, join, consumer }
 }
+
+export const consumedBatchDuration = new Histogram({
+    name: 'consumed_batch_duration_ms',
+    help: 'Main loop consumer batch processing duration in ms',
+    labelNames: ['topic', 'groupId'],
+})
+
+export const consumerBatchSize = new Histogram({
+    name: 'consumed_batch_size',
+    help: 'Size of the batch fetched by the consumer',
+    labelNames: ['topic', 'groupId'],
+    buckets: exponentialBuckets(1, 3, 5),
+})
+
+const consumedMessageSizeBytes = new Histogram({
+    name: 'consumed_message_size_bytes',
+    help: 'Size of consumed message value in bytes',
+    labelNames: ['topic', 'groupId', 'messageType'],
+    buckets: exponentialBuckets(1, 8, 4).map((bucket) => bucket * 1024),
+})
+
+const kafkaAbsolutePartitionCount = new Gauge({
+    name: 'kafka_absolute_partition_count',
+    help: 'Number of partitions assigned to this consumer. (Absolute value from the consumer state.)',
+    labelNames: ['topic'],
+})
+
+const gaugeBatchUtilization = new Gauge({
+    name: 'consumer_batch_utilization',
+    help: 'Indicates how big batches are we are processing compared to the max batch size. Useful as a scaling metric',
+    labelNames: ['groupId'],
+})
