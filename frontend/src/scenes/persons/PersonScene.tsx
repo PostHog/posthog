@@ -270,7 +270,7 @@ export function PersonScene(): JSX.Element | null {
                     },
                     {
                         key: PersonsTabType.EXCEPTIONS,
-                        label: <span data-attr="persons-events-tab">Exceptions</span>,
+                        label: <span data-attr="persons-exceptions-tab">Exceptions</span>,
                         content: (
                             <Query
                                 query={{
