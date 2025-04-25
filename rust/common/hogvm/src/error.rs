@@ -68,4 +68,6 @@ pub enum VmError {
     InvalidRegex(String, String),
     #[error("Integer overflow")]
     IntegerOverflow,
+    #[error("{0}")]
+    Other(String),
 }

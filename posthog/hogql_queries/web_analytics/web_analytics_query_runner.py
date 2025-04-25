@@ -184,7 +184,7 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
 
     @cached_property
     def conversion_revenue_expr(self) -> ast.Expr:
-        if not self.team.revenue_config.events:
+        if not self.team.revenue_analytics_config.events:
             return ast.Constant(value=None)
 
         if isinstance(self.query.conversionGoal, CustomEventConversionGoal):
@@ -192,7 +192,7 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
             revenue_property = next(
                 (
                     event_item.revenueProperty
-                    for event_item in (self.team.revenue_config.events or [])
+                    for event_item in self.team.revenue_analytics_config.events
                     if event_item.eventName == event_name
                 ),
                 None,
@@ -240,7 +240,7 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
         elif self.query.includeRevenue:
             # Use elif here, we don't need to include revenue events if we already included conversion events, because
             # if there is a conversion goal set then we only show revenue from conversion events.
-            exprs.append(revenue_where_expr_for_events(self.team.revenue_config))
+            exprs.append(revenue_where_expr_for_events(self.team.revenue_analytics_config))
 
         return ast.Or(exprs=exprs)
 

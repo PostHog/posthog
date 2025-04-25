@@ -44,6 +44,7 @@ export function ProjectTree(): JSX.Element {
         checkedItems,
         checkedItemsCount,
         checkedItemCountNumeric,
+        scrollTargetId,
     } = useValues(projectTreeLogic)
 
     const {
@@ -63,6 +64,7 @@ export function ProjectTree(): JSX.Element {
         deleteCheckedItems,
         setCheckedItems,
         assureVisibility,
+        clearScrollTarget,
     } = useActions(projectTreeLogic)
 
     const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier, setProjectTreeMode } =
@@ -79,6 +81,15 @@ export function ProjectTree(): JSX.Element {
     useEffect(() => {
         setPanelTreeRef(treeRef)
     }, [treeRef, setPanelTreeRef])
+
+    // When logic requests a scroll, focus the item and clear the request
+    useEffect(() => {
+        if (scrollTargetId && treeRef.current) {
+            treeRef.current.focusItem(scrollTargetId)
+            setLastViewedId(scrollTargetId) // keeps selection in sync
+            clearScrollTarget()
+        }
+    }, [scrollTargetId, treeRef, clearScrollTarget, setLastViewedId])
 
     // Merge duplicate menu code for both context and dropdown menus
     const renderMenuItems = (item: TreeDataItem, type: 'context' | 'dropdown'): JSX.Element => {

@@ -6,6 +6,8 @@ import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { objectClean, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
+import { MessageTemplate } from 'products/messaging/frontend/library/messageTemplatesLogic'
+import { ErrorTrackingAssignmentRule } from 'scenes/error-tracking/configuration/auto-assignment/errorTrackingAutoAssignmentLogic'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { SessionSummaryResponse } from 'scenes/session-recordings/player/player-meta/types'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
@@ -128,7 +130,7 @@ import {
     SlackChannelType,
     SubscriptionType,
     Survey,
-    SurveyStats,
+    SurveyStatsResponse,
     TeamType,
     UserBasicType,
     UserGroup,
@@ -816,6 +818,14 @@ class ApiRequest {
         return this.errorTracking().addPathComponent('stack_frames/batch_get')
     }
 
+    public errorTrackingAssignmentRules(teamId?: TeamType['id']): ApiRequest {
+        return this.errorTracking(teamId).addPathComponent('assignment_rules')
+    }
+
+    public errorTrackingAssignmentRule(id: ErrorTrackingAssignmentRule['id']): ApiRequest {
+        return this.errorTrackingAssignmentRules().addPathComponent(id)
+    }
+
     // # Warehouse
     public dataWarehouseTables(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('warehouse_tables')
@@ -1140,6 +1150,14 @@ class ApiRequest {
 
     public authenticateWizard(): ApiRequest {
         return this.environments().current().addPathComponent('authenticate_wizard')
+    }
+
+    public messagingTemplates(): ApiRequest {
+        return this.environments().current().addPathComponent('messaging_templates')
+    }
+
+    public messagingTemplate(templateId: MessageTemplate['id']): ApiRequest {
+        return this.messagingTemplates().addPathComponent(templateId)
     }
 }
 
@@ -2268,6 +2286,25 @@ const api = {
         ): Promise<{ results: ErrorTrackingStackFrameRecord[] }> {
             return await new ApiRequest().errorTrackingStackFrames().create({ data: { raw_ids: raw_ids } })
         },
+
+        async assignmentRules(): Promise<{ results: ErrorTrackingAssignmentRule[] }> {
+            return await new ApiRequest().errorTrackingAssignmentRules().get()
+        },
+
+        async createAssignmentRule({
+            id: _,
+            ...data
+        }: ErrorTrackingAssignmentRule): Promise<ErrorTrackingAssignmentRule> {
+            return await new ApiRequest().errorTrackingAssignmentRules().create({ data })
+        },
+
+        async updateAssignmentRule({ id, ...data }: ErrorTrackingAssignmentRule): Promise<void> {
+            return await new ApiRequest().errorTrackingAssignmentRule(id).update({ data })
+        },
+
+        async deleteAssignmentRule(id: ErrorTrackingAssignmentRule['id']): Promise<void> {
+            return await new ApiRequest().errorTrackingAssignmentRule(id).delete()
+        },
     },
 
     userGroups: {
@@ -2642,7 +2679,13 @@ const api = {
             surveyId: Survey['id']
             dateFrom?: string | null
             dateTo?: string | null
-        }): Promise<SurveyStats> {
+        }): Promise<
+            SurveyStatsResponse & {
+                survey_id: string
+                start_date: string
+                end_date?: string
+            }
+        > {
             const apiRequest = new ApiRequest().survey(surveyId).withAction('stats')
             const queryParams: Record<string, string> = {}
             if (dateFrom) {
@@ -2660,7 +2703,7 @@ const api = {
         }: {
             dateFrom?: string | null
             dateTo?: string | null
-        }): Promise<SurveyStats> {
+        }): Promise<SurveyStatsResponse> {
             const apiRequest = new ApiRequest().surveys().withAction('stats')
             const queryParams: Record<string, string> = {}
             if (dateFrom) {
@@ -3072,6 +3115,23 @@ const api = {
     wizard: {
         async authenticateWizard(data: { hash: string }): Promise<{ success: boolean }> {
             return await new ApiRequest().authenticateWizard().create({ data })
+        },
+    },
+    messaging: {
+        async getTemplates(): Promise<PaginatedResponse<MessageTemplate>> {
+            return await new ApiRequest().messagingTemplates().get()
+        },
+        async getTemplate(templateId: MessageTemplate['id']): Promise<MessageTemplate> {
+            return await new ApiRequest().messagingTemplate(templateId).get()
+        },
+        async createTemplate(data: Partial<MessageTemplate>): Promise<MessageTemplate> {
+            return await new ApiRequest().messagingTemplates().create({ data })
+        },
+        async updateTemplate(
+            templateId: MessageTemplate['id'],
+            data: Partial<MessageTemplate>
+        ): Promise<MessageTemplate> {
+            return await new ApiRequest().messagingTemplate(templateId).update({ data })
         },
     },
 

@@ -247,7 +247,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'revenue-base-currency',
                 title: 'Revenue base currency',
                 component: <RevenueBaseCurrencySettings />,
-                flag: 'WEB_REVENUE_TRACKING',
             },
             {
                 id: 'cookieless-server-hash-mode',
