@@ -500,6 +500,33 @@ export class IngestionConsumer {
 
     private async parseKafkaBatch(messages: Message[]): Promise<IncomingEventsByDistinctId> {
         const batches: IncomingEventsByDistinctId = {}
+        const tokensToFetchFromCache = new Set<string>()
+
+        // We want a single blocking call for priming the cache
+        // Loop over all messages and collect tokens that need to be primed
+        // then kick of a promise.all to prime the cache for all tokens
+        for (const message of messages) {
+            let token: string | undefined
+
+            message.headers?.forEach((header) => {
+                if (header.key === 'token') {
+                    token = header.value.toString()
+                    if (token) {
+                        tokensToFetchFromCache.add(token)
+                    }
+                }
+            })
+        }
+
+        if (tokensToFetchFromCache.size > 0) {
+            await Promise.all(
+                Array.from(tokensToFetchFromCache).map((token) =>
+                    this.tokenRestrictionManager.primeRestrictionsCache(token)
+                )
+            )
+        }
+
+        const tokensAlreadyFetched = tokensToFetchFromCache
 
         for (const message of messages) {
             let distinctId: string | undefined
@@ -515,10 +542,6 @@ export class IngestionConsumer {
                 }
             })
 
-            if (token) {
-                await this.tokenRestrictionManager.primeRestrictionsCache(token)
-            }
-
             if (this.shouldDropEvent(token, distinctId)) {
                 this.logDroppedEvent(token, distinctId)
                 continue
@@ -532,8 +555,11 @@ export class IngestionConsumer {
             })
 
             // In case the headers were not set we prime cache again, and check the parsed message now
-            if (event.token) {
+            if (event.token && !tokensAlreadyFetched.has(event.token)) {
+                // NOTE: this looks like we are adding a block on each message, but in practice tokens should be
+                // in the header and we've already fetched...this is just for safety
                 await this.tokenRestrictionManager.primeRestrictionsCache(event.token)
+                tokensAlreadyFetched.add(event.token)
             }
             if (this.shouldDropEvent(combinedEvent.token, combinedEvent.distinct_id)) {
                 this.logDroppedEvent(combinedEvent.token, combinedEvent.distinct_id)
