@@ -764,7 +764,7 @@ impl<'a> HogVM<'a> {
         Ok(())
     }
 
-    fn push_stack(&mut self, value: impl Into<HogValue>) -> Result<(), VmError> {
+    pub(crate) fn push_stack(&mut self, value: impl Into<HogValue>) -> Result<(), VmError> {
         if self.stack.len() >= self.context.max_stack_depth {
             return Err(VmError::StackOverflow);
         }

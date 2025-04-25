@@ -31,3 +31,6 @@ pub use values::HogValue;
 pub use values::LocalCallable;
 pub use values::Num;
 pub use values::NumOp;
+
+// Errors
+pub use error::VmError;
