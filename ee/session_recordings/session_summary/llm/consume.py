@@ -1,7 +1,6 @@
 from datetime import datetime
 import json
 from typing import Any
-from jsonschema import ValidationError
 import openai
 import structlog
 from ee.session_recordings.session_summary.llm.call import stream_llm
@@ -9,7 +8,7 @@ from ee.session_recordings.session_summary.output_data import (
     enrich_raw_session_summary_with_meta,
     load_raw_session_summary_from_llm_content,
 )
-from ee.session_recordings.session_summary import ExceptionToRetry
+from ee.session_recordings.session_summary import ExceptionToRetry, SummaryValidationError
 from prometheus_client import Histogram
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_fixed, wait_random
 from ee.session_recordings.session_summary.prompt_data import SessionSummaryMetadata
@@ -169,7 +168,7 @@ def stream_llm_session_summary(
                     event_label="session-summary-stream", event_data=intermediate_summary
                 )
                 yield sse_event_to_send
-            except ValidationError:
+            except SummaryValidationError:
                 # We can except incorrect schemas because of incomplete chunks, ok to skip some.
                 # The stream should be retried only at the very end, when we have all the data.
                 continue
@@ -207,7 +206,7 @@ def stream_llm_session_summary(
         sse_event_to_send = _serialize_to_sse_event(event_label="session-summary-stream", event_data=final_summary)
         yield sse_event_to_send
     # At this stage, when all the chunks are processed, any exception should be retried to ensure valid final content
-    except (ValidationError, ValueError) as err:
+    except (SummaryValidationError, ValueError) as err:
         logger.exception(f"Failed to validate final LLM content for session_id {session_id}: {str(err)}")
         raise ExceptionToRetry()
 
