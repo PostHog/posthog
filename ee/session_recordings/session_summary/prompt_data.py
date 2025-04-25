@@ -43,7 +43,7 @@ class SessionSummaryPromptData:
         raw_session_metadata: dict[str, Any],
         raw_session_columns: list[str],
         session_id: str,
-    ) -> dict[str, list[Any]]:
+    ) -> dict[str, list[str | datetime | int | None]]:
         """
         Create session summary prompt data from session data, and return a mapping of event ids to events
         to combine events data with the LLM output (avoid LLM returning/hallucinating the event data in the output).
@@ -64,7 +64,7 @@ class SessionSummaryPromptData:
         # Iterate session events once to decrease the number of tokens in the prompt through mappings
         for i, event in enumerate(raw_session_events):
             # Copy the event to avoid mutating the original
-            simplified_event = [*list(event), None, None]
+            simplified_event: list[str | datetime | int | None] = [*list(event), None, None]
             # Stringify timestamp to avoid datetime objects in the prompt
             if timestamp_index is not None:
                 simplified_event[timestamp_index] = event[timestamp_index].isoformat()
