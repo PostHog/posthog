@@ -516,7 +516,6 @@ export class DB {
                 AND posthog_persondistinctid.team_id = $1
                 AND posthog_persondistinctid.distinct_id = $2`
 
-        // very rough estimate of heapUsed change before and after fetchPerson query
         const { rows } = await this.postgres.query<PersonPropertiesSize>(
             PostgresUse.COMMON_READ,
             queryString,
