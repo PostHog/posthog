@@ -1,7 +1,7 @@
 import supertest from 'supertest'
 
-import { PluginServer } from '../src/server'
-import { PluginServerMode } from '../src/types'
+import { PluginServer } from './server'
+import { PluginServerMode } from './types'
 
 describe('router', () => {
     jest.retryTimes(3) // Flakey due to reliance on kafka/clickhouse
@@ -30,6 +30,7 @@ describe('router', () => {
                 {
                   "checks": {
                     "ingestion-consumer-events_plugin_ingestion_test": "ok",
+                    "server-commands": "ok",
                   },
                   "status": "ok",
                 }
@@ -44,6 +45,7 @@ describe('router', () => {
                 {
                   "checks": {
                     "ingestion-consumer-events_plugin_ingestion_test": "ok",
+                    "server-commands": "ok",
                   },
                   "status": "ok",
                 }
