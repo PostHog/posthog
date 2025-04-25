@@ -54,7 +54,6 @@ describe('Commands API', () => {
 
         it.each([
             ['reload-plugins', {}],
-            ['reset-available-product-features-cache', { organizationId: '123' }],
             ['populate-plugin-capabilities', { pluginId: '123' }],
         ])('triggers the appropriate pubsub message', async (command, message) => {
             await supertest(app).post(`/api/commands`).send({ command, message })
