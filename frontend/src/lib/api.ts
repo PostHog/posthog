@@ -56,6 +56,7 @@ import {
     DataWarehouseTable,
     DataWarehouseViewLink,
     EarlyAccessFeatureType,
+    EmailSenderDomainStatus,
     EventDefinition,
     EventDefinitionType,
     EventsListQueryParams,
@@ -3144,6 +3145,12 @@ const api = {
             data: Partial<MessageTemplate>
         ): Promise<MessageTemplate> {
             return await new ApiRequest().messagingTemplate(templateId).update({ data })
+        },
+        async createEmailSenderDomain(domain: string): Promise<EmailSenderDomainStatus> {
+            return await new ApiRequest().messagingSetupEmail().create({ data: { domain } })
+        },
+        async verifyEmailSenderDomain(domain: string): Promise<EmailSenderDomainStatus> {
+            return await new ApiRequest().messagingSetupEmailVerify().create({ data: { domain } })
         },
     },
 

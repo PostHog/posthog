@@ -41,7 +41,6 @@ export const integrationsLogic = kea<integrationsLogicType>([
     connect(() => ({
         values: [preflightLogic, ['siteUrlMisconfigured', 'preflight']],
     })),
-
     actions({
         handleOauthCallback: (kind: IntegrationKind, searchParams: any) => ({ kind, searchParams }),
         newGoogleCloudKey: (kind: string, key: File, callback?: (integration: IntegrationType) => void) => ({
@@ -49,9 +48,8 @@ export const integrationsLogic = kea<integrationsLogicType>([
             key,
             callback,
         }),
-        newMailjetKey: (apiKey: string, secretKey: string, callback?: (integration: IntegrationType) => void) => ({
-            apiKey,
-            secretKey,
+        newEmailSenderDomain: (domain: string, callback?: (integration: IntegrationType) => void) => ({
+            domain,
             callback,
         }),
         deleteIntegration: (id: number) => ({ id }),
@@ -102,11 +100,11 @@ export const integrationsLogic = kea<integrationsLogicType>([
                         throw e
                     }
                 },
-                newMailjetKey: async ({ apiKey, secretKey, callback }) => {
+                newEmailSenderDomain: async ({ domain, callback }) => {
                     try {
                         const response = await api.integrations.create({
                             kind: 'email',
-                            config: { api_key: apiKey, secret_key: secretKey },
+                            config: { domain },
                         })
                         const responseWithIcon = { ...response, icon_url: ICONS['email'] }
 
@@ -115,7 +113,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
 
                         return [...(values.integrations ?? []), responseWithIcon]
                     } catch (e) {
-                        lemonToast.error('Failed to upload Mailjet key.')
+                        lemonToast.error('Failed to create email sender domain.')
                         throw e
                     }
                 },

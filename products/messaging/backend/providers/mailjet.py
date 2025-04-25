@@ -148,7 +148,7 @@ class MailjetProvider:
     def setup_email_domain(self, domain: str):
         """
         Complete setup for a new email domain:
-        1. Create a sender domain
+        1. Create a sender domain with Mailjet
         2. Get DNS records for the domain
 
         Returns all necessary information for domain verification.
@@ -158,10 +158,7 @@ class MailjetProvider:
 
         overall_status, formatted_dns_records = self._format_dns_records(dns_response)
 
-        return {
-            "status": overall_status,
-            "dnsRecords": formatted_dns_records,
-        }
+        return {"status": overall_status, "dnsRecords": formatted_dns_records}
 
     def verify_email_domain(self, domain: str):
         """

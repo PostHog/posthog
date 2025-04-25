@@ -5,11 +5,10 @@ import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { getEmailSetupModal } from 'products/messaging/frontend/EmailSetup/EmailSetupModal'
 import { urls } from 'scenes/urls'
 
 import { HogFunctionInputSchemaType } from '~/types'
-
-import { getIntegrationSetupModalProps } from './getIntegrationSetupModal'
 
 export type IntegrationConfigureProps = {
     value?: number
@@ -29,7 +28,7 @@ export function IntegrationChoice({
     beforeRedirect,
 }: IntegrationConfigureProps): JSX.Element | null {
     const { integrationsLoading, integrations } = useValues(integrationsLogic)
-    const { newGoogleCloudKey } = useActions(integrationsLogic)
+    const { newGoogleCloudKey, newEmailSenderDomain } = useActions(integrationsLogic)
     const kind = integration
 
     const integrationsOfKind = integrations?.filter((x) => x.kind === kind)
@@ -53,7 +52,7 @@ export function IntegrationChoice({
             : kind == 'linkedin-ads'
             ? 'LinkedIn Ads'
             : kind == 'email'
-            ? 'Mailjet'
+            ? 'email'
             : capitalizeFirstLetter(kind)
 
     function uploadKey(kind: string): void {
@@ -70,15 +69,11 @@ export function IntegrationChoice({
         input.click()
     }
 
-    function showIntegrationSetupModal(): void {
-        if (!kind) {
-            return
-        }
-
-        const modalProps = getIntegrationSetupModalProps({
-            integration: kind,
-            integrationName: kindName,
-            onComplete: onChange,
+    function showEmailSetupModal(): void {
+        const modalProps = getEmailSetupModal({
+            onComplete: (domain: string) => {
+                newEmailSenderDomain(domain, (integration) => onChange?.(integration.id))
+            },
         })
 
         if (modalProps) {
@@ -114,8 +109,8 @@ export function IntegrationChoice({
                     ? {
                           items: [
                               {
-                                  onClick: showIntegrationSetupModal,
-                                  label: 'Configure Mailjet API key',
+                                  onClick: showEmailSetupModal,
+                                  label: 'Configure email sender domain',
                               },
                           ],
                       }
