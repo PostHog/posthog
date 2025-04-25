@@ -351,7 +351,7 @@ def should_skip_task(existing_value: dict[str, Any], playlist_filters: dict[str,
 @shared_task(
     ignore_result=True,
     queue=CeleryQueue.SESSION_REPLAY_GENERAL.value,
-    rate_limit="120/h",
+    rate_limit="2/m",
     expires=TASK_EXPIRATION_TIME,
     autoretry_for=(CHQueryErrorTooManySimultaneousQueries,),
     # will retry twice, once after 120 seconds (with jitter)
