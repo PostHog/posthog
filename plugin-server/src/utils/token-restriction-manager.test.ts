@@ -121,9 +121,9 @@ describe('TokenRestrictionManager', () => {
 
             expect(hub.redisPool.acquire).toHaveBeenCalled()
             expect(pipelineMock.get).toHaveBeenCalledTimes(3)
-            expect(pipelineMock.get).toHaveBeenCalledWith(`${RestrictionType.DROP_EVENT}:token`)
+            expect(pipelineMock.get).toHaveBeenCalledWith(`${RestrictionType.DROP_EVENT_FROM_INGESTION}:token`)
             expect(pipelineMock.get).toHaveBeenCalledWith(`${RestrictionType.SKIP_PERSON}:token`)
-            expect(pipelineMock.get).toHaveBeenCalledWith(`${RestrictionType.FORCE_OVERFLOW}:token`)
+            expect(pipelineMock.get).toHaveBeenCalledWith(`${RestrictionType.FORCE_OVERFLOW_FROM_INGESTION}:token`)
 
             expect(dropEventSpy).toHaveBeenCalledWith('token', 'drop-value')
             expect(skipPersonSpy).toHaveBeenCalledWith('token', 'skip-value')

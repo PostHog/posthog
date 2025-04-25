@@ -122,7 +122,7 @@ export class IngestionConsumer {
         )
         this.tokenRestrictionManager = new TokenRestrictionManager(hub, {
             dropEventTokens: this.tokenDistinctIdsToDrop,
-            skipPersonsTokens: this.tokenDistinctIdsToSkipPersons,
+            skipPersonTokens: this.tokenDistinctIdsToSkipPersons,
             forceOverflowTokens: this.tokenDistinctIdsToForceOverflow,
         })
         this.testingTopic = overrides.INGESTION_CONSUMER_TESTING_TOPIC ?? hub.INGESTION_CONSUMER_TESTING_TOPIC
