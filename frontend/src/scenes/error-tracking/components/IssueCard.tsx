@@ -165,8 +165,6 @@ function IssueCardActions({
     )
 }
 
-// Use issue properties as a placeholder to real event properties
-// and abstract showing as text or generic
 function StacktraceIssueDisplay({
     showAsText,
     issue,
