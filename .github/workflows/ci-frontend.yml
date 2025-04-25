@@ -1,59 +1,13 @@
 name: Frontend CI
 
 on:
-    pull_request:
-    push:
-        branches:
-            - master
+    workflow_call:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
     cancel-in-progress: true
 
 jobs:
-    # Job to decide if we should run frontend ci
-    # See https://github.com/dorny/paths-filter#conditional-execution for more details
-    # we skip each step individually, so   they are still reported as success
-    # because many of them are required for CI checks to be green
-    changes:
-        runs-on: depot-ubuntu-24.04
-        timeout-minutes: 5
-        name: Determine need to run frontend checks
-        outputs:
-            frontend: ${{ steps.filter.outputs.frontend }}
-        steps:
-            # For pull requests it's not necessary to check out the code, but we
-            # also want this to run on master, so we need to check out
-            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
-
-            - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
-              id: filter
-              with:
-                  filters: |
-                      frontend:
-                        # Avoid running frontend tests for irrelevant changes
-                        # NOTE: we are at risk of missing a dependency here.
-                        - 'bin/**'
-                        - 'frontend/**'
-                        - 'ee/frontend/**'
-                        - 'common/esbuilder/**'
-                        - 'products/**/*.ts'
-                        - 'products/**/*.tsx'
-                        - 'playwright/**'
-                        # Make sure we run if someone is explicitly change the workflow
-                        - .github/workflows/ci-frontend.yml
-                        # various JS config files
-                        - .eslintrc.js
-                        - .prettier*
-                        - babel.config.js
-                        - package.json
-                        - pnpm-lock.yaml
-                        - jest.*.ts
-                        - tsconfig.json
-                        - tsconfig.*.json
-                        - webpack.config.js
-                        - stylelint*
-
     frontend-code-quality:
         name: Code quality checks
         needs: changes
@@ -64,23 +18,19 @@ jobs:
             - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
 
             - name: Install pnpm
-              if: needs.changes.outputs.frontend == 'true'
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
             - name: Set up Node.js
-              if: needs.changes.outputs.frontend == 'true'
               uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
               with:
                   node-version: 18.12.1
                   cache: 'pnpm'
 
             - name: Get pnpm cache directory path
-              if: needs.changes.outputs.frontend == 'true'
               id: pnpm-cache-dir
               run: echo "PNPM_STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
 
             - uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
-              if: needs.changes.outputs.frontend == 'true'
               id: pnpm-cache
               with:
                   path: ${{ steps.pnpm-cache-dir.outputs.PNPM_STORE_PATH }}
@@ -88,41 +38,33 @@ jobs:
                   restore-keys: ${{ runner.os }}-pnpm-cypress-
 
             - name: Install package.json dependencies with pnpm
-              if: needs.changes.outputs.frontend == 'true'
               run: |
                   pnpm --filter=@posthog/playwright... install --frozen-lockfile
                   bin/turbo --filter=@posthog/frontend prepare
 
             - name: Check formatting with prettier
-              if: needs.changes.outputs.frontend == 'true'
               run: pnpm --filter=@posthog/frontend prettier:check
 
             - name: Lint with Stylelint
-              if: needs.changes.outputs.frontend == 'true'
               run: pnpm --filter=@posthog/frontend lint:css
 
             - name: Generate logic types and run typescript with strict
-              if: needs.changes.outputs.frontend == 'true'
               run: pnpm --filter=@posthog/frontend typegen:write && pnpm --filter=@posthog/frontend typescript:check
               env:
                   NODE_OPTIONS: --max-old-space-size=16384
 
             - name: Lint with ESLint
-              if: needs.changes.outputs.frontend == 'true'
               run: pnpm --filter=@posthog/frontend lint:js
               env:
                   NODE_OPTIONS: --max-old-space-size=16384
 
             - name: Check if "schema.json" is up to date
-              if: needs.changes.outputs.frontend == 'true'
               run: pnpm --filter=@posthog/frontend schema:build:json && git diff --exit-code
 
             - name: Check if mobile replay "schema.json" is up to date
-              if: needs.changes.outputs.frontend == 'true'
               run: pnpm --filter=@posthog/ee mobile-replay:schema:build:json && git diff --exit-code
 
             - name: Check toolbar bundle size
-              if: needs.changes.outputs.frontend == 'true'
               uses: preactjs/compressed-size-action@946a292cd35bd1088e0d7eb92b69d1a8d5b5d76a # v2
               with:
                   build-script: '--filter=@posthog/frontend build'
@@ -149,27 +91,23 @@ jobs:
             - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
 
             - name: Remove ee
-              if: needs.changes.outputs.frontend == 'true' && matrix.segment == 'FOSS'
+              if: matrix.segment == 'FOSS'
               run: rm -rf ee
 
             - name: Install pnpm
-              if: needs.changes.outputs.frontend == 'true'
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
             - name: Set up Node.js
-              if: needs.changes.outputs.frontend == 'true'
               uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
               with:
                   node-version: 18.12.1
                   cache: pnpm
 
             - name: Install package.json dependencies with pnpm
-              if: needs.changes.outputs.frontend == 'true'
               run: pnpm --filter=@posthog/frontend... install --frozen-lockfile
 
             - name: Test with Jest
               run: bin/turbo run test --filter=@posthog/frontend
-              if: needs.changes.outputs.frontend == 'true'
               env:
                   NODE_OPTIONS: --max-old-space-size=16384
                   SHARD_INDEX: ${{ matrix.chunk }}
@@ -179,7 +117,6 @@ jobs:
         name: Calculate running time
         needs: [jest, frontend-code-quality, changes]
         runs-on: depot-ubuntu-24.04
-        if: needs.changes.outputs.frontend == 'true'
         steps:
             - name: Calculate running time
               run: |
@@ -205,7 +142,6 @@ jobs:
                   echo running_time_run_started_at=${run_started_at} >> $GITHUB_ENV
 
             - name: Capture running time to PostHog
-              if: needs.changes.outputs.frontend == 'true'
               uses: PostHog/posthog-github-action@v0.1
               with:
                   posthog-token: ${{secrets.POSTHOG_API_TOKEN}}

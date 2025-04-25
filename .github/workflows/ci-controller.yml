@@ -1,0 +1,52 @@
+name: CI Controller
+
+on:
+    pull_request:
+    push:
+        branches: [master, main]
+
+jobs:
+    # Job to decide if we should run frontend ci
+    # See https://github.com/dorny/paths-filter#conditional-execution for more details
+    # we skip each step individually, so   they are still reported as success
+    # because many of them are required for CI checks to be green
+    changes:
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 5
+        name: Check code changes
+        outputs:
+            frontend: ${{ steps.filter.outputs.frontend }}
+            backend: ${{ steps.filter.outputs.backend }}
+            plugin-server: ${{ steps.filter.outputs.plugin-server }}
+            rust: ${{ steps.filter.outputs.rust }}
+        steps:
+            # For pull requests it's not necessary to check out the code, but we
+            # also want this to run on master, so we need to check out
+            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+
+            - uses: ./.github/actions/code-changes
+              id: filter
+
+    frontend_ci:
+        needs: changes
+        if: needs.changes.outputs.frontend == 'true'
+        uses: ./.github/workflow/ci-frontend.yml
+        secrets: inherit
+
+    backend_ci:
+        needs: changes
+        if: needs.changes.outputs.backend == 'true'
+        uses: ./.github/workflow/ci-backend.yml
+        secrets: inherit
+
+    plugin_server_ci:
+        needs: changes
+        if: needs.changes.outputs.plugin-server == 'true'
+        uses: ./.github/workflow/ci-plugin-server.yml
+        secrets: inherit
+
+    rust_ci:
+        needs: changes
+        if: needs.changes.outputs.rust == 'true'
+        uses: ./.github/workflow/ci-rust.yml
+        secrets: inherit

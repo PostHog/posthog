@@ -1,0 +1,82 @@
+name: Check code changes
+description: Perform checks on file changes
+runs:
+    using: 'composite'
+    steps:
+        - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
+          id: filter
+          with:
+              filters: |
+                  frontend:
+                    # Avoid running frontend tests for irrelevant changes
+                    # NOTE: we are at risk of missing a dependency here.
+                    - 'bin/**'
+                    - 'frontend/**'
+                    - 'ee/frontend/**'
+                    - 'common/esbuilder/**'
+                    - 'products/**/*.ts'
+                    - 'products/**/*.tsx'
+                    - 'playwright/**'
+                    # Make sure we run if someone is explicitly change the workflow
+                    # - .github/workflows/ci-frontend.yml
+                    # various JS config files
+                    - .eslintrc.js
+                    - .prettier*
+                    - babel.config.js
+                    - package.json
+                    - pnpm-lock.yaml
+                    - jest.*.ts
+                    - tsconfig.json
+                    - tsconfig.*.json
+                    - webpack.config.js
+                    - stylelint*
+                  backend:
+                    # Avoid running backend tests for irrelevant changes
+                    # NOTE: we are at risk of missing a dependency here. We could make
+                    # the dependencies more clear if we separated the backend/frontend
+                    # code completely
+                    # really we should ignore ee/frontend/** but dorny doesn't support that
+                    # - '!ee/frontend/**'
+                    # including the negated rule appears to work
+                    # but makes it always match because the checked file always isn't `ee/frontend/**` 🙈
+                    - 'ee/**/*'
+                    - 'common/hogvm/**/*'
+                    - 'posthog/**/*'
+                    - 'bin/*.py'
+                    - requirements.txt
+                    - requirements-dev.txt
+                    - mypy.ini
+                    - pytest.ini
+                    - frontend/src/queries/schema.json # Used for generating schema.py
+                    - common/plugin_transpiler/src # Used for transpiling plugins
+                    # Make sure we run if someone is explicitly change the workflow
+                    # - .github/workflows/ci-backend.yml
+                    - .github/actions/run-backend-tests/action.yml
+                    # We use docker compose for tests, make sure we rerun on
+                    # changes to docker-compose.dev.yml e.g. dependency
+                    # version changes
+                    - docker-compose.dev.yml
+                    - docker-compose.base.yml
+                    - frontend/public/email/*
+                    # These scripts are used in the CI
+                    - bin/check_temporal_up
+                    - bin/check_kafka_clickhouse_up
+                  rust:
+                    - 'rust/**'
+                    # - .github/workflows/ci-rust.yml
+                    - .github/workflows/rust-docker-build.yml
+                    - .github/workflows/rust-hook-migrator-docker.yml
+                    - .github/workflows/rust-cyclotron-migrator-docker.yml
+                    - posthog/management/commands/setup_test_environment.py
+                    - posthog/migrations/**
+                    - ee/migrations/**
+                  plugin_server:
+                    # - .github/workflows/ci-plugin-server.yml
+                    - 'plugin-server/**'
+                    - 'posthog/clickhouse/migrations/**'
+                    - 'ee/migrations/**'
+                    - 'posthog/management/commands/setup_test_environment.py'
+                    - 'posthog/migrations/**'
+                    - 'posthog/plugins/**'
+                    - 'docker*.yml'
+                    - '*Dockerfile'

@@ -1,10 +1,7 @@
 name: Plugin Server CI
 
 on:
-    pull_request:
-    push:
-        branches:
-            - master
+    workflow_call:
 
 env:
     OBJECT_STORAGE_ENABLED: true
@@ -270,7 +267,7 @@ jobs:
             - name: Install package.json dependencies with pnpm
               if: needs.changes.outputs.plugin-server == 'true'
               run: |
-                  pnpm --filter=@posthog/plugin-server... install --frozen-lockfile 
+                  pnpm --filter=@posthog/plugin-server... install --frozen-lockfile
                   bin/turbo --filter=@posthog/plugin-server build
 
             - name: Wait for Clickhouse, Redis & Kafka

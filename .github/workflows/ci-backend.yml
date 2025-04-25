@@ -5,15 +5,12 @@
 name: Backend CI
 
 on:
-    push:
-        branches:
-            - master
+    workflow_call:
     workflow_dispatch:
         inputs:
             clickhouseServerVersion:
                 description: ClickHouse server version. Leave blank for default
                 type: string
-    pull_request:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -54,41 +51,8 @@ jobs:
             # also want this to run on master so we need to checkout
             - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
 
-            - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
+            - uses: ./.github/actions/code-changes
               id: filter
-              with:
-                  filters: |
-                      backend:
-                        # Avoid running backend tests for irrelevant changes
-                        # NOTE: we are at risk of missing a dependency here. We could make
-                        # the dependencies more clear if we separated the backend/frontend
-                        # code completely
-                        # really we should ignore ee/frontend/** but dorny doesn't support that
-                        # - '!ee/frontend/**'
-                        # including the negated rule appears to work
-                        # but makes it always match because the checked file always isn't `ee/frontend/**` 🙈
-                        - 'ee/**/*'
-                        - 'common/hogvm/**/*'
-                        - 'posthog/**/*'
-                        - 'bin/*.py'
-                        - requirements.txt
-                        - requirements-dev.txt
-                        - mypy.ini
-                        - pytest.ini
-                        - frontend/src/queries/schema.json # Used for generating schema.py
-                        - common/plugin_transpiler/src # Used for transpiling plugins
-                        # Make sure we run if someone is explicitly change the workflow
-                        - .github/workflows/ci-backend.yml
-                        - .github/actions/run-backend-tests/action.yml
-                        # We use docker compose for tests, make sure we rerun on
-                        # changes to docker-compose.dev.yml e.g. dependency
-                        # version changes
-                        - docker-compose.dev.yml
-                        - docker-compose.base.yml
-                        - frontend/public/email/*
-                        # These scripts are used in the CI
-                        - bin/check_temporal_up
-                        - bin/check_kafka_clickhouse_up
 
     backend-code-quality:
         needs: changes
