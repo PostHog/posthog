@@ -30,9 +30,9 @@ import { PluginsApiKeyManager } from './../../worker/vm/extensions/helpers/api-k
 import { RootAccessManager } from './../../worker/vm/extensions/helpers/root-acess-manager'
 import { Celery } from './celery'
 import { DB } from './db'
-import { LRUTokenRestrictionCache } from './token-restriction-cache'
 import { PostgresRouter } from './postgres'
 import { createRedisPool } from './redis'
+import { LRUTokenRestrictionCache } from './token-restriction-cache'
 
 // `node-postgres` would return dates as plain JS Date objects, which would use the local timezone.
 // This converts all date fields to a proper luxon UTC DateTime and then casts them to a string
