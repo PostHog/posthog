@@ -14,6 +14,7 @@ from langgraph.graph.state import CompiledStateGraph
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from pydantic import BaseModel
 
+from ee.hogai.api.serializers import ConversationSerializer
 from ee.hogai.graph import (
     AssistantGraph,
     FunnelGeneratorNode,
@@ -433,7 +434,7 @@ class Assistant:
 
     def _serialize_conversation(self) -> str:
         output = f"event: {AssistantEventType.CONVERSATION}\n"
-        json_conversation = json.dumps({"id": str(self._conversation.id)})
+        json_conversation = json.dumps(ConversationSerializer(self._conversation).data)
         output += f"data: {json_conversation}\n\n"
         return output
 

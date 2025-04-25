@@ -1,13 +1,14 @@
 import { LemonSkeleton, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+import { router } from 'kea-router'
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils'
 
-import { SidePanelTab } from '~/types'
-
 import { maxLogic } from './maxLogic'
+import { getConversationUrl } from './utils'
 
 export function HistoryPreview(): JSX.Element | null {
+    const { location } = useValues(router)
     const { conversationHistory, conversationHistoryLoading } = useValues(maxLogic)
 
     if (!conversationHistory.length && !conversationHistoryLoading) {
@@ -28,7 +29,11 @@ export function HistoryPreview(): JSX.Element | null {
                     <Link
                         key={conversation.id}
                         className="text-sm flex items-center text-primary hover:text-accent-hover active:text-accent-active"
-                        to={`?conversation=${conversation.id}#panel=${SidePanelTab.Max}`}
+                        to={getConversationUrl({
+                            pathname: location.pathname,
+                            search: location.search,
+                            conversationId: conversation.id,
+                        })}
                     >
                         <span className="flex-1 line-clamp-1">{conversation.title}</span>
                         <span className="text-secondary">

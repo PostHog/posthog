@@ -5263,11 +5263,6 @@ export enum CookielessServerHashMode {
 /**
  * Assistant Conversation
  */
-export enum ConversationType {
-    Assistant = 'assistant',
-    ToolCall = 'tool_call',
-}
-
 export enum ConversationStatus {
     Idle = 'idle',
     InProgress = 'in_progress',
@@ -5276,7 +5271,6 @@ export enum ConversationStatus {
 
 export interface Conversation {
     id: string
-    type: ConversationType
     status: ConversationStatus
     title: string | null
     created_at: string | null

@@ -2,7 +2,7 @@ import { shuffle } from 'd3'
 import { createParser } from 'eventsource-parser'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { urlToAction } from 'kea-router'
+import { actionToUrl, decodeParams, router, urlToAction } from 'kea-router'
 import api, { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { objectsEqual, uuid } from 'lib/utils'
@@ -71,8 +71,10 @@ export const maxLogic = kea<maxLogicType>([
             // Actions are lazy-loaded. In order to display their names in the UI, we're loading them here.
             actionsModel({ params: 'include_count=1' }),
             ['actions'],
+            router,
+            ['location as routerLocation'],
         ],
-        actions: [sidePanelStateLogic, ['openSidePanel']],
+        actions: [sidePanelStateLogic, ['openSidePanel', 'closeSidePanel']],
     })),
 
     actions({
@@ -97,6 +99,7 @@ export const maxLogic = kea<maxLogicType>([
         startNewConversation: true,
         toggleConversationHistory: (visible?: boolean) => ({ visible }),
         loadThread: (conversation: ConversationDetail) => ({ conversation }),
+        pollConversation: (currentRecursionDepth: number = 0) => ({ currentRecursionDepth }),
     }),
 
     reducers({
@@ -123,6 +126,16 @@ export const maxLogic = kea<maxLogicType>([
             {
                 setConversation: (_, { conversation }) => conversation,
                 cleanThread: () => null,
+                completeThreadGeneration: (conversation) => {
+                    if (!conversation) {
+                        return conversation
+                    }
+
+                    return {
+                        ...conversation,
+                        status: ConversationStatus.Idle,
+                    }
+                },
             },
         ],
 
@@ -419,19 +432,69 @@ export const maxLogic = kea<maxLogicType>([
         },
 
         completeThreadGeneration: () => {
+            // Update the conversation history to include the new conversation
             actions.loadConversationHistory()
         },
 
         loadConversationHistorySuccess: ({ conversationHistory }) => {
+            if (!values.conversationId) {
+                return
+            }
+
+            // If the user has opened a conversation from a direct link, we verify that the conversation exists
+            // after the history has been loaded.
             const conversation = conversationHistory.find((c) => c.id === values.conversationId)
             if (conversation) {
                 actions.loadThread(conversation)
+            } else {
+                // If the conversation is not found, clean the thread so that the UI is consistent
+                actions.cleanThread()
+                lemonToast.error('Conversation has not been found.')
             }
         },
 
-        loadThread: ({ conversation }) => {
-            actions.setThread(conversation.messages.map((message) => ({ ...message, status: 'completed' })))
-            actions.setThreadLoading(conversation.status !== ConversationStatus.Idle)
+        loadConversationHistoryFailure: ({ errorObject }) => {
+            lemonToast.error(errorObject?.data?.detail || 'Failed to load conversation history.')
+        },
+
+        /**
+         * Loads a conversation from the history into the thread.
+         */
+        loadThread: ({ conversation: { messages, ...conversation } }) => {
+            actions.setConversation(conversation)
+            actions.setThread(messages.map((message) => ({ ...message, status: 'completed' })))
+
+            if (conversation.status === ConversationStatus.Idle) {
+                actions.setThreadLoading(false)
+            } else {
+                // If the conversation is not idle, we need to show a loader and poll the conversation status.
+                actions.setThreadLoading(true)
+                actions.pollConversation()
+            }
+        },
+
+        /**
+         * Polls the conversation status until it's idle or reaches a max recursion depth.
+         */
+        pollConversation: async ({ currentRecursionDepth }, breakpoint) => {
+            if (!values.conversation?.id || currentRecursionDepth > 10) {
+                return
+            }
+
+            await breakpoint(2500)
+            let conversation: ConversationDetail | null = null
+
+            try {
+                conversation = await api.conversations.get(values.conversation.id)
+            } catch (err: any) {
+                lemonToast.error(err?.data?.detail || 'Failed to load conversation.')
+            }
+
+            if (conversation && conversation.status === ConversationStatus.Idle) {
+                actions.loadThread(conversation)
+            } else {
+                actions.pollConversation(currentRecursionDepth + 1)
+            }
         },
     })),
 
@@ -551,9 +614,9 @@ export const maxLogic = kea<maxLogicType>([
         ],
 
         conversationLoading: [
-            (s) => [s.conversationHistory, s.conversationHistoryLoading, s.conversationId],
-            (conversationHistory, conversationHistoryLoading, conversationId) => {
-                return !conversationHistory.length && conversationHistoryLoading && conversationId
+            (s) => [s.conversationHistory, s.conversationHistoryLoading, s.conversationId, s.conversation],
+            (conversationHistory, conversationHistoryLoading, conversationId, conversation) => {
+                return !conversationHistory.length && conversationHistoryLoading && conversationId && !conversation
             },
         ],
     }),
@@ -581,28 +644,32 @@ export const maxLogic = kea<maxLogicType>([
         /**
          * When the URL contains a conversation ID, we want to make that conversation the active one.
          */
-        '*': (_, search, hashParams) => {
-            if (hashParams.conversation) {
+        '*': (_, search) => {
+            if (search.chat) {
                 if (!values.sidePanelOpen) {
                     actions.openSidePanel(SidePanelTab.Max)
                 }
 
-                const conversation = values.conversationHistory.find((c) => c.id === hashParams.conversation)
+                const conversation = values.conversationHistory.find((c) => c.id === search.chat)
 
                 if (conversation) {
-                    const { messages, ...convo } = conversation
-                    // Conversation has already been loaded, so we can use it directly
-                    actions.setConversation(convo)
                     actions.loadThread(conversation)
                 } else if (values.conversationHistoryLoading) {
                     // Conversation hasn't been loaded yet, so we handle it in `loadConversationHistory`
-                    actions.setConversationId(search.conversation)
+                    actions.setConversationId(search.chat)
                 }
 
                 if (values.conversationHistoryVisible) {
                     actions.toggleConversationHistory(false)
                 }
             }
+        },
+    })),
+
+    actionToUrl(({ values }) => ({
+        cleanThread: () => {
+            const { chat, ...params } = decodeParams(values.routerLocation.search, '?')
+            return [values.routerLocation.pathname, params, values.routerLocation.hash]
         },
     })),
 

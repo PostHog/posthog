@@ -4,9 +4,10 @@ import { router } from 'kea-router'
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils'
 
-import { Conversation, SidePanelTab } from '~/types'
+import { Conversation } from '~/types'
 
 import { maxLogic } from './maxLogic'
+import { getConversationUrl } from './utils'
 
 export function ConversationHistory(): JSX.Element {
     const { location } = useValues(router)
@@ -35,14 +36,10 @@ function ConversationCard({
     pathname: string
     search: string
 }): JSX.Element {
-    const params = new URLSearchParams(search)
-    params.set('conversation', conversation.id)
-    const strParams = params.toString()
-
     return (
         <Link
             className="p-4 flex flex-row bg-surface-primary rounded-lg gap-2 w-full"
-            to={`${pathname}${strParams ? `?${strParams}` : ''}#panel=${SidePanelTab.Max}`}
+            to={getConversationUrl({ pathname, search, conversationId: conversation.id })}
         >
             <span className="flex-1 line-clamp-1">{conversation.title}</span>
             <span className="text-secondary">

@@ -1,3 +1,5 @@
+import { decodeParams, encodeParams } from 'kea-router'
+
 import {
     AssistantMessage,
     AssistantMessageType,
@@ -16,6 +18,7 @@ import {
 } from '~/queries/schema/schema-assistant-queries'
 import { FunnelsQuery, HogQLQuery, RetentionQuery, TrendsQuery } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isHogQLQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
+import { SidePanelTab } from '~/types'
 
 export function isReasoningMessage(message: RootAssistantMessage | undefined | null): message is ReasoningMessage {
     return message?.type === AssistantMessageType.Reasoning
@@ -72,4 +75,24 @@ export function castAssistantQuery(
         return castAssistantHogQLQuery(query)
     }
     throw new Error(`Unsupported query type: ${query.kind}`)
+}
+
+/**
+ * Generate a URL for a conversation.
+ */
+export function getConversationUrl({
+    pathname,
+    search,
+    conversationId,
+}: {
+    pathname: string
+    search: string
+    conversationId: string
+}): string {
+    const params = decodeParams(search, '?')
+    const strParams = encodeParams({
+        ...params,
+        chat: conversationId,
+    })
+    return `${pathname}${strParams ? `?${strParams}` : ''}#panel=${SidePanelTab.Max}`
 }
