@@ -276,7 +276,7 @@ const translateInputsSchema = (inputs_schema: Record<string, any> | undefined): 
                 ? typeof field.default !== 'undefined' && '@path' in field.default
                     ? 'string'
                     : 'dictionary'
-                : ['number', 'integer', 'datetime'].includes(field.type)
+                : ['number', 'integer', 'datetime', 'password'].includes(field.type)
                 ? 'string'
                 : typeof field.default === 'object' && '@path' in field.default
                 ? 'string'
@@ -292,7 +292,7 @@ const translateInputsSchema = (inputs_schema: Record<string, any> | undefined): 
                           })
                       ),
             required: field.required ?? false,
-            secret: false,
+            secret: field.type === 'password' ? true : false,
             ...(field.choices ? { choices: field.choices } : {}),
         })) as HogFunctionInputSchemaType[]
 }
