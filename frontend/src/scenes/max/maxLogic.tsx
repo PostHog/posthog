@@ -185,6 +185,7 @@ export const maxLogic = kea<maxLogicType>([
             false,
             {
                 toggleConversationHistory: (state, { visible }) => visible ?? !state,
+                cleanThread: () => false,
             },
         ],
     }),
@@ -617,6 +618,34 @@ export const maxLogic = kea<maxLogicType>([
             (s) => [s.conversationHistory, s.conversationHistoryLoading, s.conversationId, s.conversation],
             (conversationHistory, conversationHistoryLoading, conversationId, conversation) => {
                 return !conversationHistory.length && conversationHistoryLoading && conversationId && !conversation
+            },
+        ],
+
+        chatTitle: [
+            (s) => [s.conversationId, s.conversation, s.conversationHistoryVisible],
+            (conversationId, conversation, conversationHistoryVisible) => {
+                if (conversationHistoryVisible) {
+                    return 'Chat history'
+                }
+
+                // Existing conversation
+                if (conversation) {
+                    return conversation.title ?? 'Chat'
+                }
+
+                // Conversation is loading
+                if (conversationId) {
+                    return ''
+                }
+
+                return 'New chat'
+            },
+        ],
+
+        threadVisible: [
+            (s) => [s.threadGrouped, s.conversationId],
+            (threadGrouped, conversationId) => {
+                return threadGrouped.length > 0 || conversationId
             },
         ],
     }),
