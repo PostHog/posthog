@@ -15,7 +15,6 @@ pub async fn do_stack_processing(
     events: &[PipelineResult],
     mut indexed_props: Vec<(usize, RawErrProps)>,
 ) -> Result<Vec<(usize, FingerprintedErrProps)>, (usize, UnhandledError)> {
-    // Second pass, to spawn the relevant tokio tasks to resolve the frames
     let mut frame_resolve_handles = HashMap::new();
     for (index, props) in indexed_props.iter_mut() {
         let team_id = events[*index]
@@ -72,7 +71,6 @@ pub async fn do_stack_processing(
         }
     }
 
-    // Collect the results of frame resolution
     let mut frame_lookup_table = HashMap::new();
     for (id, handle) in frame_resolve_handles.into_iter() {
         let res = match handle.await.expect("Frame resolve task didn't panic") {
@@ -85,9 +83,6 @@ pub async fn do_stack_processing(
         frame_lookup_table.insert(id, res);
     }
 
-    // Third pass, to map the unresolved frames into resolved ones, fingerprint them, and kick
-    // off issue resolution for any new fingerprints. This time we consume the RawErrorProps list,
-    // converting each entry into a fingerprinted one.
     let mut indexed_fingerprinted = Vec::new();
     for (index, mut props) in indexed_props.into_iter() {
         for exception in props.exception_list.iter_mut() {
