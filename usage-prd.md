@@ -92,7 +92,8 @@ GET /api/usage-v2/spend/      # For calculated spend
 - `organization_id`: string (required)
 - `start_date`: string (required, ISO format)
 - `end_date`: string (required, ISO format)
-- `usage_type`: string (optional) - specific usage type to query
+- `usage_types`: string (optional) - JSON array of usage type identifiers (e.g. `["event_count_in_period","recording_count_in_period"]`). If omitted or empty ⇒ all types. Passing a single-item array is equivalent to the old `usage_type` param. Default: *all types*.
+- `team_ids`: string (optional) - JSON array of team IDs to include (e.g. `[123,456]`). Default: *all teams*.
 - `breakdowns`: string (optional) - JSON array of breakdown dimensions (e.g., '["type"]', '["team"]', or '["type","team"]')
 - `interval`: string (optional, default='day')
   - Supported values: 'day', 'week', 'month'
@@ -100,15 +101,21 @@ GET /api/usage-v2/spend/      # For calculated spend
   - Supported values: 'previous_period'
 - `show_values_on_series`: boolean (optional, default=false)
 
-Note: When breaking down by 'type' (by including 'type' in the `breakdowns` parameter), the `usage_type` parameter is ignored as all types are returned.
+Note: Filters (`usage_types`, `team_ids`) apply regardless of the chosen breakdowns. You can, for instance, request a team breakdown limited to three specific teams (`team_ids=[1,2,3]`).
+
+Validation: For the *usage volume* endpoint, if `breakdowns` includes "team" **and** `usage_types` is empty or not provided, the API returns **400 Bad Request**.
 
 #### Query Parameters (Spend: `/api/usage-v2/spend/`)
 - `organization_id`: string (required)
 - `start_date`: string (required, ISO format YYYY-MM-DD)
 - `end_date`: string (required, ISO format YYYY-MM-DD)
+- `usage_types`: string (optional) - JSON array of usage type identifiers to include. Default: *all types*.
+- `team_ids`: string (optional) - JSON array of team IDs to include. Default: *all teams*.
 - `breakdowns`: string (optional) - JSON array of breakdown dimensions (e.g. '["type"]', '["team"]', or '["type","team"]'). Omitting returns total spend.
 - `interval`: string (optional, default='day')
   - Supported values: 'day', 'week', 'month'
+
+Note: Filters (`usage_types`, `team_ids`) apply regardless of the chosen breakdowns. You can, for instance, request a team breakdown limited to three specific teams (`team_ids=[1,2,3]`).
 
 #### Response Format (Usage Volume)
 ```typescript
@@ -327,6 +334,20 @@ The implementation now utilizes shared components for consistency:
 - Users can toggle series visibility via checkboxes
 - Filters update both the graph and table simultaneously
 - The UI is consistent with PostHog's design system
+
+#### Filter & Breakdown UX (2025-XX Update)
+
+We now treat *break-down* and *filter-down* as orthogonal controls:
+
+| Control | Type | Default | Notes |
+|---------|------|---------|-------|
+| **Break down by** | Checkbox list (`type`, `team`) | none | Checking both == "type & team" |
+| **Usage types** | Multi-select tag list | all | — |
+| **Teams** | Multi-select tag list (searchable) | all | — |
+
+Client-side validation mirrors the backend rule above: volume view + team breakdown with zero selected usage types is blocked with inline error.
+
+Request parameters sent: `breakdowns`, `usage_types`, `team_ids`.
 
 ## Implementation Guidelines
 
@@ -773,9 +794,7 @@ The usage data functionality will be split between two repositories:
 ```sql
 CREATE INDEX billing_usage_org_date_idx ON billing_usagereport(organization_id, date);
 CREATE INDEX billing_usage_report_idx ON billing_usagereport USING GIN (report);
-```
-
-2. Query Optimization:
+```2. Query Optimization:
 - All queries use CTEs for better readability and maintainability
 - COALESCE handles null values consistently
 - Indexes support efficient date range and organization filtering
@@ -892,4 +911,7 @@ def handle_usage_errors(func):
     - By Team: Calculates spend per type, allocates it proportionally to teams based on their volume contribution *for that specific type* within the interval, and then sums the allocated amounts per team across all types.
     - By Type & Team: Calculates spend per type and allocates it proportionally to teams based on their volume contribution *for that specific type* within the interval. Returns a series for each type/team combination.
 - Parameters are `organization_id`, `start_date`, `end_date`, `breakdowns`, `interval`.
+
+
+
 

@@ -50,6 +50,12 @@ This document outlines the step-by-step implementation plan for the Usage Data A
 - [x] Update the transformation function to handle multiple series
 - [ ] Add tests for the breakdown functionality
 
+### Step 5.1: Add **filter-down** parameters (usage_types, team_ids) 🆕
+- [ ] Extend query params and validation in `UsageRequestSerializer` (`usage_types`, `team_ids` – both JSON arrays)
+- [ ] Update service layer functions to accept optional `usage_types` and `team_ids` and apply `WHERE` filters early in SQL.
+- [ ] Add 400-error rule: if `breakdowns` includes "team" **and** `usage_types` is empty or not provided, return 400 (volume endpoint only).
+- [ ] Mirror parameters for spend endpoint (no special validation rule required).
+
 ### Step 6: Implement multiple breakdowns ✅
 - [x] Add a service function `get_usage_with_multiple_breakdowns` for breaking down by both team and type
 - [x] Create a SQL query that returns data with array breakdown values
@@ -91,6 +97,14 @@ This document outlines the step-by-step implementation plan for the Usage Data A
 ### Step 11: Frontend Implementation ✅
 
 After exploring multiple approaches, we've decided to standardize on the implementation originally in `BillingUsage4.tsx` as our canonical implementation. This component has been renamed to `BillingUsage.tsx`, and the other experimental versions (`BillingUsage.tsx` (original), `BillingUsage2.tsx`, `BillingUsage3.tsx`, `BillingUsage5.tsx`) have been removed.
+
+### Step 11.1: New orthogonal filter UX (multi-selects) 🆕
+- [ ] Replace the single Usage-type `LemonSelect` with multi-select tag list.
+- [ ] Add Teams multi-select (searchable) fed by `/api/organizations/{id}/teams/` or preloaded.
+- [ ] Replace current breakdown dropdown with checkbox list.
+- [ ] Client-side validation: block apply if team breakdown with zero usage types in volume view.
+- [ ] Adjust Kea logic filters (`usage_types?: string[]`, `team_ids?: number[]`).
+- [ ] Ensure hidden-series toggling stays purely front-end and independent of filters.
 
 ### Step 12: Implement Default Filter Improvements ✅
 - [x] Update billingUsageLogic to include default filters for:
