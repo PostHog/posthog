@@ -145,6 +145,12 @@ const fetchPersonPropsSize = new Histogram({
     buckets: [1024, 8196, 65536, 524288, 1048576, 2097152, 8388608, 16777216, 67108864],
 })
 
+// temporary: lets us introspect on rows returned from a Postgres query
+// (currently only fetchPerson) prior to hydrating into a RawPerson
+interface RawPersonRow {
+    [column: string]: any
+}
+
 /** The recommended way of accessing the database. */
 export class DB {
     /** Postgres connection router for database access. */
@@ -537,7 +543,7 @@ export class DB {
         }
         const values = [teamId, distinctId]
 
-        const { rows } = await this.postgres.query<RawPerson>(
+        const { rows } = await this.postgres.query<RawPersonRow>(
             options.useReadReplica ? PostgresUse.COMMON_READ : PostgresUse.COMMON_WRITE,
             queryString,
             values,
@@ -546,7 +552,7 @@ export class DB {
 
         if (rows.length > 0) {
             // estimate size of person properties blob fetched from DB
-            const estimatedPropsBytes = this.estimateObjectSize(rows[0].properties || {})
+            const estimatedPropsBytes = rows[0]?.properties.length || 0
             fetchPersonPropsSize.observe(estimatedPropsBytes)
 
             // if larger than size threshold (start conservative, adjust as we observe)
@@ -558,74 +564,25 @@ export class DB {
                     estimated_bytes: estimatedPropsBytes,
                 })
             }
+            const rawPerson: RawPerson = this.toRawPerson(rows[0])
 
-            return this.toPerson(rows[0])
+            return this.toPerson(rawPerson)
         }
     }
 
-    // recursively estimate the properties Record<string, any> size.
-    // hopefully cheaper than JSON.stringify + length check
-    private estimateObjectSize(obj: Record<string, any>): number {
-        let totalBytes = 0
-
-        // Iterate through all properties
-        for (const key in obj) {
-            if (obj.hasOwnProperty(key)) {
-                // Add bytes for the key string
-                totalBytes += key.length * 2 // Unicode characters in JS are 2 bytes
-
-                const value = obj[key]
-                const type = typeof value
-
-                // Estimate size based on value type
-                if (value === null || value === undefined) {
-                    totalBytes += 4 // Rough estimate for null/undefined
-                } else if (type === 'boolean') {
-                    totalBytes += 4 // Rough estimate for boolean
-                } else if (type === 'number') {
-                    totalBytes += 8 // Rough estimate for number (typically 8 bytes)
-                } else if (type === 'string') {
-                    totalBytes += value.length * 2 // Unicode characters in JS are 2 bytes
-                } else if (type === 'object') {
-                    if (Array.isArray(value)) {
-                        // For arrays, recursively calculate size
-                        totalBytes += 4 // Array overhead
-                        for (const item of value) {
-                            if (typeof item === 'object' && item !== null) {
-                                totalBytes += this.estimateObjectSize(item)
-                            } else {
-                                // Add the appropriate size for primitive values
-                                totalBytes += this.estimatePrimitiveSize(item)
-                            }
-                        }
-                    } else {
-                        // For nested objects, recurse
-                        totalBytes += this.estimateObjectSize(value)
-                    }
-                }
-
-                // Add a few bytes for property overhead
-                totalBytes += 8
-            }
+    private toRawPerson(row: RawPersonRow): RawPerson {
+        return {
+            id: row.id,
+            team_id: row.team_id,
+            properties: row.properties,
+            is_user_id: row.is_user_id,
+            is_identified: row.is_identified,
+            uuid: row.uuid,
+            properties_last_updated_at: row.properties_last_updated_at,
+            properties_last_operation: row.properties_last_operation,
+            created_at: row.created_at,
+            version: row.version,
         }
-
-        return totalBytes
-    }
-
-    private estimatePrimitiveSize(value: any): number {
-        const type = typeof value
-
-        if (value === null || value === undefined) {
-            return 4
-        } else if (type === 'boolean') {
-            return 4
-        } else if (type === 'number') {
-            return 8
-        } else if (type === 'string') {
-            return value.length * 2
-        }
-
-        return 0
     }
 
     public async createPerson(
