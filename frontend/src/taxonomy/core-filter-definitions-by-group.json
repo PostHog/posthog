@@ -3524,5 +3524,33 @@
             "description": "The ID of the person, depending on the person properties mode.",
             "examples": ["16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767"]
         }
+    },
+    "error_tracking_issues": {
+        "name": {
+            "label": "Name",
+            "description": "The name of the issue."
+        },
+        "assignee": {
+            "label": "Assignee",
+            "description": "The current assignee of an issue."
+        }
+    },
+    "error_tracking_issue_properties": {
+        "exception_message": {
+            "label": "Exception message",
+            "description": "The message of the exception."
+        },
+        "exception_description": {
+            "label": "Exception description",
+            "description": "The description of the exception."
+        },
+        "exception_function": {
+            "label": "Exception function",
+            "description": "A function contained in the exception."
+        },
+        "exception_source": {
+            "label": "Exception source",
+            "description": "A source file included in the exception."
+        }
     }
 }

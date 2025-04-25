@@ -49,6 +49,23 @@ const checkIsManagedView = (
     view: DataWarehouseSavedQuery | DatabaseSchemaManagedViewTable
 ): view is DatabaseSchemaManagedViewTable => 'type' in view && view.type === 'managed_view'
 
+const renderTableCount = (count: undefined | number): null | JSX.Element => {
+    if (!count) {
+        return null
+    }
+
+    return (
+        <span className="text-xs mr-1 italic text-[color:var(--text-secondary-3000)]">
+            {`(${new Intl.NumberFormat('en', {
+                notation: 'compact',
+                compactDisplay: 'short',
+            })
+                .format(count)
+                .toLowerCase()})`}
+        </span>
+    )
+}
+
 export const editorSceneLogic = kea<editorSceneLogicType>([
     path(['data-warehouse', 'editor', 'editorSceneLogic']),
     connect(() => ({
@@ -137,6 +154,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                                   key: table.id,
                                   icon: <IconDatabase />,
                                   name: table.name,
+                                  endElement: renderTableCount(table.row_count),
                                   url: '',
                                   searchMatch: matches
                                       ? {
@@ -352,6 +370,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                     items: posthogTables.map((table) => ({
                         key: table.id,
                         name: table.name,
+                        endElement: renderTableCount(table.row_count),
                         url: '',
                         icon: <IconDatabase />,
                         searchMatch: null,
@@ -401,6 +420,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                     items: tables.map((table) => ({
                         key: table.id,
                         name: table.name,
+                        endElement: renderTableCount(table.row_count),
                         url: '',
                         icon: <IconDatabase />,
                         searchMatch: null,

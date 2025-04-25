@@ -114,7 +114,6 @@ const tabs: Record<
             </>
         ),
         content: <RevenueEventsSettings />,
-        flag: FEATURE_FLAGS.WEB_REVENUE_TRACKING,
     },
     [DataManagementTab.IngestionWarnings]: {
         url: urls.ingestionWarnings(),

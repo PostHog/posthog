@@ -585,7 +585,7 @@ mod tests {
         let property_filters = vec![
             PropertyFilter {
                 key: "email".to_string(),
-                value: json!("test@example.com"),
+                value: Some(json!("test@example.com")),
                 operator: None,
                 prop_type: "person".to_string(),
                 group_type_index: None,
@@ -593,7 +593,7 @@ mod tests {
             },
             PropertyFilter {
                 key: "age".to_string(),
-                value: json!(25),
+                value: Some(json!(25)),
                 operator: Some(OperatorType::Gte),
                 prop_type: "person".to_string(),
                 group_type_index: None,
@@ -607,7 +607,7 @@ mod tests {
         let property_filters_with_cohort = vec![
             PropertyFilter {
                 key: "email".to_string(),
-                value: json!("test@example.com"),
+                value: Some(json!("test@example.com")),
                 operator: None,
                 prop_type: "person".to_string(),
                 group_type_index: None,
@@ -615,7 +615,7 @@ mod tests {
             },
             PropertyFilter {
                 key: "cohort".to_string(),
-                value: json!(1),
+                value: Some(json!(1)),
                 operator: None,
                 prop_type: "cohort".to_string(),
                 group_type_index: None,

@@ -308,6 +308,7 @@ function SidebarListItem({ item, validateName, active, style }: SidebarListItemP
             >
                 {item.icon && <div className="SidebarListItem__icon">{item.icon}</div>}
                 <SearchHighlight string={item.name} substring={navigation3000Logic.values.searchTerm} />
+                {'endElement' in item && item.endElement}
             </div>
         )
     } else if (!save || (!isItemTentative(item) && newName === null)) {
@@ -485,13 +486,15 @@ function SidebarListItem({ item, validateName, active, style }: SidebarListItemP
                     />
                 </div>
             ) : (
-                !!menuItems?.length && (
-                    <LemonMenu items={menuItems} onVisibilityChange={setIsMenuOpen}>
-                        <div className="SidebarListItem__actions">
-                            <LemonButton size="small" noPadding icon={<IconEllipsis />} />
-                        </div>
-                    </LemonMenu>
-                )
+                <>
+                    {!!menuItems?.length && (
+                        <LemonMenu items={menuItems} onVisibilityChange={setIsMenuOpen}>
+                            <div className="SidebarListItem__actions">
+                                <LemonButton size="small" noPadding icon={<IconEllipsis />} />
+                            </div>
+                        </LemonMenu>
+                    )}
+                </>
             )}
         </li>
     )
