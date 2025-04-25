@@ -265,34 +265,36 @@ const translateInputsSchema = (inputs_schema: Record<string, any> | undefined): 
     if (!inputs_schema) {
         return []
     }
-    return Object.entries(inputs_schema).map(([key, field]) => ({
-        key,
-        label: field.label,
-        type: field.choices
-            ? 'choice'
-            : field.type === 'object'
-            ? typeof field.default !== 'undefined' && '@path' in field.default
+    return Object.entries(inputs_schema)
+        .filter(([key]) => !['use_batch_endpoint', 'batch_size', 'enable_batching'].includes(key))
+        .map(([key, field]) => ({
+            key,
+            label: field.label,
+            type: field.choices
+                ? 'choice'
+                : field.type === 'object'
+                ? typeof field.default !== 'undefined' && '@path' in field.default
+                    ? 'string'
+                    : 'dictionary'
+                : ['number', 'integer', 'datetime'].includes(field.type)
                 ? 'string'
-                : 'dictionary'
-            : ['number', 'integer', 'datetime'].includes(field.type)
-            ? 'string'
-            : typeof field.default === 'object' && '@path' in field.default
-            ? 'string'
-            : field.type ?? 'string',
-        description: field.description,
-        default:
-            field.type !== 'object' || (typeof field.default !== 'undefined' && '@path' in field.default)
-                ? translateInputs(field.default)
-                : Object.fromEntries(
-                      Object.entries(field.properties ?? {}).map(([key, _]) => {
-                          const defaultVal = (field.default as Record<string, object>) ?? {}
-                          return [key, translateInputs(defaultVal[key])]
-                      })
-                  ),
-        required: field.required ?? false,
-        secret: false,
-        ...(field.choices ? { choices: field.choices } : {}),
-    })) as HogFunctionInputSchemaType[]
+                : typeof field.default === 'object' && '@path' in field.default
+                ? 'string'
+                : field.type ?? 'string',
+            description: field.description,
+            default:
+                field.type !== 'object' || (typeof field.default !== 'undefined' && '@path' in field.default)
+                    ? translateInputs(field.default)
+                    : Object.fromEntries(
+                          Object.entries(field.properties ?? {}).map(([key, _]) => {
+                              const defaultVal = (field.default as Record<string, object>) ?? {}
+                              return [key, translateInputs(defaultVal[key])]
+                          })
+                      ),
+            required: field.required ?? false,
+            secret: false,
+            ...(field.choices ? { choices: field.choices } : {}),
+        })) as HogFunctionInputSchemaType[]
 }
 
 export const SEGMENT_DESTINATIONS = Object.entries(destinations)
