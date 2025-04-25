@@ -24,16 +24,14 @@ export function instrument<T>(
     },
     runQuery: () => Promise<T>
 ): Promise<T> {
-    return new Promise(async () => {
-        const timer = new Date()
-        try {
-            return await runQuery()
-        } finally {
-            instrumentedFnSummary
-                .labels(options.metricName, String(options.key ?? 'null'), String(options.tag ?? 'null'))
-                .observe(Date.now() - timer.getTime())
-        }
-    })
+    const timer = new Date()
+    try {
+        return runQuery()
+    } finally {
+        instrumentedFnSummary
+            .labels(options.metricName, String(options.key ?? 'null'), String(options.tag ?? 'null'))
+            .observe(Date.now() - timer.getTime())
+    }
 }
 
 const instrumentedFnSummary = new Summary({
