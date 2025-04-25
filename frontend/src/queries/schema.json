@@ -15904,9 +15904,6 @@
                 "returningEntity": {
                     "$ref": "#/definitions/RetentionEntity"
                 },
-                "showMean": {
-                    "type": "boolean"
-                },
                 "targetEntity": {
                     "$ref": "#/definitions/RetentionEntity"
                 },
