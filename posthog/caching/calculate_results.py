@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional, Union
 
+from posthog.schema_migrations.upgrade import upgrade
 import structlog
 from pydantic import BaseModel
 
@@ -62,9 +63,11 @@ def calculate_for_query_based_insight(
     if dashboard:
         tag_queries(dashboard_id=dashboard.pk)
 
+    query = upgrade(insight.query)
+
     response = process_response = process_query_dict(
         team,
-        insight.query,
+        query,
         dashboard_filters_json=(
             filters_override if filters_override is not None else dashboard.filters if dashboard is not None else None
         ),
