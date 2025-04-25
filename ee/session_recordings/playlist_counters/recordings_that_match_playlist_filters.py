@@ -6,7 +6,6 @@ from celery import shared_task
 from django.conf import settings
 from prometheus_client import Counter, Histogram
 from pydantic import ValidationError
-from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.session_recordings.session_recording_api import list_recordings_from_query, filter_from_params_to_query
@@ -364,17 +363,8 @@ def should_skip_task(existing_value: dict[str, Any], playlist_filters: dict[str,
 @shared_task(
     ignore_result=True,
     queue=CeleryQueue.SESSION_REPLAY_GENERAL.value,
-    rate_limit="2/m",
+    rate_limit="1/m",
     expires=TASK_EXPIRATION_TIME,
-    autoretry_for=(CHQueryErrorTooManySimultaneousQueries,),
-    # will retry twice, once after 120 seconds (with jitter)
-    # and once after 240 seconds (with jitter)
-    # will be retried again on the next run anyway
-    # so does not need many retries here
-    retry_jitter=True,
-    retry_backoff=120,
-    max_retries=2,
-    store_errors_even_if_ignored=True,
 )
 def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
     playlist: SessionRecordingPlaylist | None = None
