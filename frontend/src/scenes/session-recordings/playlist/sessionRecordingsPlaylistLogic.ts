@@ -431,7 +431,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                                 : response.has_next,
                         results: response.results,
                         order: params.order,
-                        direction,
                     }
                 },
             },
@@ -490,7 +489,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                             })
                             return getDefaultFilters(props.personUUID)
                         }
-
                         return {
                             ...state,
                             ...filters,
