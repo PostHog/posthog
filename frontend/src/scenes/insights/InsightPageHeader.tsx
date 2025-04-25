@@ -27,7 +27,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { insightCommandLogic } from 'scenes/insights/insightCommandLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -100,14 +100,11 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const showCohortButton =
         isDataTableNode(query) || isDataVisualizationNode(query) || isHogQLQuery(query) || isEventsQuery(query)
 
-    const saveUnderProps: SaveUnderLogicProps = useMemo(
-        () => ({
-            defaultFolder: 'Unfiled/Insights',
-            type: 'insight',
-            onSave: saveInsight,
-        }),
-        []
-    )
+    const saveUnderProps: SaveUnderLogicProps = {
+        defaultFolder: 'Unfiled/Insights',
+        type: 'insight',
+        onSave: saveInsight,
+    }
     const { selectedFolder, openModal, SaveUnderModal } = useSaveUnder(saveUnderProps)
     const canSaveUnder = !selectedFolder && featureFlags[FEATURE_FLAGS.TREE_VIEW] && !insight.short_id
 
