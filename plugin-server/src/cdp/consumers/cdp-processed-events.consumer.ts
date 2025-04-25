@@ -3,15 +3,15 @@ import { chunk } from 'lodash'
 import { Message } from 'node-rdkafka'
 import { Histogram } from 'prom-client'
 
-import { Hub, RawClickHouseEvent } from '~/src/types'
-
 import {
     convertToHogFunctionInvocationGlobals,
     isLegacyPluginHogFunction,
     serializeHogFunctionInvocation,
 } from '../../cdp/utils'
 import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
+import { KafkaConsumer } from '../../kafka/batch-consumer-v2'
 import { runInstrumentedFunction } from '../../main/utils'
+import { Hub, RawClickHouseEvent } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { HogWatcherState } from '../services/hog-watcher.service'
@@ -26,14 +26,14 @@ export const histogramCyclotronJobsCreated = new Histogram({
 
 export class CdpProcessedEventsConsumer extends CdpConsumerBase {
     protected name = 'CdpProcessedEventsConsumer'
-    protected topic = KAFKA_EVENTS_JSON
-    protected groupId = 'cdp-processed-events-consumer'
     protected hogTypes: HogFunctionTypeType[] = ['destination']
+    protected kafkaConsumer: KafkaConsumer
 
     private cyclotronManager?: CyclotronManager
 
-    constructor(hub: Hub) {
+    constructor(hub: Hub, topic: string = KAFKA_EVENTS_JSON, groupId: string = 'cdp-processed-events-consumer') {
         super(hub)
+        this.kafkaConsumer = new KafkaConsumer({ groupId, topic })
     }
 
     private async createCyclotronJobs(jobs: CyclotronJobInit[]) {
@@ -206,14 +206,6 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
 
     public async start(): Promise<void> {
         await super.start()
-        await this.startKafkaConsumer({
-            topic: this.topic,
-            groupId: this.groupId,
-            handleBatch: async (messages) => {
-                const invocationGlobals = await this._parseKafkaBatch(messages)
-                await this.processBatch(invocationGlobals)
-            },
-        })
 
         this.cyclotronManager = this.hub.CYCLOTRON_DATABASE_URL
             ? new CyclotronManager({
@@ -229,5 +221,26 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
             : undefined
 
         await this.cyclotronManager?.connect()
+
+        // Start consuming messages
+        await this.kafkaConsumer.connect(async (messages) => {
+            logger.info('🔁', `${this.name} - handling batch`, {
+                size: messages.length,
+            })
+
+            return await this.runInstrumented('handleEachBatch', async () => {
+                const invocationGlobals = await this._parseKafkaBatch(messages)
+                await this.processBatch(invocationGlobals)
+            })
+        })
+    }
+
+    public async stop(): Promise<void> {
+        await this.kafkaConsumer.disconnect()
+        await super.stop()
+    }
+
+    public isHealthy() {
+        return this.kafkaConsumer.isHealthy()
     }
 }
