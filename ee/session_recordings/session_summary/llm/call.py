@@ -43,7 +43,7 @@ def stream_llm(
     session_id: str,
     assistant_start_text: str | None = None,
     system_prompt: str | None = None,
-    # TODO Make model/reasoning_effort/temperature/top_p/max_tokens configurable through input to use for different promp
+    # TODO Make model/reasoning_effort/temperature/top_p/max_tokens configurable through input instead of hardcoding
     model: str = "gpt-4.1-2025-04-14",
 ) -> Generator[ChatCompletionChunk, None, None]:
     """
