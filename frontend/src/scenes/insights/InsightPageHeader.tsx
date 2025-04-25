@@ -12,7 +12,8 @@ import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
-import { SaveUnder } from 'lib/components/SaveUnder/SaveUnder'
+import { useSaveUnder } from 'lib/components/SaveUnder/SaveUnder'
+import { SaveUnderLogicProps } from 'lib/components/SaveUnder/saveUnderLogic'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
@@ -26,7 +27,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { insightCommandLogic } from 'scenes/insights/insightCommandLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -99,8 +100,20 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const showCohortButton =
         isDataTableNode(query) || isDataVisualizationNode(query) || isHogQLQuery(query) || isEventsQuery(query)
 
+    const saveUnderProps: SaveUnderLogicProps = useMemo(
+        () => ({
+            defaultFolder: 'Unfiled/Insights',
+            type: 'insight',
+            onSave: saveInsight,
+        }),
+        []
+    )
+    const { selectedFolder, openModal, SaveUnderModal } = useSaveUnder(saveUnderProps)
+    const mustSaveUnder = !selectedFolder && featureFlags[FEATURE_FLAGS.TREE_VIEW] && !insight.short_id
+
     return (
         <>
+            {mustSaveUnder ? <SaveUnderModal /> : null}
             {hasDashboardItemId && (
                 <>
                     <SubscriptionsModal
@@ -187,18 +200,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             </>
                         )}
 
-                        {/* For new insights, show where we're saving them */}
-                        {featureFlags[FEATURE_FLAGS.TREE_VIEW] && !insight.short_id ? (
-                            <SaveUnder
-                                defaultFolder="Unfiled/Insights"
-                                type="insight"
-                                onSave={() => {
-                                    // Save as normally. The "lastNewOperation" system will move it to the right folder.
-                                    saveInsight()
-                                }}
-                            />
-                        ) : null}
-
                         {insightMode !== ItemMode.Edit ? (
                             canEditInsight && (
                                 <AccessControlledLemonButton
@@ -222,6 +223,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             <InsightSaveButton
                                 saveAs={saveAs}
                                 saveInsight={saveInsight}
+                                saveUnder={mustSaveUnder ? openModal : undefined}
                                 isSaved={hasDashboardItemId}
                                 addingToDashboard={!!insight.dashboards?.length && !insight.id}
                                 insightSaving={insightSaving}
