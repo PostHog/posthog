@@ -4,7 +4,7 @@ from pathlib import Path
 
 import structlog
 from ee.hogai.utils.asgi import SyncIterableToAsync
-from ee.session_recordings.session_summary.intput_data import (
+from ee.session_recordings.session_summary.input_data import (
     add_context_and_filter_events,
     get_session_events,
     get_session_metadata,
