@@ -67,24 +67,24 @@ function processData(
     columnLabels: string[],
     rowLabels: string[]
 ): {
-    matrix: { [key: number]: { [key: number]: number } }
+    matrix: number[][]
     maxOverall: number
     minOverall: number
-    columnsAggregations: { [key: number]: number }
-    rowsAggregations: { [key: number]: number }
+    columnsAggregations: number[]
+    rowsAggregations: number[]
     maxRowAggregation: number
     minRowAggregation: number
     maxColumnAggregation: number
     minColumnAggregation: number
     overallValue: number
 } {
-    const matrix: { [key: number]: { [key: number]: number } } = {}
+    const matrix: number[][] = []
     let maxOverall = 0
     let minOverall = Infinity
 
     // Initialize matrix
     for (let row = 0; row < rowLabels.length; row++) {
-        matrix[row] = {}
+        matrix[row] = []
         for (let column = 0; column < columnLabels.length; column++) {
             matrix[row][column] = 0
         }
@@ -106,7 +106,7 @@ function processData(
     }
 
     // Calculate columns aggregations
-    const columnsAggregations: { [key: number]: number } = Array.from({ length: columnLabels.length }, () => 0)
+    const columnsAggregations: number[] = Array.from({ length: columnLabels.length }, () => 0)
     if (results?.columnAggregations) {
         results.columnAggregations.forEach((result: HeatMapColumnAggregationResult) => {
             columnsAggregations[result.column] = result.value
@@ -114,7 +114,7 @@ function processData(
     }
 
     // Calculate rows aggregations
-    const rowsAggregations: { [key: number]: number } = Array.from({ length: rowLabels.length }, () => 0)
+    const rowsAggregations: number[] = Array.from({ length: rowLabels.length }, () => 0)
     if (results?.rowAggregations) {
         results.rowAggregations.forEach((result: HeatMapRowAggregationResult) => {
             const adjustedDay = (result.row - weekStartDay) % rowLabels.length
@@ -122,10 +122,10 @@ function processData(
         })
     }
 
-    const maxRowAggregation = Math.max(...Object.values(columnsAggregations), 0)
-    const minRowAggregation = Math.min(...Object.values(columnsAggregations), Infinity)
-    const maxColumnAggregation = Math.max(...Object.values(rowsAggregations), 0)
-    const minColumnAggregation = Math.min(...Object.values(rowsAggregations), Infinity)
+    const maxRowAggregation = Math.max(...rowsAggregations, 0)
+    const minRowAggregation = Math.min(...rowsAggregations, Infinity)
+    const maxColumnAggregation = Math.max(...columnsAggregations, 0)
+    const minColumnAggregation = Math.min(...columnsAggregations, Infinity)
     const overallValue = results?.allAggregations ?? 0
 
     return {

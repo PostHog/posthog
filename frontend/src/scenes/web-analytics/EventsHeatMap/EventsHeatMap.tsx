@@ -33,16 +33,16 @@ interface EventsHeatMapProps {
 }
 
 interface ProcessedData {
-    matrix: { [key: number]: { [key: number]: number } }
+    matrix: number[][]
+    columnsAggregations: number[]
+    rowsAggregations: number[]
+    overallValue: number
     maxOverall: number
     minOverall: number
-    columnsAggregations: { [key: number]: number }
-    rowsAggregations: { [key: number]: number }
     maxRowAggregation: number
     minRowAggregation: number
     maxColumnAggregation: number
     minColumnAggregation: number
-    overallValue: number
 }
 
 export function EventsHeatMap({
@@ -212,7 +212,7 @@ function renderOverallCell(
 }
 
 function renderColumnsAggregationCells(
-    columnsAggregations: { [key: number]: number },
+    columnsAggregations: number[],
     columnLabels: string[],
     maxRowAggregation: number,
     minRowAggregation: number,
@@ -259,7 +259,7 @@ function renderRowsAggregationCell(
 
 function renderDataCells(
     columnLabels: string[],
-    rowData: { [key: number]: number },
+    rowData: number[],
     maxValue: number,
     minValue: number,
     rowLabel: string,
