@@ -1,7 +1,7 @@
 import { LemonTag } from '@posthog/lemon-ui'
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { IconFire } from 'lib/lemon-ui/icons'
-import { Children, cloneElement } from 'react'
+import { Children } from 'react'
 import { ExceptionAttributes } from 'scenes/error-tracking/utils'
 
 export interface ExceptionAttributesIconListProps {
@@ -11,14 +11,14 @@ export interface ExceptionAttributesIconListProps {
 export function ExceptionAttributesIconList({ attributes }: ExceptionAttributesIconListProps): JSX.Element {
     return (
         <div className="flex items-center gap-2">
-            <PropertyWrapper title="Unhandled" visible={!attributes.handled}>
-                <IconFire color="red" />
+            <PropertyWrapper title="Unhandled" visible={attributes.handled}>
+                <IconFire className="text-sm text-secondary" />
             </PropertyWrapper>
             <PropertyWrapper title={attributes.browser} visible={!!attributes.browser}>
-                <PropertyIcon property="$browser" value={attributes.browser} />
+                <PropertyIcon property="$browser" value={attributes.browser} className="text-sm text-secondary" />
             </PropertyWrapper>
             <PropertyWrapper title={attributes.os} visible={!!attributes.os}>
-                <PropertyIcon property="$os" value={attributes.os} />
+                <PropertyIcon property="$os" value={attributes.os} className="text-sm text-secondary" />
             </PropertyWrapper>
         </div>
     )
@@ -38,7 +38,7 @@ export function PropertyWrapper({
     }
     return (
         <LemonTag>
-            {cloneElement(children, { ...children.props, className: 'text-sm text-secondary' })}{' '}
+            {children}
             <span className="capitalize">{title}</span>
         </LemonTag>
     )
