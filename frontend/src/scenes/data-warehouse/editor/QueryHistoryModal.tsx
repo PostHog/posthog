@@ -93,6 +93,7 @@ function QueryDiffViewer({ before, after }: QueryDiffViewerProps): JSX.Element {
                 options={{
                     renderOverviewRuler: false,
                     scrollBeyondLastLine: false,
+                    renderGutterMenu: false,
                 }}
             />
         </div>
