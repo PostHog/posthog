@@ -1,7 +1,7 @@
 from typing import Any
 import pytest
 
-from ee.session_recordings.session_summary.intput_data import (
+from ee.session_recordings.session_summary.input_data import (
     _skip_event_without_context,
     _get_improved_elements_chain_texts,
     _get_improved_elements_chain_elements,
