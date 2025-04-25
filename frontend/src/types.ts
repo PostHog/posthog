@@ -5296,6 +5296,7 @@ export interface ProjectTreeRef {
     /**
      * The ref of the file system object.
      * Usually the "id" or "short_id" of the database object.
+     * "null" opens the "new" page
      */
-    ref: string
+    ref: string | null
 }
