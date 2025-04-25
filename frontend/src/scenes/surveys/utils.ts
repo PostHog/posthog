@@ -125,7 +125,7 @@ function escapeSqlString(value: string): string {
  *
  * @param filters - The answer filters to convert to HogQL expressions
  * @param survey - The survey object (needed to access question IDs)
- * @returns A HogQL expression string that can be used in queries
+ * @returns A HogQL expression string that can be used in queries. If there are no filters, it returns an empty string.
  *
  * TODO: Consider leveraging the backend query builder instead of duplicating this logic in the frontend.
  * ClickHouse has powerful functions like match(), multiIf(), etc. that could be used more effectively.

@@ -47,7 +47,12 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
     const { resetDefaultSidebarWidth } = useActions(editorSizingLogic)
     const { setActiveTab } = useActions(editorSidebarLogic)
 
-    const isMaterializedView = !!editingView?.status
+    const isMaterializedView =
+        !!editingView?.status &&
+        (editingView.status === 'Completed' ||
+            editingView.status === 'Failed' ||
+            editingView.status === 'Cancelled' ||
+            editingView.status === 'Running')
 
     const AddSQLVariablesButton = useMemo(
         () => (
@@ -111,7 +116,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                     </span>
                 </div>
             )}
-            <div className="flex flex-row justify-start align-center w-full pl-2 pr-2 bg-white border-b">
+            <div className="flex flex-row justify-start align-center w-full pl-2 pr-2 bg-white dark:bg-black border-b">
                 <RunButton />
                 <LemonDivider vertical />
                 {editingView && (
