@@ -368,8 +368,8 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                                 : displayName
                                                         }
                                                         tooltipPlacement="right"
-                                                        disabled={isEmptyFolder}
-                                                        tabIndex={isEmptyFolder ? -1 : 0}
+                                                        disabled={isEmptyFolder || !!item.disabledReason}
+                                                        tabIndex={isEmptyFolder || !!item.disabledReason ? -1 : 0}
                                                         buttonWrapper={
                                                             enableDragAndDrop && isItemDraggable?.(item) && item.id
                                                                 ? (button) => (

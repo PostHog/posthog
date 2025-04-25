@@ -50,7 +50,7 @@ import type {
     QueryStatus,
     RecordingOrder,
     RecordingsQuery,
-    RevenueTrackingConfig,
+    RevenueAnalyticsConfig,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
@@ -597,7 +597,7 @@ export interface TeamType extends TeamBasicType {
     live_events_token: string
     cookieless_server_hash_mode?: CookielessServerHashMode
     human_friendly_comparison_periods: boolean
-    revenue_tracking_config: RevenueTrackingConfig
+    revenue_analytics_config: RevenueAnalyticsConfig
     onboarding_tasks?: {
         [key: string]: ActivationTaskStatus
     }
@@ -5296,6 +5296,7 @@ export interface ProjectTreeRef {
     /**
      * The ref of the file system object.
      * Usually the "id" or "short_id" of the database object.
+     * "null" opens the "new" page
      */
-    ref: string
+    ref: string | null
 }

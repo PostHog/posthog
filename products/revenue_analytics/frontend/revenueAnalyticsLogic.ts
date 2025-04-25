@@ -12,8 +12,8 @@ import {
     EventsNode,
     NodeKind,
     QuerySchema,
+    RevenueAnalyticsEventItem,
     RevenueAnalyticsTopCustomersGroupBy,
-    RevenueTrackingEventItem,
 } from '~/queries/schema/schema-general'
 import { Breadcrumb, ChartDisplayType, ExternalDataSource, InsightLogicProps, PropertyMathType } from '~/types'
 
@@ -70,7 +70,7 @@ const wrapWithDataTableNodeIfNeeded = (
 
 export type LineOrTableChart = 'line' | 'table'
 export type RawRevenueSources = {
-    events: RevenueTrackingEventItem[]
+    events: RevenueAnalyticsEventItem[]
     dataWarehouseSources: ExternalDataSource[]
 }
 
