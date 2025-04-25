@@ -1,8 +1,7 @@
-import {Hub } from "../types"
-import { RestrictionType, TokenRestrictionManager } from "./token-restriction-manager"
-import { LRUTokenRestrictionCache } from "./db/token-restriction-cache"
-// Are thes correct?
 import { Redis } from 'ioredis'
+
+import { Hub } from '../types'
+import { RestrictionType, TokenRestrictionManager } from './token-restriction-manager'
 
 jest.mock('./db/redis', () => {
     const redisClient = {
@@ -32,7 +31,7 @@ describe('TokenRestrictionManager', () => {
             exec: jest.fn().mockResolvedValue([
                 [null, null],
                 [null, null],
-                [null, null]
+                [null, null],
             ]),
         }
 
@@ -40,12 +39,10 @@ describe('TokenRestrictionManager', () => {
         redisClient = await redisPool.acquire()
         redisClient.pipeline = jest.fn().mockReturnValue(pipelineMock)
 
-
         hub = {
             USE_DYNAMIC_TOKEN_RESTRICTION_CONFIG: true,
             redisPool: require('./db/redis').createRedisPool(),
         } as unknown as Hub
-
 
         tokenRestrictionManager = new TokenRestrictionManager(hub as Hub, {
             cacheSize: 1000,
@@ -57,7 +54,7 @@ describe('TokenRestrictionManager', () => {
         jest.clearAllMocks()
     })
 
-    afterEach(async () => {
+    afterEach(() => {
         jest.clearAllMocks()
         tokenRestrictionManager.clear()
     })
@@ -93,18 +90,16 @@ describe('TokenRestrictionManager', () => {
         })
 
         it('does nothing if all cache values are already present', async () => {
-            // Spy on the cache get methods
             const dropEventSpy = jest.spyOn(tokenRestrictionManager['dropEventCache'], 'get')
             const skipPersonSpy = jest.spyOn(tokenRestrictionManager['skipPersonCache'], 'get')
             const forceOverflowSpy = jest.spyOn(tokenRestrictionManager['forceOverflowCache'], 'get')
-            
-            // Setup the spies to return values
+
             dropEventSpy.mockReturnValue('value')
             skipPersonSpy.mockReturnValue('value')
             forceOverflowSpy.mockReturnValue('value')
-            
+
             await tokenRestrictionManager.primeRestrictionsCache('token')
-            
+
             expect(dropEventSpy).toHaveBeenCalledWith('token')
             expect(skipPersonSpy).toHaveBeenCalledWith('token')
             expect(forceOverflowSpy).toHaveBeenCalledWith('token')
@@ -112,30 +107,28 @@ describe('TokenRestrictionManager', () => {
         })
 
         it('fetches cache values from Redis and stores them', async () => {
-            // Setup the pipeline exec response - it returns an array of [error, value] pairs
             pipelineMock.exec.mockResolvedValue([
                 [null, 'drop-value'],
                 [null, 'skip-value'],
-                [null, 'overflow-value']
+                [null, 'overflow-value'],
             ])
-            
-            // Spy on cache set methods
+
             const dropEventSpy = jest.spyOn(tokenRestrictionManager['dropEventCache'], 'set')
             const skipPersonSpy = jest.spyOn(tokenRestrictionManager['skipPersonCache'], 'set')
             const forceOverflowSpy = jest.spyOn(tokenRestrictionManager['forceOverflowCache'], 'set')
-            
+
             await tokenRestrictionManager.primeRestrictionsCache('token')
-            
+
             expect(hub.redisPool.acquire).toHaveBeenCalled()
             expect(pipelineMock.get).toHaveBeenCalledTimes(3)
             expect(pipelineMock.get).toHaveBeenCalledWith(`${RestrictionType.DROP_EVENT}:token`)
             expect(pipelineMock.get).toHaveBeenCalledWith(`${RestrictionType.SKIP_PERSON}:token`)
             expect(pipelineMock.get).toHaveBeenCalledWith(`${RestrictionType.FORCE_OVERFLOW}:token`)
-            
+
             expect(dropEventSpy).toHaveBeenCalledWith('token', 'drop-value')
             expect(skipPersonSpy).toHaveBeenCalledWith('token', 'skip-value')
             expect(forceOverflowSpy).toHaveBeenCalledWith('token', 'overflow-value')
-            
+
             expect(hub.redisPool.release).toHaveBeenCalledWith(redisClient)
         })
 
@@ -143,15 +136,15 @@ describe('TokenRestrictionManager', () => {
             pipelineMock.exec.mockResolvedValue([
                 [null, null],
                 [null, null],
-                [null, null]
+                [null, null],
             ])
-            
+
             const dropEventSpy = jest.spyOn(tokenRestrictionManager['dropEventCache'], 'set')
             const skipPersonSpy = jest.spyOn(tokenRestrictionManager['skipPersonCache'], 'set')
             const forceOverflowSpy = jest.spyOn(tokenRestrictionManager['forceOverflowCache'], 'set')
-            
+
             await tokenRestrictionManager.primeRestrictionsCache('token')
-            
+
             expect(dropEventSpy).toHaveBeenCalledWith('token', null)
             expect(skipPersonSpy).toHaveBeenCalledWith('token', null)
             expect(forceOverflowSpy).toHaveBeenCalledWith('token', null)
@@ -160,26 +153,29 @@ describe('TokenRestrictionManager', () => {
         it('handles Redis pipeline errors gracefully', async () => {
             const error = new Error('Redis error')
             pipelineMock.exec.mockRejectedValue(error)
-            
+
             await tokenRestrictionManager.primeRestrictionsCache('token')
-            
-            // Make sure we still release the client even on error
+
             expect(hub.redisPool.release).toHaveBeenCalledWith(redisClient)
         })
     })
-    
+
     describe('shouldDropEvent', () => {
         it('returns false if token is not provided', () => {
             expect(tokenRestrictionManager.shouldDropEvent()).toBe(false)
         })
 
         it('returns true if token is in static drop list', () => {
-            tokenRestrictionManager = new TokenRestrictionManager(hub as Hub, {dropEventTokens: ['static-drop-token']})
+            tokenRestrictionManager = new TokenRestrictionManager(hub as Hub, {
+                dropEventTokens: ['static-drop-token'],
+            })
             expect(tokenRestrictionManager.shouldDropEvent('static-drop-token')).toBe(true)
         })
 
         it('returns true if token:distinctId is in static drop list', () => {
-            tokenRestrictionManager = new TokenRestrictionManager(hub as Hub, {dropEventTokens: ['static-drop-token:123']})
+            tokenRestrictionManager = new TokenRestrictionManager(hub as Hub, {
+                dropEventTokens: ['static-drop-token:123'],
+            })
             expect(tokenRestrictionManager.shouldDropEvent('static-drop-token', '123')).toBe(true)
         })
 
@@ -219,12 +215,16 @@ describe('TokenRestrictionManager', () => {
         })
 
         it('returns true if token is in static skip list', () => {
-            tokenRestrictionManager = new TokenRestrictionManager(hub as Hub, {skipPersonTokens: ['static-skip-token']})
+            tokenRestrictionManager = new TokenRestrictionManager(hub as Hub, {
+                skipPersonTokens: ['static-skip-token'],
+            })
             expect(tokenRestrictionManager.shouldSkipPerson('static-skip-token')).toBe(true)
         })
 
         it('returns true if token:distinctId is in static skip list', () => {
-            tokenRestrictionManager = new TokenRestrictionManager(hub as Hub, {skipPersonTokens: ['static-skip-token:123']})
+            tokenRestrictionManager = new TokenRestrictionManager(hub as Hub, {
+                skipPersonTokens: ['static-skip-token:123'],
+            })
             expect(tokenRestrictionManager.shouldSkipPerson('static-skip-token', '123')).toBe(true)
         })
 
@@ -265,12 +265,16 @@ describe('TokenRestrictionManager', () => {
         })
 
         it('returns true if token is in static overflow list', () => {
-            tokenRestrictionManager = new TokenRestrictionManager(hub as Hub, {forceOverflowTokens: ['static-overflow-token']})
+            tokenRestrictionManager = new TokenRestrictionManager(hub as Hub, {
+                forceOverflowTokens: ['static-overflow-token'],
+            })
             expect(tokenRestrictionManager.shouldForceOverflow('static-overflow-token')).toBe(true)
         })
 
         it('returns true if token:distinctId is in static overflow list', () => {
-            tokenRestrictionManager = new TokenRestrictionManager(hub as Hub, {forceOverflowTokens: ['static-overflow-token:123']})
+            tokenRestrictionManager = new TokenRestrictionManager(hub as Hub, {
+                forceOverflowTokens: ['static-overflow-token:123'],
+            })
             expect(tokenRestrictionManager.shouldForceOverflow('static-overflow-token', '123')).toBe(true)
         })
 
@@ -314,9 +318,9 @@ describe('TokenRestrictionManager', () => {
             const dropEventSpy = jest.spyOn(tokenRestrictionManager['dropEventCache'], 'clear')
             const skipPersonSpy = jest.spyOn(tokenRestrictionManager['skipPersonCache'], 'clear')
             const forceOverflowSpy = jest.spyOn(tokenRestrictionManager['forceOverflowCache'], 'clear')
-            
+
             tokenRestrictionManager.clear()
-            
+
             expect(dropEventSpy).toHaveBeenCalled()
             expect(skipPersonSpy).toHaveBeenCalled()
             expect(forceOverflowSpy).toHaveBeenCalled()

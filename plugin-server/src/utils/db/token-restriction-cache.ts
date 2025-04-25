@@ -13,12 +13,11 @@ const tokenRestrictionCacheRequests = new Counter({
     labelNames: ['cache_type', 'result'] as const,
 })
 
-export class LRUTokenRestrictionCache implements TokenRestrictionCache{
+export class LRUTokenRestrictionCache implements TokenRestrictionCache {
     private hitCache: LRU<string, string>
     private missCache: LRU<string, boolean>
 
-    constructor(options: {hitCacheSize?: number; missCacheSize?: number; ttlMs?: number }) {
-        // NICKS TODO review these
+    constructor(options: { hitCacheSize?: number; missCacheSize?: number; ttlMs?: number }) {
         const { hitCacheSize = 1000, missCacheSize = 1000, ttlMs = 1000 * 60 * 60 * 24 } = options
 
         this.hitCache = new LRU<string, string>({
@@ -35,16 +34,16 @@ export class LRUTokenRestrictionCache implements TokenRestrictionCache{
     get(key: string): string | null | undefined {
         const cachedValue = this.hitCache.get(key)
         if (cachedValue !== undefined) {
-            tokenRestrictionCacheRequests.inc({cache_type: 'token-restriction-cache', result: 'hit'})
+            tokenRestrictionCacheRequests.inc({ cache_type: 'token-restriction-cache', result: 'hit' })
             return cachedValue
         }
 
         if (this.missCache.has(key)) {
-            tokenRestrictionCacheRequests.inc({cache_type: 'token-restriction-cache', result: 'hit'})
+            tokenRestrictionCacheRequests.inc({ cache_type: 'token-restriction-cache', result: 'hit' })
             return null
         }
 
-        tokenRestrictionCacheRequests.inc({cache_type: 'token-restriction-cache', result: 'miss'})
+        tokenRestrictionCacheRequests.inc({ cache_type: 'token-restriction-cache', result: 'miss' })
         return undefined
     }
 
