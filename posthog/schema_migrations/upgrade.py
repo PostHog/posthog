@@ -16,10 +16,8 @@ def upgrade_node(node: Any) -> Any:
 
     if isinstance(node, dict):
         if "kind" in node and node["kind"] in LATEST_VERSIONS:
-            kind = node["kind"]
-
-            while (v := node.get("v", 1)) < LATEST_VERSIONS[kind]:
-                node = MIGRATIONS[kind][v](deepcopy(node))
+            while (v := (node.get("v") or 1)) < LATEST_VERSIONS[node["kind"]]:
+                node = MIGRATIONS[node["kind"]][v](deepcopy(node))
 
         for key, value in list(node.items()):
             node[key] = upgrade_node(value)
