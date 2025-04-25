@@ -474,7 +474,7 @@ def enqueue_recordings_that_match_playlist_filters() -> None:
             filters__isnull=False,
         )
         .filter(Q(last_counted_at__isnull=True) | Q(last_counted_at__lt=timezone.now() - timedelta(hours=2)))
-        .order_by(F("last_counted_at").asc(nulls_first=True))[:30000]
+        .order_by(F("last_counted_at").asc(nulls_first=True))[: settings.PLAYLIST_COUNTER_PROCESSING_PLAYLISTS_LIMIT]
     )
 
     for playlist in all_playlists:
