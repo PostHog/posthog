@@ -524,7 +524,9 @@ export class DB {
             'personPropertiesSize'
         )
 
-        if (rows.length > 0) {
+        // the returned value from the DB query can be NULL if the record
+        // specified by the team and distinct ID inputs doesn't exist
+        if (rows.length > 0 && typeof rows[0].total_props_bytes === 'number') {
             return rows[0].total_props_bytes
         }
 
