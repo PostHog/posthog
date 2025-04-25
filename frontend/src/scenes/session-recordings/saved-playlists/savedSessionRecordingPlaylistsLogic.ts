@@ -110,6 +110,15 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
                 const response = await api.recordings.listPlaylists(toParams(params))
                 breakpoint()
 
+                //If you want to load a saved filter via GET param, you can do it like this: ?savedFilterId=bndnfkxL
+                const { savedFilterId } = router.values.searchParams
+                if (savedFilterId) {
+                    const filter = response.results.find((x) => x.short_id === savedFilterId)?.filters
+                    if (filter) {
+                        router.actions.push(urls.replay(ReplayTabs.Home, filter))
+                    }
+                }
+
                 return response
             },
         },
