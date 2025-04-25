@@ -1,6 +1,6 @@
 import { shuffle } from 'd3'
 import { createParser } from 'eventsource-parser'
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 import api, { ApiError } from 'lib/api'
@@ -36,17 +36,11 @@ import {
     isVisualizationMessage,
 } from './utils'
 
-export interface MaxLogicProps {
-    conversationId?: string
-}
-
 export type MessageStatus = 'loading' | 'completed' | 'error'
 
 export type ThreadMessage = RootAssistantMessage & {
     status: MessageStatus
 }
-
-type PartialConversation = Pick<Conversation, 'id'> & Partial<Omit<Conversation, 'id'>>
 
 const FAILURE_MESSAGE: FailureMessage & ThreadMessage = {
     type: AssistantMessageType.Failure,
@@ -63,8 +57,7 @@ const HEADLINES = [
 
 export const maxLogic = kea<maxLogicType>([
     path(['scenes', 'max', 'maxLogic']),
-    props({} as MaxLogicProps),
-    key(({ conversationId }) => conversationId || 'new-conversation'),
+
     connect(() => ({
         values: [
             projectLogic,
@@ -73,10 +66,13 @@ export const maxLogic = kea<maxLogicType>([
             ['dataProcessingAccepted', 'toolMap', 'tools'],
             maxSettingsLogic,
             ['coreMemory'],
+            sidePanelStateLogic,
+            ['sidePanelOpen'],
             // Actions are lazy-loaded. In order to display their names in the UI, we're loading them here.
             actionsModel({ params: 'include_count=1' }),
             ['actions'],
         ],
+        actions: [sidePanelStateLogic, ['openSidePanel']],
     })),
 
     actions({
@@ -93,7 +89,8 @@ export const maxLogic = kea<maxLogicType>([
         shuffleVisibleSuggestions: true,
         retryLastMessage: true,
         scrollThreadToBottom: true,
-        setConversation: (conversation: PartialConversation) => ({ conversation }),
+        setConversationId: (conversationId: string) => ({ conversationId }),
+        setConversation: (conversation: Conversation) => ({ conversation }),
         setTraceId: (traceId: string) => ({ traceId }),
         resetThread: true,
         cleanThread: true,
@@ -112,11 +109,17 @@ export const maxLogic = kea<maxLogicType>([
             },
         ],
 
+        conversationId: [
+            null as string | null,
+            {
+                setConversationId: (_, { conversationId }) => conversationId,
+                cleanThread: () => null,
+                setConversation: (_, { conversation }) => conversation.id,
+            },
+        ],
+
         conversation: [
-            (_, props) =>
-                (props.conversationId
-                    ? { id: props.conversationId, title: 'New chat' }
-                    : null) as PartialConversation | null,
+            null as Conversation | null,
             {
                 setConversation: (_, { conversation }) => conversation,
                 cleanThread: () => null,
@@ -420,22 +423,15 @@ export const maxLogic = kea<maxLogicType>([
         },
 
         loadConversationHistorySuccess: ({ conversationHistory }) => {
-            const lookupId = values?.conversation?.id
-            if (lookupId) {
-                const conversation = conversationHistory.find((c) => c.id === lookupId)
-                if (conversation) {
-                    actions.loadThread(conversation)
-                }
+            const conversation = conversationHistory.find((c) => c.id === values.conversationId)
+            if (conversation) {
+                actions.loadThread(conversation)
             }
         },
 
         loadThread: ({ conversation }) => {
             actions.setThread(conversation.messages.map((message) => ({ ...message, status: 'completed' })))
-            if (conversation.status === ConversationStatus.Idle) {
-                actions.setThreadLoading(false)
-            } else {
-                actions.setThreadLoading(true)
-            }
+            actions.setThreadLoading(conversation.status !== ConversationStatus.Idle)
         },
     })),
 
@@ -482,6 +478,7 @@ export const maxLogic = kea<maxLogicType>([
                 return threadGrouped
             },
         ],
+
         formPending: [
             (s) => [s.threadRaw],
             (threadRaw) => {
@@ -492,7 +489,9 @@ export const maxLogic = kea<maxLogicType>([
                 return false
             },
         ],
+
         inputDisabled: [(s) => [s.formPending], (formPending) => formPending],
+
         submissionDisabledReason: [
             (s) => [s.formPending, s.dataProcessingAccepted, s.question, s.threadLoading],
             (formPending, dataProcessingAccepted, question, threadLoading): string | undefined => {
@@ -515,11 +514,14 @@ export const maxLogic = kea<maxLogicType>([
                 return undefined
             },
         ],
+
         toolHeadlines: [(s) => [s.tools], (tools) => tools.map((tool) => tool.introOverride?.headline).filter(Boolean)],
+
         toolDescriptions: [
             (s) => [s.tools],
             (tools) => tools.map((tool) => tool.introOverride?.description).filter(Boolean),
         ],
+
         headline: [
             (s) => [s.conversation, s.toolHeadlines],
             (conversation, toolHeadlines) => {
@@ -536,6 +538,7 @@ export const maxLogic = kea<maxLogicType>([
             // It's important we use a deep equality check for inputs, because we want to avoid needless re-renders
             { equalityCheck: objectsEqual },
         ],
+
         description: [
             (s) => [s.toolDescriptions],
             (toolDescriptions): string => {
@@ -545,6 +548,13 @@ export const maxLogic = kea<maxLogicType>([
             },
             // It's important we use a deep equality check for inputs, because we want to avoid needless re-renders
             { equalityCheck: objectsEqual },
+        ],
+
+        conversationLoading: [
+            (s) => [s.conversationHistory, s.conversationHistoryLoading, s.conversationId],
+            (conversationHistory, conversationHistoryLoading, conversationId) => {
+                return !conversationHistory.length && conversationHistoryLoading && conversationId
+            },
         ],
     }),
 
@@ -572,7 +582,11 @@ export const maxLogic = kea<maxLogicType>([
          * When the URL contains a conversation ID, we want to make that conversation the active one.
          */
         '*': (_, search, hashParams) => {
-            if (hashParams.panel === SidePanelTab.Max && hashParams.conversation) {
+            if (hashParams.conversation) {
+                if (!values.sidePanelOpen) {
+                    actions.openSidePanel(SidePanelTab.Max)
+                }
+
                 const conversation = values.conversationHistory.find((c) => c.id === hashParams.conversation)
 
                 if (conversation) {
@@ -582,7 +596,11 @@ export const maxLogic = kea<maxLogicType>([
                     actions.loadThread(conversation)
                 } else if (values.conversationHistoryLoading) {
                     // Conversation hasn't been loaded yet, so we handle it in `loadConversationHistory`
-                    actions.setConversation({ id: search.conversation, title: 'Chat' })
+                    actions.setConversationId(search.conversation)
+                }
+
+                if (values.conversationHistoryVisible) {
+                    actions.toggleConversationHistory(false)
                 }
             }
         },

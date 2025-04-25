@@ -1,5 +1,5 @@
 import { IconArrowLeft, IconClockRewind, IconExternal, IconGear, IconPlus, IconSidePanel } from '@posthog/icons'
-import { BindLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -54,11 +54,7 @@ export function Max(): JSX.Element {
         )
     }
 
-    return (
-        <BindLogic logic={maxLogic} props={{ conversationId: null }}>
-            <MaxInstance />
-        </BindLogic>
-    )
+    return <MaxInstance />
 }
 
 export interface MaxInstanceProps {
