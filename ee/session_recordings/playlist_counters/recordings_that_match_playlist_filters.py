@@ -299,7 +299,7 @@ def try_to_store_error_count(playlist_short_id: str | None) -> None:
         else:
             existing_value = {}
 
-        error_date = datetime.now()
+        error_date = timezone.now()
         value_to_set = json.dumps(
             {
                 **existing_value,
@@ -316,11 +316,24 @@ def try_to_store_error_count(playlist_short_id: str | None) -> None:
         pass
 
 
+def safe_seconds_difference(dt1: datetime, dt2: datetime) -> int:
+    """
+    Returns the difference in seconds between two datetime objects,
+    making sure they are timezone-aware. or python will complain
+    """
+    if dt1.tzinfo is None:
+        dt1 = timezone.make_aware(dt1)
+    if dt2.tzinfo is None:
+        dt2 = timezone.make_aware(dt2)
+    return int((dt1 - dt2).total_seconds())
+
+
 def should_skip_task(existing_value: dict[str, Any], playlist_filters: dict[str, Any]) -> bool:
     # if we have results from the last hour we don't need to run the query
     if existing_value.get("refreshed_at"):
         last_refreshed_at = datetime.fromisoformat(existing_value["refreshed_at"])
-        seconds_since_refresh = int((datetime.now() - last_refreshed_at).total_seconds())
+        # Make last_refreshed_at timezone-aware if it isn't already
+        seconds_since_refresh = safe_seconds_difference(timezone.now(), last_refreshed_at)
 
         if seconds_since_refresh <= settings.PLAYLIST_COUNTER_PROCESSING_COOLDOWN_SECONDS:
             REPLAY_TEAM_PLAYLIST_COUNT_SKIPPED.labels(reason="cooldown").inc()
@@ -329,7 +342,7 @@ def should_skip_task(existing_value: dict[str, Any], playlist_filters: dict[str,
     # don't retry for a while if we're getting errors
     if existing_value.get("errored_at"):
         last_errored_at = datetime.fromisoformat(existing_value["errored_at"])
-        seconds_since_refresh = int((datetime.now() - last_errored_at).total_seconds())
+        seconds_since_refresh = safe_seconds_difference(timezone.now(), last_errored_at)
 
         if seconds_since_refresh <= settings.PLAYLIST_COUNTER_PROCESSING_COOLDOWN_SECONDS:
             REPLAY_TEAM_PLAYLIST_COUNT_SKIPPED.labels(reason="error_cooldown").inc()
@@ -383,14 +396,28 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
                 return
 
             query = convert_filters_to_recordings_query(playlist)
+
+            # if we already have some data and the query is sorted by start_time,
+            # we can query only new recordings, to (hopefully) reduce load on CH
+            has_existing_data = existing_value.get("refreshed_at", None)
+            can_query_only_new_recordings = query.order == "start_time"
+
+            if has_existing_data and can_query_only_new_recordings:
+                query.date_from = existing_value["refreshed_at"]
+
             (recordings, more_recordings_available, _) = list_recordings_from_query(
                 query, user=None, team=playlist.team
             )
 
-            counted_at_date = datetime.now()
+            counted_at_date = timezone.now()
+            new_session_ids = [r.session_id for r in recordings]
+
+            if has_existing_data and can_query_only_new_recordings:
+                new_session_ids = new_session_ids + existing_value["session_ids"]
+
             value_to_set = json.dumps(
                 {
-                    "session_ids": [r.session_id for r in recordings],
+                    "session_ids": new_session_ids,
                     "has_more": more_recordings_available,
                     "previous_ids": existing_value.get("session_ids", None),
                     "refreshed_at": counted_at_date.isoformat(),

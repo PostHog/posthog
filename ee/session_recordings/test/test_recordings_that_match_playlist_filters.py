@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import timedelta
 import json
 from unittest import mock
 from unittest.mock import MagicMock, call, patch
@@ -136,7 +136,7 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest):
             name="test",
             filters={},
         )
-        existing_value = {"refreshed_at": (datetime.now() - timedelta(seconds=3600)).isoformat()}
+        existing_value = {"refreshed_at": (timezone.now() - timedelta(seconds=3600)).isoformat()}
         self.redis_client.set(f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}", json.dumps(existing_value))
 
         count_recordings_that_match_playlist_filters(playlist.id)
@@ -377,7 +377,7 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest):
             name="test",
             filters={},
         )
-        existing_value = {"error_count": 4, "errored_at": (datetime.now() - timedelta(seconds=3600)).isoformat()}
+        existing_value = {"error_count": 4, "errored_at": (timezone.now() - timedelta(seconds=3600)).isoformat()}
         self.redis_client.set(f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}", json.dumps(existing_value))
 
         count_recordings_that_match_playlist_filters(playlist.id)
@@ -388,3 +388,58 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest):
         assert self.redis_client.get(f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}").decode("utf-8") == json.dumps(
             existing_value
         )
+
+    @patch("posthoganalytics.capture_exception")
+    @patch("ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query")
+    def test_count_recordings_only_queries_since_last_count(
+        self, mock_list_recordings_from_query: MagicMock, mock_capture_exception: MagicMock
+    ):
+        # Given a playlist that was previously counted
+        playlist = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="test",
+            filters={"date_from": "-21d"},
+        )
+
+        last_count_time = timezone.now() - timedelta(hours=2)
+        existing_sessions = ["session1", "session2"]
+
+        self.redis_client.set(
+            f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}",
+            json.dumps(
+                {
+                    "session_ids": existing_sessions,
+                    "has_more": False,
+                    "refreshed_at": last_count_time.isoformat(),
+                    "error_count": 0,
+                    "errored_at": None,
+                }
+            ),
+        )
+
+        # When we run the count task again
+        mock_list_recordings_from_query.return_value = (
+            [
+                SessionRecording.objects.create(
+                    team=self.team,
+                    session_id="session3",
+                )
+            ],
+            False,
+            None,
+        )
+
+        count_recordings_that_match_playlist_filters(playlist.id)
+
+        # Then we should only query for recordings since the last count
+        recordings_query = mock_list_recordings_from_query.call_args[0][0]
+        assert recordings_query.date_from == last_count_time.isoformat()
+        assert recordings_query.date_to is None
+
+        # And the results should be merged with the existing sessions
+        stored_data = json.loads(self.redis_client.get(f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}"))
+        assert stored_data["session_ids"] == ["session3", "session1", "session2"]
+        assert stored_data["has_more"] is False
+        assert stored_data["refreshed_at"] > last_count_time.isoformat()
+
+        mock_capture_exception.assert_not_called()
