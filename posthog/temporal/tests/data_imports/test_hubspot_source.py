@@ -29,7 +29,10 @@ from unittest.mock import patch
 import pytest
 import structlog
 
-from posthog.temporal.data_imports.pipelines.hubspot import _get_properties_str
+from posthog.temporal.data_imports.pipelines.hubspot import (
+    PROPERTY_LENGTH_LIMIT,
+    _get_properties_str,
+)
 from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
 from posthog.warehouse.models import ExternalDataSchema, ExternalDataSource
 
@@ -197,7 +200,7 @@ def test_hubspot_get_properties_url_length_limit():
 
             # Verify the returned string is truncated
             assert len(props_str.split(",")) < len(long_props)
-            assert len(urllib.parse.quote(props_str)) <= 16_000
+            assert len(urllib.parse.quote(props_str)) <= PROPERTY_LENGTH_LIMIT
 
             # check that the warning was logged
             mock_warning.assert_called_once()

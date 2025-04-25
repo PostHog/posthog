@@ -43,6 +43,8 @@ from .settings import (
 
 THubspotObjectType = Literal["company", "contact", "deal", "ticket", "quote"]
 
+PROPERTY_LENGTH_LIMIT = 16_000  # This has been empirically determined to be the rough limit for the Hubspot API
+
 
 @dlt.source(name="hubspot")
 def hubspot(
@@ -110,11 +112,10 @@ def _get_properties_str(
         custom_props = [prop for prop in all_props if not prop.startswith("hs_")]
         props = props + [c for c in custom_props if c not in props]
 
-    PROP_LENGTH_LIMIT = 16_000  # This has been empirically determined to be the rough limit for the Hubspot API
     props_str = ""
     for i, prop in enumerate(props):
         len_url_encoded_props = len(urllib.parse.quote(f"{props_str},{prop}"))
-        if len_url_encoded_props > PROP_LENGTH_LIMIT:
+        if len_url_encoded_props > PROPERTY_LENGTH_LIMIT:
             logger.warning(
                 "Your request to Hubspot is too long to process. "
                 f"Therefore, only the first {i} of {len(props)} custom properties will be requested."
