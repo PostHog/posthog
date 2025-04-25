@@ -276,10 +276,12 @@ export const InlineEditField = ({
     value,
     handleSubmit,
     style,
+    className,
 }: {
     value: string
     style?: CSSProperties
     handleSubmit: (value: string) => void
+    className?: string
 }): JSX.Element => {
     const inputRef = useRef<HTMLInputElement>(null)
 
@@ -303,7 +305,10 @@ export const InlineEditField = ({
     }
 
     return (
-        <form onSubmit={onSubmit} className={buttonVariants({ menuItem: true, size: 'base', sideActionLeft: true })}>
+        <form
+            onSubmit={onSubmit}
+            className={cn(buttonVariants({ menuItem: true, size: 'base', sideActionLeft: true }), className)}
+        >
             {/* Spacer to offset button padding */}
             <div
                 className="h-full bg-transparent pointer-events-none flex-shrink-0 transition-[width] duration-50"

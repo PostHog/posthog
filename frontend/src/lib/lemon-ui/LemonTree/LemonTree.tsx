@@ -17,8 +17,6 @@ import {
     useState,
 } from 'react'
 
-import { escapePath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
-
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '../../ui/ContextMenu/ContextMenu'
 import { SideAction } from '../LemonButton'
 import { Spinner } from '../Spinner/Spinner'
@@ -366,6 +364,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                                 onItemNameChange?.(item, value)
                                                                 disableKeyboardInput?.(false)
                                                             }}
+                                                            className="z-1"
                                                             style={{
                                                                 paddingLeft: 'var(--button-padding-x-base)',
                                                                 width:
@@ -787,10 +786,6 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
         const [disableKeyboardInput, setDisableKeyboardInput] = useState(false)
         const [typeAheadBuffer, setTypeAheadBuffer] = useState<string>('')
 
-        const escapeId = useCallback((id: string) => {
-            return CSS.escape(id)
-        }, [])
-
         // Add new state for type-ahead
         function collectAllFolderIds(items: TreeDataItem[] | TreeDataItem, allIds: string[]): void {
             if (items instanceof Array) {
@@ -933,7 +928,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                 if (match) {
                     // Focus the matching element
                     const element = containerRef.current?.querySelector(
-                        `[data-id="${escapeId(match.id)}"]`
+                        `[data-id="${CSS.escape(match.id)}"]`
                     ) as HTMLElement
                     focusElement(element)
 
@@ -1025,7 +1020,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             // Timeout to ensure the element is rendered
             setTimeout(() => {
                 // Now use the escaped ID in your query
-                const element = containerRef.current?.querySelector(`[data-id="${escapeId(id)}"]`) as HTMLElement
+                const element = containerRef.current?.querySelector(`[data-id=${CSS.escape(id)}]`) as HTMLElement
                 // Focus the element
                 focusElement(element)
             }, 100)
@@ -1077,7 +1072,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                                 const nextItem = visibleItems[currentIndex + 1]
                                 if (nextItem) {
                                     const element = containerRef.current?.querySelector(
-                                        `[data-id="${escapeId(nextItem.id)}"]`
+                                        `[data-id="${CSS.escape(nextItem.id)}"]`
                                     ) as HTMLElement
                                     focusElement(element)
                                 }
@@ -1131,13 +1126,13 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                                 onSetExpandedItemIds &&
                                     onSetExpandedItemIds(expandedItemIdsState.filter((id) => id !== parentItem.id))
                                 const element = containerRef.current?.querySelector(
-                                    `[data-id="${escapeId(parentItem.id)}"]`
+                                    `[data-id="${CSS.escape(parentItem.id)}"]`
                                 ) as HTMLElement
                                 focusElement(element)
                             } else {
                                 // If parent is already collapsed, just focus it
                                 const element = containerRef.current?.querySelector(
-                                    `[data-id="${escapeId(parentItem.id)}"]`
+                                    `[data-id="${CSS.escape(parentItem.id)}"]`
                                 ) as HTMLElement
                                 focusElement(element)
                             }
@@ -1154,7 +1149,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                             const firstItem = visibleItems.find((item) => item.type !== 'separator')
                             if (firstItem) {
                                 const element = containerRef.current?.querySelector(
-                                    `[data-id="${escapeId(firstItem.id)}"]`
+                                    `[data-id="${CSS.escape(firstItem.id)}"]`
                                 ) as HTMLElement
                                 focusElement(element)
                             }
@@ -1162,7 +1157,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                             const nextItem = findNextFocusableItem(visibleItems, currentIndex, 1)
                             if (nextItem) {
                                 const element = containerRef.current?.querySelector(
-                                    `[data-id="${escapeId(nextItem.id)}"]`
+                                    `[data-id="${CSS.escape(nextItem.id)}"]`
                                 ) as HTMLElement
                                 focusElement(element)
                             }
@@ -1179,7 +1174,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                             const lastItem = [...visibleItems].reverse().find((item) => item.type !== 'separator')
                             if (lastItem) {
                                 const element = containerRef.current?.querySelector(
-                                    `[data-id="${escapeId(lastItem.id)}"]`
+                                    `[data-id="${CSS.escape(lastItem.id)}"]`
                                 ) as HTMLElement
                                 focusElement(element)
                             }
@@ -1187,7 +1182,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                             const prevItem = findNextFocusableItem(visibleItems, currentIndex, -1)
                             if (prevItem) {
                                 const element = containerRef.current?.querySelector(
-                                    `[data-id="${escapeId(prevItem.id)}"]`
+                                    `[data-id="${CSS.escape(prevItem.id)}"]`
                                 ) as HTMLElement
                                 focusElement(element)
                             }
@@ -1202,7 +1197,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                         const visibleItems = getVisibleItems()
                         if (visibleItems.length > 0) {
                             const element = containerRef.current?.querySelector(
-                                `[data-id="${escapeId(visibleItems[0].id)}"]`
+                                `[data-id="${CSS.escape(visibleItems[0].id)}"]`
                             ) as HTMLElement
                             focusElement(element)
                         }
@@ -1216,7 +1211,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                         const visibleItems = getVisibleItems()
                         if (visibleItems.length > 0) {
                             const element = containerRef.current?.querySelector(
-                                `[data-id="${escapeId(visibleItems[visibleItems.length - 1].id)}"]`
+                                `[data-id="${CSS.escape(visibleItems[visibleItems.length - 1].id)}"]`
                             ) as HTMLElement
                             focusElement(element)
                         }
@@ -1290,7 +1285,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             }
 
             // Find the element
-            const element = containerRef.current.querySelector(`[data-id="${escapeId(elementId)}"]`)
+            const element = containerRef.current.querySelector(`[data-id="${CSS.escape(elementId)}"]`)
             if (!element) {
                 return
             }
@@ -1323,7 +1318,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             // On prop change, focus the default selected item if content hasn't been focused
             if (defaultSelectedFolderOrNodeId && !hasFocusedContent) {
                 const element = containerRef.current?.querySelector(
-                    `[data-id="${escapeId(defaultSelectedFolderOrNodeId)}"]`
+                    `[data-id="${CSS.escape(defaultSelectedFolderOrNodeId)}"]`
                 ) as HTMLElement
                 focusElement(element)
                 setSelectedId(defaultSelectedFolderOrNodeId)
@@ -1334,7 +1329,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             getVisibleItems,
             focusItem: (id: string) => {
                 // Find and focus the actual DOM element
-                const element = containerRef.current?.querySelector(`[data-id="${escapeId(id)}"]`) as HTMLElement
+                const element = containerRef.current?.querySelector(`[data-id="${CSS.escape(id)}"]`) as HTMLElement
                 focusElement(element)
             },
         }))
@@ -1430,30 +1425,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                             showFolderActiveState={showFolderActiveState}
                             itemSideAction={itemSideAction}
                             isItemEditing={isItemEditing}
-                            onItemNameChange={(item, name) => {
-                                onItemNameChange?.(item, name)
-
-                                // We want to focus the element after the name changes
-                                // So we need to build a new id with the new name and pass it to focusElementFromId
-
-                                // Allow / to be used in the name
-                                const escapedName = escapePath(name)
-                                // Split the path into an array
-                                const paths = splitPath(item.id)
-
-                                // Note: For project tree, we have ids like `project-folder/Unfiled/new name \/ test \/ 2`, the last part is the name
-                                // so we need to build a new id with the new name and pass it to focusElementFromId
-                                const newId =
-                                    paths.length > 1
-                                        ? // grab everything before the last / and add the new name
-                                          paths.slice(0, -1).join('/') + '/' + escapedName
-                                        : // if the id does not include a /, we can just use the new name
-                                          name
-
-                                if (newId) {
-                                    focusElementFromId(newId)
-                                }
-                            }}
+                            onItemNameChange={onItemNameChange}
                             className="deprecated-space-y-px p-1"
                             isItemDraggable={isItemDraggable}
                             isItemDroppable={isItemDroppable}
