@@ -12,9 +12,9 @@ from posthog.session_recordings.queries.session_replay_events import DEFAULT_EVE
 
 def load_session_recording_events_from_csv(
     file_path: str, extra_fields: list[str]
-) -> tuple[list[str], list[tuple[str | datetime, ...]]]:
+) -> tuple[list[str], list[tuple[str | datetime | list[str], ...]]]:
     rows = []
-    headers_indexes = {
+    headers_indexes: dict[str, dict[str, Any]] = {
         "event": {"regex": r"event", "indexes": [], "multi_column": False},
         "timestamp": {"regex": r"timestamp", "indexes": [], "multi_column": False},
         "elements_chain_href": {"regex": r"elements_chain_href", "indexes": [], "multi_column": False},
@@ -36,7 +36,10 @@ def load_session_recording_events_from_csv(
         raw_headers = next(reader)
         for i, raw_header in enumerate(raw_headers):
             for header_metadata in headers_indexes.values():
-                if re.match(header_metadata["regex"], raw_header):
+                regex_to_match = header_metadata.get("regex")
+                if not regex_to_match:
+                    raise ValueError(f"Header {raw_header} has no regex to match")
+                if re.match(regex_to_match, raw_header):
                     header_metadata["indexes"].append(i)
                     break
         # Ensure all headers have indexes
@@ -46,7 +49,7 @@ def load_session_recording_events_from_csv(
         # Read rows
         timestamp_index = get_column_index(list(headers_indexes.keys()), "timestamp")
         for raw_row in reader:
-            row = []
+            row: list[str | datetime | list[str]] = []
             for header_metadata in headers_indexes.values():
                 if len(header_metadata["indexes"]) == 1:
                     raw_row_value = raw_row[header_metadata["indexes"][0]]
