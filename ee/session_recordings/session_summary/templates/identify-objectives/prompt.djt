@@ -117,7 +117,7 @@ AGGRESSIVELY consolidate similar segments.
 
 After segmenting the timeline, identify the most significant actions within each segment. Prioritize conversion-related events and critical interruptions.
 
-2.1. Key Action Prioritization:
+3.1. Key Action Prioritization:
 
 - HIGH PRIORITY:
   - Conversion events (sign-ups, subscriptions, purchases, plan upgrades/downgrades, etc.)
@@ -130,13 +130,13 @@ After segmenting the timeline, identify the most significant actions within each
 - LOW PRIORITY:
   - Standard navigation or routine interactions
 
-2.3. Key Actions Guidelines:
+3.2. Key Actions Guidelines:
 
 - Include the most important key actions per segment that follow the prioritization above.
 - Actions must be listed in chronological order within each segment
 - Each key action could be a successful user action/sequence of actions (`"failure": false`) or a failure/sequence of failures (`"failure": true`) based on the guidelines below, and should be an actual event from the timeline.
 
-2.4. Failure Identification Guidelines (CRITICAL):
+3.3. Failure Identification Guidelines (CRITICAL):
 
 - NEVER flag as failures:
   ✗ Normal page navigation
@@ -167,7 +167,7 @@ After segmenting the timeline, identify the most significant actions within each
   - Explain impact on user flow and business goals
   - Provide more detail than regular action descriptions, including potential business impact
 
-2.5. Action Description Guidelines:
+3.4. Action Description Guidelines:
 
 - For conversion events: Clearly indicate the conversion type and outcome
 - For conversion-blocking failures: Explain what prevented completion (technical error, UX issue, etc.) and any user recovery attempts
@@ -182,7 +182,7 @@ After segmenting the timeline, identify the most significant actions within each
 
 AGGRESSIVELY consolidate repeated similar actions, multi-step processes, or related errors. Include up to 3 key actions for short segments or up to 5 actions for long segments. If you need to include more than 5 actions - consolidate events.
 
-2.1. Combine into ONE key action:
+4.1. Combine into ONE key action:
 
 - Multiple errors representing the same interruption in the user flow (e.g., "Multiple login failures due to server errors" vs listing each individual error)
 - Setup/execution sequences (e.g., "Published content" vs "clicked publish", "confirmed dialog", etc.)
@@ -195,7 +195,7 @@ AGGRESSIVELY consolidate repeated similar actions, multi-step processes, or rela
 
 For each segment, determine a segment outcome:
 
-3.1. Segment Success Status:
+5.1. Segment Success Status:
 
 - Mark a segment as successful (`success: true`) when:
   - User completed a meaningful conversion or successfully used a feature (use `Key Action Prioritization` guide to identify the most important actions)
@@ -207,7 +207,7 @@ For each segment, determine a segment outcome:
   - User showed signs of frustration (rageclicks, repeated attempts, abandonment)
   - User experienced a flow interruption that impeded progress
 
-3.2. Segment Summary:
+5.2. Segment Summary:
 
 - Write a brief summary incorporating both user actions AND any issues encountered (either technical or flow related)
 - The summary should be concise and to the point (1-2 short sentences up to 15 words in total)
@@ -217,19 +217,19 @@ For each segment, determine a segment outcome:
 
 After analyzing the chronological segments and key actions, evaluate the overall user journey and session outcome.
 
-3.1. Journey Flow Analysis:
+6.1. Journey Flow Analysis:
 
 - Identify the user's entry context (referring to `start_url` from the session metadata) and exit context by the last URL in the session
 - Track progression through the application, noting transitions between major sections
 - Highlight any non-linear patterns (going back to previous areas, abandoning flows)
 
-3.2. Critical Issues Impact:
+6.2. Critical Issues Impact:
 
 - Identify technical or flow-related errors that directly impacted conversion attempts or feature interactions
 - Note any user experience issues that may have contributed to abandoned conversions
 - Assess whether errors led to session abandonment
 
-3.3. Session Success Determination:
+6.3. Session Success Determination:
 
 - Mark the session as successful (true) when:
   - User completed one or more significant conversion actions
@@ -240,7 +240,7 @@ After analyzing the chronological segments and key actions, evaluate the overall
   - Technical errors prevented completion of conversion attempts
   - Session ended abruptly during an important process
 
-3.4. Final Outcome Description:
+6.4. Final Outcome Description:
 
 - Provide a short focused summary (1-2 sentences, up to 30 words in total) of the overall user journey
 - Emphasize conversion successes or failures
@@ -250,7 +250,7 @@ After analyzing the chronological segments and key actions, evaluate the overall
 
 Before finalizing your analysis, verify:
 
-4.1. Chronological Segment Consistency:
+7.1. Chronological Segment Consistency:
 
 - Are segments properly sequential with no time gaps or overlaps?
 - Does each segment represent a distinct phase in the user journey?
@@ -258,7 +258,7 @@ Before finalizing your analysis, verify:
 - Do segment boundaries align with natural transitions in user activity?
 - Is the entire session timeline covered from first to last event?
 
-4.2. Key Action Prioritization Verification:
+7.2. Key Action Prioritization Verification:
 
 - Are conversion events and conversion-blocking failures properly identified in each segment?
 - Are critical interruptions to user flow highlighted appropriately?
@@ -268,21 +268,21 @@ Before finalizing your analysis, verify:
 - Have you properly distinguished between technical failures and user experience failures?
 - Have you aggressively consolidated similar actions and errors?
 
-4.3. Conversion Focus Verification:
+7.3. Conversion Focus Verification:
 
 - Have all potential conversion opportunities been identified?
 - Is the analysis of conversion success/failure accurate?
 - Are the reasons for conversion abandonment clearly identified?
 - Have you distinguished between user choice and technical blockers for failed conversions?
 
-4.4. Narrative Flow Verification:
+7.4. Narrative Flow Verification:
 
 - Does the sequence of segments tell a coherent story of the user's session?
 - Is the progression from segment to segment logical and easy to follow?
 - Does the session outcome assessment match the evidence from the key actions?
 - Are critical issues properly connected to their impact on the user journey?
 
-4.5. Balanced Coverage Verification:
+7.5. Balanced Coverage Verification:
 
 - Is the entire session represented proportionally in the segments and key actions?
 - Are early, middle, and late events given appropriate attention?
