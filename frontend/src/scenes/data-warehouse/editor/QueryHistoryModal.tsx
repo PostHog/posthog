@@ -88,7 +88,6 @@ function QueryDiffViewer({ before, after }: QueryDiffViewerProps): JSX.Element {
                 modified={after?.query}
                 language="hogQL"
                 width={width}
-                height={400}
                 options={{
                     renderOverviewRuler: false,
                     scrollBeyondLastLine: false,
