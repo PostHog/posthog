@@ -227,7 +227,7 @@ def _calculate_segment_duration(
 
 def _calculate_segment_events_count(
     start_event_id: str, end_event_id: str, event_index_index: int, simplified_events_mapping: dict[str, list[Any]]
-) -> int:
+) -> tuple[int, float]:
     start_event, end_event = simplified_events_mapping[start_event_id], simplified_events_mapping[end_event_id]
     events_count = end_event[event_index_index] - start_event[event_index_index]
     events_percentage = events_count / len(simplified_events_mapping)
@@ -235,19 +235,19 @@ def _calculate_segment_events_count(
 
 
 def _calculate_segment_meta(
-    raw_segment: RawSegmentSerializer,
+    raw_segment: dict[str, Any],
     session_metadata: SessionSummaryMetadata,
     timestamp_index: int,
     event_index_index: int,
     simplified_events_mapping: dict[str, list[Any]],
-    raw_key_actions: list[RawSegmentKeyActionsSerializer] | None,
+    raw_key_actions: list[dict[str, Any]] | None,
     session_id: str,
 ) -> SegmentMetaSerializer:
     # Find first and the last event in the segment
     segment_index = raw_segment.get("index")
     start_event_id = raw_segment.get("start_event_id")
     end_event_id = raw_segment.get("end_event_id")
-    segment_meta_data = {}
+    segment_meta_data: dict[str, Any] = {}
     if segment_index is None or start_event_id is None or end_event_id is None:
         # If segment index, start, or end event ID aren't generated yet - return empty meta
         return SegmentMetaSerializer(data=segment_meta_data)
@@ -263,9 +263,9 @@ def _calculate_segment_meta(
     # The goal is to fill it later from the key actions (better have part of the data than none)
     if duration <= 0:
         segment_meta_data["duration"] = 0
-        segment_meta_data["duration_percentage"] = 0
+        segment_meta_data["duration_percentage"] = 0.0
         segment_meta_data["events_count"] = 0
-        segment_meta_data["events_percentage"] = 0
+        segment_meta_data["events_percentage"] = 0.0
     else:
         segment_meta_data["duration"] = duration
         segment_meta_data["duration_percentage"] = duration_percentage
