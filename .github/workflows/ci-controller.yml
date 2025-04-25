@@ -29,16 +29,16 @@ jobs:
 
             - name: 'CI Frontend'
               if: steps.filter.outputs.frontend == 'true'
-              uses: ./.github/workflow/ci-frontend.yml
+              uses: ./.github/workflows/ci-frontend.yml
 
             - name: Backend CI
               if: steps.filter.outputs.backend == 'true'
-              uses: ./.github/workflow/ci-backend.yml
+              uses: ./.github/workflows/ci-backend.yml
 
             - name: Rust CI
               if: steps.filter.outputs.rust == 'true'
-              uses: ./.github/workflow/ci-rust.yml
+              uses: ./.github/workflows/ci-rust.yml
 
             - name: Plugin Server CI
               if: needs.changes.outputs.plugin-server == 'true'
-              uses: ./.github/workflow/ci-plugin-server.yml
+              uses: ./.github/workflows/ci-plugin-server.yml
