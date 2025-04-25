@@ -5,6 +5,7 @@ use crate::{
     error::VmError,
     stl::{stl_map, NativeFunction},
     vm::HogVM,
+    HogLiteral, HogValue,
 };
 
 /// The read-only context for the virtual machine. Defines
@@ -81,5 +82,32 @@ impl<'a> ExecutionContext<'a> {
 
     pub fn to_vm(&self) -> Result<HogVM, VmError> {
         HogVM::new(self)
+    }
+
+    pub fn execute_native_function_call(
+        &self,
+        vm: &mut HogVM,
+        name: &str,
+        args: Vec<HogValue>,
+    ) -> Result<(), VmError> {
+        let Some(native_fn) = self.native_fns.get(name) else {
+            return Err(VmError::UnknownFunction(name.to_string()));
+        };
+        let result = native_fn(vm, args);
+        match result {
+            Ok(HogValue::Ref(ptr)) => vm.push_stack(ptr),
+            Ok(HogValue::Lit(lit)) => match lit {
+                // Object types returned from native functions get heap allocated, just like ones declared
+                // in the bytecode, whereas other types are pushed directly onto the stack. The purity of
+                // native functions means we don't need to worry about memory management for these values,
+                // beyond what the heap internally manages.
+                HogLiteral::Array(_) | HogLiteral::Object(_) => {
+                    let ptr = vm.heap.emplace(lit)?;
+                    vm.push_stack(ptr)
+                }
+                _ => vm.push_stack(lit),
+            },
+            Err(e) => Err(e),
+        }
     }
 }

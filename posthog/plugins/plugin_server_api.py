@@ -48,14 +48,6 @@ def reload_integrations_on_workers(team_id: int, integration_ids: list[int]):
     publish_message("reload-integrations", {"teamId": team_id, "integrationIds": integration_ids})
 
 
-def reset_available_product_features_cache_on_workers(organization_id: str):
-    logger.info(f"Resetting available product features cache for organization {organization_id} on workers")
-    publish_message(
-        "reset-available-product-features-cache",
-        {"organization_id": organization_id},
-    )
-
-
 def populate_plugin_capabilities_on_workers(plugin_id: str):
     logger.info(f"Populating plugin capabilities for plugin {plugin_id} on workers")
     publish_message("populate-plugin-capabilities", {"plugin_id": plugin_id})

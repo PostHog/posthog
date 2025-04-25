@@ -12,9 +12,11 @@ import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
+import { SaveUnder } from 'lib/components/SaveUnder/SaveUnder'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -22,6 +24,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { useState } from 'react'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
@@ -83,6 +86,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
     // other logics
     useMountedLogic(insightCommandLogic(insightProps))
+    const { featureFlags } = useValues(featureFlagLogic)
     const { tags: allExistingTags } = useValues(tagsModel)
     const { user } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
@@ -182,6 +186,19 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 <AddToDashboard insight={insight} setOpenModal={setAddToDashboardModalOpenModal} />
                             </>
                         )}
+
+                        {/* For new insights, show where we're saving them */}
+                        {featureFlags[FEATURE_FLAGS.TREE_VIEW] && !insight.short_id ? (
+                            <SaveUnder
+                                defaultFolder="Unfiled/Insights"
+                                type="insight"
+                                onSave={() => {
+                                    // Save as normally. The "lastNewOperation" system will move it to the right folder.
+                                    saveInsight()
+                                }}
+                            />
+                        ) : null}
+
                         {insightMode !== ItemMode.Edit ? (
                             canEditInsight && (
                                 <AccessControlledLemonButton

@@ -16,7 +16,6 @@ from posthog.hogql.database.models import (
     FieldOrTable,
 )
 from posthog.hogql.database.schema.exchange_rate import (
-    DEFAULT_CURRENCY,
     revenue_expression_for_events,
     revenue_where_expr_for_events,
     convert_currency_call,
@@ -139,11 +138,10 @@ class RevenueAnalyticsRevenueView(SavedQuery):
 
     @staticmethod
     def for_events(team: "Team") -> list["RevenueAnalyticsRevenueView"]:
-        if len(team.revenue_config.events or []) == 0:
+        if len(team.revenue_analytics_config.events) == 0:
             return []
 
-        revenue_config = team.revenue_config
-        base_currency = (revenue_config.baseCurrency or DEFAULT_CURRENCY).value
+        revenue_config = team.revenue_analytics_config
 
         query = ast.SelectQuery(
             select=[
@@ -160,7 +158,7 @@ class RevenueAnalyticsRevenueView(SavedQuery):
                 is_zero_decimal(ast.Field(chain=["original_currency"])),
                 amount_decimal_divider(),
                 adjusted_original_amount(),
-                ast.Alias(alias="currency", expr=ast.Constant(value=base_currency)),
+                ast.Alias(alias="currency", expr=ast.Constant(value=revenue_config.base_currency)),
                 ast.Alias(
                     alias="amount",
                     expr=revenue_expression_for_events(
@@ -228,9 +226,7 @@ class RevenueAnalyticsRevenueView(SavedQuery):
     @staticmethod
     def __for_charge_table(source: ExternalDataSource, table: DataWarehouseTable) -> "RevenueAnalyticsRevenueView":
         team = table.team
-        revenue_config = team.revenue_config
-
-        base_currency = (revenue_config.baseCurrency or DEFAULT_CURRENCY).value
+        revenue_config = team.revenue_analytics_config
 
         # Even though we need a string query for the view,
         # using an ast allows us to comment what each field means, and
@@ -271,7 +267,7 @@ class RevenueAnalyticsRevenueView(SavedQuery):
                 # Compute the adjusted original amount, which is the original amount divided by the amount decimal divider
                 adjusted_original_amount(),
                 # Expose the base/converted currency, which is the base currency from the team's revenue config
-                ast.Alias(alias="currency", expr=ast.Constant(value=base_currency)),
+                ast.Alias(alias="currency", expr=ast.Constant(value=revenue_config.base_currency)),
                 # Convert the adjusted original amount to the base currency
                 ast.Alias(
                     alias="amount",
