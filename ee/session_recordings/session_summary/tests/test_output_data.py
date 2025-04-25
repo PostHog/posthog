@@ -312,19 +312,38 @@ class TestEnrichRawSessionSummary:
     ) -> None:
         # Remove URL from mapping
         mock_url_mapping_reversed.pop("url_1")
-        session_id = "test_session"
-        with pytest.raises(
-            ValueError, match=f"Full URL not found for event_id abcd1234 when summarizing session_id {session_id}"
-        ):
-            enrich_raw_session_summary_with_meta(
-                mock_raw_session_summary,
-                mock_events_mapping,
-                mock_events_columns,
-                mock_url_mapping_reversed,
-                mock_window_mapping_reversed,
-                mock_session_metadata,
-                session_id,
-            )
+        # Some events are missing URLs (for example, coming from BE, like Python SDK ones), so enrichment should not fail
+        enrich_raw_session_summary_with_meta(
+            mock_raw_session_summary,
+            mock_events_mapping,
+            mock_events_columns,
+            mock_url_mapping_reversed,
+            mock_window_mapping_reversed,
+            mock_session_metadata,
+            "test_session",
+        )
+
+    def test_enrich_raw_session_summary_missing_window_id(
+        self,
+        mock_raw_session_summary: RawSessionSummarySerializer,
+        mock_events_mapping: dict[str, list[Any]],
+        mock_events_columns: list[str],
+        mock_url_mapping_reversed: dict[str, str],
+        mock_window_mapping_reversed: dict[str, str],
+        mock_session_metadata: SessionSummaryMetadata,
+    ) -> None:
+        # Remove window ID from mapping
+        mock_window_mapping_reversed.pop("window_1")
+        # Some events are missing window IDs (for example, coming from BE, like Python SDK ones), so enrichment should not fail
+        enrich_raw_session_summary_with_meta(
+            mock_raw_session_summary,
+            mock_events_mapping,
+            mock_events_columns,
+            mock_url_mapping_reversed,
+            mock_window_mapping_reversed,
+            mock_session_metadata,
+            "test_session",
+        )
 
     def test_enrich_raw_session_summary_chronological_sorting(
         self,

@@ -429,13 +429,8 @@ def enrich_raw_session_summary_with_meta(
                 enriched_event["milliseconds_since_start"] = ms_since_start
             # Add full URL of the event page
             current_url = event_mapping_data[current_url_index]
-            full_current_url = url_mapping_reversed.get(current_url)
-            if not full_current_url:
-                # Each processed event should have a full URL stored in the mapping
-                raise ValueError(
-                    f"Full URL not found for event_id {event_id} when summarizing session_id {session_id}: {event_mapping_data}"
-                )
-            enriched_event["current_url"] = full_current_url
+            # Some events (like Python SDK ones) could have no URL (as it's added by the web library)
+            enriched_event["current_url"] = url_mapping_reversed.get(current_url)
             # Add window ID of the event
             window_id = event_mapping_data[window_id_index]
             # Some events (like Python SDK ones) could have no window ID (as it's added by the web library)

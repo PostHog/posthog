@@ -77,17 +77,20 @@ class SessionSummaryPromptData:
                 if event_window_id is None:
                     # Non-browser events (like Python SDK ones) could have no window ID
                     simplified_event[window_id_index] = None
+                elif not isinstance(event_window_id, str):
+                    raise ValueError(f"Window ID is not a string: {event_window_id}")
                 else:
-                    # If the window ID is present - it should be a string -> simplify it
-                    if not isinstance(event_window_id, str):
-                        raise ValueError(f"Window ID is not a string: {event_window_id}")
                     simplified_event[window_id_index] = self._simplify_window_id(event_window_id)
             # Simplify URLs
             if current_url_index is not None:
                 event_current_url = event[current_url_index]
-                if not isinstance(event_current_url, str):
+                if event_current_url is None:
+                    # Non-browser events (like Python SDK ones) could have no URL
+                    simplified_event[current_url_index] = None
+                elif not isinstance(event_current_url, str):
                     raise ValueError(f"Current URL is not a string: {event_current_url}")
-                simplified_event[current_url_index] = self._simplify_url(event_current_url)
+                else:
+                    simplified_event[current_url_index] = self._simplify_url(event_current_url)
             # Generate a hex for each event to make sure we can identify repeated events, and identify the event
             event_id = self._get_deterministic_hex(simplified_event)
             if event_id in simplified_events_mapping:
