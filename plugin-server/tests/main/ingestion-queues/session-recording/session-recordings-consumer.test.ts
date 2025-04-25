@@ -682,7 +682,6 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
         describe('lag reporting', () => {
             it('should return the latest offsets', async () => {
                 mockConsumer.queryWatermarkOffsets.mockImplementation((_topic, partition, _timeout) => {
-                    console.log('queryWatermarkOffsets', _topic, partition, _timeout)
                     return Promise.resolve([0, 1000 + partition])
                 })
 
