@@ -158,17 +158,15 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         return base
 
     def _order_by_clause(self) -> list[ast.OrderExpr]:
-        # KLUDGE: we only need a default here because mypy is silly
-        order_by = self._query.order or "start_time"
-        if order_by.startswith("-"):
-            order_by = order_by[1:]
-            direction = "ASC"
-        else:
-            direction = "DESC"
+        order = self._query.order or "start_time"
+        is_desc = not order.startswith("-")
+        field = order.lstrip("-")
+
+        direction: Literal["ASC", "DESC"] = "DESC" if is_desc else "ASC"
 
         return [
             ast.OrderExpr(
-                expr=parse_expr(order_by),
+                expr=parse_expr(field),
                 order=cast(Literal["ASC", "DESC"], direction),
             )
         ]
