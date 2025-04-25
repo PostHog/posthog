@@ -147,12 +147,12 @@ export function EventsHeatMap({
                             {renderRowsAggregationCell(
                                 {
                                     value: rowsAggregations[yIndex],
-                                    maxValue: maxColumnAggregation,
-                                    minValue: minColumnAggregation,
+                                    maxValue: maxRowAggregation,
+                                    minValue: minRowAggregation,
                                 },
                                 rowLabel,
                                 fontSize,
-                                columnAggregationColor,
+                                rowAggregationColor,
                                 allAggregationsLabel,
                                 getRowAggregationTooltip
                             )}
@@ -167,10 +167,10 @@ export function EventsHeatMap({
                         {renderColumnsAggregationCells(
                             columnsAggregations,
                             columnLabels,
-                            maxRowAggregation,
-                            minRowAggregation,
+                            maxColumnAggregation,
+                            minColumnAggregation,
                             fontSize,
-                            rowAggregationColor,
+                            columnAggregationColor,
                             allAggregationsLabel,
                             getColumnAggregationTooltip
                         )}
@@ -214,8 +214,8 @@ function renderOverallCell(
 function renderColumnsAggregationCells(
     columnsAggregations: number[],
     columnLabels: string[],
-    maxRowAggregation: number,
-    minRowAggregation: number,
+    maxColumnAggregation: number,
+    minColumnAggregation: number,
     fontSize: number,
     bg: string,
     allAggregationsLabel: string,
@@ -227,8 +227,8 @@ function renderColumnsAggregationCells(
                 fontSize={fontSize}
                 values={{
                     value: columnsAggregations[index],
-                    maxValue: maxRowAggregation,
-                    minValue: minRowAggregation,
+                    maxValue: maxColumnAggregation,
+                    minValue: minColumnAggregation,
                 }}
                 bg={bg}
                 tooltip={getColumnAggregationTooltip(allAggregationsLabel, columnLabel, columnsAggregations[index])}
