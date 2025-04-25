@@ -328,8 +328,7 @@ export class EventPipelineRunner {
         sentToDql = true
     ): Promise<ReturnType<Step>> {
         const timer = new Date()
-
-        return new Promise((resolve, reject) => {
+        return (async () => {
             const sendToSentry = false
             const timeout = timeoutGuard(
                 `Event pipeline step stalled. Timeout warning after ${this.hub.PIPELINE_STEP_STALLED_LOG_TIMEOUT} sec! step=${step.name} team_id=${teamId} distinct_id=${this.originalEvent.distinct_id}`,
@@ -343,15 +342,15 @@ export class EventPipelineRunner {
                 sendToSentry
             )
             try {
-                const result = step(...args)
+                const result = await step(...args)
                 pipelineStepMsSummary.labels(step.name).observe(Date.now() - timer.getTime())
-                resolve(result)
+                return result
             } catch (err) {
-                reject(this.handleError(err, step.name, args, teamId, sentToDql))
+                await this.handleError(err, step.name, args, teamId, sentToDql)
             } finally {
                 clearTimeout(timeout)
             }
-        })
+        })()
     }
 
     private shouldRetry(err: any): boolean {

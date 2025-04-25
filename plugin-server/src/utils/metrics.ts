@@ -25,13 +25,11 @@ export function instrument<T>(
     runQuery: () => Promise<T>
 ): Promise<T> {
     const timer = new Date()
-    try {
-        return runQuery()
-    } finally {
+    return runQuery().finally(() => {
         instrumentedFnSummary
             .labels(options.metricName, String(options.key ?? 'null'), String(options.tag ?? 'null'))
             .observe(Date.now() - timer.getTime())
-    }
+    })
 }
 
 const instrumentedFnSummary = new Summary({
