@@ -11852,8 +11852,8 @@
                     "type": "boolean"
                 },
                 "order": {
-                    "$ref": "#/definitions/RecordingOrder",
-                    "default": "start_time"
+                    "default": "start_time",
+                    "type": "string"
                 }
             },
             "required": ["duration", "filter_group"],
@@ -15802,8 +15802,8 @@
                     "default": "AND"
                 },
                 "order": {
-                    "$ref": "#/definitions/RecordingOrder",
-                    "default": "start_time"
+                    "default": "start_time",
+                    "type": "string"
                 },
                 "person_uuid": {
                     "type": "string"

@@ -12,7 +12,6 @@ from posthog.schema import (
     RecordingsQuery,
     PropertyGroupFilterValue,
     FilterLogicalOperator,
-    RecordingOrder,
 )
 
 import structlog
@@ -160,8 +159,13 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
 
     def _order_by_clause(self) -> list[ast.OrderExpr]:
         # KLUDGE: we only need a default here because mypy is silly
-        order_by = self._query.order.value if self._query.order else RecordingOrder.START_TIME
-        direction = self._query.direction or "DESC"
+        order_by = self._query.order or "start_time"
+        if order_by.startswith("-"):
+            order_by = order_by[1:]
+            direction = "ASC"
+        else:
+            direction = "DESC"
+
         return [
             ast.OrderExpr(
                 expr=parse_expr(order_by),
