@@ -76,9 +76,8 @@ export function EventsHeatMap({
             return
         }
 
-        const thresholdFontSizeValue = thresholdFontSize?.(width)
-        if (thresholdFontSizeValue) {
-            setFontSize(thresholdFontSizeValue)
+        if (thresholdFontSize) {
+            setFontSize(thresholdFontSize(width))
         }
     }, [elementRef, width, thresholdFontSize])
 
