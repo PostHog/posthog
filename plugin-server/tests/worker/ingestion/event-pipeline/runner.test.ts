@@ -56,6 +56,7 @@ class TestEventPipelineRunner extends EventPipelineRunner {
 const team = {
     id: 2,
     person_processing_opt_out: false,
+    api_token: 'token1',
 } as Team
 
 const pipelineEvent: PipelineEvent = {
