@@ -182,7 +182,7 @@ def stream_llm_session_summary(
     except (openai.APIError, openai.APITimeoutError, openai.RateLimitError) as err:
         logger.exception(f"Error streaming LLM for session_id {session_id} by user {user.pk}: {err}")
         raise ExceptionToRetry()
-    # Final validation of accumulated content (to decide if to retry the whole streamor not)
+    # Final validation of accumulated content (to decide if to retry the whole stream or not)
     try:
         if accumulated_usage:
             TOKENS_IN_PROMPT_HISTOGRAM.observe(accumulated_usage)
