@@ -363,7 +363,7 @@ async fn send_internal_event(
         }
         if let Some(group_id) = assignment.user_group_id {
             event
-                .insert_prop("assigned_to_team", group_id.to_string())
+                .insert_prop("assigned_to_user_group", group_id.to_string())
                 .expect("Strings are serializable");
         }
     }
