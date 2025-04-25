@@ -821,8 +821,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             replay_summarizer.stream_recording_summary(), content_type=ServerSentEventRenderer.media_type
         )
 
-
-        # TODO: Calculate timings for stream. Track summarization events.
+        # TODO: Calculate timings for stream, and track summarization events (follow-up)
         # timings_header = summary.pop("timings_header", None)
         # cache.set(cache_key, summary, timeout=30)
         # posthoganalytics.capture(event="session summarized", distinct_id=str(user.distinct_id), properties=summary)
