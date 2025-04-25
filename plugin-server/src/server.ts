@@ -281,16 +281,19 @@ export class PluginServer {
 
             this.pubsub = new PubSub(this.hub, {
                 [hub.PLUGINS_RELOAD_PUBSUB_CHANNEL]: async () => {
-                    logger.info('⚡', 'Reloading plugins!')
+                    logger.info('⚡', '[PubSub] Reloading plugins!')
                     await reloadPlugins(hub)
                 },
                 'reset-available-product-features-cache': (message) => {
-                    hub.teamManager.orgAvailableFeaturesChanged(parseJSON(message).organization_id)
+                    const { organizationId } = parseJSON(message) as { organizationId: string }
+                    logger.info('⚡', '[PubSub] Resetting available product features cache!', { organizationId })
+                    hub.teamManager.orgAvailableFeaturesChanged(organizationId)
                 },
                 'populate-plugin-capabilities': async (message) => {
-                    // We need this to be done in only once
+                    const { pluginId } = parseJSON(message) as { pluginId: string }
+                    logger.info('⚡', '[PubSub] Populating plugin capabilities!', { pluginId })
                     if (hub?.capabilities.appManagementSingleton) {
-                        await populatePluginCapabilities(hub, Number(parseJSON(message).plugin_id))
+                        await populatePluginCapabilities(hub, Number(pluginId))
                     }
                 },
             })
