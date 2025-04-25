@@ -413,7 +413,9 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
             new_session_ids = [r.session_id for r in recordings]
 
             if has_existing_data and can_query_only_new_recordings:
-                new_session_ids = new_session_ids + existing_value["session_ids"]
+                # these results are only used for counting and checking if unwatched
+                # so we can merge them without caring about order
+                new_session_ids = list(set(new_session_ids + existing_value["session_ids"]))
 
             value_to_set = json.dumps(
                 {

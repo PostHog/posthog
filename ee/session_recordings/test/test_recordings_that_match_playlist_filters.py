@@ -438,7 +438,7 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest):
 
         # And the results should be merged with the existing sessions
         stored_data = json.loads(self.redis_client.get(f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}"))
-        assert stored_data["session_ids"] == ["session3", "session1", "session2"]
+        assert sorted(stored_data["session_ids"]) == ["session1", "session2", "session3"]
         assert stored_data["has_more"] is False
         assert stored_data["refreshed_at"] > last_count_time.isoformat()
 
