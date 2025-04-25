@@ -61,29 +61,23 @@ export class TokenRestrictionManager {
             return
         }
 
-        // Check if we already have the values in cache
         const dropCached = this.dropEventCache.get(`${token}`)
         const skipCached = this.skipPersonCache.get(`${token}`)
         const overflowCached = this.forceOverflowCache.get(`${token}`)
 
-        // If all values are already cached (hit or miss), return early
         if (dropCached !== undefined && skipCached !== undefined && overflowCached !== undefined) {
             return
         }
 
-        // Make a single Redis call to fetch all three values
         try {
             const redisClient = await this.hub.redisPool.acquire()
             try {
-                // Get all three values in a single pipeline
                 const pipeline = redisClient.pipeline()
                 pipeline.get(`${RestrictionType.DROP_EVENT_FROM_INGESTION}:${token}`)
                 pipeline.get(`${RestrictionType.SKIP_PERSON}:${token}`)
                 pipeline.get(`${RestrictionType.FORCE_OVERFLOW_FROM_INGESTION}:${token}`)
                 const [dropResult, skipResult, overflowResult] = await pipeline.exec()
 
-                // Store results in cache (null for misses)
-                // TODO: What are these values? why is it an array? FIXME
                 this.dropEventCache.set(`${token}`, (dropResult?.[1] as string) || null)
                 this.skipPersonCache.set(`${token}`, (skipResult?.[1] as string) || null)
                 this.forceOverflowCache.set(`${token}`, (overflowResult?.[1] as string) || null)
