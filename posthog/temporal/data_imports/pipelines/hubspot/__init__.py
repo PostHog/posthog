@@ -114,7 +114,7 @@ def _get_properties_str(
 
     props_str = ""
     for i, prop in enumerate(props):
-        len_url_encoded_props = len(urllib.parse.quote(f"{props_str},{prop}"))
+        len_url_encoded_props = len(urllib.parse.quote(prop if not props_str else f"{props_str},{prop}"))
         if len_url_encoded_props > PROPERTY_LENGTH_LIMIT:
             logger.warning(
                 "Your request to Hubspot is too long to process. "
