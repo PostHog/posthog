@@ -39,10 +39,14 @@ export function PlayerSidebar(): JSX.Element {
 
     const sidebarTabs = [
         SessionRecordingSidebarTab.OVERVIEW,
-        SessionRecordingSidebarTab.SESSION_SUMMARY,
         SessionRecordingSidebarTab.INSPECTOR,
         SessionRecordingSidebarTab.NETWORK_WATERFALL,
     ]
+
+    // Show AI summary tab in the second position if the flag is enabled
+    if (featureFlags[FEATURE_FLAGS.AI_SESSION_SUMMARY]) {
+        sidebarTabs.splice(1, 0, SessionRecordingSidebarTab.SESSION_SUMMARY)
+    }
 
     if (window.IMPERSONATED_SESSION || featureFlags[FEATURE_FLAGS.SESSION_REPLAY_DOCTOR]) {
         sidebarTabs.push(SessionRecordingSidebarTab.DEBUGGER)

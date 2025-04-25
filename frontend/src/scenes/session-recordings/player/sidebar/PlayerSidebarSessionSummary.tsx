@@ -413,22 +413,16 @@ export function PlayerSidebarSessionSummary(): JSX.Element | null {
     const { sessionSummary, sessionSummaryLoading } = useValues(playerMetaLogic(logicProps))
 
     return (
-        <>
-            {/* TODO: Uncomment after testing */}
-            {/* <FlaggedFeature flag={FEATURE_FLAGS.AI_SESSION_SUMMARY} match={true}> */}
-            <div className="rounded border bg-surface-primary px-2 py-1">
-                {/* <h2>AI Session Summary</h2> */}
-                {sessionSummaryLoading ? (
-                    <>
-                        Thinking... <Spinner />{' '}
-                    </>
-                ) : sessionSummary ? (
-                    <SessionSummary />
-                ) : (
-                    <LoadSessionSummaryButton />
-                )}
-            </div>
-            {/* </FlaggedFeature> */}
-        </>
+        <div className="rounded border bg-surface-primary px-2 py-1">
+            {sessionSummaryLoading ? (
+                <>
+                    Thinking... <Spinner />{' '}
+                </>
+            ) : sessionSummary ? (
+                <SessionSummary />
+            ) : (
+                <LoadSessionSummaryButton />
+            )}
+        </div>
     )
 }
