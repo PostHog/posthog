@@ -283,10 +283,20 @@ class HogFunctionTemplate(UUIDModel):
             )
             bytecode = None
 
-        template, created = cls.objects.get_or_create(
-            template_id=dataclass_template.id,
-            version=version,
+        # First check if a template with the same hash (version) already exists
+        existing_template = cls.objects.filter(template_id=dataclass_template.id, version=version).first()
+
+        if existing_template:
+            logger.debug(
+                "Found existing template with same content hash", template_id=dataclass_template.id, version=version
+            )
+            return existing_template, False
+
+        # Create or update the template using Django's update_or_create
+        template, created = cls.objects.update_or_create(
+            template_id=dataclass_template.id,  # Look up by template ID
             defaults={
+                "version": version,
                 "name": dataclass_template.name,
                 "description": dataclass_template.description,
                 "hog": dataclass_template.hog,
@@ -305,4 +315,10 @@ class HogFunctionTemplate(UUIDModel):
                 "mapping_templates": mapping_templates,
             },
         )
+
+        if not created:
+            logger.debug(
+                "Updated existing template with new version", template_id=dataclass_template.id, new_version=version
+            )
+
         return template, created

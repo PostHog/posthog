@@ -203,3 +203,71 @@ class TestSyncHogFunctionTemplates:
             assert dataclass_template.id == template.id
             assert dataclass_template.name == template.name
             assert dataclass_template.hog == template.hog
+
+    @patch("posthog.plugins.plugin_server_api.get_hog_function_templates")
+    def test_template_version_behavior(self, mock_get_hog_function_templates):
+        """Test that template versioning behaves correctly"""
+        from posthog.cdp.templates.hog_function_template import HogFunctionTemplate as DataclassTemplate
+
+        # Mock the Node.js API to avoid external dependencies
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = []
+        mock_get_hog_function_templates.return_value = mock_response
+
+        # Clear any existing templates
+        DBHogFunctionTemplate.objects.all().delete()
+
+        # Create a test template
+        test_template = DataclassTemplate(
+            id="test-versioning-template",
+            name="Test Versioning Template",
+            description="Test template for version behavior",
+            type="transformation",
+            hog="return event",
+            inputs_schema=[],
+            status="beta",
+            free=True,
+            category=["Test"],
+        )
+
+        # Save the template to the database
+        template_1, created_1 = DBHogFunctionTemplate.create_from_dataclass(test_template)
+        assert created_1 is True
+        initial_version = template_1.version
+
+        # Save the exact same template again
+        template_2, created_2 = DBHogFunctionTemplate.create_from_dataclass(test_template)
+        assert created_2 is False  # Should not create a new record
+        assert template_2.id == template_1.id  # Should be the same database record
+        assert template_2.version == initial_version  # Version should be unchanged
+
+        # Verify only one template exists in the database
+        template_count = DBHogFunctionTemplate.objects.filter(template_id="test-versioning-template").count()
+        assert template_count == 1
+
+        # Create a modified version of the template (can't modify frozen dataclass)
+        modified_template = DataclassTemplate(
+            id="test-versioning-template",  # Same ID
+            name="Modified Test Template",  # Changed
+            description="This template was modified",  # Changed
+            type="transformation",
+            hog="return null",  # Changed
+            inputs_schema=[],
+            status="beta",
+            free=True,
+            category=["Test"],
+        )
+
+        # Save the modified template
+        template_3, created_3 = DBHogFunctionTemplate.create_from_dataclass(modified_template)
+        assert created_3 is False  # Should not create a new record
+        assert template_3.id == template_1.id  # Should update the same database record
+        assert template_3.version != initial_version  # Version should be different
+        assert template_3.name == "Modified Test Template"
+        assert template_3.description == "This template was modified"
+        assert template_3.hog == "return null"
+
+        # Verify still only one template exists in the database
+        template_count = DBHogFunctionTemplate.objects.filter(template_id="test-versioning-template").count()
+        assert template_count == 1
