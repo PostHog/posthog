@@ -179,7 +179,7 @@ def load_raw_session_summary_from_llm_content(
             # Ensure that LLM didn't hallucinate events
             event_id = event.get("event_id")
             if not event_id or len(event_id) != 8:
-                # If event ID isn't fullly generated yet - skip this event
+                # If event ID isn't fully generated yet - skip this event
                 continue
             # TODO: Allow skipping some events (even if not too many to speed up the process
             if event_id not in allowed_event_ids:
@@ -412,7 +412,7 @@ def enrich_raw_session_summary_with_meta(
             enriched_event = dict(event)
             event_id: str | None = event.get("event_id")
             if not event_id or len(event_id) != 8:
-                # If event ID isn't fullly generated yet - skip this event
+                # If event ID isn't fully generated yet - skip this event
                 continue
             event_mapping_data = simplified_events_mapping.get(event_id)
             if not event_mapping_data:
