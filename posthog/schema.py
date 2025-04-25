@@ -1850,6 +1850,7 @@ class TaxonomicFilterGroupType(StrEnum):
     LOG_ENTRIES = "log_entries"
     ERROR_TRACKING_ISSUES = "error_tracking_issues"
     REPLAY = "replay"
+    RESOURCES = "resources"
 
 
 class TimelineEntry(BaseModel):

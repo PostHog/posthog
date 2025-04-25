@@ -240,12 +240,7 @@ describe('the property definitions model', () => {
                         'event_metadata/timestamp': partial({
                             name: 'timestamp',
                         }),
-                        'resource/assignee': partial({
-                            description: 'User or role assigned to a resource',
-                            id: 'assignee',
-                            name: 'assignee',
-                            property_type: 'Assignee',
-                        }),
+                        'resource/assignee': partial({ name: 'assignee' }),
                     },
                 })
         })

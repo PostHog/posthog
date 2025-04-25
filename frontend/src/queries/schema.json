@@ -17496,7 +17496,8 @@
                 "notebooks",
                 "log_entries",
                 "error_tracking_issues",
-                "replay"
+                "replay",
+                "resources"
             ],
             "type": "string"
         },
