@@ -30,6 +30,7 @@ from ee.hogai.graph.base import AssistantNode
 from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
 from ee.hogai.utils.asgi import SyncIterableToAsync
 from ee.hogai.utils.exceptions import GenerationCanceled
+from ee.hogai.utils.filters import should_output_assistant_message
 from ee.hogai.utils.state import (
     GraphMessageUpdateTuple,
     GraphTaskStartedUpdateTuple,
@@ -50,7 +51,6 @@ from posthog.schema import (
     AssistantGenerationStatusEvent,
     AssistantGenerationStatusType,
     AssistantMessage,
-    AssistantToolCallMessage,
     FailureMessage,
     HumanMessage,
     ReasoningMessage,
@@ -384,16 +384,7 @@ class Assistant:
                 if isinstance(node_val, PartialAssistantState) and node_val.messages:
                     self._chunks = AIMessageChunk(content="")
                     for candidate_message in node_val.messages:
-                        if (
-                            # Filter out tool calls without a UI payload
-                            not isinstance(candidate_message, AssistantToolCallMessage)
-                            or candidate_message.ui_payload is not None
-                        ) and (
-                            # Also filter out empty assistant messages
-                            not isinstance(candidate_message, AssistantMessage)
-                            or isinstance(candidate_message, AssistantMessage)
-                            and candidate_message.content
-                        ):
+                        if should_output_assistant_message(candidate_message):
                             return candidate_message
 
         return None

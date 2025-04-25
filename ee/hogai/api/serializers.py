@@ -2,6 +2,7 @@ import pydantic
 from langgraph.graph.state import CompiledStateGraph
 from rest_framework import serializers
 
+from ee.hogai.utils.filters import should_output_assistant_message
 from ee.hogai.utils.types import AssistantState
 from ee.models.assistant import Conversation
 
@@ -28,6 +29,6 @@ class ConversationDetailSerializer(serializers.ModelSerializer):
         snapshot = graph.get_state({"configurable": {"thread_id": str(conversation.id)}})
         try:
             state = AssistantState.model_validate(snapshot.values)
-            return state.model_dump()["messages"]
+            return [message.model_dump() for message in state.messages if should_output_assistant_message(message)]
         except (pydantic.ValidationError, KeyError):
             return []
