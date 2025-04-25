@@ -64,11 +64,11 @@ Use session metadata to understand user engagement context:
 Use these metrics to calibrate your analysis of user objectives and engagement quality.
 </session_metadata_input_format>
 
-<session_medata_input>
+<session_metadata_input>
 ```
 {{ SESSION_METADATA|safe }}
 ```
-</session_medata_input>
+</session_metadata_input>
 
 <identify_objectives_instructions>
 CRITICAL WARNING: DO NOT hallucinate errors. Only mark events as errors when there is EXPLICIT evidence in the event data that an error occurred.
