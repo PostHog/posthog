@@ -547,7 +547,13 @@ export class PersonState {
                 )
                 const distinctIdVersion = insertedDistinctId ? 0 : 1
 
-                await this.personStore.addDistinctId(existingPerson, distinctIdToAdd, distinctIdVersion, tx)
+                const kafkaMessages = await this.personStore.addDistinctId(
+                    existingPerson,
+                    distinctIdToAdd,
+                    distinctIdVersion,
+                    tx
+                )
+                await this.kafkaProducer.queueMessages(kafkaMessages)
                 return [existingPerson, Promise.resolve()]
             })
         } else if (otherPerson && mergeIntoPerson) {
