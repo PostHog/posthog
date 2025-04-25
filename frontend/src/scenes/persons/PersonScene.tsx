@@ -276,6 +276,7 @@ export function PersonScene(): JSX.Element | null {
                                 query={{
                                     kind: NodeKind.DataTableNode,
                                     full: true,
+                                    showEventFilter: false,
                                     hiddenColumns: ['person'],
                                     source: {
                                         kind: NodeKind.EventsQuery,
