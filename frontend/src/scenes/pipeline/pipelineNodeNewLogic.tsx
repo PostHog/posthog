@@ -43,7 +43,7 @@ export const pipelineNodeNewLogic = kea<pipelineNodeNewLogicType>([
         ],
     }),
 
-    selectors(() => ({
+    selectors({
         loading: [(s) => [s.pluginsLoading], (pluginsLoading) => pluginsLoading],
         breadcrumbs: [
             (_, p) => [p.stage, p.pluginId, p.kind, p.batchExportDestination],
@@ -75,11 +75,11 @@ export const pipelineNodeNewLogic = kea<pipelineNodeNewLogicType>([
             },
         ],
         projectTreeRef: [
-            () => [],
+            (s) => [s.loading],
             (): ProjectTreeRef => ({
                 type: 'hog_function/',
                 ref: null,
             }),
         ],
-    })),
+    }),
 ])
