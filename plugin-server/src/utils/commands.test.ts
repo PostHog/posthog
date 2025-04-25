@@ -27,7 +27,6 @@ describe('Commands API', () => {
     })
 
     afterEach(async () => {
-        jest.setTimeout(10000)
         await closeHub(hub)
         await service.stop()
     })
