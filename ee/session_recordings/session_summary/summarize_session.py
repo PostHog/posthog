@@ -60,14 +60,11 @@ class ReplaySummarizer:
                 team=self.team,
             )
         with timer("get_events"):
-            # TODO: Add filter to skip some types of events that are not relevant for the summary, but increase the number of tokens
-            # Analyze more events one by one for better context, consult with the team
             session_events_columns, session_events = get_session_events(
                 session_id=self.recording.session_id,
                 session_metadata=session_metadata,
                 team=self.team,
             )
-
         with timer("add_context_and_filter"):
             session_events_columns, session_events = add_context_and_filter_events(
                 session_events_columns, session_events
@@ -76,6 +73,9 @@ class ReplaySummarizer:
         # TODO Get web analytics data on URLs to better understand what the user was doing
         # related to average visitors of the same pages (left the page too fast, unexpected bounce, etc.).
         # Keep in mind that in-app behavior (like querying insights a lot) differs from the web (visiting a lot of pages).
+
+        # TODO Get product analytics data on custom events/funnels/conversions
+        # to understand what actions are seen as valuable or are the part of the conversion flow
 
         with timer("generate_prompt"):
             prompt_data = SessionSummaryPromptData()
@@ -97,16 +97,9 @@ class ReplaySummarizer:
                 prompt_data, url_mapping_reversed, window_mapping_reversed
             )
 
+        # TODO: Track the timing for streaming (inside the function, start before the request, end after the last chunk is consumed)
         # with timer("openai_completion"):
-        #     raw_session_summary = get_raw_llm_session_summary(
-        #         summary_prompt=summary_prompt,
-        #         user=self.user,
-        #         allowed_event_ids=list(simplified_events_mapping.keys()),
-        #         session_id=self.recording.session_id,
-        #         system_prompt=system_prompt,
-        #     )
 
-        # TODO: Would it make sense to stream initial goal and outcome at the very start? Check if it makes a quality difference.
         session_summary_generator = stream_llm_session_summary(
             summary_prompt=summary_prompt,
             user=self.user,
@@ -120,16 +113,6 @@ class ReplaySummarizer:
             system_prompt=system_prompt,
         )
         return session_summary_generator
-
-        # TODO: Calculate tag/error stats for the session manually
-        # to use it later for grouping/suggesting (and showing overall stats)
-
-        # TODO: Make the output streamable (the main reason behind using YAML
-        # to keep it partially parsable to avoid waiting for the LLM to finish)
-
-        # TODO: Uncomment this after testing
-        # return {"content": "", "timings": timer.get_all_timings()}
-        # return None
 
     def stream_recording_summary(self):
         if SERVER_GATEWAY_INTERFACE == "ASGI":
