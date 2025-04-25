@@ -8,7 +8,6 @@ publish = false
 
 [dependencies]
 anyhow = { workspace = true }
-async-trait = { workspace = true }
 axum = { workspace = true }
 axum-client-ip = { workspace = true }
 chrono = { workspace = true }

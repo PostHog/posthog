@@ -1440,7 +1440,6 @@ dependencies = [
  "sqlx",
  "thiserror 1.0.69",
  "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -2239,7 +2238,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "assert-json-diff",
- "async-trait",
  "axum 0.7.5",
  "axum-client-ip",
  "base64 0.22.0",
