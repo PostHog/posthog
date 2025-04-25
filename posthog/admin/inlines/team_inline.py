@@ -32,7 +32,6 @@ class TeamInline(admin.TabularInline):
         "modifiers",
         "plugins_opt_in",
         "opt_out_capture",
-        "distinct_ids_excluded_from_person_processing",
     )
     readonly_fields = [*TeamAdmin.readonly_fields, "displayed_name"]
 

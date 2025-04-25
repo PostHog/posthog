@@ -25,6 +25,7 @@ import { KafkaProducerWrapper } from './kafka/producer'
 import { Celery } from './utils/db/celery'
 import { DB } from './utils/db/db'
 import { PostgresRouter } from './utils/db/postgres'
+import { TokenRestrictionCache } from './utils/db/token-restriction-cache'
 import { GeoIPService } from './utils/geoip'
 import { ObjectStorage } from './utils/object_storage'
 import { TeamManager } from './utils/team-manager'
@@ -37,7 +38,6 @@ import { RustyHook } from './worker/rusty-hook'
 import { PluginsApiKeyManager } from './worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './worker/vm/extensions/helpers/root-acess-manager'
 import { PluginInstance } from './worker/vm/lazy'
-import { TokenRestrictionCache } from './utils/db/token-restriction-cache'
 
 export { Element } from '@posthog/plugin-scaffold' // Re-export Element from scaffolding, for backwards compat.
 

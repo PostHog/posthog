@@ -22,10 +22,10 @@ import {
 } from '../types'
 import { normalizeEvent } from '../utils/event'
 import { parseJSON } from '../utils/json-parse'
-import { TokenRestrictionManager, RestrictionType } from '../utils/token-restriction-manager'
 import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
 import { retryIfRetriable } from '../utils/retries'
+import { TokenRestrictionManager } from '../utils/token-restriction-manager'
 import { UUIDT } from '../utils/utils'
 import { EventPipelineResult, EventPipelineRunner } from '../worker/ingestion/event-pipeline/runner'
 import { MeasuringPersonsStore } from '../worker/ingestion/persons/measuring-person-store'
@@ -120,7 +120,11 @@ export class IngestionConsumer {
         this.tokenDistinctIdsToForceOverflow = hub.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID.split(',').filter(
             (x) => !!x
         )
-        this.tokenRestrictionManager = new TokenRestrictionManager(hub, {dropEventTokens: this.tokenDistinctIdsToDrop, skipPersonsTokens: this.tokenDistinctIdsToSkipPersons, forceOverflowTokens: this.tokenDistinctIdsToForceOverflow})
+        this.tokenRestrictionManager = new TokenRestrictionManager(hub, {
+            dropEventTokens: this.tokenDistinctIdsToDrop,
+            skipPersonsTokens: this.tokenDistinctIdsToSkipPersons,
+            forceOverflowTokens: this.tokenDistinctIdsToForceOverflow,
+        })
         this.testingTopic = overrides.INGESTION_CONSUMER_TESTING_TOPIC ?? hub.INGESTION_CONSUMER_TESTING_TOPIC
 
         this.name = `ingestion-consumer-${this.topic}`
@@ -248,8 +252,6 @@ export class IngestionConsumer {
         return existingBreadcrumbs
     }
 
-    // loop over all messages and parse them (need to check if they should be dropped, skipped)
-    // then we group them into distinct_id tokens
     public async handleKafkaBatch(messages: Message[]) {
         const parsedMessages = await this.runInstrumented('parseKafkaMessages', () => this.parseKafkaBatch(messages))
 
@@ -337,12 +339,10 @@ export class IngestionConsumer {
                 logger.warn('🪣', `Local overflow detection triggered on key ${eventKey}`)
             }
 
-
             // NOTE: If we are forcing to overflow we typically want to keep the partition key
             // If the event is marked for skipping persons however locality doesn't matter so we would rather have the higher throughput
             // of random partitioning.
-            const preserveLocality =
-                shouldForceOverflow && !this.shouldSkipPerson(token, distinctId) ? true : undefined
+            const preserveLocality = shouldForceOverflow && !this.shouldSkipPerson(token, distinctId) ? true : undefined
 
             void this.scheduleWork(
                 this.emitToOverflow(
