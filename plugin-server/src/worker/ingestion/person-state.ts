@@ -43,6 +43,7 @@ const FOUR_MEGABYTE_PROPS_BLOB = 4194304
 const personPropertiesSize = new Histogram({
     name: 'person_properties_size',
     help: 'histogram of compressed person JSONB bytes retrieved in fetchPerson calls',
+    labelNames: ['at'],
     // 1kb, 8kb, 64kb, 512kb, 1mb, 2mb, 4mb, 8mb, 16mb, 64mb
     buckets: [1024, 8192, 65536, 524288, 1048576, 2097152, 4194304, 8388608, 16777216, 67108864],
 })
@@ -127,10 +128,9 @@ export class PersonState {
         this.updateIsIdentified = false
     }
 
-    // note: this captures compressed sizes for JSONB blobs due to TOAST on DB
-    private async capturePersonPropertiesSizeEstimate() {
+    private async capturePersonPropertiesSizeEstimate(at: string): Promise<void> {
         const estimatedBytes: number = await this.db.personPropertiesSize(this.team.id, this.distinctId)
-        personPropertiesSize.observe(estimatedBytes)
+        personPropertiesSize.labels({ at: at }).observe(estimatedBytes)
 
         // if larger than size threshold (start conservative, adjust as we observe)
         // we should log the team and disinct_id associated with the properties
@@ -141,11 +141,12 @@ export class PersonState {
                 estimated_bytes: estimatedBytes,
             })
         }
+
+        return
     }
 
     async update(): Promise<[Person, Promise<void>]> {
         if (!this.processPerson) {
-            await this.capturePersonPropertiesSizeEstimate()
             let existingPerson = await this.db.fetchPerson(this.team.id, this.distinctId, { useReadReplica: true })
 
             if (!existingPerson) {
@@ -249,6 +250,8 @@ export class PersonState {
      * @returns [Person, boolean that indicates if properties were already handled or not]
      */
     private async createOrGetPerson(): Promise<[InternalPerson, boolean]> {
+        await this.capturePersonPropertiesSizeEstimate('createOrGetPerson')
+
         let person = await this.db.fetchPerson(this.team.id, this.distinctId)
         if (person) {
             return [person, false]
@@ -524,7 +527,10 @@ export class PersonState {
     ): Promise<[InternalPerson, Promise<void>]> {
         this.updateIsIdentified = true
 
+        await this.capturePersonPropertiesSizeEstimate('mergeDistinctIds_other')
         const otherPerson = await this.db.fetchPerson(teamId, otherPersonDistinctId)
+
+        await this.capturePersonPropertiesSizeEstimate('mergeDistinctIds_into')
         const mergeIntoPerson = await this.db.fetchPerson(teamId, mergeIntoDistinctId)
 
         // A note about the `distinctIdVersion` logic you'll find below:
