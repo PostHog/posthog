@@ -10,7 +10,7 @@ import {
     WatermarkOffsets,
 } from 'node-rdkafka'
 import { hostname } from 'os'
-import { exponentialBuckets, Gauge, Histogram } from 'prom-client'
+import { Gauge, Histogram } from 'prom-client'
 
 import { defaultConfig } from '../config/config'
 import { logger } from '../utils/logger'
@@ -25,36 +25,28 @@ const DEFAULT_FETCH_BATCH_SIZE = 1000
 const SLOW_BATCH_PROCESSING_LOG_THRESHOLD_MS = 10000
 const MAX_HEALTH_HEARTBEAT_INTERVAL_MS = 60_000
 
-export const consumedBatchDuration = new Histogram({
+const consumedBatchDuration = new Histogram({
     name: 'consumed_batch_duration_ms',
     help: 'Main loop consumer batch processing duration in ms',
     labelNames: ['topic', 'groupId'],
 })
 
-export const consumerBatchSize = new Histogram({
-    name: 'consumed_batch_size',
-    help: 'Size of the batch fetched by the consumer',
-    labelNames: ['topic', 'groupId'],
-    buckets: exponentialBuckets(1, 3, 5),
-})
-
-export const consumedMessageSizeBytes = new Histogram({
-    name: 'consumed_message_size_bytes',
-    help: 'Size of consumed message value in bytes',
-    labelNames: ['topic', 'groupId', 'messageType'],
-    buckets: exponentialBuckets(1, 8, 4).map((bucket) => bucket * 1024),
-})
-
-export const kafkaAbsolutePartitionCount = new Gauge({
-    name: 'kafka_absolute_partition_count',
-    help: 'Number of partitions assigned to this consumer. (Absolute value from the consumer state.)',
-    labelNames: ['topic'],
-})
-
-export const gaugeBatchUtilization = new Gauge({
+const gaugeBatchUtilization = new Gauge({
     name: 'consumer_batch_utilization',
     help: 'Indicates how big batches are we are processing compared to the max batch size. Useful as a scaling metric',
     labelNames: ['groupId'],
+})
+
+const histogramKafkaBatchSize = new Histogram({
+    name: 'consumer_batch_size',
+    help: 'The size of the batches we are receiving from Kafka',
+    buckets: [0, 50, 100, 250, 500, 750, 1000, 1500, 2000, 3000, Infinity],
+})
+
+const histogramKafkaBatchSizeKb = new Histogram({
+    name: 'consumer_batch_size_kb',
+    help: 'The size in kb of the batches we are receiving from Kafka',
+    buckets: [0, 128, 512, 1024, 5120, 10240, 20480, 51200, 102400, 204800, Infinity],
 })
 
 export const findOffsetsToCommit = (messages: TopicPartitionOffset[]): TopicPartitionOffset[] => {
@@ -238,7 +230,7 @@ export class KafkaConsumer {
 
         consumer.on('offset.commit', (error: LibrdKafkaError, topicPartitionOffsets: TopicPartitionOffset[]) => {
             if (error) {
-                logger.warn('📝', 'librdkafka_offset_commit_error', { error, topicPartitionOffsets })
+                logger.warn('📝', 'librdkafka_offet_commit_error', { error, topicPartitionOffsets })
             } else {
                 logger.debug('📝', 'librdkafka_offset_commit', { topicPartitionOffsets })
             }
@@ -299,24 +291,17 @@ export class KafkaConsumer {
                     // After successfully pulling a batch, we can update our heartbeat time
                     this.heartbeat()
 
-                    if (!messages) {
-                        logger.debug('🔁', 'main_loop_empty_batch', { cause: 'undefined' })
-                        consumerBatchSize.labels({ topic, groupId }).observe(0)
-                        continue
-                    }
-
                     gaugeBatchUtilization.labels({ groupId }).set(messages.length / this.fetchBatchSize)
 
                     logger.debug('🔁', 'main_loop_consumed', { messagesLength: messages.length })
+                    histogramKafkaBatchSize.observe(messages.length)
+                    histogramKafkaBatchSizeKb.observe(
+                        messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024
+                    )
+
                     if (!messages.length && !callEachBatchWhenEmpty) {
                         logger.debug('🔁', 'main_loop_empty_batch', { cause: 'empty' })
-                        consumerBatchSize.labels({ topic, groupId }).observe(0)
                         continue
-                    }
-
-                    consumerBatchSize.labels({ topic, groupId }).observe(messages.length)
-                    for (const message of messages) {
-                        consumedMessageSizeBytes.labels({ topic, groupId }).observe(message.size)
                     }
 
                     const startProcessingTimeMs = new Date().valueOf()
@@ -364,7 +349,6 @@ export class KafkaConsumer {
         if (this.isStopping) {
             return
         }
-
         // Mark as stopping - this will also essentially stop the consumer loop
         this.isStopping = true
 
