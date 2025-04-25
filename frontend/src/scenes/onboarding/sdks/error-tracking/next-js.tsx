@@ -52,7 +52,9 @@ export function NextJSInstructions(): JSX.Element {
             <h3>Install posthog-node using your package manager</h3>
             <NodeInstallSnippet />
             <h3>Create a reusable client</h3>
-            <CodeSnippet language={Language.JavaScript}>{serverClient(api_key, host)}</CodeSnippet>
+            <CodeSnippet language={Language.JavaScript}>
+                {serverClient(currentTeam?.api_token ?? '<API_KEY>', host)}
+            </CodeSnippet>
             <h3>Capturing server errors</h3>
             <p>
                 To capture errors that occur in your server-side code, you can set up a{' '}
