@@ -44,7 +44,7 @@ const Empty = ({ scope }: { scope: string | string[] }): JSX.Element => {
     )
 }
 
-const SkeletonLog = (): JSX.Element => {
+export const SkeletonLog = (): JSX.Element => {
     return (
         <div className="ActivityLogRow items-start">
             <LemonSkeleton.Circle />

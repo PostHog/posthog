@@ -1,20 +1,21 @@
-import { actions, kea, path, reducers } from 'kea'
+import { connect, kea, path, props } from 'kea'
+import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
+
+import { ActivityScope } from '~/types'
 
 import type { queryHistoryLogicType } from './queryHistoryLogicType'
 
+export type QueryHistoryLogicProps = {
+    id: string
+}
+
 export const queryHistoryLogic = kea<queryHistoryLogicType>([
     path(['scenes', 'data-warehouse', 'editor', 'queryHistoryLogic']),
-    actions({
-        openHistoryModal: true,
-        closeHistoryModal: true,
-    }),
-    reducers({
-        isHistoryModalOpen: [
-            false as boolean,
-            {
-                openHistoryModal: () => true,
-                closeHistoryModal: () => false,
-            },
+    props({} as QueryHistoryLogicProps),
+    connect(({ id }: QueryHistoryLogicProps) => ({
+        values: [
+            activityLogLogic({ scope: ActivityScope.DATA_WAREHOUSE_SAVED_QUERY, id: id }),
+            ['humanizedActivity', 'activityLoading', 'pagination'],
         ],
-    }),
+    })),
 ])
