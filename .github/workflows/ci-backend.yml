@@ -55,7 +55,6 @@ jobs:
               id: filter
 
     backend-code-quality:
-        needs: changes
         timeout-minutes: 30
 
         name: Python code quality checks
@@ -79,8 +78,6 @@ jobs:
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
     check-migrations:
-        needs: changes
-        if: needs.changes.outputs.backend == 'true'
         timeout-minutes: 10
 
         name: Validate Django and CH migrations
@@ -155,7 +152,6 @@ jobs:
                   git diff --name-status origin/master..HEAD | grep "A\sposthog/clickhouse/migrations/" | grep -v README | awk '{print $2}' |  python manage.py test_ch_migrations_are_safe
 
     django:
-        needs: changes
         # increase for tmate testing
         timeout-minutes: 30
 
@@ -253,12 +249,10 @@ jobs:
 
     async-migrations:
         name: Async migrations tests -  ${{ matrix.clickhouse-server-image }}
-        needs: changes
         strategy:
             fail-fast: false
             matrix:
                 clickhouse-server-image: ['clickhouse/clickhouse-server:24.8.7.41']
-        if: needs.changes.outputs.backend == 'true'
         runs-on: depot-ubuntu-latest
         steps:
             - name: 'Checkout repo'
@@ -316,10 +310,7 @@ jobs:
         needs: [django, async-migrations]
         runs-on: ubuntu-latest
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks
-            needs.changes.outputs.backend == 'true' &&
-            (
-            github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository
-            ) == 'PostHog/posthog'
+            ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository) == 'PostHog/posthog' }}
         steps:
             - name: Calculate running time
               run: |

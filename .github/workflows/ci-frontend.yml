@@ -10,7 +10,6 @@ concurrency:
 jobs:
     frontend-code-quality:
         name: Code quality checks
-        needs: changes
         # kea typegen and typescript:check need some more oomph
         runs-on: depot-ubuntu-24.04-4
         steps:
@@ -76,7 +75,6 @@ jobs:
 
     jest:
         runs-on: depot-ubuntu-24.04
-        needs: changes
         name: Jest test (${{ matrix.segment }} - ${{ matrix.chunk }})
 
         strategy:
@@ -115,7 +113,7 @@ jobs:
 
     calculate-running-time:
         name: Calculate running time
-        needs: [jest, frontend-code-quality, changes]
+        needs: [jest, frontend-code-quality]
         runs-on: depot-ubuntu-24.04
         steps:
             - name: Calculate running time
