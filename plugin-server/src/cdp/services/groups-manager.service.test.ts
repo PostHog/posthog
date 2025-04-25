@@ -13,7 +13,7 @@ describe('Groups Manager', () => {
         postgres: {
             query: jest.fn(),
         },
-        teamManager: {
+        organizationManager: {
             hasAvailableFeature: jest.fn(() => Promise.resolve(true)),
         },
     }

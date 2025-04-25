@@ -16,9 +16,9 @@ export async function createPluginActivityLog(
     activity: string,
     details: { trigger: Trigger }
 ) {
-    const teamObject: Team | null = typeof team === 'number' ? await hub.teamManager.getTeam(team) : team
+    const teamObject: Team | null = typeof team === 'number' ? await hub.teamManager.fetchTeam(team) : team
     if (!teamObject) {
-        logger.warn('🤔', `Could not find team ${team} to create an activity log for. Skipping.`)
+        logger.warn('🤔', `Could not find team ${team} to create an actity log for. Skipping.`)
         return
     }
 

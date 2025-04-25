@@ -19,12 +19,14 @@ import { ActionManager } from '../../worker/ingestion/action-manager'
 import { ActionMatcher } from '../../worker/ingestion/action-matcher'
 import { AppMetrics } from '../../worker/ingestion/app-metrics'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
+import { OrganizationManager } from '../../worker/ingestion/organization-manager'
+import { TeamManager } from '../../worker/ingestion/team-manager'
 import { RustyHook } from '../../worker/rusty-hook'
 import { isTestEnv } from '../env-utils'
 import { GeoIPService } from '../geoip'
 import { logger } from '../logger'
 import { getObjectStorage } from '../object_storage'
-import { TeamManager } from '../team-manager'
+import { TeamManagerLazy } from '../team-manager-lazy'
 import { UUIDT } from '../utils'
 import { PluginsApiKeyManager } from './../../worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './../../worker/vm/extensions/helpers/root-acess-manager'
@@ -125,7 +127,9 @@ export async function createHub(
         serverConfig.PLUGINS_DEFAULT_LOG_LEVEL,
         serverConfig.PERSON_INFO_CACHE_TTL
     )
-    const teamManager = new TeamManager(postgres)
+    const teamManagerLazy = new TeamManagerLazy(postgres)
+    const teamManager = new TeamManager(postgres, teamManagerLazy)
+    const organizationManager = new OrganizationManager(postgres, teamManager, teamManagerLazy)
     const pluginsApiKeyManager = new PluginsApiKeyManager(db)
     const rootAccessManager = new RootAccessManager(db)
     const rustyHook = new RustyHook(serverConfig)
@@ -157,6 +161,8 @@ export async function createHub(
         pluginSchedule: null,
 
         teamManager,
+        teamManagerLazy,
+        organizationManager,
         pluginsApiKeyManager,
         rootAccessManager,
         rustyHook,

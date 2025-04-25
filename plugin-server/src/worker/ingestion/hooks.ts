@@ -7,8 +7,9 @@ import { convertToHookPayload } from '../../utils/event'
 import { trackedFetch } from '../../utils/fetch'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
-import { TeamManager } from '../../utils/team-manager'
 import { AppMetric, AppMetrics } from './app-metrics'
+import { OrganizationManager } from './organization-manager'
+import { TeamManager } from './team-manager'
 import { WebhookFormatter } from './webhook-formatter'
 
 export const webhookProcessStepDuration = new Histogram({
@@ -31,6 +32,7 @@ export async function instrumentWebhookStep<T>(tag: string, run: () => Promise<T
 export class HookCommander {
     postgres: PostgresRouter
     teamManager: TeamManager
+    organizationManager: OrganizationManager
     rustyHook: RustyHook
     appMetrics: AppMetrics
     siteUrl: string
@@ -40,12 +42,14 @@ export class HookCommander {
     constructor(
         postgres: PostgresRouter,
         teamManager: TeamManager,
+        organizationManager: OrganizationManager,
         rustyHook: RustyHook,
         appMetrics: AppMetrics,
         timeout: number
     ) {
         this.postgres = postgres
         this.teamManager = teamManager
+        this.organizationManager = organizationManager
         if (process.env.SITE_URL) {
             this.siteUrl = process.env.SITE_URL
         } else {
@@ -65,7 +69,7 @@ export class HookCommander {
         }
         logger.debug('🔍', `Found ${actionMatches.length} matching actions`)
 
-        const team = await this.teamManager.getTeam(event.teamId)
+        const team = await this.teamManager.fetchTeam(event.teamId)
 
         if (!team) {
             return
@@ -84,7 +88,7 @@ export class HookCommander {
             })
         }
 
-        if (await this.teamManager.hasAvailableFeature(team.id, 'zapier')) {
+        if (await this.organizationManager.hasAvailableFeature(team.id, 'zapier')) {
             await instrumentWebhookStep('postRestHook', async () => {
                 const restHooks = actionMatches.flatMap((action) => action.hooks.map((hook) => ({ hook, action })))
 
