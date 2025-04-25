@@ -163,11 +163,10 @@ class TestDatabaseHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMa
         # Clear any existing templates
         DBHogFunctionTemplate.objects.all().delete()
 
-        # Create some test templates in the database, we ignore the 'created' boolean that is returned
+        # Create test templates in the database
         self.template1, _ = DBHogFunctionTemplate.create_from_dataclass(template)
 
-        # Create a second version of the same template to test latest retrieval
-        # We need to convert the sub_templates properly to ensure they're correctly structured
+        # Set up sub_templates properly for reference
         sub_templates_json = []
         if template.sub_templates:
             for st in template.sub_templates:
@@ -175,26 +174,11 @@ class TestDatabaseHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMa
                     "id": st.id,
                     "name": st.name,
                     "description": st.description,
-                    "type": st.type,  # Make sure we include the type field
+                    "type": st.type,
                 }
-                # Include other fields that might be needed
                 if hasattr(st, "filters") and st.filters:
                     sub_template_dict["filters"] = st.filters
                 sub_templates_json.append(sub_template_dict)
-
-        self.newer_template = DBHogFunctionTemplate.objects.create(
-            template_id="template-slack",
-            version="newer-version",
-            name="Newer Slack",
-            description="Updated Slack template",
-            hog="return updated_event",
-            inputs_schema=template.inputs_schema,
-            type="destination",
-            status="stable",
-            category=["Customer Success"],
-            free=True,
-            sub_templates=sub_templates_json,
-        )
 
         # Create a different template type
         self.webhook_template = DBHogFunctionTemplate.objects.create(
@@ -243,9 +227,9 @@ class TestDatabaseHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMa
         assert "template-webhook" in template_ids
         assert "template-deprecated" not in template_ids
 
-        # Verify we're getting the newest version of template-slack
+        # Verify slack template has the right name
         slack_template = next(t for t in results if t["id"] == "template-slack")
-        assert slack_template["name"] == "Newer Slack"
+        assert slack_template["name"] == template.name  # Name should match the original template
 
     @patch("posthog.api.hog_function_template.settings")
     def test_get_specific_template_from_db(self, mock_settings):
@@ -256,12 +240,46 @@ class TestDatabaseHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMa
         response = self.client.get(f"/api/projects/@current/hog_function_templates/template-slack")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        # Verify it's the newest version
-        assert response.json()["name"] == "Newer Slack"
+        # Verify it has the expected name
+        assert response.json()["name"] == template.name
 
         # Verify non-existent template returns 404
         response_missing = self.client.get("/api/projects/@current/hog_function_templates/non-existent-template")
         assert response_missing.status_code == status.HTTP_404_NOT_FOUND
+
+    @patch("posthog.api.hog_function_template.settings")
+    def test_template_updates_are_reflected(self, mock_settings):
+        """Test that template updates are reflected in API responses"""
+        mock_settings.USE_DB_TEMPLATES_FOR_TEAMS = [self.team.id]
+
+        from posthog.cdp.templates.hog_function_template import HogFunctionTemplate as DataclassTemplate
+
+        # Initial version of the template
+        initial_response = self.client.get("/api/projects/@current/hog_function_templates/template-slack")
+        assert initial_response.status_code == status.HTTP_200_OK
+        assert initial_response.json()["name"] == template.name
+
+        # Create a modified version
+        modified_template = DataclassTemplate(
+            id="template-slack",  # Same ID
+            name="Updated Slack",  # Changed
+            description="This template was updated",  # Changed
+            type="destination",
+            hog="return {...event, updated: true}",  # Changed
+            inputs_schema=template.inputs_schema,
+            status="stable",
+            free=True,
+            category=["Customer Success"],
+        )
+
+        # Save the modified template - this should update the existing one
+        DBHogFunctionTemplate.create_from_dataclass(modified_template)
+
+        # Get the template again and check it was updated
+        updated_response = self.client.get("/api/projects/@current/hog_function_templates/template-slack")
+        assert updated_response.status_code == status.HTTP_200_OK
+        assert updated_response.json()["name"] == "Updated Slack"
+        assert updated_response.json()["description"] == "This template was updated"
 
     @patch("posthog.api.hog_function_template.settings")
     def test_toggle_returns_in_memory_templates_when_off(self, mock_settings):
