@@ -238,7 +238,7 @@ export class KafkaConsumer {
 
         consumer.on('offset.commit', (error: LibrdKafkaError, topicPartitionOffsets: TopicPartitionOffset[]) => {
             if (error) {
-                logger.warn('📝', 'librdkafka_offet_commit_error', { error, topicPartitionOffsets })
+                logger.warn('📝', 'librdkafka_offset_commit_error', { error, topicPartitionOffsets })
             } else {
                 logger.debug('📝', 'librdkafka_offset_commit', { topicPartitionOffsets })
             }
