@@ -82,6 +82,7 @@ exports[`EventPipelineRunner runEventPipeline() runs steps starting from populat
       {
         "id": 2,
         "person_processing_opt_out": false,
+        "api_token": "token1",
       },
       "2020-02-23T02:15:00.000Z",
       true,
