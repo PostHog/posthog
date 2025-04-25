@@ -15,7 +15,6 @@ import { useRef, useState } from 'react'
 import { multitabEditorLogic } from './multitabEditorLogic'
 import { queryHistoryLogic } from './queryHistoryLogic'
 
-// Custom activity log row component cloned from the original
 function QueryHistoryLogRow({ logItem }: { logItem: HumanizedActivityLogItem }): JSX.Element {
     const [isExpanded, setIsExpanded] = useState(false)
 
@@ -55,7 +54,6 @@ function QueryHistoryLogRow({ logItem }: { logItem: HumanizedActivityLogItem }):
     )
 }
 
-// Copied from ActivityLogDiff
 function QueryHistoryLogDiff({ logItem }: { logItem: HumanizedActivityLogItem }): JSX.Element {
     const changes = logItem.unprocessed?.detail.changes
 
@@ -100,7 +98,6 @@ function QueryDiffViewer({ before, after }: QueryDiffViewerProps): JSX.Element {
     )
 }
 
-// Custom component that wraps the logic used in ActivityLog
 function QueryHistoryLog({ id }: { id?: number | string }): JSX.Element {
     const logic = queryHistoryLogic({ id: id as string })
     const { humanizedActivity, activityLoading, pagination } = useValues(logic)
