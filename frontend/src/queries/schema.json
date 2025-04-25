@@ -16248,8 +16248,42 @@
             "required": ["kind", "revenueSources"],
             "type": "object"
         },
+        "RevenueAnalyticsConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "base_currency": {
+                    "$ref": "#/definitions/CurrencyCode",
+                    "default": "USD"
+                },
+                "events": {
+                    "default": [],
+                    "items": {
+                        "$ref": "#/definitions/RevenueAnalyticsEventItem"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["base_currency", "events"],
+            "type": "object"
+        },
         "RevenueAnalyticsEventItem": {
-            "$ref": "#/definitions/RevenueTrackingEventItem"
+            "additionalProperties": false,
+            "properties": {
+                "eventName": {
+                    "type": "string"
+                },
+                "revenueCurrencyProperty": {
+                    "$ref": "#/definitions/RevenueCurrencyPropertyConfig",
+                    "default": {
+                        "static": "USD"
+                    }
+                },
+                "revenueProperty": {
+                    "type": "string"
+                }
+            },
+            "required": ["eventName", "revenueProperty", "revenueCurrencyProperty"],
+            "type": "object"
         },
         "RevenueAnalyticsGrowthRateQuery": {
             "additionalProperties": false,
@@ -16630,43 +16664,6 @@
                 }
             },
             "required": ["dataWarehouseSources", "events"],
-            "type": "object"
-        },
-        "RevenueTrackingConfig": {
-            "additionalProperties": false,
-            "properties": {
-                "baseCurrency": {
-                    "$ref": "#/definitions/CurrencyCode",
-                    "default": "USD"
-                },
-                "events": {
-                    "default": [],
-                    "items": {
-                        "$ref": "#/definitions/RevenueTrackingEventItem"
-                    },
-                    "type": "array"
-                }
-            },
-            "required": ["baseCurrency", "events"],
-            "type": "object"
-        },
-        "RevenueTrackingEventItem": {
-            "additionalProperties": false,
-            "properties": {
-                "eventName": {
-                    "type": "string"
-                },
-                "revenueCurrencyProperty": {
-                    "$ref": "#/definitions/RevenueCurrencyPropertyConfig",
-                    "default": {
-                        "static": "USD"
-                    }
-                },
-                "revenueProperty": {
-                    "type": "string"
-                }
-            },
-            "required": ["eventName", "revenueProperty", "revenueCurrencyProperty"],
             "type": "object"
         },
         "RootAssistantMessage": {

@@ -7,7 +7,7 @@ import django.db.models.deletion
 # class Migration(migrations.Migration):
 #     dependencies = [
 #         ("ee", "0026_conversation_created_at_conversation_title_and_more"),
-#         ("posthog", "0715_teamrevenueanalyticsconfig"),
+#         ("posthog", "0716_backfill_team_revenue_analytics_config"),
 #     ]
 
 #     operations = [
@@ -28,7 +28,7 @@ class Migration(migrations.Migration):
     atomic = False  # Added to support concurrent index creation
     dependencies = [
         ("ee", "0026_conversation_created_at_conversation_title_and_more"),
-        ("posthog", "0715_teamrevenueanalyticsconfig"),
+        ("posthog", "0716_backfill_team_revenue_analytics_config"),
     ]
 
     operations = [

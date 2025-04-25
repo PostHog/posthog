@@ -2,6 +2,7 @@ import time
 from typing import Optional
 from uuid import UUID
 
+import posthoganalytics
 import requests
 from celery import shared_task
 from django.conf import settings
@@ -897,20 +898,20 @@ def ee_persist_finished_recordings_v2() -> None:
         persist_finished_recordings_v2()
 
 
-# @shared_task(
-#     ignore_result=True,
-#     queue=CeleryQueue.SESSION_REPLAY_GENERAL.value,
-# )
-# def ee_count_items_in_playlists() -> None:
-#     try:
-#         from ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters import (
-#             enqueue_recordings_that_match_playlist_filters,
-#         )
-#     except ImportError as ie:
-#         posthoganalytics.capture_exception(ie, properties={"posthog_feature": "session_replay_playlist_counters"})
-#         logger.exception("Failed to import task to count items in playlists", error=ie)
-#     else:
-#         enqueue_recordings_that_match_playlist_filters()
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.SESSION_REPLAY_GENERAL.value,
+)
+def count_items_in_playlists() -> None:
+    try:
+        from ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters import (
+            enqueue_recordings_that_match_playlist_filters,
+        )
+    except ImportError as ie:
+        posthoganalytics.capture_exception(ie, properties={"posthog_feature": "session_replay_playlist_counters"})
+        logger.exception("Failed to import task to count items in playlists", error=ie)
+    else:
+        enqueue_recordings_that_match_playlist_filters()
 
 
 @shared_task(ignore_result=True)

@@ -30,19 +30,18 @@ import { DefaultBatchConsumerFactory } from './main/ingestion-queues/session-rec
 import { SessionRecordingIngester as SessionRecordingIngesterV2 } from './main/ingestion-queues/session-recording-v2/consumer'
 import { setupCommonRoutes } from './router'
 import { Hub, PluginServerService, PluginsServerConfig } from './types'
+import { ServerCommands } from './utils/commands'
 import { closeHub, createHub } from './utils/db/hub'
 import { PostgresRouter } from './utils/db/postgres'
 import { createRedisClient } from './utils/db/redis'
 import { isTestEnv } from './utils/env-utils'
-import { parseJSON } from './utils/json-parse'
 import { logger } from './utils/logger'
 import { getObjectStorage } from './utils/object_storage'
 import { captureException, shutdown as posthogShutdown } from './utils/posthog'
 import { PubSub } from './utils/pubsub'
 import { delay } from './utils/utils'
 import { teardownPlugins } from './worker/plugins/teardown'
-import { initPlugins as _initPlugins, reloadPlugins } from './worker/tasks'
-import { populatePluginCapabilities } from './worker/vm/lazy'
+import { initPlugins as _initPlugins } from './worker/tasks'
 
 CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
 CompressionCodecs[CompressionTypes.LZ4] = new LZ4().codec
@@ -276,26 +275,16 @@ export class PluginServer {
                 })
             }
 
-            const readyServices = await Promise.all(serviceLoaders.map((loader) => loader()))
-            this.services.push(...readyServices)
-
-            this.pubsub = new PubSub(this.hub, {
-                [hub.PLUGINS_RELOAD_PUBSUB_CHANNEL]: async () => {
-                    logger.info('⚡', 'Reloading plugins!')
-                    await reloadPlugins(hub)
-                },
-                'reset-available-product-features-cache': (message) => {
-                    hub.teamManager.orgAvailableFeaturesChanged(parseJSON(message).organization_id)
-                },
-                'populate-plugin-capabilities': async (message) => {
-                    // We need this to be done in only once
-                    if (hub?.capabilities.appManagementSingleton) {
-                        await populatePluginCapabilities(hub, Number(parseJSON(message).plugin_id))
-                    }
-                },
+            // The service commands is always created
+            serviceLoaders.push(async () => {
+                const serverCommands = new ServerCommands(hub)
+                this.expressApp.use('/', serverCommands.router())
+                await serverCommands.start()
+                return serverCommands.service
             })
 
-            await this.pubsub.start()
+            const readyServices = await Promise.all(serviceLoaders.map((loader) => loader()))
+            this.services.push(...readyServices)
 
             setupCommonRoutes(this.expressApp, this.services)
 
