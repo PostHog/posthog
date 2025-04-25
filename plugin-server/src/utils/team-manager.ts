@@ -62,10 +62,9 @@ export class TeamManager {
      * We require an index of org to keys so that invalidating the cache when an org changes is fast given the sheer number of teams.
      */
     private setTeamInOrg(team: Team): void {
-        const keys = this.orgToTeamKeys[team.organization_id] || new Set()
+        const keys = (this.orgToTeamKeys[team.organization_id] ??= new Set())
         keys.add(String(team.id))
         keys.add(team.api_token)
-        this.orgToTeamKeys[team.organization_id] = keys
     }
 
     public async setTeamIngestedEvent(team: Team, properties: Properties): Promise<void> {
