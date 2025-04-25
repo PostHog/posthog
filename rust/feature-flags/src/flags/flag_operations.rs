@@ -19,7 +19,10 @@ impl PropertyFilter {
         if !self.is_cohort() {
             return None;
         }
-        self.value.as_i64().map(|id| id as CohortId)
+        self.value
+            .as_ref()
+            .and_then(|value| value.as_i64())
+            .map(|id| id as CohortId)
     }
 }
 
@@ -276,7 +279,7 @@ mod tests {
             .expect("Properties don't exist on flag")[0];
 
         assert_eq!(property_filter.key, "email");
-        assert_eq!(property_filter.value, "a@b.com");
+        assert_eq!(property_filter.value, Some(json!("a@b.com")));
         assert_eq!(property_filter.operator, None);
         assert_eq!(property_filter.prop_type, "person");
         assert_eq!(property_filter.group_type_index, None);
@@ -310,7 +313,7 @@ mod tests {
         assert_eq!(flag.key, "𝖚𝖙𝖋16_𝖙𝖊𝖘𝖙_𝖋𝖑𝖆𝖌");
         let property = &flag.filters.groups[0].properties.as_ref().unwrap()[0];
         assert_eq!(property.key, "𝖕𝖗𝖔𝖕𝖊𝖗𝖙𝖞");
-        assert_eq!(property.value, json!("𝓿𝓪𝓵𝓾𝓮"));
+        assert_eq!(property.value, Some(json!("𝓿𝓪𝓵𝓾𝓮")));
     }
 
     #[test]

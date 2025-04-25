@@ -2,7 +2,7 @@ import { cva } from 'cva'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { TreeMode } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { cn } from 'lib/utils/css-classes'
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { panelLayoutLogic } from './panelLayoutLogic'
@@ -22,15 +22,15 @@ const panelLayoutStyles = cva({
             false: '',
         },
         isLayoutPanelVisible: {
-            true: '',
-            false: '',
+            true: 'block',
+            false: 'hidden',
         },
         isLayoutPanelPinned: {
             true: '',
             false: '',
         },
         isMobileLayout: {
-            true: 'flex absolute top-0 bottom-0 left-0',
+            true: 'absolute top-0 bottom-0 flex',
             false: 'grid',
         },
         isLayoutNavCollapsed: {
@@ -116,15 +116,12 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
         isLayoutNavbarVisibleForDesktop,
         activePanelIdentifier,
         isLayoutNavCollapsed,
-        isLayoutNavbarVisible,
         projectTreeMode,
     } = useValues(panelLayoutLogic)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
-    const { showLayoutPanel, showLayoutNavBar, clearActivePanelIdentifier, setMainContentRef, setProjectTreeMode } =
+    const { showLayoutPanel, clearActivePanelIdentifier, setMainContentRef, setProjectTreeMode } =
         useActions(panelLayoutLogic)
     useMountedLogic(projectTreeLogic)
-
-    const containerRef = useRef<HTMLDivElement | null>(null)
 
     useEffect(() => {
         if (mainRef.current) {
@@ -133,7 +130,7 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
     }, [mainRef, setMainContentRef])
 
     return (
-        <div className="relative" ref={containerRef}>
+        <>
             <div
                 id="project-panel-layout"
                 className={cn(
@@ -160,29 +157,19 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                         showLayoutPanel(false)
                         clearActivePanelIdentifier()
                     }}
-                    className="z-[var(--z-layout-panel-overlay)] fixed inset-0 w-screen h-screen"
+                    className="z-[var(--z-layout-panel-under)] fixed inset-0 w-screen h-screen"
                 />
             )}
-            {isMobileLayout && isLayoutNavbarVisible && (
-                <div
-                    onClick={() => {
-                        // On mobile, hide the navbar and panel when the overlay is clicked
-                        showLayoutNavBar(false)
-                        showLayoutPanel(false)
-                        clearActivePanelIdentifier()
-                    }}
-                    className="z-[var(--z-layout-navbar-overlay)] fixed inset-0 w-screen h-screen"
-                />
-            )}
+
             {projectTreeMode === 'table' && (
                 <div
                     onClick={() => {
                         // Return to tree mode when clicking outside the table view
                         setProjectTreeMode('tree')
                     }}
-                    className="z-[var(--z-layout-navbar-overlay)] fixed inset-0 w-screen h-screen"
+                    className="z-[var(--z-layout-navbar-under)] fixed inset-0 w-screen h-screen"
                 />
             )}
-        </div>
+        </>
     )
 }
