@@ -1,5 +1,3 @@
-use std::intrinsics::unreachable;
-
 use envconfig::Envconfig;
 use tokio::signal;
 use tracing_subscriber::fmt;
