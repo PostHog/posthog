@@ -9,8 +9,7 @@ from posthog.schema import (
     RevenueCurrencyPropertyConfig,
     RevenueExampleEventsQuery,
     RevenueExampleEventsQueryResponse,
-    RevenueTrackingConfig,
-    RevenueTrackingEventItem,
+    RevenueAnalyticsEventItem,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -23,39 +22,28 @@ from products.revenue_analytics.backend.hogql_queries.revenue_example_events_que
     RevenueExampleEventsQueryRunner,
 )
 
-EMPTY_REVENUE_TRACKING_CONFIG = RevenueTrackingConfig(events=[])
-
-SINGLE_EVENT_REVENUE_TRACKING_CONFIG = RevenueTrackingConfig(
-    events=[RevenueTrackingEventItem(eventName="purchase", revenueProperty="revenue")]
+REVENUE_ANALYTICS_CONFIG_EVENT_PURCHASE = RevenueAnalyticsEventItem(eventName="purchase", revenueProperty="revenue")
+REVENUE_ANALYTICS_CONFIG_EVENT_PURCHASE_A = RevenueAnalyticsEventItem(
+    eventName="purchase_a", revenueProperty="revenue_a"
+)
+REVENUE_ANALYTICS_CONFIG_EVENT_PURCHASE_B = RevenueAnalyticsEventItem(
+    eventName="purchase_b", revenueProperty="revenue_b"
+)
+REVENUE_ANALYTICS_CONFIG_EVENT_PURCHASE_C = RevenueAnalyticsEventItem(
+    eventName="purchase_c", revenueProperty="revenue_c"
 )
 
-MULTIPLE_EVENT_REVENUE_TRACKING_CONFIG = RevenueTrackingConfig(
-    events=[
-        RevenueTrackingEventItem(eventName="purchase_a", revenueProperty="revenue_a"),
-        RevenueTrackingEventItem(eventName="purchase_b", revenueProperty="revenue_b"),
-    ]
-)
-
-REVENUE_TRACKING_CONFIG_WITH_REVENUE_CURRENCY_PROPERTY = RevenueTrackingConfig(
-    events=[
-        RevenueTrackingEventItem(
-            eventName="purchase_a",
-            revenueProperty="revenue_a",
-            revenueCurrencyProperty=RevenueCurrencyPropertyConfig(static=CurrencyCode.GBP),
-        ),
-        RevenueTrackingEventItem(
-            eventName="purchase_b",
-            revenueProperty="revenue_b",
-            revenueCurrencyProperty=RevenueCurrencyPropertyConfig(property="currency_b"),
-        ),
-        RevenueTrackingEventItem(
-            eventName="purchase_c",
-            revenueProperty="revenue_c",
-            revenueCurrencyProperty=RevenueCurrencyPropertyConfig(property="currency_c"),
-        ),
-    ],
-    baseCurrency=CurrencyCode.EUR,
-)
+REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT_REVENUE_CURRENCY_PROPERTY = [
+    REVENUE_ANALYTICS_CONFIG_EVENT_PURCHASE_A.model_copy(
+        update={"revenueCurrencyProperty": RevenueCurrencyPropertyConfig(static=CurrencyCode.GBP)}
+    ).model_dump(),
+    REVENUE_ANALYTICS_CONFIG_EVENT_PURCHASE_B.model_copy(
+        update={"revenueCurrencyProperty": RevenueCurrencyPropertyConfig(property="currency_b")}
+    ).model_dump(),
+    REVENUE_ANALYTICS_CONFIG_EVENT_PURCHASE_C.model_copy(
+        update={"revenueCurrencyProperty": RevenueCurrencyPropertyConfig(property="currency_c")}
+    ).model_dump(),
+]
 
 
 @snapshot_clickhouse_queries
@@ -115,14 +103,8 @@ class TestRevenueExampleEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             person_result.append((person, event_ids))
         return person_result
 
-    def _run_revenue_example_events_query(
-        self,
-        revenue_tracking_config: RevenueTrackingConfig,
-    ):
+    def _run_revenue_example_events_query(self):
         with freeze_time(self.QUERY_TIMESTAMP):
-            self.team.revenue_tracking_config = revenue_tracking_config.model_dump()
-            self.team.save()
-
             runner = RevenueExampleEventsQueryRunner(team=self.team, query=RevenueExampleEventsQuery())
 
             response = runner.calculate()
@@ -131,7 +113,7 @@ class TestRevenueExampleEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             return response
 
     def test_no_crash_when_no_data(self):
-        results = self._run_revenue_example_events_query(EMPTY_REVENUE_TRACKING_CONFIG).results
+        results = self._run_revenue_example_events_query().results
         assert len(results) == 0
 
     def test_single_event(self):
@@ -144,7 +126,10 @@ class TestRevenueExampleEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             event="purchase",
         )
 
-        results = self._run_revenue_example_events_query(SINGLE_EVENT_REVENUE_TRACKING_CONFIG).results
+        self.team.revenue_analytics_config.events = [REVENUE_ANALYTICS_CONFIG_EVENT_PURCHASE.model_dump()]
+        self.team.revenue_analytics_config.save()
+
+        results = self._run_revenue_example_events_query().results
 
         assert len(results) == 1
         assert results[0][1] == "purchase"
@@ -166,7 +151,13 @@ class TestRevenueExampleEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             event="purchase_b",
         )
 
-        results = self._run_revenue_example_events_query(MULTIPLE_EVENT_REVENUE_TRACKING_CONFIG).results
+        self.team.revenue_analytics_config.events = [
+            REVENUE_ANALYTICS_CONFIG_EVENT_PURCHASE_A.model_dump(),
+            REVENUE_ANALYTICS_CONFIG_EVENT_PURCHASE_B.model_dump(),
+        ]
+        self.team.revenue_analytics_config.save()
+
+        results = self._run_revenue_example_events_query().results
 
         assert len(results) == 2
         assert results[0][1] == "purchase_b"
@@ -198,7 +189,11 @@ class TestRevenueExampleEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             event="purchase_c",
         )
 
-        results = self._run_revenue_example_events_query(REVENUE_TRACKING_CONFIG_WITH_REVENUE_CURRENCY_PROPERTY).results
+        self.team.revenue_analytics_config.base_currency = CurrencyCode.EUR.value
+        self.team.revenue_analytics_config.events = REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT_REVENUE_CURRENCY_PROPERTY
+        self.team.revenue_analytics_config.save()
+
+        results = self._run_revenue_example_events_query().results
 
         assert len(results) == 3
 
@@ -247,7 +242,11 @@ class TestRevenueExampleEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             event="purchase_c",
         )
 
-        results = self._run_revenue_example_events_query(REVENUE_TRACKING_CONFIG_WITH_REVENUE_CURRENCY_PROPERTY).results
+        self.team.revenue_analytics_config.base_currency = CurrencyCode.EUR.value
+        self.team.revenue_analytics_config.events = REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT_REVENUE_CURRENCY_PROPERTY
+        self.team.revenue_analytics_config.save()
+
+        results = self._run_revenue_example_events_query().results
 
         # Keep in the original revenue values
         assert len(results) == 3

@@ -17,6 +17,7 @@ from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.errors import ImpossibleASTError, QueryError, ResolutionError
+from posthog.hogql.escape_sql import safe_identifier
 from posthog.hogql.functions import find_hogql_posthog_function
 from posthog.hogql.functions.action import matches_action
 from posthog.hogql.functions.cohort import cohort_query_node
@@ -214,7 +215,7 @@ class Resolver(CloningVisitor):
             elif isinstance(new_expr.type, ast.CallType):
                 from posthog.hogql.printer import print_prepared_ast
 
-                alias = print_prepared_ast(node=new_expr, context=self.context, dialect="hogql")
+                alias = safe_identifier(print_prepared_ast(node=new_expr, context=self.context, dialect="hogql"))
             else:
                 alias = None
 
