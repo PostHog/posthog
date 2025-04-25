@@ -28,6 +28,7 @@ import {
 import { SessionRecordingIngester } from './main/ingestion-queues/session-recording/session-recordings-consumer'
 import { DefaultBatchConsumerFactory } from './main/ingestion-queues/session-recording-v2/batch-consumer-factory'
 import { SessionRecordingIngester as SessionRecordingIngesterV2 } from './main/ingestion-queues/session-recording-v2/consumer'
+import { runInstrumentedFunction } from './main/utils'
 import { setupCommonRoutes } from './router'
 import { Hub, PluginServerService, PluginsServerConfig } from './types'
 import { closeHub, createHub } from './utils/db/hub'
@@ -284,10 +285,14 @@ export class PluginServer {
                     logger.info('⚡', '[PubSub] Reloading plugins!')
                     await reloadPlugins(hub)
                 },
-                'reset-available-product-features-cache': (message) => {
+                'reset-available-product-features-cache': async (message) => {
                     const { organizationId } = parseJSON(message) as { organizationId: string }
                     logger.info('⚡', '[PubSub] Resetting available product features cache!', { organizationId })
-                    hub.teamManager.orgAvailableFeaturesChanged(organizationId)
+
+                    await runInstrumentedFunction({
+                        statsKey: 'reset-available-product-features-cache',
+                        func: () => Promise.resolve(hub.teamManager.orgAvailableFeaturesChanged(organizationId)),
+                    })
                 },
                 'populate-plugin-capabilities': async (message) => {
                     const { pluginId } = parseJSON(message) as { pluginId: string }
