@@ -80,9 +80,9 @@ exports[`EventPipelineRunner runEventPipeline() runs steps starting from populat
         "uuid": "uuid1",
       },
       {
+        "api_token": "token1",
         "id": 2,
         "person_processing_opt_out": false,
-        "api_token": "token1",
       },
       "2020-02-23T02:15:00.000Z",
       true,
@@ -92,6 +92,7 @@ exports[`EventPipelineRunner runEventPipeline() runs steps starting from populat
         },
         "distinctId": "my_id",
         "methodCounts": {},
+        "token": "token1",
       },
     ],
   ],
