@@ -1,6 +1,7 @@
 import { IconCopy } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+import { concatValues } from 'lib/components/Errors/utils'
 import useIsHovering from 'lib/hooks/useIsHovering'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
@@ -8,7 +9,7 @@ import { useRef } from 'react'
 import { match, P } from 'ts-pattern'
 
 import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
-import { cancelEvent, ExceptionAttributes } from '../utils'
+import { cancelEvent } from '../utils'
 
 export function ContextDisplay({ className }: { className?: string }): JSX.Element {
     const { exceptionAttributes, showContext, propertiesLoading } = useValues(errorTrackingIssueSceneLogic)
@@ -92,15 +93,4 @@ function ContextRow({ label, value }: ContextRowProps): JSX.Element {
             </td>
         </tr>
     )
-}
-
-function concatValues(attrs: ExceptionAttributes | null, ...keys: (keyof ExceptionAttributes)[]): string | undefined {
-    if (!attrs) {
-        return undefined
-    }
-    const definedKeys = keys.filter((key) => attrs[key])
-    if (definedKeys.length == 0) {
-        return undefined
-    }
-    return definedKeys.map((key) => attrs[key]).join(' ')
 }
