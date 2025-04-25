@@ -7,8 +7,7 @@ import { logger } from '../../utils/logger'
 import { CdpInternalEventSchema } from '../schema'
 import { HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
 import { convertInternalEventToHogFunctionInvocationGlobals } from '../utils'
-import { counterParseError } from './cdp-base.consumer'
-import { CdpProcessedEventsConsumer } from './cdp-processed-events.consumer'
+import { CdpProcessedEventsConsumer, counterParseError } from './cdp-processed-events.consumer'
 
 export class CdpInternalEventsConsumer extends CdpProcessedEventsConsumer {
     protected name = 'CdpInternalEventsConsumer'

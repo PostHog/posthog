@@ -1,7 +1,7 @@
 import { CyclotronJobInit, CyclotronManager } from '@posthog/cyclotron'
 import { chunk } from 'lodash'
 import { Message } from 'node-rdkafka'
-import { Histogram } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 
 import {
     convertToHogFunctionInvocationGlobals,
@@ -17,6 +17,12 @@ import { logger } from '../../utils/logger'
 import { HogWatcherState } from '../services/hog-watcher.service'
 import { HogFunctionInvocation, HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
 import { CdpConsumerBase } from './cdp-base.consumer'
+
+export const counterParseError = new Counter({
+    name: 'cdp_function_parse_error',
+    help: 'A function invocation was parsed with an error',
+    labelNames: ['error'],
+})
 
 export const histogramCyclotronJobsCreated = new Histogram({
     name: 'cdp_cyclotron_jobs_created_per_batch',
@@ -194,6 +200,7 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
                                 )
                             } catch (e) {
                                 logger.error('Error parsing message', e)
+                                counterParseError.labels({ error: e.message }).inc()
                             }
                         })
                     )
