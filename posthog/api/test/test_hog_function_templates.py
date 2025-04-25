@@ -3,6 +3,7 @@ import os
 from unittest.mock import ANY, patch
 from inline_snapshot import snapshot
 from rest_framework import status
+from typing import Any
 
 from posthog.api.hog_function_template import HogFunctionTemplates
 from posthog.cdp.templates.hog_function_template import derive_sub_templates
@@ -170,7 +171,8 @@ class TestDatabaseHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMa
         sub_templates_json = []
         if template.sub_templates:
             for st in template.sub_templates:
-                sub_template_dict = {
+                # Explicitly annotate dict with correct types
+                sub_template_dict: dict[str, Any] = {
                     "id": st.id,
                     "name": st.name,
                     "description": st.description,

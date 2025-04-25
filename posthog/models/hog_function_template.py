@@ -1,5 +1,5 @@
 from django.db import models
-from typing import Optional, cast
+from typing import Literal, Optional, cast
 import hashlib
 import structlog
 import dataclasses
@@ -188,7 +188,7 @@ class HogFunctionTemplate(UUIDModel):
             inputs_schema=self.inputs_schema,
             free=self.free,
             type=cast(HogFunctionTemplateType, self.type),
-            status=self.status,
+            status=cast(Literal["alpha", "beta", "stable", "deprecated"], self.status),
             category=self.category,
             description=self.description,
             kind=cast(HogFunctionTemplateKind, self.kind) if self.kind else None,
