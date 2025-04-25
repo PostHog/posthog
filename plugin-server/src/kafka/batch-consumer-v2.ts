@@ -229,7 +229,7 @@ export class KafkaConsumer {
         })
 
         consumer.on('subscribed', (topics) => {
-            logger.info('📝', 'librdkafka consumer subscribed', { topics })
+            logger.info('📝', 'librdkafka consumer subscribed', { topics, config: this.consumerConfig })
         })
 
         consumer.on('connection.failure', (error: LibrdKafkaError, metrics: ClientMetrics) => {
