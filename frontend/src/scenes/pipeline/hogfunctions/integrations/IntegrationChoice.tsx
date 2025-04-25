@@ -77,7 +77,7 @@ export function IntegrationChoice({
         })
 
         if (modalProps) {
-            LemonDialog.openForm(modalProps)
+            LemonDialog.open(modalProps)
         }
     }
 

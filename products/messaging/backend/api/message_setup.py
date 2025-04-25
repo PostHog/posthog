@@ -22,7 +22,7 @@ class MessageSetupViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         setup_result = mailjet.setup_email_domain(domain)
         return Response(setup_result)
 
-    @action(methods=["POST"], detail=False, url_path="email/verify")
+    @action(methods=["POST"], detail=False)
     def email_verify(self, request, **kwargs):
         """Verify the sender domain has the correct SPF and DKIM records."""
 

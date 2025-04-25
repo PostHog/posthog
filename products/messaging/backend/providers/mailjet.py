@@ -12,17 +12,17 @@ class MailjetResponse:
     data: list[dict]
     total: int
 
-    def __init__(self, count: int, data: list[dict], total: int):
-        self.count = count
-        self.data = data
-        self.total = total
+    def __init__(self, Count: int, Data: list[dict], Total: int):
+        self.count = Count
+        self.data = Data
+        self.total = Total
 
     def get_first_item(self) -> dict | None:
         return self.data[0] if self.data else None
 
 
 class MailjetConfig:
-    API_BASE_URL_V3: str = "https://api.mailjet.com/v3"
+    API_BASE_URL_V3: str = "https://api.mailjet.com/v3/REST"
 
     SENDER_ENDPOINT: str = "/sender"
     DNS_ENDPOINT: str = "/dns"
@@ -40,9 +40,9 @@ class MailjetProvider:
 
     @classmethod
     def get_api_key(cls) -> str:
-        api_key = settings.MAILJET_API_KEY
+        api_key = settings.MAILJET_PUBLIC_KEY
         if not api_key:
-            raise ValueError("MAILJET_API_KEY is not set in environment or settings")
+            raise ValueError("MAILJET_PUBLIC_KEY is not set in environment or settings")
         return api_key
 
     @classmethod
@@ -107,8 +107,12 @@ class MailjetProvider:
             response = requests.post(
                 url, auth=(self.api_key, self.api_secret), headers=MailjetConfig.DEFAULT_HEADERS, json=payload
             )
-            response.raise_for_status()
-            return MailjetResponse(**response.json()).get_first_item()
+
+            ALREADY_EXISTS_RESPONSE = "There is an already existing inactive sender with the same email."
+            if response.status_code == 400 and ALREADY_EXISTS_RESPONSE in str(response.json()):
+                return
+            else:
+                response.raise_for_status()
         except requests.exceptions.RequestException as e:
             logger.exception(f"Mailjet API error creating sender domain: {e}")
             raise
@@ -138,7 +142,7 @@ class MailjetProvider:
         url = f"{MailjetConfig.API_BASE_URL_V3}{MailjetConfig.DNS_ENDPOINT}/{domain}{MailjetConfig.DNS_CHECK_ENDPOINT}"
 
         try:
-            response = requests.get(url, auth=(self.api_key, self.api_secret), headers=MailjetConfig.DEFAULT_HEADERS)
+            response = requests.post(url, auth=(self.api_key, self.api_secret), headers=MailjetConfig.DEFAULT_HEADERS)
             response.raise_for_status()
             return MailjetResponse(**response.json()).get_first_item()
         except requests.exceptions.RequestException as e:

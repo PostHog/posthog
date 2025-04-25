@@ -1,69 +1,101 @@
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { IconCheckCircle, IconCopy, IconWarning } from '@posthog/icons'
+import { LemonButton, LemonInput, lemonToast, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { LemonFormDialogProps } from 'lib/lemon-ui/LemonDialog/LemonDialog'
+import { LemonDialogProps } from 'lib/lemon-ui/LemonDialog/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
-import { DnsRecord, emailSetupModalLogic } from './emailSetupModalLogic'
+import { DnsRecord, emailSetupModalLogic, EmailSetupModalLogicProps } from './emailSetupModalLogic'
 
-interface EmailSetupModalProps {
-    onComplete?: (domain: string) => void
-}
+const EmailSetupModalContent = (props: EmailSetupModalLogicProps): JSX.Element => {
+    const { setupResponse, setupResponseLoading, verificationResponseLoading } = useValues(emailSetupModalLogic(props))
+    const { verifyDomain, submitEmailIntegration } = useActions(emailSetupModalLogic(props))
 
-const EmailSetupModalContent = ({ isLoading }: { isLoading: boolean }): JSX.Element => {
-    const { emailIntegration, dnsRecords, setupResponseLoading, verificationResponseLoading } =
-        useValues(emailSetupModalLogic)
-    const { verifyDomain } = useActions(emailSetupModalLogic)
-
-    if (!emailIntegration.domain) {
+    if (!setupResponse) {
         return (
-            <div className="space-y-4">
-                <Form logic={emailSetupModalLogic} formKey="emailIntegration">
+            <Form logic={emailSetupModalLogic} formKey="emailIntegration">
+                <div className="space-y-4">
                     <LemonField name="domain" label="Domain">
-                        <LemonInput
-                            type="text"
-                            placeholder="example.com"
-                            disabled={isLoading || setupResponseLoading}
-                        />
+                        <LemonInput type="text" placeholder="example.com" disabled={setupResponseLoading} />
                     </LemonField>
                     <div className="flex justify-end">
                         <LemonButton
                             type="primary"
                             htmlType="submit"
-                            disabled={isLoading || setupResponseLoading}
+                            disabledReason={setupResponseLoading ? 'Creating sender domain...' : undefined}
                             loading={setupResponseLoading}
+                            onClick={submitEmailIntegration}
                         >
                             Continue
                         </LemonButton>
                     </div>
-                </Form>
-            </div>
+                </div>
+            </Form>
         )
     }
 
     return (
-        <div className="space-y-4">
-            <h3 className="font-semibold">Add the following DNS records to your domain</h3>
+        <div className="space-y-2 max-w-[50rem]">
             <p className="text-sm text-muted">
-                Add these DNS records to your domain's DNS configuration. Once you've added them, click the "Verify DNS
-                Records" button to check if they're properly configured.
+                These DNS records verify ownership of your domain. This ensures your emails make it to your users'
+                inboxes and aren't marked as spam.
             </p>
+            <p className="font-semibold mb-2">Note: It can take up to 48 hours for DNS changes to propagate.</p>
             <div className="overflow-x-auto">
                 <table className="w-full border-collapse">
                     <thead>
                         <tr className="border-b">
                             <th className="py-2 text-left">Type</th>
-                            <th className="py-2 text-left">Name</th>
+                            <th className="py-2 text-left">Hostname</th>
                             <th className="py-2 text-left">Value</th>
+                            <th className="py-2 text-left">Status</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {dnsRecords.map((record: DnsRecord, index: number) => (
+                        {setupResponse.dnsRecords?.map((record: DnsRecord, index: number) => (
                             <tr key={index} className="border-b">
-                                <td className="py-2">{record.type}</td>
-                                <td className="py-2">{record.name}</td>
-                                <td className="py-2 truncate max-w-[250px]">{record.value}</td>
+                                <td className="py-2">{record.recordType}</td>
+                                <td className="py-2 max-w-[160px]">
+                                    <div className="flex items-center gap-1 text-wrap break-all justify-between">
+                                        <span>{record.recordHostname}</span>
+                                        <LemonButton
+                                            size="small"
+                                            icon={<IconCopy />}
+                                            onClick={() => {
+                                                void navigator.clipboard.writeText(record.recordHostname)
+                                                lemonToast.success('Hostname copied to clipboard')
+                                            }}
+                                            tooltip="Copy hostname"
+                                        />
+                                    </div>
+                                </td>
+                                <td className="py-2 max-w-[200px]">
+                                    <div className="flex items-center gap-1 text-wrap break-all justify-between">
+                                        <span>{record.recordValue}</span>
+                                        <LemonButton
+                                            size="small"
+                                            icon={<IconCopy />}
+                                            onClick={() => {
+                                                void navigator.clipboard.writeText(record.recordValue)
+                                                lemonToast.success('Value copied to clipboard')
+                                            }}
+                                            tooltip="Copy value"
+                                        />
+                                    </div>
+                                </td>
+                                <td className="py-2 w-24">
+                                    {verificationResponseLoading ? (
+                                        <Spinner className="text-lg" />
+                                    ) : record.status === 'pending' ? (
+                                        <div className="flex items-center gap-1">
+                                            <IconWarning className="size-6 text-warning" /> Pending
+                                        </div>
+                                    ) : (
+                                        <div className="flex items-center gap-1">
+                                            <IconCheckCircle className="size-6 text-success" /> Verified
+                                        </div>
+                                    )}
+                                </td>
                             </tr>
                         ))}
                     </tbody>
@@ -76,32 +108,19 @@ const EmailSetupModalContent = ({ isLoading }: { isLoading: boolean }): JSX.Elem
                     disabled={verificationResponseLoading}
                     loading={verificationResponseLoading}
                 >
-                    Verify DNS Records
+                    Verify DNS records
                 </LemonButton>
             </div>
         </div>
     )
 }
 
-export const getEmailSetupModal = ({ onComplete }: EmailSetupModalProps): LemonFormDialogProps => {
+export const getEmailSetupModal = ({ onComplete }: EmailSetupModalLogicProps): LemonDialogProps => {
     return {
         title: `Configure email sender domain`,
-        description: (
-            <>
-                Enter the domain you'd like to send emails from. We'll help you verify ownership so that your messages
-                get delivered to your users' inboxes and don't end up in spam.
-            </>
-        ),
-        width: '30rem',
-        initialValues: {},
-        content: EmailSetupModalContent,
-        onSubmit: async ({ domain }) => {
-            try {
-                onComplete?.(domain)
-            } catch (error) {
-                lemonToast.error('Failed to create email sender domain')
-                console.error(error)
-            }
-        },
+        width: 'auto',
+        content: <EmailSetupModalContent onComplete={onComplete} />,
+        primaryButton: null,
+        secondaryButton: null,
     }
 }

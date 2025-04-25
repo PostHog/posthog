@@ -1170,7 +1170,7 @@ class ApiRequest {
     }
 
     public messagingSetupEmailVerify(): ApiRequest {
-        return this.messagingSetupEmail().addPathComponent('verify')
+        return this.messagingSetup().addPathComponent('email_verify')
     }
 }
 

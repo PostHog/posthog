@@ -1,6 +1,7 @@
-import { actions, kea, key, listeners, path, props, selectors } from 'kea'
+import { kea, key, listeners, path, props, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import type { emailSetupModalLogicType } from './emailSetupModalLogicType'
@@ -11,8 +12,10 @@ export interface EmailSetupModalLogicProps {
 
 export interface DnsRecord {
     type: string
-    name: string
-    value: string
+    status: string
+    recordValue: string
+    recordType: string
+    recordHostname: string
 }
 
 export interface DomainFormType {
@@ -24,12 +27,6 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
     path(['products', 'messaging', 'frontend', 'EmailSetup', 'emailSetupModalLogic']),
     props({} as EmailSetupModalLogicProps),
     key(() => 'global'),
-    actions({
-        submitDomain: (domain: string) => ({ domain }),
-        verifyDomain: true,
-        resetState: true,
-        setDomain: (domain: string) => ({ domain }),
-    }),
     forms(({ actions }) => ({
         emailIntegration: {
             defaults: {
@@ -54,62 +51,21 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
         },
     })),
     loaders(({ values }) => ({
-        setupResponse: [
-            null as null | { records: DnsRecord[] },
-            {
-                submitDomain: async ({ domain }) => {
-                    try {
-                        const response = await fetch(`/api/projects/@current/message_setup/email`, {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                            },
-                            body: JSON.stringify({ domain }),
-                        })
-
-                        if (!response.ok) {
-                            throw new Error('Failed to setup domain')
-                        }
-
-                        return await response.json()
-                    } catch (error) {
-                        lemonToast.error('Failed to create email sender domain')
-                        throw error
-                    }
-                },
+        setupResponse: {
+            submitDomain: (domain) => {
+                return api.messaging.createEmailSenderDomain(domain)
             },
-        ],
-        verificationResponse: [
-            null as null | { verified: boolean },
-            {
-                verifyDomain: async () => {
-                    const domain = values.emailIntegration.domain
-                    try {
-                        const response = await fetch(`/api/projects/@current/message_setup/email/verify`, {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                            },
-                            body: JSON.stringify({ domain }),
-                        })
-
-                        if (!response.ok) {
-                            throw new Error('Failed to verify domain')
-                        }
-
-                        return await response.json()
-                    } catch (error) {
-                        lemonToast.error('Failed to verify domain')
-                        throw error
-                    }
-                },
+        },
+        verificationResponse: {
+            verifyDomain: async () => {
+                return api.messaging.verifyEmailSenderDomain(values.emailIntegration.domain)
             },
-        ],
+        },
     })),
     selectors({
         dnsRecords: [
             (s) => [s.setupResponse],
-            (setupResponse: { records: DnsRecord[] } | null) => setupResponse?.records || [],
+            (setupResponse: { records: DnsRecord[] } | null) => setupResponse?.records || null,
         ],
     }),
     listeners(({ props, values }) => ({
