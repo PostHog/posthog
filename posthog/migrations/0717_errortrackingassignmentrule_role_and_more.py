@@ -76,7 +76,7 @@ class Migration(migrations.Migration):
                 ),
                 migrations.RunSQL(
                     """
-                    CREATE INDEX "posthog_errortrackingissueassignment_role_id_f84c52d3" ON "posthog_errortrackingissueassignment" ("role_id");
+                    CREATE INDEX CONCURRENTLY "posthog_errortrackingissueassignment_role_id_f84c52d3" ON "posthog_errortrackingissueassignment" ("role_id");
                     """,
                     reverse_sql="""
                         DROP INDEX IF EXISTS "posthog_errortrackingissueassignment_role_id_f84c52d3";
