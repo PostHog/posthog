@@ -28,7 +28,7 @@ export function InsightSaveButton({
             disabled={disabled}
             loading={!disabled && insightSaving}
         >
-            {disabled ? 'No changes to be saved' : 'Save under...'}
+            {disabled ? 'No changes to be saved' : 'Save to...'}
         </LemonButton>
     ) : (
         <LemonButton
@@ -63,13 +63,7 @@ export function InsightSaveButton({
                 'data-attr': 'insight-save-dropdown',
             }}
         >
-            {disabled
-                ? 'No changes to be saved'
-                : saveUnder
-                ? 'Save under...'
-                : addingToDashboard
-                ? 'Save & add to dashboard'
-                : 'Save'}
+            {disabled ? 'No changes to be saved' : addingToDashboard ? 'Save & add to dashboard' : 'Save'}
         </LemonButton>
     )
 }

@@ -20,7 +20,7 @@ export function SaveUnderModal(): JSX.Element {
         <LemonModal
             onClose={closeModal}
             isOpen={isOpen}
-            title="Select a folder to save in"
+            title="Select a folder to save to"
             footer={
                 <>
                     <div className="flex-1" />
