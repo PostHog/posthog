@@ -243,8 +243,6 @@ def _calculate_segment_meta(
     raw_key_actions: list[RawSegmentKeyActionsSerializer] | None,
     session_id: str,
 ) -> SegmentMetaSerializer:
-    # TODO Calculate unique URLs in the segment?
-    # TODO Calculate unique window IDs in the segment?
     # Find first and the last event in the segment
     segment_index = raw_segment.get("index")
     start_event_id = raw_segment.get("start_event_id")
@@ -339,6 +337,10 @@ def _calculate_segment_meta(
             segment_meta_data["events_count"] = fallback_events_count
             segment_meta_data["events_percentage"] = fallback_events_percentage
             return SegmentMetaSerializer(data=segment_meta_data)
+
+    # TODO Calculate unique URLs in the segment as a stat?
+    # TODO Calculate unique window IDs in the segment as a stat?
+
     return SegmentMetaSerializer(data=segment_meta_data)
 
 

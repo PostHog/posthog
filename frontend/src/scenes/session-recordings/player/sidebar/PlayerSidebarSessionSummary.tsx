@@ -10,8 +10,6 @@ import {
 } from '@posthog/icons'
 import { LemonBanner, LemonCollapse, LemonDivider, LemonSkeleton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-// import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-// import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'

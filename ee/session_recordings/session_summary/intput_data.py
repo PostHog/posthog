@@ -46,7 +46,7 @@ def get_session_events(
 
 
 def _skip_event_without_context(
-    event_row: list[str | datetime, ...],
+    event_row: list[str | datetime],
     # Using indexes as argument to avoid calling get_column_index on each event row
     indexes: dict[str, int],
 ) -> bool:
@@ -67,22 +67,16 @@ def _skip_event_without_context(
             and not elements_chain_ids
         ):
             return True
-    # Skip custom events with no proper context
-    # Assuming that events with a short name and no contexts aren't useful for the summary
-    # TODO: Check the assumptions, as could be risky, but worth it to avoid adding noise
-    if (
-        not event.startswith("$")
-        and len(event.split(" ")) == 1
-        and len(event.split(".")) == 1
-        and len(event.split("_")) == 1
-    ):
-        if (
-            not elements_chain_texts
-            and not elements_chain_elements
-            and not elements_chain_href
-            and not elements_chain_ids
-        ):
-            return True
+    # Keeping system events at all times
+    if event.startswith("$"):
+        return True
+    # Keeping events with descriptive names at all times
+    if len(event.split(" ")) > 1 or len(event.split(".")) > 1 or len(event.split("_")) > 1:
+        return True
+    # Skip the events with a short name or no context, assuming they aren't useful for the summary
+    # TODO: Check the assumption, as could be risky, but worth it to avoid adding noise
+    if not elements_chain_texts and not elements_chain_elements and not elements_chain_href and not elements_chain_ids:
+        return True
     return False
 
 
