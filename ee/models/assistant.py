@@ -11,14 +11,27 @@ from posthog.models.utils import UUIDModel
 
 
 class Conversation(UUIDModel):
+    class Meta:
+        indexes = [
+            models.Index(fields=["updated_at"]),
+        ]
+
     class Status(models.TextChoices):
         IDLE = "idle", "Idle"
         IN_PROGRESS = "in_progress", "In progress"
         CANCELING = "canceling", "Canceling"
 
+    class Type(models.TextChoices):
+        ASSISTANT = "assistant", "Assistant"
+        TOOL_CALL = "tool_call", "Tool call"
+
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True, null=True)
+    updated_at = models.DateTimeField(auto_now=True, null=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.IDLE)
+    type = models.CharField(max_length=20, choices=Type.choices, default=Type.ASSISTANT)
+    title = models.CharField(null=True, blank=True, help_text="Title of the conversation.", max_length=250)
 
     @property
     def is_locked(self) -> bool:

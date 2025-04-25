@@ -1,8 +1,10 @@
 import json
 from typing import Any
 
+from clickhouse_driver.errors import ServerException
+
 from posthog.clickhouse.client.async_task_chain import task_chain_context
-from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.client.connection import Workload, ClickHouseUser
 import uuid
 
 from django.test import TestCase, SimpleTestCase
@@ -10,6 +12,7 @@ from django.db import transaction
 
 from posthog.clickhouse.client import execute_async as client
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.models import Organization, Team
 from posthog.models.user import User
@@ -359,11 +362,31 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
             self.assertIn(f"/* user_id:{self.user_id} request:1 */", first_query)
 
     @patch("posthog.clickhouse.client.execute.get_client_from_pool")
-    def test_offline_workload_if_personal_api_key(self, mock_get_client):
-        from posthog.clickhouse.query_tagging import tag_queries
+    def test_offline_workload_if_personal_api_key_and_retries_online(self, mock_get_client):
+        # Create mock clients
+        mock_client1 = MagicMock()
+        mock_client2 = MagicMock()
 
-        with self.capture_select_queries():
-            tag_queries(kind="request", id="1", access_method="personal_api_key")
-            sync_execute("select 1")
+        # First client raises 202 ServerException
+        mock_client1.__enter__.return_value.execute.side_effect = ServerException("Test error", code=202)
 
-            self.assertEqual(mock_get_client.call_args[0][0], Workload.OFFLINE)
+        # Second client succeeds
+        mock_client2.__enter__.return_value.execute.return_value = "success"
+
+        # Return different clients on consecutive calls
+        mock_get_client.side_effect = [mock_client1, mock_client2]
+
+        # Execute query with personal_api_key access method
+        query = "SELECT 1"
+        # tag_queries = {"access_method": "personal_api_key"}
+        tag_queries(access_method="personal_api_key")
+        result = sync_execute(query)
+
+        # Verify first call was with OFFLINE workload
+        mock_get_client.assert_any_call(Workload.OFFLINE, None, False, ClickHouseUser.API)
+
+        # Verify second call was with ONLINE workload
+        mock_get_client.assert_any_call(Workload.ONLINE, None, False, ClickHouseUser.API)
+
+        # Verify final result
+        self.assertEqual(result, "success")

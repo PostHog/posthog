@@ -19,10 +19,10 @@ import { createRedisPool } from '../../../utils/db/redis'
 import { logger } from '../../../utils/logger'
 import { ObjectStorage } from '../../../utils/object_storage'
 import { captureException } from '../../../utils/posthog'
-import { fetchTeamTokensWithRecordings } from '../../../worker/ingestion/team-manager'
 import { runInstrumentedFunction } from '../../utils'
 import { addSentryBreadcrumbsEventListeners } from '../kafka-metrics'
 import { eventDroppedCounter } from '../metrics'
+import { fetchTeamTokensWithRecordings } from '../session-recording-v2/teams/team-service'
 import { ConsoleLogsIngester } from './services/console-logs-ingester'
 import { OffsetHighWaterMarker } from './services/offset-high-water-marker'
 import { OverflowManager } from './services/overflow-manager'
@@ -523,7 +523,6 @@ export class SessionRecordingIngester {
             consumerMaxWaitMs: this.config.KAFKA_CONSUMPTION_MAX_WAIT_MS,
             consumerErrorBackoffMs: this.config.KAFKA_CONSUMPTION_ERROR_BACKOFF_MS,
             batchingTimeoutMs: this.config.KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS,
-            topicCreationTimeoutMs: this.config.KAFKA_TOPIC_CREATION_TIMEOUT_MS,
             topicMetadataRefreshInterval: this.config.KAFKA_TOPIC_METADATA_REFRESH_INTERVAL_MS,
             eachBatch: async (messages, { heartbeat }) => {
                 return await this.scheduleWork(this.handleEachBatch(messages, heartbeat))

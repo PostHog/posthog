@@ -15,10 +15,12 @@ from posthog.constants import AvailableFeature
 from posthog.models.action.action import Action
 from posthog.models.hog_functions.hog_function import DEFAULT_STATE, HogFunction
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
-from posthog.cdp.templates.webhook.template_webhook import template as template_webhook
 from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.models.team import Team
 from posthog.api.hog_function import MAX_HOG_CODE_SIZE_BYTES, MAX_TRANSFORMATIONS_PER_TEAM
+
+
+webhook_template = MOCK_NODE_TEMPLATES[0]
 
 
 EXAMPLE_FULL = {
@@ -131,7 +133,7 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
     def test_free_users_cannot_create_non_free_templates(self):
         response = self._create_slack_function(
             {
-                "template_id": template_webhook.id,
+                "template_id": "template-webhook",
             }
         )
 
@@ -146,22 +148,22 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
 
         response = self._create_slack_function(
             {
-                "name": template_webhook.name,
-                "template_id": template_webhook.id,
+                "name": "Webhook",
+                "template_id": "template-webhook",
                 "inputs": {
                     "url": {"value": "https://example.com"},
                 },
             }
         )
 
-        assert response.json()["template"]["status"] == template_webhook.status
+        assert response.json()["template"]["status"] == "beta"
 
         self.organization.available_product_features = []
         self.organization.save()
 
         payload = {
-            "name": template_webhook.name,
-            "template_id": template_webhook.id,
+            "name": "Webhook",
+            "template_id": "template-webhook",
             "inputs": {
                 "url": {"value": "https://example.com/posthog-webhook-updated"},
             },
@@ -288,7 +290,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "description": "Test description",
                 "hog": "fetch(inputs.url);",
                 "inputs": {"url": {"value": "https://example.com"}},
-                "template_id": template_webhook.id,
+                "template_id": "template-webhook",
                 "type": "destination",
             },
         )
@@ -299,14 +301,14 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "type": "destination",
             "kind": None,
             "free": False,
-            "name": template_webhook.name,
-            "description": template_webhook.description,
-            "id": template_webhook.id,
-            "status": template_webhook.status,
-            "icon_url": template_webhook.icon_url,
-            "category": template_webhook.category,
-            "inputs_schema": template_webhook.inputs_schema,
-            "hog": template_webhook.hog,
+            "name": webhook_template["name"],
+            "description": webhook_template["description"],
+            "id": "template-webhook",
+            "status": "beta",
+            "icon_url": webhook_template["icon_url"],
+            "category": webhook_template["category"],
+            "inputs_schema": webhook_template["inputs_schema"],
+            "hog": webhook_template["hog"].strip(),
             "filters": None,
             "masking": None,
             "mappings": None,
@@ -316,7 +318,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     def test_creates_with_template_values_if_not_provided(self, *args):
         payload: dict = {
-            "template_id": template_webhook.id,
+            "template_id": "template-webhook",
             "type": "destination",
         }
         response = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=payload)
@@ -332,11 +334,11 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=payload)
         assert response.status_code == status.HTTP_201_CREATED, response.json()
-        assert response.json()["hog"] == template_webhook.hog
-        assert response.json()["inputs_schema"] == template_webhook.inputs_schema
-        assert response.json()["name"] == template_webhook.name
-        assert response.json()["description"] == template_webhook.description
-        assert response.json()["icon_url"] == template_webhook.icon_url
+        assert response.json()["hog"] == webhook_template["hog"].strip()
+        assert response.json()["inputs_schema"] == webhook_template["inputs_schema"]
+        assert response.json()["name"] == webhook_template["name"]
+        assert response.json()["description"] == webhook_template["description"]
+        assert response.json()["icon_url"] == webhook_template["icon_url"]
 
     def test_deletes_via_update(self, *args):
         response = self.client.post(
@@ -1991,67 +1993,6 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             assert update_response.status_code == status.HTTP_400_BAD_REQUEST, update_response.json()
             assert "HOG code exceeds maximum size" in update_response.json()["detail"]
             assert f"{MAX_HOG_CODE_SIZE_BYTES // 1024}KB" in update_response.json()["detail"]
-
-    def test_validation_catches_runtime_exceeded_in_python_vm_for_transformations(self):
-        with override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=[self.team.id]):
-            """Test that runtime exceeded errors during validation in our Python VM are properly handled for transformations"""
-            # Create a function with an infinite loop that will exceed the 100ms validation timeout
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/hog_functions/",
-                data={
-                    "name": "Slow Function",
-                    "type": "transformation",
-                    "hog": """
-                    while (true) { print('hello'); } return event;
-                    """,
-                },
-            )
-
-            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-            assert "Your function is taking too long to run (over 0.1 seconds)" in response.json()["detail"]
-            # Test that the same code is allowed for destinations
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/hog_functions/",
-                data={
-                    "name": "Slow Function",
-                    "type": "destination",
-                    "hog": """
-                    while (true) { print('hello'); } return event;
-                    """,
-                },
-            )
-            assert response.status_code == status.HTTP_201_CREATED, response.json()
-
-    def test_validation_catches_memory_exceeded_in_python_vm_for_transformations(self):
-        with override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=[self.team.id]):
-            """Test that memory exceeded errors during validation in our Python VM are properly handled for transformations"""
-            memory_hungry_code = """
-                let arr := arrayMap(x -> toString(x), range(10000000));  // Create array with 10M strings
-                return event;
-                """
-
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/hog_functions/",
-                data={
-                    "name": "Memory Hungry Function",
-                    "type": "transformation",
-                    "hog": memory_hungry_code,
-                },
-            )
-
-            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-            assert "Your function needs too much memory" in response.json()["detail"]
-
-            # Test that the same code is allowed for destinations
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/hog_functions/",
-                data={
-                    "name": "Memory Hungry Function",
-                    "type": "destination",
-                    "hog": memory_hungry_code,
-                },
-            )
-            assert response.status_code == status.HTTP_201_CREATED, response.json()
 
     def test_transformation_undeletion_puts_at_end(self, *args):
         """Test that undeleted transformation functions are placed at the end of the execution order sequence."""

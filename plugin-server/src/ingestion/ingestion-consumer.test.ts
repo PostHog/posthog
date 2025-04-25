@@ -8,18 +8,19 @@ import {
     DecodedKafkaMessage,
     getProducedKafkaMessages,
     getProducedKafkaMessagesForTopic,
+    getProducedKafkaMessagesWithHeadersForTopic,
     mockProducer,
 } from '~/tests/helpers/mocks/producer.mock'
 import { forSnapshot } from '~/tests/helpers/snapshots'
-import { createTeam, getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { Hub, PipelineEvent, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { HogFunctionType } from '../cdp/types'
+import { parseJSON } from '../utils/json-parse'
 import { logger } from '../utils/logger'
 import { UUIDT } from '../utils/utils'
 import { IngestionConsumer } from './ingestion-consumer'
-
 const DEFAULT_TEST_TIMEOUT = 5000
 jest.setTimeout(DEFAULT_TEST_TIMEOUT)
 
@@ -45,6 +46,14 @@ jest.mock('../../src/kafka/batch-consumer', () => {
                 consumer: mockConsumer,
             })
         ),
+    }
+})
+
+jest.mock('../utils/posthog', () => {
+    const original = jest.requireActual('../utils/posthog')
+    return {
+        ...original,
+        captureException: jest.fn().mockReturnValue('test-sentry-id-123'),
     }
 })
 
@@ -97,6 +106,7 @@ describe('IngestionConsumer', () => {
     beforeEach(async () => {
         fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
+        jest.spyOn(Date.prototype, 'toISOString').mockReturnValue(fixedTime.toISO()!)
 
         offsetIncrementer = 0
         await resetTestDatabase()
@@ -105,7 +115,7 @@ describe('IngestionConsumer', () => {
         hub.kafkaProducer = mockProducer
         team = await getFirstTeam(hub)
         const team2Id = await createTeam(hub.db.postgres, team.organization_id)
-        team2 = (await hub.db.fetchTeam(team2Id)) as Team
+        team2 = (await getTeam(hub, team2Id))!
     })
 
     afterEach(async () => {
@@ -140,6 +150,50 @@ describe('IngestionConsumer', () => {
             expect(forSnapshot(getProducedKafkaMessages())).toMatchSnapshot()
         })
 
+        it('should merge existing kafka_consumer_breadcrumbs in message header with new ones', async () => {
+            const event = createEvent()
+            const messages = createKafkaMessages([event])
+
+            const existingBreadcrumb = {
+                topic: 'previous-topic',
+                offset: 123,
+                partition: 0,
+                processed_at: '2024-01-01T00:00:00.000Z',
+                consumer_id: 'previous-consumer',
+            }
+            messages[0].headers = [
+                {
+                    'kafka-consumer-breadcrumbs': Buffer.from(JSON.stringify([existingBreadcrumb])),
+                },
+            ]
+            await ingester.handleKafkaBatch(messages)
+
+            const producedMessages = getProducedKafkaMessagesWithHeadersForTopic('clickhouse_events_json_test')
+            expect(producedMessages.length).toBe(1)
+
+            const headers = producedMessages[0].headers || []
+            const breadcrumbHeader = headers.find((h) => 'kafka-consumer-breadcrumbs' in h)
+
+            expect(breadcrumbHeader).toBeDefined()
+
+            const value = breadcrumbHeader?.['kafka-consumer-breadcrumbs'] as Buffer
+            expect(value).toBeInstanceOf(Buffer)
+
+            const parsedBreadcrumbs = parseJSON(value.toString())
+            expect(Array.isArray(parsedBreadcrumbs)).toBe(true)
+            expect(parsedBreadcrumbs.length).toBe(2)
+
+            expect(parsedBreadcrumbs[0]).toMatchObject(existingBreadcrumb)
+
+            expect(parsedBreadcrumbs[1]).toMatchObject({
+                topic: 'test',
+                offset: expect.any(Number),
+                partition: expect.any(Number),
+                processed_at: fixedTime.toISO()!,
+                consumer_id: ingester['groupId'],
+            })
+        })
+
         describe('overflow', () => {
             const now = () => DateTime.now().toMillis()
             beforeEach(() => {
@@ -153,21 +207,6 @@ describe('IngestionConsumer', () => {
                 await ingester.handleKafkaBatch(overflowMessages)
                 expect(getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(0)
                 expect(getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test')).toHaveLength(1)
-                expect(
-                    forSnapshot(getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test'))
-                ).toMatchSnapshot()
-            })
-
-            it('should allow some events to pass', async () => {
-                const manyOverflowedMessages = createKafkaMessages([
-                    createEvent({ distinct_id: 'overflow-distinct-id' }),
-                    createEvent({ distinct_id: 'overflow-distinct-id' }),
-                    createEvent({ distinct_id: 'overflow-distinct-id' }),
-                ])
-                ingester['overflowRateLimiter'].consume(`${team.api_token}:overflow-distinct-id`, 999, now())
-                await ingester.handleKafkaBatch(manyOverflowedMessages)
-                expect(getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test')).toHaveLength(2)
-
                 expect(
                     forSnapshot(getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test'))
                 ).toMatchSnapshot()
@@ -299,56 +338,7 @@ describe('IngestionConsumer', () => {
                 }
             }
 
-            describe('with DROP_EVENTS_BY_TOKEN', () => {
-                beforeEach(async () => {
-                    hub.DROP_EVENTS_BY_TOKEN = `${team.api_token},phc_other`
-                    ingester = new IngestionConsumer(hub)
-                    await ingester.start()
-                })
-
-                it('should drop events with matching token', async () => {
-                    const messages = createKafkaMessages([createEvent({}), createEvent({})])
-                    addMessageHeaders(messages[0], team.api_token)
-                    await ingester.handleKafkaBatch(messages)
-                    expect(getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(0)
-                    expectDropLogs([
-                        [team.api_token, 'user-1'],
-                        [team.api_token, 'user-1'],
-                    ])
-                })
-
-                it('should not drop events for a different team token', async () => {
-                    const messages = createKafkaMessages([createEvent({ token: team2.api_token })])
-                    addMessageHeaders(messages[0], team2.api_token)
-                    await ingester.handleKafkaBatch(messages)
-                    expect(getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).not.toHaveLength(0)
-                    expectDropLogs([])
-                })
-
-                it('should only drop events in batch matching', async () => {
-                    const messages = createKafkaMessages([
-                        createEvent({ token: team.api_token }),
-                        createEvent({ token: team2.api_token, distinct_id: 'team2-distinct-id' }),
-                        createEvent({ token: team.api_token }),
-                    ])
-                    addMessageHeaders(messages[0], team.api_token)
-                    addMessageHeaders(messages[1], team2.api_token)
-                    addMessageHeaders(messages[2], team.api_token)
-                    await ingester.handleKafkaBatch(messages)
-                    const eventsMessages = getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
-                    expect(eventsMessages).toHaveLength(1)
-                    expect(eventsMessages[0].value).toMatchObject({
-                        team_id: team2.id,
-                        distinct_id: 'team2-distinct-id',
-                    })
-                    expectDropLogs([
-                        [team.api_token, kind === 'headers' ? undefined : 'user-1'],
-                        [team.api_token, kind === 'headers' ? undefined : 'user-1'],
-                    ])
-                })
-            })
-
-            describe('with DROP_EVENTS_BY_TOKEN_DISTINCT_ID', () => {
+            describe('with DROP_EVENTS_BY_TOKEN_DISTINCT_ID drops events with matching token:distinct_id when only event keys are listed', () => {
                 beforeEach(async () => {
                     hub.DROP_EVENTS_BY_TOKEN_DISTINCT_ID = `${team.api_token}:distinct-id-to-ignore,phc_other:distinct-id-to-ignore`
                     ingester = new IngestionConsumer(hub)
@@ -391,6 +381,67 @@ describe('IngestionConsumer', () => {
                     expectDropLogs([])
                 })
             })
+
+            describe('with DROP_EVENTS_BY_TOKEN_DISTINCT_ID drops all team events when only token is listed', () => {
+                beforeEach(async () => {
+                    const distinct_id_to_drop = 'team1_user_to_drop'
+                    hub.DROP_EVENTS_BY_TOKEN_DISTINCT_ID = `${team.api_token}:${distinct_id_to_drop},${team2.api_token}`
+                    ingester = new IngestionConsumer(hub)
+                    await ingester.start()
+                })
+
+                it('should still drop events with matching token and distinct_id (event key)', async () => {
+                    const distinct_id_to_drop = 'team1_user_to_drop'
+                    const messages = createKafkaMessages([
+                        createEvent({
+                            distinct_id: distinct_id_to_drop,
+                        }),
+                    ])
+                    addMessageHeaders(messages[0], team.api_token, distinct_id_to_drop)
+                    await ingester.handleKafkaBatch(messages)
+                    expect(getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(0)
+                    expectDropLogs([[team.api_token, distinct_id_to_drop]])
+                })
+
+                it('should not drop all events for team with event key listed when distinct_id differs in event', async () => {
+                    const unlisted_distinct_id = 'team1_user_NOT_to_drop'
+                    const messages = createKafkaMessages([
+                        createEvent({
+                            token: team.api_token,
+                            distinct_id: unlisted_distinct_id,
+                        }),
+                    ])
+                    addMessageHeaders(messages[0], team.api_token, unlisted_distinct_id)
+                    await ingester.handleKafkaBatch(messages)
+                    expect(getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).not.toHaveLength(0)
+                    expectDropLogs([])
+                })
+
+                it('should drop all events for team with only token listed to be dropped', async () => {
+                    const any_distinct_id = 'any_user'
+                    const other_distinct_id = 'other_user'
+
+                    const messages = createKafkaMessages([
+                        createEvent({
+                            token: team2.api_token,
+                            distinct_id: any_distinct_id,
+                        }),
+                        createEvent({
+                            token: team2.api_token,
+                            distinct_id: other_distinct_id,
+                        }),
+                    ])
+                    addMessageHeaders(messages[0], team2.api_token, any_distinct_id)
+                    addMessageHeaders(messages[1], team2.api_token, other_distinct_id)
+
+                    await ingester.handleKafkaBatch(messages)
+                    expect(getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(0)
+                    expectDropLogs([
+                        [team2.api_token, any_distinct_id],
+                        [team2.api_token, other_distinct_id],
+                    ])
+                })
+            })
         })
     })
 
@@ -412,9 +463,25 @@ describe('IngestionConsumer', () => {
             const batches = await ingester['parseKafkaBatch'](messages)
 
             expect(Object.keys(batches)).toHaveLength(3)
-            expect(batches[`${team.api_token}:distinct-id-1`]).toHaveLength(3)
-            expect(batches[`${team.api_token}:distinct-id-2`]).toHaveLength(1)
-            expect(batches[`${team2.api_token}:distinct-id-1`]).toHaveLength(1)
+
+            // Rewrite the test to check for the overall object with the correct length
+            expect(batches).toEqual({
+                [`${team.api_token}:distinct-id-1`]: {
+                    distinctId: 'distinct-id-1',
+                    token: team.api_token,
+                    events: [expect.any(Object), expect.any(Object), expect.any(Object)],
+                },
+                [`${team.api_token}:distinct-id-2`]: {
+                    distinctId: 'distinct-id-2',
+                    token: team.api_token,
+                    events: [expect.any(Object)],
+                },
+                [`${team2.api_token}:distinct-id-1`]: {
+                    distinctId: 'distinct-id-1',
+                    token: team2.api_token,
+                    events: [expect.any(Object)],
+                },
+            })
         })
     })
 
@@ -439,7 +506,11 @@ describe('IngestionConsumer', () => {
 
             const error: any = new Error('test')
             error.isRetriable = false
-            jest.spyOn(ingester as any, 'runEventPipeline').mockRejectedValue(error)
+            jest.spyOn(ingester as any, 'getEventPipelineRunnerV1').mockReturnValue({
+                runEventPipeline: () => {
+                    throw error
+                },
+            })
 
             await ingester.handleKafkaBatch(messages)
 
@@ -451,7 +522,11 @@ describe('IngestionConsumer', () => {
         it.each([undefined, true])('should throw if isRetriable is set to %s', async (isRetriable) => {
             const error: any = new Error('test')
             error.isRetriable = isRetriable
-            jest.spyOn(ingester as any, 'runEventPipeline').mockRejectedValue(error)
+            jest.spyOn(ingester as any, 'getEventPipelineRunnerV1').mockReturnValue({
+                runEventPipeline: () => {
+                    throw error
+                },
+            })
 
             await expect(ingester.handleKafkaBatch(messages)).rejects.toThrow()
         })
@@ -706,6 +781,73 @@ describe('IngestionConsumer', () => {
             ingester = new IngestionConsumer(hub)
             await ingester.start()
         })
+
+        it(
+            'should call hogwatcher state caching methods and observe results when hogwatcher is enabled (sample rate = 1)',
+            async () => {
+                // Set hogwatcher enabled (100% sample rate)
+                hub.CDP_HOG_WATCHER_SAMPLE_RATE = 1
+
+                // Create spies for methods after the service is configured
+                const fetchAndCacheSpy = jest.spyOn(ingester.hogTransformer, 'fetchAndCacheHogFunctionStates')
+                const clearStatesSpy = jest.spyOn(ingester.hogTransformer, 'clearHogFunctionStates')
+                const observeResultsSpy = jest.spyOn(ingester.hogTransformer['hogWatcher'], 'observeResults')
+
+                // Process batch with hogwatcher enabled
+                // in this stage we do not have the teamId on the event but the token is present
+                const event = createEvent({
+                    ip: '89.160.20.129',
+                    properties: { $ip: '89.160.20.129' },
+                })
+                const messages = createKafkaMessages([event])
+
+                await ingester.handleKafkaBatch(messages)
+
+                // Verify that fetchAndCacheHogFunctionStates and clearHogFunctionStates were called
+                expect(fetchAndCacheSpy).toHaveBeenCalled()
+                expect(clearStatesSpy).toHaveBeenCalled()
+
+                // Verify the full integration flow worked
+                expect(observeResultsSpy).toHaveBeenCalled()
+
+                // Verify that results were passed to observeResults with the correct structure
+                const results = observeResultsSpy.mock.calls[0][0]
+                expect(results).toBeInstanceOf(Array)
+                expect(results.length).toBeGreaterThan(0)
+
+                // Check that the results contain our transformation function
+                const functionResult = results.find((r) => r.invocation.hogFunction.id === transformationFunction.id)
+                expect(functionResult).toBeDefined()
+                expect(functionResult?.finished).toBe(true)
+            },
+            TRANSFORMATION_TEST_TIMEOUT
+        )
+
+        it(
+            'should not call hogwatcher state caching methods when hogwatcher is disabled (sample rate = 0)',
+            async () => {
+                // Set hogwatcher disabled (0% sample rate)
+                hub.CDP_HOG_WATCHER_SAMPLE_RATE = 0
+
+                // Create spies for methods after the service is configured
+                const fetchAndCacheSpy = jest.spyOn(ingester.hogTransformer, 'fetchAndCacheHogFunctionStates')
+                const clearStatesSpy = jest.spyOn(ingester.hogTransformer, 'clearHogFunctionStates')
+
+                // Process batch with hogwatcher disabled
+                const event = createEvent({
+                    ip: '89.160.20.129',
+                    properties: { $ip: '89.160.20.129' },
+                })
+                const messages = createKafkaMessages([event])
+
+                await ingester.handleKafkaBatch(messages)
+
+                // Verify that fetchAndCacheHogFunctionStates and clearHogFunctionStates were NOT called
+                expect(fetchAndCacheSpy).not.toHaveBeenCalled()
+                expect(clearStatesSpy).not.toHaveBeenCalled()
+            },
+            TRANSFORMATION_TEST_TIMEOUT
+        )
 
         it(
             'should invoke transformation for matching team with error case',

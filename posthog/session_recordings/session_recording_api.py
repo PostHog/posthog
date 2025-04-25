@@ -43,7 +43,7 @@ from posthog.auth import PersonalAPIKeyAuthentication, SharingAccessTokenAuthent
 from posthog.cloud_utils import is_cloud
 from posthog.event_usage import report_user_action
 from posthog.models import Team, User
-from posthog.models.person.person import PersonDistinctId
+from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
@@ -73,6 +73,7 @@ from openai.types.chat import (
 from posthog.session_recordings.utils import clean_prompt_whitespace
 from posthog.session_recordings.session_recording_v2_service import list_blocks
 from posthog.storage.session_recording_v2_object_storage import BlockFetchError
+from posthog.exceptions_capture import capture_exception
 
 SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER = Counter(
     "snapshots_personal_api_key_counter",
@@ -270,9 +271,9 @@ class SessionRecordingUpdateSerializer(serializers.Serializer):
 
 
 def list_recordings_response(
-    listing_result: tuple[list[SessionRecording], bool, dict], context: dict[str, Any]
+    listing_result: tuple[list[SessionRecording], bool, str], context: dict[str, Any]
 ) -> Response:
-    (recordings, more_recordings_available, timings) = listing_result
+    (recordings, more_recordings_available, timings_header) = listing_result
 
     session_recording_serializer = SessionRecordingSerializer(recordings, context=context, many=True)
     results = session_recording_serializer.data
@@ -280,9 +281,8 @@ def list_recordings_response(
     response = Response(
         {"results": results, "has_next": more_recordings_available, "version": 4},
     )
-    response.headers["Server-Timing"] = ", ".join(
-        f"{key};dur={round(duration, ndigits=2)}" for key, duration in timings.items()
-    )
+    response.headers["Server-Timing"] = timings_header
+
     return response
 
 
@@ -370,7 +370,7 @@ def clean_referer_url(current_url: str | None) -> str:
         path = re.sub("/", "-", path)
         return path or "unknown"
     except Exception as e:
-        posthoganalytics.capture_exception(e, distinct_id="clean_referer_url", properties={"current_url": current_url})
+        capture_exception(e, additional_properties={"current_url": current_url, "function_name": "clean_referer_url"})
         return "unknown"
 
 
@@ -406,11 +406,12 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             query = filter_from_params_to_query(request.GET.dict())
 
             self._maybe_report_recording_list_filters_changed(request, team=self.team)
-            return list_recordings_response(
+            response = list_recordings_response(
                 list_recordings_from_query(query, cast(User, request.user), team=self.team),
                 context=self.get_serializer_context(),
             )
 
+            return response
         except CHQueryErrorTooManySimultaneousQueries:
             raise Throttled(detail="Too many simultaneous queries. Try again later.")
         except (ServerException, Exception) as e:
@@ -421,7 +422,9 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 raise Throttled(detail="Query timeout exceeded. Try again later.")
 
             posthoganalytics.capture_exception(
-                e, distinct_id=user_distinct_id, properties={"replay_feature": "listing_recordings"}
+                e,
+                distinct_id=user_distinct_id,
+                properties={"replay_feature": "listing_recordings", "unfiltered_query": request.GET.dict()},
             )
             return Response({"error": "An internal error has occurred. Please try again later."}, status=500)
 
@@ -810,27 +813,23 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         if not environment_is_allowed or not has_openai_api_key:
             raise exceptions.ValidationError("session summary is only supported in PostHog Cloud")
 
-        # TODO: Uncomment after the tests
-        # if not posthoganalytics.feature_enabled("ai-session-summary", str(user.distinct_id)):
-        #     raise exceptions.ValidationError("session summary is not enabled for this user")
+        if not posthoganalytics.feature_enabled("ai-session-summary", str(user.distinct_id)):
+            raise exceptions.ValidationError("session summary is not enabled for this user")
 
         replay_summarizer = ReplaySummarizer(recording, user, self.team)
         return StreamingHttpResponse(
             replay_summarizer.stream_recording_summary(), content_type=ServerSentEventRenderer.media_type
         )
 
-        # TODO: Combine the logic of streaming and caching? Collect the timings also?
-        # timings = summary.pop("timings", None)
+
+        # TODO: Calculate timings for stream. Track summarization events.
+        # timings_header = summary.pop("timings_header", None)
         # cache.set(cache_key, summary, timeout=30)
-
         # posthoganalytics.capture(event="session summarized", distinct_id=str(user.distinct_id), properties=summary)
-
         # # let the browser cache for half the time we cache on the server
         # r = Response(summary, headers={"Cache-Control": "max-age=15"})
-        # if timings:
-        #     r.headers["Server-Timing"] = ", ".join(
-        #         f"{key};dur={round(duration, ndigits=2)}" for key, duration in timings.items()
-        #     )
+        # if timings_header:
+        #     r.headers["Server-Timing"] = timings_header
         # return r
 
     def _stream_blob_to_client(
@@ -1079,7 +1078,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 # TODO i guess this becomes the query runner for our _internal_ use of RecordingsQuery
 def list_recordings_from_query(
     query: RecordingsQuery, user: User | None, team: Team
-) -> tuple[list[SessionRecording], bool, dict]:
+) -> tuple[list[SessionRecording], bool, str]:
     """
     As we can store recordings in S3 or in Clickhouse we need to do a few things here
 
@@ -1150,8 +1149,10 @@ def list_recordings_from_query(
     with timer("load_persons"):
         # Get the related persons for all the recordings
         distinct_ids = sorted([x.distinct_id for x in recordings if x.distinct_id])
-        person_distinct_ids = PersonDistinctId.objects.filter(distinct_id__in=distinct_ids, team=team).select_related(
-            "person"
+        person_distinct_ids = (
+            PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
+            .filter(distinct_id__in=distinct_ids, team=team)
+            .select_related("person")
         )
 
     with timer("process_persons"):
@@ -1169,7 +1170,7 @@ def list_recordings_from_query(
             if person:
                 recording.person = person
 
-    return recordings, more_recordings_available, timer.generate_timings(hogql_timings)
+    return recordings, more_recordings_available, timer.to_header_string(hogql_timings)
 
 
 def _other_users_viewed(recording_ids_in_list: list[str], user: User | None, team: Team) -> dict[str, list[str]]:

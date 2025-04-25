@@ -9,7 +9,7 @@ import { HogWatcherState } from '../services/hog-watcher.service'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
 import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
-import { createTeam, getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
+import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '../../../tests/helpers/sql'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import {
     createHogExecutionGlobals,
@@ -20,31 +20,6 @@ import {
 } from '../_tests/fixtures'
 import { CdpProcessedEventsConsumer } from './cdp-processed-events.consumer'
 import { CdpInternalEventsConsumer } from './cdp-internal-event.consumer'
-
-const mockConsumer = {
-    on: jest.fn(),
-    commitSync: jest.fn(),
-    commit: jest.fn(),
-    queryWatermarkOffsets: jest.fn(),
-    committed: jest.fn(),
-    assignments: jest.fn(),
-    isConnected: jest.fn(() => true),
-    getMetadata: jest.fn(),
-}
-
-jest.mock('../../../src/kafka/batch-consumer', () => {
-    return {
-        startBatchConsumer: jest.fn(() =>
-            Promise.resolve({
-                join: () => ({
-                    finally: jest.fn(),
-                }),
-                stop: jest.fn(),
-                consumer: mockConsumer,
-            })
-        ),
-    }
-})
 
 jest.mock('../../../src/utils/fetch', () => {
     return {
@@ -99,9 +74,17 @@ describe.each([
         hub = await createHub()
         team = await getFirstTeam(hub)
         const team2Id = await createTeam(hub.postgres, team.organization_id)
-        team2 = (await hub.teamManager.fetchTeam(team2Id))!
+        team2 = (await getTeam(hub, team2Id))!
 
         processor = new Consumer(hub)
+
+        // NOTE: We don't want to actually connect to Kafka for these tests as it is slow and we are testing the core logic only
+        processor['kafkaConsumer'] = {
+            connect: jest.fn(),
+            disconnect: jest.fn(),
+            isHealthy: jest.fn(),
+        } as any
+
         await processor.start()
 
         mockFetch.mockClear()

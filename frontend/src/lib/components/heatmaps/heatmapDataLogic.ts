@@ -12,7 +12,6 @@ import {
 import { calculateViewportRange, DEFAULT_HEATMAP_FILTERS } from 'lib/components/IframedToolbarBrowser/utils'
 import { LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
 import { dateFilterToText } from 'lib/utils'
-import { isLikelyRegex } from 'lib/utils/regexp'
 
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import { HeatmapElement, HeatmapResponseType } from '~/toolbar/types'
@@ -37,6 +36,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
         setHeatmapFixedPositionMode: (mode: HeatmapFixedPositionMode) => ({ mode }),
         setHeatmapColorPalette: (Palette: string | null) => ({ Palette }),
         setHref: (href: string) => ({ href }),
+        setHrefMatchType: (matchType: 'exact' | 'pattern') => ({ matchType }),
         setFetchFn: (fetchFn: 'native' | 'toolbar') => ({ fetchFn }),
         setHeatmapScrollY: (scrollY: number) => ({ scrollY }),
         setWindowWidthOverride: (widthOverride: number | null) => ({ widthOverride }),
@@ -52,6 +52,12 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
             'toolbar' as 'toolbar' | 'native',
             {
                 setFetchFn: (_, { fetchFn }) => fetchFn,
+            },
+        ],
+        hrefMatchType: [
+            'exact' as 'exact' | 'pattern',
+            {
+                setHrefMatchType: (_, { matchType }) => matchType,
             },
         ],
         commonFilters: [
@@ -111,6 +117,9 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                     if (!values.href || !values.href.trim().length) {
                         return null
                     }
+                    if (!values.heatmapFilters.enabled) {
+                        return null
+                    }
                     await breakpoint(150)
 
                     const { date_from, date_to, filter_test_accounts } = values.commonFilters
@@ -122,8 +131,8 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                             type,
                             date_from,
                             date_to,
-                            url_exact: isLikelyRegex(values.href) ? undefined : values.href,
-                            url_pattern: isLikelyRegex(values.href) ? values.href : undefined,
+                            url_exact: values.hrefMatchType === 'exact' ? values.href : undefined,
+                            url_pattern: values.hrefMatchType === 'pattern' ? values.href : undefined,
                             viewport_width_min: values.viewportRange.min,
                             viewport_width_max: values.viewportRange.max,
                             aggregation,

@@ -73,6 +73,7 @@ const UniversalSearch = (): JSX.Element => {
         onChange: (taxonomicGroup, value, item, originalQuery) => {
             searchInputRef.current?.blur()
             setVisible(false)
+            setSearchQuery('')
             addGroupFilter(taxonomicGroup, value, item, originalQuery)
         },
         onEnter: onClose,
@@ -102,6 +103,7 @@ const UniversalSearch = (): JSX.Element => {
                     onClick={() => setVisible(true)}
                     searchInputRef={searchInputRef}
                     onClose={() => onClose('')}
+                    onChange={setSearchQuery}
                     size="small"
                     fullWidth
                 />
@@ -163,6 +165,7 @@ export const DateRangeFilter = ({
                 onChange={(changedDateFrom, changedDateTo) =>
                     setDateRange({ date_from: changedDateFrom, date_to: changedDateTo })
                 }
+                allowedRollingDateOptions={['hours', 'days', 'weeks', 'months', 'years']}
             />
         </span>
     )

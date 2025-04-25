@@ -99,6 +99,7 @@ class ReplaySummarizer:
 
         # TODO: Track the timing for streaming (inside the function, start before the request, end after the last chunk is consumed)
         # with timer("openai_completion"):
+        # return {"content": session_summary.data, "timings_header": timer.to_header_string()}
 
         session_summary_generator = stream_llm_session_summary(
             summary_prompt=summary_prompt,

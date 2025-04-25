@@ -5,6 +5,10 @@ from langchain_core.runnables.base import RunnableLike
 from langgraph.graph.state import StateGraph
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
+from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
+from ee.hogai.utils.types import AssistantNodeName, AssistantState
+from posthog.models.team.team import Team
+
 from .funnels.nodes import (
     FunnelGeneratorNode,
     FunnelGeneratorToolsNode,
@@ -28,25 +32,23 @@ from .retention.nodes import (
     RetentionPlannerToolsNode,
 )
 from .root.nodes import RootNode, RootNodeTools
-from .trends.nodes import (
-    TrendsGeneratorNode,
-    TrendsGeneratorToolsNode,
-    TrendsPlannerNode,
-    TrendsPlannerToolsNode,
-)
 from .sql.nodes import (
     SQLGeneratorNode,
     SQLGeneratorToolsNode,
     SQLPlannerNode,
     SQLPlannerToolsNode,
 )
-from ee.hogai.utils.types import AssistantNodeName, AssistantState
-from posthog.models.team.team import Team
+from .trends.nodes import (
+    TrendsGeneratorNode,
+    TrendsGeneratorToolsNode,
+    TrendsPlannerNode,
+    TrendsPlannerToolsNode,
+)
 
 checkpointer = DjangoCheckpointer()
 
 
-class AssistantGraph:
+class BaseAssistantGraph:
     _team: Team
     _graph: StateGraph
 
@@ -70,31 +72,14 @@ class AssistantGraph:
             raise ValueError("Start node not added to the graph")
         return self._graph.compile(checkpointer=checkpointer)
 
-    def add_root(
-        self,
-        path_map: Optional[dict[Hashable, AssistantNodeName]] = None,
-    ):
-        builder = self._graph
-        path_map = path_map or {
-            "insights": AssistantNodeName.INSIGHT_RAG_CONTEXT,
-            "search_documentation": AssistantNodeName.INKEEP_DOCS,
-            "root": AssistantNodeName.ROOT,
-            "end": AssistantNodeName.END,
-        }
-        root_node = RootNode(self._team)
-        builder.add_node(AssistantNodeName.ROOT, root_node)
-        root_node_tools = RootNodeTools(self._team)
-        builder.add_node(AssistantNodeName.ROOT_TOOLS, root_node_tools)
-        builder.add_edge(AssistantNodeName.ROOT, AssistantNodeName.ROOT_TOOLS)
-        builder.add_conditional_edges(
-            AssistantNodeName.ROOT_TOOLS, root_node_tools.router, path_map=cast(dict[Hashable, str], path_map)
-        )
-        return self
 
-    def add_product_analytics_retriever(self):
+class InsightsAssistantGraph(BaseAssistantGraph):
+    def add_rag_context(self):
         builder = self._graph
+        self._has_start_node = True
         retriever = InsightRagContextNode(self._team)
         builder.add_node(AssistantNodeName.INSIGHT_RAG_CONTEXT, retriever)
+        builder.add_edge(AssistantNodeName.START, AssistantNodeName.INSIGHT_RAG_CONTEXT)
         builder.add_conditional_edges(
             AssistantNodeName.INSIGHT_RAG_CONTEXT,
             retriever.router,
@@ -103,7 +88,7 @@ class AssistantGraph:
                 "funnel": AssistantNodeName.FUNNEL_PLANNER,
                 "retention": AssistantNodeName.RETENTION_PLANNER,
                 "sql": AssistantNodeName.SQL_PLANNER,
-                "end": AssistantNodeName.ROOT,
+                "end": AssistantNodeName.END,
             },
         )
         return self
@@ -111,7 +96,7 @@ class AssistantGraph:
     def add_trends_planner(
         self,
         next_node: AssistantNodeName = AssistantNodeName.TRENDS_GENERATOR,
-        root_node: AssistantNodeName = AssistantNodeName.ROOT,
+        end_node: AssistantNodeName = AssistantNodeName.END,
     ):
         builder = self._graph
 
@@ -127,7 +112,7 @@ class AssistantGraph:
             path_map={
                 "continue": AssistantNodeName.TRENDS_PLANNER,
                 "plan_found": next_node,
-                "root": root_node,
+                "end": end_node,
             },
         )
 
@@ -157,7 +142,7 @@ class AssistantGraph:
     def add_funnel_planner(
         self,
         next_node: AssistantNodeName = AssistantNodeName.FUNNEL_GENERATOR,
-        root_node: AssistantNodeName = AssistantNodeName.ROOT,
+        end_node: AssistantNodeName = AssistantNodeName.END,
     ):
         builder = self._graph
 
@@ -173,7 +158,7 @@ class AssistantGraph:
             path_map={
                 "continue": AssistantNodeName.FUNNEL_PLANNER,
                 "plan_found": next_node,
-                "root": root_node,
+                "end": end_node,
             },
         )
 
@@ -203,7 +188,7 @@ class AssistantGraph:
     def add_retention_planner(
         self,
         next_node: AssistantNodeName = AssistantNodeName.RETENTION_GENERATOR,
-        root_node: AssistantNodeName = AssistantNodeName.ROOT,
+        end_node: AssistantNodeName = AssistantNodeName.END,
     ):
         builder = self._graph
 
@@ -219,7 +204,7 @@ class AssistantGraph:
             path_map={
                 "continue": AssistantNodeName.RETENTION_PLANNER,
                 "plan_found": next_node,
-                "root": root_node,
+                "end": end_node,
             },
         )
 
@@ -249,7 +234,7 @@ class AssistantGraph:
     def add_sql_planner(
         self,
         next_node: AssistantNodeName = AssistantNodeName.SQL_GENERATOR,
-        root_node: AssistantNodeName = AssistantNodeName.ROOT,
+        end_node: AssistantNodeName = AssistantNodeName.END,
     ):
         builder = self._graph
 
@@ -265,7 +250,7 @@ class AssistantGraph:
             path_map={
                 "continue": AssistantNodeName.SQL_PLANNER,
                 "plan_found": next_node,
-                "root": root_node,
+                "end": end_node,
             },
         )
 
@@ -292,11 +277,57 @@ class AssistantGraph:
 
         return self
 
-    def add_query_executor(self, next_node: AssistantNodeName = AssistantNodeName.ROOT):
+    def add_query_executor(self, next_node: AssistantNodeName = AssistantNodeName.END):
         builder = self._graph
         query_executor_node = QueryExecutorNode(self._team)
         builder.add_node(AssistantNodeName.QUERY_EXECUTOR, query_executor_node)
         builder.add_edge(AssistantNodeName.QUERY_EXECUTOR, next_node)
+        return self
+
+    def compile_full_graph(self):
+        return (
+            self.add_rag_context()
+            .add_trends_planner()
+            .add_trends_generator()
+            .add_funnel_planner()
+            .add_funnel_generator()
+            .add_retention_planner()
+            .add_retention_generator()
+            .add_sql_planner()
+            .add_sql_generator()
+            .add_query_executor()
+            .compile()
+        )
+
+
+class AssistantGraph(BaseAssistantGraph):
+    def add_root(
+        self,
+        path_map: Optional[dict[Hashable, AssistantNodeName]] = None,
+    ):
+        builder = self._graph
+        path_map = path_map or {
+            "insights": AssistantNodeName.INSIGHTS_SUBGRAPH,
+            "search_documentation": AssistantNodeName.INKEEP_DOCS,
+            "root": AssistantNodeName.ROOT,
+            "end": AssistantNodeName.END,
+        }
+        root_node = RootNode(self._team)
+        builder.add_node(AssistantNodeName.ROOT, root_node)
+        root_node_tools = RootNodeTools(self._team)
+        builder.add_node(AssistantNodeName.ROOT_TOOLS, root_node_tools)
+        builder.add_edge(AssistantNodeName.ROOT, AssistantNodeName.ROOT_TOOLS)
+        builder.add_conditional_edges(
+            AssistantNodeName.ROOT_TOOLS, root_node_tools.router, path_map=cast(dict[Hashable, str], path_map)
+        )
+        return self
+
+    def add_insights(self, next_node: AssistantNodeName = AssistantNodeName.ROOT):
+        builder = self._graph
+        insights_assistant_graph = InsightsAssistantGraph(self._team)
+        compiled_graph = insights_assistant_graph.compile_full_graph()
+        builder.add_node(AssistantNodeName.INSIGHTS_SUBGRAPH, compiled_graph)
+        builder.add_edge(AssistantNodeName.INSIGHTS_SUBGRAPH, next_node)
         return self
 
     def add_memory_initializer(self, next_node: AssistantNodeName = AssistantNodeName.ROOT):
@@ -371,22 +402,24 @@ class AssistantGraph:
         )
         return self
 
+    def add_title_generator(self, end_node: AssistantNodeName = AssistantNodeName.END):
+        builder = self._graph
+        self._has_start_node = True
+
+        title_generator = TitleGeneratorNode(self._team)
+        builder.add_node(AssistantNodeName.TITLE_GENERATOR, title_generator)
+        builder.add_edge(AssistantNodeName.START, AssistantNodeName.TITLE_GENERATOR)
+        builder.add_edge(AssistantNodeName.TITLE_GENERATOR, end_node)
+        return self
+
     def compile_full_graph(self):
         return (
-            self.add_memory_initializer()
+            self.add_title_generator()
+            .add_memory_initializer()
             .add_memory_collector()
             .add_memory_collector_tools()
             .add_root()
-            .add_product_analytics_retriever()
-            .add_trends_planner()
-            .add_trends_generator()
-            .add_funnel_planner()
-            .add_funnel_generator()
-            .add_retention_planner()
-            .add_retention_generator()
-            .add_sql_planner()
-            .add_sql_generator()
-            .add_query_executor()
+            .add_insights()
             .add_inkeep_docs()
             .compile()
         )

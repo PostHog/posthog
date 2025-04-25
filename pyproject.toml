@@ -13,7 +13,7 @@ dependencies = [
     "brotli==1.1.0",
     "celery==5.3.4",
     "celery-redbeat==2.1.1",
-    "clickhouse-connect==0.8.11",
+    "clickhouse-connect==0.8.17",
     "clickhouse-driver==0.2.9",
     "clickhouse-pool==0.5.3",
     "cohere==5.14.0",
@@ -50,6 +50,7 @@ dependencies = [
     "drf-spectacular==0.27.2",
     "geoip2==4.6.0",
     "google-cloud-bigquery==3.26",
+    "google-genai==1.10.0",
     "gunicorn==20.1.0",
     "hogql-parser==1.1.1",
     "infi-clickhouse-orm",
@@ -133,6 +134,7 @@ dependencies = [
     "zxcvbn==4.4.28",
     "pyyaml==6.0.1",
     "tenacity>=8.4.2",
+    "chdb>=3.1.2",
 ]
 
 [dependency-groups]

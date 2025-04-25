@@ -538,6 +538,7 @@ class TestExternalDataSource(APIBaseTest):
                 "source_type",
                 "latest_error",
                 "prefix",
+                "revenue_analytics_enabled",
                 "last_run_at",
                 "schemas",
                 "job_inputs",

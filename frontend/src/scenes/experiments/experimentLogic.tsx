@@ -96,6 +96,9 @@ const NEW_EXPERIMENT: Experiment = {
     created_by: null,
     updated_at: null,
     holdout_id: null,
+    exposure_criteria: {
+        filterTestAccounts: true,
+    },
 }
 
 export const DEFAULT_MDE = 30
@@ -1480,7 +1483,9 @@ export const experimentLogic = kea<experimentLogicType>([
         ],
         projectTreeRef: [
             () => [(_, props: ExperimentLogicProps) => props.experimentId],
-            (experimentId): ProjectTreeRef => ({ type: 'experiment', ref: String(experimentId) }),
+            (experimentId): ProjectTreeRef => {
+                return { type: 'experiment', ref: experimentId === 'new' ? null : String(experimentId) }
+            },
         ],
         variants: [
             (s) => [s.experiment],

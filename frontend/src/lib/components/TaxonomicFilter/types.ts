@@ -35,7 +35,7 @@ export interface TaxonomicFilterProps {
     eventNames?: string[]
     schemaColumns?: DatabaseSchemaField[]
     height?: number
-    width?: number
+    width?: number | string
     popoverEnabled?: boolean
     selectFirstItem?: boolean
     autoSelectItem?: boolean
@@ -137,6 +137,8 @@ export enum TaxonomicFilterGroupType {
     HogQLExpression = 'hogql_expression',
     Notebooks = 'notebooks',
     LogEntries = 'log_entries',
+    ErrorTrackingIssues = 'error_tracking_issues',
+    ErrorTrackingIssueProperties = 'error_tracking_issue_properties',
     // Misc
     Replay = 'replay',
 }

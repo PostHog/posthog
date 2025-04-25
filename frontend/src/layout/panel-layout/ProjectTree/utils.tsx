@@ -16,6 +16,21 @@ export interface ConvertProps {
     root: string
     searchTerm?: string
     disableFolderSelect?: boolean
+    disabledReason?: (item: FileSystemImport | FileSystemEntry) => string | undefined
+}
+
+export function sortFilesAndFolders(a: FileSystemEntry, b: FileSystemEntry): number {
+    const parentA = a.path.substring(0, a.path.lastIndexOf('/'))
+    const parentB = b.path.substring(0, b.path.lastIndexOf('/'))
+    if (parentA === parentB) {
+        if (a.type === 'folder' && b.type !== 'folder') {
+            return -1
+        }
+        if (b.type === 'folder' && a.type !== 'folder') {
+            return 1
+        }
+    }
+    return a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' })
 }
 
 export function wrapWithShortutIcon(item: FileSystemImport | FileSystemEntry, icon: JSX.Element): JSX.Element {
@@ -38,6 +53,7 @@ export function convertFileSystemEntryToTreeDataItem({
     root,
     searchTerm,
     disableFolderSelect,
+    disabledReason,
 }: ConvertProps): TreeDataItem[] {
     // The top-level nodes for our project tree
     const rootNodes: TreeDataItem[] = []
@@ -71,6 +87,10 @@ export function convertFileSystemEntryToTreeDataItem({
             }
             if (disableFolderSelect) {
                 folderNode.disableSelect = true
+            }
+            if (folderNode.record && disabledReason?.(folderNode.record as FileSystemEntry)) {
+                folderNode.disabledReason = disabledReason(folderNode.record as FileSystemEntry)
+                folderNode.onClick = undefined
             }
             allFolderNodes.push(folderNode)
             nodes.push(folderNode)
@@ -116,6 +136,9 @@ export function convertFileSystemEntryToTreeDataItem({
                 } else {
                     // We have a folder without an id, but the incoming one has an id. Remove the current one
                     currentLevel = currentLevel.filter((node) => !folderMatch(node))
+                    if (folderNode) {
+                        folderNode.children = currentLevel
+                    }
                     if (existingFolder.children) {
                         accumulatedChildren = [...accumulatedChildren, ...existingFolder.children]
                     }
@@ -142,6 +165,10 @@ export function convertFileSystemEntryToTreeDataItem({
                 }
             },
         }
+        if (item && disabledReason?.(item)) {
+            node.disabledReason = disabledReason(item)
+            node.onClick = undefined
+        }
         if (disableFolderSelect) {
             if (item.type === 'folder') {
                 node.disableSelect = true
@@ -157,7 +184,7 @@ export function convertFileSystemEntryToTreeDataItem({
             if (!node.children) {
                 node.children = []
             }
-            if (accumulatedChildren) {
+            if (accumulatedChildren && accumulatedChildren.length > 0) {
                 node.children = [...node.children, ...accumulatedChildren]
             }
             if (folderStates[item.path] === 'has-more') {
@@ -195,7 +222,7 @@ export function convertFileSystemEntryToTreeDataItem({
             if (b.record?.type === 'folder' && a.record?.type !== 'folder') {
                 return 1
             }
-            return String(a.name).localeCompare(String(b.name))
+            return String(a.name).localeCompare(String(b.name), undefined, { sensitivity: 'accent' })
         })
         for (const node of nodes) {
             if (node.children) {
@@ -210,7 +237,7 @@ export function convertFileSystemEntryToTreeDataItem({
             folderNode.children.push({
                 id: `${root}-folder-empty/${folderNode.id}`,
                 name: 'Empty folder',
-                displayName: <span className="italic text-tertiary pl-2">Empty folder</span>,
+                displayName: <>Empty folder</>,
                 disableSelect: true,
                 type: 'empty-folder',
             })

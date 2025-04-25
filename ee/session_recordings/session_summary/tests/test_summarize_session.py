@@ -96,6 +96,10 @@ class TestReplaySummarizer:
             )
             mock_stream_summary.assert_called_once()
             # Verify result structure
+            # TODO: Test timing header when start timing streaming
+            # assert "content" in result
+            # assert "timings_header" in result
+
             assert len(results) == 1
             assert results[0] == mock_valid_llm_yaml_response
 
