@@ -121,9 +121,6 @@ export class KafkaConsumer {
         this.maxHealthHeartbeatIntervalMs =
             defaultConfig.CONSUMER_MAX_HEARTBEAT_INTERVAL_MS || MAX_HEALTH_HEARTBEAT_INTERVAL_MS
 
-        // TODO: broker list and other values should be set from env vars right?
-        // Do we want a sensible default and if so should we derive it from the real config object?
-
         this.consumerConfig = {
             'client.id': hostname(),
             'security.protocol': 'plaintext',
@@ -232,7 +229,7 @@ export class KafkaConsumer {
         })
 
         consumer.on('subscribed', (topics) => {
-            logger.info('📝', 'librdkafka consumer subscribed', { topics })
+            logger.info('📝', 'librdkafka consumer subscribed', { topics, config: this.consumerConfig })
         })
 
         consumer.on('connection.failure', (error: LibrdKafkaError, metrics: ClientMetrics) => {
