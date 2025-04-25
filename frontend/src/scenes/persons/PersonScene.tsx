@@ -224,6 +224,7 @@ export function PersonScene(): JSX.Element | null {
                                         kind: NodeKind.EventsQuery,
                                         select: defaultDataTableColumns(NodeKind.EventsQuery),
                                         personId: person.id,
+                                        where: ["notEquals(event, '$exception')"],
                                         after: '-24h',
                                     },
                                 }}
@@ -265,6 +266,26 @@ export function PersonScene(): JSX.Element | null {
                                     />
                                 </div>
                             </>
+                        ),
+                    },
+                    {
+                        key: PersonsTabType.EXCEPTIONS,
+                        label: <span data-attr="persons-events-tab">Exceptions</span>,
+                        content: (
+                            <Query
+                                query={{
+                                    kind: NodeKind.DataTableNode,
+                                    full: true,
+                                    hiddenColumns: ['person'],
+                                    source: {
+                                        kind: NodeKind.EventsQuery,
+                                        select: defaultDataTableColumns(NodeKind.EventsQuery),
+                                        personId: person.id,
+                                        event: '$exception',
+                                        after: '-24h',
+                                    },
+                                }}
+                            />
                         ),
                     },
                     {
