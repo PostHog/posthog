@@ -27,26 +27,18 @@ jobs:
             - uses: ./.github/actions/code-changes
               id: filter
 
-    frontend_ci:
-        needs: changes
-        if: needs.changes.outputs.frontend == 'true'
-        uses: ./.github/workflow/ci-frontend.yml
-        secrets: inherit
+            - name: 'CI Frontend'
+              if: steps.filter.outputs.frontend == 'true'
+              uses: ./.github/workflow/ci-frontend.yml
 
-    backend_ci:
-        needs: changes
-        if: needs.changes.outputs.backend == 'true'
-        uses: ./.github/workflow/ci-backend.yml
-        secrets: inherit
+            - name: Backend CI
+              if: steps.filter.outputs.backend == 'true'
+              uses: ./.github/workflow/ci-backend.yml
 
-    plugin_server_ci:
-        needs: changes
-        if: needs.changes.outputs.plugin-server == 'true'
-        uses: ./.github/workflow/ci-plugin-server.yml
-        secrets: inherit
+            - name: Rust CI
+              if: steps.filter.outputs.rust == 'true'
+              uses: ./.github/workflow/ci-rust.yml
 
-    rust_ci:
-        needs: changes
-        if: needs.changes.outputs.rust == 'true'
-        uses: ./.github/workflow/ci-rust.yml
-        secrets: inherit
+            - name: Plugin Server CI
+              if: needs.changes.outputs.plugin-server == 'true'
+              uses: ./.github/workflow/ci-plugin-server.yml
