@@ -9,13 +9,13 @@ from langgraph.errors import NodeInterrupt
 
 from ee.hogai.graph.memory import prompts
 from ee.hogai.graph.memory.nodes import (
-    FAILED_SCRAPING_MESSAGE,
     MemoryCollectorNode,
     MemoryCollectorToolsNode,
     MemoryInitializerContextMixin,
     MemoryInitializerInterruptNode,
     MemoryInitializerNode,
     MemoryOnboardingNode,
+    MemoryOnboardingEnquiryNode,
 )
 from ee.hogai.utils.types import AssistantState
 from ee.models import CoreMemory
@@ -139,27 +139,27 @@ class TestMemoryOnboardingNode(ClickhouseTestMixin, BaseTest):
 
     def test_should_run(self):
         node = MemoryOnboardingNode(team=self.team)
-        self.assertTrue(node.should_run(AssistantState(messages=[])))
+        self.assertEqual(node.should_run(AssistantState(messages=[])), "onboarding_start")
 
         core_memory = CoreMemory.objects.create(team=self.team)
-        self.assertTrue(node.should_run(AssistantState(messages=[])))
+        self.assertEqual(node.should_run(AssistantState(messages=[])), "onboarding_start")
 
         core_memory.change_status_to_pending()
-        self.assertFalse(node.should_run(AssistantState(messages=[])))
+        core_memory.append_initial_memory(
+            "Question: What does the company do?\nAnswer: This is a product analytics platform"
+        )
+        self.assertEqual(node.should_run(AssistantState(messages=[])), "onboarding_enquiry")
 
         core_memory.change_status_to_skipped()
-        self.assertFalse(node.should_run(AssistantState(messages=[])))
-
-        core_memory.set_core_memory("Hello World")
-        self.assertFalse(node.should_run(AssistantState(messages=[])))
+        self.assertEqual(node.should_run(AssistantState(messages=[])), "continue")
 
     def test_router(self):
         node = MemoryOnboardingNode(team=self.team)
+        self.assertEqual(node.router(AssistantState(messages=[HumanMessage(content="Hello")])), "initialize_memory")
+        core_memory = CoreMemory.objects.create(team=self.team)
+        core_memory.scraping_status = CoreMemory.ScrapingStatus.COMPLETED
+        core_memory.save()
         self.assertEqual(node.router(AssistantState(messages=[HumanMessage(content="Hello")])), "continue")
-        self.assertEqual(
-            node.router(AssistantState(messages=[HumanMessage(content="Hello"), AssistantMessage(content="world")])),
-            "initialize_memory",
-        )
 
     def test_node_skips_onboarding_if_no_events(self):
         node = MemoryOnboardingNode(team=self.team)
@@ -173,7 +173,10 @@ class TestMemoryOnboardingNode(ClickhouseTestMixin, BaseTest):
         self.assertIsNone(node.run(AssistantState(messages=[HumanMessage(content="Hello")]), {}))
 
         core_memory = CoreMemory.objects.get(team=self.team)
-        self.assertEqual(core_memory.text, "This is a product analytics platform")
+        self.assertEqual(
+            core_memory.initial_text,
+            "Question: What does the company do?\nAnswer: This is a product analytics platform",
+        )
 
     def test_node_starts_onboarding_for_pageview_events(self):
         self._set_up_pageview_events()
@@ -234,13 +237,13 @@ class TestMemoryInitializerNode(ClickhouseTestMixin, BaseTest):
 
     def test_router_with_failed_scraping_message(self):
         node = MemoryInitializerNode(team=self.team)
-        state = AssistantState(messages=[AssistantMessage(content=FAILED_SCRAPING_MESSAGE)])
-        self.assertEqual(node.router(state), "continue")
+        state = AssistantState(messages=[AssistantMessage(content=prompts.SCRAPING_SUCCESS_MESSAGE)])
+        self.assertEqual(node.router(state), "interrupt")
 
     def test_router_with_other_message(self):
         node = MemoryInitializerNode(team=self.team)
         state = AssistantState(messages=[AssistantMessage(content="Some other message")])
-        self.assertEqual(node.router(state), "interrupt")
+        self.assertEqual(node.router(state), "continue")
 
     def test_should_process_message_chunk_with_no_data_available(self):
         from langchain_core.messages import AIMessageChunk
@@ -262,12 +265,15 @@ class TestMemoryInitializerNode(ClickhouseTestMixin, BaseTest):
 
     def test_format_message_removes_reference_tags(self):
         message = "PostHog[1] is a product analytics platform[2]. It helps track user behavior[3]."
-        expected = "PostHog is a product analytics platform. It helps track user behavior."
+        expected = (
+            prompts.SCRAPING_SUCCESS_MESSAGE + "PostHog is a product analytics platform. It helps track user behavior."
+        )
         self.assertEqual(MemoryInitializerNode.format_message(message), expected)
 
     def test_format_message_with_no_reference_tags(self):
         message = "PostHog is a product analytics platform. It helps track user behavior."
-        self.assertEqual(MemoryInitializerNode.format_message(message), message)
+        expected = prompts.SCRAPING_SUCCESS_MESSAGE + message
+        self.assertEqual(MemoryInitializerNode.format_message(message), expected)
 
     def test_run_with_url_based_initialization(self):
         with patch.object(MemoryInitializerNode, "_model") as model_mock:
@@ -279,7 +285,10 @@ class TestMemoryInitializerNode(ClickhouseTestMixin, BaseTest):
             new_state = node.run(AssistantState(messages=[HumanMessage(content="Hello")]), {})
             self.assertEqual(len(new_state.messages), 1)
             self.assertIsInstance(new_state.messages[0], AssistantMessage)
-            self.assertEqual(new_state.messages[0].content, "PostHog is a product analytics platform.")
+            self.assertEqual(
+                new_state.messages[0].content,
+                prompts.SCRAPING_SUCCESS_MESSAGE + "PostHog is a product analytics platform.",
+            )
 
             core_memory = CoreMemory.objects.get(team=self.team)
             self.assertEqual(core_memory.scraping_status, CoreMemory.ScrapingStatus.PENDING)
@@ -302,7 +311,9 @@ class TestMemoryInitializerNode(ClickhouseTestMixin, BaseTest):
             new_state = node.run(AssistantState(messages=[HumanMessage(content="Hello")]), {})
             self.assertEqual(len(new_state.messages), 1)
             self.assertIsInstance(new_state.messages[0], AssistantMessage)
-            self.assertEqual(new_state.messages[0].content, "PostHog mobile app description.")
+            self.assertEqual(
+                new_state.messages[0].content, prompts.SCRAPING_SUCCESS_MESSAGE + "PostHog mobile app description."
+            )
 
             core_memory = CoreMemory.objects.get(team=self.team)
             self.assertEqual(core_memory.scraping_status, CoreMemory.ScrapingStatus.PENDING)
@@ -319,9 +330,7 @@ class TestMemoryInitializerNode(ClickhouseTestMixin, BaseTest):
 
             node = MemoryInitializerNode(team=self.team)
 
-            with self.assertRaises(ValueError) as e:
-                node.run(AssistantState(messages=[HumanMessage(content="Hello")]), {})
-            self.assertEqual(str(e.exception), "No host or app bundle ID found in the memory initializer.")
+            self.assertEqual(node.run(AssistantState(messages=[HumanMessage(content="Hello")]), {}), None)
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -349,9 +358,138 @@ class TestMemoryInitializerInterruptNode(ClickhouseTestMixin, BaseTest):
         self.assertEqual(interrupt_message.meta.form.options[0].value, prompts.SCRAPING_CONFIRMATION_MESSAGE)
         self.assertEqual(interrupt_message.meta.form.options[1].value, prompts.SCRAPING_REJECTION_MESSAGE)
 
+
+@override_settings(IN_UNIT_TESTING=True)
+class TestMemoryOnboardingEnquiryNode(ClickhouseTestMixin, BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.core_memory = CoreMemory.objects.create(team=self.team)
+        self.node = MemoryOnboardingEnquiryNode(team=self.team)
+
+    def test_router_with_no_core_memory(self):
+        self.core_memory.delete()
+        with self.assertRaises(ValueError) as e:
+            self.node.router(AssistantState(messages=[]))
+        self.assertEqual(str(e.exception), "No core memory found.")
+
+    def test_router_with_scraping_finished(self):
+        self.core_memory.change_status_to_skipped()
+        self.assertEqual(self.node.router(AssistantState(messages=[])), "continue")
+
+    def test_router_with_scraping_pending(self):
+        self.core_memory.change_status_to_pending()
+        self.assertEqual(self.node.router(AssistantState(messages=[])), "enquire_more")
+
+    def test_format_question_with_separator(self):
+        question = "Some prefix===What is your target market?"
+        self.assertEqual(self.node._format_question(question), "What is your target market?")
+
+    def test_format_question_without_separator(self):
+        question = "What is your target market?"
+        self.assertEqual(self.node._format_question(question), question)
+
+    def test_format_question_with_markdown(self):
+        question = "**What** is your _target_ market?"
+        self.assertEqual(self.node._format_question(question), "What is your target market?")
+
+    def test_format_memory(self):
+        markdown_text = "# Product Description\n\n- Feature 1\n- Feature 2\n\n**Bold text** and `code` [1]"
+        expected = "Product Description\n\nFeature 1\nFeature 2\n\nBold text and code [1]"
+        self.assertEqual(self.node._format_memory(markdown_text), expected)
+
+    def test_run_with_initial_message(self):
+        with patch.object(MemoryOnboardingEnquiryNode, "_model") as model_mock:
+            model_mock.return_value = RunnableLambda(lambda _: "===What is your target market?")
+
+            state = AssistantState(
+                messages=[HumanMessage(content=prompts.ONBOARDING_INITIAL_MESSAGE)],
+            )
+
+            with self.assertRaises(NodeInterrupt) as e:
+                self.node.run(state, {})
+
+            interrupt_message = e.exception.args[0][0].value
+            self.assertIsInstance(interrupt_message, AssistantMessage)
+            self.assertEqual(interrupt_message.content, "What is your target market?")
+
+            self.core_memory.refresh_from_db()
+            self.assertEqual(self.core_memory.initial_text, "Question: What is your target market?")
+
+    def test_run_with_answer(self):
+        with patch.object(MemoryOnboardingEnquiryNode, "_model") as model_mock:
+            model_mock.return_value = RunnableLambda(lambda _: "===What is your pricing model?")
+
+            self.core_memory.append_initial_memory("Question: What is your target market?")
+            state = AssistantState(
+                messages=[HumanMessage(content="We target enterprise customers")],
+            )
+
+            with self.assertRaises(NodeInterrupt) as e:
+                self.node.run(state, {})
+
+            interrupt_message = e.exception.args[0][0].value
+            self.assertIsInstance(interrupt_message, AssistantMessage)
+            self.assertEqual(interrupt_message.content, "What is your pricing model?")
+
+            self.core_memory.refresh_from_db()
+            self.assertEqual(
+                self.core_memory.initial_text,
+                "Question: What is your target market?\nAnswer: We target enterprise customers\nQuestion: What is your pricing model?",
+            )
+
+    def test_run_with_all_questions_answered(self):
+        with patch.object(MemoryOnboardingEnquiryNode, "_model") as model_mock:
+
+            def mock_response(input_dict):
+                input_str = str(input_dict)
+                if "You are tasked with gathering information" in input_str:
+                    return "===What is your target market?"
+                if "Your goal is to shorten these questions and answers in a series of paragraphs" in input_str:
+                    return "Compressed memory about enterprise product"
+                return "[Done]"
+
+            model_mock.return_value = RunnableLambda(mock_response)
+
+            # First run - should get interrupted with first question
+            state = AssistantState(
+                messages=[HumanMessage(content=prompts.ONBOARDING_INITIAL_MESSAGE)],
+            )
+            with self.assertRaises(NodeInterrupt) as e:
+                self.node.run(state, {})
+            interrupt_message = e.exception.args[0][0].value
+            self.assertIsInstance(interrupt_message, AssistantMessage)
+            self.assertEqual(interrupt_message.content, "What is your target market?")
+
+            # Second run - should complete since we have enough answers
+            self.core_memory.append_initial_memory(
+                "Question: What is your pricing model?\nAnswer: We use a subscription model"
+            )
+            self.core_memory.append_initial_memory(
+                "Question: What is your pricing model?\nAnswer: We use a subscription model"
+            )
+            self.core_memory.append_initial_memory("Question: What is your target market?")
+            state = AssistantState(
+                messages=[HumanMessage(content="We target enterprise customers")],
+            )
+            new_state = self.node.run(state, {})
+            self.assertEqual(len(new_state.messages), 1)
+            self.assertEqual(new_state.messages[0].content, prompts.SCRAPING_MEMORY_SAVED_MESSAGE)
+
+            self.core_memory.refresh_from_db()
+            self.assertEqual(self.core_memory.text, "Compressed memory about enterprise product")
+
     def test_memory_accepted(self):
-        with patch.object(MemoryInitializerInterruptNode, "_model") as model_mock:
-            model_mock.return_value = RunnableLambda(lambda _: "Compressed memory")
+        with patch.object(MemoryOnboardingEnquiryNode, "_model") as model_mock:
+
+            def mock_response(input_dict):
+                input_str = str(input_dict)
+                if "You are tasked with gathering information" in input_str:
+                    return "===What is your target market?"
+                if "Your goal is to shorten paragraphs in the given text" in input_str:
+                    return "Compressed memory about enterprise product"
+                return "[Done]"
+
+            model_mock.return_value = RunnableLambda(mock_response)
 
             state = AssistantState(
                 messages=[
@@ -361,79 +499,45 @@ class TestMemoryInitializerInterruptNode(ClickhouseTestMixin, BaseTest):
                 graph_status="resumed",
             )
 
-            new_state = self.node.run(state, {})
-
-            self.assertEqual(len(new_state.messages), 1)
-            self.assertIsInstance(new_state.messages[0], AssistantMessage)
-            self.assertEqual(
-                new_state.messages[0].content,
-                prompts.SCRAPING_MEMORY_SAVED_MESSAGE,
-            )
+            with self.assertRaises(NodeInterrupt) as e:
+                self.node.run(state, {})
+            interrupt_message = e.exception.args[0][0].value
+            self.assertIsInstance(interrupt_message, AssistantMessage)
+            self.assertEqual(interrupt_message.content, "What is your target market?")
 
             core_memory = CoreMemory.objects.get(team=self.team)
-            self.assertEqual(core_memory.text, "Compressed memory")
-            self.assertEqual(core_memory.scraping_status, CoreMemory.ScrapingStatus.COMPLETED)
+            self.assertEqual(
+                core_memory.initial_text,
+                "Question: What does the company do?\nAnswer: Compressed memory about enterprise product\nQuestion: What is your target market?",
+            )
 
     def test_memory_rejected(self):
-        state = AssistantState(
-            messages=[
-                AssistantMessage(content="Product description"),
-                HumanMessage(content=prompts.SCRAPING_REJECTION_MESSAGE),
-            ],
-            graph_status="resumed",
-        )
+        with patch.object(MemoryOnboardingEnquiryNode, "_model") as model_mock:
 
-        new_state = self.node.run(state, {})
+            def mock_response(input_dict):
+                input_str = str(input_dict)
+                if "You are tasked with gathering information" in input_str:
+                    return "===What is your target market?"
+                return "[Done]"
 
-        self.assertEqual(len(new_state.messages), 1)
-        self.assertIsInstance(new_state.messages[0], AssistantMessage)
-        self.assertEqual(
-            new_state.messages[0].content,
-            prompts.SCRAPING_TERMINATION_MESSAGE,
-        )
+            model_mock.return_value = RunnableLambda(mock_response)
 
-        self.core_memory.refresh_from_db()
-        self.assertEqual(self.core_memory.scraping_status, CoreMemory.ScrapingStatus.SKIPPED)
+            state = AssistantState(
+                messages=[
+                    AssistantMessage(content="Product description"),
+                    HumanMessage(content=prompts.SCRAPING_REJECTION_MESSAGE),
+                ],
+                graph_status="resumed",
+            )
 
-    def test_error_when_last_message_not_human(self):
-        state = AssistantState(
-            messages=[AssistantMessage(content="Product description")],
-            graph_status="resumed",
-        )
+            with self.assertRaises(NodeInterrupt) as e:
+                self.node.run(state, {})
+            interrupt_message = e.exception.args[0][0].value
+            self.assertIsInstance(interrupt_message, AssistantMessage)
+            self.assertEqual(interrupt_message.content, "What is your target market?")
 
-        with self.assertRaises(ValueError) as e:
-            self.node.run(state, {})
-        self.assertEqual(str(e.exception), "Last message is not a human message.")
-
-    def test_error_when_no_core_memory(self):
-        self.core_memory.delete()
-
-        state = AssistantState(
-            messages=[
-                AssistantMessage(content="Product description"),
-                HumanMessage(content=prompts.SCRAPING_CONFIRMATION_MESSAGE),
-            ],
-            graph_status="resumed",
-        )
-
-        with self.assertRaises(ValueError) as e:
-            self.node.run(state, {})
-        self.assertEqual(str(e.exception), "No core memory found.")
-
-    def test_error_when_no_memory_message(self):
-        state = AssistantState(
-            messages=[HumanMessage(content=prompts.SCRAPING_CONFIRMATION_MESSAGE)],
-            graph_status="resumed",
-        )
-
-        with self.assertRaises(ValueError) as e:
-            self.node.run(state, {})
-        self.assertEqual(str(e.exception), "No memory message found.")
-
-    def test_format_memory(self):
-        markdown_text = "# Product Description\n\n- Feature 1\n- Feature 2\n\n**Bold text** and `code` [1]"
-        expected = "Product Description\n\nFeature 1\nFeature 2\n\nBold text and code [1]"
-        self.assertEqual(self.node._format_memory(markdown_text), expected)
+            core_memory = CoreMemory.objects.get(team=self.team)
+            self.assertEqual(core_memory.initial_text, "Question: What is your target market?")
 
 
 @override_settings(IN_UNIT_TESTING=True)

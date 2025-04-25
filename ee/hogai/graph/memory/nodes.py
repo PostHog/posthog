@@ -87,7 +87,7 @@ class MemoryOnboardingShouldRunMixin(AssistantNode):
         If another user has already started the onboarding process, or it has already been completed, do not trigger it again.
         """
         core_memory = self.core_memory
-        if not core_memory or core_memory.scraping_status == CoreMemory.ScrapingStatus.PENDING:
+        if not core_memory or core_memory.initial_text == "":
             return "onboarding_start"
         elif core_memory.initial_text != "" and core_memory.scraping_status == CoreMemory.ScrapingStatus.PENDING:
             return "onboarding_enquiry"
@@ -206,75 +206,20 @@ class MemoryInitializerInterruptNode(AssistantNode):
     """
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
-        last_message = state.messages[-1]
-        if state.graph_status != "resumed":
-            raise NodeInterrupt(
-                AssistantMessage(
-                    content=SCRAPING_VERIFICATION_MESSAGE,
-                    meta=AssistantMessageMetadata(
-                        form=AssistantForm(
-                            options=[
-                                AssistantFormOption(value=SCRAPING_CONFIRMATION_MESSAGE, variant="primary"),
-                                AssistantFormOption(value=SCRAPING_REJECTION_MESSAGE),
-                            ]
-                        )
-                    ),
-                    id=str(uuid4()),
-                )
+        raise NodeInterrupt(
+            AssistantMessage(
+                content=SCRAPING_VERIFICATION_MESSAGE,
+                meta=AssistantMessageMetadata(
+                    form=AssistantForm(
+                        options=[
+                            AssistantFormOption(value=SCRAPING_CONFIRMATION_MESSAGE, variant="primary"),
+                            AssistantFormOption(value=SCRAPING_REJECTION_MESSAGE),
+                        ]
+                    )
+                ),
+                id=str(uuid4()),
             )
-        if not isinstance(last_message, HumanMessage):
-            raise ValueError("Last message is not a human message.")
-
-        core_memory = self.core_memory
-        if not core_memory:
-            raise ValueError("No core memory found.")
-
-        try:
-            # If the user rejects the scraped memory, ask for more information.
-            if last_message.content != SCRAPING_CONFIRMATION_MESSAGE:
-                core_memory.initial_text = ""
-                core_memory.save()
-                return None
-
-            assistant_message = find_last_message_of_type(state.messages, AssistantMessage)
-
-            if not assistant_message:
-                raise ValueError("No memory message found.")
-
-            # Compress the memory before saving it. The Perplexity's text is very verbose. It just complicates things for the memory collector.
-            prompt = ChatPromptTemplate.from_messages(
-                [
-                    ("system", COMPRESSION_PROMPT),
-                    ("human", self._format_memory(assistant_message.content)),
-                ]
-            )
-            chain = prompt | self._model | StrOutputParser() | compressed_memory_parser
-            compressed_memory = cast(str, chain.invoke({}, config=config))
-            compressed_memory = compressed_memory.strip().replace("\n", " ")
-            core_memory.append_initial_memory("Question: What does the company do?")
-            core_memory.append_initial_memory("Answer: " + compressed_memory)
-        except:
-            core_memory.change_status_to_skipped()  # Ensure we don't leave the memory in a permanent pending state
-            raise
-
-        return PartialAssistantState(
-            messages=[
-                AssistantMessage(
-                    content=SCRAPING_MEMORY_SAVED_MESSAGE,
-                    id=str(uuid4()),
-                )
-            ]
         )
-
-    @property
-    def _model(self):
-        return ChatOpenAI(model="gpt-4o-mini", temperature=0, disable_streaming=True, stop_sequences=["[Done]"])
-
-    def _format_memory(self, memory: str) -> str:
-        """
-        Remove markdown and source reference tags like [1], [2], etc.
-        """
-        return remove_markdown(memory)
 
 
 class MemoryOnboardingEnquiryNode(AssistantNode):
@@ -294,6 +239,30 @@ class MemoryOnboardingEnquiryNode(AssistantNode):
             ONBOARDING_INITIAL_MESSAGE,
         ]:
             core_memory.append_initial_memory("Answer: " + human_message.content)
+
+        if human_message.content == SCRAPING_REJECTION_MESSAGE:
+            core_memory.initial_text = ""
+            core_memory.save()
+        elif human_message.content == SCRAPING_CONFIRMATION_MESSAGE:
+            core_memory.initial_text = ""
+            core_memory.save()
+            assistant_message = find_last_message_of_type(state.messages, AssistantMessage)
+
+            if not assistant_message:
+                raise ValueError("No memory message found.")
+
+            # Compress the memory before saving it. The Perplexity's text is very verbose. It just complicates things for the memory collector.
+            prompt = ChatPromptTemplate.from_messages(
+                [
+                    ("system", COMPRESSION_PROMPT),
+                    ("human", self._format_memory(assistant_message.content)),
+                ]
+            )
+            chain = prompt | self._model | StrOutputParser() | compressed_memory_parser
+            compressed_memory = cast(str, chain.invoke({}, config=config))
+            compressed_memory = compressed_memory.strip().replace("\n", " ")
+            core_memory.append_initial_memory("Question: What does the company do?")
+            core_memory.append_initial_memory("Answer: " + compressed_memory)
 
         # count how many times "Question: " appears in the core memory
         questions_asked = core_memory.initial_text.count("Question: ")
@@ -342,6 +311,12 @@ class MemoryOnboardingEnquiryNode(AssistantNode):
         if core_memory.is_scraping_finished:
             return "continue"
         return "enquire_more"
+
+    def _format_memory(self, memory: str) -> str:
+        """
+        Remove markdown and source reference tags like [1], [2], etc.
+        """
+        return remove_markdown(memory)
 
     def _format_question(self, question: str) -> str:
         if "===" in question:
