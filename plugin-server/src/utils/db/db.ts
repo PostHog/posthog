@@ -145,12 +145,6 @@ const fetchPersonPropsSize = new Histogram({
     buckets: [1024, 8196, 65536, 524288, 1048576, 2097152, 8388608, 16777216, 67108864],
 })
 
-// temporary: lets us introspect on rows returned from a Postgres query
-// (currently only fetchPerson) prior to hydrating into a RawPerson
-interface RawPersonRow {
-    [column: string]: any
-}
-
 /** The recommended way of accessing the database. */
 export class DB {
     /** Postgres connection router for database access. */
@@ -543,45 +537,32 @@ export class DB {
         }
         const values = [teamId, distinctId]
 
-        const { rows } = await this.postgres.query<RawPersonRow>(
+        // very rough estimate of heapUsed change before and after fetchPerson query
+        const preQHeapUsed = process.memoryUsage().heapUsed
+        const { rows } = await this.postgres.query<RawPerson>(
             options.useReadReplica ? PostgresUse.COMMON_READ : PostgresUse.COMMON_WRITE,
             queryString,
             values,
             'fetchPerson'
         )
+        const postQHeapUsed = process.memoryUsage().heapUsed
 
         if (rows.length > 0) {
-            // estimate size of person properties blob fetched from DB
-            const estimatedPropsBytes = rows[0]?.properties.length || 0
-            fetchPersonPropsSize.observe(estimatedPropsBytes)
+            // observe rough size of person record (including JSONB cols) fetched from DB
+            const estimatedBytes = postQHeapUsed - preQHeapUsed
+            fetchPersonPropsSize.observe(estimatedBytes)
 
             // if larger than size threshold (start conservative, adjust as we observe)
             // we should log the team and disinct_id associated with the properties
-            if (estimatedPropsBytes >= EIGHT_MEGABYTE_PROPS_BLOB) {
-                logger.warn('⚠️', 'fetchPerson: large properties record detected', {
+            if (estimatedBytes >= EIGHT_MEGABYTE_PROPS_BLOB) {
+                logger.warn('⚠️', 'fetchPerson: large RawPerson record detected', {
                     teamId: teamId,
                     distinctId: distinctId,
-                    estimated_bytes: estimatedPropsBytes,
+                    estimated_bytes: estimatedBytes,
                 })
             }
-            const rawPerson: RawPerson = this.toRawPerson(rows[0])
 
-            return this.toPerson(rawPerson)
-        }
-    }
-
-    private toRawPerson(row: RawPersonRow): RawPerson {
-        return {
-            id: row.id,
-            team_id: row.team_id,
-            properties: row.properties,
-            is_user_id: row.is_user_id,
-            is_identified: row.is_identified,
-            uuid: row.uuid,
-            properties_last_updated_at: row.properties_last_updated_at,
-            properties_last_operation: row.properties_last_operation,
-            created_at: row.created_at,
-            version: row.version,
+            return this.toPerson(rows[0])
         }
     }
 
