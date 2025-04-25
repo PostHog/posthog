@@ -50,6 +50,7 @@ export const saveUnderLogic = kea<saveUnderLogicType>([
                 if (props.onSave) {
                     actions.setLastNewOperation(values.lastNewOperation?.objectType || 'unknown', formValues.folder)
                     props.onSave(formValues.folder || props.defaultFolder || 'Unfiled')
+                    actions.closeModal()
                 }
             },
         },

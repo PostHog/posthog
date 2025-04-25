@@ -109,11 +109,11 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         []
     )
     const { selectedFolder, openModal, SaveUnderModal } = useSaveUnder(saveUnderProps)
-    const mustSaveUnder = !selectedFolder && featureFlags[FEATURE_FLAGS.TREE_VIEW] && !insight.short_id
+    const canSaveUnder = !selectedFolder && featureFlags[FEATURE_FLAGS.TREE_VIEW] && !insight.short_id
 
     return (
         <>
-            {mustSaveUnder ? <SaveUnderModal /> : null}
+            {canSaveUnder ? <SaveUnderModal /> : null}
             {hasDashboardItemId && (
                 <>
                     <SubscriptionsModal
@@ -223,7 +223,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             <InsightSaveButton
                                 saveAs={saveAs}
                                 saveInsight={saveInsight}
-                                saveUnder={mustSaveUnder ? openModal : undefined}
+                                saveUnder={canSaveUnder ? openModal : undefined}
                                 isSaved={hasDashboardItemId}
                                 addingToDashboard={!!insight.dashboards?.length && !insight.id}
                                 insightSaving={insightSaving}

@@ -54,14 +54,6 @@ export function SaveUnderModal(): JSX.Element {
     )
 }
 
-export function SaveUnder(props: SaveUnderLogicProps): JSX.Element {
-    return (
-        <BindLogic logic={saveUnderLogic} props={props}>
-            <SaveUnderModal />
-        </BindLogic>
-    )
-}
-
 export interface UseSaveUnderResponse {
     openModal: () => void
     closeModal: () => void
@@ -75,7 +67,11 @@ export function useSaveUnder(props: SaveUnderLogicProps): UseSaveUnderResponse {
     return {
         openModal,
         closeModal,
-        SaveUnderModal: () => <SaveUnder {...props} />,
+        SaveUnderModal: () => (
+            <BindLogic logic={saveUnderLogic} props={props}>
+                <SaveUnderModal />
+            </BindLogic>
+        ),
         selectedFolder: lastNewOperation?.objectType === props.type ? lastNewOperation?.folder : undefined,
     }
 }
