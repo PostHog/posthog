@@ -894,6 +894,7 @@ class ErrorTrackingIssueAggregations(BaseModel):
 class Type2(StrEnum):
     USER_GROUP = "user_group"
     USER = "user"
+    ROLE = "role"
 
 
 class OrderBy(StrEnum):
@@ -1731,17 +1732,6 @@ class RevenueSources(BaseModel):
     )
     dataWarehouseSources: list[str]
     events: list[str]
-
-
-class RevenueTrackingEventItem(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    eventName: str
-    revenueCurrencyProperty: Optional[RevenueCurrencyPropertyConfig] = Field(
-        default_factory=lambda: RevenueCurrencyPropertyConfig.model_validate({"static": "USD"})
-    )
-    revenueProperty: str
 
 
 class RootAssistantMessage1(BaseModel):
@@ -3087,6 +3077,17 @@ class RetentionValue(BaseModel):
     label: Optional[str] = None
 
 
+class RevenueAnalyticsEventItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    eventName: str
+    revenueCurrencyProperty: Optional[RevenueCurrencyPropertyConfig] = Field(
+        default_factory=lambda: RevenueCurrencyPropertyConfig.model_validate({"static": "USD"})
+    )
+    revenueProperty: str
+
+
 class RevenueAnalyticsGrowthRateQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3210,14 +3211,6 @@ class RevenueExampleEventsQueryResponse(BaseModel):
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: Optional[list] = None
-
-
-class RevenueTrackingConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    baseCurrency: Optional[CurrencyCode] = CurrencyCode.USD
-    events: Optional[list[RevenueTrackingEventItem]] = []
 
 
 class SavedInsightNode(BaseModel):
@@ -7560,6 +7553,14 @@ class RevenueAnalyticsBaseQueryRevenueAnalyticsTopCustomersQueryResponse(BaseMod
     )
     response: Optional[RevenueAnalyticsTopCustomersQueryResponse] = None
     revenueSources: RevenueSources
+
+
+class RevenueAnalyticsConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    base_currency: Optional[CurrencyCode] = CurrencyCode.USD
+    events: Optional[list[RevenueAnalyticsEventItem]] = []
 
 
 class RevenueAnalyticsGrowthRateQuery(BaseModel):

@@ -50,7 +50,7 @@ import type {
     QueryStatus,
     RecordingOrder,
     RecordingsQuery,
-    RevenueTrackingConfig,
+    RevenueAnalyticsConfig,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
@@ -597,7 +597,7 @@ export interface TeamType extends TeamBasicType {
     live_events_token: string
     cookieless_server_hash_mode?: CookielessServerHashMode
     human_friendly_comparison_periods: boolean
-    revenue_tracking_config: RevenueTrackingConfig
+    revenue_analytics_config: RevenueAnalyticsConfig
     onboarding_tasks?: {
         [key: string]: ActivationTaskStatus
     }
@@ -1440,6 +1440,7 @@ export enum StepOrderValue {
 export enum PersonsTabType {
     FEED = 'feed',
     EVENTS = 'events',
+    EXCEPTIONS = 'exceptions',
     SESSION_RECORDINGS = 'sessionRecordings',
     PROPERTIES = 'properties',
     COHORTS = 'cohorts',
@@ -2922,35 +2923,36 @@ export interface SurveyDisplayConditions {
     } | null
 }
 
+export enum SurveyEventName {
+    SHOWN = 'survey shown',
+    DISMISSED = 'survey dismissed',
+    SENT = 'survey sent',
+}
+
+export interface SurveyEventStats {
+    total_count: number
+    total_count_only_seen: number
+    unique_persons: number
+    unique_persons_only_seen: number
+    first_seen: string | null
+    last_seen: string | null
+}
+
+export interface SurveyRates {
+    response_rate: number
+    dismissal_rate: number
+    unique_users_response_rate: number
+    unique_users_dismissal_rate: number
+}
+
 export interface SurveyStats {
-    stats: {
-        'survey shown': {
-            total_count: number
-            total_count_only_seen: number
-            unique_persons: number
-            unique_persons_only_seen: number
-            first_seen: string | null
-            last_seen: string | null
-        }
-        'survey dismissed': {
-            total_count: number
-            unique_persons: number
-            first_seen: string | null
-            last_seen: string | null
-        }
-        'survey sent': {
-            total_count: number
-            unique_persons: number
-            first_seen: string | null
-            last_seen: string | null
-        }
-    }
-    rates: {
-        response_rate: number
-        dismissal_rate: number
-        unique_users_response_rate: number
-        unique_users_dismissal_rate: number
-    }
+    [SurveyEventName.SHOWN]: SurveyEventStats
+    [SurveyEventName.DISMISSED]: SurveyEventStats
+    [SurveyEventName.SENT]: SurveyEventStats
+}
+export interface SurveyStatsResponse {
+    stats: SurveyStats
+    rates: SurveyRates
 }
 
 export interface Survey {
@@ -5296,6 +5298,7 @@ export interface ProjectTreeRef {
     /**
      * The ref of the file system object.
      * Usually the "id" or "short_id" of the database object.
+     * "null" opens the "new" page
      */
-    ref: string
+    ref: string | null
 }

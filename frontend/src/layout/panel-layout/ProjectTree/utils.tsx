@@ -16,6 +16,7 @@ export interface ConvertProps {
     root: string
     searchTerm?: string
     disableFolderSelect?: boolean
+    disabledReason?: (item: FileSystemImport | FileSystemEntry) => string | undefined
 }
 
 export function sortFilesAndFolders(a: FileSystemEntry, b: FileSystemEntry): number {
@@ -52,6 +53,7 @@ export function convertFileSystemEntryToTreeDataItem({
     root,
     searchTerm,
     disableFolderSelect,
+    disabledReason,
 }: ConvertProps): TreeDataItem[] {
     // The top-level nodes for our project tree
     const rootNodes: TreeDataItem[] = []
@@ -85,6 +87,10 @@ export function convertFileSystemEntryToTreeDataItem({
             }
             if (disableFolderSelect) {
                 folderNode.disableSelect = true
+            }
+            if (folderNode.record && disabledReason?.(folderNode.record as FileSystemEntry)) {
+                folderNode.disabledReason = disabledReason(folderNode.record as FileSystemEntry)
+                folderNode.onClick = undefined
             }
             allFolderNodes.push(folderNode)
             nodes.push(folderNode)
@@ -158,6 +164,10 @@ export function convertFileSystemEntryToTreeDataItem({
                     router.actions.push(typeof item.href === 'function' ? item.href(item.ref) : item.href)
                 }
             },
+        }
+        if (item && disabledReason?.(item)) {
+            node.disabledReason = disabledReason(item)
+            node.onClick = undefined
         }
         if (disableFolderSelect) {
             if (item.type === 'folder') {
