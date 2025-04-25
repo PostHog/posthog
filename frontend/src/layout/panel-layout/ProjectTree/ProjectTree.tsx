@@ -22,7 +22,7 @@ import {
     DropdownMenuSubTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
-import { RefObject, useEffect, useRef, useState } from 'react'
+import { RefObject, useEffect, useRef } from 'react'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
@@ -45,6 +45,7 @@ export function ProjectTree(): JSX.Element {
         checkedItemsCount,
         checkedItemCountNumeric,
         scrollTargetId,
+        editingItemId,
     } = useValues(projectTreeLogic)
 
     const {
@@ -65,6 +66,7 @@ export function ProjectTree(): JSX.Element {
         setCheckedItems,
         assureVisibility,
         clearScrollTarget,
+        setEditingItemId,
     } = useActions(projectTreeLogic)
 
     const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier, setProjectTreeMode } =
@@ -77,8 +79,6 @@ export function ProjectTree(): JSX.Element {
             void navigator.clipboard.writeText(path)
         }
     }
-
-    const [editingItem, setEditingItem] = useState<TreeDataItem | null>(null)
 
     useEffect(() => {
         setPanelTreeRef(treeRef)
@@ -278,7 +278,7 @@ export function ProjectTree(): JSX.Element {
                         asChild
                         onClick={(e) => {
                             e.stopPropagation()
-                            setEditingItem(item)
+                            setEditingItemId(item.id)
                         }}
                     >
                         <ButtonPrimitive menuItem>Rename</ButtonPrimitive>
@@ -410,13 +410,13 @@ export function ProjectTree(): JSX.Element {
                     }
                 }}
                 isItemEditing={(item) => {
-                    return editingItem?.id === item.id
+                    return editingItemId === item.id
                 }}
                 onItemNameChange={(item, name) => {
                     if (item.name !== name) {
                         rename(name, item.record as unknown as FileSystemEntry)
                     }
-                    setEditingItem(null)
+                    setEditingItemId('')
                 }}
                 expandedItemIds={searchTerm ? expandedSearchFolders : expandedFolders}
                 onSetExpandedItemIds={searchTerm ? setExpandedSearchFolders : setExpandedFolders}

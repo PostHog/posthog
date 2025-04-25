@@ -91,6 +91,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         updateSyncedFiles: (files: FileSystemEntry[]) => ({ files }),
         scrollToView: (item: FileSystemEntry) => ({ item }),
         clearScrollTarget: true,
+        setEditingItemId: (id: string) => ({ id }),
     }),
     loaders(({ actions, values }) => ({
         unfiledItems: [
@@ -453,6 +454,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 scrollToView: (_, { item }) =>
                     item.type === 'folder' ? `project-folder/${item.path}` : `project/${item.id}`,
                 clearScrollTarget: () => '',
+            },
+        ],
+        editingItemId: [
+            '',
+            {
+                setEditingItemId: (_, { id }) => id,
             },
         ],
     }),
@@ -1125,6 +1132,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             if (splits.length > 0) {
                 if (value) {
                     actions.moveItem(item, joinPath([...splits.slice(0, -1), value]))
+                    actions.setEditingItemId(item.id)
                 }
             }
         },
