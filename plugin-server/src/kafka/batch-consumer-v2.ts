@@ -10,6 +10,7 @@ import {
     WatermarkOffsets,
 } from 'node-rdkafka'
 import { hostname } from 'os'
+import { Histogram } from 'prom-client'
 
 import { defaultConfig } from '../config/config'
 import { logger } from '../utils/logger'
@@ -56,6 +57,18 @@ const MAX_HEALTH_HEARTBEAT_INTERVAL_MS = 60_000
 //     help: 'Indicates how big batches are we are processing compared to the max batch size. Useful as a scaling metric',
 //     labelNames: ['groupId'],
 // })
+
+export const histogramKafkaBatchSize = new Histogram({
+    name: 'consumer_batch_size',
+    help: 'The size of the batches we are receiving from Kafka',
+    buckets: [0, 50, 100, 250, 500, 750, 1000, 1500, 2000, 3000, Infinity],
+})
+
+export const histogramKafkaBatchSizeKb = new Histogram({
+    name: 'consumer_batch_size_kb',
+    help: 'The size in kb of the batches we are receiving from Kafka',
+    buckets: [0, 128, 512, 1024, 5120, 10240, 20480, 51200, 102400, 204800, Infinity],
+})
 
 const findOffsetsToCommit = (messages: TopicPartitionOffset[]): TopicPartitionOffset[] => {
     // We only need to commit the highest offset for a batch of messages
@@ -314,10 +327,8 @@ export class KafkaConsumer {
                         continue
                     }
 
-                    consumerBatchSize.labels({ topic, groupId }).observe(messages.length)
-                    for (const message of messages) {
-                        consumedMessageSizeBytes.labels({ topic, groupId }).observe(message.size)
-                    }
+                    histogramKafkaBatchSize.observe(messages.length)
+                    histogramKafkaBatchSizeKb.observe(messages.reduce((acc, message) => acc + message.size, 0))
 
                     const startProcessingTimeMs = new Date().valueOf()
                     await eachBatch(messages)
