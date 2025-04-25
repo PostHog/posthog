@@ -45,12 +45,12 @@ jobs:
 
     run-backend-ci:
         needs: changes
-        if: changes.outputs.backend == 'true'
+        if: needs.changes.outputs.backend == 'true'
         uses: ./.github/workflows/ci-backend.yml
         secrets: inherit
 
     run-frontend-ci:
         needs: changes
-        if: changes.outputs.frontend == 'true'
+        if: needs.changes.outputs.frontend == 'true'
         uses: ./.github/workflows/ci-frontend.yml
         secrets: inherit
