@@ -521,7 +521,7 @@ export class DB {
             PostgresUse.COMMON_READ,
             queryString,
             values,
-            'fetchPerson'
+            'personPropertiesSize'
         )
 
         if (rows.length > 0) {

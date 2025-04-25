@@ -129,7 +129,7 @@ export class PersonState {
 
     // note: this captures compressed sizes for JSONB blobs due to TOAST on DB
     private async capturePersonPropertiesSizeEstimate() {
-        const estimatedBytes = await this.db.personPropertiesSize(this.team.id, this.distinctId)
+        const estimatedBytes: number = await this.db.personPropertiesSize(this.team.id, this.distinctId)
         personPropertiesSize.observe(estimatedBytes)
 
         // if larger than size threshold (start conservative, adjust as we observe)
