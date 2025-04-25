@@ -1290,7 +1290,9 @@ export const surveyLogic = kea<surveyLogicType>([
         ],
         projectTreeRef: [
             () => [(_, props: SurveyLogicProps) => props.id],
-            (id): ProjectTreeRef => ({ type: 'survey', ref: String(id) }),
+            (id): ProjectTreeRef => {
+                return { type: 'survey', ref: id === 'new' ? null : String(id) }
+            },
         ],
         answerFilterHogQLExpression: [
             (s) => [s.survey, s.answerFilters],
