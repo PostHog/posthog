@@ -27,18 +27,30 @@ jobs:
             - uses: ./.github/actions/code-changes
               id: filter
 
-            - name: 'CI Frontend'
-              if: steps.filter.outputs.frontend == 'true'
-              uses: ./.github/workflows/ci-frontend.yml
+            # - name: 'CI Frontend'
+            #   if: steps.filter.outputs.frontend == 'true'
+            #   uses: ./.github/workflows/ci-frontend.yml
 
-            - name: Backend CI
-              if: steps.filter.outputs.backend == 'true'
-              uses: ./.github/workflows/ci-backend.yml
+            # - name: Backend CI
+            #   if: steps.filter.outputs.backend == 'true'
+            #   uses: ./.github/workflows/ci-backend.yml
 
-            - name: Rust CI
-              if: steps.filter.outputs.rust == 'true'
-              uses: ./.github/workflows/ci-rust.yml
+            # - name: Rust CI
+            #   if: steps.filter.outputs.rust == 'true'
+            #   uses: ./.github/workflows/ci-rust.yml
 
-            - name: Plugin Server CI
-              if: needs.changes.outputs.plugin-server == 'true'
-              uses: ./.github/workflows/ci-plugin-server.yml
+            # - name: Plugin Server CI
+            #   if: needs.changes.outputs.plugin-server == 'true'
+            #   uses: ./.github/workflows/ci-plugin-server.yml
+
+    run-backend-ci:
+        needs: changes
+        if: changes.outputs.backend == 'true'
+        uses: ./.github/workflows/ci-backend.yml
+        secrets: inherit
+
+    run-frontend-ci:
+        needs: changes
+        if: changes.outputs.frontend == 'true'
+        uses: ./.github/workflows/ci-frontend.yml
+        secrets: inherit
