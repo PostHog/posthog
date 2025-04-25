@@ -4,7 +4,10 @@ import unittest
 from unittest.mock import patch, MagicMock
 import json
 import time
-from toolbox import parse_arn, sanitize_label, get_current_user, get_toolbox_pod, claim_pod
+from toolbox.user import parse_arn, sanitize_label, get_current_user
+from toolbox.pod import get_toolbox_pod, claim_pod
+from toolbox.kubernetes import get_available_contexts, get_current_context, switch_context, select_context
+import subprocess
 
 
 class TestToolbox(unittest.TestCase):
@@ -334,6 +337,108 @@ class TestToolbox(unittest.TestCase):
             calls[7][0][0],
             ["kubectl", "wait", "--for=condition=Ready", "--timeout=5m", "-n", "posthog", "pod", "toolbox-pod-1"],
         )
+
+    # New tests for Kubernetes context functions
+    @patch("subprocess.run")
+    def test_get_available_contexts(self, mock_run):
+        """Test getting available kubernetes contexts."""
+        mock_response = MagicMock()
+        mock_response.stdout = "context1\ncontext2\ncontext3"
+        mock_run.return_value = mock_response
+
+        contexts = get_available_contexts()
+
+        self.assertEqual(contexts, ["context1", "context2", "context3"])
+        mock_run.assert_called_once_with(
+            ["kubectl", "config", "get-contexts", "-o", "name"], capture_output=True, text=True, check=True
+        )
+
+    @patch("subprocess.run")
+    def test_get_available_contexts_empty(self, mock_run):
+        """Test getting available kubernetes contexts when none exist."""
+        mock_response = MagicMock()
+        mock_response.stdout = ""
+        mock_run.return_value = mock_response
+
+        contexts = get_available_contexts()
+
+        self.assertEqual(contexts, [])
+        mock_run.assert_called_once()
+
+    @patch("subprocess.run")
+    def test_get_available_contexts_error(self, mock_run):
+        """Test error handling when getting available contexts fails."""
+        mock_run.side_effect = subprocess.CalledProcessError(1, "kubectl", "error")
+
+        with self.assertRaises(SystemExit):
+            get_available_contexts()
+
+        mock_run.assert_called_once()
+
+    @patch("subprocess.run")
+    def test_get_current_context(self, mock_run):
+        """Test getting current kubernetes context."""
+        mock_response = MagicMock()
+        mock_response.stdout = "current-context"
+        mock_run.return_value = mock_response
+
+        context = get_current_context()
+
+        self.assertEqual(context, "current-context")
+        mock_run.assert_called_once_with(
+            ["kubectl", "config", "current-context"], capture_output=True, text=True, check=True
+        )
+
+    @patch("subprocess.run")
+    def test_get_current_context_error(self, mock_run):
+        """Test error handling when getting current context fails."""
+        mock_run.side_effect = subprocess.CalledProcessError(1, "kubectl", "error")
+
+        context = get_current_context()
+
+        self.assertIsNone(context)
+        mock_run.assert_called_once()
+
+    @patch("subprocess.run")
+    def test_switch_context(self, mock_run):
+        """Test switching kubernetes context."""
+        mock_run.return_value = MagicMock()
+
+        result = switch_context("new-context")
+
+        self.assertTrue(result)
+        mock_run.assert_called_once_with(["kubectl", "config", "use-context", "new-context"], check=True)
+
+    @patch("subprocess.run")
+    def test_switch_context_error(self, mock_run):
+        """Test error handling when switching context fails."""
+        mock_run.side_effect = subprocess.CalledProcessError(1, "kubectl", "error")
+
+        result = switch_context("invalid-context")
+
+        self.assertFalse(result)
+        mock_run.assert_called_once()
+
+    @patch("toolbox.kubernetes.get_available_contexts")
+    @patch("toolbox.kubernetes.get_current_context")
+    @patch("toolbox.kubernetes.switch_context")
+    @patch("builtins.input")
+    def test_select_context(self, mock_input, mock_switch, mock_get_current, mock_get_available):
+        """Test selecting kubernetes context."""
+        # Setup mocks
+        mock_get_available.return_value = ["context1", "context2", "context3"]
+        mock_get_current.return_value = "context1"
+        mock_input.return_value = ""  # User just presses Enter to use current context
+
+        # Call function
+        result = select_context()
+
+        # Verify result
+        self.assertEqual(result, "context1")
+        mock_get_available.assert_called_once()
+        mock_get_current.assert_called_once()
+        mock_input.assert_called_once()
+        mock_switch.assert_not_called()  # No switch should happen
 
 
 if __name__ == "__main__":
