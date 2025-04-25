@@ -114,6 +114,15 @@ const translateInputs = (defaultVal: any) => {
         if (modifiedVal.includes('context.page.url')) {
             modifiedVal = modifiedVal.replaceAll('context.page.url', 'properties.$current_url')
         }
+        if (modifiedVal.includes('context.page.title')) {
+            modifiedVal = modifiedVal.replaceAll('context.page.title', 'properties.title')
+        }
+        if (modifiedVal.includes('context.page.path')) {
+            modifiedVal = modifiedVal.replaceAll('context.page.path', 'properties.$pathname')
+        }
+        if (modifiedVal.includes('context.page.search')) {
+            modifiedVal = modifiedVal.replaceAll('context.page.search', '')
+        }
         if (modifiedVal.includes('context.screen.density')) {
             modifiedVal = modifiedVal.replaceAll('context.screen.density', '')
         }
