@@ -1,6 +1,6 @@
+import { IconBug } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
-import { IconFire } from 'lib/lemon-ui/icons'
 import { Children } from 'react'
 import { ExceptionAttributes } from 'scenes/error-tracking/utils'
 
@@ -11,8 +11,8 @@ export interface ExceptionAttributesIconListProps {
 export function ExceptionAttributesIconList({ attributes }: ExceptionAttributesIconListProps): JSX.Element {
     return (
         <div className="flex items-center gap-2">
-            <PropertyWrapper title="Unhandled" visible={attributes.handled}>
-                <IconFire className="text-sm text-secondary" />
+            <PropertyWrapper title="Unhandled" visible={!attributes.handled}>
+                <IconBug className="text-sm text-secondary" />
             </PropertyWrapper>
             <PropertyWrapper title={attributes.browser} visible={!!attributes.browser}>
                 <PropertyIcon property="$browser" value={attributes.browser} className="text-sm text-secondary" />
