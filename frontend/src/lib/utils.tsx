@@ -248,8 +248,8 @@ export const selectorOperatorMap: Record<string, string> = {
 }
 
 export const cohortOperatorMap: Record<string, string> = {
-    in: '∋ user in',
-    not_in: '∌ user not in',
+    in: 'user in',
+    not_in: 'user not in',
 }
 
 export const stickinessOperatorMap: Record<string, string> = {
