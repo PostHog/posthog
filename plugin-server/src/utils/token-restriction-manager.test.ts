@@ -287,10 +287,6 @@ describe('TokenRestrictionManager', () => {
             jest.spyOn(tokenRestrictionManager['forceOverflowCache'], 'get').mockReturnValue(null)
             expect(tokenRestrictionManager.shouldForceOverflow('token')).toBe(false)
         })
-        it('returns false if cache has a miss', () => {
-            jest.spyOn(tokenRestrictionManager['forceOverflowCache'], 'get').mockReturnValue(null)
-            expect(tokenRestrictionManager.shouldForceOverflow('token')).toBe(false)
-        })
 
         it('returns false if cache has undefined', () => {
             jest.spyOn(tokenRestrictionManager['forceOverflowCache'], 'get').mockReturnValue(undefined)
