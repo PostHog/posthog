@@ -63,7 +63,7 @@ runs:
                     - bin/check_kafka_clickhouse_up
                   rust:
                     - 'rust/**'
-                    # - .github/workflows/ci-rust.yml
+                    - .github/workflows/ci-rust.yml
                     - .github/workflows/rust-docker-build.yml
                     - .github/workflows/rust-hook-migrator-docker.yml
                     - .github/workflows/rust-cyclotron-migrator-docker.yml
