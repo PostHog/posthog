@@ -19,7 +19,7 @@ import { retryIfRetriable } from '../utils/retries'
 import { promisifyCallback } from '../utils/utils'
 import { ensureTopicExists } from './admin'
 import { getConsumerConfigFromEnv } from './config'
-import { consumedBatchDuration, consumedMessageSizeBytes, consumerBatchSize, gaugeBatchUtilization } from './consumer'
+import { consumedBatchDuration, consumerBatchSize, gaugeBatchUtilization } from './consumer'
 
 const DEFAULT_BATCH_TIMEOUT_MS = 500
 const DEFAULT_FETCH_BATCH_SIZE = 1000
