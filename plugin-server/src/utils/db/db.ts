@@ -4,7 +4,6 @@ import { Pool as GenericPool } from 'generic-pool'
 import Redis from 'ioredis'
 import { DateTime } from 'luxon'
 import { QueryResult } from 'pg'
-import { Histogram } from 'prom-client'
 
 import { KAFKA_GROUPS, KAFKA_PERSON_DISTINCT_ID, KAFKA_PLUGIN_LOG_ENTRIES } from '../../config/kafka-topics'
 import { KafkaProducerWrapper, TopicMessage } from '../../kafka/producer'
@@ -123,6 +122,10 @@ export interface CachedGroupData {
     created_at: ClickHouseTimestamp
 }
 
+export interface PersonPropertiesSize {
+    total_props_bytes: number
+}
+
 export const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
     'connection to server at',
     'could not translate host',
@@ -135,15 +138,6 @@ export const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
     'ETIMEDOUT',
     'query_wait_timeout', // Waiting on PG bouncer to give us a slot
 ]
-
-// for fetchPerson properties JSONB size observation
-const EIGHT_MEGABYTE_PROPS_BLOB = 8388608
-const fetchPersonPropsSize = new Histogram({
-    name: 'fetchperson_properties_size',
-    help: 'histogram of person properties JSONB bytes retrieved in fetchPerson',
-    // 1kb, 8kb (TOAST threshold), 64kb, 512kb, 1mb, 2mb, 8mb, 16mb, 64mb
-    buckets: [1024, 8196, 65536, 524288, 1048576, 2097152, 8388608, 16777216, 67108864],
-})
 
 /** The recommended way of accessing the database. */
 export class DB {
@@ -505,6 +499,38 @@ export class DB {
         }
     }
 
+    // temporary: used to estimate large person properties JSONB blob sizes for measurement.
+    // NOTE - to avoid deserializing all TOAST objects on the DB size, we tolerate compressed
+    // sizes here. The result should still provide a good estimate of outliers we encounter
+    // if outlier size is contributing to the DB read I/O load we have observed w/fetchPerson
+    public async personPropertiesSize(teamId: number, distinctId: string): Promise<number> {
+        const values = [teamId, distinctId]
+        const queryString = `
+            SELECT (octet_length(properties)::bigint +
+                octet_length(properties_last_updated_at)::bigint +
+                octet_length(properties_last_operation)::bigint) AS total_props_bytes::bigint
+            FROM posthog_person
+            JOIN posthog_persondistinctid ON (posthog_persondistinctid.person_id = posthog_person.id)
+            WHERE
+                posthog_person.team_id = $1
+                AND posthog_persondistinctid.team_id = $1
+                AND posthog_persondistinctid.distinct_id = $2`
+
+        // very rough estimate of heapUsed change before and after fetchPerson query
+        const { rows } = await this.postgres.query<PersonPropertiesSize>(
+            PostgresUse.COMMON_READ,
+            queryString,
+            values,
+            'fetchPerson'
+        )
+
+        if (rows.length > 0) {
+            return rows[0].total_props_bytes
+        }
+
+        return 0
+    }
+
     public async fetchPerson(
         teamId: number,
         distinctId: string,
@@ -538,30 +564,14 @@ export class DB {
         const values = [teamId, distinctId]
 
         // very rough estimate of heapUsed change before and after fetchPerson query
-        const preQHeapUsed = process.memoryUsage().heapUsed
         const { rows } = await this.postgres.query<RawPerson>(
             options.useReadReplica ? PostgresUse.COMMON_READ : PostgresUse.COMMON_WRITE,
             queryString,
             values,
             'fetchPerson'
         )
-        const postQHeapUsed = process.memoryUsage().heapUsed
 
         if (rows.length > 0) {
-            // observe rough size of person record (including JSONB cols) fetched from DB
-            const estimatedBytes = postQHeapUsed - preQHeapUsed
-            fetchPersonPropsSize.observe(estimatedBytes)
-
-            // if larger than size threshold (start conservative, adjust as we observe)
-            // we should log the team and disinct_id associated with the properties
-            if (estimatedBytes >= EIGHT_MEGABYTE_PROPS_BLOB) {
-                logger.warn('⚠️', 'fetchPerson: large RawPerson record detected', {
-                    teamId: teamId,
-                    distinctId: distinctId,
-                    estimated_bytes: estimatedBytes,
-                })
-            }
-
             return this.toPerson(rows[0])
         }
     }

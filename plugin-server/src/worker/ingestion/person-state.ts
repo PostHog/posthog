@@ -1,7 +1,7 @@
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import LRU from 'lru-cache'
 import { DateTime } from 'luxon'
-import { Counter } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 
 import { ONE_HOUR } from '../../config/constants'
 import { TopicMessage } from '../../kafka/producer'
@@ -36,6 +36,15 @@ export const personPropertyKeyUpdateCounter = new Counter({
     name: 'person_property_key_update_total',
     help: 'Number of person updates triggered by this property value changing.',
     labelNames: ['key'],
+})
+
+// temporary: for fetchPerson properties JSONB size observation
+const FOUR_MEGABYTE_PROPS_BLOB = 4194304
+const personPropertiesSize = new Histogram({
+    name: 'person_properties_size',
+    help: 'histogram of compressed person JSONB bytes retrieved in fetchPerson calls',
+    // 1kb, 8kb, 64kb, 512kb, 1mb, 2mb, 4mb, 8mb, 16mb, 64mb
+    buckets: [1024, 8192, 65536, 524288, 1048576, 2097152, 4194304, 8388608, 16777216, 67108864],
 })
 
 // used to prevent identify from being used with generic IDs
@@ -118,8 +127,25 @@ export class PersonState {
         this.updateIsIdentified = false
     }
 
+    // note: this captures compressed sizes for JSONB blobs due to TOAST on DB
+    private async capturePersonPropertiesSizeEstimate() {
+        const estimatedBytes = await this.db.personPropertiesSize(this.team.id, this.distinctId)
+        personPropertiesSize.observe(estimatedBytes)
+
+        // if larger than size threshold (start conservative, adjust as we observe)
+        // we should log the team and disinct_id associated with the properties
+        if (estimatedBytes >= FOUR_MEGABYTE_PROPS_BLOB) {
+            logger.warn('⚠️', 'person-state.ts#update: record w/oversized person properties detected', {
+                teamId: this.team.id,
+                distinctId: this.distinctId,
+                estimated_bytes: estimatedBytes,
+            })
+        }
+    }
+
     async update(): Promise<[Person, Promise<void>]> {
         if (!this.processPerson) {
+            await this.capturePersonPropertiesSizeEstimate()
             let existingPerson = await this.db.fetchPerson(this.team.id, this.distinctId, { useReadReplica: true })
 
             if (!existingPerson) {
