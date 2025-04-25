@@ -1,5 +1,6 @@
 from datetime import datetime
 import re
+from typing import cast
 
 from ee.session_recordings.session_summary.utils import (
     get_column_index,
@@ -53,7 +54,7 @@ def _skip_event_without_context(
     """
     Avoid events that don't add meaningful context and confuse the LLM.
     """
-    event = event_row[indexes["event"]]
+    event = cast(str, event_row[indexes["event"]])
     elements_chain_texts = event_row[indexes["elements_chain_texts"]]
     elements_chain_elements = event_row[indexes["elements_chain_elements"]]
     elements_chain_href = event_row[indexes["elements_chain_href"]]
@@ -96,10 +97,10 @@ def add_context_and_filter_events(
     for event in session_events:
         chain = event[indexes["elements_chain"]]
         if not chain:
-            # If no chain - no additional context will come, so it's ok to check if to skip right away
-            if _skip_event_without_context(event, indexes):
-                continue
             updated_event = list(event)
+            # If no chain - no additional context will come, so it's ok to check if to skip right away
+            if _skip_event_without_context(updated_event, indexes):
+                continue
             updated_event.pop(indexes["elements_chain"])
             updated_events.append(tuple(updated_event))
             continue
