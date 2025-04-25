@@ -16,7 +16,7 @@ import { PubSub } from './pubsub'
  * don't need access to the pubsub redis
  */
 export class ServerCommands {
-    private messageMap: Record<string, (message: string) => Promise<void>> = {}
+    public readonly messageMap: Record<string, (message: string) => Promise<void>> = {}
     private pubsub: PubSub
 
     constructor(private hub: Hub) {
@@ -85,7 +85,7 @@ export class ServerCommands {
                 return
             }
 
-            await this.pubsub.publish(command, message)
+            await this.pubsub.publish(command, JSON.stringify(message))
 
             res.json({ success: true })
         }
