@@ -1471,7 +1471,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                     {/* Context menu for empty space, takes up remaining space */}
                     <div className="flex-1 w-full h-full absolute top-0 left-0">
                         <ContextMenu>
-                            <ContextMenuTrigger className="flex-1 w-full h-full bg-[blue]">
+                            <ContextMenuTrigger className="flex-1 w-full h-full">
                                 <div className="h-full w-full" />
                             </ContextMenuTrigger>
                             <ContextMenuContent>{emptySpaceContextMenu?.()}</ContextMenuContent>
