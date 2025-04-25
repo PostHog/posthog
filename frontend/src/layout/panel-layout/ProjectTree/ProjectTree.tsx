@@ -416,6 +416,7 @@ export function ProjectTree(): JSX.Element {
                     if (item.name !== name) {
                         rename(name, item.record as unknown as FileSystemEntry)
                     }
+                    // Clear the editing item id when the name changes
                     setEditingItemId('')
                 }}
                 expandedItemIds={searchTerm ? expandedSearchFolders : expandedFolders}
