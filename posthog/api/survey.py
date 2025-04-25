@@ -1153,9 +1153,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except (ValueError, TypeError):
             question_index = None
 
-        try:
-            question_id_param = request.query_params.get("question_id", None)
-        question_id = question_id_param if question_id_param else None
+        question_id = request.query_params.get("question_id", None)
 
         if question_index is None and question_id is None:
             raise exceptions.ValidationError("question_index or question_id is required")
