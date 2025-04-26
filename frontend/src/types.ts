@@ -28,6 +28,10 @@ import { Layout } from 'react-grid-layout'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'
 import { Holdout } from 'scenes/experiments/holdoutsLogic'
+import {
+    ConversionRateInputType,
+    EventConfig,
+} from 'scenes/experiments/RunningTimeCalculator/runningTimeCalculatorLogic'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 import { Params, Scene, SceneConfig } from 'scenes/sceneTypes'
@@ -3546,9 +3550,15 @@ export interface Experiment {
     saved_metrics_ids: { id: number; metadata: { type: 'primary' | 'secondary' } }[]
     saved_metrics: any[]
     parameters: {
+        /**
+         * This is the state of the Running Time Calculator modal, while
+         * minimum_detectable_effect, recommended_running_time, and recommended_sample_size
+         * are the results of the Running Time Calculator.
+         */
         exposure_estimate_config?: {
-            event: string
-            properties: AnyPropertyFilter[]
+            eventFilter: EventConfig | null
+            metric: ExperimentMetric | null
+            conversionRateInputType: ConversionRateInputType
         } | null
         minimum_detectable_effect?: number
         recommended_running_time?: number

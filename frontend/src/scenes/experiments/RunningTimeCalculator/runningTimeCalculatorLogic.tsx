@@ -167,9 +167,22 @@ export interface RunningTimeCalculatorLogicProps {
     experimentId?: Experiment['id']
 }
 
+export interface ExposureEstimateConfig {
+    /**
+     * This is the filter for the first step of the funnel for estimation purposes.
+     * It is not used for the funnel query. Instead, tipically we'll use a $feature_flag event.
+     */
+    eventFilter: EventConfig | null
+    metric: ExperimentMetric | null
+    conversionRateInputType: ConversionRateInputType
+}
+
+/** TODO: this is not a great name for this type, but we'll change it later. */
 export interface EventConfig {
     event: string
+    name: string
     properties: AnyPropertyFilter[]
+    entityType: TaxonomicFilterGroupType.Events | TaxonomicFilterGroupType.Actions
 }
 
 export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
@@ -188,12 +201,22 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
         }) => ({ value }),
         setConversionRateInputType: (value: string) => ({ value }),
         setManualConversionRate: (value: number) => ({ value }),
-        setExposureEstimateConfig: (value: EventConfig) => ({ value }),
+        setExposureEstimateConfig: (value: ExposureEstimateConfig) => ({ value }),
     }),
     defaults({
+        /**
+         * Default exposure estimate config for experiments that dont have this saved in the experiment parameters.
+         * We default to a funnel with a pageview as the first step.
+         */
         exposureEstimateConfig: {
-            event: '$pageview',
-            properties: [],
+            eventFilter: {
+                event: '$pageview',
+                name: '$pageview',
+                properties: [],
+                entityType: TaxonomicFilterGroupType.Events,
+            },
+            metric: null as ExperimentMetric | null,
+            conversionRateInputType: ConversionRateInputType.AUTOMATIC,
         },
     }),
     reducers({
@@ -203,19 +226,16 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                 setMetricIndex: (_, { value }) => value,
             },
         ],
-        eventOrAction: ['click' as string, { setEventOrAction: (_, { value }) => value }],
-        minimumDetectableEffect: [
-            DEFAULT_MDE as number,
-            {
-                setMinimumDetectableEffect: (_, { value }) => value,
-            },
-        ],
+        minimumDetectableEffect: [DEFAULT_MDE as number, { setMinimumDetectableEffect: (_, { value }) => value }],
         conversionRateInputType: [
             ConversionRateInputType.AUTOMATIC as string,
             { setConversionRateInputType: (_, { value }) => value },
         ],
         manualConversionRate: [2 as number, { setManualConversionRate: (_, { value }) => value }],
-        exposureEstimateConfig: [null as EventConfig | null, { setExposureEstimateConfig: (_, { value }) => value }],
+        exposureEstimateConfig: [
+            null as ExposureEstimateConfig | null,
+            { setExposureEstimateConfig: (_, { value }) => value },
+        ],
     }),
     loaders(({ values }) => ({
         metricResult: {
@@ -237,7 +257,7 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                         : metric.metric_type === ExperimentMetricType.MEAN &&
                           metric.source.math === ExperimentMetricMathType.Sum
                         ? getSumQuery(metric, values.experiment)
-                        : getFunnelQuery(metric, values.exposureEstimateConfig, values.experiment)
+                        : getFunnelQuery(metric, values.exposureEstimateConfig?.eventFilter ?? null, values.experiment)
 
                 const result = (await performQuery(query, undefined, 'force_blocking')) as Partial<TrendsQueryResponse>
 
