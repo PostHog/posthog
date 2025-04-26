@@ -564,7 +564,6 @@ export class DB {
         }
         const values = [teamId, distinctId]
 
-        // very rough estimate of heapUsed change before and after fetchPerson query
         const { rows } = await this.postgres.query<RawPerson>(
             options.useReadReplica ? PostgresUse.COMMON_READ : PostgresUse.COMMON_WRITE,
             queryString,
