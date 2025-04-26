@@ -499,10 +499,7 @@ export class DB {
         }
     }
 
-    // temporary: used to estimate large person properties JSONB blob sizes for measurement.
-    // NOTE - to avoid deserializing all TOAST objects on the DB size, we tolerate compressed
-    // sizes here. The result should still provide a good estimate of outliers we encounter
-    // if outlier size is contributing to the DB read I/O load we have observed w/fetchPerson
+    // temporary: measure person record JSONB blob sizes
     public async personPropertiesSize(teamId: number, distinctId: string): Promise<number> {
         const values = [teamId, distinctId]
         const queryString = `
