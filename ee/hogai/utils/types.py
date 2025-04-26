@@ -42,10 +42,8 @@ def add_and_merge_messages(
         message from `right` will replace the message from `left`.
     """
     # coerce to list
-    if not isinstance(left, list):
-        left = list(left)
-    if not isinstance(right, list):
-        right = list(right)
+    left = list(left)
+    right = list(right)
 
     # assign missing ids
     for m in left:

@@ -1237,6 +1237,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(len(messages_with_id), 1, "There should be exactly one message with the test ID")
         self.assertEqual(
             messages_with_id[0].content,
-            first_content,
-            "The merged message should have the content of the first message",
+            updated_content,
+            "The merged message should have the content of the last message",
         )
