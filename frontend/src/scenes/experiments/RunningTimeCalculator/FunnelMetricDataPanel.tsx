@@ -9,7 +9,11 @@ import { experimentLogic } from '../experimentLogic'
 import { UniqueUsersPanel } from './components'
 import { ConversionRateInputType, runningTimeCalculatorLogic } from './runningTimeCalculatorLogic'
 
-export const FunnelMetricDataPanel = (): JSX.Element => {
+export const FunnelMetricDataPanel = ({
+    onChangeType,
+}: {
+    onChangeType: (type: ConversionRateInputType) => void
+}): JSX.Element => {
     const { experimentId } = useValues(experimentLogic)
     const { conversionRateInputType, uniqueUsers, automaticConversionRateDecimal, manualConversionRate } = useValues(
         runningTimeCalculatorLogic({ experimentId })
@@ -57,6 +61,7 @@ export const FunnelMetricDataPanel = (): JSX.Element => {
                         ]}
                         onChange={(value) => {
                             setConversionRateInputType(value)
+                            onChangeType(value as ConversionRateInputType)
                         }}
                         value={conversionRateInputType}
                     />

@@ -81,10 +81,16 @@ export function RunningTimeCalculatorModal(): JSX.Element {
             />
             {exposureEstimateConfig && (
                 <MetricSelectorStep
-                    onChange={(metric) =>
+                    onChangeMetric={(metric) =>
                         setExposureEstimateConfig({
                             ...exposureEstimateConfig,
                             metric,
+                        })
+                    }
+                    onChangeFunnelConversionRateType={(type) =>
+                        setExposureEstimateConfig({
+                            ...exposureEstimateConfig,
+                            conversionRateInputType: type,
                         })
                     }
                 />
