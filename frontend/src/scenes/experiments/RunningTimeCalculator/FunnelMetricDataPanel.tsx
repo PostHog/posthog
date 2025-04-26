@@ -65,7 +65,7 @@ export const FunnelMetricDataPanel = (): JSX.Element => {
                             <LemonInput
                                 className="w-[80px] mt-2"
                                 min={0}
-                                step={0.01}
+                                step={1}
                                 max={100}
                                 type="number"
                                 value={manualConversionRate || undefined}
