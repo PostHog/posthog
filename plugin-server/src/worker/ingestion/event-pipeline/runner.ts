@@ -268,7 +268,7 @@ export class EventPipelineRunner {
 
         const [postPersonEvent, person, personKafkaAck] = await this.runStep(
             processPersonsStep,
-            [this, normalizedEvent, team, timestamp, processPerson, this.hub.PERSON_JSONB_SIZE_ESTIMATE_ENABLE],
+            [this, normalizedEvent, team, timestamp, processPerson],
             event.team_id
         )
         kafkaAcks.push(personKafkaAck)

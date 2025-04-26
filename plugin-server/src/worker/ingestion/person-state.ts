@@ -120,7 +120,7 @@ export class PersonState {
         private timestamp: DateTime,
         private processPerson: boolean, // $process_person_profile flag from the event
         private db: DB,
-        private measurePersonJsonbSize: number = 0 // value in [0, 1] controls enablement/rate of expensive measurement
+        private measurePersonJsonbSize: number
     ) {
         this.eventProperties = event.properties!
 

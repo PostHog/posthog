@@ -11,8 +11,7 @@ export async function processPersonsStep(
     event: PluginEvent,
     team: Team,
     timestamp: DateTime,
-    processPerson: boolean,
-    measurePersonJsonbSize: number = 0
+    processPerson: boolean
 ): Promise<[PluginEvent, Person, Promise<void>]> {
     const [person, kafkaAck] = await new PersonState(
         event,
@@ -21,7 +20,7 @@ export async function processPersonsStep(
         timestamp,
         processPerson,
         runner.hub.db,
-        measurePersonJsonbSize
+        runner.hub.PERSON_JSONB_SIZE_ESTIMATE_ENABLE
     ).update()
 
     return [event, person, kafkaAck]
