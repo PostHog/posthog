@@ -41,6 +41,10 @@ export const MetricSelectorStep = ({ onChange }: { onChange: (metric: Experiment
                     onChange={(value) => {
                         if (value !== null) {
                             setMetricIndex(value)
+                            /**
+                             * Instead of using the metric index, we should be using an unique id.
+                             * This could lead to issues if the metrics change after saving this value.
+                             */
                             onChange(experiment.metrics[value] as ExperimentMetric)
                         }
                     }}
