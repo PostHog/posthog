@@ -1,4 +1,5 @@
-import { actions, connect, defaults, kea, listeners, path, reducers, selectors } from 'kea'
+import equal from 'fast-deep-equal'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
@@ -203,38 +204,22 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
         setManualConversionRate: (value: number) => ({ value }),
         setExposureEstimateConfig: (value: ExposureEstimateConfig) => ({ value }),
     }),
-    defaults({
-        /**
-         * Default exposure estimate config for experiments that dont have this saved in the experiment parameters.
-         * We default to a funnel with a pageview as the first step.
-         */
-        exposureEstimateConfig: {
-            eventFilter: {
-                event: '$pageview',
-                name: '$pageview',
-                properties: [],
-                entityType: TaxonomicFilterGroupType.Events,
-            },
-            metric: null as ExperimentMetric | null,
-            conversionRateInputType: ConversionRateInputType.AUTOMATIC,
-        },
-    }),
     reducers({
-        metricIndex: [
-            null as number | null,
-            {
-                setMetricIndex: (_, { value }) => value,
-            },
-        ],
         minimumDetectableEffect: [DEFAULT_MDE as number, { setMinimumDetectableEffect: (_, { value }) => value }],
         conversionRateInputType: [
             ConversionRateInputType.AUTOMATIC as string,
             { setConversionRateInputType: (_, { value }) => value },
         ],
         manualConversionRate: [2 as number, { setManualConversionRate: (_, { value }) => value }],
-        exposureEstimateConfig: [
+        _exposureEstimateConfig: [
             null as ExposureEstimateConfig | null,
             { setExposureEstimateConfig: (_, { value }) => value },
+        ],
+        _metricIndex: [
+            null as number | null,
+            {
+                setMetricIndex: (_, { value }) => value,
+            },
         ],
     }),
     loaders(({ values }) => ({
@@ -301,6 +286,54 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
         },
     })),
     selectors({
+        defaultMetricIndex: [
+            (s) => [s.experiment, s.exposureEstimateConfig],
+            (experiment: Experiment, exposureEstimateConfig: ExposureEstimateConfig | null): number | null => {
+                if (!experiment?.metrics || !exposureEstimateConfig?.metric) {
+                    return null
+                }
+
+                const metricIndex = experiment.metrics.findIndex((m) => equal(m, exposureEstimateConfig.metric))
+                return metricIndex >= 0 ? metricIndex : null
+            },
+        ],
+        metricIndex: [
+            (s) => [s._metricIndex, s.defaultMetricIndex],
+            (metricIndex: number | null, defaultMetricIndex: number | null): number | null => {
+                // If metricIndex was manually set, use that
+                // Otherwise use the default from exposureEstimateConfig if available
+                return metricIndex ?? defaultMetricIndex
+            },
+        ],
+        exposureEstimateConfig: [
+            (s) => [s._exposureEstimateConfig, s.experiment],
+            (
+                localExposureEstimateConfig: ExposureEstimateConfig | null,
+                experiment: Experiment
+            ): ExposureEstimateConfig | null => {
+                // If we have a "local" state, use that
+                if (localExposureEstimateConfig) {
+                    return localExposureEstimateConfig
+                }
+
+                // If we don't have a "local" state, use the exposure estimate config saved in the experiment parameters
+                if (experiment.parameters.exposure_estimate_config) {
+                    return experiment.parameters.exposure_estimate_config
+                }
+
+                // Otherwise, use the default exposure estimate config
+                return {
+                    eventFilter: {
+                        event: '$pageview',
+                        name: '$pageview',
+                        properties: [],
+                        entityType: TaxonomicFilterGroupType.Events,
+                    },
+                    metric: null as ExperimentMetric | null,
+                    conversionRateInputType: ConversionRateInputType.AUTOMATIC,
+                }
+            },
+        ],
         metric: [
             (s) => [s.metricIndex, s.experiment],
             (metricIndex: number, experiment: Experiment) => experiment.metrics[metricIndex],
