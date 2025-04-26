@@ -129,6 +129,7 @@ export type SettingId =
     | 'web-revenue-events'
     | 'core-memory'
     | 'customization-irl'
+    | 'web-analytics-pre-aggregated-tables'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 

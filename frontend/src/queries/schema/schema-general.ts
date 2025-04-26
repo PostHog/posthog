@@ -296,6 +296,7 @@ export interface HogQLQueryModifiers {
     useMaterializedViews?: boolean
     customChannelTypeRules?: CustomChannelRule[]
     usePresortedEventsTable?: boolean
+    useWebAnalyticsPreAggregatedTables?: boolean
 }
 
 export interface DataWarehouseEventsModifier {
