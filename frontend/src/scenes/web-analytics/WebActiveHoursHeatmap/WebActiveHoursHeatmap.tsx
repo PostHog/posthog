@@ -9,7 +9,7 @@ import {
     HeatMapRowAggregationResult,
     HeatMapStructuredResult,
 } from '~/queries/schema/schema-general'
-import { WebActiveHoursHeatMapQuery } from '~/queries/schema/schema-general'
+import { HeatMapQuery } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
 import { EventsHeatMap } from '../EventsHeatMap/EventsHeatMap'
@@ -25,7 +25,7 @@ import {
 } from './utils'
 
 interface WebActiveHoursHeatmapProps {
-    query: WebActiveHoursHeatMapQuery
+    query: HeatMapQuery
     context: QueryContext
     cachedResults?: AnyResponseType
 }

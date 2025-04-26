@@ -105,7 +105,7 @@ export enum NodeKind {
     WebVitalsQuery = 'WebVitalsQuery',
     WebVitalsPathBreakdownQuery = 'WebVitalsPathBreakdownQuery',
     WebPageURLSearchQuery = 'WebPageURLSearchQuery',
-    WebActiveHoursHeatMapQuery = 'WebActiveHoursHeatMapQuery',
+    HeatMapQuery = 'HeatMapQuery',
 
     // Revenue analytics queries
     RevenueAnalyticsOverviewQuery = 'RevenueAnalyticsOverviewQuery',
@@ -166,7 +166,7 @@ export type AnyDataNode =
     | RecordingsQuery
     | TracesQuery
     | VectorSearchQuery
-    | WebActiveHoursHeatMapQuery
+    | HeatMapQuery
 
 /**
  * @discriminator kind
@@ -204,7 +204,7 @@ export type QuerySchema =
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
     | WebPageURLSearchQuery
-    | WebActiveHoursHeatMapQuery
+    | HeatMapQuery
 
     // Revenue analytics
     | RevenueAnalyticsOverviewQuery
@@ -707,7 +707,7 @@ export interface DataTableNode
                     | WebGoalsQuery
                     | WebVitalsQuery
                     | WebVitalsPathBreakdownQuery
-                    | WebActiveHoursHeatMapQuery
+                    | HeatMapQuery
                     | SessionAttributionExplorerQuery
                     | RevenueAnalyticsOverviewQuery
                     | RevenueAnalyticsGrowthRateQuery
@@ -737,7 +737,7 @@ export interface DataTableNode
         | WebGoalsQuery
         | WebVitalsQuery
         | WebVitalsPathBreakdownQuery
-        | WebActiveHoursHeatMapQuery
+        | HeatMapQuery
         | SessionAttributionExplorerQuery
         | RevenueAnalyticsOverviewQuery
         | RevenueAnalyticsGrowthRateQuery
@@ -2918,8 +2918,11 @@ export interface WebPageURLSearchQueryResponse extends AnalyticsQueryResponseBas
 
 export type CachedWebPageURLSearchQueryResponse = CachedQueryResponse<WebPageURLSearchQueryResponse>
 
-export interface WebActiveHoursHeatMapQuery extends WebAnalyticsQueryBase<HeatMapQueryResponse> {
-    kind: NodeKind.WebActiveHoursHeatMapQuery
+export type HeatMapQuerySource = EventsNode
+
+export interface HeatMapQuery extends WebAnalyticsQueryBase<HeatMapQueryResponse> {
+    kind: NodeKind.HeatMapQuery
+    source: HeatMapQuerySource
 }
 
 export interface HeatMapQueryResponse extends AnalyticsQueryResponseBase<HeatMapStructuredResult> {

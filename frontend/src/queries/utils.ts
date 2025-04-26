@@ -18,6 +18,7 @@ import {
     FunnelsQuery,
     GoalLine,
     GroupsQuery,
+    HeatMapQuery,
     HogQLASTQuery,
     HogQLMetadata,
     HogQLQuery,
@@ -49,7 +50,6 @@ import {
     TracesQuery,
     TrendsFormulaNode,
     TrendsQuery,
-    WebActiveHoursHeatMapQuery,
     WebGoalsQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
@@ -213,8 +213,8 @@ export function isErrorTrackingQuery(node?: Record<string, any> | null): node is
     return node?.kind === NodeKind.ErrorTrackingQuery
 }
 
-export function isWebActiveHoursHeatMapQuery(node?: Record<string, any> | null): node is WebActiveHoursHeatMapQuery {
-    return node?.kind === NodeKind.WebActiveHoursHeatMapQuery
+export function isHeatMapQuery(node?: Record<string, any> | null): node is HeatMapQuery {
+    return node?.kind === NodeKind.HeatMapQuery
 }
 
 export function containsHogQLQuery(node?: Record<string, any> | null): boolean {

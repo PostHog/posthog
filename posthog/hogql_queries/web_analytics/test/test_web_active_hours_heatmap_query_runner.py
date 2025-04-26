@@ -2,7 +2,7 @@ from typing import Optional, Union
 
 from freezegun import freeze_time
 
-from posthog.hogql_queries.web_analytics.web_active_hours_heatmap_query_runner import WebActiveHoursHeatMapQueryRunner
+from posthog.hogql_queries.web_analytics.web_active_hours_heatmap_query_runner import HeatMapQueryRunner
 from posthog.models.utils import uuid7
 from posthog.schema import (
     DateRange,
@@ -10,7 +10,8 @@ from posthog.schema import (
     HogQLQueryModifiers,
     WebAnalyticsOrderByDirection,
     WebAnalyticsOrderByFields,
-    WebActiveHoursHeatMapQuery,
+    HeatMapQuery,
+    EventsNode,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -58,13 +59,14 @@ class TestWebActiveHoursHeatMapQueryRunner(ClickhouseTestMixin, APIBaseTest):
         order_by: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None,
     ):
         modifiers = HogQLQueryModifiers(sessionTableVersion=session_table_version)
-        query = WebActiveHoursHeatMapQuery(
+        query = HeatMapQuery(
             dateRange=DateRange(date_from=date_from, date_to=date_to),
             properties=properties or [],
             filterTestAccounts=filter_test_accounts,
             orderBy=order_by,
+            source=EventsNode(kind="EventsNode"),
         )
-        runner = WebActiveHoursHeatMapQueryRunner(team=self.team, query=query, modifiers=modifiers)
+        runner = HeatMapQueryRunner(team=self.team, query=query, modifiers=modifiers)
         return runner.calculate()
 
     def test_empty_results_when_no_data(self):

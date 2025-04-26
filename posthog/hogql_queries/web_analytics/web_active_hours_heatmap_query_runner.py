@@ -12,12 +12,12 @@ from posthog.schema import (
     HeatMapRowAggregationResult,
     HeatMapColumnAggregationResult,
     HeatMapStructuredResult,
-    WebActiveHoursHeatMapQuery,
+    HeatMapQuery,
 )
 
 
-class WebActiveHoursHeatMapQueryRunner(WebAnalyticsQueryRunner):
-    query: WebActiveHoursHeatMapQuery
+class HeatMapQueryRunner(WebAnalyticsQueryRunner):
+    query: HeatMapQuery
     response: HeatMapQueryResponse
     cached_response: CachedHeatMapQueryResponse
 
