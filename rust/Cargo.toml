@@ -27,6 +27,7 @@ members = [
     "common/hogvm",
     "log-capture",
     "links",
+    "property_filter",
 ]
 
 [workspace.lints.rust]
@@ -119,6 +120,10 @@ clickhouse = { version = "0.13.2", features = [
     "inserter",
     "rustls-tls",
 ] }
+qp-trie = "0.8.2"
+prost = "0.13.5"
+prost-derive = "0.13.5"
+prost-types = "0.13.5"
 
 # Used for decrypting django encrypted fields
 fernet = "0.2"
