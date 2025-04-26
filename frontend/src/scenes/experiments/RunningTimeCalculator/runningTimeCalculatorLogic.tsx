@@ -206,10 +206,6 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
     }),
     reducers({
         minimumDetectableEffect: [DEFAULT_MDE as number, { setMinimumDetectableEffect: (_, { value }) => value }],
-        conversionRateInputType: [
-            ConversionRateInputType.AUTOMATIC as string,
-            { setConversionRateInputType: (_, { value }) => value },
-        ],
         manualConversionRate: [2 as number, { setManualConversionRate: (_, { value }) => value }],
         _exposureEstimateConfig: [
             null as ExposureEstimateConfig | null,
@@ -220,6 +216,10 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
             {
                 setMetricIndex: (_, { value }) => value,
             },
+        ],
+        _conversionRateInputType: [
+            ConversionRateInputType.AUTOMATIC as string,
+            { setConversionRateInputType: (_, { value }) => value },
         ],
     }),
     loaders(({ values }) => ({
@@ -332,6 +332,20 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                     metric: null as ExperimentMetric | null,
                     conversionRateInputType: ConversionRateInputType.AUTOMATIC,
                 }
+            },
+        ],
+        conversionRateInputType: [
+            (s) => [s._conversionRateInputType, s.exposureEstimateConfig],
+            (conversionRateInputType: string, exposureEstimateConfig: ExposureEstimateConfig | null): string => {
+                if (!conversionRateInputType) {
+                    return conversionRateInputType
+                }
+
+                if (exposureEstimateConfig) {
+                    return exposureEstimateConfig.conversionRateInputType
+                }
+
+                return ConversionRateInputType.AUTOMATIC
             },
         ],
         metric: [
