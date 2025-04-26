@@ -12,7 +12,7 @@ use crate::{
 };
 use axum::{
     extract::State,
-    http::{header::CONTENT_TYPE, header::ORIGIN, header::USER_AGENT, HeaderMap},
+    http::{header::CONTENT_TYPE, header::ORIGIN, header::USER_AGENT, HeaderMap, Method},
 };
 use base64::{engine::general_purpose, Engine as _};
 use bytes::Bytes;
@@ -75,9 +75,11 @@ pub struct FlagsQueryParams {
     /// Optional personal API key.
     pub personal_api_key: Option<String>,
 }
-pub struct RequestContext {
-    /// Shared state holding services (DB, Redis, GeoIP, etc.)
-    pub state: State<router::State>,
+
+/// Represents information about the request.
+pub struct RequestInfo {
+    /// Request ID
+    pub id: Uuid,
 
     /// Client IP
     pub ip: IpAddr,
@@ -91,8 +93,17 @@ pub struct RequestContext {
     /// Raw request body
     pub body: Bytes,
 
-    /// Request ID
-    pub request_id: Uuid,
+    /// HTTP method
+    pub method: Method,
+}
+
+/// Provides the context for processing a request.
+pub struct RequestContext {
+    /// Shared state holding services (DB, Redis, GeoIP, etc.)
+    pub state: State<router::State>,
+
+    /// Information about the request
+    pub request: RequestInfo,
 }
 
 /// Represents the various property overrides that can be passed around
@@ -129,7 +140,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
             flags: HashMap::new(),
             errors_while_computing_flags: false,
             quota_limited: Some(vec![ServiceName::FeatureFlags.as_string()]),
-            request_id: context.request_id,
+            request_id: context.request.id,
         });
     }
 
@@ -161,7 +172,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
         group_prop_overrides,
         groups,
         hash_key_override,
-        context.request_id,
+        context.request.id,
     )
     .await;
 
@@ -173,14 +184,9 @@ async fn parse_and_authenticate_request(
     context: &RequestContext,
     flag_service: &FlagService,
 ) -> Result<(String, String, FlagRequest), FlagError> {
-    let RequestContext {
-        headers,
-        body,
-        meta,
-        ..
-    } = context;
+    let RequestContext { request, .. } = context;
 
-    let request = decode_request(headers, body.clone(), meta)?;
+    let request = decode_request(&request.headers, request.body.clone(), &request.meta)?;
     let distinct_id = request.extract_distinct_id()?;
     let token = request.extract_token()?;
     let verified_token = flag_service.verify_token(&token).await?;
@@ -218,7 +224,7 @@ fn prepare_property_overrides(
     let person_property_overrides = get_person_property_overrides(
         geoip_enabled,
         request.person_properties.clone(),
-        &context.ip,
+        &context.request.ip,
         &context.state.geoip,
     );
 
@@ -528,17 +534,20 @@ async fn handle_cookieless_distinct_id(
     distinct_id: String,
 ) -> Result<String, FlagError> {
     let event_data = EventData {
-        ip: &context.ip.to_string(),
+        ip: &context.request.ip.to_string(),
         timestamp_ms: context
+            .request
             .meta
             .sent_at
             .unwrap_or_else(|| chrono::Utc::now().timestamp_millis()) as u64,
         host: context
+            .request
             .headers
             .get(ORIGIN)
             .map(|h| h.to_str().unwrap_or(""))
             .unwrap_or(""),
         user_agent: context
+            .request
             .headers
             .get(USER_AGENT)
             .map(|h| h.to_str().unwrap_or(""))

@@ -2,8 +2,8 @@ use crate::{
     api::{
         errors::FlagDefinitionsError,
         flag_definition_types::FlagDefinitionsResponse,
-        request_handler::{FlagsQueryParams, RequestContext},
         flag_definitions_request_handler::process_flags_definitions_request,
+        request_handler::{FlagsQueryParams, RequestContext, RequestInfo},
     },
     router,
 };
@@ -25,18 +25,21 @@ pub async fn flag_definitions(
     Query(query_params): Query<FlagsQueryParams>,
     headers: HeaderMap,
     method: Method,
-    path: MatchedPath,
+    _: MatchedPath,
     body: Bytes,
 ) -> Result<Json<FlagDefinitionsResponse>, FlagDefinitionsError> {
     let request_id = Uuid::new_v4();
 
     let context = RequestContext {
-        request_id,
+        request: RequestInfo {
+            id: request_id,
+            ip,
+            headers: headers.clone(),
+            meta: query_params.clone(),
+            body: body.clone(),
+            method,
+        },
         state,
-        ip,
-        headers: headers.clone(),
-        meta: query_params.clone(),
-        body: Bytes::new(),
     };
 
     let response = process_flags_definitions_request(context).await?;

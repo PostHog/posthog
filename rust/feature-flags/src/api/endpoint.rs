@@ -1,6 +1,6 @@
 use crate::{
     api::errors::FlagError,
-    api::request_handler::{process_request, FlagsQueryParams, RequestContext},
+    api::request_handler::{process_request, FlagsQueryParams, RequestContext, RequestInfo},
     api::types::{FlagsOptionsResponse, FlagsResponseCode, LegacyFlagsResponse, ServiceResponse},
     router,
 };
@@ -27,15 +27,19 @@ pub async fn flags(
     let request_id = Uuid::new_v4();
 
     let context = RequestContext {
-        request_id,
+        request: RequestInfo {
+            id: request_id,
+            ip,
+            headers: headers.clone(),
+            body,
+            meta: query_params.clone(),
+            method,
+        },
         state,
-        ip,
-        headers: headers.clone(),
-        meta: query_params.clone(),
-        body,
     };
 
     let version = context
+        .request
         .meta
         .version
         .clone()
@@ -46,15 +50,7 @@ pub async fn flags(
     // so that the span is closed before the await (otherwise it will
     // be closed when the function returns, which won't compile)
     {
-        let _span = create_request_span(
-            &headers,
-            &query_params,
-            &method,
-            &path,
-            &ip.to_string(),
-            request_id,
-        )
-        .entered();
+        let _span = create_request_span(&context.request, &path).entered();
     }
 
     let response = process_request(context).await?;
@@ -75,22 +71,18 @@ pub async fn options() -> Result<Json<FlagsOptionsResponse>, FlagError> {
     }))
 }
 
-fn create_request_span(
-    headers: &HeaderMap,
-    query_params: &FlagsQueryParams,
-    method: &Method,
-    path: &MatchedPath,
-    ip: &str,
-    request_id: Uuid,
-) -> tracing::Span {
-    let user_agent = headers
+fn create_request_span(request: &RequestInfo, path: &MatchedPath) -> tracing::Span {
+    let user_agent = request
+        .headers
         .get("user-agent")
         .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
-    let content_encoding = query_params
+    let content_encoding = request
+        .meta
         .compression
         .as_ref()
         .map_or("none", |c| c.as_str());
-    let content_type = headers
+    let content_type = request
+        .headers
         .get("content-type")
         .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
 
@@ -99,14 +91,14 @@ fn create_request_span(
         user_agent = %user_agent,
         content_encoding = %content_encoding,
         content_type = %content_type,
-        version = %query_params.version.as_deref().unwrap_or("unknown"),
-        lib_version = %query_params.lib_version.as_deref().unwrap_or("unknown"),
-        compression = %query_params.compression.as_ref().map_or("none", |c| c.as_str()),
-        method = %method.as_str(),
+        version = %request.meta.version.as_deref().unwrap_or("unknown"),
+        lib_version = %request.meta.lib_version.as_deref().unwrap_or("unknown"),
+        compression = %request.meta.compression.as_ref().map_or("none", |c| c.as_str()),
+        method = %request.method.as_str(),
         path = %path.as_str().trim_end_matches('/'),
-        ip = %ip,
-        sent_at = %query_params.sent_at.unwrap_or(0).to_string(),
-        request_id = %request_id
+        ip = %request.ip,
+        sent_at = %request.meta.sent_at.unwrap_or(0).to_string(),
+        request_id = %request.id
     )
 }
 

@@ -1,3 +1,4 @@
+pub mod auth;
 pub mod endpoint;
 pub mod errors;
 pub mod flag_definition_types;
