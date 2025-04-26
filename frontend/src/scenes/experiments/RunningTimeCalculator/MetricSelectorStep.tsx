@@ -10,7 +10,7 @@ import { MeanMetricDataPanel } from './MeanMetricDataPanel'
 import { runningTimeCalculatorLogic } from './runningTimeCalculatorLogic'
 import { RunningTimeCalculatorModalStep } from './RunningTimeCalculatorModalStep'
 
-export const MetricSelectorStep = (): JSX.Element => {
+export const MetricSelectorStep = ({ onChange }: { onChange: (metric: ExperimentMetric) => void }): JSX.Element => {
     const { experimentId } = useValues(experimentLogic)
 
     const { experiment, metric, metricIndex, metricResultLoading } = useValues(
@@ -41,6 +41,7 @@ export const MetricSelectorStep = (): JSX.Element => {
                     onChange={(value) => {
                         if (value !== null) {
                             setMetricIndex(value)
+                            onChange(experiment.metrics[value] as ExperimentMetric)
                         }
                     }}
                 />
