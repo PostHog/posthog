@@ -1,10 +1,13 @@
 from django.core.management.base import BaseCommand, CommandError
 from posthog.redis import get_client
 import random
+import logging
+import argparse
 
 from structlog import get_logger
 
 logger = get_logger(__name__)
+logger.setLevel(logging.INFO)
 
 
 class Command(BaseCommand):
@@ -13,7 +16,8 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument(
             "--dry-run",
-            action="store_true",
+            action=argparse.BooleanOptionalAction,
+            default=True,
             help="Only report how many keys would be updated, without modifying Redis.",
         )
         parser.add_argument(
@@ -97,6 +101,10 @@ class Command(BaseCommand):
         return checked, updated
 
     def handle(self, *args, **options):
+        logger.info(
+            f"Starting scan fix_stale_group_cache",
+        )
+
         min_ttl_days = options["min_ttl_days"]
         max_ttl_days = options["max_ttl_days"]
         if min_ttl_days > max_ttl_days:
