@@ -1,3 +1,4 @@
+use crate::api::auth::hash_key_value;
 use crate::{
     client::database::{get_pool, Client, CustomDatabaseError},
     cohorts::cohort_models::{Cohort, CohortId},
@@ -9,6 +10,7 @@ use crate::{
 };
 use anyhow::Error;
 use axum::async_trait;
+use chrono::Utc;
 use common_redis::{Client as RedisClientTrait, RedisClient};
 use common_types::{PersonId, TeamId};
 use rand::{distributions::Alphanumeric, Rng};
@@ -541,4 +543,115 @@ pub fn create_test_flag(
         ensure_experience_continuity: ensure_experience_continuity.unwrap_or(false),
         version: Some(1),
     }
+}
+
+pub async fn insert_personal_api_key_for_user(
+    client: Arc<dyn Client + Send + Sync>,
+    user_id: i32,
+    key_plaintext: &str,
+) -> Result<(), anyhow::Error> {
+    let secure_value = hash_key_value(key_plaintext, "sha256", None).unwrap();
+    let mask_value = format!(
+        "{}...{}",
+        &key_plaintext[..4],
+        &key_plaintext[key_plaintext.len() - 4..]
+    );
+    let id = random_string("pk_", 24);
+    let mut conn = client.get_connection().await?;
+    let scopes = vec!["feature_flag:read".to_string()];
+    let scoped_teams = vec![];
+    let scoped_organizations = vec![];
+    sqlx::query(
+        r#"
+        INSERT INTO posthog_personalapikey (
+            id,
+            user_id,
+            label,
+            mask_value,
+            secure_value,
+            created_at,
+            last_used_at,
+            scopes,
+            scoped_teams,
+            scoped_organizations
+        ) VALUES (
+            $1, $2, $3, $4, $5, NOW(), NOW(), $6, $7, $8
+        )
+        "#,
+    )
+    .bind(id)
+    .bind(user_id)
+    .bind("test label")
+    .bind(mask_value)
+    .bind(secure_value)
+    .bind::<Vec<String>>(scopes)
+    .bind::<Vec<i32>>(scoped_teams)
+    .bind::<Vec<Uuid>>(scoped_organizations)
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
+}
+
+pub struct InsertedUser {
+    pub id: i32,
+    pub uuid: uuid::Uuid,
+    pub email: String,
+}
+
+pub async fn insert_user_for_team_in_pg(
+    client: Arc<dyn Client + Send + Sync>,
+    team_id: i32,
+) -> Result<InsertedUser, anyhow::Error> {
+    let uuid = Uuid::new_v4();
+    let email = format!(
+        "user_{}@test.com",
+        rand::thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(8)
+            .map(char::from)
+            .collect::<String>()
+    );
+    let now = Utc::now();
+    let password = "pbkdf2_sha256$260000$dummy$dummyhash"; // dummy, not used in tests
+
+    let mut conn = client.get_connection().await?;
+    let row = sqlx::query(
+        r#"
+        INSERT INTO posthog_user (
+            password,
+            last_login,
+            first_name,
+            last_name,
+            is_staff,
+            is_active,
+            date_joined,
+            uuid,
+            email,
+            current_team_id,
+            events_column_config
+        ) VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
+        )
+        RETURNING id, uuid, email
+        "#,
+    )
+    .bind(password)
+    .bind(now)
+    .bind("Test")
+    .bind("User")
+    .bind(false)
+    .bind(true)
+    .bind(now)
+    .bind(uuid)
+    .bind(&email)
+    .bind(team_id)
+    .bind(serde_json::json!({}))
+    .fetch_one(&mut *conn)
+    .await?;
+
+    Ok(InsertedUser {
+        id: row.get("id"),
+        uuid: row.get("uuid"),
+        email: row.get("email"),
+    })
 }

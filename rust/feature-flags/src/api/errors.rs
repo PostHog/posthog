@@ -1,3 +1,4 @@
+use crate::api::auth::AuthError;
 use crate::client::database::CustomDatabaseError;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
@@ -17,18 +18,6 @@ pub enum ClientFacingError {
     BillingLimit,
     #[error("Service unavailable")]
     ServiceUnavailable,
-}
-
-#[derive(Error, Debug)]
-pub enum FlagDefinitionsError {
-    #[error("No personal_api_key in request")]
-    NoPersonalApiKeyError,
-    #[error("Personal api key is not valid")]
-    PersonalApiKeyValidationError,
-    #[error("failed to decode request: {0}")]
-    RequestDecodingError(String),
-    #[error("failed to parse request: {0}")]
-    RequestParsingError(#[from] serde_json::Error),
 }
 
 #[derive(Error, Debug)]
@@ -83,25 +72,31 @@ pub enum FlagError {
     CookielessError(#[from] CookielessManagerError),
 }
 
-impl IntoResponse for FlagDefinitionsError {
+impl IntoResponse for AuthError {
     fn into_response(self) -> Response {
         match self {
-            FlagDefinitionsError::NoPersonalApiKeyError => (
+            AuthError::NoPersonalApiKey => (
                 StatusCode::UNAUTHORIZED,
                 "No personal API key provided".to_string(),
             ),
-            FlagDefinitionsError::PersonalApiKeyValidationError => (
+            AuthError::InvalidPersonalApiKey => (
                 StatusCode::UNAUTHORIZED,
                 "Invalid personal API key".to_string(),
             ),
-            FlagDefinitionsError::RequestDecodingError(msg) => (
-                StatusCode::BAD_REQUEST,
-                format!("Failed to decode request: {}", msg),
+            AuthError::InvalidKey(msg) => {
+                (StatusCode::BAD_REQUEST, format!("Invalid key: {}", msg))
+            }
+            AuthError::Internal(msg) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Internal server error: {}", msg),
             ),
-            FlagDefinitionsError::RequestParsingError(err) => (
+            AuthError::RequestDecodingError(msg) => (
                 StatusCode::BAD_REQUEST,
-                format!("Failed to parse request: {}", err),
+                format!("Request decoding error: {}", msg),
             ),
+            AuthError::InvalidScopes(msg) => {
+                (StatusCode::FORBIDDEN, format!("Invalid scopes: {}", msg))
+            }
         }
         .into_response()
     }

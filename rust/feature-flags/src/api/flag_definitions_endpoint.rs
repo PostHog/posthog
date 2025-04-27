@@ -1,6 +1,6 @@
 use crate::{
     api::{
-        errors::FlagDefinitionsError,
+        auth::AuthError,
         flag_definition_types::FlagDefinitionsResponse,
         flag_definitions_request_handler::process_flags_definitions_request,
         request_handler::{FlagsQueryParams, RequestContext, RequestInfo},
@@ -27,7 +27,7 @@ pub async fn flag_definitions(
     method: Method,
     _: MatchedPath,
     body: Bytes,
-) -> Result<Json<FlagDefinitionsResponse>, FlagDefinitionsError> {
+) -> Result<Json<FlagDefinitionsResponse>, AuthError> {
     let request_id = Uuid::new_v4();
 
     let context = RequestContext {
@@ -42,7 +42,7 @@ pub async fn flag_definitions(
         state,
     };
 
-    let response = process_flags_definitions_request(context).await?;
+    let response = process_flags_definitions_request(&context).await?;
 
     // TODO: Implement the actual flag definitions logic
     Ok(Json(response))
