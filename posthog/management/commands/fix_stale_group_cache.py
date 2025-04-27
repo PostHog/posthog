@@ -113,10 +113,8 @@ class Command(BaseCommand):
         self._redis_client = get_client()
 
         idle_threshold_days = options["idle_threshold_days"]
-        min_ttl_days = options["min_ttl_days"]
-        max_ttl_days = options["max_ttl_days"]
-
         self._idle_threshold_seconds = idle_threshold_days * 24 * 3600
+
         self._ttl_min_seconds = min_ttl_days * 24 * 3600
         self._ttl_max_seconds = max_ttl_days * 24 * 3600
 
