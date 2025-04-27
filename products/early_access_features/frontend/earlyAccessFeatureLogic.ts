@@ -173,7 +173,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
         ],
         projectTreeRef: [
             () => [(_, props: EarlyAccessFeatureLogicProps) => props.id],
-            (id): ProjectTreeRef => ({ type: 'early_access_feature', ref: String(id) }),
+            (id): ProjectTreeRef => ({ type: 'early_access_feature', ref: id === 'new' ? null : String(id) }),
         ],
         optedInCount: [
             (s) => [s.personsCount],

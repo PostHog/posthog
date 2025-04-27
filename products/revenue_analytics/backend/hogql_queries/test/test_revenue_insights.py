@@ -99,11 +99,6 @@ class TestRevenueAnalyticsInsights(ClickhouseTestMixin, APIBaseTest):
 
         return TrendsQueryRunner(team=self.team, query=query)
 
-    def setUp(self):
-        super().setUp()
-        self.team.revenue_tracking_config = {"baseCurrency": "USD"}
-        self.team.save()
-
     def test_events_revenue_currency_property(self):
         # Storing as USD here
         self._create_events(

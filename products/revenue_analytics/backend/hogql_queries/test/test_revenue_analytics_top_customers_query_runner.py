@@ -12,6 +12,7 @@ from products.revenue_analytics.backend.models import (
     STRIPE_DATA_WAREHOUSE_CUSTOMER_IDENTIFIER,
 )
 from posthog.schema import (
+    CurrencyCode,
     DateRange,
     RevenueSources,
     RevenueAnalyticsTopCustomersQuery,
@@ -29,7 +30,7 @@ from posthog.warehouse.models import ExternalDataSchema
 
 from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
 from products.revenue_analytics.backend.hogql_queries.test.data.structure import (
-    REVENUE_TRACKING_CONFIG_WITH_EVENTS,
+    REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT,
     STRIPE_CHARGE_COLUMNS,
     STRIPE_CUSTOMER_COLUMNS,
 )
@@ -118,8 +119,9 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
             last_synced_at="2024-01-01",
         )
 
-        self.team.revenue_tracking_config = REVENUE_TRACKING_CONFIG_WITH_EVENTS.model_dump()
-        self.team.save()
+        self.team.revenue_analytics_config.base_currency = CurrencyCode.GBP.value
+        self.team.revenue_analytics_config.events = [REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT]
+        self.team.revenue_analytics_config.save()
 
     def tearDown(self):
         self.cleanUpChargesFilesystem()
