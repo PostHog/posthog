@@ -17,7 +17,7 @@ export const MeanMetricDataPanel = (): JSX.Element => {
 
     return (
         <div className="grid grid-cols-3 gap-4">
-            <UniqueUsersPanel uniqueUsers={uniqueUsers} />
+            <UniqueUsersPanel uniqueUsers={uniqueUsers ?? 0} />
             <AverageEventsPerUserPanel averageEventsPerUser={averageEventsPerUser} />
             <AveragePropertyValuePerUserPanel averagePropertyValuePerUser={averagePropertyValuePerUser} />
             <StandardDeviationPanel standardDeviation={standardDeviation} />
