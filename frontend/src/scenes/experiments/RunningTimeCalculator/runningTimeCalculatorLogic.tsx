@@ -207,7 +207,7 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
         setMinimumDetectableEffect: (value: number) => ({ value }),
     }),
     reducers({
-        minimumDetectableEffect: [DEFAULT_MDE as number, { setMinimumDetectableEffect: (_, { value }) => value }],
+        _minimumDetectableEffect: [DEFAULT_MDE as number, { setMinimumDetectableEffect: (_, { value }) => value }],
         _exposureEstimateConfig: [
             null as ExposureEstimateConfig | null,
             { setExposureEstimateConfig: (_, { value }) => value },
@@ -408,6 +408,11 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
 
                 return exposureEstimateConfig?.uniqueUsers ?? null
             },
+        ],
+        minimumDetectableEffect: [
+            (s) => [s._minimumDetectableEffect, s.experiment],
+            (minimumDetectableEffect: number, experiment: Experiment) =>
+                experiment?.parameters?.minimum_detectable_effect ?? minimumDetectableEffect,
         ],
         averageEventsPerUser: [
             (s) => [s.metricResult],
