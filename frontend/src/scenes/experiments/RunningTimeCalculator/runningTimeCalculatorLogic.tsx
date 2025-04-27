@@ -177,6 +177,7 @@ export interface ExposureEstimateConfig {
     metric: ExperimentMetric | null
     conversionRateInputType: ConversionRateInputType
     manualConversionRate: number | null
+    uniqueUsers: number | null
 }
 
 /** TODO: this is not a great name for this type, but we'll change it later. */
@@ -294,9 +295,30 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                     eventFilter: null,
                     metric: null,
                     conversionRateInputType: ConversionRateInputType.MANUAL,
+                    uniqueUsers: null,
                 }),
                 manualConversionRate: values._manualConversionRate,
             })
+        },
+        loadMetricResultSuccess: () => {
+            /**
+             * We listen for changes in the metric results.
+             * If the unique users have changed, we update the exposure estimate config.
+             * Otherwise, this could cause an infinite loop, because changing the exposure estimate config
+             * could trigger a change in the metric result.
+             */
+            const uniqueUsers = values.metricResult?.uniqueUsers
+            if (uniqueUsers !== values.exposureEstimateConfig?.uniqueUsers) {
+                actions.setExposureEstimateConfig({
+                    ...(values.exposureEstimateConfig ?? {
+                        eventFilter: null,
+                        metric: null,
+                        conversionRateInputType: ConversionRateInputType.AUTOMATIC,
+                        manualConversionRate: null,
+                    }),
+                    uniqueUsers,
+                })
+            }
         },
     })),
     selectors({
@@ -346,6 +368,7 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                     metric: null as ExperimentMetric | null,
                     conversionRateInputType: ConversionRateInputType.AUTOMATIC,
                     manualConversionRate: 2,
+                    uniqueUsers: null,
                 }
             },
         ],
@@ -377,8 +400,14 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
             (metricIndex: number, experiment: Experiment) => experiment.metrics[metricIndex],
         ],
         uniqueUsers: [
-            (s) => [s.metricResult],
-            (metricResult: { uniqueUsers: number }) => metricResult?.uniqueUsers ?? null,
+            (s) => [s.metricResult, s.exposureEstimateConfig],
+            (metricResult: { uniqueUsers: number }, exposureEstimateConfig: ExposureEstimateConfig | null) => {
+                if (metricResult && metricResult.uniqueUsers !== null) {
+                    return metricResult.uniqueUsers
+                }
+
+                return exposureEstimateConfig?.uniqueUsers ?? null
+            },
         ],
         averageEventsPerUser: [
             (s) => [s.metricResult],
@@ -428,7 +457,7 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                 s.averageEventsPerUser,
                 s.averagePropertyValuePerUser,
                 s.automaticConversionRateDecimal,
-                s.manualConversionRate,
+                s._manualConversionRate,
                 s.conversionRateInputType,
                 s.numberOfVariants,
             ],

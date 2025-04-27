@@ -66,6 +66,7 @@ export function RunningTimeCalculatorModal(): JSX.Element {
                             metric: null,
                             conversionRateInputType: ConversionRateInputType.AUTOMATIC,
                             manualConversionRate: null,
+                            uniqueUsers: null,
                         }),
 
                         eventFilter: {

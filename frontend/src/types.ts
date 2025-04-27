@@ -3560,6 +3560,7 @@ export interface Experiment {
             metric: ExperimentMetric | null
             conversionRateInputType: ConversionRateInputType
             manualConversionRate: number | null
+            uniqueUsers: number | null
         } | null
         minimum_detectable_effect?: number
         recommended_running_time?: number
