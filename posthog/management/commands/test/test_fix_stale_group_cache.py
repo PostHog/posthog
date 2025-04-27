@@ -43,6 +43,9 @@ def fake_redis():
         def expire(self, key, ttl):
             self.expired[key] = ttl
 
+        def connection_pool(self):
+            return "connection_pool"
+
     return FakeRedis()
 
 
