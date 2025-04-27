@@ -188,6 +188,19 @@ export interface EventConfig {
     entityType: TaxonomicFilterGroupType.Events | TaxonomicFilterGroupType.Actions
 }
 
+const defaultExposureEstimateConfig: ExposureEstimateConfig = {
+    eventFilter: {
+        event: '$pageview',
+        name: '$pageview',
+        properties: [],
+        entityType: TaxonomicFilterGroupType.Events,
+    },
+    metric: null as ExperimentMetric | null,
+    conversionRateInputType: ConversionRateInputType.AUTOMATIC,
+    manualConversionRate: 2,
+    uniqueUsers: null,
+}
+
 export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
     path(['scenes', 'experiments', 'RunningTimeCalculator', 'runningTimeCalculatorLogic']),
     connect(({ experimentId }: RunningTimeCalculatorLogicProps) => ({
@@ -353,23 +366,16 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                 }
 
                 // If we don't have a "local" state, use the exposure estimate config saved in the experiment parameters
+                // In case of not having all of the fields, we use the default exposure estimate config
                 if (experiment.parameters.exposure_estimate_config) {
-                    return experiment.parameters.exposure_estimate_config
+                    return {
+                        ...defaultExposureEstimateConfig,
+                        ...experiment.parameters.exposure_estimate_config,
+                    }
                 }
 
                 // Otherwise, use the default exposure estimate config
-                return {
-                    eventFilter: {
-                        event: '$pageview',
-                        name: '$pageview',
-                        properties: [],
-                        entityType: TaxonomicFilterGroupType.Events,
-                    },
-                    metric: null as ExperimentMetric | null,
-                    conversionRateInputType: ConversionRateInputType.AUTOMATIC,
-                    manualConversionRate: 2,
-                    uniqueUsers: null,
-                }
+                return defaultExposureEstimateConfig
             },
         ],
         conversionRateInputType: [
