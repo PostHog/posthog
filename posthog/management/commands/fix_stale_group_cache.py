@@ -111,6 +111,7 @@ class Command(BaseCommand):
             raise CommandError("--min-ttl-days cannot be greater than --max-ttl-days")
 
         self._redis_client = get_client()
+        logger.info("Redis connection info", connection=str(self._redis_client.connection_pool))
 
         idle_threshold_days = options["idle_threshold_days"]
         self._idle_threshold_seconds = idle_threshold_days * 24 * 3600
@@ -136,13 +137,18 @@ class Command(BaseCommand):
             max_ttl_days=max_ttl_days,
         )
 
+        checked = 0
+        updated = 0
+
         while True:
             # SCAN does NOT affect key idle time.
             cursor, keys = self._redis_client.scan(cursor=cursor, match="group_data_cache_v2*", count=page_size)
 
             results = self._gather_keys_with_no_ttl(keys)
 
-            (checked, updated) = self._expire_idle_keys(results)
+            (page_checked, page_updated) = self._expire_idle_keys(results)
+            checked += page_checked
+            updated += page_updated
 
             iteration += 1
             if cursor == 0 or iteration >= max_iterations:
