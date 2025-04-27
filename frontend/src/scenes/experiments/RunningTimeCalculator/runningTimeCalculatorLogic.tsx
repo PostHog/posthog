@@ -171,7 +171,7 @@ export interface RunningTimeCalculatorLogicProps {
 export interface ExposureEstimateConfig {
     /**
      * This is the filter for the first step of the funnel for estimation purposes.
-     * It is not used for the funnel query. Instead, tipically we'll use a $feature_flag event.
+     * It is not used for the funnel query. Instead, typically we'll use a $feature_flag event.
      */
     eventFilter: EventConfig | null
     metric: ExperimentMetric | null
