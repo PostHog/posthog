@@ -176,6 +176,7 @@ export interface ExposureEstimateConfig {
     eventFilter: EventConfig | null
     metric: ExperimentMetric | null
     conversionRateInputType: ConversionRateInputType
+    manualConversionRate: number | null
 }
 
 /** TODO: this is not a great name for this type, but we'll change it later. */
@@ -192,7 +193,6 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
         values: [experimentLogic({ experimentId }), ['experiment']],
     })),
     actions({
-        setMinimumDetectableEffect: (value: number) => ({ value }),
         setMetricIndex: (value: number) => ({ value }),
         setMetricResult: (value: {
             uniqueUsers: number
@@ -203,10 +203,10 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
         setConversionRateInputType: (value: string) => ({ value }),
         setManualConversionRate: (value: number) => ({ value }),
         setExposureEstimateConfig: (value: ExposureEstimateConfig) => ({ value }),
+        setMinimumDetectableEffect: (value: number) => ({ value }),
     }),
     reducers({
         minimumDetectableEffect: [DEFAULT_MDE as number, { setMinimumDetectableEffect: (_, { value }) => value }],
-        manualConversionRate: [2 as number, { setManualConversionRate: (_, { value }) => value }],
         _exposureEstimateConfig: [
             null as ExposureEstimateConfig | null,
             { setExposureEstimateConfig: (_, { value }) => value },
@@ -221,6 +221,7 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
             ConversionRateInputType.AUTOMATIC as string,
             { setConversionRateInputType: (_, { value }) => value },
         ],
+        _manualConversionRate: [2 as number, { setManualConversionRate: (_, { value }) => value }],
     }),
     loaders(({ values }) => ({
         metricResult: {
@@ -277,12 +278,25 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
             setMetricResult: ({ value }) => value,
         },
     })),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         setMetricIndex: () => {
             actions.loadMetricResult()
         },
         setExposureEstimateConfig: () => {
             actions.loadMetricResult()
+        },
+        setManualConversionRate: () => {
+            /**
+             * We listen for changes in the manual conversion rate and update the exposure estimate config
+             */
+            actions.setExposureEstimateConfig({
+                ...(values.exposureEstimateConfig ?? {
+                    eventFilter: null,
+                    metric: null,
+                    conversionRateInputType: ConversionRateInputType.MANUAL,
+                }),
+                manualConversionRate: values._manualConversionRate,
+            })
         },
     })),
     selectors({
@@ -331,6 +345,7 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                     },
                     metric: null as ExperimentMetric | null,
                     conversionRateInputType: ConversionRateInputType.AUTOMATIC,
+                    manualConversionRate: 2,
                 }
             },
         ],
@@ -346,6 +361,15 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                 }
 
                 return ConversionRateInputType.AUTOMATIC
+            },
+        ],
+        manualConversionRate: [
+            (s) => [s._manualConversionRate, s.exposureEstimateConfig],
+            (manualConversionRate: number, exposureEstimateConfig: ExposureEstimateConfig | null): number | null => {
+                if (exposureEstimateConfig?.conversionRateInputType === ConversionRateInputType.MANUAL) {
+                    return exposureEstimateConfig.manualConversionRate
+                }
+                return manualConversionRate
             },
         ],
         metric: [

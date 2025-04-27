@@ -65,6 +65,7 @@ export function RunningTimeCalculatorModal(): JSX.Element {
                         ...(exposureEstimateConfig ?? {
                             metric: null,
                             conversionRateInputType: ConversionRateInputType.AUTOMATIC,
+                            manualConversionRate: null,
                         }),
 
                         eventFilter: {

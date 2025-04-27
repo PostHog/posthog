@@ -3559,6 +3559,7 @@ export interface Experiment {
             eventFilter: EventConfig | null
             metric: ExperimentMetric | null
             conversionRateInputType: ConversionRateInputType
+            manualConversionRate: number | null
         } | null
         minimum_detectable_effect?: number
         recommended_running_time?: number
