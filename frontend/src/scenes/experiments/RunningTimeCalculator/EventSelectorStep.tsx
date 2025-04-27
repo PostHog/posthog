@@ -24,7 +24,7 @@ const exposureEstimateConfigToFilter = ({ eventFilter }: ExposureEstimateConfig)
             eventFilter.entityType === TaxonomicFilterGroupType.Actions
                 ? [
                       {
-                          id: parseInt(eventFilter.event || '0', 10),
+                          id: eventFilter.event ? Number(eventFilter.event) : 0,
                           kind: NodeKind.ActionsNode,
                           type: 'actions',
                           name: eventFilter.name || '',
