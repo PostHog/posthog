@@ -111,6 +111,7 @@ class Command(BaseCommand):
             raise CommandError("--min-ttl-days cannot be greater than --max-ttl-days")
 
         self._redis_client = get_client()
+        logger.info("Redis connection info", connection=str(self._redis_client.connection_pool))
 
         idle_threshold_days = options["idle_threshold_days"]
         self._idle_threshold_seconds = idle_threshold_days * 24 * 3600
