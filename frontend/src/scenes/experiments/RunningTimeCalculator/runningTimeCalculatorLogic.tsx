@@ -457,12 +457,12 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
         recommendedSampleSize: [
             (s) => [
                 s.metric,
-                s._minimumDetectableEffect,
+                s.minimumDetectableEffect,
                 s.variance,
                 s.averageEventsPerUser,
                 s.averagePropertyValuePerUser,
                 s.automaticConversionRateDecimal,
-                s._manualConversionRate,
+                s.manualConversionRate,
                 s.conversionRateInputType,
                 s.numberOfVariants,
             ],
