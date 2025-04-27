@@ -1116,15 +1116,26 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             actions.queueAction({ type: item.type === 'folder' ? 'prepare-delete' : 'delete', item, path: item.path })
         },
         addFolder: ({ folder }) => {
-            if (values.viableItems.find((item) => item.path === folder && item.type === 'folder')) {
-                return
+            // Like Mac, we don't allow duplicate folder names
+            // So we need to increment the folder name until we find a unique one
+            let folderName = folder
+            let counter = 2
+            while (values.viableItems.find((item) => item.path === folderName && item.type === 'folder')) {
+                folderName = `${folder} ${counter}`
+                counter++
             }
+
             actions.queueAction({
                 type: 'create',
-                item: { id: `project/${folder}`, path: folder, type: 'folder' },
-                path: folder,
-                newPath: folder,
+                item: { id: `project/${folderName}`, path: folderName, type: 'folder' },
+                path: folderName,
+                newPath: folderName,
             })
+
+            // Always set the editing item ID after a short delay to ensure the folder is in the DOM
+            setTimeout(() => {
+                actions.setEditingItemId(`project-folder/${folderName}`)
+            }, 50)
         },
         toggleFolderOpen: ({ folderId }) => {
             if (values.searchTerm) {
@@ -1162,13 +1173,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             }
         },
         createFolder: ({ parentPath }) => {
-            const promptMessage = parentPath ? `Create a folder under "${parentPath}":` : 'Create a new folder:'
-            const folder = prompt(promptMessage, '')
-            if (folder) {
-                const parentSplits = parentPath ? splitPath(parentPath) : []
-                const newPath = joinPath([...parentSplits, folder])
-                actions.addFolder(newPath)
-            }
+            const parentSplits = parentPath ? splitPath(parentPath) : []
+            const newPath = joinPath([...parentSplits, 'Untitled folder'])
+            actions.addFolder(newPath)
         },
         setSearchTerm: ({ searchTerm }) => {
             actions.loadSearchResults(searchTerm)

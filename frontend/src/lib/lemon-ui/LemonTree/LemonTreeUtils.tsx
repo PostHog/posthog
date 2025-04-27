@@ -307,7 +307,11 @@ export const InlineEditField = ({
     return (
         <form
             onSubmit={onSubmit}
-            className={cn(buttonVariants({ menuItem: true, size: 'base', sideActionLeft: true }), className)}
+            className={cn(
+                buttonVariants({ menuItem: true, size: 'base', sideActionLeft: true }),
+                className,
+                'bg-fill-button-tertiary-active'
+            )}
         >
             {/* Spacer to offset button padding */}
             <div
