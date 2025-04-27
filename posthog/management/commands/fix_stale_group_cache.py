@@ -136,13 +136,18 @@ class Command(BaseCommand):
             max_ttl_days=max_ttl_days,
         )
 
+        checked = 0
+        updated = 0
+
         while True:
             # SCAN does NOT affect key idle time.
             cursor, keys = self._redis_client.scan(cursor=cursor, match="group_data_cache_v2*", count=page_size)
 
             results = self._gather_keys_with_no_ttl(keys)
 
-            (checked, updated) = self._expire_idle_keys(results)
+            (page_checked, page_updated) = self._expire_idle_keys(results)
+            checked += page_checked
+            updated += page_updated
 
             iteration += 1
             if cursor == 0 or iteration >= max_iterations:
