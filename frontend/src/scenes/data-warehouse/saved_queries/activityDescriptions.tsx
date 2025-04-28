@@ -10,7 +10,7 @@ export function dataWarehouseSavedQueryActivityDescriber(
     logItem: ActivityLogItem,
     asNotification?: boolean
 ): HumanizedChange {
-    if (logItem.scope != 'DataWarehouseSavedQuery') {
+    if (logItem.scope !== 'DataWarehouseSavedQuery') {
         console.error('data warehouse saved query describer received a non-data warehouse saved query activity')
         return { description: null }
     }
