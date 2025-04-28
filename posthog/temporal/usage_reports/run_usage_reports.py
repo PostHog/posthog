@@ -56,12 +56,13 @@ async def query_usage_reports(
 ) -> None:
     async with Heartbeater():
         import posthoganalytics
+        from sentry_sdk import capture_message
 
         are_usage_reports_disabled = posthoganalytics.feature_enabled(
             "disable-usage-reports", "internal_billing_events"
         )
         if are_usage_reports_disabled:
-            print(f"Usage reports are disabled for {inputs.at}")  # noqa: T201
+            capture_message(f"Usage reports are disabled for {inputs.at}")
             return None
 
         at_date = parser.parse(inputs.at) if inputs.at else None

@@ -1,3 +1,4 @@
+import * as Sentry from '@sentry/node'
 import { EachBatchPayload, KafkaMessage } from 'kafkajs'
 import { QueryResult } from 'pg'
 import { Counter } from 'prom-client'
@@ -17,6 +18,9 @@ import { HookCommander } from '../../../worker/ingestion/hooks'
 import { runInstrumentedFunction } from '../../utils'
 import { eventDroppedCounter, latestOffsetTimestampGauge } from '../metrics'
 import { ingestEventBatchingBatchCountSummary, ingestEventBatchingInputLengthSummary } from './metrics'
+
+// Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
+require('@sentry/tracing')
 
 export const silentFailuresAsyncHandlers = new Counter({
     name: 'async_handlers_silent_failure',
@@ -91,6 +95,8 @@ export async function eachBatchHandlerHelper(
     const loggingKey = `each_batch_${key}`
     const { batch, resolveOffset, heartbeat, commitOffsetsIfNecessary, isRunning, isStale }: EachBatchPayload = payload
 
+    const transaction = Sentry.startTransaction({ name: `eachBatch${stats_key}` })
+
     try {
         const batchesWithOffsets = groupIntoBatchesByUsage(batch.messages, concurrency, shouldProcess)
 
@@ -98,6 +104,8 @@ export async function eachBatchHandlerHelper(
         ingestEventBatchingBatchCountSummary.observe(batchesWithOffsets.length)
 
         for (const { eventBatch, lastOffset, lastTimestamp } of batchesWithOffsets) {
+            const batchSpan = transaction.startChild({ op: 'messageBatch', data: { batchLength: eventBatch.length } })
+
             if (!isRunning() || isStale()) {
                 logger.info('🚪', `Bailing out of a batch of ${batch.messages.length} events (${loggingKey})`, {
                     isRunning: isRunning(),
@@ -122,6 +130,8 @@ export async function eachBatchHandlerHelper(
                 .set(Number.parseInt(lastTimestamp))
 
             await heartbeat()
+
+            batchSpan.finish()
         }
 
         logger.debug(

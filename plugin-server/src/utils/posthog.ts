@@ -1,3 +1,4 @@
+import { captureException as captureSentryException, captureMessage as captureSentryMessage } from '@sentry/node'
 import { PostHog } from 'posthog-node'
 import { SeverityLevel } from 'posthog-node/src/extensions/error-tracking/types'
 
@@ -57,7 +58,15 @@ interface ExceptionHint {
     extra: Record<string, any>
 }
 
-export function captureException(exception: any, hint?: Partial<ExceptionHint>): void {
+export function captureException(exception: any, hint?: Partial<ExceptionHint>): string {
+    //If the passed "exception" is a string, capture it as a message, otherwise, capture it as an exception
+    let sentryId: string
+    if (typeof exception === 'string') {
+        sentryId = captureSentryMessage(exception, hint)
+    } else {
+        sentryId = captureSentryException(exception, hint)
+    }
+
     if (posthog) {
         let additionalProperties = {}
         if (hint) {
@@ -69,4 +78,6 @@ export function captureException(exception: any, hint?: Partial<ExceptionHint>):
         }
         posthog.captureException(exception, undefined, additionalProperties)
     }
+
+    return sentryId
 }

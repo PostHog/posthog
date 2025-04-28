@@ -42,6 +42,7 @@ from django.utils import timezone
 from django.utils.cache import patch_cache_control
 from rest_framework import serializers
 from rest_framework.request import Request
+from sentry_sdk import configure_scope
 
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
@@ -351,6 +352,10 @@ def render_template(
     context["self_capture"] = settings.SELF_CAPTURE
     context["region"] = get_instance_region()
 
+    if sentry_dsn := os.environ.get("SENTRY_DSN"):
+        context["sentry_dsn"] = sentry_dsn
+    if sentry_environment := os.environ.get("SENTRY_ENVIRONMENT"):
+        context["sentry_environment"] = sentry_environment
     if stripe_public_key := os.environ.get("STRIPE_PUBLIC_KEY"):
         context["stripe_public_key"] = stripe_public_key
 
@@ -774,22 +779,23 @@ def load_data_from_request(request):
         if data:
             KLUDGES_COUNTER.labels(kludge="data_in_get_param").inc()
 
+    # add the data in sentry's scope in case there's an exception
+    with configure_scope() as scope:
+        if isinstance(data, dict):
+            scope.set_context("data", data)
+        scope.set_tag(
+            "origin",
+            request.headers.get("origin", request.headers.get("remote_host", "unknown")),
+        )
+        scope.set_tag("referer", request.headers.get("referer", "unknown"))
+        # since version 1.20.0 posthog-js adds its version to the `ver` query parameter as a debug signal here
+        scope.set_tag("library.version", request.GET.get("ver", "unknown"))
+
     compression = (
         request.GET.get("compression") or request.POST.get("compression") or request.headers.get("content-encoding", "")
     ).lower()
 
-    try:
-        return decompress(data, compression)
-    except Exception as e:
-        # TODO: raise a new type of Exception with properties that the exceptions_capture.py will parse
-        e.properties = {
-            "origin": request.headers.get("origin", request.headers.get("remote_host", "unknown")),
-            "referer": request.headers.get("referer", "unknown"),
-            # since version 1.20.0 posthog-js adds its version to the `ver` query parameter as a debug signal here
-            "library.version": request.GET.get("ver", "unknown"),
-        }
-
-        raise
+    return decompress(data, compression)
 
 
 class SingletonDecorator:

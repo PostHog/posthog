@@ -2,6 +2,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
+from sentry_sdk import set_tag
 from posthog.exceptions_capture import capture_exception
 
 from .filter_to_query import filter_to_query
@@ -19,7 +20,8 @@ def conversion_to_query_based(insight: "Insight") -> Iterator[None]:
         try:
             insight.query = filter_to_query(insight.filters).model_dump()
         except Exception as e:
-            capture_exception(e, properties={"filter_to_query_todo": True})
+            set_tag("filter_to_query_todo", True)
+            capture_exception(e)
             raise
 
         try:

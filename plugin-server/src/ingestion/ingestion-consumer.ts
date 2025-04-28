@@ -3,7 +3,7 @@ import { Counter } from 'prom-client'
 import { z } from 'zod'
 
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
-import { KafkaConsumer } from '../kafka/batch-consumer-v2'
+import { KafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { ingestionOverflowingMessagesTotal } from '../main/ingestion-queues/batch-processing/metrics'
 import {
@@ -28,6 +28,8 @@ import { retryIfRetriable } from '../utils/retries'
 import { UUIDT } from '../utils/utils'
 import { EventPipelineResult, EventPipelineRunner } from '../worker/ingestion/event-pipeline/runner'
 import { MemoryRateLimiter } from './utils/overflow-detector'
+// Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
+require('@sentry/tracing')
 
 const ingestionEventOverflowed = new Counter({
     name: 'ingestion_event_overflowed',
@@ -421,14 +423,15 @@ export class IngestionConsumer {
         // NOTE: there is behavior to push to a DLQ at the moment within EventPipelineRunner. This
         // doesn't work so well with e.g. messages that when sent to the DLQ is it's self too large.
         // Here we explicitly do _not_ add any additional metadata to the message. We might want to add
-        // some metadata to the message e.g. in the header or reference e.g. the event id.
+        // some metadata to the message e.g. in the header or reference e.g. the sentry event id.
         //
         // TODO: properly abstract out this `isRetriable` error logic. This is currently relying on the
         // fact that node-rdkafka adheres to the `isRetriable` interface.
 
         if (error?.isRetriable === false) {
-            captureException(error)
+            const sentryEventId = captureException(error)
             const headers: MessageHeader[] = message.headers ?? []
+            headers.push({ ['sentry-event-id']: sentryEventId })
             headers.push({ ['event-id']: event.uuid })
             try {
                 await this.kafkaProducer!.produce({

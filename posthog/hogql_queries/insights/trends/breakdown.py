@@ -1,6 +1,7 @@
 import json
 from typing import Union, cast
 
+import sentry_sdk
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
@@ -63,6 +64,9 @@ class Breakdown:
         self.timings = timings
         self.modifiers = modifiers
         self.limit_context = limit_context
+
+        if self.enabled:
+            sentry_sdk.set_tag("breakdown_enabled", True)
 
     @property
     def enabled(self) -> bool:

@@ -328,7 +328,7 @@ export class EventPipelineRunner {
         sentToDql = true
     ): Promise<ReturnType<Step>> {
         const timer = new Date()
-        const sendException = false
+        const sendToSentry = false
         const timeout = timeoutGuard(
             `Event pipeline step stalled. Timeout warning after ${this.hub.PIPELINE_STEP_STALLED_LOG_TIMEOUT} sec! step=${step.name} team_id=${teamId} distinct_id=${this.originalEvent.distinct_id}`,
             () => ({
@@ -338,7 +338,7 @@ export class EventPipelineRunner {
                 distinctId: this.originalEvent.distinct_id,
             }),
             this.hub.PIPELINE_STEP_STALLED_LOG_TIMEOUT * 1000,
-            sendException
+            sendToSentry
         )
         try {
             const result = await step(...args)

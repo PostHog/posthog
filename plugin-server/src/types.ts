@@ -21,7 +21,6 @@ import { z } from 'zod'
 import { EncryptedFields } from './cdp/encryption-utils'
 import { LegacyOneventCompareService } from './cdp/services/legacy-onevent-compare.service'
 import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
-import { BatchConsumer } from './kafka/batch-consumer'
 import { KafkaProducerWrapper } from './kafka/producer'
 import { Celery } from './utils/db/celery'
 import { DB } from './utils/db/db'
@@ -91,7 +90,6 @@ export type PluginServerService = {
     id: string
     onShutdown: () => Promise<any>
     healthcheck: () => boolean | Promise<boolean>
-    batchConsumer?: BatchConsumer
 }
 
 export type CdpConfig = {
@@ -212,6 +210,9 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     PLUGINS_RELOAD_PUBSUB_CHANNEL: string // Redis channel for reload events'
     PLUGINS_DEFAULT_LOG_LEVEL: PluginLogLevel
     LOG_LEVEL: LogLevel
+    SENTRY_DSN: string | null
+    SENTRY_PLUGIN_SERVER_TRACING_SAMPLE_RATE: number // Rate of tracing in plugin server (between 0 and 1)
+    SENTRY_PLUGIN_SERVER_PROFILING_SAMPLE_RATE: number // Rate of profiling in plugin server (between 0 and 1)
     HTTP_SERVER_PORT: number
     SCHEDULE_LOCK_TTL: number // how many seconds to hold the lock for the schedule
     DISABLE_MMDB: boolean // whether to disable fetching MaxMind database for IP location
@@ -289,22 +290,10 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     SESSION_RECORDING_OVERFLOW_BUCKET_CAPACITY: number
     SESSION_RECORDING_OVERFLOW_BUCKET_REPLENISH_RATE: number
     SESSION_RECORDING_OVERFLOW_MIN_PER_BATCH: number
-
-    // Dedicated infra values
-    SESSION_RECORDING_KAFKA_HOSTS: string | undefined
-    SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL: KafkaSecurityProtocol | undefined
-    SESSION_RECORDING_KAFKA_BATCH_SIZE: number
-    SESSION_RECORDING_KAFKA_QUEUE_SIZE: number
-    SESSION_RECORDING_KAFKA_QUEUE_SIZE_KB: number | undefined
-    SESSION_RECORDING_KAFKA_DEBUG: string | undefined
     SESSION_RECORDING_MAX_PARALLEL_FLUSHES: number
-    SESSION_RECORDING_KAFKA_FETCH_MIN_BYTES: number
 
     POSTHOG_SESSION_RECORDING_REDIS_HOST: string | undefined
     POSTHOG_SESSION_RECORDING_REDIS_PORT: number | undefined
-
-    // kafka debug stats interval
-    SESSION_RECORDING_KAFKA_CONSUMPTION_STATISTICS_EVENT_INTERVAL_MS: number
 
     ENCRYPTION_SALT_KEYS: string
 

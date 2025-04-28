@@ -13,6 +13,7 @@
     },
     "peerDependencies": {
         "@posthog/rrweb-types": "*",
+        "@sentry/react": "*",
         "posthog-js": "*",
         "ajv": "*",
         "classnames": "*",
