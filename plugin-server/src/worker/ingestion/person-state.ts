@@ -44,8 +44,8 @@ const personPropertiesSize = new Histogram({
     name: 'person_properties_size',
     help: 'histogram of compressed person JSONB bytes retrieved in fetchPerson calls',
     labelNames: ['at'],
-    // 1kb, 8kb, 64kb, 512kb, 1mb, 2mb, 4mb, 8mb, 16mb, 64mb
-    buckets: [1024, 8192, 65536, 524288, 1048576, 2097152, 4194304, 8388608, 16777216, 67108864],
+    // 1kb, 8kb, 64kb, 512kb, 1mb, 2mb, 4mb, 8mb, 16mb, 64mb, inf+
+    buckets: [1024, 8192, 65536, 524288, 1048576, 2097152, 4194304, 8388608, 16777216, 67108864, Infinity],
 })
 
 // used to prevent identify from being used with generic IDs
