@@ -3,7 +3,6 @@ import os
 from unittest.mock import ANY, patch
 from inline_snapshot import snapshot
 from rest_framework import status
-from typing import Any
 
 from posthog.api.hog_function_template import HogFunctionTemplates
 from posthog.cdp.templates.hog_function_template import derive_sub_templates
@@ -167,21 +166,6 @@ class TestDatabaseHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMa
         # Create test templates in the database
         self.template1, _ = DBHogFunctionTemplate.create_from_dataclass(template)
 
-        # Set up sub_templates properly for reference
-        sub_templates_json = []
-        if template.sub_templates:
-            for st in template.sub_templates:
-                # Explicitly annotate dict with correct types
-                sub_template_dict: dict[str, Any] = {
-                    "id": st.id,
-                    "name": st.name,
-                    "description": st.description,
-                    "type": st.type,
-                }
-                if hasattr(st, "filters") and st.filters:
-                    sub_template_dict["filters"] = st.filters
-                sub_templates_json.append(sub_template_dict)
-
         # Create a different template type
         self.webhook_template = DBHogFunctionTemplate.objects.create(
             template_id="template-webhook",
@@ -339,3 +323,36 @@ class TestDatabaseHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMa
             # Get the specific template via API - should 404 since it only exists in DB
             response_missing = self.client.get("/api/projects/@current/hog_function_templates/unique-db-template")
             assert response_missing.status_code == status.HTTP_404_NOT_FOUND
+
+    @patch("posthog.api.hog_function_template.settings")
+    def test_db_team_gets_db_template_and_inmemory_subtemplate(self, mock_settings):
+        """For allowed teams, template comes from DB, sub_template comes from in-memory"""
+        mock_settings.USE_DB_TEMPLATES_FOR_TEAMS = [self.team.id]
+
+        # Create a unique template in the DB
+        DBHogFunctionTemplate.objects.create(
+            template_id="unique-db-template",
+            sha="1.0.0",
+            name="Unique DB Template",
+            description="This template only exists in the database",
+            hog="return event",
+            inputs_schema={},
+            type="destination",
+            status="stable",
+            category=["Testing"],
+            free=True,
+        )
+
+        # Should get the DB template
+        response = self.client.get("/api/projects/@current/hog_function_templates/unique-db-template")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["name"] == "Unique DB Template"
+
+        # Should get the in-memory sub_template (not from DB)
+        response_sub = self.client.get(
+            "/api/projects/@current/hog_function_templates/?type=internal_destination&sub_template_id=activity-log"
+        )
+        assert response_sub.status_code == status.HTTP_200_OK, response_sub.json()
+        assert len(response_sub.json()["results"]) > 0
+        template = response_sub.json()["results"][0]
+        assert template["id"] == "template-slack-activity-log"

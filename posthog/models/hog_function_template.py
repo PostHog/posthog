@@ -11,7 +11,6 @@ from posthog.cdp.templates.hog_function_template import (
     HogFunctionTemplate as HogFunctionTemplateDTO,
     HogFunctionMapping,
     HogFunctionMappingTemplate,
-    HogFunctionSubTemplate,
 )
 
 logger = structlog.get_logger(__name__)
@@ -53,7 +52,6 @@ class HogFunctionTemplate(UUIDModel):
     masking = models.JSONField(blank=True, null=True)
 
     # Template Relationships
-    sub_templates = models.JSONField(blank=True, null=True)
     mappings = models.JSONField(blank=True, null=True)
     mapping_templates = models.JSONField(blank=True, null=True)
 
@@ -168,12 +166,6 @@ class HogFunctionTemplate(UUIDModel):
             for mapping_dict in self.mappings:
                 mappings_list.append(HogFunctionMapping(**mapping_dict))
 
-        # Convert sub_templates from JSON to dataclasses if they exist
-        sub_templates_list: list[HogFunctionSubTemplate] = []
-        if self.sub_templates:
-            for sub_template_dict in self.sub_templates:
-                sub_templates_list.append(HogFunctionSubTemplate(**sub_template_dict))
-
         # Convert mapping_templates from JSON to dataclasses if they exist
         mapping_templates_list: list[HogFunctionMappingTemplate] = []
         if self.mapping_templates:
@@ -195,7 +187,6 @@ class HogFunctionTemplate(UUIDModel):
             filters=self.filters,
             masking=self.masking,
             icon_url=self.icon_url,
-            sub_templates=sub_templates_list if sub_templates_list else None,
             mappings=mappings_list if mappings_list else None,
             mapping_templates=mapping_templates_list if mapping_templates_list else None,
         )
@@ -250,9 +241,6 @@ class HogFunctionTemplate(UUIDModel):
             "mapping_templates": [dataclasses.asdict(mt) for mt in dataclass_template.mapping_templates]
             if dataclass_template.mapping_templates
             else None,
-            "sub_templates": [dataclasses.asdict(st) for st in dataclass_template.sub_templates]
-            if dataclass_template.sub_templates
-            else None,
             "filters": dataclass_template.filters,
         }
         content_for_hash = json.dumps(template_dict, sort_keys=True)
@@ -262,10 +250,6 @@ class HogFunctionTemplate(UUIDModel):
         mappings = None
         if dataclass_template.mappings:
             mappings = [dataclasses.asdict(mapping) for mapping in dataclass_template.mappings]
-
-        sub_templates = None
-        if dataclass_template.sub_templates:
-            sub_templates = [dataclasses.asdict(template) for template in dataclass_template.sub_templates]
 
         mapping_templates = None
         if dataclass_template.mapping_templates:
@@ -308,7 +292,6 @@ class HogFunctionTemplate(UUIDModel):
                 "icon_url": dataclass_template.icon_url,
                 "filters": dataclass_template.filters,
                 "masking": dataclass_template.masking,
-                "sub_templates": sub_templates,
                 "mappings": mappings,
                 "mapping_templates": mapping_templates,
             },

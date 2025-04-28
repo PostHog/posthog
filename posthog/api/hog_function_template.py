@@ -79,21 +79,11 @@ class HogFunctionTemplates:
         return [template.to_dataclass() for template in db_templates]
 
     @classmethod
-    def sub_templates_from_db(cls):
-        templates = cls.templates_from_db()
-        return derive_sub_templates(templates=templates)
-
-    @classmethod
     def template_from_db(cls, template_id: str):
         # Check if it's a regular template
         db_template = DBHogFunctionTemplate.get_template(template_id)
         if db_template:
             return db_template.to_dataclass()
-
-        sub_templates = cls.sub_templates_from_db()
-        for sub_template in sub_templates:
-            if sub_template.id == template_id:
-                return sub_template
 
         return None
 
@@ -172,18 +162,14 @@ class PublicHogFunctionTemplateViewSet(viewsets.GenericViewSet):
         elif "types" in request.GET:
             types = self.request.GET.get("types", "destination").split(",")
 
-        # Only use DB templates for specific teams, otherwise use in-memory templates
         allowed_teams = [int(team_id) for team_id in settings.USE_DB_TEMPLATES_FOR_TEAMS]
-        if team and team.id in allowed_teams:
-            templates_list = (
-                HogFunctionTemplates.sub_templates_from_db()
-                if sub_template_id
-                else HogFunctionTemplates.templates_from_db()
-            )
+        if sub_template_id:
+            # Always use in-memory sub_templates, for all teams
+            templates_list = HogFunctionTemplates.sub_templates()
+        elif team and team.id in allowed_teams:
+            templates_list = HogFunctionTemplates.templates_from_db()
         else:
-            templates_list = (
-                HogFunctionTemplates.sub_templates() if sub_template_id else HogFunctionTemplates.templates()
-            )
+            templates_list = HogFunctionTemplates.templates()
 
         matching_templates = []
 

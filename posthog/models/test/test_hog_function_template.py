@@ -57,17 +57,6 @@ class TestHogFunctionTemplate(TestCase):
         db_template2, _ = HogFunctionTemplate.create_from_dataclass(slack_template)
         self.assertEqual(db_template.sha, db_template2.sha)
 
-        # Verify sub-templates
-        self.assertIsNotNone(db_template.sub_templates)
-        sub_templates = db_template.sub_templates or []
-        self.assertEqual(len(sub_templates), 5)
-
-        # Check a specific sub-template
-        survey_sub_template = next((st for st in sub_templates if st["id"] == "survey-response"), None)
-        self.assertIsNotNone(survey_sub_template)
-        if survey_sub_template:
-            self.assertEqual(survey_sub_template["name"], "Post to Slack on survey response")
-
         # Verify bytecode was compiled
         self.assertIsNotNone(db_template.bytecode)
 
@@ -75,17 +64,6 @@ class TestHogFunctionTemplate(TestCase):
         dataclass_template = db_template.to_dataclass()
         self.assertEqual(dataclass_template.id, "template-slack")
         self.assertEqual(dataclass_template.name, "Slack")
-
-        # Verify sub-templates in dataclass
-        self.assertIsNotNone(dataclass_template.sub_templates)
-        dataclass_sub_templates = dataclass_template.sub_templates or []
-        self.assertEqual(len(dataclass_sub_templates), 5)
-
-        # Check a specific sub-template in dataclass
-        survey_sub_template_dto = next((st for st in dataclass_sub_templates if st.id == "survey-response"), None)
-        self.assertIsNotNone(survey_sub_template_dto)
-        if survey_sub_template_dto:
-            self.assertEqual(survey_sub_template_dto.name, "Post to Slack on survey response")
 
     def test_get_template_by_id_and_sha(self):
         """Test retrieving templates by ID and sha"""
@@ -248,9 +226,7 @@ class TestHogFunctionTemplate(TestCase):
         from posthog.cdp.templates.hog_function_template import (
             HogFunctionTemplate as HogFunctionTemplateDTO,
             HogFunctionMapping,
-            HogFunctionSubTemplate,
             HogFunctionMappingTemplate,
-            SubTemplateId,
         )
 
         # Test 1: Basic sha generation
@@ -347,26 +323,6 @@ class TestHogFunctionTemplate(TestCase):
         templates = HogFunctionTemplate.objects.filter(template_id="advanced-template")
         self.assertEqual(templates.count(), 1)
 
-        # Create template with sub_templates
-        # Use cast to avoid the literal type restriction in the test
-        template_with_subtemplates = HogFunctionTemplateDTO(
-            id="advanced-template",
-            name="Advanced Template",
-            hog="return event",
-            inputs_schema=[],
-            status="stable",
-            type="destination",
-            free=True,
-            category=[],
-            # Creating with dictionary and casting to avoid literal type issues in tests
-            sub_templates=[HogFunctionSubTemplate(id=cast(SubTemplateId, "sub1"), name="Sub Template 1")],
-        )
-
-        # Update with sub-templates
-        db_subtemplates, created_subtemplates = HogFunctionTemplate.create_from_dataclass(template_with_subtemplates)
-        self.assertFalse(created_subtemplates)
-        self.assertNotEqual(db_mappings.sha, db_subtemplates.sha, "Adding sub_templates should change sha")
-
         # Create template with filters
         template_with_filters = HogFunctionTemplateDTO(
             id="advanced-template",
@@ -383,7 +339,7 @@ class TestHogFunctionTemplate(TestCase):
         # Update with filters
         db_filters, created_filters = HogFunctionTemplate.create_from_dataclass(template_with_filters)
         self.assertFalse(created_filters)
-        self.assertNotEqual(db_subtemplates.sha, db_filters.sha, "Adding filters should change sha")
+        self.assertNotEqual(db_mappings.sha, db_filters.sha, "Adding filters should change sha")
 
         # Create template with mapping_templates
         template_with_mapping_templates = HogFunctionTemplateDTO(
@@ -413,22 +369,20 @@ class TestHogFunctionTemplate(TestCase):
         """Test converting between database model and dataclass representation"""
         from posthog.cdp.templates.hog_function_template import (
             HogFunctionMapping,
-            HogFunctionSubTemplate,
         )
 
-        # Create a complex template with mappings and sub-templates
+        # Create a complex template with mappings
         template = HogFunctionTemplate.objects.create(
             template_id="complex-template",
             sha="1.0.0",
             name="Complex Template",
-            description="Template with sub-templates and mappings",
+            description="Template with mappings",
             hog="return event",
             inputs_schema=[{"key": "value"}],
             type="destination",
             status=cast(Literal["alpha", "beta", "stable", "deprecated"], "stable"),
             category=["Integration", "Analytics"],
             free=True,
-            sub_templates=[{"id": "sub1", "name": "Sub Template 1", "description": "First sub-template"}],
             mappings=[{"filters": {"event": "$pageview"}, "inputs": {"message": "Page viewed"}}],
         )
 
@@ -438,16 +392,10 @@ class TestHogFunctionTemplate(TestCase):
         # Verify fields were converted correctly
         self.assertEqual(dataclass_template.id, "complex-template")
         self.assertEqual(dataclass_template.name, "Complex Template")
-        self.assertEqual(dataclass_template.description, "Template with sub-templates and mappings")
+        self.assertEqual(dataclass_template.description, "Template with mappings")
         self.assertEqual(dataclass_template.inputs_schema, [{"key": "value"}])
         self.assertEqual(dataclass_template.category, ["Integration", "Analytics"])
         self.assertEqual(dataclass_template.free, True)
-
-        # Verify sub-templates were converted to proper objects
-        sub_templates = dataclass_template.sub_templates or []
-        self.assertEqual(len(sub_templates), 1)
-        self.assertTrue(isinstance(sub_templates[0], HogFunctionSubTemplate))
-        self.assertEqual(sub_templates[0].id, "sub1")
 
         # Verify mappings were converted to proper objects
         mappings = dataclass_template.mappings or []
@@ -465,12 +413,6 @@ class TestHogFunctionTemplate(TestCase):
         self.assertEqual(new_template.description, template.description)
         self.assertEqual(new_template.type, template.type)
         self.assertEqual(new_template.category, template.category)
-
-        # Verify sub-templates were preserved
-        self.assertEqual(len(new_template.sub_templates or []), 1)
-        sub_templates = new_template.sub_templates or []
-        if sub_templates and isinstance(sub_templates[0], dict):
-            self.assertEqual(sub_templates[0]["id"], "sub1")
 
         # Verify mappings were preserved
         self.assertEqual(len(new_template.mappings or []), 1)
