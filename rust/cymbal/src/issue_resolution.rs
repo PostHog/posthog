@@ -368,7 +368,7 @@ async fn send_internal_event(
         if let Some(group_id) = assignment.user_group_id {
             event
                 .insert_prop(
-                    "assigned_to_user_group",
+                    "assignee",
                     json!({"type": "user_group", "id": group_id.to_string()}),
                 )
                 .expect("Strings are serializable");
