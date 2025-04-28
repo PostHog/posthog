@@ -235,10 +235,23 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
             <LemonBanner type="info">
                 We've made some updates!
                 <br />
-                Playlists are now called Collections, and your saved views are now called Saved Filters.
-                <br />
-                Saved Filters can be found when creating or managing Collections — they are not shown in the main
-                "Filters" box on the <Link to={urls.replay(ReplayTabs.Home)}>Recordings</Link> page.
+                <p className="font-normal">
+                    Playlists used to combine saved filters and pinned recordings, but that sometimes led to confusion.
+                    Now, filters and recordings are handled separately:
+                    <ul className="list-disc list-inside">
+                        <li>
+                            <Link to={`${urls.replay(ReplayTabs.Home)}?showFilters=true&filtersTab=saved`}>
+                                Saved Filters
+                            </Link>{' '}
+                            stay with filters.
+                        </li>
+                        <li>
+                            <Link to={urls.replay(ReplayTabs.Playlists)}>Collections</Link> are simple recording lists —
+                            no filters involved.
+                        </li>
+                    </ul>
+                    More predictable, less messy!
+                </p>
             </LemonBanner>
             <div className="flex justify-between gap-2 mb-2 items-center flex-wrap">
                 <LemonInput
