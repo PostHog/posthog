@@ -692,7 +692,7 @@ mod tests {
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "country".to_string(),
-                        value: json!("US"),
+                        value: Some(json!("US")),
                         operator: Some(OperatorType::Exact),
                         prop_type: "person".to_string(),
                         group_type_index: None,
@@ -774,7 +774,7 @@ mod tests {
                     // Reference a non-existent cohort
                     properties: Some(vec![PropertyFilter {
                         key: "id".to_string(),
-                        value: json!(999999999), // Very large cohort ID that doesn't exist
+                        value: Some(json!(999999999)), // Very large cohort ID that doesn't exist
                         operator: None,
                         prop_type: "cohort".to_string(),
                         group_type_index: None,
@@ -1396,7 +1396,7 @@ mod tests {
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "industry".to_string(),
-                        value: json!("tech"),
+                        value: Some(json!("tech")),
                         operator: Some(OperatorType::Exact),
                         prop_type: "group".to_string(),
                         group_type_index: Some(0),

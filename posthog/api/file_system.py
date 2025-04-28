@@ -2,6 +2,8 @@ from typing import Any, cast
 
 from django.db import transaction
 from django.db.models import QuerySet
+from django.db.models import Case, When, Value, IntegerField
+from django.db.models.functions import Lower
 from rest_framework import filters, serializers, viewsets, pagination, status
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -113,8 +115,17 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 pass
 
         if self.action == "list":
-            queryset = queryset.order_by("path")
-
+            if depth_param is not None:
+                queryset = queryset.order_by(
+                    Case(
+                        When(type="folder", then=Value(0)),
+                        default=Value(1),
+                        output_field=IntegerField(),
+                    ),
+                    Lower("path"),
+                )
+            else:
+                queryset = queryset.order_by(Lower("path"))
         if path_param:
             queryset = queryset.filter(path=path_param)
         if parent_param:

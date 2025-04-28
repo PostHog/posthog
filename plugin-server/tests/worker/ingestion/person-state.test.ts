@@ -1,8 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { fetchTeam } from '~/src/worker/ingestion/team-manager'
-
 import { Database, Hub, InternalPerson, Team } from '../../../src/types'
 import { DependencyUnavailableError } from '../../../src/utils/db/error'
 import { closeHub, createHub } from '../../../src/utils/db/hub'
@@ -12,7 +10,7 @@ import { UUIDT } from '../../../src/utils/utils'
 import { PersonState } from '../../../src/worker/ingestion/person-state'
 import { uuidFromDistinctId } from '../../../src/worker/ingestion/person-uuid'
 import { delayUntilEventIngested } from '../../helpers/clickhouse'
-import { createOrganization, createTeam, fetchPostgresPersons, insertRow } from '../../helpers/sql'
+import { createOrganization, createTeam, fetchPostgresPersons, getTeam, insertRow } from '../../helpers/sql'
 
 jest.setTimeout(30000)
 
@@ -46,7 +44,7 @@ describe('PersonState.update()', () => {
 
     beforeEach(async () => {
         teamId = await createTeam(hub.db.postgres, organizationId)
-        mainTeam = (await fetchTeam(hub.db.postgres, teamId))!
+        mainTeam = (await getTeam(hub, teamId))!
 
         newUserUuid = uuidFromDistinctId(teamId, newUserDistinctId)
         oldUserUuid = uuidFromDistinctId(teamId, oldUserDistinctId)
@@ -133,7 +131,7 @@ describe('PersonState.update()', () => {
             }).updateProperties()
 
             const otherTeamId = await createTeam(hub.db.postgres, organizationId)
-            const otherTeam = (await fetchTeam(hub.db.postgres, otherTeamId))!
+            const otherTeam = (await getTeam(hub, otherTeamId))!
             teamId = otherTeamId
             const [personOtherTeam, kafkaAcksOther] = await personState(
                 {

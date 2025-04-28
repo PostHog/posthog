@@ -3,7 +3,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { LegacyTransformationPluginMeta } from '../../types'
 
 export function processEvent(event: PluginEvent, { logger }: LegacyTransformationPluginMeta) {
-    const props = event.properties
+    const props = event.properties as Record<string, unknown | undefined | null>
 
     if (typeof props === 'undefined') {
         return event
@@ -15,12 +15,19 @@ export function processEvent(event: PluginEvent, { logger }: LegacyTransformatio
 
     // UTM tags
 
-    if (props.$current_url.indexOf('utm_') > -1) {
-        const medium = getParameterByName('utm_medium', props.$current_url)
-        const source = getParameterByName('utm_source', props.$current_url)
-        const term = getParameterByName('utm_term', props.$current_url)
-        const campaign = getParameterByName('utm_campaign', props.$current_url)
-        const content = getParameterByName('utm_content', props.$current_url)
+    const currentUrl: string | undefined =
+        props.$current_url && typeof props.$current_url === 'string' ? props.$current_url : undefined
+    const referrer: string | undefined =
+        props.$referrer && typeof props.$referrer === 'string' ? props.$referrer : undefined
+    const referringDomain: string | undefined =
+        props.$referring_domain && typeof props.$referring_domain === 'string' ? props.$referring_domain : undefined
+
+    if (currentUrl && currentUrl.indexOf('utm_') > -1) {
+        const medium = getParameterByName('utm_medium', currentUrl)
+        const source = getParameterByName('utm_source', currentUrl)
+        const term = getParameterByName('utm_term', currentUrl)
+        const campaign = getParameterByName('utm_campaign', currentUrl)
+        const content = getParameterByName('utm_content', currentUrl)
 
         logger.debug(
             `(UTM) Medium: ${medium}, Source: ${source}, Term: ${term}, Campaign: ${campaign}, Content: ${content}`
@@ -56,7 +63,7 @@ export function processEvent(event: PluginEvent, { logger }: LegacyTransformatio
 
     // Direct
 
-    if (props.$referrer === '$direct' || isReferrerFromDirectDomain(props.$referrer)) {
+    if (referrer && (referrer === '$direct' || isReferrerFromDirectDomain(referrer))) {
         logger.debug(`(DIRECT) Source: direct`)
 
         return {
@@ -83,8 +90,8 @@ export function processEvent(event: PluginEvent, { logger }: LegacyTransformatio
 
     // Snowplow parser
 
-    const referrerData = getMediumAndSourceFromReferrer(props.$referring_domain)
-    const searchQuery = getSearchQueryFromUrl(props.$referrer, referrerData.queryParams)
+    const referrerData = getMediumAndSourceFromReferrer(referringDomain ?? '')
+    const searchQuery = referrer ? getSearchQueryFromUrl(referrer, referrerData.queryParams) : undefined
 
     logger.debug(`(SNOWPLOW) Medium: ${referrerData.medium}, Source: ${referrerData.source}, Term: ${searchQuery}`)
 

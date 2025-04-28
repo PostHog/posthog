@@ -18,27 +18,42 @@ interface PanelLayoutPanelProps {
 }
 
 const panelLayoutPanelVariants = cva({
-    base: 'flex flex-col max-h-screen min-h-screen relative border-r border-primary transition-[width] duration-100 prefers-reduced-motion:transition-none',
+    base: 'flex flex-col max-h-screen min-h-screen relative border-r border-primary transition-[width] duration-100 prefers-reduced-motion:transition-none z-[var(--z-layout-panel)]',
     variants: {
         projectTreeMode: {
-            tree: 'w-[var(--project-panel-width)]',
+            tree: '',
             table: 'absolute top-0 left-0 bottom-0',
         },
         isLayoutNavCollapsed: {
             true: '',
             false: '',
         },
+        isMobileLayout: {
+            true: 'absolute top-0 left-[var(--panel-layout-mobile-offset)] bottom-0',
+            false: '',
+        },
     },
     compoundVariants: [
         {
+            projectTreeMode: 'tree',
+            isMobileLayout: false,
+            className: 'w-[var(--project-panel-width)]',
+        },
+        {
+            isMobileLayout: true,
+            className: 'w-[calc(100vw-var(--panel-layout-mobile-offset)-20px)]',
+        },
+        {
             projectTreeMode: 'table',
             isLayoutNavCollapsed: true,
+            isMobileLayout: false,
             className:
                 'left-[var(--project-navbar-width-collapsed)] w-[calc(100vw-var(--project-navbar-width-collapsed)-(var(--side-panel-bar-width)*2))]',
         },
         {
             projectTreeMode: 'table',
             isLayoutNavCollapsed: false,
+            isMobileLayout: false,
             className:
                 'left-[var(--project-navbar-width)] w-[calc(100vw-var(--project-navbar-width)-(var(--side-panel-bar-width)*2))]',
         },
@@ -59,6 +74,7 @@ export function PanelLayoutPanel({ searchPlaceholder, panelActions, children }: 
                     panelLayoutPanelVariants({
                         projectTreeMode: projectTreeMode,
                         isLayoutNavCollapsed,
+                        isMobileLayout,
                     })
                 )}
                 ref={containerRef}

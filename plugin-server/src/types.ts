@@ -21,21 +21,18 @@ import { z } from 'zod'
 import { EncryptedFields } from './cdp/encryption-utils'
 import { LegacyOneventCompareService } from './cdp/services/legacy-onevent-compare.service'
 import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
-import { BatchConsumer } from './kafka/batch-consumer'
 import { KafkaProducerWrapper } from './kafka/producer'
 import { Celery } from './utils/db/celery'
 import { DB } from './utils/db/db'
 import { PostgresRouter } from './utils/db/postgres'
 import { GeoIPService } from './utils/geoip'
 import { ObjectStorage } from './utils/object_storage'
-import { TeamManagerLazy } from './utils/team-manager-lazy'
+import { TeamManager } from './utils/team-manager'
 import { UUID } from './utils/utils'
 import { ActionManager } from './worker/ingestion/action-manager'
 import { ActionMatcher } from './worker/ingestion/action-matcher'
 import { AppMetrics } from './worker/ingestion/app-metrics'
 import { GroupTypeManager } from './worker/ingestion/group-type-manager'
-import { OrganizationManager } from './worker/ingestion/organization-manager'
-import { TeamManager } from './worker/ingestion/team-manager'
 import { RustyHook } from './worker/rusty-hook'
 import { PluginsApiKeyManager } from './worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './worker/vm/extensions/helpers/root-acess-manager'
@@ -93,7 +90,6 @@ export type PluginServerService = {
     id: string
     onShutdown: () => Promise<any>
     healthcheck: () => boolean | Promise<boolean>
-    batchConsumer?: BatchConsumer
 }
 
 export type CdpConfig = {
@@ -175,6 +171,10 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     // Common redis params
     REDIS_POOL_MIN_SIZE: number // minimum number of Redis connections to use per thread
     REDIS_POOL_MAX_SIZE: number // maximum number of Redis connections to use per thread
+
+    CONSUMER_BATCH_SIZE: number // Primarily for kafka consumers the batch size to use
+    CONSUMER_MAX_HEARTBEAT_INTERVAL_MS: number // Primarily for kafka consumers the max heartbeat interval to use after which it will be considered unhealthy
+
     // Kafka params - identical for client and producer
     KAFKA_HOSTS: string // comma-delimited Kafka hosts
     KAFKA_PRODUCER_HOSTS?: string // If specified - different hosts to produce to (useful for migrating between kafka clusters)
@@ -203,9 +203,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     KAFKA_CONSUMPTION_REBALANCE_TIMEOUT_MS: number | null
     KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS: number
     KAFKA_CONSUMPTION_MAX_POLL_INTERVAL_MS: number
-    KAFKA_TOPIC_CREATION_TIMEOUT_MS: number
     KAFKA_TOPIC_METADATA_REFRESH_INTERVAL_MS: number | undefined
-    KAFKA_FLUSH_FREQUENCY_MS: number
     APP_METRICS_FLUSH_FREQUENCY_MS: number
     APP_METRICS_FLUSH_MAX_QUEUE_SIZE: number
     BASE_DIR: string // base path for resolving local plugins
@@ -292,22 +290,10 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     SESSION_RECORDING_OVERFLOW_BUCKET_CAPACITY: number
     SESSION_RECORDING_OVERFLOW_BUCKET_REPLENISH_RATE: number
     SESSION_RECORDING_OVERFLOW_MIN_PER_BATCH: number
-
-    // Dedicated infra values
-    SESSION_RECORDING_KAFKA_HOSTS: string | undefined
-    SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL: KafkaSecurityProtocol | undefined
-    SESSION_RECORDING_KAFKA_BATCH_SIZE: number
-    SESSION_RECORDING_KAFKA_QUEUE_SIZE: number
-    SESSION_RECORDING_KAFKA_QUEUE_SIZE_KB: number | undefined
-    SESSION_RECORDING_KAFKA_DEBUG: string | undefined
     SESSION_RECORDING_MAX_PARALLEL_FLUSHES: number
-    SESSION_RECORDING_KAFKA_FETCH_MIN_BYTES: number
 
     POSTHOG_SESSION_RECORDING_REDIS_HOST: string | undefined
     POSTHOG_SESSION_RECORDING_REDIS_PORT: number | undefined
-
-    // kafka debug stats interval
-    SESSION_RECORDING_KAFKA_CONSUMPTION_STATISTICS_EVENT_INTERVAL_MS: number
 
     ENCRYPTION_SALT_KEYS: string
 
@@ -348,8 +334,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     PROPERTY_DEFS_WRITE_DISABLED: boolean
 
     CDP_HOG_WATCHER_SAMPLE_RATE: number
-    LAZY_TEAM_MANAGER_COMPARISON: boolean
-    USE_LAZY_TEAM_MANAGER: boolean
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -374,8 +358,6 @@ export interface Hub extends PluginsServerConfig {
     pluginConfigSecretLookup: Map<string, PluginConfigId>
     // tools
     teamManager: TeamManager
-    teamManagerLazy: TeamManagerLazy
-    organizationManager: OrganizationManager
     pluginsApiKeyManager: PluginsApiKeyManager
     rootAccessManager: RootAccessManager
     actionManager: ActionManager
@@ -673,9 +655,8 @@ export interface Team {
         | null
     cookieless_server_hash_mode: CookielessServerHashMode | null
     timezone: string
-
-    // NOTE: Currently only created on the lazy loader
-    available_features?: string[]
+    // This is parsed as a join from the org table
+    available_features: string[]
 }
 
 /** Properties shared by RawEventMessage and EventMessage. */

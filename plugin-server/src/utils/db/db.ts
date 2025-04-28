@@ -43,8 +43,6 @@ import {
     TimestampFormat,
 } from '../../types'
 import { fetchAction, fetchAllActionsGroupedByTeam } from '../../worker/ingestion/action-manager'
-import { fetchOrganization } from '../../worker/ingestion/organization-manager'
-import { fetchTeam, fetchTeamByToken } from '../../worker/ingestion/team-manager'
 import { parseRawClickHouseEvent } from '../event'
 import { parseJSON } from '../json-parse'
 import { logger } from '../logger'
@@ -683,6 +681,11 @@ export class DB {
         // Without races, the returned person (updatedPerson) should have a version that's only +1 the person in memory
         const versionDisparity = updatedPerson.version - person.version - 1
         if (versionDisparity > 0) {
+            logger.info('🧑‍🦰', 'Person update version mismatch', {
+                team_id: updatedPerson.team_id,
+                person_id: updatedPerson.id,
+                version_disparity: versionDisparity,
+            })
             personUpdateVersionMismatchCounter.inc()
         }
 
@@ -1098,22 +1101,6 @@ export class DB {
 
     public async fetchAction(id: Action['id']): Promise<Action | null> {
         return await fetchAction(this.postgres, id)
-    }
-
-    // Organization
-
-    public async fetchOrganization(organizationId: string): Promise<RawOrganization | undefined> {
-        return await fetchOrganization(this.postgres, organizationId)
-    }
-
-    // Team
-
-    public async fetchTeam(teamId: Team['id']): Promise<Team | null> {
-        return await fetchTeam(this.postgres, teamId)
-    }
-
-    public async fetchTeamByToken(token: string): Promise<Team | null> {
-        return await fetchTeamByToken(this.postgres, token)
     }
 
     // Hook (EE)

@@ -520,6 +520,9 @@
                 },
                 {
                     "$ref": "#/definitions/DataWarehousePersonPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/ErrorTrackingIssueFilter"
                 }
             ]
         },
@@ -7139,6 +7142,9 @@
                 "name": {
                     "type": "string"
                 },
+                "row_count": {
+                    "type": "number"
+                },
                 "type": {
                     "const": "batch_export",
                     "type": "string"
@@ -7164,6 +7170,9 @@
                 },
                 "name": {
                     "type": "string"
+                },
+                "row_count": {
+                    "type": "number"
                 },
                 "schema": {
                     "$ref": "#/definitions/DatabaseSchemaSchema"
@@ -7244,6 +7253,9 @@
                 "query": {
                     "$ref": "#/definitions/HogQLQuery"
                 },
+                "row_count": {
+                    "type": "number"
+                },
                 "type": {
                     "const": "managed_view",
                     "type": "string"
@@ -7273,6 +7285,9 @@
                 "query": {
                     "$ref": "#/definitions/HogQLQuery"
                 },
+                "row_count": {
+                    "type": "number"
+                },
                 "status": {
                     "type": "string"
                 },
@@ -7298,6 +7313,9 @@
                 },
                 "name": {
                     "type": "string"
+                },
+                "row_count": {
+                    "type": "number"
                 },
                 "type": {
                     "const": "posthog",
@@ -7422,6 +7440,9 @@
                 "name": {
                     "type": "string"
                 },
+                "row_count": {
+                    "type": "number"
+                },
                 "type": {
                     "enum": ["posthog", "data_warehouse", "view", "batch_export", "materialized_view", "managed_view"],
                     "type": "string"
@@ -7447,6 +7468,9 @@
                 },
                 "query": {
                     "$ref": "#/definitions/HogQLQuery"
+                },
+                "row_count": {
+                    "type": "number"
                 },
                 "type": {
                     "const": "view",
@@ -7752,11 +7776,34 @@
                     ]
                 },
                 "type": {
-                    "enum": ["user_group", "user"],
+                    "enum": ["user_group", "user", "role"],
                     "type": "string"
                 }
             },
             "required": ["type", "id"],
+            "type": "object"
+        },
+        "ErrorTrackingIssueFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "error_tracking_issue",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "operator", "type"],
             "type": "object"
         },
         "ErrorTrackingQuery": {
@@ -12286,6 +12333,19 @@
             "required": ["kind"],
             "type": "object"
         },
+        "PropertyFilterBaseValue": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "number"
+                },
+                {
+                    "$ref": "#/definitions/ErrorTrackingIssueAssignee"
+                }
+            ]
+        },
         "PropertyFilterType": {
             "enum": [
                 "meta",
@@ -12301,21 +12361,19 @@
                 "group",
                 "hogql",
                 "data_warehouse",
-                "data_warehouse_person_property"
+                "data_warehouse_person_property",
+                "error_tracking_issue"
             ],
             "type": "string"
         },
         "PropertyFilterValue": {
             "anyOf": [
                 {
-                    "type": "string"
-                },
-                {
-                    "type": "number"
+                    "$ref": "#/definitions/PropertyFilterBaseValue"
                 },
                 {
                     "items": {
-                        "type": ["string", "number"]
+                        "$ref": "#/definitions/PropertyFilterBaseValue"
                     },
                     "type": "array"
                 },
@@ -16173,6 +16231,43 @@
             "required": ["kind", "revenueSources"],
             "type": "object"
         },
+        "RevenueAnalyticsConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "base_currency": {
+                    "$ref": "#/definitions/CurrencyCode",
+                    "default": "USD"
+                },
+                "events": {
+                    "default": [],
+                    "items": {
+                        "$ref": "#/definitions/RevenueAnalyticsEventItem"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["base_currency", "events"],
+            "type": "object"
+        },
+        "RevenueAnalyticsEventItem": {
+            "additionalProperties": false,
+            "properties": {
+                "eventName": {
+                    "type": "string"
+                },
+                "revenueCurrencyProperty": {
+                    "$ref": "#/definitions/RevenueCurrencyPropertyConfig",
+                    "default": {
+                        "static": "USD"
+                    }
+                },
+                "revenueProperty": {
+                    "type": "string"
+                }
+            },
+            "required": ["eventName", "revenueProperty", "revenueCurrencyProperty"],
+            "type": "object"
+        },
         "RevenueAnalyticsGrowthRateQuery": {
             "additionalProperties": false,
             "properties": {
@@ -16552,43 +16647,6 @@
                 }
             },
             "required": ["dataWarehouseSources", "events"],
-            "type": "object"
-        },
-        "RevenueTrackingConfig": {
-            "additionalProperties": false,
-            "properties": {
-                "baseCurrency": {
-                    "$ref": "#/definitions/CurrencyCode",
-                    "default": "USD"
-                },
-                "events": {
-                    "default": [],
-                    "items": {
-                        "$ref": "#/definitions/RevenueTrackingEventItem"
-                    },
-                    "type": "array"
-                }
-            },
-            "required": ["baseCurrency", "events"],
-            "type": "object"
-        },
-        "RevenueTrackingEventItem": {
-            "additionalProperties": false,
-            "properties": {
-                "eventName": {
-                    "type": "string"
-                },
-                "revenueCurrencyProperty": {
-                    "$ref": "#/definitions/RevenueCurrencyPropertyConfig",
-                    "default": {
-                        "static": "USD"
-                    }
-                },
-                "revenueProperty": {
-                    "type": "string"
-                }
-            },
-            "required": ["eventName", "revenueProperty", "revenueCurrencyProperty"],
             "type": "object"
         },
         "RootAssistantMessage": {
@@ -17437,7 +17495,9 @@
                 "hogql_expression",
                 "notebooks",
                 "log_entries",
-                "replay"
+                "error_tracking_issues",
+                "replay",
+                "resources"
             ],
             "type": "string"
         },

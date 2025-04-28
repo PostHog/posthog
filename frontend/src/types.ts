@@ -36,6 +36,7 @@ import { WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 import type {
     DashboardFilter,
     DatabaseSchemaField,
+    ErrorTrackingIssueAssignee,
     ExperimentExposureCriteria,
     ExperimentFunnelsQuery,
     ExperimentMetric,
@@ -50,7 +51,7 @@ import type {
     QueryStatus,
     RecordingOrder,
     RecordingsQuery,
-    RevenueTrackingConfig,
+    RevenueAnalyticsConfig,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
@@ -597,7 +598,7 @@ export interface TeamType extends TeamBasicType {
     live_events_token: string
     cookieless_server_hash_mode?: CookielessServerHashMode
     human_friendly_comparison_periods: boolean
-    revenue_tracking_config: RevenueTrackingConfig
+    revenue_analytics_config: RevenueAnalyticsConfig
     onboarding_tasks?: {
         [key: string]: ActivationTaskStatus
     }
@@ -715,7 +716,8 @@ export interface ToolbarProps extends ToolbarParams {
 
 export type PathCleaningFilter = { alias?: string; regex?: string }
 
-export type PropertyFilterValue = string | number | bigint | (string | number | bigint)[] | null
+export type PropertyFilterBaseValue = string | number | bigint | ErrorTrackingIssueAssignee
+export type PropertyFilterValue = PropertyFilterBaseValue | PropertyFilterBaseValue[] | null
 
 /** Sync with plugin-server/src/types.ts */
 export enum PropertyOperator {
@@ -835,6 +837,7 @@ export enum PropertyFilterType {
     HogQL = 'hogql',
     DataWarehouse = 'data_warehouse',
     DataWarehousePersonProperty = 'data_warehouse_person_property',
+    ErrorTrackingIssue = 'error_tracking_issue',
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -870,6 +873,11 @@ export interface DataWarehousePropertyFilter extends BasePropertyFilter {
 
 export interface DataWarehousePersonPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.DataWarehousePersonProperty
+    operator: PropertyOperator
+}
+
+export interface ErrorTrackingIssueFilter extends BasePropertyFilter {
+    type: PropertyFilterType.ErrorTrackingIssue
     operator: PropertyOperator
 }
 
@@ -935,6 +943,7 @@ export type AnyPropertyFilter =
     | EmptyPropertyFilter
     | DataWarehousePropertyFilter
     | DataWarehousePersonPropertyFilter
+    | ErrorTrackingIssueFilter
 
 /** Any filter type supported by `property_to_expr(scope="person", ...)`. */
 export type AnyPersonScopeFilter =
@@ -1080,6 +1089,7 @@ export enum SessionRecordingUsageType {
 
 export enum SessionRecordingSidebarTab {
     OVERVIEW = 'overview',
+    SESSION_SUMMARY = 'ai-summary',
     INSPECTOR = 'inspector',
     DEBUGGER = 'debugger',
     NETWORK_WATERFALL = 'network-waterfall',
@@ -1420,6 +1430,7 @@ export enum StepOrderValue {
 export enum PersonsTabType {
     FEED = 'feed',
     EVENTS = 'events',
+    EXCEPTIONS = 'exceptions',
     SESSION_RECORDINGS = 'sessionRecordings',
     PROPERTIES = 'properties',
     COHORTS = 'cohorts',
@@ -2902,35 +2913,36 @@ export interface SurveyDisplayConditions {
     } | null
 }
 
+export enum SurveyEventName {
+    SHOWN = 'survey shown',
+    DISMISSED = 'survey dismissed',
+    SENT = 'survey sent',
+}
+
+export interface SurveyEventStats {
+    total_count: number
+    total_count_only_seen: number
+    unique_persons: number
+    unique_persons_only_seen: number
+    first_seen: string | null
+    last_seen: string | null
+}
+
+export interface SurveyRates {
+    response_rate: number
+    dismissal_rate: number
+    unique_users_response_rate: number
+    unique_users_dismissal_rate: number
+}
+
 export interface SurveyStats {
-    stats: {
-        'survey shown': {
-            total_count: number
-            total_count_only_seen: number
-            unique_persons: number
-            unique_persons_only_seen: number
-            first_seen: string | null
-            last_seen: string | null
-        }
-        'survey dismissed': {
-            total_count: number
-            unique_persons: number
-            first_seen: string | null
-            last_seen: string | null
-        }
-        'survey sent': {
-            total_count: number
-            unique_persons: number
-            first_seen: string | null
-            last_seen: string | null
-        }
-    }
-    rates: {
-        response_rate: number
-        dismissal_rate: number
-        unique_users_response_rate: number
-        unique_users_dismissal_rate: number
-    }
+    [SurveyEventName.SHOWN]: SurveyEventStats
+    [SurveyEventName.DISMISSED]: SurveyEventStats
+    [SurveyEventName.SENT]: SurveyEventStats
+}
+export interface SurveyStatsResponse {
+    stats: SurveyStats
+    rates: SurveyRates
 }
 
 export interface Survey {
@@ -3439,6 +3451,7 @@ export enum PropertyType {
     Duration = 'Duration',
     Selector = 'Selector',
     Cohort = 'Cohort',
+    Assignee = 'Assignee',
 }
 
 export enum PropertyDefinitionType {
@@ -3449,6 +3462,7 @@ export enum PropertyDefinitionType {
     Session = 'session',
     LogEntry = 'log_entry',
     Meta = 'meta',
+    Resource = 'resource',
 }
 
 export interface PropertyDefinition {
@@ -3682,7 +3696,7 @@ interface BreadcrumbBase {
     /** Whether to show a custom popover */
     popover?: Pick<PopoverProps, 'overlay' | 'matchWidth'>
 }
-interface LinkBreadcrumb extends BreadcrumbBase {
+export interface LinkBreadcrumb extends BreadcrumbBase {
     /** Name to display. */
     name: string | JSX.Element | null | undefined
     symbol?: never
@@ -3692,7 +3706,7 @@ interface LinkBreadcrumb extends BreadcrumbBase {
     tag?: string | null
     onRename?: never
 }
-interface RenamableBreadcrumb extends BreadcrumbBase {
+export interface RenamableBreadcrumb extends BreadcrumbBase {
     /** Name to display. */
     name: string | JSX.Element | null | undefined
     symbol?: never
@@ -3702,13 +3716,23 @@ interface RenamableBreadcrumb extends BreadcrumbBase {
     /** When this is true, the name is always in edit mode, and `onRename` runs on every input change. */
     forceEditMode?: boolean
 }
-interface SymbolBreadcrumb extends BreadcrumbBase {
+export interface SymbolBreadcrumb extends BreadcrumbBase {
     name?: never
     /** Symbol, e.g. a lettermark or a profile picture. */
     symbol: React.ReactElement
     path?: never
 }
-export type Breadcrumb = LinkBreadcrumb | RenamableBreadcrumb | SymbolBreadcrumb
+export interface ProjectTreeBreadcrumb extends BreadcrumbBase {
+    /** Last part of path */
+    name: string
+    /** Rest of the path. */
+    path?: string
+    type: string
+    ref?: string
+    symbol?: never
+    onRename?: never
+}
+export type Breadcrumb = LinkBreadcrumb | RenamableBreadcrumb | SymbolBreadcrumb | ProjectTreeBreadcrumb
 
 export enum GraphType {
     Bar = 'bar',
@@ -5002,7 +5026,7 @@ export type HogFunctionKind = 'messaging_campaign' | null
 export type HogFunctionType = {
     id: string
     type: HogFunctionTypeType
-    kind?: HogFunctionKind
+    kind?: HogFunctionKind | null
     icon_url?: string
     name: string
     description: string
@@ -5264,6 +5288,7 @@ export interface ProjectTreeRef {
     /**
      * The ref of the file system object.
      * Usually the "id" or "short_id" of the database object.
+     * "null" opens the "new" page
      */
-    ref: string
+    ref: string | null
 }

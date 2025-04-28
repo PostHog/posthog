@@ -43,16 +43,17 @@ import { sidePanelLogic } from '../navigation-3000/sidepanel/sidePanelLogic'
 import { sidePanelStateLogic } from '../navigation-3000/sidepanel/sidePanelStateLogic'
 import { OrganizationDropdownMenu } from './OrganizationDropdownMenu'
 
-const panelStyles = cva({
-    base: 'z-[var(--z-layout-navbar)] h-screen left-0',
+const navBarStyles = cva({
+    base: 'flex flex-col max-h-screen relative min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] border-r border-primary',
     variants: {
-        isLayoutPanelVisible: {
-            true: 'block',
-            false: 'hidden',
+        isLayoutNavCollapsed: {
+            true: 'w-[var(--project-navbar-width-collapsed)]',
+            false: 'w-[var(--project-navbar-width)]',
         },
-    },
-    defaultVariants: {
-        isLayoutPanelVisible: false,
+        isMobileLayout: {
+            true: 'absolute top-0 bottom-0 left-0',
+            false: '',
+        },
     },
 })
 
@@ -65,6 +66,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         clearActivePanelIdentifier,
         toggleLayoutNavCollapsed,
         setVisibleSideAction,
+        showLayoutNavBar,
     } = useActions(panelLayoutLogic)
     const {
         isLayoutPanelVisible,
@@ -73,6 +75,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         isLayoutPanelPinned,
         isLayoutNavCollapsed,
         visibleSideAction,
+        isLayoutNavbarVisible,
     } = useValues(panelLayoutLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { mobileLayout: isMobileLayout, navbarItems } = useValues(navigation3000Logic)
@@ -226,11 +229,10 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             <div className="flex gap-0 relative">
                 <nav
                     className={cn(
-                        'relative flex flex-col max-h-screen min-h-screen bg-surface-tertiary z-[var(--z-layout-panel)] border-r border-primary',
-                        {
-                            'w-[var(--project-navbar-width-collapsed)]': isLayoutNavCollapsed,
-                            'w-[var(--project-navbar-width)]': !isLayoutNavCollapsed,
-                        }
+                        navBarStyles({
+                            isLayoutNavCollapsed,
+                            isMobileLayout,
+                        })
                     )}
                     ref={containerRef}
                 >
@@ -617,15 +619,27 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                     )}
                 </nav>
 
-                <div
-                    className={cn(
-                        panelStyles({
-                            isLayoutPanelVisible,
-                        })
-                    )}
-                >
-                    {children}
-                </div>
+                {children}
+
+                {isMobileLayout && isLayoutNavbarVisible && !isLayoutPanelVisible && (
+                    <div
+                        onClick={() => {
+                            showLayoutNavBar(false)
+                            clearActivePanelIdentifier()
+                        }}
+                        className="z-[var(--z-layout-navbar-under)] fixed inset-0 w-screen h-screen bg-[var(--bg-fill-highlight-100)] lg:bg-transparent"
+                    />
+                )}
+
+                {isMobileLayout && isLayoutNavbarVisible && isLayoutPanelVisible && (
+                    <div
+                        onClick={() => {
+                            showLayoutPanel(false)
+                            clearActivePanelIdentifier()
+                        }}
+                        className="z-[var(--z-layout-navbar-over)] fixed inset-0 w-screen h-screen bg-[var(--bg-fill-highlight-100)] lg:bg-transparent"
+                    />
+                )}
             </div>
         </>
     )

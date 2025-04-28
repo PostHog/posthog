@@ -25,11 +25,11 @@ import { MessageSizeTooLarge } from '../../utils/db/error'
 import { safeClickhouseString, sanitizeEventName, timeoutGuard } from '../../utils/db/utils'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
+import { TeamManager } from '../../utils/team-manager'
 import { castTimestampOrNow } from '../../utils/utils'
 import { GroupTypeManager, MAX_GROUP_TYPES_PER_TEAM } from './group-type-manager'
 import { addGroupProperties } from './groups'
 import { upsertGroup } from './properties-updater'
-import { TeamManager } from './team-manager'
 import { captureIngestionWarning } from './utils'
 
 // for e.g. internal events we don't want to be available for users in the UI
@@ -85,7 +85,7 @@ export class EventsProcessor {
             // We know `normalizeEvent` has been called here.
             const properties: Properties = data.properties!
 
-            const team = await this.teamManager.fetchTeam(teamId)
+            const team = await this.teamManager.getTeam(teamId)
             if (!team) {
                 throw new Error(`No team found with ID ${teamId}. Can't ingest event.`)
             }

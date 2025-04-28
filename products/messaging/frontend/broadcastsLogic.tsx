@@ -52,7 +52,7 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
         ],
         projectTreeRef: [
             (s) => [s.broadcastId],
-            (id): ProjectTreeRef => ({ type: 'hog_function/broadcast', ref: String(id) }),
+            (id): ProjectTreeRef => ({ type: 'hog_function/broadcast', ref: id === 'new' ? null : id }),
         ],
     }),
     urlToAction(({ actions }) => ({

@@ -1,11 +1,29 @@
 use std::collections::HashMap;
 
 use bytes::Bytes;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use tracing::instrument;
 
 use crate::api::errors::FlagError;
+
+fn deserialize_distinct_id<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum StringOrNumber {
+        String(String),
+        Number(serde_json::Number),
+    }
+
+    let opt = Option::<StringOrNumber>::deserialize(deserializer)?;
+    Ok(opt.map(|val| match val {
+        StringOrNumber::String(s) => s,
+        StringOrNumber::Number(n) => n.to_string(),
+    }))
+}
 
 #[derive(Debug, Clone, Copy)]
 pub enum FlagRequestType {
@@ -21,7 +39,12 @@ pub struct FlagRequest {
         skip_serializing_if = "Option::is_none"
     )]
     pub token: Option<String>,
-    #[serde(alias = "$distinct_id", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        alias = "$distinct_id",
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_distinct_id",
+        default
+    )]
     pub distinct_id: Option<String>,
     pub geoip_disable: Option<bool>,
     #[serde(default)]
@@ -157,6 +180,47 @@ mod tests {
             Ok(id) => assert_eq!(id, "alakazam"),
             _ => panic!("expected distinct id"),
         };
+    }
+
+    #[test]
+    fn numeric_distinct_id_is_returned_correctly() {
+        let json = json!({
+            "$distinct_id": 8675309,
+            "token": "my_token1",
+        });
+        let bytes = Bytes::from(json.to_string());
+
+        let flag_payload = FlagRequest::from_bytes(bytes).expect("failed to parse request");
+
+        match flag_payload.extract_distinct_id() {
+            Ok(id) => assert_eq!(id, "8675309"),
+            _ => panic!("expected distinct id"),
+        };
+    }
+
+    #[test]
+    fn missing_distinct_id_is_handled_correctly() {
+        let json = json!({
+            "token": "my_token1",
+        });
+        let bytes = Bytes::from(json.to_string());
+
+        let flag_payload = FlagRequest::from_bytes(bytes).expect("failed to parse request");
+
+        // First verify the field is None
+        assert_eq!(flag_payload.distinct_id, Option::<String>::None);
+    }
+
+    #[test]
+    fn float_distinct_id_is_handled_correctly() {
+        let json = json!({
+            "$distinct_id": 123.45,
+            "token": "my_token1",
+        });
+        let bytes = Bytes::from(json.to_string());
+
+        let flag_payload = FlagRequest::from_bytes(bytes).expect("failed to parse request");
+        assert_eq!(flag_payload.distinct_id, Some("123.45".to_string()));
     }
 
     #[tokio::test]
