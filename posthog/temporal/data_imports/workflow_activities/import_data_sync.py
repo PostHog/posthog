@@ -176,6 +176,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 api_key=hubspot_access_code,
                 refresh_token=refresh_token,
                 endpoints=tuple(endpoints),
+                logger=logger,
             )
 
             return _run(

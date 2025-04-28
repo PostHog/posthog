@@ -523,9 +523,6 @@
                 },
                 {
                     "$ref": "#/definitions/ErrorTrackingIssueFilter"
-                },
-                {
-                    "$ref": "#/definitions/ErrorTrackingIssuePropertyFilter"
                 }
             ]
         },
@@ -7809,29 +7806,6 @@
             "required": ["key", "operator", "type"],
             "type": "object"
         },
-        "ErrorTrackingIssuePropertyFilter": {
-            "additionalProperties": false,
-            "properties": {
-                "key": {
-                    "type": "string"
-                },
-                "label": {
-                    "type": "string"
-                },
-                "operator": {
-                    "$ref": "#/definitions/PropertyOperator"
-                },
-                "type": {
-                    "const": "error_tracking_issue_property",
-                    "type": "string"
-                },
-                "value": {
-                    "$ref": "#/definitions/PropertyFilterValue"
-                }
-            },
-            "required": ["key", "operator", "type"],
-            "type": "object"
-        },
         "ErrorTrackingQuery": {
             "additionalProperties": false,
             "properties": {
@@ -12359,6 +12333,19 @@
             "required": ["kind"],
             "type": "object"
         },
+        "PropertyFilterBaseValue": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "number"
+                },
+                {
+                    "$ref": "#/definitions/ErrorTrackingIssueAssignee"
+                }
+            ]
+        },
         "PropertyFilterType": {
             "enum": [
                 "meta",
@@ -12375,22 +12362,18 @@
                 "hogql",
                 "data_warehouse",
                 "data_warehouse_person_property",
-                "error_tracking_issue",
-                "error_tracking_issue_property"
+                "error_tracking_issue"
             ],
             "type": "string"
         },
         "PropertyFilterValue": {
             "anyOf": [
                 {
-                    "type": "string"
-                },
-                {
-                    "type": "number"
+                    "$ref": "#/definitions/PropertyFilterBaseValue"
                 },
                 {
                     "items": {
-                        "type": ["string", "number"]
+                        "$ref": "#/definitions/PropertyFilterBaseValue"
                     },
                     "type": "array"
                 },
@@ -17513,8 +17496,8 @@
                 "notebooks",
                 "log_entries",
                 "error_tracking_issues",
-                "error_tracking_issue_properties",
-                "replay"
+                "replay",
+                "resources"
             ],
             "type": "string"
         },

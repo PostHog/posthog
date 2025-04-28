@@ -1,13 +1,11 @@
 import { Message, MessageHeader } from 'node-rdkafka'
-import { Counter, Histogram } from 'prom-client'
+import { Counter } from 'prom-client'
 import { z } from 'zod'
 
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
-import { BatchConsumer, startBatchConsumer } from '../kafka/batch-consumer'
-import { createRdConnectionConfigFromEnvVars } from '../kafka/config'
+import { KafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { ingestionOverflowingMessagesTotal } from '../main/ingestion-queues/batch-processing/metrics'
-import { addSentryBreadcrumbsEventListeners } from '../main/ingestion-queues/kafka-metrics'
 import {
     eventDroppedCounter,
     latestOffsetTimestampGauge,
@@ -36,18 +34,6 @@ require('@sentry/tracing')
 const ingestionEventOverflowed = new Counter({
     name: 'ingestion_event_overflowed',
     help: 'Indicates that a given event has overflowed capacity and been redirected to a different topic.',
-})
-
-const histogramKafkaBatchSize = new Histogram({
-    name: 'ingestion_batch_size',
-    help: 'The size of the batches we are receiving from Kafka',
-    buckets: [0, 50, 100, 250, 500, 750, 1000, 1500, 2000, 3000, Infinity],
-})
-
-const histogramKafkaBatchSizeKb = new Histogram({
-    name: 'ingestion_batch_size_kb',
-    help: 'The size in kb of the batches we are receiving from Kafka',
-    buckets: [0, 128, 512, 1024, 5120, 10240, 20480, 51200, 102400, 204800, Infinity],
 })
 
 const forcedOverflowEventsCounter = new Counter({
@@ -92,10 +78,8 @@ export class IngestionConsumer {
     protected dlqTopic: string
     protected overflowTopic?: string
     protected testingTopic?: string
-
-    batchConsumer?: BatchConsumer
+    protected kafkaConsumer: KafkaConsumer
     isStopping = false
-    protected heartbeat = () => {}
     protected promises: Set<Promise<any>> = new Set()
     protected kafkaProducer?: KafkaProducerWrapper
     protected kafkaOverflowProducer?: KafkaProducerWrapper
@@ -140,6 +124,7 @@ export class IngestionConsumer {
 
         this.ingestionWarningLimiter = new MemoryRateLimiter(1, 1.0 / 3600)
         this.hogTransformer = new HogTransformerService(hub)
+        this.kafkaConsumer = new KafkaConsumer({ groupId: this.groupId, topic: this.topic })
     }
 
     public get service(): PluginServerService {
@@ -147,7 +132,6 @@ export class IngestionConsumer {
             id: this.name,
             onShutdown: async () => await this.stop(),
             healthcheck: () => this.isHealthy() ?? false,
-            batchConsumer: this.batchConsumer,
         }
     }
 
@@ -163,12 +147,15 @@ export class IngestionConsumer {
                 this.kafkaOverflowProducer = producer
                 this.kafkaOverflowProducer.producer.connect()
             }),
-            this.startKafkaConsumer({
-                topic: this.topic,
-                groupId: this.groupId,
-                handleBatch: async (messages) => this.handleKafkaBatch(messages),
-            }),
         ])
+
+        await this.kafkaConsumer.connect(async (messages) => {
+            return await runInstrumentedFunction({
+                statsKey: `ingestionConsumer.handleEachBatch`,
+                sendTimeoutGuardToSentry: false,
+                func: async () => await this.handleKafkaBatch(messages),
+            })
+        })
     }
 
     public async stop(): Promise<void> {
@@ -177,7 +164,7 @@ export class IngestionConsumer {
 
         // Mark as stopping so that we don't actually process any more incoming messages, but still keep the process alive
         logger.info('🔁', `${this.name} - stopping batch consumer`)
-        await this.batchConsumer?.stop()
+        await this.kafkaConsumer?.disconnect()
         logger.info('🔁', `${this.name} - stopping kafka producer`)
         await this.kafkaProducer?.disconnect()
         logger.info('🔁', `${this.name} - stopping kafka overflow producer`)
@@ -188,7 +175,7 @@ export class IngestionConsumer {
     }
 
     public isHealthy() {
-        return this.batchConsumer?.isHealthy()
+        return this.kafkaConsumer?.isHealthy()
     }
 
     private scheduleWork<T>(promise: Promise<T>): Promise<T> {
@@ -539,58 +526,6 @@ export class IngestionConsumer {
         }
 
         return Promise.resolve(batches)
-    }
-
-    private async startKafkaConsumer(options: {
-        topic: string
-        groupId: string
-        handleBatch: (messages: Message[]) => Promise<void>
-    }): Promise<void> {
-        this.batchConsumer = await startBatchConsumer({
-            ...options,
-            connectionConfig: createRdConnectionConfigFromEnvVars(this.hub, 'consumer'),
-            autoCommit: true,
-            sessionTimeout: this.hub.KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS,
-            maxPollIntervalMs: this.hub.KAFKA_CONSUMPTION_MAX_POLL_INTERVAL_MS,
-            consumerMaxBytes: this.hub.KAFKA_CONSUMPTION_MAX_BYTES,
-            consumerMaxBytesPerPartition: this.hub.KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION,
-            consumerMaxWaitMs: this.hub.KAFKA_CONSUMPTION_MAX_WAIT_MS,
-            consumerErrorBackoffMs: this.hub.KAFKA_CONSUMPTION_ERROR_BACKOFF_MS,
-            fetchBatchSize: this.hub.INGESTION_BATCH_SIZE,
-            batchingTimeoutMs: this.hub.KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS,
-            topicMetadataRefreshInterval: this.hub.KAFKA_TOPIC_METADATA_REFRESH_INTERVAL_MS,
-            eachBatch: async (messages, { heartbeat }) => {
-                logger.info('🔁', `${this.name} - handling batch`, {
-                    size: messages.length,
-                })
-
-                this.heartbeat = heartbeat
-
-                histogramKafkaBatchSize.observe(messages.length)
-                histogramKafkaBatchSizeKb.observe(messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024)
-
-                return await runInstrumentedFunction({
-                    statsKey: `ingestionConsumer.handleEachBatch`,
-                    sendTimeoutGuardToSentry: false,
-                    func: async () => {
-                        await options.handleBatch(messages)
-                    },
-                })
-            },
-            callEachBatchWhenEmpty: false,
-        })
-
-        addSentryBreadcrumbsEventListeners(this.batchConsumer.consumer)
-
-        this.batchConsumer.consumer.on('disconnected', async (err) => {
-            if (this.isStopping) {
-                return
-            }
-            // since we can't be guaranteed that the consumer will be stopped before some other code calls disconnect
-            // we need to listen to disconnect and make sure we're stopped
-            logger.info('🔁', `${this.name} batch consumer disconnected, cleaning up`, { err })
-            await this.stop()
-        })
     }
 
     private logDroppedEvent(token?: string, distinctId?: string) {
