@@ -6,13 +6,15 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DataCollection } from 'scenes/experiments/ExperimentView/DataCollection'
 
 import { experimentLogic } from '../experimentLogic'
+import { isLegacyExperiment } from '../utils'
 
 export function LegacyExperimentHeader(): JSX.Element {
-    const { hasMetrics } = useValues(experimentLogic)
+    const { experiment } = useValues(experimentLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const showNewEngineBanner =
-        !hasMetrics && featureFlags[FEATURE_FLAGS.SHOW_NEW_EXPERIMENTATION_ENGINE_BANNER] === 'enabled'
+        !isLegacyExperiment(experiment) &&
+        featureFlags[FEATURE_FLAGS.SHOW_NEW_EXPERIMENTATION_ENGINE_BANNER] === 'enabled'
 
     return (
         <>

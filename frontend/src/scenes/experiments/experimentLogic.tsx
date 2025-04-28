@@ -2195,17 +2195,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 return experiment.exposure_criteria
             },
         ],
-        hasMetrics: [
-            (s) => [s.experiment],
-            (experiment: Experiment): boolean => {
-                return (
-                    experiment.metrics.length > 0 ||
-                    experiment.metrics_secondary.length > 0 ||
-                    experiment.saved_metrics.some((metric) => metric.metadata.type === 'primary') ||
-                    experiment.saved_metrics.some((metric) => metric.metadata.type === 'secondary')
-                )
-            },
-        ],
     }),
     forms(({ actions }) => ({
         experiment: {
