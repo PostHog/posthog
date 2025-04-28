@@ -203,17 +203,31 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         was_sync_frequency_updated = False
 
         with transaction.atomic():
+            locked_instance = DataWarehouseSavedQuery.objects.select_for_update().get(pk=instance.pk)
+
+            # Get latest activity log for this model
+            edited_history_id = self.context["request"].data.get("edited_history_id", None)
+            latest_activity_id = (
+                ActivityLog.objects.filter(item_id=locked_instance.id, scope="DataWarehouseSavedQuery")
+                .order_by("-created_at")
+                .values_list("id", flat=True)
+                .first()
+            )
+
+            if edited_history_id != str(latest_activity_id):
+                raise serializers.ValidationError("The query was modified by someone else.")
+
             if sync_frequency == "never":
-                delete_saved_query_schedule(str(instance.id))
-                instance.sync_frequency_interval = None
+                delete_saved_query_schedule(str(locked_instance.id))
+                locked_instance.sync_frequency_interval = None
                 validated_data["sync_frequency_interval"] = None
             elif sync_frequency:
                 sync_frequency_interval = sync_frequency_to_sync_frequency_interval(sync_frequency)
                 validated_data["sync_frequency_interval"] = sync_frequency_interval
                 was_sync_frequency_updated = True
-                instance.sync_frequency_interval = sync_frequency_interval
+                locked_instance.sync_frequency_interval = sync_frequency_interval
 
-            view: DataWarehouseSavedQuery = super().update(instance, validated_data)
+            view: DataWarehouseSavedQuery = super().update(locked_instance, validated_data)
 
             # Only update columns and status if the query has changed
             if "query" in validated_data:

@@ -700,3 +700,18 @@ class TestSavedQuery(APIBaseTest):
                 },
             )
             self.assertEqual(query_change["before"], None)
+
+            # this should fail because the activity log has changed
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+                {
+                    "query": {
+                        "kind": "HogQLQuery",
+                        "query": "select event as event from events LIMIT 1",
+                    },
+                    "edited_history_id": saved_query["latest_history_id"],
+                },
+            )
+
+            self.assertEqual(response.status_code, 400, response.content)
+            self.assertEqual(response.json()["detail"], "The query was modified by someone else.")
