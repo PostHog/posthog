@@ -14,4 +14,5 @@ pub struct FlagDefinitionsResponse {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quota_limited: Option<Vec<String>>, // list of quota limited resources
+    pub cohorts: HashMap<String, serde_json::Value>,
 }

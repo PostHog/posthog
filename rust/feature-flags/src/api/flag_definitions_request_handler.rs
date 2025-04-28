@@ -4,6 +4,7 @@ use crate::api::{
     request_handler::RequestContext,
 };
 use crate::client::database::Client;
+use crate::cohorts::cohort_cache_manager::CohortCacheManager;
 use crate::flags::flag_group_type_mapping::GroupTypeMappingCache;
 use crate::flags::flag_service::FlagService;
 use limiters::redis::ServiceName;
@@ -32,6 +33,7 @@ pub async fn process_flags_definitions_request(
             group_type_mapping: HashMap::new(),
             quota_limited: Some(vec![ServiceName::FeatureFlags.as_string()]),
             request_id: context.request.id,
+            cohorts: HashMap::new(),
         });
     }
 
@@ -39,6 +41,17 @@ pub async fn process_flags_definitions_request(
     let flag_service = FlagService::new(context.state.redis.clone(), context.state.reader.clone());
     let project_id = api_key.project_id.unwrap();
     let all_flags = flag_service.get_flags_from_cache_or_pg(project_id).await?;
+
+    let cohorts = if context.request.meta.send_cohorts.unwrap_or(false) {
+        let cohort_cache = CohortCacheManager::new(context.state.reader.clone(), None, None);
+        let cohorts = cohort_cache.get_cohorts(project_id).await?;
+        cohorts
+            .into_iter()
+            .filter_map(|cohort| cohort.filters.map(|f| (cohort.id.to_string(), f)))
+            .collect()
+    } else {
+        HashMap::new()
+    };
 
     let group_type_mapping =
         get_sorted_group_type_mapping(project_id, context.state.reader.clone()).await?;
@@ -48,6 +61,7 @@ pub async fn process_flags_definitions_request(
         flags: all_flags.flags,
         group_type_mapping,
         quota_limited: None,
+        cohorts,
     };
 
     return Ok(response);
