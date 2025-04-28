@@ -76,6 +76,7 @@ This document outlines the step-by-step implementation plan for the Usage Data A
 - [x] Improve error messages for invalid parameter combinations
 - [ ] Add documentation for default behaviors
 - [ ] Update code comments for clarity
+- [ ] Ensure strict allowlist validation for parameters affecting SQL structure (e.g., `usage_type` keys, `interval` args) in addition to parameterization for values.
 
 ### Step 9: Add Authentication and Authorization
 - [ ] Configure JWT authentication for the API endpoint

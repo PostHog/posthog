@@ -1,4 +1,5 @@
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
 
 import posthoganalytics
 import requests
@@ -21,6 +22,7 @@ from posthog.cloud_utils import get_cached_instance_license
 from posthog.event_usage import groups
 from posthog.models import Organization
 from posthog.models.organization import OrganizationMembership
+from posthog.utils import relative_date_parse
 
 logger = structlog.get_logger(__name__)
 
@@ -34,6 +36,47 @@ class BillingSerializer(serializers.Serializer):
 
 class LicenseKeySerializer(serializers.Serializer):
     license = serializers.CharField()
+
+
+class BillingUsageRequestSerializer(serializers.Serializer):
+    start_date = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    end_date = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    usage_types = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    team_ids = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    breakdowns = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    interval = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    compare = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    show_values_on_series = serializers.BooleanField(required=False, allow_null=True)
+
+    def _parse_date(self, date_str: Optional[str], field_name: str) -> Optional[str]:
+        """Shared date parsing logic for validation methods."""
+        if not date_str:  # Handles None and empty string correctly based on field settings
+            return None
+
+        if not isinstance(date_str, str):
+            raise serializers.ValidationError({field_name: "Date must be a string."})
+
+        utc_zone = ZoneInfo("UTC")
+        try:
+            parsed_date = relative_date_parse(date_str, utc_zone)
+            return parsed_date.strftime("%Y-%m-%d")
+        except ValueError as e:
+            raise serializers.ValidationError({field_name: f"Invalid date format: {e}"})
+        except Exception as e:
+            logger.error("billing_date_parsing_error", exc_info=True, error=e, date_str=date_str, field_name=field_name)
+            raise serializers.ValidationError({field_name: f"Could not parse date '{date_str}'."})
+
+    def validate_start_date(self, value: Optional[str]) -> Optional[str]:
+        """Validate and normalize the start_date, handling 'all'."""
+        if value == "all":
+            # Revisit logic here
+            return "2024-01-01"
+        # Otherwise, parse normally
+        return self._parse_date(value, "start_date")
+
+    def validate_end_date(self, value: Optional[str]) -> Optional[str]:
+        """Validate and normalize the end_date."""
+        return self._parse_date(value, "end_date")
 
 
 class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -415,8 +458,14 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         billing_manager = self.get_billing_manager()
 
+        # Validate using the serializer
+        serializer = BillingUsageRequestSerializer(data=request.GET)
+        serializer.is_valid(raise_exception=True)
+
         try:
-            res = billing_manager.get_usage_data(organization, request.GET)
+            params_to_pass = {k: v for k, v in serializer.validated_data.items() if v is not None}
+            params_to_pass["organization_id"] = organization.id
+            res = billing_manager.get_usage_data(organization, params_to_pass)
             return Response(res, status=status.HTTP_200_OK)
         except Exception as e:
             if len(e.args) > 2:
@@ -449,16 +498,20 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         billing_manager = self.get_billing_manager()
 
+        # Validate using the serializer
+        serializer = BillingUsageRequestSerializer(data=request.GET)
+        serializer.is_valid(raise_exception=True)
+
         try:
-            # Assume BillingManager has a method to fetch spend data
-            res = billing_manager.get_spend_data(organization, request.GET)
+            params_to_pass = {k: v for k, v in serializer.validated_data.items() if v is not None}
+            params_to_pass["organization_id"] = organization.id
+            res = billing_manager.get_spend_data(organization, params_to_pass)
             return Response(res, status=status.HTTP_200_OK)
         except Exception as e:
             if len(e.args) > 2:
                 detail_object = e.args[2]
                 if not isinstance(detail_object, dict):
                     raise
-                # Re-use the same error formatting
                 return Response(
                     {
                         "statusText": e.args[0],

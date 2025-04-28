@@ -171,7 +171,7 @@ export function BillingUsage(): JSX.Element {
                         <LemonCheckbox
                             label="Team"
                             checked={(filters.breakdowns || []).includes('team')}
-                            onChange={() => handleBreakdownChange('team')}
+                            onChange={handleBreakdownChange}
                         />
                     </div>
                 </div>
@@ -184,7 +184,7 @@ export function BillingUsage(): JSX.Element {
                             className="h-8 flex items-center"
                             dateFrom={dateFrom}
                             dateTo={dateTo}
-                            onChange={(fromDate, toDate) => setDateRange(fromDate || null, toDate || null)}
+                            onChange={(fromDate, toDate) => setDateRange(fromDate, toDate)}
                         />
                     </div>
                 </div>

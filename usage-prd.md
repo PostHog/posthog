@@ -528,6 +528,8 @@ Notes about the format:
 
 Following the [HackSoft Django Styleguide](https://github.com/HackSoftware/Django-Styleguide), we'll implement the usage data functionality as service functions rather than using a repository pattern. This provides cleaner separation of concerns with lightweight API views and business logic in the service layer.
 
+*(Note: SQL query parameters (`%s`) handle value injection prevention. Additional allowlist validation is applied in Python to parameters affecting SQL structure, like JSON keys or function arguments, before query construction.)*
+
 ```python
 from datetime import date
 from typing import List, Dict, Any, Optional
@@ -911,7 +913,3 @@ def handle_usage_errors(func):
     - By Team: Calculates spend per type, allocates it proportionally to teams based on their volume contribution *for that specific type* within the interval, and then sums the allocated amounts per team across all types.
     - By Type & Team: Calculates spend per type and allocates it proportionally to teams based on their volume contribution *for that specific type* within the interval. Returns a series for each type/team combination.
 - Parameters are `organization_id`, `start_date`, `end_date`, `breakdowns`, `interval`.
-
-
-
-

@@ -187,7 +187,7 @@ export function BillingSpendView(): JSX.Element {
                             className="h-8 flex items-center"
                             dateFrom={dateFrom}
                             dateTo={dateTo}
-                            onChange={(fromDate, toDate) => setDateRange(fromDate || null, toDate || null)}
+                            onChange={(fromDate, toDate) => setDateRange(fromDate, toDate)}
                         />
                     </div>
                 </div>

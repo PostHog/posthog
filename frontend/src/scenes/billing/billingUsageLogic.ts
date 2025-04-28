@@ -74,7 +74,6 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
     })),
     reducers({
         filters: [
-            // Initialize with default filters
             { ...DEFAULT_BILLING_USAGE_FILTERS } as BillingUsageFilters,
             {
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
