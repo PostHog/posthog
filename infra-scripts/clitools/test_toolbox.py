@@ -447,6 +447,33 @@ class TestToolbox(unittest.TestCase):
         with self.assertRaises(SystemExit):
             select_context()
 
+    @patch("subprocess.run")
+    def test_claim_pod_wait_timeout(self, mock_run):
+        """Test claim_pod exits if pod does not become ready within 5 minutes."""
+        mock_get_response = MagicMock()
+        mock_get_response.stdout = json.dumps({"app.kubernetes.io/name": "posthog-toolbox-django"})
+        mock_annotate_response = MagicMock()
+        mock_label_response = MagicMock()
+        call_count = {"n": 0}
+
+        def side_effect(*args, **kwargs):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return mock_get_response
+            elif call_count["n"] == 2:
+                return mock_annotate_response
+            elif call_count["n"] == 3:
+                return mock_label_response
+            elif call_count["n"] == 4:
+                raise subprocess.CalledProcessError(1, args[0], "Timed out")
+            else:
+                return mock_label_response
+
+        mock_run.side_effect = side_effect
+        user_labels = {"toolbox-claimed": "michael.k_at_posthog.com", "role-name": "developers", "assumed-role": "true"}
+        with self.assertRaises(SystemExit):
+            claim_pod("toolbox-pod-1", user_labels, 1234567890)
+
 
 if __name__ == "__main__":
     unittest.main()

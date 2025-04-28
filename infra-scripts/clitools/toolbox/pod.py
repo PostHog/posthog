@@ -146,7 +146,14 @@ def claim_pod(pod_name: str, user_labels: dict, timestamp: int):
 
         # Wait for pod to be ready
         print("⏳ Waiting for pod to be ready")  # noqa: T201
-        subprocess.run(["kubectl", "wait", "--for=condition=Ready", "--timeout=5m", "-n", "posthog", "pod", pod_name])
+        try:
+            subprocess.run(
+                ["kubectl", "wait", "--for=condition=Ready", "--timeout=5m", "-n", "posthog", "pod", pod_name],
+                check=True,
+            )
+        except subprocess.CalledProcessError:
+            print(f"❌ Pod {pod_name} did not become ready within 5 minutes.")  # noqa: T201
+            sys.exit(1)
     except Exception as e:
         print(f"Error claiming pod: {e}")  # noqa: T201
         sys.exit(1)
