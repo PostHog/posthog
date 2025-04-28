@@ -1,5 +1,5 @@
 import pytest
-from braintrust import Eval
+from braintrust import Eval, EvalCase
 from .conftest import BRAINTRUST_PROJECT_NAME
 from .scorers import ToolRelevance
 from ee.hogai.utils.types import AssistantState, AssistantNodeName
@@ -46,22 +46,22 @@ def eval_root(call_node):
     Eval(
         BRAINTRUST_PROJECT_NAME,
         data=[
-            {
-                "input": "Create an SQL insight to calculate active users recently",
-                "expected": AssistantToolCall(
+            EvalCase(
+                input="Create an SQL insight to calculate active users recently",
+                expected=AssistantToolCall(
                     id="1",
                     name="create_and_query_insight",
                     args={"query_kind": "sql", "query_description": "Calculate the number of active users recently"},
                 ),
-            },
-            {
-                "input": "Write SQL to calculate active users recently",
-                "expected": AssistantToolCall(
+            ),
+            EvalCase(
+                input="Write SQL to calculate active users recently",
+                expected=AssistantToolCall(
                     id="2",
                     name="create_and_query_insight",
                     args={"query_kind": "sql", "query_description": "Calculate the number of active users recently"},
                 ),
-            },
+            ),
         ],
         task=call_node,
         scores=[ToolRelevance(semantic_similarity_args={"query_description"})],

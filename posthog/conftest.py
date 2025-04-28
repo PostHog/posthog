@@ -151,16 +151,16 @@ def django_db_setup(django_db_setup, django_db_keepdb):
         randomize_replica_paths=True,
     )
 
-    if not django_db_keepdb:
-        try:
-            database.drop_database()
-        except:
-            pass
+    if not django_db_keepdb and database.db_exists:
+        database.drop_database()
 
     database.create_database()  # Create database if it doesn't exist
     create_clickhouse_tables()
 
     yield
+
+    if not settings.IN_EVAL_TESTING:
+        return  # Don't reset CH in eval
 
     if django_db_keepdb:
         reset_clickhouse_tables()
