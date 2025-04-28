@@ -1,5 +1,14 @@
 import { IconCalendar, IconPin, IconPinFilled } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonDivider, LemonInput, LemonTable, Link, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonBadge,
+    LemonBanner,
+    LemonButton,
+    LemonDivider,
+    LemonInput,
+    LemonTable,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -223,6 +232,14 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
 
     return (
         <div className="deprecated-space-y-4">
+            <LemonBanner type="info">
+                We've made some updates!
+                <br />
+                Playlists are now called Collections, and your saved views are now called Saved Filters.
+                <br />
+                Saved Filters can be found when creating or managing Collections — they are not shown in the main
+                "Filters" box on the <Link to={urls.replay(ReplayTabs.Home)}>Recordings</Link> page.
+            </LemonBanner>
             <div className="flex justify-between gap-2 mb-2 items-center flex-wrap">
                 <LemonInput
                     type="search"
