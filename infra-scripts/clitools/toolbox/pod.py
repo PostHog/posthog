@@ -89,8 +89,11 @@ def get_toolbox_pod(user: str, check_claimed: bool = True) -> tuple[str, bool]:
             # Wait before next check
             time.sleep(2)
 
+        except subprocess.CalledProcessError as e:
+            print(f"kubectl failed: {e.stderr or e}")  # noqa: T201
+            sys.exit(1)
         except Exception as e:
-            print(f"Error getting toolbox pod: {e}")  # noqa: T201
+            print(f"Unexpected error getting toolbox pod: {e}")  # noqa: T201
             sys.exit(1)
 
 
