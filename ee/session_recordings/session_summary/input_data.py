@@ -54,32 +54,26 @@ def _skip_event_without_context(
 ) -> bool:
     """
     Avoid events that don't add meaningful context and confuse the LLM.
+    # TODO: Check the assumptions, as could be risky, but worth it to avoid adding noise
     """
     event = cast(str, event_row[indexes["event"]])
     elements_chain_texts = event_row[indexes["elements_chain_texts"]]
     elements_chain_elements = event_row[indexes["elements_chain_elements"]]
     elements_chain_href = event_row[indexes["elements_chain_href"]]
     elements_chain_ids = event_row[indexes["elements_chain_ids"]]
-    # Skip autocapture events with no proper context
-    if event == "$autocapture":
-        if (
-            not elements_chain_texts
-            and not elements_chain_elements
-            and not elements_chain_href
-            and not elements_chain_ids
-        ):
-            return True
-    # Never skip system events
-    if event.startswith("$"):
-        return False
     # Never skip events with descriptive names
     if len(event.split(" ")) > 1 or len(event.split(".")) > 1 or len(event.split("_")) > 1:
         return False
-    # Skip the events with a short name or no context, assuming they aren't useful for the summary
-    # TODO: Check the assumption, as could be risky, but worth it to avoid adding noise
-    if not elements_chain_texts and not elements_chain_elements and not elements_chain_href and not elements_chain_ids:
-        return True
-    return False
+    # Keep events with at least some context
+    if elements_chain_texts or elements_chain_elements or elements_chain_href or elements_chain_ids:
+        return False
+    # Never skip system events (except empty autocapture)
+    if event.startswith("$") and event != "$autocapture":
+        return False
+    # Skip all remaining non-system events with short names and no context
+    # TODO: Add local only logging to check what events are being skipped,
+    # as the events structure changes from client to client
+    return True
 
 
 def add_context_and_filter_events(
