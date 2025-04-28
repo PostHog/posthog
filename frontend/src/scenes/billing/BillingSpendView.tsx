@@ -34,7 +34,7 @@ export function BillingSpendView(): JSX.Element {
     // Use spend logic
     const logic = billingSpendLogic({ dashboardItemId: 'spendView' }) // Updated key
     // Use spend response loading state
-    const { series, dates, filters, dateFrom, dateTo, billingSpendResponseLoading } = useValues(logic)
+    const { series, dates, filters, dateFrom, dateTo, billingSpendResponseLoading, dateOptions } = useValues(logic)
     const { setFilters, setDateRange } = useActions(logic)
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic) // Added
     const [userHiddenSeries, setUserHiddenSeries] = useState<number[]>([]) // Renamed
@@ -188,6 +188,7 @@ export function BillingSpendView(): JSX.Element {
                             dateFrom={dateFrom}
                             dateTo={dateTo}
                             onChange={(fromDate, toDate) => setDateRange(fromDate, toDate)}
+                            dateOptions={dateOptions}
                         />
                     </div>
                 </div>

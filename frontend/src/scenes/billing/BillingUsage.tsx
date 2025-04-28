@@ -25,7 +25,7 @@ const USAGE_TYPES = [
 
 export function BillingUsage(): JSX.Element {
     const logic = billingUsageLogic({ dashboardItemId: 'usage' })
-    const { series, dates, filters, dateFrom, dateTo, billingUsageResponseLoading } = useValues(logic)
+    const { series, dates, filters, dateFrom, dateTo, billingUsageResponseLoading, dateOptions } = useValues(logic)
     const { setFilters, setDateRange } = useActions(logic)
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
     const [userHiddenSeries, setUserHiddenSeries] = useState<number[]>([])
@@ -185,6 +185,7 @@ export function BillingUsage(): JSX.Element {
                             dateFrom={dateFrom}
                             dateTo={dateTo}
                             onChange={(fromDate, toDate) => setDateRange(fromDate, toDate)}
+                            dateOptions={dateOptions}
                         />
                     </div>
                 </div>

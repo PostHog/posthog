@@ -2,9 +2,12 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { toParams } from 'lib/utils'
+import { dateMapping, toParams } from 'lib/utils'
 import { organizationLogic } from 'scenes/organizationLogic'
 
+import { BillingType, DateMappingOption } from '~/types'
+
+import { billingLogic } from './billingLogic'
 import type { billingUsageLogicType } from './billingUsageLogicType'
 
 export interface BillingUsageResponse {
@@ -45,7 +48,7 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
     props({} as BillingUsageLogicProps),
     key(({ dashboardItemId }) => dashboardItemId || 'global'),
     connect({
-        values: [organizationLogic, ['currentOrganization']],
+        values: [organizationLogic, ['currentOrganization'], billingLogic, ['billing']],
     }),
     actions({
         setFilters: (filters: Partial<BillingUsageFilters>) => ({ filters }),
@@ -93,6 +96,30 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
         ],
     }),
     selectors({
+        dateOptions: [
+            (s) => [s.billing],
+            (billing: BillingType | null): DateMappingOption[] => {
+                const currentBillingPeriodStart = billing?.billing_period?.current_period_start
+                const currentBillingPeriodEnd = billing?.billing_period?.current_period_end
+                const currentBillingPeriodOption: DateMappingOption = {
+                    key: 'Current billing period',
+                    values: [
+                        currentBillingPeriodStart?.format('YYYY-MM-DD') || '',
+                        currentBillingPeriodEnd?.format('YYYY-MM-DD') || '',
+                    ],
+                    defaultInterval: 'day',
+                }
+                const previousBillingPeriodOption: DateMappingOption = {
+                    key: 'Previous billing period',
+                    values: [
+                        currentBillingPeriodStart?.subtract(1, 'month').format('YYYY-MM-DD') || '',
+                        currentBillingPeriodEnd?.subtract(1, 'month').format('YYYY-MM-DD') || '',
+                    ],
+                }
+                const dayAndMonthOptions = dateMapping.filter((o) => o.defaultInterval !== 'hour')
+                return [currentBillingPeriodOption, previousBillingPeriodOption, ...dayAndMonthOptions]
+            },
+        ],
         series: [
             (s) => [s.billingUsageResponse],
             (response: BillingUsageResponse | null) => {
