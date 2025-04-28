@@ -9,25 +9,19 @@ from ee.session_recordings.session_summary.utils import get_column_index, prepar
 
 @dataclasses.dataclass(frozen=True)
 class SessionSummaryMetadata:
-    active_seconds: int | None = None
-    inactive_seconds: int | None = None
     start_time: datetime | None = None
-    end_time: datetime | None = None
+    duration: int | None = None
+    console_error_count: int | None = None
+    active_seconds: int | None = None
     click_count: int | None = None
     keypress_count: int | None = None
     mouse_activity_count: int | None = None
-    console_log_count: int | None = None
-    console_warn_count: int | None = None
-    console_error_count: int | None = None
     start_url: str | None = None
-    activity_score: float | None = None
 
     def to_dict(self) -> dict:
         d = dataclasses.asdict(self)
         if self.start_time:
             d["start_time"] = self.start_time.isoformat()
-        if self.end_time:
-            d["end_time"] = self.end_time.isoformat()
         return d
 
 
@@ -45,11 +39,11 @@ class SessionSummaryPromptData:
 
     def load_session_data(
         self,
-        raw_session_events: list[list[Any]],
+        raw_session_events: list[tuple[str | datetime | list[str] | None, ...]],
         raw_session_metadata: dict[str, Any],
         raw_session_columns: list[str],
         session_id: str,
-    ) -> dict[str, list[Any]]:
+    ) -> dict[str, list[str | datetime | int | None]]:
         """
         Create session summary prompt data from session data, and return a mapping of event ids to events
         to combine events data with the LLM output (avoid LLM returning/hallucinating the event data in the output).
@@ -58,60 +52,92 @@ class SessionSummaryPromptData:
             raise ValueError(f"No session events provided for summarizing session_id {session_id}")
         if not raw_session_metadata:
             raise ValueError(f"No session metadata provided for summarizing session_id {session_id}")
-        self.columns = [*raw_session_columns, "event_id"]
+        self.columns = [*raw_session_columns, "event_id", "event_index"]
         self.metadata = self._prepare_metadata(raw_session_metadata)
         simplified_events_mapping: dict[str, list[Any]] = {}
         # Pick indexes as we iterate over arrays
         window_id_index = get_column_index(self.columns, "$window_id")
         current_url_index = get_column_index(self.columns, "$current_url")
         timestamp_index = get_column_index(self.columns, "timestamp")
-        event_id_index = len(self.columns) - 1
+        event_id_index = len(self.columns) - 2
+        event_index_index = len(self.columns) - 1
         # Iterate session events once to decrease the number of tokens in the prompt through mappings
-        for event in raw_session_events:
+        for i, event in enumerate(raw_session_events):
             # Copy the event to avoid mutating the original
-            simplified_event = [*list(event), None]
+            simplified_event: list[str | datetime | list[str] | int | None] = [*list(event), None, None]
             # Stringify timestamp to avoid datetime objects in the prompt
             if timestamp_index is not None:
-                simplified_event[timestamp_index] = event[timestamp_index].isoformat()
+                event_timestamp = event[timestamp_index]
+                if not isinstance(event_timestamp, datetime):
+                    raise ValueError(f"Timestamp is not a datetime: {event_timestamp}")
+                simplified_event[timestamp_index] = event_timestamp.isoformat()
             # Simplify Window IDs
             if window_id_index is not None:
-                simplified_event[window_id_index] = self._simplify_window_id(event[window_id_index])
+                event_window_id = event[window_id_index]
+                if event_window_id is None:
+                    # Non-browser events (like Python SDK ones) could have no window ID
+                    simplified_event[window_id_index] = None
+                elif not isinstance(event_window_id, str):
+                    raise ValueError(f"Window ID is not a string: {event_window_id}")
+                else:
+                    simplified_event[window_id_index] = self._simplify_window_id(event_window_id)
             # Simplify URLs
             if current_url_index is not None:
-                simplified_event[current_url_index] = self._simplify_url(event[current_url_index])
+                event_current_url = event[current_url_index]
+                if event_current_url is None:
+                    # Non-browser events (like Python SDK ones) could have no URL
+                    simplified_event[current_url_index] = None
+                elif not isinstance(event_current_url, str):
+                    raise ValueError(f"Current URL is not a string: {event_current_url}")
+                else:
+                    simplified_event[current_url_index] = self._simplify_url(event_current_url)
             # Generate a hex for each event to make sure we can identify repeated events, and identify the event
             event_id = self._get_deterministic_hex(simplified_event)
             if event_id in simplified_events_mapping:
                 # Skip repeated events
                 continue
             simplified_event[event_id_index] = event_id
+            simplified_event[event_index_index] = i
             simplified_events_mapping[event_id] = simplified_event
         self.results = list(simplified_events_mapping.values())
         return simplified_events_mapping
 
-    def _prepare_metadata(self, raw_session_metadata: dict[str, Any]) -> SessionSummaryMetadata:
-        # Remove excessive data
-        raw_session_metadata = raw_session_metadata.copy()  # Avoid mutating the original
-        for ef in ("distinct_id", "viewed", "recording_duration", "storage", "ongoing"):
-            raw_session_metadata.pop(ef, None)
-        # Start/end times should be always present
-        if "start_time" not in raw_session_metadata or "end_time" not in raw_session_metadata:
-            raise ValueError(f"start_time and end_time are required in session metadata: {raw_session_metadata}")
-        start_time = prepare_datetime(raw_session_metadata["start_time"])
-        end_time = prepare_datetime(raw_session_metadata["end_time"])
+    @staticmethod
+    def _prepare_metadata(raw_session_metadata: dict[str, Any]) -> SessionSummaryMetadata:
+        # Remove excessive data or fields that negatively impact the LLM performance
+        # For example, listing 114 errors, increases chances of error hallucination
+        session_metadata = raw_session_metadata.copy()  # Avoid mutating the original
+        allowed_fields = (
+            "start_time",
+            "duration",
+            "recording_duration",
+            "console_error_count",
+            "active_seconds",
+            "click_count",
+            "keypress_count",
+            "mouse_activity_count",
+            "start_url",
+        )
+        session_metadata = {k: v for k, v in session_metadata.items() if k in allowed_fields}
+        # Start time, duration and console error count should be always present
+        if "start_time" not in session_metadata:
+            raise ValueError(f"start_time is required in session metadata: {session_metadata}")
+        if "console_error_count" not in session_metadata:
+            raise ValueError(f"console_error_count is required in session metadata: {session_metadata}")
+        start_time = prepare_datetime(session_metadata["start_time"])
+        console_error_count = session_metadata["console_error_count"]
+        duration = session_metadata.get("duration") or session_metadata.get("recording_duration")
+        if duration is None:
+            raise ValueError(f"duration/recording_duration is required in session metadata: {session_metadata}")
         return SessionSummaryMetadata(
-            active_seconds=raw_session_metadata.get("active_seconds"),
-            inactive_seconds=raw_session_metadata.get("inactive_seconds"),
             start_time=start_time,
-            end_time=end_time,
-            click_count=raw_session_metadata.get("click_count"),
-            keypress_count=raw_session_metadata.get("keypress_count"),
-            mouse_activity_count=raw_session_metadata.get("mouse_activity_count"),
-            console_log_count=raw_session_metadata.get("console_log_count"),
-            console_warn_count=raw_session_metadata.get("console_warn_count"),
-            console_error_count=raw_session_metadata.get("console_error_count"),
-            start_url=raw_session_metadata.get("start_url"),
-            activity_score=raw_session_metadata.get("activity_score"),
+            duration=duration,
+            console_error_count=console_error_count,
+            active_seconds=session_metadata.get("active_seconds"),
+            click_count=session_metadata.get("click_count"),
+            keypress_count=session_metadata.get("keypress_count"),
+            mouse_activity_count=session_metadata.get("mouse_activity_count"),
+            start_url=session_metadata.get("start_url"),
         )
 
     def _simplify_window_id(self, window_id: str | None) -> str | None:
