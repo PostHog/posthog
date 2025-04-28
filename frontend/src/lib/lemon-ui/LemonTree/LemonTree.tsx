@@ -1312,7 +1312,9 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                 const element = containerRef.current?.querySelector(
                     `[data-id="${CSS.escape(defaultSelectedFolderOrNodeId)}"]`
                 ) as HTMLElement
-                element.focus()
+                if (element) {
+                    element.focus()
+                }
                 setSelectedId(defaultSelectedFolderOrNodeId)
             }
         }, [defaultSelectedFolderOrNodeId, hasFocusedContent])
