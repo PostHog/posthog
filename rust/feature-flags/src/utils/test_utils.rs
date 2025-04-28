@@ -550,7 +550,8 @@ pub async fn insert_personal_api_key_for_user(
     user_id: i32,
     key_plaintext: &str,
 ) -> Result<(), anyhow::Error> {
-    let secure_value = hash_key_value(key_plaintext, "sha256", None).unwrap();
+    let secure_value = hash_key_value(key_plaintext, "sha256", None)
+        .with_context(|| format!("Failed to hash key value for user ID {}", user_id))?;
     let mask_value = format!(
         "{}...{}",
         &key_plaintext[..4],
