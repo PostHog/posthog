@@ -9,7 +9,6 @@ import { posthog } from 'posthog-js'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
-import { match } from 'ts-pattern'
 
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { Query } from '~/queries/Query/Query'
@@ -80,13 +79,9 @@ export function ErrorTrackingScene(): JSX.Element {
 }
 
 const VolumeColumn: QueryContextColumnComponent = (props) => {
-    const { dateRange, sparklineSelectedPeriod, volumeResolution } = useValues(errorTrackingSceneLogic)
+    const { dateRange, volumeResolution } = useValues(errorTrackingSceneLogic)
     const record = props.record as ErrorTrackingIssue
-    const occurrences = match(sparklineSelectedPeriod)
-        .with('day', () => record.aggregations.volumeDay)
-        .with('custom', () => record.aggregations.volumeRange)
-        .exhaustive()
-    const data = useSparklineData(occurrences, dateRange, volumeResolution)
+    const data = useSparklineData(record.aggregations.volumeRange, dateRange, volumeResolution)
     return (
         <div className="flex justify-end">
             <OccurrenceSparkline className="h-8" data={data} displayXAxis={false} />
