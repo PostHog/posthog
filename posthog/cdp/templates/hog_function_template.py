@@ -50,6 +50,7 @@ class HogFunctionSubTemplate:
 
 @dataclasses.dataclass(frozen=True)
 class HogFunctionMapping:
+    name: Optional[str] = None
     filters: Optional[dict] = None
     inputs: Optional[dict] = None
     inputs_schema: Optional[list[dict]] = None

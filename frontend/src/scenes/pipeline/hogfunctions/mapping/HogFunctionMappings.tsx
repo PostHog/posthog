@@ -24,7 +24,7 @@ import { hogFunctionConfigurationLogic } from '../hogFunctionConfigurationLogic'
 import { HogFunctionInputs } from '../HogFunctionInputs'
 
 const humanize = (value: string): string => {
-    const fallback = typeof value === 'string' ? value ?? 'broken val' : 'broken val'
+    const fallback = typeof value === 'string' ? value ?? '' : ''
     // Simple replacement from something like MY_STRING-here to My string here
     return fallback
         .toLowerCase()
@@ -64,7 +64,9 @@ const MappingSummary = memo(function MappingSummary({
             </span>
             <IconArrowRight className="text-secondary" />
             <span>
-                {typeof firstInputValue === 'object' ? JSON.stringify(firstInputValue) : humanize(mapping.name ?? firstInputValue)}
+                {typeof firstInputValue === 'object'
+                    ? JSON.stringify(firstInputValue)
+                    : humanize(mapping.name ?? firstInputValue)}
             </span>
             <span className="flex-1" />
             {mapping.disabled ? <LemonTag type="danger">Disabled</LemonTag> : null}
