@@ -17,10 +17,9 @@ import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
 import { type ErrorTrackingAssignmentRule, errorTrackingAutoAssignmentLogic } from './errorTrackingAutoAssignmentLogic'
 
 export function ErrorTrackingAutoAssignment(): JSX.Element {
-    const logic = errorTrackingAutoAssignmentLogic({ startWithNewEditableRule: true })
-    const { allRules, initialLoadComplete, localRules, hasNewRule } = useValues(logic)
+    const { allRules, initialLoadComplete, localRules, hasNewRule } = useValues(errorTrackingAutoAssignmentLogic)
     const { loadRules, addRule, updateLocalRule, deleteRule, saveRule, setRuleEditable, unsetRuleEditable } =
-        useActions(logic)
+        useActions(errorTrackingAutoAssignmentLogic)
 
     useEffect(() => {
         loadRules()

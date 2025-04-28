@@ -1,4 +1,4 @@
-import { actions, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
@@ -15,7 +15,6 @@ export type ErrorTrackingAssignmentRule = {
 
 export const errorTrackingAutoAssignmentLogic = kea<errorTrackingAutoAssignmentLogicType>([
     path(['scenes', 'error-tracking', 'errorTrackingAutoAssignmentLogic']),
-    props({} as { startWithNewEditableRule: boolean }),
 
     actions({
         addRule: true,
@@ -69,18 +68,7 @@ export const errorTrackingAutoAssignmentLogic = kea<errorTrackingAutoAssignmentL
         ],
     })),
 
-    listeners(({ props, values, actions }) => ({
-        loadRulesSuccess: ({ assignmentRules }) => {
-            if (assignmentRules.length === 0 && props.startWithNewEditableRule) {
-                actions._setLocalRules([
-                    {
-                        id: 'new',
-                        assignee: null,
-                        filters: { type: FilterLogicalOperator.Or, values: [] },
-                    },
-                ])
-            }
-        },
+    listeners(({ values, actions }) => ({
         addRule: () => {
             actions._setLocalRules([
                 ...values.localRules,
