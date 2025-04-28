@@ -169,7 +169,7 @@ def stream_llm_session_summary(
                 )
                 yield sse_event_to_send
             except SummaryValidationError:
-                # We can except incorrect schemas because of incomplete chunks, ok to skip some.
+                # We can accept incorrect schemas because of incomplete chunks, ok to skip some.
                 # The stream should be retried only at the very end, when we have all the data.
                 continue
             except ValueError as err:
