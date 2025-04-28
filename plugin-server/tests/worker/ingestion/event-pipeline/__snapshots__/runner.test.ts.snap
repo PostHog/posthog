@@ -92,6 +92,12 @@ exports[`EventPipelineRunner runEventPipeline() runs steps starting from populat
         },
         "distinctId": "my_id",
         "methodCounts": {},
+        "options": {
+          "personCacheEnabledForChecks": true,
+          "personCacheEnabledForUpdates": true,
+        },
+        "personCache": {},
+        "personCheckCache": {},
         "token": "token1",
       },
     ],
