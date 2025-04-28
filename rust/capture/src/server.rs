@@ -51,13 +51,16 @@ async fn create_sink(
                     config.overflow_per_second_limit,
                     config.overflow_burst_limit,
                     config.ingestion_force_overflow_by_token_distinct_id.clone(),
+                    config.overflow_preserve_partition_locality,
                 );
+
                 if config.export_prometheus {
                     let partition = partition.clone();
                     tokio::spawn(async move {
                         partition.report_metrics().await;
                     });
                 }
+
                 {
                     // Ensure that the rate limiter state does not grow unbounded
                     let partition = partition.clone();

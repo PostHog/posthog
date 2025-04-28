@@ -49,6 +49,7 @@ import {
     TracesQuery,
     TrendsFormulaNode,
     TrendsQuery,
+    WebActiveHoursHeatMapQuery,
     WebGoalsQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
@@ -210,6 +211,10 @@ export function isRevenueExampleDataWarehouseTablesQuery(
 
 export function isErrorTrackingQuery(node?: Record<string, any> | null): node is ErrorTrackingQuery {
     return node?.kind === NodeKind.ErrorTrackingQuery
+}
+
+export function isWebActiveHoursHeatMapQuery(node?: Record<string, any> | null): node is WebActiveHoursHeatMapQuery {
+    return node?.kind === NodeKind.WebActiveHoursHeatMapQuery
 }
 
 export function containsHogQLQuery(node?: Record<string, any> | null): boolean {

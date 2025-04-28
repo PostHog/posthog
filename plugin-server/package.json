@@ -9,7 +9,7 @@
         "functional_tests": "jest --config ./jest.config.functional.js",
         "start": "pnpm start:dev",
         "start:dist": "BASE_DIR=.. node dist/index.js",
-        "start:dev": "NODE_ENV=dev BASE_DIR=.. nodemon --watch src/ --exec node -r @swc-node/register src/index.ts",
+        "start:dev": "NODE_ENV=dev BASE_DIR=.. nodemon --exitcrash --watch src/ --exec node -r @swc-node/register src/index.ts",
         "start:devNoWatch": "NODE_ENV=dev BASE_DIR=.. node -r @swc-node/register src/index.ts",
         "prestart:dev": "pnpm build:cyclotron",
         "prestart:devNoWatch": "pnpm build:cyclotron",

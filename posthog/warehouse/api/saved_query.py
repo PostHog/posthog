@@ -15,6 +15,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import SerializedField, create_hogql_database, serialize_fields
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
+from posthog.hogql.placeholders import FindPlaceholders
 from posthog.hogql.printer import print_ast
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.data_modeling.run_workflow import RunWorkflowInputs, Selector
@@ -185,6 +186,12 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
 
         context = HogQLContext(team_id=team_id, enable_select_queries=True)
         select_ast = parse_select(query["query"])
+
+        find_placeholders = FindPlaceholders()
+        find_placeholders.visit(select_ast)
+        if len(find_placeholders.found) > 0:
+            placeholder = find_placeholders.found.pop()
+            raise exceptions.ValidationError(detail=f"Variables like {'{'}{placeholder}{'}'} are not allowed in views")
 
         try:
             print_ast(

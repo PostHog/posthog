@@ -10,19 +10,38 @@
     --button-height-lg: 40px;
 }
 
+.button-primitive {
+    width: fit-content;
+}
+
 .button-primitive-height-sm {
     height: var(--button-height-sm);
+
+    &.icon-only {
+        width: var(--button-height-sm);
+    }
 }
 
 .button-primitive-height-base {
     height: var(--button-height-base);
+
+    &.icon-only {
+        width: var(--button-height-base);
+    }
 }
 
 .button-primitive-height-lg {
     height: var(--button-height-lg);
+
+    &.icon-only {
+        width: var(--button-height-lg);
+    }
 }
 
 .button-primitive-size-sm {
+    padding-right: var(--button-padding-x-sm);
+    padding-left: var(--button-padding-x-sm);
+
     svg {
         width: 12px;
         height: 12px;
@@ -30,6 +49,9 @@
 }
 
 .button-primitive-size-base {
+    padding-right: var(--button-padding-x-base);
+    padding-left: var(--button-padding-x-base);
+
     svg {
         width: 16px;
         height: 16px;
@@ -37,6 +59,9 @@
 }
 
 .button-primitive-size-lg {
+    padding-right: var(--button-padding-x-lg);
+    padding-left: var(--button-padding-x-lg);
+
     svg {
         width: 20px;
         height: 20px;

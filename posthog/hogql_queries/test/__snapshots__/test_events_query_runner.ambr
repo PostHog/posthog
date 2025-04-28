@@ -142,7 +142,7 @@
   SELECT tuple(events.uuid, events.event, events.properties, toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC')) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'))`
   FROM events
   WHERE and(equals(events.team_id, 99999), in(tuple(toTimeZone(events.timestamp, 'UTC'), events.event, cityHash64(events.distinct_id), cityHash64(events.uuid)),
-                                                (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp, events.event AS event, cityHash64(events.distinct_id) AS did, cityHash64(events.uuid) AS uuid
+                                                (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp, events.event AS event, cityHash64(events.distinct_id) AS `cityHash64(distinct_id)`, cityHash64(events.uuid) AS `cityHash64(uuid)`
                                                  FROM events
                                                  WHERE and(equals(events.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'some_prop'), ''), 'null'), '^"|"$', ''), 'a'), 0), equals(events.event, '$pageview'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')))
                                                  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC

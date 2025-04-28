@@ -12,9 +12,12 @@ import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
+import { useSaveUnder } from 'lib/components/SaveUnder/SaveUnder'
+import { SaveUnderLogicProps } from 'lib/components/SaveUnder/saveUnderLogic'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -22,6 +25,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { useState } from 'react'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
@@ -41,6 +45,7 @@ import { tagsModel } from '~/models/tagsModel'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { isDataTableNode, isDataVisualizationNode, isEventsQuery, isHogQLQuery } from '~/queries/utils'
 import {
+    AccessControlLevel,
     AccessControlResourceType,
     ExporterFormat,
     InsightLogicProps,
@@ -82,6 +87,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
     // other logics
     useMountedLogic(insightCommandLogic(insightProps))
+    const { featureFlags } = useValues(featureFlagLogic)
     const { tags: allExistingTags } = useValues(tagsModel)
     const { user } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
@@ -94,8 +100,17 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const showCohortButton =
         isDataTableNode(query) || isDataVisualizationNode(query) || isHogQLQuery(query) || isEventsQuery(query)
 
+    const saveUnderProps: SaveUnderLogicProps = {
+        defaultFolder: 'Unfiled/Insights',
+        type: 'insight',
+        onSave: saveInsight,
+    }
+    const { selectedFolder, openModal, SaveUnderModal } = useSaveUnder(saveUnderProps)
+    const canSaveUnder = !selectedFolder && featureFlags[FEATURE_FLAGS.TREE_VIEW] && !insight.short_id
+
     return (
         <>
+            {canSaveUnder ? <SaveUnderModal /> : null}
             {hasDashboardItemId && (
                 <>
                     <SubscriptionsModal
@@ -181,11 +196,12 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 <AddToDashboard insight={insight} setOpenModal={setAddToDashboardModalOpenModal} />
                             </>
                         )}
+
                         {insightMode !== ItemMode.Edit ? (
                             canEditInsight && (
                                 <AccessControlledLemonButton
                                     userAccessLevel={insight.user_access_level}
-                                    minAccessLevel="editor"
+                                    minAccessLevel={AccessControlLevel.Editor}
                                     resourceType={AccessControlResourceType.Insight}
                                     type="primary"
                                     onClick={() => {
@@ -204,6 +220,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             <InsightSaveButton
                                 saveAs={saveAs}
                                 saveInsight={saveInsight}
+                                saveUnder={canSaveUnder ? openModal : undefined}
                                 isSaved={hasDashboardItemId}
                                 addingToDashboard={!!insight.dashboards?.length && !insight.id}
                                 insightSaving={insightSaving}
@@ -379,7 +396,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                             <LemonDivider />
                                             <AccessControlledLemonButton
                                                 userAccessLevel={insight.user_access_level}
-                                                minAccessLevel="editor"
+                                                minAccessLevel={AccessControlLevel.Editor}
                                                 resourceType={AccessControlResourceType.Insight}
                                                 status="danger"
                                                 onClick={() =>

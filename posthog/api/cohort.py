@@ -13,7 +13,7 @@ from posthog.models.feature_flag.flag_matching import (
     FlagsMatcherCache,
     get_feature_flag_hash_key_overrides,
 )
-from posthog.models.person.person import PersonDistinctId
+from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId
 from posthog.models.property.property import Property, PropertyGroup
 from posthog.models.team.team import Team
 from posthog.queries.base import property_group_to_Q
@@ -715,7 +715,8 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
         # We pre-filter all persons to be ones that will match the feature flag, so that we don't have to
         # iterate through all persons
         queryset = (
-            Person.objects.filter(team_id=team_id)
+            Person.objects.db_manager(READ_DB_FOR_PERSONS)
+            .filter(team_id=team_id)
             .filter(property_group_to_Q(team_id, flag_property_group, cohorts_cache=cohorts_cache))
             .order_by("id")
         )
@@ -729,14 +730,18 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
             #     "distinct_id", flat=True
             # )[0]
             distinct_id_subquery = Subquery(
-                PersonDistinctId.objects.filter(person_id=OuterRef("person_id")).values_list("id", flat=True)[:3]
+                PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
+                .filter(person_id=OuterRef("person_id"))
+                .values_list("id", flat=True)[:3]
             )
             prefetch_related_objects(
                 batch_of_persons,
                 Prefetch(
                     "persondistinctid_set",
                     to_attr="distinct_ids_cache",
-                    queryset=PersonDistinctId.objects.filter(id__in=distinct_id_subquery),
+                    queryset=PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS).filter(
+                        id__in=distinct_id_subquery
+                    ),
                 ),
             )
 

@@ -14,7 +14,6 @@ from rest_framework import status, viewsets
 from rest_framework.exceptions import NotAuthenticated, ValidationError, Throttled
 from rest_framework.request import Request
 from rest_framework.response import Response
-from sentry_sdk import set_tag
 from asgiref.sync import sync_to_async
 from concurrent.futures import ThreadPoolExecutor
 
@@ -258,7 +257,6 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             return
 
         tag_queries(client_query_id=query_id)
-        set_tag("client_query_id", query_id)
 
 
 MAX_QUERY_TIMEOUT = 600

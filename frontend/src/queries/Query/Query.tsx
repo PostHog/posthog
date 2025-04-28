@@ -1,7 +1,12 @@
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { RevenueAnalyticsOverviewNode } from 'products/revenue_analytics/frontend/nodes'
+import {
+    RevenueAnalyticsGrowthRateNode,
+    RevenueAnalyticsOverviewNode,
+    RevenueAnalyticsTopCustomersNode,
+} from 'products/revenue_analytics/frontend/nodes'
 import { useEffect, useState } from 'react'
 import { HogDebug } from 'scenes/debug/HogDebug'
+import { EventsHeatMap } from 'scenes/web-analytics/EventsHeatMap/EventsHeatMap'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { DataNode } from '~/queries/nodes/DataNode/DataNode'
@@ -29,8 +34,11 @@ import {
     isDataVisualizationNode,
     isHogQuery,
     isInsightVizNode,
+    isRevenueAnalyticsGrowthRateQuery,
     isRevenueAnalyticsOverviewQuery,
+    isRevenueAnalyticsTopCustomersQuery,
     isSavedInsightNode,
+    isWebActiveHoursHeatMapQuery,
     isWebOverviewQuery,
     isWebVitalsPathBreakdownQuery,
     isWebVitalsQuery,
@@ -147,6 +155,18 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
         component = (
             <RevenueAnalyticsOverviewNode query={query} cachedResults={props.cachedResults} context={queryContext} />
         )
+    } else if (isRevenueAnalyticsTopCustomersQuery(query)) {
+        component = (
+            <RevenueAnalyticsTopCustomersNode
+                query={query}
+                cachedResults={props.cachedResults}
+                context={queryContext}
+            />
+        )
+    } else if (isRevenueAnalyticsGrowthRateQuery(query)) {
+        component = (
+            <RevenueAnalyticsGrowthRateNode query={query} cachedResults={props.cachedResults} context={queryContext} />
+        )
     } else if (isWebOverviewQuery(query)) {
         component = <WebOverview query={query} cachedResults={props.cachedResults} context={queryContext} />
     } else if (isWebVitalsQuery(query)) {
@@ -155,6 +175,8 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
         component = <WebVitalsPathBreakdown query={query} cachedResults={props.cachedResults} context={queryContext} />
     } else if (isHogQuery(query)) {
         component = <HogDebug query={query} setQuery={setQuery as (query: any) => void} queryKey={String(uniqueKey)} />
+    } else if (isWebActiveHoursHeatMapQuery(query)) {
+        component = <EventsHeatMap query={query} context={queryContext} cachedResults={props.cachedResults} />
     } else {
         component = <DataNode query={query} cachedResults={props.cachedResults} />
     }

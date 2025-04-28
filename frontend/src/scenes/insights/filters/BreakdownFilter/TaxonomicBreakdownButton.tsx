@@ -30,6 +30,11 @@ export function TaxonomicBreakdownButton({
                 sideIcon={null}
                 disabledReason={disabledReason}
                 size={size}
+                tooltipDocLink={
+                    taxonomicBreakdownType === TaxonomicFilterGroupType.CohortsWithAllUsers
+                        ? 'https://posthog.com/docs/product-analytics/trends/breakdowns#cohorts-and-breakdowns'
+                        : 'https://posthog.com/docs/product-analytics/trends/breakdowns'
+                }
             >
                 {taxonomicBreakdownType === TaxonomicFilterGroupType.CohortsWithAllUsers
                     ? 'Add cohort'

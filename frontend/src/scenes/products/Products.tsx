@@ -83,7 +83,7 @@ export function Products(): JSX.Element {
     const { selectedProducts, firstProductOnboarding } = useValues(productsLogic)
 
     return (
-        <div className="flex flex-col flex-1 w-full p-4 items-center justify-center bg-primary">
+        <div className="flex flex-col flex-1 w-full h-full p-4 items-center justify-center bg-primary">
             <>
                 <div className="flex flex-col justify-center flex-grow items-center">
                     <div className="mb-2">

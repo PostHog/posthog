@@ -47,6 +47,7 @@ import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNonEmptyObject } from 'lib/utils'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
+import { getAppContext } from 'lib/utils/getAppContext'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -59,6 +60,7 @@ import { urls } from 'scenes/urls'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { isNodeWithSource } from '~/queries/utils'
 import {
+    AccessControlLevel,
     AccessControlResourceType,
     ActivityScope,
     InsightType,
@@ -81,6 +83,7 @@ export interface InsightTypeMetadata {
     tooltipDescription?: string
     icon: (props?: any) => JSX.Element | null
     inMenu: boolean
+    tooltipDocLink?: string
 }
 
 export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
@@ -89,30 +92,35 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         description: 'Visualize and break down how actions or events vary over time.',
         icon: IconTrends,
         inMenu: true,
+        tooltipDocLink: 'https://posthog.com/docs/product-analytics/trends/overview',
     },
     [NodeKind.FunnelsQuery]: {
         name: 'Funnel',
         description: 'Discover how many users complete or drop out of a sequence of actions.',
         icon: IconFunnels,
         inMenu: true,
+        tooltipDocLink: 'https://posthog.com/docs/product-analytics/funnels',
     },
     [NodeKind.RetentionQuery]: {
         name: 'Retention',
         description: 'See how many users return on subsequent days after an initial action.',
         icon: IconRetention,
         inMenu: true,
+        tooltipDocLink: 'https://posthog.com/docs/product-analytics/retention',
     },
     [NodeKind.PathsQuery]: {
         name: 'Paths',
         description: 'Trace the journeys users take within your product and where they drop off.',
         icon: IconUserPaths,
         inMenu: true,
+        tooltipDocLink: 'https://posthog.com/docs/product-analytics/paths',
     },
     [NodeKind.StickinessQuery]: {
         name: 'Stickiness',
         description: 'See what keeps users coming back by viewing the interval between repeated actions.',
         icon: IconStickiness,
         inMenu: true,
+        tooltipDocLink: 'https://posthog.com/docs/product-analytics/stickiness',
     },
     [NodeKind.LifecycleQuery]: {
         name: 'Lifecycle',
@@ -121,6 +129,7 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
             "Understand growth by breaking down new, resurrected, returning and dormant users. Doesn't include anonymous events and users/groups appear as new when they are first identified.",
         icon: IconLifecycle,
         inMenu: true,
+        tooltipDocLink: 'https://posthog.com/docs/product-analytics/lifecycle',
     },
     [NodeKind.FunnelCorrelationQuery]: {
         name: 'Funnel Correlation',
@@ -423,6 +432,11 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconHogQL,
         inMenu: false,
     },
+    [NodeKind.WebActiveHoursHeatMapQuery]: {
+        name: 'Active Hours Heat Map',
+        icon: IconHogQL,
+        inMenu: false,
+    },
 }
 
 export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = {
@@ -486,7 +500,7 @@ export function InsightIcon({
 
 export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Element {
     return (
-        <LemonButton
+        <AccessControlledLemonButton
             type="primary"
             to={urls.insightNew()}
             sideAction={{
@@ -501,9 +515,12 @@ export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Eleme
             data-attr="saved-insights-new-insight-button"
             size="small"
             icon={<IconPlusSmall />}
+            resourceType={AccessControlResourceType.Insight}
+            minAccessLevel={AccessControlLevel.Editor}
+            userAccessLevel={getAppContext()?.resource_access_control?.[AccessControlResourceType.Insight]}
         >
             New insight
-        </LemonButton>
+        </AccessControlledLemonButton>
     )
 }
 
@@ -586,7 +603,7 @@ export function SavedInsights(): JSX.Element {
 
                                     <AccessControlledLemonButton
                                         userAccessLevel={insight.user_access_level}
-                                        minAccessLevel="editor"
+                                        minAccessLevel={AccessControlLevel.Editor}
                                         resourceType={AccessControlResourceType.Insight}
                                         className="ml-1"
                                         size="xsmall"
@@ -657,7 +674,7 @@ export function SavedInsights(): JSX.Element {
 
                                 <AccessControlledLemonButton
                                     userAccessLevel={insight.user_access_level}
-                                    minAccessLevel="editor"
+                                    minAccessLevel={AccessControlLevel.Editor}
                                     resourceType={AccessControlResourceType.Insight}
                                     to={urls.insightEdit(insight.short_id)}
                                     fullWidth
@@ -667,7 +684,7 @@ export function SavedInsights(): JSX.Element {
 
                                 <AccessControlledLemonButton
                                     userAccessLevel={insight.user_access_level}
-                                    minAccessLevel="editor"
+                                    minAccessLevel={AccessControlLevel.Editor}
                                     resourceType={AccessControlResourceType.Insight}
                                     onClick={() => renameInsight(insight)}
                                     data-attr={`insight-item-${insight.short_id}-dropdown-rename`}
@@ -688,7 +705,7 @@ export function SavedInsights(): JSX.Element {
 
                                 <AccessControlledLemonButton
                                     userAccessLevel={insight.user_access_level}
-                                    minAccessLevel="editor"
+                                    minAccessLevel={AccessControlLevel.Editor}
                                     resourceType={AccessControlResourceType.Insight}
                                     status="danger"
                                     onClick={() =>

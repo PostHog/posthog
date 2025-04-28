@@ -55,6 +55,7 @@ import {
     InsightLogicProps,
     InsightType,
     IntervalType,
+    PropertyFilterBaseValue,
     PropertyFilterType,
     PropertyMathType,
     PropertyOperator,
@@ -83,6 +84,7 @@ export enum TileId {
     SOURCES = 'SOURCES',
     DEVICES = 'DEVICES',
     GEOGRAPHY = 'GEOGRAPHY',
+    ACTIVE_HOURS = 'ACTIVE_HOURS',
     RETENTION = 'RETENTION',
     REPLAY = 'REPLAY',
     ERROR_TRACKING = 'ERROR_TRACKING',
@@ -133,15 +135,14 @@ const loadPriorityMap: Record<TileId, number> = {
     [TileId.SOURCES]: 4,
     [TileId.DEVICES]: 5,
     [TileId.GEOGRAPHY]: 6,
-    [TileId.RETENTION]: 7,
-    [TileId.REPLAY]: 8,
-    [TileId.ERROR_TRACKING]: 9,
-    [TileId.GOALS]: 10,
-    [TileId.WEB_VITALS_PATH_BREAKDOWN]: 11,
-
-    // Web Vitals
-    [TileId.WEB_VITALS]: 11,
-    [TileId.FRUSTRATING_PAGES]: 13,
+    [TileId.ACTIVE_HOURS]: 7,
+    [TileId.RETENTION]: 8,
+    [TileId.REPLAY]: 9,
+    [TileId.ERROR_TRACKING]: 10,
+    [TileId.GOALS]: 11,
+    [TileId.WEB_VITALS]: 12,
+    [TileId.WEB_VITALS_PATH_BREAKDOWN]: 13,
+    [TileId.FRUSTRATING_PAGES]: 14,
 
     // Page Report Sections
     [TileId.PAGE_REPORTS_COMBINED_METRICS_CHART_SECTION]: 1,
@@ -272,7 +273,12 @@ export enum GeographyTab {
     REGIONS = 'REGIONS',
     CITIES = 'CITIES',
     TIMEZONES = 'TIMEZONES',
+    HEATMAP = 'HEATMAP',
     LANGUAGES = 'LANGUAGES',
+}
+
+export enum ActiveHoursTab {
+    NORMAL = 'NORMAL',
 }
 
 export enum ConversionGoalWarning {
@@ -398,6 +404,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 deviceTab?: string
                 pathTab?: string
                 geographyTab?: string
+                activeHoursTab?: string
             }
         ) => ({ type, key, value, tabChange }),
         setGraphsTab: (tab: string) => ({ tab }),
@@ -405,6 +412,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         setDeviceTab: (tab: string) => ({ tab }),
         setPathTab: (tab: string) => ({ tab }),
         setGeographyTab: (tab: string) => ({ tab }),
+        setActiveHoursTab: (tab: string) => ({ tab }),
         setDomainFilter: (domain: string | null) => ({ domain }),
         setDeviceTypeFilter: (deviceType: DeviceType | null) => ({ deviceType }),
         clearTablesOrderBy: () => true,
@@ -465,7 +473,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     if (similarFilterExists) {
                         // if there's already a matching property, turn it off or merge them
                         return oldPropertyFilters
-                            .map((f) => {
+                            .map((f: WebAnalyticsPropertyFilter) => {
                                 if (
                                     f.key !== key ||
                                     f.type !== type ||
@@ -474,7 +482,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     return f
                                 }
                                 const oldValue = (Array.isArray(f.value) ? f.value : [f.value]).filter(isNotNil)
-                                let newValue: (string | number | bigint)[]
+                                let newValue: PropertyFilterBaseValue[]
                                 if (oldValue.includes(value)) {
                                     // If there are multiple values for this filter, reduce that to just the one being clicked
                                     if (oldValue.length > 1) {
@@ -586,6 +594,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             {
                 setGeographyTab: (_, { tab }) => tab,
                 togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.geographyTab || oldTab,
+            },
+        ],
+        _activeHoursTab: [
+            null as string | null,
+            persistConfig,
+            {
+                setActiveHoursTab: (_, { tab }) => tab,
             },
         ],
         _isPathCleaningEnabled: [
@@ -739,6 +754,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         deviceTab: [(s) => [s._deviceTab], (deviceTab: string | null) => deviceTab || DeviceTab.DEVICE_TYPE],
         pathTab: [(s) => [s._pathTab], (pathTab: string | null) => pathTab || PathTab.PATH],
         geographyTab: [(s) => [s._geographyTab], (geographyTab: string | null) => geographyTab || GeographyTab.MAP],
+        activeHoursTab: [
+            (s) => [s._activeHoursTab],
+            (activeHoursTab: string | null) => activeHoursTab || ActiveHoursTab.NORMAL,
+        ],
         isPathCleaningEnabled: [
             (s) => [s._isPathCleaningEnabled, s.hasAvailableFeature],
             (isPathCleaningEnabled: boolean, hasAvailableFeature) => {
@@ -814,14 +833,16 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 s.deviceTab,
                 s.pathTab,
                 s.geographyTab,
+                s.activeHoursTab,
                 () => values.shouldShowGeographyTile,
             ],
-            (graphsTab, sourceTab, deviceTab, pathTab, geographyTab, shouldShowGeographyTile) => ({
+            (graphsTab, sourceTab, deviceTab, pathTab, geographyTab, activeHoursTab, shouldShowGeographyTile) => ({
                 graphsTab,
                 sourceTab,
                 deviceTab,
                 pathTab,
                 geographyTab,
+                activeHoursTab,
                 shouldShowGeographyTile,
             }),
         ],
@@ -877,7 +898,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             ],
             (
                 productTab,
-                { graphsTab, sourceTab, deviceTab, pathTab, geographyTab, shouldShowGeographyTile },
+                { graphsTab, sourceTab, deviceTab, pathTab, geographyTab, shouldShowGeographyTile, activeHoursTab },
                 { isPathCleaningEnabled, filterTestAccounts, shouldStripQueryParams },
                 {
                     webAnalyticsFilters,
@@ -944,14 +965,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     : undefined
 
                 // the queries don't currently include revenue when the conversion goal is an action
-                const includeRevenue =
-                    !!featureFlags[FEATURE_FLAGS.WEB_REVENUE_TRACKING] &&
-                    !(conversionGoal && 'actionId' in conversionGoal)
+                const includeRevenue = !(conversionGoal && 'actionId' in conversionGoal)
 
                 const revenueEventsSeries: EventsNode[] =
-                    includeRevenue && currentTeam?.revenue_tracking_config
+                    includeRevenue && currentTeam?.revenue_analytics_config
                         ? ([
-                              ...currentTeam.revenue_tracking_config.events.map((e) => ({
+                              ...currentTeam.revenue_analytics_config.events.map((e) => ({
                                   name: e.eventName,
                                   event: e.eventName,
                                   custom_name: e.eventName,
@@ -1812,6 +1831,53 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               },
                           }
                         : null,
+                    featureFlags[FEATURE_FLAGS.ACTIVE_HOURS_HEATMAP]
+                        ? {
+                              kind: 'tabs',
+                              tileId: TileId.ACTIVE_HOURS,
+                              layout: {
+                                  colSpanClassName: 'md:col-span-full',
+                              },
+                              activeTabId: activeHoursTab,
+                              setTabId: actions.setActiveHoursTab,
+                              tabs: [
+                                  {
+                                      id: ActiveHoursTab.NORMAL,
+                                      title: 'Active hours',
+                                      linkText: 'Active hours',
+                                      canOpenModal: true,
+                                      query: {
+                                          kind: NodeKind.WebActiveHoursHeatMapQuery,
+                                          properties: webAnalyticsFilters,
+                                          dateRange,
+                                      },
+                                      docs: {
+                                          url: 'https://posthog.com/docs/web-analytics/dashboard#active-hours',
+                                          title: 'Active hours',
+                                          description: (
+                                              <>
+                                                  <div>
+                                                      <p>
+                                                          Active hours displays a heatmap showing the number of unique
+                                                          users who performed any pageview event, broken down by hour of
+                                                          the day and day of the week.
+                                                      </p>
+                                                      <p>
+                                                          Note: It is expected that selecting a time range longer than 7
+                                                          days will include additional occurrences of weekdays and
+                                                          hours, potentially increasing the user counts in those
+                                                          buckets. The recommendation is to select 7 closed days or
+                                                          multiple of 7 closed day ranges.
+                                                      </p>
+                                                  </div>
+                                              </>
+                                          ),
+                                      },
+                                      insightProps: createInsightProps(TileId.ACTIVE_HOURS, ActiveHoursTab.NORMAL),
+                                  },
+                              ],
+                          }
+                        : null,
                     // Hiding if conversionGoal is set already because values aren't representative
                     !conversionGoal
                         ? {
@@ -2342,6 +2408,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             setGraphsTab: stateToUrl,
             setPathTab: stateToUrl,
             setGeographyTab: stateToUrl,
+            setActiveHoursTab: stateToUrl,
             setCompareFilter: stateToUrl,
             setProductTab: stateToUrl,
             setWebVitalsPercentile: stateToUrl,
@@ -2367,6 +2434,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 graphs_tab,
                 path_tab,
                 geography_tab,
+                active_hours_tab,
                 path_cleaning,
                 filter_test_accounts,
                 compare_filter,
@@ -2425,6 +2493,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             }
             if (geography_tab && geography_tab !== values._geographyTab) {
                 actions.setGeographyTab(geography_tab)
+            }
+            if (active_hours_tab && active_hours_tab !== values._activeHoursTab) {
+                actions.setActiveHoursTab(active_hours_tab)
             }
             if (path_cleaning && path_cleaning !== values.isPathCleaningEnabled) {
                 actions.setIsPathCleaningEnabled([true, 'true', 1, '1'].includes(path_cleaning))

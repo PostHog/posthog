@@ -65,6 +65,13 @@ class StringDatabaseField(DatabaseField):
         return StringType(nullable=self.is_nullable())
 
 
+class UnknownDatabaseField(DatabaseField):
+    def get_constant_type(self) -> "ConstantType":
+        from posthog.hogql.ast import UnknownType
+
+        return UnknownType(nullable=self.is_nullable())
+
+
 class StringJSONDatabaseField(DatabaseField):
     def get_constant_type(self) -> "ConstantType":
         from posthog.hogql.ast import StringType

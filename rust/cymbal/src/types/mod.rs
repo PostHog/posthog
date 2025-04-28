@@ -62,6 +62,7 @@ pub struct RawErrProps {
     pub other: HashMap<String, Value>,
 }
 
+#[derive(Debug, Clone)]
 pub struct FingerprintedErrProps {
     pub exception_list: Vec<Exception>,
     pub fingerprint: String,
@@ -86,7 +87,10 @@ pub struct OutputErrProps {
     #[serde(flatten)]
     pub other: HashMap<String, Value>,
 
-    // Search metadata
+    // Metadata
+    #[serde(rename = "$exception_handled")]
+    pub handled: bool,
+    // Search metadata (materialized)
     #[serde(rename = "$exception_types")]
     pub types: Vec<String>,
     #[serde(rename = "$exception_values")]
@@ -191,6 +195,13 @@ impl FingerprintedErrProps {
             Some(e.exception_message.clone())
         });
 
+        let handled = self
+            .exception_list
+            .first()
+            .and_then(|e| e.mechanism.as_ref())
+            .and_then(|m| m.handled)
+            .unwrap_or(false);
+
         OutputErrProps {
             exception_list: self.exception_list,
             fingerprint: self.fingerprint,
@@ -203,6 +214,7 @@ impl FingerprintedErrProps {
             values,
             sources,
             functions,
+            handled,
         }
     }
 }
