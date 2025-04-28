@@ -86,13 +86,15 @@ export function ErrorTrackingAutoAssignment(): JSX.Element {
                             <PropertyFilters
                                 editable={editable}
                                 propertyFilters={(rule.filters.values as AnyPropertyFilter[]) ?? []}
-                                taxonomicGroupTypes={[TaxonomicFilterGroupType.ErrorTrackingIssues]}
+                                taxonomicGroupTypes={[
+                                    TaxonomicFilterGroupType.ErrorTrackingIssueProperties,
+                                    TaxonomicFilterGroupType.EventProperties,
+                                ]}
                                 onChange={(properties: AnyPropertyFilter[]) =>
                                     updateLocalRule({ ...rule, filters: { ...rule.filters, values: properties } })
                                 }
                                 pageKey={`error-tracking-auto-assignment-properties-${rule.id}`}
                                 buttonSize="small"
-                                excludedProperties={{ [TaxonomicFilterGroupType.ErrorTrackingIssues]: ['assignee'] }}
                                 propertyGroupType={rule.filters.type}
                                 hasRowOperator={false}
                                 disablePopover

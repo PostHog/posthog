@@ -444,9 +444,6 @@ def property_to_expr(
             chain = ["session"]
         elif property.type == "session" and scope == "session":
             chain = ["sessions"]
-        elif property.type == "error_tracking_issue" or property.type == "error_tracking_issue_property":
-            # TODO - I'm not sure what the distinction between error_tracking_issue and error_tracking_issue_property is
-            chain = ["issue"]
         else:
             chain = ["properties"]
 

@@ -3529,20 +3529,22 @@
         "assignee": {
             "label": "Assignee",
             "description": "The current assignee of an issue."
-        },
-        "exception_type": {
+        }
+    },
+    "error_tracking_issue_properties": {
+        "$exception_types": {
             "label": "Exception type",
             "description": "The type of the exception."
         },
-        "exception_message": {
+        "$exception_values": {
             "label": "Exception message",
             "description": "The description of the exception."
         },
-        "exception_function": {
+        "$exception_functions": {
             "label": "Exception function",
             "description": "A function contained in the exception."
         },
-        "exception_source": {
+        "$exception_sources": {
             "label": "Exception source",
             "description": "A source file included in the exception."
         }
