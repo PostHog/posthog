@@ -8,6 +8,7 @@ import { timeoutGuard } from '../../../utils/db/utils'
 import { normalizeProcessPerson } from '../../../utils/event'
 import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
+import { PersonsStoreForDistinctIdBatch } from '../persons/persons-store-for-distinct-id-batch'
 import { EventsProcessor } from '../process-event'
 import { captureIngestionWarning, generateEventDeadLetterQueueMessage } from '../utils'
 import { cookielessServerHashStep } from './cookielessServerHashStep'
@@ -57,18 +58,21 @@ export class EventPipelineRunner {
     eventsProcessor: EventsProcessor
     hogTransformer: HogTransformerService | null
     breadcrumbs: KafkaConsumerBreadcrumb[]
+    personsStoreForDistinctId: PersonsStoreForDistinctIdBatch
 
     constructor(
         hub: Hub,
         event: PipelineEvent,
         hogTransformer: HogTransformerService | null = null,
-        breadcrumbs: KafkaConsumerBreadcrumb[] = []
+        breadcrumbs: KafkaConsumerBreadcrumb[] = [],
+        personsStoreForDistinctId: PersonsStoreForDistinctIdBatch
     ) {
         this.hub = hub
         this.originalEvent = event
         this.eventsProcessor = new EventsProcessor(hub)
         this.hogTransformer = hogTransformer
         this.breadcrumbs = breadcrumbs
+        this.personsStoreForDistinctId = personsStoreForDistinctId
     }
 
     isEventDisallowed(event: PipelineEvent): boolean {
@@ -267,7 +271,7 @@ export class EventPipelineRunner {
 
         const [postPersonEvent, person, personKafkaAck] = await this.runStep(
             processPersonsStep,
-            [this, normalizedEvent, team, timestamp, processPerson],
+            [this, normalizedEvent, team, timestamp, processPerson, this.personsStoreForDistinctId],
             event.team_id
         )
         kafkaAcks.push(personKafkaAck)
