@@ -84,8 +84,8 @@ function QueryDiffViewer({ before, after }: QueryDiffViewerProps): JSX.Element {
         <div ref={containerRef} className="flex flex-col space-y-2 w-full">
             <MonacoDiffEditor
                 key="diff-viewer"
-                original={before?.query}
-                modified={after?.query}
+                original={before?.query ?? ''}
+                modified={after?.query ?? ''}
                 language="hogQL"
                 width={width}
                 options={{
