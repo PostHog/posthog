@@ -59,6 +59,7 @@ export const CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS = [
     'custom_limits.product_analytics',
     'custom_limits.session_replay',
     'custom_limits.surveys',
+    'custom_limits.error_tracking',
     'custom_limits_usd.data_warehouse',
     'custom_limits_usd.feature_flags',
     'custom_limits_usd.integrations',
@@ -66,6 +67,7 @@ export const CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS = [
     'custom_limits_usd.product_analytics',
     'custom_limits_usd.session_replay',
     'custom_limits_usd.surveys',
+    'custom_limits_usd.error_tracking',
     'free_allocation.data_warehouse',
     'free_allocation.feature_flags',
     'free_allocation.integrations',
@@ -136,5 +138,5 @@ export type KNOWN_PROMOTED_PROPERTY_PARENTS = keyof typeof POSTHOG_EVENT_PROMOTE
 export function isPostHogProperty(propertyKey: string, isCloudOrDev: boolean | undefined = false): boolean {
     const isPostHogProperty = propertyKey.startsWith('$') || PROPERTY_KEYS.includes(propertyKey)
     const isNonDollarPostHogProperty = isCloudOrDev && CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS.includes(propertyKey)
-    return !isPostHogProperty && !isNonDollarPostHogProperty
+    return isPostHogProperty || isNonDollarPostHogProperty
 }

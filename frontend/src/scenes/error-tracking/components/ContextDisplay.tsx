@@ -2,6 +2,7 @@ import { IconCopy } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 import { concatValues } from 'lib/components/Errors/utils'
 import useIsHovering from 'lib/hooks/useIsHovering'
+import { identifierToHuman } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { Properties } from 'posthog-js'
@@ -32,20 +33,23 @@ export function ContextDisplay({
                     </div>
                 ))
                 .with(false, () => {
-                    const additionalEntries = Object.entries(additionalProperties)
+                    const additionalEntries = Object.entries(additionalProperties).map(
+                        ([key, value]) => [identifierToHuman(key, 'title'), value] as [string, unknown]
+                    )
+                    const exceptionEntries =
+                        attributes &&
+                        ([
+                            ['Level', attributes.level],
+                            ['Synthetic', attributes.synthetic],
+                            ['Library', concatValues(attributes, 'lib', 'libVersion')],
+                            ['Handled', attributes.handled],
+                            ['Browser', concatValues(attributes, 'browser', 'browserVersion')],
+                            ['OS', concatValues(attributes, 'os', 'osVersion')],
+                            ['URL', attributes.url],
+                        ] as [string, unknown][])
                     return (
                         <div className="space-y-2">
-                            <ContextTable
-                                entries={[
-                                    ['Level', attributes?.level],
-                                    ['Synthetic', attributes?.synthetic],
-                                    ['Library', concatValues(attributes, 'lib', 'libVersion')],
-                                    ['Handled', attributes?.handled],
-                                    ['Browser', concatValues(attributes, 'browser', 'browserVersion')],
-                                    ['OS', concatValues(attributes, 'os', 'osVersion')],
-                                    ['URL', attributes?.url],
-                                ]}
-                            />
+                            <ContextTable entries={exceptionEntries || []} />
                             {additionalEntries.length > 0 && <ContextTable entries={additionalEntries} />}
                         </div>
                     )
@@ -60,7 +64,7 @@ type ContextRowProps = {
     value: string
 }
 
-function ContextTable({ entries }: { entries: [string, string | boolean | undefined][] }): JSX.Element {
+function ContextTable({ entries }: { entries: [string, unknown][] }): JSX.Element {
     return (
         <table
             className="border-spacing-0 border-separate rounded w-full border overflow-hidden cursor-default"
@@ -69,9 +73,10 @@ function ContextTable({ entries }: { entries: [string, string | boolean | undefi
             <tbody className="w-full">
                 {entries
                     .filter(([, value]) => value !== undefined)
-                    .map(([key, value], index) => (
-                        <ContextRow key={index} label={key} value={String(value)} />
+                    .map(([key, value]) => (
+                        <ContextRow key={key} label={key} value={String(value)} />
                     ))}
+                {entries.length == 0 && <tr className="w-full text-center">No data available</tr>}
             </tbody>
         </table>
     )

@@ -153,7 +153,7 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
 export function getAdditionalProperties(properties: Properties, isCloudOrDev: boolean | undefined): Properties {
     return Object.fromEntries(
         Object.entries(properties).filter(([key]) => {
-            return isPostHogProperty(key, isCloudOrDev)
+            return !isPostHogProperty(key, isCloudOrDev)
         })
     )
 }

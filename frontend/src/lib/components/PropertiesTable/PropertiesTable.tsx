@@ -290,7 +290,7 @@ export function PropertiesTable({
                     return false
                 }
                 if (hidePostHogPropertiesInTable) {
-                    return isPostHogProperty(key, isCloudOrDev)
+                    return !isPostHogProperty(key, isCloudOrDev)
                 }
                 return true
             })

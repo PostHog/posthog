@@ -26,7 +26,11 @@ export default meta
 
 ///////////////////// Context Display
 
-export function TextDisplayWithStacktrace(): JSX.Element {
+export function ContextDisplayEmpty(): JSX.Element {
+    return <ContextDisplay attributes={null} additionalProperties={{}} loading={false} />
+}
+
+export function ContextDisplayWithStacktrace(): JSX.Element {
     return <ContextWrapperAllEvents>{(props) => <ContextDisplay {...props} />}</ContextWrapperAllEvents>
 }
 
