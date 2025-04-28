@@ -1,5 +1,5 @@
 import { IconMessage, IconSend, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSelect, LemonTextArea, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -61,16 +61,17 @@ function ModelSelector(): JSX.Element {
 }
 
 function PromptPanel(): JSX.Element {
-    const { prompt, systemPrompt, temperature, maxTokens, generationResponseLoading } = useValues(
-        llmObservabilityPlaygroundLogic
-    )
-    const { setPrompt, setSystemPrompt, setTemperature, setMaxTokens, submitPrompt, clearConversation } = useActions(
-        llmObservabilityPlaygroundLogic
-    )
+    const { prompt, systemPrompt, temperature, maxTokens, thinking } = useValues(llmObservabilityPlaygroundLogic)
+    const { setPrompt, setSystemPrompt, setTemperature, setMaxTokens, setThinking, submitPrompt, clearConversation } =
+        useActions(llmObservabilityPlaygroundLogic)
 
     const handleSubmit = (e: React.FormEvent): void => {
         e.preventDefault()
         submitPrompt()
+    }
+
+    const handleThinkingToggle = (e: React.ChangeEvent<HTMLInputElement>): void => {
+        setThinking(e.target.checked)
     }
 
     return (
@@ -116,6 +117,13 @@ function PromptPanel(): JSX.Element {
                 </div>
             </div>
 
+            <div className="mb-4 flex items-center space-x-2">
+                <input id="thinkingToggle" type="checkbox" checked={thinking} onChange={handleThinkingToggle} />
+                <label htmlFor="thinkingToggle" className="text-sm">
+                    Enable thinking mode
+                </label>
+            </div>
+
             <form className="flex items-end gap-2" onSubmit={handleSubmit}>
                 <LemonTextArea
                     className="flex-1"
@@ -129,7 +137,6 @@ function PromptPanel(): JSX.Element {
                         icon={<IconSend />}
                         htmlType="submit"
                         disabledReason={!prompt.trim() ? 'Enter a prompt' : undefined}
-                        loading={generationResponseLoading}
                     />
                     <LemonButton
                         type="secondary"
@@ -145,48 +152,25 @@ function PromptPanel(): JSX.Element {
 }
 
 function ResponsePanel(): JSX.Element {
-    const { generationResponse, generationResponseLoading, messages } = useValues(llmObservabilityPlaygroundLogic)
+    const { messages } = useValues(llmObservabilityPlaygroundLogic)
 
     return (
         <div className="rounded border p-4 flex flex-col h-[700px]">
             <h3 className="text-base font-semibold mb-2">Output</h3>
 
             <div className="flex-1 overflow-y-auto border rounded p-2">
-                {generationResponseLoading ? (
-                    <div className="flex items-center justify-center h-full">
-                        <Spinner />
-                    </div>
-                ) : messages.length > 0 ? (
-                    <>
-                        <div className="font-semibold text-xs mb-2">Conversation</div>
-                        <ConversationOutput messages={messages} />
-                    </>
-                ) : (
+                {messages.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-full text-muted">
                         <IconMessage className="text-3xl mb-2" />
                         <p>Enter a prompt to generate a response</p>
                     </div>
+                ) : (
+                    <>
+                        <div className="font-semibold text-xs mb-2">Conversation</div>
+                        <ConversationOutput messages={messages} />
+                    </>
                 )}
             </div>
-            {generationResponse && (
-                <div className="mt-4">
-                    <h4 className="text-sm font-semibold">Usage Stats</h4>
-                    <div className="text-xs grid grid-cols-3 gap-2 mt-1">
-                        <div className="border rounded p-2">
-                            <div className="font-semibold">Input Tokens</div>
-                            <div>{generationResponse.usage.prompt_tokens ?? 'N/A'}</div>
-                        </div>
-                        <div className="border rounded p-2">
-                            <div className="font-semibold">Output Tokens</div>
-                            <div>{generationResponse.usage.completion_tokens ?? 'N/A'}</div>
-                        </div>
-                        <div className="border rounded p-2">
-                            <div className="font-semibold">Total Tokens</div>
-                            <div>{generationResponse.usage.total_tokens ?? 'N/A'}</div>
-                        </div>
-                    </div>
-                </div>
-            )}
         </div>
     )
 }

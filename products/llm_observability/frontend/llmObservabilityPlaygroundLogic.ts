@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
@@ -26,27 +26,6 @@ export interface Message {
     content: string
 }
 
-const models = [
-    {
-        id: 'gpt-3.5-turbo',
-        name: 'GPT-3.5 Turbo',
-        provider: 'OpenAI',
-        description: 'Fast model for most tasks',
-    },
-    {
-        id: 'gpt-4o',
-        name: 'GPT-4o',
-        provider: 'OpenAI',
-        description: 'Advanced reasoning capabilities',
-    },
-    {
-        id: 'o1-mini',
-        name: 'O1-Mini',
-        provider: 'Anthropic',
-        description: 'Fast, compact model for general use',
-    },
-]
-
 export const llmObservabilityPlaygroundLogic = kea<llmObservabilityPlaygroundLogicType>([
     path(['products', 'llm_observability', 'frontend', 'llmObservabilityPlaygroundLogic']),
 
@@ -56,18 +35,21 @@ export const llmObservabilityPlaygroundLogic = kea<llmObservabilityPlaygroundLog
         setSystemPrompt: (systemPrompt: string) => ({ systemPrompt }),
         setTemperature: (temperature: number) => ({ temperature }),
         setMaxTokens: (maxTokens: number) => ({ maxTokens }),
+        setThinking: (thinking: boolean) => ({ thinking }),
         clearConversation: true,
         submitPrompt: true,
         addAssistantMessage: (message: string) => ({ message }),
         addUserMessage: (message: string) => ({ message }),
+        appendAssistantText: (text: string) => ({ text }),
     }),
 
     reducers({
         prompt: ['', { setPrompt: (_, { prompt }) => prompt }],
-        model: ['gpt-3.5-turbo', { setModel: (_, { model }) => model }],
+        model: ['', { setModel: (_, { model }) => model }],
         systemPrompt: ['You are a helpful AI assistant.', { setSystemPrompt: (_, { systemPrompt }) => systemPrompt }],
         temperature: [0.7, { setTemperature: (_, { temperature }) => temperature }],
         maxTokens: [1024, { setMaxTokens: (_, { maxTokens }) => maxTokens }],
+        thinking: [false, { setThinking: (_, { thinking }) => thinking }],
         messages: [
             [] as Message[],
             {
@@ -78,80 +60,71 @@ export const llmObservabilityPlaygroundLogic = kea<llmObservabilityPlaygroundLog
                 addAssistantMessage: (state, { message }) => {
                     return [...state, { role: 'assistant', content: message }]
                 },
+                appendAssistantText: (state, { text }) => {
+                    const newState = [...state]
+                    const last = newState[newState.length - 1]
+                    if (last?.role === 'assistant') {
+                        last.content += text
+                        return newState
+                    }
+                    return state
+                },
             },
         ],
     }),
-
-    selectors({
-        availableModels: [() => [], (): ModelOption[] => models],
-    }),
-
-    loaders(({ values }) => ({
+    loaders(({ values }: any) => ({
         modelOptions: {
             __default: [] as ModelOption[],
-            loadModelOptions: async (): Promise<ModelOption[]> => {
+            loadModelOptions: async () => {
                 try {
-                    const response = await api.get('api/llm_playground/models/')
-                    return response || values.availableModels
+                    const response = await api.get('/api/llm_proxy/models/')
+                    return response as ModelOption[]
                 } catch (error) {
                     console.error('Error loading model options:', error)
-                    return values.availableModels
-                }
-            },
-        },
-        generationResponse: {
-            __default: null as PlaygroundResponse | null,
-            generateResponse: async (): Promise<PlaygroundResponse | null> => {
-                if (!values.prompt) {
-                    return null
-                }
-
-                // Add user message to conversation history
-                // const updatedMessages = [...values.messages, { role: 'user' as const, content: values.prompt }]
-
-                try {
-                    const response = await api.create('api/llm_playground/generate/', {
-                        prompt: values.prompt,
-                        model: values.model,
-                        temperature: values.temperature,
-                        max_tokens: values.maxTokens,
-                        system_prompt: values.systemPrompt,
-                        messages: values.messages,
-                    })
-                    return response as PlaygroundResponse
-                } catch (error) {
-                    console.error('Error generating response:', error)
-                    throw error
+                    return values.modelOptions
                 }
             },
         },
     })),
-
-    listeners(({ actions, asyncActions, values }) => ({
+    listeners(({ actions, values }: any) => ({
         submitPrompt: async () => {
             if (!values.prompt.trim()) {
                 return
             }
 
-            // First add the user message to the messages array
             actions.addUserMessage(values.prompt)
-
-            // Then call the API to generate a response
-            try {
-                await asyncActions.generateResponse()
-            } catch (error) {
-                console.error('Error in submitPrompt:', error)
-            }
-        },
-
-        generateResponseSuccess: ({ generationResponse }) => {
-            if (generationResponse?.text) {
-                actions.addAssistantMessage(generationResponse.text)
-            }
+            actions.addAssistantMessage('')
+            await api.stream('/api/llm_proxy/completion', {
+                method: 'POST',
+                data: {
+                    system: values.systemPrompt,
+                    messages: values.messages,
+                    model: values.model,
+                    thinking: values.thinking,
+                },
+                headers: { 'Content-Type': 'application/json' },
+                onMessage: (event) => {
+                    if (!event.data) {
+                        return
+                    }
+                    const data = JSON.parse(event.data)
+                    if (data.type === 'text') {
+                        actions.appendAssistantText(data.text)
+                    } else if (data.type === 'reasoning') {
+                        // console.log('Thinking:', data.reasoning)
+                    } else if (data.type === 'usage') {
+                        // handle usage if needed
+                    } else if (data.error) {
+                        console.error('LLM Error:', data.error)
+                    }
+                },
+                onError: (err) => {
+                    console.error('Stream error:', err)
+                },
+            })
         },
     })),
-
-    afterMount(({ actions }) => {
+    afterMount(({ actions }: any) => {
         actions.loadModelOptions()
     }),
 ])

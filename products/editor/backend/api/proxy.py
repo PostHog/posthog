@@ -1,11 +1,16 @@
 """
 ViewSet for Editor Proxy
+
+Endpoints:
+- GET /api/llm_proxy/models
+- POST /api/llm_proxy/completion
+- POST /api/llm_proxy/fim/completion
 """
 
 import json
 import posthoganalytics
 from rest_framework import viewsets
-from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
 from rest_framework.permissions import IsAuthenticated
 from rest_framework import serializers
 from rest_framework.decorators import action
@@ -32,6 +37,8 @@ logger = logging.getLogger(__name__)
 SUPPORTED_MODELS_WITH_THINKING = (
     AnthropicConfig.SUPPORTED_MODELS_WITH_THINKING + OpenAIConfig.SUPPORTED_MODELS_WITH_THINKING
 )
+
+ALLOWED_FEATURE_FLAGS = ["llm-editor-proxy", "llm-observability-playground"]
 
 
 class LLMProxyCompletionSerializer(serializers.Serializer):
@@ -61,7 +68,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
     Proxies LLM calls from the editor
     """
 
-    authentication_classes = [PersonalAPIKeyAuthentication]
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication]
     permission_classes = [IsAuthenticated]
     renderer_classes = [SafeJSONRenderer, ServerSentEventRenderer]
 
@@ -69,11 +76,22 @@ class LLMProxyViewSet(viewsets.ViewSet):
         return [EditorProxyBurstRateThrottle(), EditorProxySustainedRateThrottle()]
 
     def validate_feature_flag(self, request):
-        result = PersonalAPIKeyAuthentication().authenticate(request)
-        if result is None:
+        result_api_key = PersonalAPIKeyAuthentication().authenticate(request)
+        result_session = SessionAuthentication().authenticate(request)
+        # Pick whichever authentication succeeded
+        if result_api_key is not None:
+            user, _ = result_api_key
+        elif result_session is not None:
+            user, _ = result_session
+        else:
             return False
-        user, _ = result
-        return posthoganalytics.feature_enabled("llm-editor-proxy", user.email, person_properties={"email": user.email})
+        llm_observability_enabled = posthoganalytics.feature_enabled(
+            "llm-observability-playground", user.email, person_properties={"email": user.email}
+        )
+        llm_editor_proxy_enabled = posthoganalytics.feature_enabled(
+            "llm-editor-proxy", user.email, person_properties={"email": user.email}
+        )
+        return llm_observability_enabled or llm_editor_proxy_enabled
 
     def validate_messages(self, messages: list[dict[str, Any]]) -> TypeGuard[list[MessageParam]]:
         if not messages:
@@ -190,6 +208,21 @@ class LLMProxyViewSet(viewsets.ViewSet):
                 return CodestralProvider(model_id)
             case _:
                 return Response({"error": "Unsupported model"}, status=400)
+
+    @action(detail=False, methods=["GET"])
+    def models(self, request):
+        """Return a list of available models across providers"""
+        model_list: list[dict[str, str]] = []
+        model_list += [
+            {"id": m, "name": m, "provider": "Anthropic", "description": ""} for m in AnthropicConfig.SUPPORTED_MODELS
+        ]
+        model_list += [
+            {"id": m, "name": m, "provider": "OpenAI", "description": ""} for m in OpenAIConfig.SUPPORTED_MODELS
+        ]
+        model_list += [
+            {"id": m, "name": m, "provider": "Gemini", "description": ""} for m in GeminiConfig.SUPPORTED_MODELS
+        ]
+        return Response(model_list)
 
     @action(detail=False, methods=["POST"])
     def completion(self, request, *args, **kwargs):
