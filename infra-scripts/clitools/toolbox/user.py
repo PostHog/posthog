@@ -4,6 +4,7 @@
 import subprocess
 import json
 import sys
+import re
 
 
 def get_current_user() -> dict:
@@ -77,9 +78,21 @@ def parse_arn(arn: str) -> dict:
 
 
 def sanitize_label(value: str) -> str:
-    """Sanitize a value to be a valid kubernetes label value."""
+    """Sanitize a value to be a valid kubernetes label value (RFC 1123)."""
     # Replace @ with _at_ and keep dots
     sanitized = value.replace("@", "_at_")
-    # Ensure it starts and ends with alphanumeric
-    sanitized = sanitized.strip("_")
+    # Only allow alphanumeric, '-', '_', '.'
+    sanitized = re.sub(r"[^A-Za-z0-9_.-]", "_", sanitized)
+    # Must start and end with alphanumeric
+    sanitized = re.sub(r"^[^A-Za-z0-9]+", "", sanitized)
+    sanitized = re.sub(r"[^A-Za-z0-9]+$", "", sanitized)
+
+    # If longer than 63 chars, keep the start and end parts
+    if len(sanitized) > 63:
+        # Keep first 31 chars and last 31 chars with a single underscore in between
+        sanitized = sanitized[:31] + "_" + sanitized[-31:]
+
+    # If after truncation it ends or starts with non-alphanumeric, strip again
+    sanitized = re.sub(r"^[^A-Za-z0-9]+", "", sanitized)
+    sanitized = re.sub(r"[^A-Za-z0-9]+$", "", sanitized)
     return sanitized

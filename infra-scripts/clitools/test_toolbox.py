@@ -25,6 +25,15 @@ class TestToolbox(unittest.TestCase):
         # Test with leading/trailing underscores
         self.assertEqual(sanitize_label("_user@example.com_"), "user_at_example.com")
 
+    def test_sanitize_label_truncation(self):
+        long_arn = (
+            "arn:aws:sts::169684386827:assumed-role/custom-role-name/" + "averyveryveryveryverylongemail@posthog.com"
+        )
+        sanitized = sanitize_label(long_arn)
+        self.assertTrue(sanitized.startswith("arn_aws_sts__169684386827_assu"))
+        self.assertIn("longemail_at_posthog.com", sanitized)
+        self.assertLessEqual(len(sanitized), 63)
+
     def test_parse_arn_valid(self):
         """Test parsing valid AWS STS ARN."""
         arn = "arn:aws:sts::169684386827:assumed-role/AWSReservedSSO_developers_0847e649a00cc5e7/michael.k@posthog.com"
@@ -40,9 +49,7 @@ class TestToolbox(unittest.TestCase):
     def test_parse_arn_unexpected_format(self):
         """Test parsing ARN with unexpected role format."""
         arn = "arn:aws:sts::169684386827:assumed-role/custom-role-name/michael.k@posthog.com"
-        expected = {
-            "toolbox-claimed": "arn:aws:sts::169684386827:assumed-role/custom-role-name/michael.k_at_posthog.com"
-        }
+        expected = {"toolbox-claimed": "arn_aws_sts__169684386827_assum_e-name_michael.k_at_posthog.com"}
         self.assertEqual(parse_arn(arn), expected)
 
     @patch("subprocess.run")
