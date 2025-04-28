@@ -322,6 +322,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 actions.setSessionSummaryContent(aiSummaryMock)
                 return
             }
+            // TODO: Stop loading/reset the state when failing to avoid endless "thinking" state
             const id = props.sessionRecordingId || props.sessionRecordingData?.sessionRecordingId
             if (!id) {
                 return

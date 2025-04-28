@@ -182,6 +182,7 @@ def stream_llm_session_summary(
                 )
                 raise ExceptionToRetry()
     except (openai.APIError, openai.APITimeoutError, openai.RateLimitError) as err:
+        # TODO: Use posthoganalytics.capture_exception where applicable, add replay_feature
         logger.exception(
             f"Error streaming LLM for session_id {session_id} by user {user.pk}: {err}",
             session_id=session_id,

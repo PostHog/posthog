@@ -56,6 +56,7 @@ def stream_llm(
     # model: str = "o4-mini-2025-04-16",
     # reasoning_effort="medium",
 
+    # TODO: Add LLM observability tracking her
     stream = openai.chat.completions.create(
         model=model,
         temperature=0.1,  # Using 0.1 to reduce hallucinations, but >0 to allow for some creativity
