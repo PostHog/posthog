@@ -88,6 +88,7 @@ services:
             OBJECT_STORAGE_ENDPOINT: http://objectstorage:19000
             OBJECT_STORAGE_ENABLED: true
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
+            SKIP_SERVICE_VERSION_REQUIREMENTS: 1
         image: $REGISTRY_URL:$POSTHOG_APP_TAG
     web:
         extends:
@@ -131,6 +132,7 @@ services:
             CDP_REDIS_HOST: redis7
             CDP_REDIS_PORT: 6379
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
+            SKIP_SERVICE_VERSION_REQUIREMENTS: 1
         depends_on:
             - db
             - redis
