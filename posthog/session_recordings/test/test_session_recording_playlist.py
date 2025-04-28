@@ -689,7 +689,7 @@ class TestSessionRecordingPlaylist(APIBaseTest):
         )
 
         # Add items to relevant playlists
-        recording = SessionRecording.objects.create(team=self.team, session_id=uuid4())
+        recording = SessionRecording.objects.create(team=self.team, session_id=str(uuid4()))
         SessionRecordingPlaylistItem.objects.create(playlist=p_collection_explicit_items, recording=recording)
         SessionRecordingPlaylistItem.objects.create(playlist=p_collection_explicit_no_filters, recording=recording)
         SessionRecordingPlaylistItem.objects.create(playlist=p_null_filters_items, recording=recording)
