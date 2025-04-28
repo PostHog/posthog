@@ -131,7 +131,8 @@ describe('PersonState.update()', () => {
             timestampParam,
             processPerson,
             customHub ? customHub.db.kafkaProducer : hub.db.kafkaProducer,
-            personsStore
+            personsStore,
+            0
         )
     }
 

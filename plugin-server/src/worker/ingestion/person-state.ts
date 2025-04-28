@@ -1,7 +1,7 @@
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import LRU from 'lru-cache'
 import { DateTime } from 'luxon'
-import { Counter } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 
 import { ONE_HOUR } from '../../config/constants'
 import { KafkaProducerWrapper } from '../../kafka/producer'
@@ -36,6 +36,16 @@ export const personPropertyKeyUpdateCounter = new Counter({
     name: 'person_property_key_update_total',
     help: 'Number of person updates triggered by this property value changing.',
     labelNames: ['key'],
+})
+
+// temporary: for fetchPerson properties JSONB size observation
+const ONE_MEGABYTE_PROPS_BLOB = 1048576
+const personPropertiesSize = new Histogram({
+    name: 'person_properties_size',
+    help: 'histogram of compressed person JSONB bytes retrieved in fetchPerson calls',
+    labelNames: ['at'],
+    // 1kb, 8kb, 64kb, 512kb, 1mb, 2mb, 4mb, 8mb, 16mb, 64mb, inf+
+    buckets: [1024, 8192, 65536, 524288, 1048576, 2097152, 4194304, 8388608, 16777216, 67108864, Infinity],
 })
 
 // used to prevent identify from being used with generic IDs
@@ -110,13 +120,38 @@ export class PersonState {
         private timestamp: DateTime,
         private processPerson: boolean, // $process_person_profile flag from the event
         private kafkaProducer: KafkaProducerWrapper,
-        private personStore: PersonsStoreForDistinctIdBatch
+        private personStore: PersonsStoreForDistinctIdBatch,
+        private measurePersonJsonbSize: number = 0
     ) {
         this.eventProperties = event.properties!
 
         // If set to true, we'll update `is_identified` at the end of `updateProperties`
         // :KLUDGE: This is an indirect communication channel between `handleIdentifyOrAlias` and `updateProperties`
         this.updateIsIdentified = false
+    }
+
+    private async capturePersonPropertiesSizeEstimate(at: string): Promise<void> {
+        if (Math.random() >= this.measurePersonJsonbSize) {
+            // no-op if env flag is set to 0 (default) otherwise rate-limit
+            // ramp up of expensive size checking while we test it
+            return
+        }
+
+        const estimatedBytes: number = await this.personStore.personPropertiesSize(this.team.id, this.distinctId)
+        personPropertiesSize.labels({ at: at }).observe(estimatedBytes)
+
+        // if larger than size threshold (start conservative, adjust as we observe)
+        // we should log the team and disinct_id associated with the properties
+        if (estimatedBytes >= ONE_MEGABYTE_PROPS_BLOB) {
+            logger.warn('⚠️', 'record with oversized person properties detected', {
+                teamId: this.team.id,
+                distinctId: this.distinctId,
+                called_at: at,
+                estimated_bytes: estimatedBytes,
+            })
+        }
+
+        return
     }
 
     async update(): Promise<[Person, Promise<void>]> {
@@ -222,6 +257,8 @@ export class PersonState {
      * @returns [Person, boolean that indicates if properties were already handled or not]
      */
     private async createOrGetPerson(): Promise<[InternalPerson, boolean]> {
+        await this.capturePersonPropertiesSizeEstimate('createOrGetPerson')
+
         let person = await this.personStore.fetchForUpdate(this.team.id, this.distinctId)
         if (person) {
             return [person, false]
@@ -500,7 +537,10 @@ export class PersonState {
     ): Promise<[InternalPerson, Promise<void>]> {
         this.updateIsIdentified = true
 
+        await this.capturePersonPropertiesSizeEstimate('mergeDistinctIds_other')
         const otherPerson = await this.personStore.fetchForUpdate(teamId, otherPersonDistinctId)
+
+        await this.capturePersonPropertiesSizeEstimate('mergeDistinctIds_into')
         const mergeIntoPerson = await this.personStore.fetchForUpdate(teamId, mergeIntoDistinctId)
 
         // A note about the `distinctIdVersion` logic you'll find below:

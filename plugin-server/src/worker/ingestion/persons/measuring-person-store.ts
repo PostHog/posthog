@@ -181,6 +181,10 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
         return await this.db.addPersonlessDistinctIdForMerge(teamId, distinctId, tx)
     }
 
+    async personPropertiesSize(teamId: Team['id'], distinctId: string): Promise<number> {
+        return await this.db.personPropertiesSize(teamId, distinctId)
+    }
+
     getMethodCounts(): Map<MethodName, number> {
         return new Map(this.methodCounts)
     }

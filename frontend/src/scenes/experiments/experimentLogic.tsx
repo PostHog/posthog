@@ -787,6 +787,9 @@ export const experimentLogic = kea<experimentLogicType>([
                 setFeatureFlagValidationError: (_, { error }) => error,
             },
         ],
+        /**
+         * Controls the MDE modal visibility. Candidate for useState refactor.
+         */
         isCalculateRunningTimeModalOpen: [
             false,
             {

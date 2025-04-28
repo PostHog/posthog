@@ -89,4 +89,9 @@ export interface PersonsStoreForDistinctIdBatch {
      * Adds a personless distinct ID during merge
      */
     addPersonlessDistinctIdForMerge(teamId: number, distinctId: string, tx?: TransactionClient): Promise<boolean>
+
+    /**
+     * Returns the size of the person properties
+     */
+    personPropertiesSize(teamId: number, distinctId: string): Promise<number>
 }
