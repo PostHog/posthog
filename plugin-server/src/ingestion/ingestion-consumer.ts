@@ -273,11 +273,11 @@ export class IngestionConsumer {
             )
         })
 
-        personsStoreForBatch.reportBatch()
-
         logger.debug('🔁', `Waiting for promises`, { promises: this.promises.size })
         await this.runInstrumented('awaitScheduledWork', () => Promise.all(this.promises))
         logger.debug('🔁', `Processed batch`)
+
+        personsStoreForBatch.reportBatch()
 
         for (const message of messages) {
             if (message.timestamp) {
