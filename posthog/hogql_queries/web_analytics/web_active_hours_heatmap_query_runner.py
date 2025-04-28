@@ -5,6 +5,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql_queries.web_analytics.web_analytics_query_runner import (
     WebAnalyticsQueryRunner,
 )
+from typing import Optional
 from posthog.schema import (
     CachedEventsHeatMapQueryResponse,
     EventsHeatMapQueryResponse,
@@ -48,7 +49,7 @@ class EventsHeatMapQueryRunner(WebAnalyticsQueryRunner):
                         min(session.$start_timestamp) as timestamp
                     FROM events
                     WHERE and(
-                        event = '$pageview',
+                        {event_expr},
                         {all_properties}
                     )
                     GROUP BY session_id
@@ -59,10 +60,30 @@ class EventsHeatMapQueryRunner(WebAnalyticsQueryRunner):
             placeholders={
                 "all_properties": self._all_properties(),
                 "current_period": self._current_period_expression(field="timestamp"),
+                "event_expr": self.getEventExpr(),
             },
         )
         assert isinstance(query, ast.SelectQuery)
         return query
+
+    def getEventExpr(self):
+        if self.conversion_goal_expr:
+            return self.conversion_goal_expr
+        return self.getEvent()
+
+    def getEvent(self) -> Optional[ast.Expr]:
+        if self.query.source.event:
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=["events", "event"]),
+                right=ast.Constant(value=self.query.source.event),
+            )
+        else:
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=["events", "event"]),
+                right=ast.Constant(value="$pageview"),
+            )
 
     def calculate(self):
         query = self.to_query()
