@@ -147,13 +147,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         STARTUP_PROFILE_HEAP_INTERVAL: 512 * 1024, // default v8 value
         STARTUP_PROFILE_HEAP_DEPTH: 16, // default v8 value
 
-        SESSION_RECORDING_KAFKA_HOSTS: undefined,
-        SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL: undefined,
-        SESSION_RECORDING_KAFKA_BATCH_SIZE: 500,
-        SESSION_RECORDING_KAFKA_QUEUE_SIZE: 1500,
-        // if not set we'll use the plugin server default value
-        SESSION_RECORDING_KAFKA_QUEUE_SIZE_KB: undefined,
-
         SESSION_RECORDING_LOCAL_DIRECTORY: '.tmp/sessions',
         // NOTE: 10 minutes
         SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS: 60 * 10,
@@ -169,14 +162,11 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED: true,
         SESSION_RECORDING_REPLAY_EVENTS_INGESTION_ENABLED: true,
         SESSION_RECORDING_DEBUG_PARTITION: '',
-        SESSION_RECORDING_KAFKA_DEBUG: undefined,
         SESSION_RECORDING_MAX_PARALLEL_FLUSHES: 10,
         SESSION_RECORDING_OVERFLOW_ENABLED: false,
         SESSION_RECORDING_OVERFLOW_BUCKET_REPLENISH_RATE: 5_000_000, // 5MB/second uncompressed, sustained
         SESSION_RECORDING_OVERFLOW_BUCKET_CAPACITY: 200_000_000, // 200MB burst
         SESSION_RECORDING_OVERFLOW_MIN_PER_BATCH: 1_000_000, // All sessions consume at least 1MB/batch, to penalise poor batching
-        SESSION_RECORDING_KAFKA_CONSUMPTION_STATISTICS_EVENT_INTERVAL_MS: 0, // 0 disables stats collection
-        SESSION_RECORDING_KAFKA_FETCH_MIN_BYTES: 1_048_576, // 1MB
 
         ENCRYPTION_SALT_KEYS: isDevEnv() || isTestEnv() ? '00beef0000beef0000beef0000beef00' : '',
 

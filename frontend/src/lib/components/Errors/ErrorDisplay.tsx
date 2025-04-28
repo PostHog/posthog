@@ -11,11 +11,11 @@ import { EventType } from '~/types'
 import { FingerprintRecordPart, stackFrameLogic } from './stackFrameLogic'
 import { ChainedStackTraces } from './StackTraces'
 import { ErrorTrackingException } from './types'
-import { hasInAppFrames, hasStacktrace } from './utils'
+import { concatValues, hasInAppFrames, hasStacktrace } from './utils'
 
 export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['properties'] }): JSX.Element {
-    const { type, value, library, browser, os, sentryUrl, exceptionList, level, ingestionErrors, unhandled } =
-        getExceptionAttributes(eventProperties)
+    const exceptionAttributes = getExceptionAttributes(eventProperties)
+    const { type, value, sentryUrl, exceptionList, level, ingestionErrors, handled } = exceptionAttributes
 
     const exceptionWithStack = hasStacktrace(exceptionList)
     const fingerprintRecords: FingerprintRecordPart[] = eventProperties.$exception_fingerprint_record || []
@@ -42,10 +42,16 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
                         )
                     }
                 />
-                <TitledSnack title="unhandled" value={String(unhandled)} />
-                <TitledSnack title="library" value={library ?? 'unknown'} />
-                <TitledSnack title="browser" value={browser ?? 'unknown'} />
-                <TitledSnack title="os" value={os ?? 'unknown'} />
+                <TitledSnack title="handled" value={String(handled)} />
+                <TitledSnack
+                    title="library"
+                    value={concatValues(exceptionAttributes, 'lib', 'libVersion') ?? 'unknown'}
+                />
+                <TitledSnack
+                    title="browser"
+                    value={concatValues(exceptionAttributes, 'browser', 'browserVersion') ?? 'unknown'}
+                />
+                <TitledSnack title="os" value={concatValues(exceptionAttributes, 'os', 'osVersion') ?? 'unknown'} />
             </div>
 
             {ingestionErrors || exceptionWithStack ? <LemonDivider dashed={true} /> : null}

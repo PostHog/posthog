@@ -1,0 +1,80 @@
+{
+    "uuid": "01965a5f-907f-7c93-81d5-22f2acbe90a0",
+    "event": "$exception",
+    "properties": {
+        "$exception_list": [
+            {
+                "id": "01965a5f-92d6-7571-b04a-7c8cecf4f0df",
+                "type": "Error",
+                "value": "A random error",
+                "mechanism": {
+                    "handled": true,
+                    "type": "generic"
+                },
+                "stacktrace": {
+                    "type": "resolved",
+                    "frames": [
+                        {
+                            "raw_id": "87178ffdba38e56da245bf56104b42a91d1d4c3173605195df84673387fab25e0e06fb6d1cfa7484bd161c7e7cac0568b1f3984543c855b38b00d025e9ebdd87",
+                            "mangled_name": "?",
+                            "line": 12905,
+                            "source": "bundledWorker-0.11970838062230138.mjs",
+                            "in_app": false,
+                            "resolved_name": "?",
+                            "lang": "javascript",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "06d50e66dce5a7d8d84d4a0a84ab9f893c2934535bc412a1b21dbf7f61395e1e415a5fae9573c0a10dccace61fea9da3df993211c77ecc168c196e6e3fd02573",
+                            "mangled_name": "load_server_data",
+                            "line": 11251,
+                            "source": "bundledWorker-0.11970838062230138.mjs",
+                            "in_app": false,
+                            "resolved_name": "load_server_data",
+                            "lang": "javascript",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "242a74a302ebead7088dec2af0688682438ace2ce2ab5b3473930a496b4779e5bff66b794f0463c774e667ed880bbbae23f3e7b94831d53be0a62fe614759a26",
+                            "mangled_name": "load",
+                            "line": 8349,
+                            "source": "bundledWorker-0.11970838062230138.mjs",
+                            "in_app": false,
+                            "resolved_name": "load",
+                            "lang": "javascript",
+                            "resolved": true
+                        }
+                    ]
+                }
+            }
+        ],
+        "$exception_fingerprint": "8b4c586b02d54722ad333990c65ee6a8575c7ce78810a1b13ac7867f9c2b2def7cf1af95341f46e8ca00bc87e674b62875aa97940050f1da95617c905fb82364",
+        "$exception_proposed_fingerprint": "8b4c586b02d54722ad333990c65ee6a8575c7ce78810a1b13ac7867f9c2b2def7cf1af95341f46e8ca00bc87e674b62875aa97940050f1da95617c905fb82364",
+        "$exception_fingerprint_record": [
+            {
+                "type": "exception",
+                "id": "01965a5f-92d6-7571-b04a-7c8cecf4f0df",
+                "pieces": ["Exception Type"]
+            },
+            {
+                "type": "frame",
+                "raw_id": "87178ffdba38e56da245bf56104b42a91d1d4c3173605195df84673387fab25e0e06fb6d1cfa7484bd161c7e7cac0568b1f3984543c855b38b00d025e9ebdd87",
+                "pieces": ["Resolved function name", "Source file name"]
+            }
+        ],
+        "$exception_issue_id": "8e440548-6e54-477a-a313-c00456632f88",
+        "$geoip_disable": true,
+        "$lib_version": "4.7.0",
+        "$lib": "posthog-node",
+        "$process_person_profile": false,
+        "$exception_types": ["Error"],
+        "$exception_values": ["A random error"],
+        "$exception_sources": ["bundledWorker-0.11970838062230138.mjs"],
+        "$exception_functions": ["?", "load_server_data", "load"]
+    },
+    "timestamp": "2025-04-21T22:02:14.527000Z",
+    "team_id": 1,
+    "distinct_id": "01965a5f-907f-7c93-81d5-22ef024a0eb3",
+    "elements_chain": "",
+    "created_at": "2025-04-21T22:02:15.122000Z"
+}
