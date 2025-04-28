@@ -267,6 +267,7 @@ export const TreeNodeDroppable = (props: DroppableProps): JSX.Element => {
                 'flex flex-col transition-all duration-150 rounded relative z-2 ',
                 props.className,
                 props.isDroppable && isOver && 'ring-2 ring-inset ring-accent bg-accent-highlight-secondary',
+                // If the item is a root item and it's dragging, make it take up the full height
                 props.isRoot && props.isDragging && 'h-full'
             )}
         >
