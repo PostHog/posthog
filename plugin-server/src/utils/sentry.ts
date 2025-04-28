@@ -1,11 +1,8 @@
 const fs = require('fs')
 
 import * as Sentry from '@sentry/node'
-import { Span, SpanContext, TransactionContext } from '@sentry/types'
 
 import { PluginsServerConfig } from '../types'
-
-// TODO: DAVID remove this separately
 
 // Code that runs on app start, in both the main and worker threads
 export function initSentry(config: PluginsServerConfig): void {
@@ -29,48 +26,4 @@ export function initSentry(config: PluginsServerConfig): void {
         },
         release,
     })
-}
-
-export function getSpan(): Span | undefined {
-    return asyncLocalStorage.getStore()
-}
-
-export function runInTransaction<T>(
-    transactionContext: TransactionContext,
-    callback: () => Promise<T>,
-    sampleRateByDuration?: (durationInSeconds: number) => number
-): Promise<T> {
-    const currentSpan = getSpan()
-    if (currentSpan) {
-        // In an existing transaction, just start a new span!
-        return runInSpan(transactionContext, callback, currentSpan)
-    }
-
-    return asyncLocalStorage.run(transaction, async () => {
-        try {
-            const result = await callback()
-            return result
-        } finally {
-            if (sampleRateByDuration) {
-            }
-        }
-    })
-}
-
-export function runInSpan<Callback extends (...args: any[]) => any>(
-    spanContext: SpanContext,
-    callback: Callback,
-    parentSpan?: Span
-) {
-    if (!parentSpan) {
-        parentSpan = getSpan()
-    }
-    if (parentSpan) {
-        return asyncLocalStorage.run(span, async () => {
-            const result = await callback()
-            return result
-        })
-    } else {
-        return callback()
-    }
 }

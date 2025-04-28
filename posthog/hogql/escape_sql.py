@@ -25,6 +25,13 @@ singlequote_escape_chars_map = {**escape_chars_map, "'": "\\'"}
 backquote_escape_chars_map = {**escape_chars_map, "`": "\\`"}
 
 
+def safe_identifier(identifier: str) -> str:
+    if "%" in identifier:
+        identifier = identifier.replace("%", "")
+
+    return identifier
+
+
 # Copied from clickhouse_driver.util.escape_param
 def escape_param_clickhouse(value: str) -> str:
     return "'{}'".format("".join(singlequote_escape_chars_map.get(c, c) for c in str(value)))

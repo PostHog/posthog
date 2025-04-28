@@ -13,31 +13,6 @@ import { CdpApi } from './cdp-api'
 import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { HogFunctionInvocationGlobals, HogFunctionType } from './types'
 
-const mockConsumer = {
-    on: jest.fn(),
-    commitSync: jest.fn(),
-    commit: jest.fn(),
-    queryWatermarkOffsets: jest.fn(),
-    committed: jest.fn(),
-    assignments: jest.fn(),
-    isConnected: jest.fn(() => true),
-    getMetadata: jest.fn(),
-}
-
-jest.mock('../../src/kafka/batch-consumer', () => {
-    return {
-        startBatchConsumer: jest.fn(() =>
-            Promise.resolve({
-                join: () => ({
-                    finally: jest.fn(),
-                }),
-                stop: jest.fn(),
-                consumer: mockConsumer,
-            })
-        ),
-    }
-})
-
 jest.mock('../../src/utils/fetch', () => {
     return {
         trackedFetch: jest.fn(() =>

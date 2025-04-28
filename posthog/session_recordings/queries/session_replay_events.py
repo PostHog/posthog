@@ -16,6 +16,17 @@ from posthog.session_recordings.models.metadata import (
     RecordingMetadata,
 )
 
+DEFAULT_EVENT_FIELDS = [
+    "event",
+    "timestamp",
+    "elements_chain_href",
+    "elements_chain_texts",
+    "elements_chain_elements",
+    "properties.$window_id",
+    "properties.$current_url",
+    "properties.$event_type",
+]
+
 
 def seconds_until_midnight():
     now = datetime.now(pytz.timezone("UTC"))
@@ -130,14 +141,23 @@ class SessionReplayEvents:
         )
 
     def get_events(
-        self, session_id: str, team: Team, metadata: RecordingMetadata, events_to_ignore: list[str] | None
+        self,
+        session_id: str,
+        team: Team,
+        metadata: RecordingMetadata,
+        events_to_ignore: list[str] | None,
+        extra_fields: list[str] | None = None,
     ) -> tuple[list | None, list | None]:
         from posthog.schema import HogQLQuery, HogQLQueryResponse
         from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 
-        q = """
-            select event, timestamp, elements_chain_href, elements_chain_texts, elements_chain_elements, properties.$window_id, properties.$current_url, properties.$event_type
-            from events
+        fields = [*DEFAULT_EVENT_FIELDS]
+        if extra_fields:
+            fields.extend(extra_fields)
+
+        # TODO: Find a better way to inject the fields (providing string or list of strings to hq `values` just returns the string back)
+        q = f"select {', '.join(fields)} from events"
+        q += """
             where timestamp >= {start_time} and timestamp <= {end_time}
             and $session_id = {session_id}
             """

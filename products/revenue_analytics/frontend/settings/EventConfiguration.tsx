@@ -6,7 +6,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
-import { RevenueTrackingEventItem } from '~/queries/schema/schema-general'
+import { RevenueAnalyticsEventItem } from '~/queries/schema/schema-general'
 
 import { CurrencyDropdown } from './CurrencyDropdown'
 import { revenueEventsSettingsLogic } from './revenueEventsSettingsLogic'
@@ -19,14 +19,14 @@ export function EventConfiguration({ buttonRef }: { buttonRef: React.RefObject<H
     return (
         <div>
             <h3 className="mb-2">Event Configuration</h3>
-            <LemonTable<RevenueTrackingEventItem>
+            <LemonTable<RevenueAnalyticsEventItem>
                 columns={[
                     { key: 'eventName', title: 'Event name', dataIndex: 'eventName' },
                     {
                         key: 'revenueProperty',
                         title: 'Revenue property',
                         dataIndex: 'revenueProperty',
-                        render: (_, item: RevenueTrackingEventItem) => {
+                        render: (_, item: RevenueAnalyticsEventItem) => {
                             return (
                                 <TaxonomicPopover
                                     showNumericalPropsOnly
@@ -58,7 +58,7 @@ export function EventConfiguration({ buttonRef }: { buttonRef: React.RefObject<H
                             </span>
                         ),
                         dataIndex: 'revenueCurrencyProperty',
-                        render: (_, item: RevenueTrackingEventItem) => {
+                        render: (_, item: RevenueAnalyticsEventItem) => {
                             return (
                                 <div className="flex flex-col w-full gap-3 my-1 min-w-[250px] whitespace-nowrap">
                                     <div className="flex flex-row gap-1">
