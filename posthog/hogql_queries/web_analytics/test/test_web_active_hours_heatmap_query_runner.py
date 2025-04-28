@@ -2,15 +2,16 @@ from typing import Optional, Union
 
 from freezegun import freeze_time
 
-from posthog.hogql_queries.web_analytics.web_active_hours_heatmap_query_runner import WebActiveHoursHeatMapQueryRunner
+from posthog.hogql_queries.web_analytics.web_active_hours_heatmap_query_runner import EventsHeatMapQueryRunner
 from posthog.models.utils import uuid7
 from posthog.schema import (
     DateRange,
+    EventsHeatMapQuery,
     SessionTableVersion,
     HogQLQueryModifiers,
     WebAnalyticsOrderByDirection,
     WebAnalyticsOrderByFields,
-    WebActiveHoursHeatMapQuery,
+    EventsNode,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -58,18 +59,19 @@ class TestWebActiveHoursHeatMapQueryRunner(ClickhouseTestMixin, APIBaseTest):
         order_by: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None,
     ):
         modifiers = HogQLQueryModifiers(sessionTableVersion=session_table_version)
-        query = WebActiveHoursHeatMapQuery(
+        query = EventsHeatMapQuery(
             dateRange=DateRange(date_from=date_from, date_to=date_to),
             properties=properties or [],
             filterTestAccounts=filter_test_accounts,
             orderBy=order_by,
+            source=EventsNode(kind="EventsNode"),
         )
-        runner = WebActiveHoursHeatMapQueryRunner(team=self.team, query=query, modifiers=modifiers)
+        runner = EventsHeatMapQueryRunner(team=self.team, query=query, modifiers=modifiers)
         return runner.calculate()
 
     def test_empty_results_when_no_data(self):
         response = self._run_web_active_hours_heatmap_query_runner("2023-12-08", "2023-12-15")
-        self.assertEqual([], response.results.dayAndHours)
+        self.assertEqual([], response.results.data)
 
     def test_basic_active_hours(self):
         self._create_events(
@@ -95,7 +97,7 @@ class TestWebActiveHoursHeatMapQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = self._run_web_active_hours_heatmap_query_runner("2023-12-01", "2023-12-04")
 
         # Convert results to a dict for easier testing
-        results_dict = {(r.day, r.hour): r.total for r in response.results.dayAndHours}
+        results_dict = {(r.row, r.column): r.value for r in response.results.data}
 
         # Saturday (day 6) expectations
         self.assertEqual(results_dict.get((6, 10)), 2)  # Two users at 10:00
@@ -127,14 +129,14 @@ class TestWebActiveHoursHeatMapQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = self._run_web_active_hours_heatmap_query_runner(
             "2023-12-01", "2023-12-03", filter_test_accounts=False
         )
-        results_dict = {(r.day, r.hour): r.total for r in response.results.dayAndHours}
+        results_dict = {(r.row, r.column): r.value for r in response.results.data}
         self.assertEqual(results_dict.get((6, 10)), 2)  # Both users
 
         # Without test accounts
         response = self._run_web_active_hours_heatmap_query_runner(
             "2023-12-01", "2023-12-03", filter_test_accounts=True
         )
-        results_dict = {(r.day, r.hour): r.total for r in response.results.dayAndHours}
+        results_dict = {(r.row, r.column): r.value for r in response.results.data}
         self.assertEqual(results_dict.get((6, 10)), 1)  # Only regular user
 
     def test_all_time_range(self):
@@ -151,7 +153,7 @@ class TestWebActiveHoursHeatMapQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         response = self._run_web_active_hours_heatmap_query_runner("all", "2024-01-20")
-        results_dict = {(r.day, r.hour): r.total for r in response.results.dayAndHours}
+        results_dict = {(r.row, r.column): r.value for r in response.results.data}
 
         self.assertEqual(results_dict.get((6, 10)), 1)  # December visit
         self.assertEqual(results_dict.get((1, 11)), 1)  # January visit
@@ -175,7 +177,7 @@ class TestWebActiveHoursHeatMapQueryRunner(ClickhouseTestMixin, APIBaseTest):
             properties=[{"key": "$browser", "value": "Chrome"}],
         )
 
-        results_dict = {(r.day, r.hour): r.total for r in response.results.dayAndHours}
+        results_dict = {(r.row, r.column): r.value for r in response.results.data}
         self.assertEqual(results_dict.get((6, 10)), 1)  # Chrome visit
         self.assertNotIn((6, 11), results_dict)  # Firefox visit filtered out
 
@@ -203,29 +205,30 @@ class TestWebActiveHoursHeatMapQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = self._run_web_active_hours_heatmap_query_runner("2023-12-01", "2023-12-04")
 
         # Test day-hour combinations
-        day_hour_dict = {(r.day, r.hour): r.total for r in response.results.dayAndHours}
+        day_hour_dict = {(r.row, r.column): r.value for r in response.results.data}
         self.assertEqual(day_hour_dict.get((6, 10)), 2)  # Two users on Saturday at 10:00
         self.assertEqual(day_hour_dict.get((6, 11)), 1)  # One user on Saturday at 11:00
         self.assertEqual(day_hour_dict.get((7, 10)), 1)  # One user on Sunday at 10:00
         self.assertEqual(day_hour_dict.get((7, 15)), 1)  # One user on Sunday at 15:00
 
         # Test days aggregation
-        days_dict = {r.day: r.total for r in response.results.days}
+        days_dict = {r.row: r.value for r in response.results.rowAggregations}
         self.assertEqual(days_dict.get(6), 2)  # Two users on Saturday
         self.assertEqual(days_dict.get(7), 2)  # Two users on Sunday
 
         # Test hours aggregation
-        hours_dict = {r.hour: r.total for r in response.results.hours}
+        hours_dict = {r.column: r.value for r in response.results.columnAggregations}
         self.assertEqual(hours_dict.get(10), 2)  # Two users at 10:00
         self.assertEqual(hours_dict.get(11), 1)  # One user at 11:00
         self.assertEqual(hours_dict.get(15), 1)  # One user at 15:00
 
         # Test total users
-        self.assertEqual(response.results.total, 2)  # Two unique users overall
+        self.assertEqual(response.results.allAggregations, 2)  # Two unique users overall
 
     def test_empty_results_structure(self):
         response = self._run_web_active_hours_heatmap_query_runner("2023-12-08", "2023-12-15")
 
-        self.assertEqual(response.results.dayAndHours, [])
-        self.assertEqual(response.results.days, [])
-        self.assertEqual(response.results.hours, [])
+        self.assertEqual(response.results.data, [])
+        self.assertEqual(response.results.rowAggregations, [])
+        self.assertEqual(response.results.columnAggregations, [])
+        self.assertEqual(response.results.allAggregations, 0)
