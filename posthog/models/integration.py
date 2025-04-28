@@ -799,21 +799,15 @@ class MailIntegration:
         self.integration = integration
 
     @classmethod
-    def integration_from_keys(
-        cls, api_key: str, secret_key: str, team_id: int, created_by: Optional[User] = None
-    ) -> Integration:
+    def integration_from_domain(cls, domain: str, team_id: int, created_by: Optional[User] = None) -> Integration:
         integration, created = Integration.objects.update_or_create(
             team_id=team_id,
             kind="email",
-            integration_id=api_key,
+            integration_id=domain,
             defaults={
                 "config": {
-                    "api_key": api_key,
-                    # TODO: Add support for other email vendors
-                    "vendor": "mailjet",
-                },
-                "sensitive_config": {
-                    "secret_key": secret_key,
+                    "domain": domain,
+                    "verified": False,
                 },
                 "created_by": created_by,
             },

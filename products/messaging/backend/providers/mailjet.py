@@ -3,6 +3,7 @@ import requests
 import logging
 from django.conf import settings
 from rest_framework import exceptions
+from .messaging_provider import MessagingProvider
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +34,7 @@ class MailjetConfig:
     }
 
 
-class MailjetProvider:
+class MailjetProvider(MessagingProvider):
     def __init__(self):
         self.api_key = self.get_api_key()
         self.api_secret = self.get_api_secret()
@@ -85,7 +86,7 @@ class MailjetProvider:
 
         return overall_status, formatted_dns_records
 
-    def _create_sender_domain(self, domain: str):
+    def _create_sender_domain(self, domain: str, team_id: int):
         """
         Create a new sender domain
 
@@ -100,8 +101,11 @@ class MailjetProvider:
 
         url = f"{MailjetConfig.API_BASE_URL_V3}{MailjetConfig.SENDER_ENDPOINT}"
 
+        # Use the team ID and domain to create a unique sender name on Mailjet side.
+        # This isn't used by PostHog, but can be helpful when looking at senders in the Mailjet console.
+        delimited_sender_name = f"{team_id}|{domain}"
         # EmailType = "unknown" as both transactional and campaign emails may be sent from this domain
-        payload = {"EmailType": "unknown", "Email": sender_domain, "Name": domain}
+        payload = {"EmailType": "unknown", "Email": sender_domain, "Name": delimited_sender_name}
 
         try:
             response = requests.post(
@@ -145,29 +149,52 @@ class MailjetProvider:
             logger.exception(f"Mailjet API error checking DNS records: {e}")
             raise
 
-    def setup_email_domain(self, domain: str):
+    def setup_email_domain(self, domain: str, team_id: int, created_by=None):
         """
         Complete setup for a new email domain:
         1. Create a sender domain
-        2. Get DNS records for the domain
+        2. Create integration
+        3. Get DNS records for the domain
 
         Returns all necessary information for domain verification.
         """
-        self._create_sender_domain(domain)
-        dns_response = self._get_domain_dns_records(domain)
+        sender_response = self._create_sender_domain(domain, team_id)
 
+        integration = self.create_integration(
+            kind="email",
+            integration_id=domain,
+            config={
+                "domain": domain,
+                "mailjet_id": sender_response.get("ID"),
+                "mailjet_verified": False,
+            },
+            team_id=team_id,
+            created_by=created_by,
+        )
+
+        dns_response = self._get_domain_dns_records(domain)
         overall_status, formatted_dns_records = self._format_dns_records(dns_response)
 
         return {
+            "integration": integration,
             "status": overall_status,
             "dnsRecords": formatted_dns_records,
         }
 
-    def verify_email_domain(self, domain: str):
+    def verify_email_domain(self, domain: str, team_id: int):
         """
         Verify the email domain by checking DNS records status.
         """
         dns_response = self._check_domain_dns_records(domain)
         overall_status, formatted_dns_records = self._format_dns_records(dns_response)
+
+        if overall_status == "success":
+            # Mark the integration as verified if not already
+            self.update_integration(
+                kind="email",
+                integration_id=domain,
+                team_id=team_id,
+                updated_config={"mailjet_verified": True},
+            )
 
         return {"status": overall_status, "dnsRecords": formatted_dns_records}
