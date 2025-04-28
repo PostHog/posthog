@@ -145,11 +145,14 @@ rm -rf compose
 mkdir -p compose
 cat > compose/start <<EOF
 #!/bin/bash
+set -x
 /compose/wait
-python manage.py migrate
-python manage.py migrate_clickhouse || true
-python manage.py run_async_migrations || true
-./bin/docker-server
+echo "✅ ClickHouse and Postgres ready. Proceeding with migrations"
+/usr/bin/python3 manage.py migrate
+/usr/bin/python3 manage.py migrate_clickhouse || true
+/usr/bin/python3 manage.py run_async_migrations || true
+echo "✅ Migrations complete. Starting server"
+/bin/docker-server
 EOF
 chmod +x compose/start
 
