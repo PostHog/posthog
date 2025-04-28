@@ -1,0 +1,47 @@
+name: AI
+
+on:
+    push:
+        branches:
+            - master
+    pull_request:
+        paths:
+            - 'ee/hogai/**'
+            - '.github/workflows/ci-ai.yml'
+
+env:
+    BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
+
+jobs:
+    eval:
+        timeout-minutes: 30
+        name: Run AI evals
+        runs-on: ubuntu-latest
+
+        steps:
+            - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+            - name: Stop/Start stack with Docker Compose
+              run: |
+                  docker compose -f docker-compose.dev.yml down
+                  docker compose -f docker-compose.dev.yml up -d
+
+            - name: Set up Python
+              uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5
+              with:
+                  python-version-file: 'pyproject.toml'
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
+              with:
+                  enable-cache: true
+                  pyproject-file: 'pyproject.toml'
+
+            - name: Install python dependencies
+              shell: bash
+              run: |
+                  UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Run LLM evals
+              run: |
+                  pytest ee/hogai/eval
