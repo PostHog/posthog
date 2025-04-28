@@ -78,7 +78,6 @@ OPENAI_API_KEY = get_from_env("OPENAI_API_KEY", "")
 INKEEP_API_KEY = get_from_env("INKEEP_API_KEY", "")
 MISTRAL_API_KEY = get_from_env("MISTRAL_API_KEY", "")
 GEMINI_API_KEY = get_from_env("GEMINI_API_KEY", "")
-BRAINTRUST_API_KEY = get_from_env("BRAINTRUST_API_KEY", "")
 
 SQS_QUEUES = {
     "usage_reports": {

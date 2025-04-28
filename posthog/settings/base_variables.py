@@ -11,11 +11,7 @@ logger = structlog.get_logger(__name__)
 BASE_DIR: str = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 IN_UNIT_TESTING: bool = get_from_env("IN_UNIT_TESTING", False, type_cast=str_to_bool)
-IN_EVAL_TESTING: bool = get_from_env(
-    "IN_EVAL_TESTING",
-    len(sys.argv) >= 2 and sys.argv[0].endswith("braintrust") and sys.argv[1] == "eval",  # Auto-detect braintrust eval
-    type_cast=str_to_bool,
-)
+IN_EVAL_TESTING: bool = get_from_env("IN_EVAL_TESTING", type_cast=str_to_bool)  # Set in ee/hogai/eval/pytest.ini
 DEBUG: bool = get_from_env("DEBUG", False, type_cast=str_to_bool)
 TEST = get_from_env("TEST", "test" in sys.argv or sys.argv[0].endswith("pytest"), type_cast=str_to_bool)
 STATIC_COLLECTION = get_from_env("STATIC_COLLECTION", False, type_cast=str_to_bool)

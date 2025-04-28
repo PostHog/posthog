@@ -4,7 +4,6 @@ from contextlib import contextmanager
 from typing import Any, Optional, cast
 from uuid import UUID, uuid4
 
-from django.conf import settings
 import posthoganalytics
 import structlog
 from langchain_core.callbacks.base import BaseCallbackHandler
@@ -15,8 +14,6 @@ from langgraph.graph.state import CompiledStateGraph
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from pydantic import BaseModel
 
-
-from braintrust_langchain import BraintrustCallbackHandler
 from ee.hogai.graph import (
     AssistantGraph,
     FunnelGeneratorNode,
@@ -134,24 +131,20 @@ class Assistant:
         self._chunks = AIMessageChunk(content="")
         self._tool_call_partial_state = tool_call_partial_state
         self._state = None
-        self._trace_id = trace_id
-        self._callback_handlers = []
-        if posthoganalytics.default_client:
-            # PostHog LLM observability for traces, both in prod and dev
-            self._callback_handlers.append(
-                CallbackHandler(
-                    posthoganalytics.default_client,
-                    distinct_id=user.distinct_id if user else None,
-                    properties={
-                        "conversation_id": str(self._conversation.id),
-                        "is_first_conversation": is_new_conversation,
-                    },
-                    trace_id=trace_id,
-                )
+        self._callback_handler = (
+            CallbackHandler(
+                posthoganalytics.default_client,
+                distinct_id=user.distinct_id if user else None,
+                properties={
+                    "conversation_id": str(self._conversation.id),
+                    "is_first_conversation": is_new_conversation,
+                },
+                trace_id=trace_id,
             )
-        if settings.BRAINTRUST_API_KEY:
-            # We only use Braintrust for evals (most importantly in CI), but not for prod traces
-            self._callback_handlers.append(BraintrustCallbackHandler())
+            if posthoganalytics.default_client
+            else None
+        )
+        self._trace_id = trace_id
 
     def stream(self):
         if SERVER_GATEWAY_INTERFACE == "ASGI":
@@ -234,9 +227,10 @@ class Assistant:
             return AssistantState(messages=[])
 
     def _get_config(self) -> RunnableConfig:
+        callbacks = [self._callback_handler] if self._callback_handler else None
         config: RunnableConfig = {
             "recursion_limit": 48,
-            "callbacks": self._callback_handlers,
+            "callbacks": callbacks,
             "configurable": {
                 "thread_id": self._conversation.id,
                 "trace_id": self._trace_id,

@@ -13,7 +13,6 @@ https://docs.djangoproject.com/en/2.2/ref/settings/
 # isort: skip_file
 
 import os
-import sys
 
 # :TRICKY: Imported before anything else to support overloads
 from posthog.settings.overrides import *
