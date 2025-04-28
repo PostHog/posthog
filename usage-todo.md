@@ -99,12 +99,13 @@ This document outlines the step-by-step implementation plan for the Usage Data A
 After exploring multiple approaches, we've decided to standardize on the implementation originally in `BillingUsage4.tsx` as our canonical implementation. This component has been renamed to `BillingUsage.tsx`, and the other experimental versions (`BillingUsage.tsx` (original), `BillingUsage2.tsx`, `BillingUsage3.tsx`, `BillingUsage5.tsx`) have been removed.
 
 ### Step 11.1: New orthogonal filter UX (multi-selects) 🆕
-- [ ] Replace the single Usage-type `LemonSelect` with multi-select tag list.
-- [ ] Add Teams multi-select (searchable) fed by `/api/organizations/{id}/teams/` or preloaded.
-- [ ] Replace current breakdown dropdown with checkbox list.
-- [ ] Client-side validation: block apply if team breakdown with zero usage types in volume view.
-- [ ] Adjust Kea logic filters (`usage_types?: string[]`, `team_ids?: number[]`).
-- [ ] Ensure hidden-series toggling stays purely front-end and independent of filters.
+- [x] Replace the single Usage-type `LemonSelect` with multi-select tag list.
+- [x] Add Teams multi-select (searchable) fed by `/api/organizations/{id}/teams/` or preloaded.
+- [x] Replace current breakdown dropdown with checkbox list.
+- [x] Block apply if team breakdown with zero usage types in volume view.
+- [x] Adjust Kea logic filters (`usage_types?: string[]`, `team_ids?: number[]`).
+- [x] Ensure hidden-series toggling stays purely front-end and independent of filters.
+- [ ] Clean up UI - alignment, shadows etc
 
 ### Step 12: Implement Default Filter Improvements ✅
 - [x] Update billingUsageLogic to include default filters for:
@@ -177,7 +178,7 @@ After exploring multiple approaches, we've decided to standardize on the impleme
   - [x] Rename loader/action to `billingSpendResponse`/`loadBillingSpend`.
   - [x] Point loader to new `/api/billing/spend/` endpoint.
   - [x] Remove `usage_type` from filters and API params.
-- [x] Create `BillingSpendView.tsx` based on `BillingUsage4.tsx`:
+- [x] Create `BillingSpendView.tsx` based on `BillingUsage.tsx`:
   - [x] Use `billingSpendLogic`.
   - [x] Remove "Usage type" filter select.
   - [x] Remove usage type banner.
