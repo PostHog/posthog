@@ -141,9 +141,6 @@ class ExperimentSerializer(serializers.ModelSerializer):
         return value
 
     def validate_existing_feature_flag_for_experiment(self, feature_flag: FeatureFlag):
-        if feature_flag.experiment_set.exists():
-            raise ValidationError("Feature flag is already associated with an experiment.")
-
         variants = feature_flag.filters.get("multivariate", {}).get("variants", [])
 
         if len(variants) and len(variants) > 1:

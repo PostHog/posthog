@@ -250,7 +250,7 @@ class BatchExport(UUIDModel):
 
     @property
     def interval_time_delta(self) -> timedelta:
-        """Return a datetime.timedelta that corresponds to this BatchExport's interval."""
+        """Return a datetime.timedelta that corresponds to this batch export's interval."""
         if self.interval == "hour":
             return timedelta(hours=1)
         elif self.interval == "day":
@@ -261,6 +261,32 @@ class BatchExport(UUIDModel):
             _, value, unit = self.interval.split(" ")
             kwargs = {unit: int(value)}
             return timedelta(**kwargs)
+        raise ValueError(f"Invalid interval: '{self.interval}'")
+
+    @property
+    def jitter(self) -> timedelta:
+        """Return jitter for this batch export based on interval.
+
+        We always want the start jitter to be less than the frequency, as
+        otherwise a batch export run could start after it's batch period has
+        elapsed. But there is margin to tweak this under that upper limit.
+
+        So, the values set here are quite arbitrary and are adjusted based on
+        how other systems react to batch exports load.
+        """
+        if self.interval == "hour":
+            return timedelta(minutes=15)
+        elif self.interval == "day":
+            return timedelta(hours=1)
+        elif self.interval == "week":
+            return timedelta(days=1)
+        elif self.interval.startswith("every"):
+            # This yields 1 minute for 5 minute batch exports, which is the only
+            # "every" interval in use currently.
+            # In the future, we can extend this to have different handling for
+            # different "every" intervals.
+            return self.interval_time_delta / 5
+
         raise ValueError(f"Invalid interval: '{self.interval}'")
 
 

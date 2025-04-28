@@ -8,6 +8,8 @@ from pydantic import Field
 
 
 class TokenCounterMixin:
+    openai_model: str
+
     def get_num_tokens_from_messages(self, messages: list[BaseMessage], tools: Sequence | None = None) -> int:
         chat = ChatOpenAI(model=self.openai_model, api_key="no-key")
         return chat.get_num_tokens_from_messages(messages, tools)

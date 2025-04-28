@@ -1,14 +1,16 @@
 import { IconPlus } from '@posthog/icons'
-import { LemonTabs } from '@posthog/lemon-ui'
+import { LemonTabs, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useRef, useState } from 'react'
+import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 
 import { BaseCurrency } from './BaseCurrency'
 import { EventConfiguration } from './EventConfiguration'
+import { ExternalDataSourceConfiguration } from './ExternalDataSourceConfiguration'
 import { revenueEventsSettingsLogic } from './revenueEventsSettingsLogic'
 import { RevenueExampleDataWarehouseTablesData } from './RevenueExampleDataWarehouseTablesData'
 import { RevenueExampleEventsTable } from './RevenueExampleEventsTable'
@@ -19,6 +21,7 @@ export function RevenueEventsSettings(): JSX.Element {
     const [activeTab, setActiveTab] = useState<Tab>('events')
 
     const { events } = useValues(revenueEventsSettingsLogic)
+    const { dataWarehouseSources, dataWarehouseSourcesLoading } = useValues(dataWarehouseSettingsLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -32,13 +35,18 @@ export function RevenueEventsSettings(): JSX.Element {
         introductionDescription += ' You can also import revenue data from your PostHog data warehouse tables.'
     }
 
+    const hasNoEvents = !events.length
+    const hasNoDataWarehouseSources =
+        !dataWarehouseSourcesLoading &&
+        !dataWarehouseSources?.results.filter((source) => source.source_type === 'Stripe').length
+
     return (
         <div className="flex flex-col gap-8">
             <ProductIntroduction
                 productName="Revenue tracking"
-                thingName="revenue event"
+                thingName="revenue source"
                 description={introductionDescription}
-                isEmpty={events.length === 0}
+                isEmpty={hasNoEvents && hasNoDataWarehouseSources}
                 actionElementOverride={
                     <>
                         <div className="flex flex-col gap-2">
@@ -51,21 +59,29 @@ export function RevenueEventsSettings(): JSX.Element {
                                 }}
                                 data-attr="create-revenue-event"
                             >
-                                Create revenue event
+                                Add revenue event
                             </LemonButton>
 
                             {featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS] && (
-                                <LemonButton
-                                    type="primary"
-                                    icon={<IconPlus />}
-                                    onClick={() => {
-                                        dataWarehouseTablesButtonRef.current?.scrollIntoView({ behavior: 'smooth' })
-                                        dataWarehouseTablesButtonRef.current?.click()
-                                    }}
-                                    data-attr="import-revenue-data-warehouse-tables"
-                                >
-                                    Import revenue data from data warehouse
-                                </LemonButton>
+                                <>
+                                    <LemonButton
+                                        type="primary"
+                                        icon={<IconPlus />}
+                                        onClick={() => {
+                                            dataWarehouseTablesButtonRef.current?.scrollIntoView({ behavior: 'smooth' })
+                                            dataWarehouseTablesButtonRef.current?.click()
+                                        }}
+                                        data-attr="import-revenue-data-warehouse-tables"
+                                    >
+                                        Import revenue data from data warehouse
+                                    </LemonButton>
+                                    <span className="text-xs text-muted-alt">
+                                        Only Stripe is supported currently. <br />
+                                        <Link to="https://github.com/PostHog/posthog/issues/new?assignees=&labels=enhancement,feature/revenue-analytics%2C+feature&projects=&template=feature_request.yml&title=New%20revenue%20source:%20%3Cinsert%20source%3E">
+                                            Request more revenue integrations.
+                                        </Link>
+                                    </span>
+                                </>
                             )}
                         </div>
                     </>
@@ -75,6 +91,7 @@ export function RevenueEventsSettings(): JSX.Element {
             <BaseCurrency />
 
             <EventConfiguration buttonRef={eventsButtonRef} />
+            <ExternalDataSourceConfiguration buttonRef={dataWarehouseTablesButtonRef} />
 
             {featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS] ? (
                 <LemonTabs

@@ -1,5 +1,6 @@
 import { IconFlag, IconQuestion, IconX } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonDivider,
     LemonInput,
@@ -245,6 +246,17 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                         </LemonField>
                     )}
 
+                    {earlyAccessFeature.stage === EarlyAccessFeatureStage.Concept && !isEditingFeature && (
+                        <LemonBanner type="info">
+                            The{' '}
+                            <LemonTag type="default" className="uppercase">
+                                Concept
+                            </LemonTag>{' '}
+                            stage assigns the feature flag to the user. Gate your code behind a different feature flag
+                            if you'd like to keep it hidden, and then switch your code to this feature flag when you're
+                            ready to release to your early access users.
+                        </LemonBanner>
+                    )}
                     <div className="flex flex-wrap items-start gap-4">
                         <div className="flex-1 min-w-[20rem]">
                             {'feature_flag' in earlyAccessFeature ? (

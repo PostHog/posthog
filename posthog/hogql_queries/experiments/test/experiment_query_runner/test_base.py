@@ -42,52 +42,6 @@ from parameterized import parameterized
 class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_query_runner_mean_property_sum_metric(self):
-        feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"version": 2}
-        experiment.save()
-
-        metric = ExperimentMeanMetric(
-            source=EventsNode(
-                event="purchase",
-                math=ExperimentMetricMathType.SUM,
-                math_property="amount",
-            ),
-        )
-
-        experiment_query = ExperimentQuery(
-            experiment_id=experiment.id,
-            kind="ExperimentQuery",
-            metric=metric,
-        )
-
-        experiment.metrics = [metric.model_dump(mode="json")]
-        experiment.save()
-
-        self.create_standard_test_events(feature_flag)
-
-        flush_persons_and_events()
-
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = query_runner.calculate()
-
-        self.assertEqual(len(result.variants), 2)
-
-        control_variant = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
-        )
-        test_variant = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
-        )
-
-        self.assertEqual(control_variant.count, 20)
-        self.assertEqual(test_variant.count, 20)
-        self.assertEqual(control_variant.absolute_exposure, 10)
-        self.assertEqual(test_variant.absolute_exposure, 10)
-
-    @freeze_time("2020-01-01T12:00:00Z")
-    @snapshot_clickhouse_queries
     def test_query_runner_includes_date_range(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag, end_date=datetime(2020, 2, 1, 12, 0, 0))
@@ -1895,7 +1849,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
     @snapshot_clickhouse_queries
     def test_query_runner_with_data_warehouse_subscriptions_table(self):
-        table_name = self.create_data_warehouse_table_with_subscriptions()
+        subscriptions_table_name = self.create_data_warehouse_table_with_subscriptions()
 
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
@@ -1908,7 +1862,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         metric = ExperimentMeanMetric(
             source=ExperimentDataWarehouseNode(
-                table_name=table_name,
+                table_name=subscriptions_table_name,
                 events_join_key="person.properties.email",
                 data_warehouse_join_key="subscription_customer.customer_email",
                 timestamp_field="subscription_created_at",

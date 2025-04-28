@@ -20,9 +20,6 @@ from posthog.models.utils import (
     create_with_slug,
     sane_repr,
 )
-from posthog.plugins.plugin_server_api import (
-    reset_available_product_features_cache_on_workers,
-)
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -252,18 +249,6 @@ def organization_about_to_be_created(sender, instance: Organization, raw, using,
         instance.update_available_product_features()
         if not is_cloud():
             instance.plugins_access_level = Organization.PluginsAccessLevel.ROOT
-
-
-@receiver(models.signals.post_save, sender=Organization)
-def ensure_available_product_features_sync(sender, instance: Organization, **kwargs):
-    updated_fields = kwargs.get("update_fields") or []
-    if "available_product_features" in updated_fields:
-        logger.info(
-            "Notifying plugin-server to reset available product features cache.",
-            {"organization_id": instance.id},
-        )
-
-        reset_available_product_features_cache_on_workers(organization_id=str(instance.id))
 
 
 class OrganizationMembership(UUIDModel):

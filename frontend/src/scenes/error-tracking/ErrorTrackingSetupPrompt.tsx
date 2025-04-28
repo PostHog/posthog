@@ -9,10 +9,9 @@ import { ProductKey } from '~/types'
 
 import { errorTrackingLogic } from './errorTrackingLogic'
 
-export const ErrorTrackingSetupPrompt = ({ children }: { children: React.ReactElement }): JSX.Element => {
+export const ErrorTrackingSetupPrompt = ({ children }: { children: React.ReactNode }): JSX.Element => {
     const { hasSentExceptionEvent, hasSentExceptionEventLoading } = useValues(errorTrackingLogic)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
-
     const exceptionAutocaptureEnabled = currentTeam && currentTeam.autocapture_exceptions_opt_in
 
     return hasSentExceptionEventLoading || currentTeamLoading ? (
@@ -22,7 +21,7 @@ export const ErrorTrackingSetupPrompt = ({ children }: { children: React.ReactEl
     ) : !hasSentExceptionEvent && !exceptionAutocaptureEnabled ? (
         <IngestionStatusCheck />
     ) : (
-        children
+        <>{children}</>
     )
 }
 

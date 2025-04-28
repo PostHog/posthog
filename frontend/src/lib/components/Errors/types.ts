@@ -11,6 +11,8 @@ export interface ErrorTrackingException {
     }
 }
 
+export type ErrorTrackingRuntime = 'web' | 'python' | 'node' | 'unknown'
+
 interface ErrorTrackingRawStackTrace {
     type: 'raw'
     frames: any[] // TODO: type more concretely if we end up needing this (right now we show the $cymbal_errors instead)
@@ -58,3 +60,6 @@ export interface ErrorTrackingSymbolSet {
     storage_ptr: string | null
     failure_reason: string | null
 }
+
+export type SymbolSetStatus = 'valid' | 'invalid'
+export type SymbolSetStatusFilter = SymbolSetStatus | 'all'

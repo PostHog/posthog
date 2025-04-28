@@ -1,4 +1,4 @@
-import operator
+import uuid
 from collections.abc import Sequence
 from enum import StrEnum
 from typing import Annotated, Literal, Optional, Union
@@ -21,6 +21,48 @@ AIMessageUnion = Union[
     AssistantMessage, VisualizationMessage, FailureMessage, ReasoningMessage, AssistantToolCallMessage
 ]
 AssistantMessageUnion = Union[HumanMessage, AIMessageUnion]
+
+
+def add_and_merge_messages(
+    left: Sequence[AssistantMessageUnion], right: Sequence[AssistantMessageUnion]
+) -> Sequence[AssistantMessageUnion]:
+    """Merges two lists of messages, updating existing messages by ID.
+
+    By default, this ensures the state is "append-only", unless the
+    new message has the same ID as an existing message.
+
+    Args:
+        left: The base list of messages.
+        right: The list of messages to merge
+            into the base list.
+
+    Returns:
+        A new list of messages with the messages from `right` merged into `left`.
+        If a message in `right` has the same ID as a message in `left`, the
+        message from `right` will replace the message from `left`.
+    """
+    # coerce to list
+    left = list(left)
+    right = list(right)
+
+    # assign missing ids
+    for m in left:
+        if m.id is None:
+            m.id = str(uuid.uuid4())
+    for m in right:
+        if m.id is None:
+            m.id = str(uuid.uuid4())
+
+    # merge
+    left_idx_by_id = {m.id: i for i, m in enumerate(left)}
+    merged = left.copy()
+    for m in right:
+        if (existing_idx := left_idx_by_id.get(m.id)) is not None:
+            merged[existing_idx] = m
+        else:
+            merged.append(m)
+
+    return merged
 
 
 class _SharedAssistantState(BaseModel):
@@ -82,7 +124,7 @@ class _SharedAssistantState(BaseModel):
 
 
 class AssistantState(_SharedAssistantState):
-    messages: Annotated[Sequence[AssistantMessageUnion], operator.add]
+    messages: Annotated[Sequence[AssistantMessageUnion], add_and_merge_messages]
     """
     Messages exposed to the user.
     """
@@ -139,5 +181,11 @@ class AssistantNodeName(StrEnum):
     MEMORY_COLLECTOR = "memory_collector"
     MEMORY_COLLECTOR_TOOLS = "memory_collector_tools"
     INKEEP_DOCS = "inkeep_docs"
-    SESSION_RECORDINGS_FILTERS = "session_recordings_filters"
     INSIGHT_RAG_CONTEXT = "insight_rag_context"
+    INSIGHTS_SUBGRAPH = "insights_subgraph"
+    TITLE_GENERATOR = "title_generator"
+
+
+class AssistantMode(StrEnum):
+    ASSISTANT = "assistant"
+    INSIGHTS_TOOL = "insights_tool"

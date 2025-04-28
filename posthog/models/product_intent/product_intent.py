@@ -170,6 +170,14 @@ class ProductIntent(UUIDModel, RootTeamMixin):
         return self.team.ingested_event
 
     def check_and_update_activation(self, skip_reporting: bool = False) -> bool:
+        # If the intent is already activated, we don't need to check again
+        if self.activated_at:
+            return True
+
+        # Update the last activation check time
+        self.activation_last_checked_at = datetime.now(tz=UTC)
+        self.save()
+
         activation_checks = {
             "data_warehouse": self.has_activated_data_warehouse,
             "experiments": self.has_activated_experiments,
@@ -186,6 +194,7 @@ class ProductIntent(UUIDModel, RootTeamMixin):
             if not skip_reporting:
                 self.report_activation(self.product_type)
             return True
+
         return False
 
     def report_activation(self, product_key: str) -> None:
@@ -203,7 +212,14 @@ class ProductIntent(UUIDModel, RootTeamMixin):
         )
 
     @staticmethod
-    def register(team: Team, product_type: str, context: str, user: User, metadata: Optional[dict] = None) -> None:
+    def register(
+        team: Team,
+        product_type: str,
+        context: str,
+        user: User,
+        metadata: Optional[dict] = None,
+        is_onboarding: bool = False,
+    ) -> "ProductIntent":
         from posthog.event_usage import report_user_action
 
         should_report_product_intent = False
@@ -216,6 +232,10 @@ class ProductIntent(UUIDModel, RootTeamMixin):
             **contexts,
             context: contexts.get(context, 0) + 1,
         }
+
+        if is_onboarding:
+            product_intent.onboarding_completed_at = datetime.now(tz=UTC)
+
         product_intent.save()
 
         if created:
@@ -239,7 +259,7 @@ class ProductIntent(UUIDModel, RootTeamMixin):
                 {
                     **(metadata or {}),
                     "product_key": product_type,
-                    "$set_once": {"first_onboarding_product_selected": product_type},
+                    "$set_once": {"first_onboarding_product_selected": product_type} if is_onboarding else {},
                     "intent_context": context,
                     "is_first_intent_for_product": created,
                     "intent_created_at": product_intent.created_at,
@@ -248,6 +268,8 @@ class ProductIntent(UUIDModel, RootTeamMixin):
                 },
                 team=team,
             )
+
+        return product_intent
 
 
 @shared_task(ignore_result=True)

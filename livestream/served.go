@@ -2,9 +2,7 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
-	"strconv"
 	"strings"
 	"sync/atomic"
 
@@ -38,13 +36,12 @@ func statsHandler(stats *Stats) func(c echo.Context) error {
 			Error          string `json:"error,omitempty"`
 		}
 
-		claims, err := getAuth(c.Request().Header)
+		_, token, err := getAuthClaims(c.Request().Header)
 		if err != nil {
-			return err
+			return c.JSON(http.StatusUnauthorized, resp{Error: "wrong token claims"})
 		}
-		token := fmt.Sprint(claims["api_token"])
 
-		var hash *expirable.LRU[string, string]
+		var hash *expirable.LRU[string, noSpaceType]
 		var ok bool
 		if hash, ok = stats.Store[token]; !ok {
 			resp := resp{
@@ -60,32 +57,29 @@ func statsHandler(stats *Stats) func(c echo.Context) error {
 	}
 }
 
+var subID uint64 = 1
+
 func streamEventsHandler(log echo.Logger, subChan chan Subscription, filter *Filter) func(c echo.Context) error {
 	return func(c echo.Context) error {
 		log.Debugf("SSE client connected, ip: %v", c.RealIP())
 
-		var teamId string
 		eventType := c.QueryParam("eventType")
 		distinctId := c.QueryParam("distinctId")
 		geo := c.QueryParam("geo")
 
-		teamIdInt := 0
-		token := ""
-		geoOnly := false
+		var (
+			teamID  int
+			token   string
+			geoOnly bool
+			err     error
+		)
 
+		teamID, token, err = getAuthClaims(c.Request().Header)
+		if err != nil {
+			return echo.NewHTTPError(http.StatusUnauthorized, "wrong token")
+		}
 		if strings.ToLower(geo) == "true" || geo == "1" {
 			geoOnly = true
-		} else {
-			claims, err := getAuth(c.Request().Header)
-			if err != nil {
-				return err
-			}
-			teamId = strconv.Itoa(int(claims["team_id"].(float64)))
-			token = fmt.Sprint(claims["api_token"])
-
-			if teamId == "" {
-				return echo.NewHTTPError(http.StatusBadRequest, "teamId is required unless geo=true")
-			}
 		}
 
 		var eventTypes []string
@@ -94,9 +88,9 @@ func streamEventsHandler(log echo.Logger, subChan chan Subscription, filter *Fil
 		}
 
 		subscription := Subscription{
-			TeamId:      teamIdInt,
+			SubID:       atomic.AddUint64(&subID, 1),
+			TeamId:      teamID,
 			Token:       token,
-			ClientId:    c.Response().Header().Get(echo.HeaderXRequestID),
 			DistinctId:  distinctId,
 			Geo:         geoOnly,
 			EventTypes:  eventTypes,

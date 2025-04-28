@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { experimentLogic } from 'scenes/experiments/experimentLogic'
+import { DEFAULT_MDE, experimentLogic } from 'scenes/experiments/experimentLogic'
 
 import { performQuery } from '~/queries/query'
 import {
@@ -23,11 +23,9 @@ import {
     Experiment,
     ExperimentMetricMathType,
     FunnelVizType,
-    InsightType,
     PropertyMathType,
 } from '~/types'
 
-import { getMinimumDetectableEffect } from '../utils'
 import type { runningTimeCalculatorLogicType } from './runningTimeCalculatorLogicType'
 
 export const TIMEFRAME_HISTORICAL_DATA_DAYS = 14
@@ -207,15 +205,9 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
         ],
         eventOrAction: ['click' as string, { setEventOrAction: (_, { value }) => value }],
         minimumDetectableEffect: [
-            30 as number,
+            DEFAULT_MDE as number,
             {
                 setMinimumDetectableEffect: (_, { value }) => value,
-                loadMetricResultSuccess: (state: number, { metricResult }) => {
-                    if (metricResult && typeof metricResult.suggestedMde === 'number') {
-                        return metricResult.suggestedMde
-                    }
-                    return state
-                },
             },
         ],
         conversionRateInputType: [
@@ -271,15 +263,6 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                     return {
                         uniqueUsers: result?.results?.[0]?.count ?? null,
                         automaticConversionRateDecimal: automaticConversionRateDecimal,
-                        suggestedMde: getMinimumDetectableEffect(
-                            InsightType.FUNNELS,
-                            {
-                                averageTime: 0,
-                                stepRate: 0,
-                                totalRate: automaticConversionRateDecimal ?? 0,
-                            },
-                            []
-                        ),
                     }
                 }
 

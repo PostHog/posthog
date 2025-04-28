@@ -38,6 +38,9 @@ import {
     QueryStatusResponse,
     ResultCustomizationBy,
     RetentionQuery,
+    RevenueAnalyticsGrowthRateQuery,
+    RevenueAnalyticsOverviewQuery,
+    RevenueAnalyticsTopCustomersQuery,
     RevenueExampleDataWarehouseTablesQuery,
     RevenueExampleEventsQuery,
     SavedInsightNode,
@@ -46,6 +49,7 @@ import {
     TracesQuery,
     TrendsFormulaNode,
     TrendsQuery,
+    WebActiveHoursHeatMapQuery,
     WebGoalsQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
@@ -143,6 +147,24 @@ export function isHogQLMetadata(node?: Record<string, any> | null): node is HogQ
     return node?.kind === NodeKind.HogQLMetadata
 }
 
+export function isRevenueAnalyticsOverviewQuery(
+    node?: Record<string, any> | null
+): node is RevenueAnalyticsOverviewQuery {
+    return node?.kind === NodeKind.RevenueAnalyticsOverviewQuery
+}
+
+export function isRevenueAnalyticsGrowthRateQuery(
+    node?: Record<string, any> | null
+): node is RevenueAnalyticsGrowthRateQuery {
+    return node?.kind === NodeKind.RevenueAnalyticsGrowthRateQuery
+}
+
+export function isRevenueAnalyticsTopCustomersQuery(
+    node?: Record<string, any> | null
+): node is RevenueAnalyticsTopCustomersQuery {
+    return node?.kind === NodeKind.RevenueAnalyticsTopCustomersQuery
+}
+
 export function isWebOverviewQuery(node?: Record<string, any> | null): node is WebOverviewQuery {
     return node?.kind === NodeKind.WebOverviewQuery
 }
@@ -189,6 +211,10 @@ export function isRevenueExampleDataWarehouseTablesQuery(
 
 export function isErrorTrackingQuery(node?: Record<string, any> | null): node is ErrorTrackingQuery {
     return node?.kind === NodeKind.ErrorTrackingQuery
+}
+
+export function isWebActiveHoursHeatMapQuery(node?: Record<string, any> | null): node is WebActiveHoursHeatMapQuery {
+    return node?.kind === NodeKind.WebActiveHoursHeatMapQuery
 }
 
 export function containsHogQLQuery(node?: Record<string, any> | null): boolean {

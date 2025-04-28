@@ -15,7 +15,6 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Spinner, SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { groupLogic, GroupLogicProps } from 'scenes/groups/groupLogic'
-import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { RelatedFeatureFlags } from 'scenes/persons/RelatedFeatureFlags'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -25,8 +24,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
+import type { ActionFilter, Group } from '~/types'
 import {
-    ActionFilter,
     ActivityScope,
     FilterLogicalOperator,
     Group as IGroup,
@@ -38,6 +37,7 @@ import {
 } from '~/types'
 
 import { GroupOverview } from './GroupOverview'
+import { RelatedGroups } from './RelatedGroups'
 
 interface GroupSceneProps {
     groupTypeIndex?: string
@@ -109,13 +109,13 @@ export function Group(): JSX.Element {
                 }
             />
             <LemonTabs
-                activeKey={groupTab ?? PersonsTabType.PROPERTIES}
+                activeKey={groupTab ?? 'overview'}
                 onChange={(tab) => router.actions.push(urls.group(String(groupTypeIndex), groupKey, true, tab))}
                 tabs={[
                     {
                         key: 'overview',
-                        label: 'Overview',
-                        content: <GroupOverview />,
+                        label: <span data-attr="groups-overview-tab">Overview</span>,
+                        content: <GroupOverview groupData={groupData} />,
                     },
                     {
                         key: PersonsTabType.PROPERTIES,

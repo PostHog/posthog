@@ -70,7 +70,7 @@ function URLOrScreen({ url }: { url: unknown }): JSX.Element | null {
                     />
                 </span>
                 {isValidUrl ? (
-                    <Tooltip title="Click to open url">
+                    <Tooltip title={`Click to open url: ${urlToUse}`}>
                         <Link to={urlToUse} target="_blank" className="truncate">
                             {urlToUse}
                         </Link>

@@ -18,6 +18,7 @@ describe('mergeIssues', () => {
                 volumeDay: [10, 5, 10, 20, 50],
                 volumeRange: [0, 0, 10, 25, 95],
             },
+            library: 'web',
             status: 'active',
             earliest: '',
         }
@@ -37,6 +38,7 @@ describe('mergeIssues', () => {
                     volumeDay: [1, 1, 2, 1, 2],
                     volumeRange: [0, 0, 0, 0, 1],
                 },
+                library: 'web',
                 status: 'active',
                 earliest: '',
             },
@@ -54,6 +56,7 @@ describe('mergeIssues', () => {
                     volumeDay: [5, 10, 2, 3, 5],
                     volumeRange: [0, 0, 0, 1, 0],
                 },
+                library: 'web',
                 status: 'active',
                 earliest: '',
             },
@@ -71,6 +74,7 @@ describe('mergeIssues', () => {
                     volumeDay: [10, 100, 200, 300, 700],
                     volumeRange: [0, 500, 1500, 1000, 1310],
                 },
+                library: 'web',
                 status: 'active',
                 earliest: '',
             },
@@ -90,6 +94,7 @@ describe('mergeIssues', () => {
             first_seen: '2023-07-22T13:15:07.074Z',
             // latest last_seen
             last_seen: '2024-07-22T13:15:50.186Z',
+            library: 'web',
             aggregations: {
                 // sums counts
                 occurrences: 1261,
@@ -115,7 +120,7 @@ describe('generate sparkline labels', () => {
                 date_to: '2025-01-02',
             },
             4
-        )
+        ).map((label) => label.toISOString())
         expect(labels).toEqual([
             '2025-01-01T00:00:00.000Z',
             '2025-01-01T06:00:00.000Z',

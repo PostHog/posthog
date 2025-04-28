@@ -537,6 +537,7 @@ class FieldType(Type):
             return PropertyType(chain=[name], field_type=self)
         if isinstance(database_field, StringArrayDatabaseField):
             return PropertyType(chain=[name], field_type=self)
+
         raise ResolutionError(
             f'Can not access property "{name}" on field "{self.name}" of type: {type(database_field).__name__}'
         )

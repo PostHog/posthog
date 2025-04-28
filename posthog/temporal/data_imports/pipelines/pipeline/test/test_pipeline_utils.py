@@ -387,14 +387,14 @@ def test_normalize_table_column_names_prevents_collisions():
 
     normalized_table = normalize_table_column_names(table)
 
-    # First column that would collide keeps original name
-    assert "foo___bar" in normalized_table.column_names
+    # First column gets normalized
+    assert "foo_bar" in normalized_table.column_names
+    # Second column that would collide gets underscore prefix
+    assert "_foo_bar" in normalized_table.column_names
     # Non-colliding column gets normalized
     assert "another_field" in normalized_table.column_names
-    # Second column that would collide keeps original name
-    assert "foo_bar" in normalized_table.column_names
 
     # Verify the data is preserved
-    assert normalized_table.column("foo___bar").to_pylist() == ["value1"]
     assert normalized_table.column("foo_bar").to_pylist() == ["value2"]
+    assert normalized_table.column("_foo_bar").to_pylist() == ["value1"]
     assert normalized_table.column("another_field").to_pylist() == ["value3"]

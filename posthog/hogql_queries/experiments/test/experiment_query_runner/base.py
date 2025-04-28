@@ -95,8 +95,8 @@ class ExperimentQueryRunnerBaseTest(ClickhouseTestMixin, APIBaseTest):
         return table.name
 
     def create_data_warehouse_table_with_subscriptions(self):
-        subscription_table_name = "subscriptions"
-        _subscriptions_table, source, credential, _, self.clean_up_data_warehouse_subscriptions_data = (
+        subscription_table_name = "stripe_subscriptions"
+        subscriptions_table, source, credential, _, self.clean_up_data_warehouse_subscriptions_data = (
             create_data_warehouse_table_from_csv(
                 csv_path=Path(__file__).parent / "data" / "subscriptions.csv",
                 table_name=subscription_table_name,
@@ -111,8 +111,8 @@ class ExperimentQueryRunnerBaseTest(ClickhouseTestMixin, APIBaseTest):
             )
         )
 
-        customer_table_name = "customers"
-        _customers_table, _, _, _, self.clean_up_data_warehouse_customers_data = create_data_warehouse_table_from_csv(
+        customer_table_name = "stripe_customers"
+        customers_table, _, _, _, self.clean_up_data_warehouse_customers_data = create_data_warehouse_table_from_csv(
             csv_path=Path(__file__).parent / "data" / "customers.csv",
             table_name=customer_table_name,
             table_columns={
@@ -130,14 +130,14 @@ class ExperimentQueryRunnerBaseTest(ClickhouseTestMixin, APIBaseTest):
 
         DataWarehouseJoin.objects.create(
             team=self.team,
-            source_table_name=subscription_table_name,
+            source_table_name=subscriptions_table.name,
             source_table_key="subscription_customer_id",
-            joining_table_name=customer_table_name,
+            joining_table_name=customers_table.name,
             joining_table_key="customer_id",
             field_name="subscription_customer",
         )
 
-        return subscription_table_name
+        return subscriptions_table.name
 
     def create_standard_test_events(self, feature_flag):
         """

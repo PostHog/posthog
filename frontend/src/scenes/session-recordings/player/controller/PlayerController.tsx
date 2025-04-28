@@ -1,8 +1,8 @@
-import { IconPause, IconPlay } from '@posthog/icons'
+import { IconPause, IconPlay, IconRewindPlay } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { IconFullScreen, IconSync } from 'lib/lemon-ui/icons'
+import { IconFullScreen } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { PlayerUpNext } from 'scenes/session-recordings/player/PlayerUpNext'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
@@ -34,7 +34,7 @@ function PlayPauseButton(): JSX.Element {
             {showPause ? (
                 <IconPause className="text-2xl" />
             ) : endReached ? (
-                <IconSync className="text-2xl" />
+                <IconRewindPlay className="text-2xl" />
             ) : (
                 <IconPlay className="text-2xl" />
             )}

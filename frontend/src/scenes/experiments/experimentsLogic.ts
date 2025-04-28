@@ -14,6 +14,7 @@ import { userLogic } from 'scenes/userLogic'
 import { Experiment, ExperimentsTabs, ProgressStatus } from '~/types'
 
 import type { experimentsLogicType } from './experimentsLogicType'
+import { isLegacyExperiment } from './utils'
 
 export function getExperimentStatus(experiment: Experiment): ProgressStatus {
     if (!experiment.start_date) {
@@ -172,6 +173,29 @@ export const experimentsLogic = kea<experimentsLogicType>([
                     ...featureFlags.results.map((flag) => flag.key),
                     ...experiments.map((experiment) => experiment.feature_flag_key),
                 ])
+            },
+        ],
+        showLegacyBadge: [
+            (s) => [featureFlagsLogic.selectors.featureFlags, s.experiments],
+            (featureFlags: FeatureFlagsSet, experiments: Experiment[]): boolean => {
+                /**
+                 * If the new query runner is enabled, we want to always show the legacy badge,
+                 * even if all existing experiments are legacy experiments.
+                 *
+                 * Not ideal to use feature flags at this level, but this is how things are and
+                 * it'll take a while to change.
+                 */
+                if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_QUERY_RUNNER]) {
+                    return true
+                }
+
+                /**
+                 * If the new query runner is not enabled, we'll set this boolean selector
+                 * so the components can show the legacy badge only if there are experiments
+                 * that use the NEW query runner.
+                 * This covers the case when the feature was disabled after creating new experiments.
+                 */
+                return experiments.some((experiment) => !isLegacyExperiment(experiment))
             },
         ],
     })),

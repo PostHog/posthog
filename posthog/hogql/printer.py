@@ -31,6 +31,7 @@ from posthog.hogql.escape_sql import (
     escape_clickhouse_string,
     escape_hogql_identifier,
     escape_hogql_string,
+    safe_identifier,
 )
 from posthog.hogql.functions import (
     ADD_OR_NULL_DATETIME_FUNCTIONS,
@@ -385,7 +386,7 @@ class _Printer(Visitor):
                             # Non-unique hidden alias. Skip.
                             column = column.expr
                     elif isinstance(column, ast.Call):
-                        column_alias = print_prepared_ast(column, self.context, dialect="hogql")
+                        column_alias = safe_identifier(print_prepared_ast(column, self.context, dialect="hogql"))
                         column = ast.Alias(alias=column_alias, expr=column)
                     columns.append(self.visit(column))
             else:
@@ -1290,7 +1291,7 @@ class _Printer(Visitor):
 
             args = [self.visit(arg) for arg in node.args]
 
-            if self.dialect in ("hogql", "clickhouse"):
+            if self.dialect == "clickhouse":
                 if node.name == "hogql_lookupDomainType":
                     return f"coalesce(dictGetOrNull('channel_definition_dict', 'domain_type', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('channel_definition_dict', 'domain_type', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
                 elif node.name == "hogql_lookupPaidSourceType":
@@ -1317,7 +1318,9 @@ class _Printer(Visitor):
                 params_part = f"({', '.join(params)})" if params is not None else ""
                 args_part = f"({', '.join(args)})"
                 return f"{relevant_clickhouse_name}{params_part}{args_part}"
-            raise QueryError(f"Unexpected unresolved HogQL function '{node.name}(...)'")
+
+            # If hogql dialect, just keep it as is
+            return f"{node.name}({', '.join(args)})"
         else:
             close_matches = get_close_matches(node.name, ALL_EXPOSED_FUNCTION_NAMES, 1)
             if len(close_matches) > 0:

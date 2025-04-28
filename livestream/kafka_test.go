@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"os"
 	"testing"
 	"time"
 
@@ -19,7 +20,7 @@ func TestPostHogKafkaConsumer_Consume(t *testing.T) {
 
 	// Create channels
 	outgoingChan := make(chan PostHogEvent, 1)
-	statsChan := make(chan PostHogEvent, 1)
+	statsChan := make(chan CountEvent, 1)
 
 	// Create PostHogKafkaConsumer
 	consumer := &PostHogKafkaConsumer{
@@ -95,4 +96,30 @@ func TestPostHogKafkaConsumer_Close(t *testing.T) {
 	consumer.Close()
 
 	mockConsumer.AssertExpectations(t)
+}
+
+func TestParse(t *testing.T) {
+	mockGeoLocator := new(mocks.GeoLocator)
+	mockGeoLocator.On("Lookup", "127.0.0.1").
+		Return(10., 20., nil).Once()
+	data, err := os.ReadFile("testdata/event.json")
+	assert.NoError(t, err)
+	got := parse(mockGeoLocator, data)
+	assert.Equal(t, PostHogEvent{
+		Token:     "this is token",
+		Timestamp: 1738073128810.,
+		Event:     "consumer_ack",
+		Properties: map[string]interface{}{
+			"$groups": map[string]interface{}{
+				"account": "757eb2c3-7343-4e92-b040-a1d0201b54e6",
+			},
+			"consumer_id":   "67dc0ac7-c9ec-4f8a-8cad-0fbb3695c86c",
+			"consumer_name": "backend_task_sink",
+			"event_count":   6.,
+			"message_count": 0.,
+			"message_kind":  "event",
+		},
+		Lat: 10,
+		Lng: 20,
+	}, got)
 }

@@ -8,6 +8,7 @@ use axum::extract::{MatchedPath, Query, State};
 use axum::http::{HeaderMap, Method};
 use axum_client_ip::InsecureClientIp;
 use base64::Engine;
+use chrono::{DateTime, Duration, Utc};
 use common_types::{CapturedEvent, RawEvent};
 use limiters::token_dropper::TokenDropper;
 use metrics::counter;
@@ -177,6 +178,7 @@ pub async fn event(
             if let Err(err) = process_events(
                 state.sink.clone(),
                 state.token_dropper.clone(),
+                state.historical_cfg.clone(),
                 &events,
                 &context,
             )
@@ -268,6 +270,7 @@ pub async fn options() -> Result<Json<CaptureResponse>, CaptureError> {
 #[instrument(skip_all)]
 pub fn process_single_event(
     event: &RawEvent,
+    historical_cfg: router::HistoricalConfig,
     context: &ProcessingContext,
 ) -> Result<ProcessedEvent, CaptureError> {
     if event.event.is_empty() {
@@ -282,12 +285,23 @@ pub fn process_single_event(
         (_, false) => DataType::AnalyticsMain,
     };
 
+    // only should be used to check if historical topic
+    // rerouting should be applied to this event
+    let raw_event_timestamp =
+        event
+            .timestamp
+            .as_ref()
+            .and_then(|ts| match DateTime::parse_from_rfc3339(ts) {
+                Ok(dt) => Some(dt),
+                Err(_) => None,
+            });
+
     let data = serde_json::to_string(&event).map_err(|e| {
         tracing::error!("failed to encode data field: {}", e);
         CaptureError::NonRetryableSinkError
     })?;
 
-    let metadata = ProcessedEventMetadata {
+    let mut metadata = ProcessedEventMetadata {
         data_type,
         session_id: None,
     };
@@ -306,6 +320,41 @@ pub fn process_single_event(
             .extract_is_cookieless_mode()
             .ok_or(CaptureError::InvalidCookielessMode)?,
     };
+
+    // if this event was historical but not assigned to the right topic
+    // by the submitting user (i.e. no historical prop flag in event)
+    // we should route it there using event#now if older than 1 day
+    let should_reroute_event = if raw_event_timestamp.is_some() {
+        let days_stale = Duration::days(historical_cfg.historical_rerouting_threshold_days);
+        let threshold = Utc::now() - days_stale;
+        let decision = raw_event_timestamp.unwrap().to_utc() <= threshold;
+        if decision {
+            counter!(
+                "capture_events_rerouted_historical",
+                &[("reason", "timestamp")]
+            )
+            .increment(1);
+        }
+        decision
+    } else {
+        let decision = historical_cfg.should_reroute(&event.key());
+        if decision {
+            counter!(
+                "capture_events_rerouted_historical",
+                &[("reason", "key_or_token")]
+            )
+            .increment(1);
+        }
+        decision
+    };
+
+    if metadata.data_type == DataType::AnalyticsMain
+        && historical_cfg.enable_historical_rerouting
+        && should_reroute_event
+    {
+        metadata.data_type = DataType::AnalyticsHistorical;
+    }
+
     Ok(ProcessedEvent { metadata, event })
 }
 
@@ -313,12 +362,13 @@ pub fn process_single_event(
 pub async fn process_events<'a>(
     sink: Arc<dyn sinks::Event + Send + Sync>,
     dropper: Arc<TokenDropper>,
+    historical_cfg: router::HistoricalConfig,
     events: &'a [RawEvent],
     context: &'a ProcessingContext,
 ) -> Result<(), CaptureError> {
     let mut events: Vec<ProcessedEvent> = events
         .iter()
-        .map(|e| process_single_event(e, context))
+        .map(|e| process_single_event(e, historical_cfg.clone(), context))
         .collect::<Result<Vec<ProcessedEvent>, CaptureError>>()?;
 
     events.retain(|e| {

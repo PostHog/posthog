@@ -151,6 +151,7 @@ services:
             CLICKHOUSE_DATABASE: 'posthog'
             CLICKHOUSE_SECURE: 'false'
             CLICKHOUSE_VERIFY: 'false'
+            API_QUERIES_PER_TEAM: '{"1": 7}'
             KAFKA_HOSTS: 'kafka'
             REDIS_URL: 'redis://redis:6379/'
             PGHOST: db
@@ -304,7 +305,6 @@ services:
                 condition: service_healthy
             elasticsearch:
                 condition: service_started
-
     temporal-admin-tools:
         environment:
             - TEMPORAL_CLI_ADDRESS=temporal:7233

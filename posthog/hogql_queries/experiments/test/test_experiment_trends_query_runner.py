@@ -3,6 +3,7 @@ from pathlib import Path
 from django.test import override_settings
 from ee.clickhouse.materialized_columns.columns import get_enabled_materialized_columns, materialize
 from parameterized import parameterized
+from posthog.hogql.errors import QueryError
 from posthog.hogql_queries.experiments.experiment_trends_query_runner import ExperimentTrendsQueryRunner
 from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
@@ -2369,10 +2370,10 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             query=ExperimentTrendsQuery(**experiment.metrics[0]["query"]), team=self.team
         )
         with freeze_time("2023-01-07"):
-            with self.assertRaises(KeyError) as context:
+            with self.assertRaises(QueryError) as context:
                 query_runner.calculate()
 
-        self.assertEqual(str(context.exception), "'invalid_table_name'")
+        assert "invalid_table_name" in str(context.exception)
 
     # Uses the same values as test_query_runner_with_data_warehouse_series_avg_amount for easy comparison
     @freeze_time("2020-01-01T00:00:00Z")

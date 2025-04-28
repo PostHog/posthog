@@ -1,5 +1,5 @@
 # serializer version: 1
-# name: TestExperimentQueryRunner.test_funnel_metric_duplicate_events
+# name: TestExperimentFunnelMetric.test_funnel_metric_duplicate_events
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
@@ -56,16 +56,17 @@
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
+                     max_execution_time=180,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
-# name: TestExperimentQueryRunner.test_funnel_metric_events_out_of_order
+# name: TestExperimentFunnelMetric.test_funnel_metric_events_out_of_order
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
@@ -122,16 +123,17 @@
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
+                     max_execution_time=180,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
-# name: TestExperimentQueryRunner.test_funnel_metric_with_action
+# name: TestExperimentFunnelMetric.test_funnel_metric_with_action
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
@@ -188,16 +190,17 @@
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
+                     max_execution_time=180,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
-# name: TestExperimentQueryRunner.test_funnel_metric_with_conversion_window
+# name: TestExperimentFunnelMetric.test_funnel_metric_with_conversion_window
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
@@ -254,16 +257,17 @@
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
+                     max_execution_time=180,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
-# name: TestExperimentQueryRunner.test_funnel_metric_with_custom_conversion_window
+# name: TestExperimentFunnelMetric.test_funnel_metric_with_custom_conversion_window
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
@@ -320,16 +324,17 @@
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
+                     max_execution_time=180,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_funnel_metric
+# name: TestExperimentFunnelMetric.test_query_runner_funnel_metric
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
@@ -386,16 +391,17 @@
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
+                     max_execution_time=180,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_group_aggregation_funnel_metric
+# name: TestExperimentFunnelMetric.test_query_runner_group_aggregation_funnel_metric
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
@@ -431,16 +437,17 @@
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
+                     max_execution_time=180,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_persons_on_events_mode_0_person_id_override_properties_on_events_no_filter
+# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_0_person_id_override_properties_on_events_no_filter
   '''
   
   SELECT DISTINCT person_id
@@ -449,7 +456,7 @@
     AND distinct_id = 'person_id_1_distinct_id_2'
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_persons_on_events_mode_0_person_id_override_properties_on_events_no_filter.1
+# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_0_person_id_override_properties_on_events_no_filter.1
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
@@ -506,16 +513,17 @@
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
+                     max_execution_time=180,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_persons_on_events_mode_1_person_id_override_properties_on_events_filter_earlierevent
+# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_1_person_id_override_properties_on_events_filter_earlierevent
   '''
   
   SELECT DISTINCT person_id
@@ -524,7 +532,7 @@
     AND distinct_id = 'person_id_1_distinct_id_2'
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_persons_on_events_mode_1_person_id_override_properties_on_events_filter_earlierevent.1
+# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_1_person_id_override_properties_on_events_filter_earlierevent.1
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
@@ -581,16 +589,17 @@
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
+                     max_execution_time=180,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_persons_on_events_mode_2_person_id_override_properties_on_events_filter_laterevent
+# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_2_person_id_override_properties_on_events_filter_laterevent
   '''
   
   SELECT DISTINCT person_id
@@ -599,7 +608,7 @@
     AND distinct_id = 'person_id_1_distinct_id_2'
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_persons_on_events_mode_2_person_id_override_properties_on_events_filter_laterevent.1
+# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_2_person_id_override_properties_on_events_filter_laterevent.1
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
@@ -656,16 +665,17 @@
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
+                     max_execution_time=180,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_persons_on_events_mode_3_person_id_override_properties_joined_no_filter
+# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_3_person_id_override_properties_joined_no_filter
   '''
   
   SELECT DISTINCT person_id
@@ -674,7 +684,7 @@
     AND distinct_id = 'person_id_1_distinct_id_2'
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_persons_on_events_mode_3_person_id_override_properties_joined_no_filter.1
+# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_3_person_id_override_properties_joined_no_filter.1
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
@@ -761,16 +771,17 @@
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
+                     max_execution_time=180,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_persons_on_events_mode_4_person_id_override_properties_joined_filter_earlierevent
+# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_4_person_id_override_properties_joined_filter_earlierevent
   '''
   
   SELECT DISTINCT person_id
@@ -779,7 +790,7 @@
     AND distinct_id = 'person_id_1_distinct_id_2'
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_persons_on_events_mode_4_person_id_override_properties_joined_filter_earlierevent.1
+# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_4_person_id_override_properties_joined_filter_earlierevent.1
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
@@ -866,16 +877,17 @@
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
+                     max_execution_time=180,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_persons_on_events_mode_5_person_id_override_properties_joined_filter_laterevent
+# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_5_person_id_override_properties_joined_filter_laterevent
   '''
   
   SELECT DISTINCT person_id
@@ -884,7 +896,7 @@
     AND distinct_id = 'person_id_1_distinct_id_2'
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_persons_on_events_mode_5_person_id_override_properties_joined_filter_laterevent.1
+# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_5_person_id_override_properties_joined_filter_laterevent.1
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
@@ -971,16 +983,17 @@
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
+                     max_execution_time=180,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_persons_on_events_mode_6_person_id_no_override_properties_on_events_no_filter
+# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_6_person_id_no_override_properties_on_events_no_filter
   '''
   
   SELECT DISTINCT person_id
@@ -989,7 +1002,7 @@
     AND distinct_id = 'person_id_1_distinct_id_2'
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_persons_on_events_mode_6_person_id_no_override_properties_on_events_no_filter.1
+# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_6_person_id_no_override_properties_on_events_no_filter.1
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
@@ -1025,16 +1038,17 @@
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
+                     max_execution_time=180,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_persons_on_events_mode_7_person_id_no_override_properties_on_events_filter_earlierevent
+# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_7_person_id_no_override_properties_on_events_filter_earlierevent
   '''
   
   SELECT DISTINCT person_id
@@ -1043,7 +1057,7 @@
     AND distinct_id = 'person_id_1_distinct_id_2'
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_persons_on_events_mode_7_person_id_no_override_properties_on_events_filter_earlierevent.1
+# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_7_person_id_no_override_properties_on_events_filter_earlierevent.1
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
@@ -1079,16 +1093,17 @@
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
+                     max_execution_time=180,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_persons_on_events_mode_8_person_id_no_override_properties_on_events_filter_laterevent
+# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_8_person_id_no_override_properties_on_events_filter_laterevent
   '''
   
   SELECT DISTINCT person_id
@@ -1097,7 +1112,7 @@
     AND distinct_id = 'person_id_1_distinct_id_2'
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_persons_on_events_mode_8_person_id_no_override_properties_on_events_filter_laterevent.1
+# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_8_person_id_no_override_properties_on_events_filter_laterevent.1
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
@@ -1133,12 +1148,13 @@
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
   LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
+                     max_execution_time=180,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---

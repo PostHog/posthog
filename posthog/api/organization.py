@@ -33,7 +33,7 @@ from posthog.user_permissions import UserPermissions, UserPermissionsSerializerM
 from rest_framework.decorators import action
 from posthog.rbac.migrations.rbac_team_migration import rbac_team_access_control_migration
 from posthog.rbac.migrations.rbac_feature_flag_migration import rbac_feature_flag_role_access_migration
-from sentry_sdk import capture_exception
+from posthog.exceptions_capture import capture_exception
 from drf_spectacular.utils import extend_schema
 from posthog.event_usage import report_organization_action
 

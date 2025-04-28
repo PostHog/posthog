@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { encodeParams } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { windowValues } from 'kea-window-values'
-import { elementToSelector, escapeRegex } from 'lib/actionUtils'
+import { elementToSelector } from 'lib/actionUtils'
 import { PaginatedResponse } from 'lib/api'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { createVersionChecker } from 'lib/utils/semver'
@@ -58,6 +58,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 'setCommonFilters',
                 'setHeatmapFixedPositionMode',
                 'setHref as setDataHref',
+                'setHrefMatchType',
                 'resetHeatmapData',
                 'patchHeatmapFilters',
                 'loadHeatmap',
@@ -73,13 +74,14 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         }),
         enableHeatmap: true,
         disableHeatmap: true,
-        toggleClickmapsEnabled: (enabled?: boolean) => ({ enabled }),
-
+        toggleClickmapsEnabled: (enabled: boolean) => ({ enabled }),
+        setSamplingFactor: (samplingFactor: number) => ({ samplingFactor }),
         loadMoreElementStats: true,
         setMatchLinksByHref: (matchLinksByHref: boolean) => ({ matchLinksByHref }),
         loadAllEnabled: true,
         maybeLoadClickmap: true,
         maybeLoadHeatmap: true,
+        updateElementMetrics: (observedElements: [HTMLElement, boolean][]) => ({ observedElements }),
     }),
     windowValues(() => ({
         windowWidth: (window: Window) => window.innerWidth,
@@ -104,9 +106,32 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         ],
         clickmapsEnabled: [
             false,
+            {
+                toggleClickmapsEnabled: (_, { enabled }) => enabled,
+            },
+        ],
+        samplingFactor: [
+            1,
             { persist: true },
             {
-                toggleClickmapsEnabled: (state, { enabled }) => (enabled === undefined ? !state : enabled),
+                setSamplingFactor: (_, { samplingFactor }) => samplingFactor,
+            },
+        ],
+        elementMetrics: [
+            new Map<HTMLElement, { visible: boolean }>(),
+            {
+                updateElementMetrics: (state, { observedElements }) => {
+                    if (observedElements.length === 0) {
+                        return state
+                    }
+
+                    const onUpdate = new Map(Array.from(state.entries()))
+                    for (const [element, visible] of observedElements) {
+                        onUpdate.set(element, { visible })
+                    }
+
+                    return onUpdate
+                },
             },
         ],
     }),
@@ -132,7 +157,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                                       }
                                     : {
                                           key: '$current_url',
-                                          value: `^${wildcardHref.split('*').map(escapeRegex).join('.*')}$`,
+                                          value: `^${wildcardHref.split('*').map(escapeUnescapedRegex).join('.*')}$`,
                                           operator: PropertyOperator.Regex,
                                           type: PropertyFilterType.Event,
                                       },
@@ -141,7 +166,10 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                             date_to: values.commonFilters.date_to,
                         }
 
-                        defaultUrl = `/api/element/stats/${encodeParams({ ...params, paginate_response: true }, '?')}`
+                        defaultUrl = `/api/element/stats/${encodeParams(
+                            { ...params, paginate_response: true, sampling_factor: values.samplingFactor },
+                            '?'
+                        )}`
                     }
 
                     // toolbar fetch collapses queryparams but this URL has multiple with the same name
@@ -260,35 +288,51 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             },
         ],
         countedElements: [
-            (s) => [s.elements, toolbarConfigLogic.selectors.dataAttributes, s.clickmapsEnabled],
-            (elements, dataAttributes, clickmapsEnabled) => {
+            (s) => [s.elements, toolbarConfigLogic.selectors.dataAttributes, s.clickmapsEnabled, s.elementMetrics],
+            (elements, dataAttributes, clickmapsEnabled, elementMetrics) => {
                 if (!clickmapsEnabled) {
                     return []
                 }
+
+                cache.intersectionObserver.disconnect()
+                cache.intersectionObserver.observe(document.body)
+
                 const normalisedElements = new Map<HTMLElement, CountedHTMLElement>()
-                ;(elements || []).forEach((countedElement) => {
+
+                for (const countedElement of elements || []) {
                     const trimmedElement = trimElement(countedElement.element)
                     if (!trimmedElement) {
-                        return
+                        continue
+                    }
+
+                    const metrics = elementMetrics.get(trimmedElement) || {
+                        visible: isElementVisible(trimmedElement),
+                        rect: trimmedElement.getBoundingClientRect(),
                     }
 
                     if (normalisedElements.has(trimmedElement)) {
                         const existing = normalisedElements.get(trimmedElement)
                         if (existing) {
                             existing.count += countedElement.count
-                            existing.clickCount += countedElement.type === '$rageclick' ? 0 : countedElement.count
+                            existing.clickCount += countedElement.type === '$autocapture' ? countedElement.count : 0
                             existing.rageclickCount += countedElement.type === '$rageclick' ? countedElement.count : 0
+                            existing.deadclickCount += countedElement.type === '$dead_click' ? countedElement.count : 0
+                            existing.visible = metrics.visible
                         }
                     } else {
                         normalisedElements.set(trimmedElement, {
                             ...countedElement,
-                            clickCount: countedElement.type === '$rageclick' ? 0 : countedElement.count,
+                            clickCount: countedElement.type === '$autocapture' ? countedElement.count : 0,
                             rageclickCount: countedElement.type === '$rageclick' ? countedElement.count : 0,
+                            deadclickCount: countedElement.type === '$dead_click' ? countedElement.count : 0,
                             element: trimmedElement,
                             actionStep: elementToActionStep(trimmedElement, dataAttributes),
+                            visible: metrics.visible,
                         })
                     }
-                })
+
+                    cache.intersectionObserver.observe(trimmedElement)
+                }
 
                 const countedElements = Array.from(normalisedElements.values())
                 countedElements.sort((a, b) => b.count - a.count)
@@ -361,23 +405,30 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         },
 
         maybeLoadHeatmap: async () => {
-            if (values.heatmapEnabled) {
-                if (values.heatmapFilters.enabled && values.heatmapFilters.type) {
-                    actions.loadHeatmap()
-                }
+            if (values.heatmapEnabled && values.heatmapFilters.enabled && values.heatmapFilters.type) {
+                actions.loadHeatmap()
             }
         },
 
         setHref: ({ href }) => {
-            actions.setDataHref(href)
+            if (values.heatmapEnabled) {
+                actions.setHrefMatchType(href === window.location.href ? 'exact' : 'pattern')
+                actions.setDataHref(href)
+            }
             actions.maybeLoadClickmap()
         },
         setWildcardHref: ({ href }) => {
-            actions.setDataHref(href)
+            if (values.heatmapEnabled) {
+                actions.setHrefMatchType(href === window.location.href ? 'exact' : 'pattern')
+                actions.setDataHref(href)
+            }
             actions.maybeLoadClickmap()
         },
         setCommonFilters: () => {
             actions.loadAllEnabled()
+        },
+        setSamplingFactor: () => {
+            actions.maybeLoadClickmap()
         },
 
         // Only trigger element stats loading if clickmaps are enabled
@@ -408,8 +459,32 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 actions.setHeatmapScrollY(scrollY)
             }
         }, 100)
+
+        // we bundle the whole app with the toolbar, which means we don't need ES5 support
+        // so we can use IntersectionObserver
+        // eslint-disable-next-line compat/compat
+        const intersectionObserver = new IntersectionObserver((entries) => {
+            const observedElements: [HTMLElement, boolean][] = []
+            entries.forEach((entry) => {
+                const element = entry.target as HTMLElement
+                observedElements.push([element, entry.isIntersecting])
+            })
+            actions.updateElementMetrics(observedElements)
+        })
+
+        // Store for cleanup
+        cache.intersectionObserver = intersectionObserver
     }),
     beforeUnmount(({ cache }) => {
         clearInterval(cache.scrollCheckTimer)
+        cache.intersectionObserver?.disconnect()
     }),
 ])
+
+function isElementVisible(element: HTMLElement): boolean {
+    const style = window.getComputedStyle(element)
+    return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0'
+}
+
+export const escapeUnescapedRegex = (str: string): string =>
+    str.replace(/\\.|([.*+?^=!:${}()|[\]/\\])/g, (match, group1) => (group1 ? `\\${group1}` : match))

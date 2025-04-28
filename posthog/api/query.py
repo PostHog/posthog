@@ -14,7 +14,6 @@ from rest_framework import status, viewsets
 from rest_framework.exceptions import NotAuthenticated, ValidationError, Throttled
 from rest_framework.request import Request
 from rest_framework.response import Response
-from sentry_sdk import set_tag
 from asgiref.sync import sync_to_async
 from concurrent.futures import ThreadPoolExecutor
 
@@ -49,10 +48,11 @@ from posthog.models.user import User
 from posthog.rate_limit import (
     AIBurstRateThrottle,
     AISustainedRateThrottle,
+    APIQueriesBurstThrottle,
+    APIQueriesSustainedThrottle,
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
     HogQLQueryThrottle,
-    APIQueriesThrottle,
 )
 from posthog.schema import (
     QueryRequest,
@@ -110,8 +110,10 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     def get_throttles(self):
         if self.action == "draft_sql":
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]
-        if settings.API_QUERIES_ENABLED and self.check_team_api_queries_concurrency():
-            return [APIQueriesThrottle()]
+        if self.team_id in settings.API_QUERIES_PER_TEAM or (
+            settings.API_QUERIES_ENABLED and self.check_team_api_queries_concurrency()
+        ):
+            return [APIQueriesBurstThrottle(), APIQueriesSustainedThrottle()]
         if query := self.request.data.get("query"):
             if isinstance(query, dict) and query.get("kind") == "HogQLQuery":
                 return [HogQLQueryThrottle()]
@@ -255,7 +257,6 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             return
 
         tag_queries(client_query_id=query_id)
-        set_tag("client_query_id", query_id)
 
 
 MAX_QUERY_TIMEOUT = 600

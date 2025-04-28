@@ -159,7 +159,7 @@ impl AggregateFunnelRow {
                 vars.interval_start_to_entered_timestamps.into_iter()
             {
                 if !vars.results.contains_key(&interval_start)
-                    && interval_data.max_step.step >= args.from_step + 1
+                    && interval_data.max_step.step >= args.from_step
                     && interval_data.max_step.excluded != Exclusion::Partial
                 {
                     vars.results.insert(

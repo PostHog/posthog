@@ -28,7 +28,8 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestExperimentExposuresQueryRunner.test_exposure_query_filters_test_accounts
@@ -70,7 +71,8 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestExperimentExposuresQueryRunner.test_exposure_query_filters_test_accounts.1
@@ -102,7 +104,8 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestExperimentExposuresQueryRunner.test_exposure_query_returns_correct_timeseries
@@ -134,7 +137,8 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestExperimentExposuresQueryRunner.test_exposure_query_using_group_aggregation
@@ -159,7 +163,8 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestExperimentExposuresQueryRunner.test_exposure_query_with_custom_exposure_0__pageview
@@ -191,7 +196,8 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestExperimentExposuresQueryRunner.test_exposure_query_with_custom_exposure_1__feature_flag_called
@@ -223,7 +229,8 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestExperimentExposuresQueryRunner.test_exposure_query_with_multiple_variant_exposures
@@ -255,7 +262,8 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestExperimentExposuresQueryRunner.test_exposure_query_without_feature_flag_property
@@ -287,6 +295,7 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---

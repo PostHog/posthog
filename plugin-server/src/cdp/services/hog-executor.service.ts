@@ -22,7 +22,7 @@ import {
     HogFunctionQueueParametersFetchResponse,
     HogFunctionType,
 } from '../types'
-import { buildExportedFunctionInvoker, convertToHogFunctionFilterGlobal, createInvocation } from '../utils'
+import { convertToHogFunctionFilterGlobal, createInvocation } from '../utils'
 import { checkHogFunctionFilters } from '../utils/hog-function-filtering'
 import { createMailjetRequest } from '../utils/hog-mailjet-request'
 
@@ -383,16 +383,7 @@ export class HogExecutorService {
             }
 
             const sensitiveValues = this.getSensitiveValues(invocation.hogFunction, globals.inputs)
-            const invocationInput =
-                invocation.vmState ??
-                (invocation.functionToExecute
-                    ? buildExportedFunctionInvoker(
-                          invocation.hogFunction.bytecode,
-                          globals,
-                          invocation.functionToExecute[0], // name
-                          invocation.functionToExecute[1] // args
-                      )
-                    : invocation.hogFunction.bytecode)
+            const invocationInput = invocation.vmState ?? invocation.hogFunction.bytecode
 
             const eventId = invocation?.globals?.event?.uuid || 'Unknown event'
 
@@ -400,7 +391,7 @@ export class HogExecutorService {
                 let hogLogs = 0
 
                 execRes = execHog(invocationInput, {
-                    globals: invocation.functionToExecute ? undefined : globals,
+                    globals,
                     maxAsyncSteps: MAX_ASYNC_STEPS, // NOTE: This will likely be configurable in the future
                     asyncFunctions: {
                         // We need to pass these in but they don't actually do anything as it is a sync exec
@@ -664,5 +655,7 @@ export class HogExecutorService {
 }
 
 function fetchFailureToLogMessage(failure: CyclotronFetchFailureInfo): string {
-    return `Fetch failure of kind ${failure.kind} with status ${failure.status} and message ${failure.message}`
+    return `Fetch failure of kind ${failure.kind} with status ${failure.status ?? '(none)'} and message ${
+        failure.message
+    }`
 }

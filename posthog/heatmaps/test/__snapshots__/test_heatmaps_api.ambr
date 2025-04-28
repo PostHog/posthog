@@ -23,7 +23,8 @@
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
                          max_bytes_before_external_group_by=0,
-                         transform_null_in=1
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_exact_url.1
@@ -50,7 +51,8 @@
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
                          max_bytes_before_external_group_by=0,
-                         transform_null_in=1
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_test_accounts
@@ -80,7 +82,8 @@
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
                          max_bytes_before_external_group_by=0,
-                         transform_null_in=1
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_test_accounts.1
@@ -107,7 +110,8 @@
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
                          max_bytes_before_external_group_by=0,
-                         transform_null_in=1
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com*
@@ -134,7 +138,8 @@
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
                          max_bytes_before_external_group_by=0,
-                         transform_null_in=1
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com*.1
@@ -161,7 +166,8 @@
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
                          max_bytes_before_external_group_by=0,
-                         transform_null_in=1
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com/products*
@@ -188,7 +194,8 @@
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
                          max_bytes_before_external_group_by=0,
-                         transform_null_in=1
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com/products*.1
@@ -215,7 +222,8 @@
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
                          max_bytes_before_external_group_by=0,
-                         transform_null_in=1
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com/products/*/parts/*
@@ -242,7 +250,8 @@
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
                          max_bytes_before_external_group_by=0,
-                         transform_null_in=1
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com/products/*/parts/*.1
@@ -269,7 +278,8 @@
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
                          max_bytes_before_external_group_by=0,
-                         transform_null_in=1
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com/products/*/reviews/*
@@ -296,7 +306,8 @@
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
                          max_bytes_before_external_group_by=0,
-                         transform_null_in=1
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com/products/*/reviews/*.1
@@ -323,7 +334,8 @@
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
                          max_bytes_before_external_group_by=0,
-                         transform_null_in=1
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com/products/1*
@@ -350,7 +362,8 @@
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
                          max_bytes_before_external_group_by=0,
-                         transform_null_in=1
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com/products/1*.1
@@ -377,7 +390,8 @@
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
                          max_bytes_before_external_group_by=0,
-                         transform_null_in=1
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com/products/1*/parts/*
@@ -404,7 +418,8 @@
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
                          max_bytes_before_external_group_by=0,
-                         transform_null_in=1
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_http://example.com/products/1*/parts/*.1
@@ -431,7 +446,8 @@
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
                          max_bytes_before_external_group_by=0,
-                         transform_null_in=1
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_url_pattern_where_end_is_anchored
@@ -458,7 +474,8 @@
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
                          max_bytes_before_external_group_by=0,
-                         transform_null_in=1
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_viewport_0_min_150
@@ -485,7 +502,8 @@
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
                          max_bytes_before_external_group_by=0,
-                         transform_null_in=1
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_viewport_1_min_161
@@ -512,7 +530,8 @@
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
                          max_bytes_before_external_group_by=0,
-                         transform_null_in=1
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_viewport_2_min_177
@@ -539,7 +558,8 @@
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
                          max_bytes_before_external_group_by=0,
-                         transform_null_in=1
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_viewport_3_min_201
@@ -566,7 +586,8 @@
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
                          max_bytes_before_external_group_by=0,
-                         transform_null_in=1
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_viewport_4_min_161_and_max_192
@@ -593,7 +614,8 @@
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
                          max_bytes_before_external_group_by=0,
-                         transform_null_in=1
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_all_data_response
@@ -620,7 +642,8 @@
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
                          max_bytes_before_external_group_by=0,
-                         transform_null_in=1
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_count_by_aggregation
@@ -647,7 +670,8 @@
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
                          max_bytes_before_external_group_by=0,
-                         transform_null_in=1
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_count_by_aggregation.1
@@ -674,7 +698,8 @@
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
                          max_bytes_before_external_group_by=0,
-                         transform_null_in=1
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_empty_response
@@ -701,7 +726,8 @@
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
                          max_bytes_before_external_group_by=0,
-                         transform_null_in=1
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_filter_by_click
@@ -728,7 +754,8 @@
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
                          max_bytes_before_external_group_by=0,
-                         transform_null_in=1
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_filter_by_click.1
@@ -755,7 +782,8 @@
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
                          max_bytes_before_external_group_by=0,
-                         transform_null_in=1
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_filter_by_date_from
@@ -782,7 +810,8 @@
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
                          max_bytes_before_external_group_by=0,
-                         transform_null_in=1
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_filter_by_relative_date
@@ -809,7 +838,8 @@
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
                          max_bytes_before_external_group_by=0,
-                         transform_null_in=1
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_filter_by_relative_date.1
@@ -836,7 +866,8 @@
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
                          max_bytes_before_external_group_by=0,
-                         transform_null_in=1
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_scrolldepth_counts
@@ -863,7 +894,8 @@
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
                          max_bytes_before_external_group_by=0,
-                         transform_null_in=1
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_scrolldepth_counts_by_visitor
@@ -890,6 +922,7 @@
                          max_ast_elements=4000000,
                          max_expanded_ast_elements=4000000,
                          max_bytes_before_external_group_by=0,
-                         transform_null_in=1
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---

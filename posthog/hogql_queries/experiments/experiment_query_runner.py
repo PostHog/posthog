@@ -1,7 +1,9 @@
 import json
 from zoneinfo import ZoneInfo
 from posthog.constants import ExperimentNoResultsErrorKeys
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import property_to_expr
@@ -25,6 +27,7 @@ from posthog.hogql_queries.experiments.funnels_statistics_v2 import (
     are_results_significant_v2 as are_results_significant_v2_funnel,
     calculate_credible_intervals_v2 as calculate_credible_intervals_v2_funnel,
 )
+
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.experiment import Experiment
@@ -474,6 +477,58 @@ class ExperimentQueryRunner(QueryRunner):
             ],
         )
 
+    def _get_winsorized_metric_values_query(self, metric_events_query: ast.SelectQuery) -> ast.SelectQuery:
+        """
+        Returns the query to winsorize metric values
+        One row per entity where the value is winsorized to the lower and upper bounds
+        Columns: variant, entity_id, value (winsorized metric values)
+        """
+
+        if not isinstance(self.metric, ExperimentMeanMetric):
+            return metric_events_query
+
+        if self.metric.lower_bound_percentile is not None:
+            lower_bound_expr = parse_expr(
+                "quantile({level})(value)",
+                placeholders={"level": ast.Constant(value=self.metric.lower_bound_percentile)},
+            )
+        else:
+            lower_bound_expr = parse_expr("min(value)")
+
+        if self.metric.upper_bound_percentile is not None:
+            upper_bound_expr = parse_expr(
+                "quantile({level})(value)",
+                placeholders={"level": ast.Constant(value=self.metric.upper_bound_percentile)},
+            )
+        else:
+            upper_bound_expr = parse_expr("max(value)")
+
+        percentiles = ast.SelectQuery(
+            select=[
+                ast.Alias(alias="lower_bound", expr=lower_bound_expr),
+                ast.Alias(alias="upper_bound", expr=upper_bound_expr),
+            ],
+            select_from=ast.JoinExpr(table=metric_events_query, alias="metric_events"),
+        )
+
+        return ast.SelectQuery(
+            select=[
+                ast.Field(chain=["metric_events", "variant"]),
+                ast.Field(chain=["metric_events", "entity_id"]),
+                ast.Alias(
+                    expr=parse_expr(
+                        "least(greatest(percentiles.lower_bound, metric_events.value), percentiles.upper_bound)"
+                    ),
+                    alias="value",
+                ),
+            ],
+            select_from=ast.JoinExpr(
+                table=metric_events_query,
+                alias="metric_events",
+                next_join=ast.JoinExpr(table=percentiles, alias="percentiles", join_type="CROSS JOIN"),
+            ),
+        )
+
     def _get_experiment_variant_results_query(
         self, metrics_aggregated_per_entity_query: ast.SelectQuery
     ) -> ast.SelectQuery:
@@ -505,6 +560,14 @@ class ExperimentQueryRunner(QueryRunner):
             exposure_query, metric_events_query
         )
 
+        # Get the winsorized metric values if configured
+        if isinstance(self.metric, ExperimentMeanMetric) and (
+            self.metric.lower_bound_percentile or self.metric.upper_bound_percentile
+        ):
+            metrics_aggregated_per_entity_query = self._get_winsorized_metric_values_query(
+                metrics_aggregated_per_entity_query
+            )
+
         # Get the final results for each variant
         experiment_variant_results_query = self._get_experiment_variant_results_query(
             metrics_aggregated_per_entity_query
@@ -515,11 +578,22 @@ class ExperimentQueryRunner(QueryRunner):
     def _evaluate_experiment_query(
         self,
     ) -> list[ExperimentVariantTrendsBaseStats] | list[ExperimentVariantFunnelsBaseStats]:
+        # Adding experiment specific tags to the tag collection
+        # This will be available as labels in Prometheus
+        tag_queries(
+            experiment_id=str(self.experiment.id),
+            experiment_name=self.experiment.name,
+            experiment_feature_flag_key=self.feature_flag.key,
+            experiment_is_data_warehouse_query=self.is_data_warehouse_query,
+        )
+
         response = execute_hogql_query(
+            query_type="ExperimentQuery",
             query=self._get_experiment_query(),
             team=self.team,
             timings=self.timings,
             modifiers=create_default_modifiers_for_team(self.team),
+            settings=HogQLGlobalSettings(max_execution_time=180),
         )
 
         # NOTE: For now, remove the $multiple variant

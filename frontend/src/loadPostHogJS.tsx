@@ -84,6 +84,7 @@ export function loadPostHogJS(): void {
                 capture_performance: { web_vitals: true },
                 person_profiles: 'always',
                 __preview_remote_config: true,
+                __preview_flags_v2: true,
             })
         )
     } else {
