@@ -45,6 +45,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     MessagingBroadcasts: () => import('../../products/messaging/frontend/Broadcasts'),
     MessagingLibrary: () => import('../../products/messaging/frontend/library/MessageLibrary'),
     MessagingLibraryTemplate: () => import('../../products/messaging/frontend/library/MessageTemplate'),
+    MessageCampaign: () => import('../../products/messaging/frontend/MessageCampaign'),
     RevenueAnalytics: () => import('../../products/revenue_analytics/frontend/RevenueAnalyticsScene'),
 }
 
@@ -61,6 +62,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/messaging/campaigns': ['MessagingCampaigns', 'messagingCampaigns'],
     '/messaging/campaigns/:id': ['MessagingCampaigns', 'messagingCampaign'],
     '/messaging/campaigns/new': ['MessagingCampaigns', 'messagingCampaignNew'],
+    '/messaging/messaging-campaign/:id': ['MessageCampaign', 'messageCampaign'],
+    '/messaging/messaging-campaign/new': ['MessageCampaign', 'messageCampaignNew'],
     '/messaging/broadcasts': ['MessagingBroadcasts', 'messagingBroadcasts'],
     '/messaging/broadcasts/:id': ['MessagingBroadcasts', 'messagingBroadcast'],
     '/messaging/broadcasts/new': ['MessagingBroadcasts', 'messagingBroadcastNew'],
@@ -119,6 +122,7 @@ export const productConfiguration: Record<string, any> = {
     MessagingBroadcasts: { name: 'Messaging', projectBased: true },
     MessagingLibrary: { name: 'Messaging', projectBased: true },
     MessagingLibraryTemplate: { name: 'Messaging', projectBased: true },
+    MessageCampaign: { name: 'Messaging', projectBased: true },
     RevenueAnalytics: {
         name: 'Revenue Analytics',
         projectBased: true,
@@ -182,6 +186,8 @@ export const productUrls = {
     messagingCampaigns: (): string => '/messaging/campaigns',
     messagingCampaign: (id?: string): string => `/messaging/campaigns/${id}`,
     messagingCampaignNew: (): string => '/messaging/campaigns/new',
+    messageCampaign: (id?: string): string => `/messaging/messaging-campaign/${id}`,
+    messageCampaignNew: (): string => '/messaging/messaging-campaign/new',
     messagingBroadcasts: (): string => '/messaging/broadcasts',
     messagingBroadcast: (id?: string): string => `/messaging/broadcasts/${id}`,
     messagingBroadcastNew: (): string => '/messaging/broadcasts/new',
@@ -276,6 +282,7 @@ export const fileSystemTypes = {
     feature_flag: { icon: <IconToggle />, href: (ref: string) => urls.featureFlag(ref) },
     'hog_function/broadcast': { icon: <IconMegaphone />, href: (ref: string) => urls.messagingBroadcast(ref) },
     'hog_function/campaign': { icon: <IconMegaphone />, href: (ref: string) => urls.messagingCampaign(ref) },
+    'hog_function/messaging_campaign': { icon: <IconMegaphone />, href: (ref: string) => urls.messageCampaign(ref) },
     insight: { icon: <IconGraph />, href: (ref: string) => urls.insightView(ref as InsightShortId) },
     notebook: { icon: <IconNotebook />, href: (ref: string) => urls.notebook(ref) },
     session_recording_playlist: { icon: <IconRewindPlay />, href: (ref: string) => urls.replayPlaylist(ref) },
