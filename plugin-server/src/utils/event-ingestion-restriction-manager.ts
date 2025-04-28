@@ -1,6 +1,6 @@
 import { Hub } from '../types'
 import { BackgroundRefresher } from './background-refresher'
-import { parseJson } from './json-parse'
+import { parseJSON } from './json-parse'
 import { logger } from './logger'
 
 export enum RestrictionType {
@@ -85,7 +85,7 @@ export class EventIngestionRestrictionManager {
                     }
 
                     try {
-                        const parsedArray = parseJson(redisResult[1] as string)
+                        const parsedArray = parseJSON(redisResult[1] as string)
                         if (Array.isArray(parsedArray)) {
                             result[restrictionType] = new Set(parsedArray)
                         } else {
