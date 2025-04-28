@@ -215,7 +215,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             log_activity(
                 organization_id=team.organization_id,
                 team_id=team.id,
-                user=view.created_by,
+                user=self.context["request"].user,
                 was_impersonated=is_impersonated_session(self.context["request"]),
                 item_id=view.id,
                 scope="DataWarehouseSavedQuery",
