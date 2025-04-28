@@ -1,5 +1,5 @@
 import { Message } from 'node-rdkafka'
-import { Counter, Histogram } from 'prom-client'
+import { Counter } from 'prom-client'
 
 import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
 import { KafkaConsumer } from '../../kafka/batch-consumer-v2'
@@ -17,12 +17,6 @@ export const counterParseError = new Counter({
     name: 'cdp_function_parse_error',
     help: 'A function invocation was parsed with an error',
     labelNames: ['error'],
-})
-
-export const histogramCyclotronJobsCreated = new Histogram({
-    name: 'cdp_cyclotron_jobs_created_per_batch',
-    help: 'The number of jobs we are creating in a single batch',
-    buckets: [0, 50, 100, 250, 500, 750, 1000, 1500, 2000, 3000, Infinity],
 })
 
 export class CdpEventsConsumer extends CdpConsumerBase {

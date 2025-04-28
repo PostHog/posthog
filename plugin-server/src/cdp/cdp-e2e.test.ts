@@ -15,6 +15,7 @@ import { createHogExecutionGlobals, insertHogFunction as _insertHogFunction } fr
 import { FetchError } from 'node-fetch'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
+import { resetKafka } from '~/tests/helpers/kafka'
 
 jest.mock('../../src/utils/fetch', () => {
     return {
@@ -26,7 +27,7 @@ const mockFetch: jest.Mock = require('../../src/utils/fetch').trackedFetch
 
 const ActualKafkaProducerWrapper = jest.requireActual('../../src/kafka/producer').KafkaProducerWrapper
 
-describe.each([['cyclotron' as const]])('CDP Consumer loop: %s', (mode) => {
+describe.each([['cyclotron' as const], ['kafka' as const]])('CDP Consumer loop: %s', (mode) => {
     jest.setTimeout(10000)
 
     describe('e2e fetch call', () => {
@@ -46,13 +47,12 @@ describe.each([['cyclotron' as const]])('CDP Consumer loop: %s', (mode) => {
         }
 
         beforeEach(async () => {
-            console.log(ActualKafkaProducerWrapper)
-
-            // This ensures a real producer is used everywhere
+            // We still want to mock all created producers but we wan't to use the real implementation, not the mocked one
             MockKafkaProducerWrapper.create = jest.fn((...args) => {
-                console.log('MockKafkaProducerWrapper.create', args)
                 return ActualKafkaProducerWrapper.create(...args)
             })
+
+            await resetKafka()
 
             await resetTestDatabase()
             hub = await createHub()
@@ -128,11 +128,14 @@ describe.each([['cyclotron' as const]])('CDP Consumer loop: %s', (mode) => {
             const invocations = await eventsConsumer.processBatch([globals])
             expect(invocations).toHaveLength(1)
 
-            await waitForExpect(() => {
-                expect(mockProducerObserver.getProducedKafkaMessages()).toHaveLength(7)
-            }, 5000)
-
-            expect(mockProducerObserver.getProducedKafkaMessages()).toHaveLength(7)
+            try {
+                await waitForExpect(() => {
+                    expect(mockProducerObserver.getProducedKafkaMessagesForTopic('log_entries_test')).toHaveLength(5)
+                }, 5000)
+            } catch (e) {
+                console.log(mockProducerObserver.getProducedKafkaMessages())
+                throw e
+            }
 
             expect(mockFetch).toHaveBeenCalledTimes(1)
 

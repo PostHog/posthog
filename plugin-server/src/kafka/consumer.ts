@@ -7,6 +7,7 @@ import {
     KafkaConsumer as RdKafkaConsumer,
     LibrdKafkaError,
     Message,
+    MessageHeader,
     TopicPartition,
     TopicPartitionOffset,
 } from 'node-rdkafka'

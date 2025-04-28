@@ -4,27 +4,31 @@
  * If you just want to observe a real producer class then use `producer.spy.ts`
  */
 
+import { HighLevelProducer } from 'node-rdkafka'
+
 import { KafkaProducerWrapper } from '../../../src/kafka/producer'
 import { KafkaProducerObserver } from './producer.spy'
 
+const ActualKafkaProducerWrapper = jest.requireActual('../../../src/kafka/producer').KafkaProducerWrapper
+
 jest.mock('../../../src/kafka/producer', () => {
-    const mockKafkaProducer: jest.Mocked<KafkaProducerWrapper> = {
-        producer: {
-            connect: jest.fn(),
-        } as any,
+    const mockHighLevelProducer: jest.Mocked<HighLevelProducer> = {
+        produce: jest.fn(),
+        flush: jest.fn(),
         disconnect: jest.fn(),
-        produce: jest.fn().mockReturnValue(Promise.resolve()),
-        queueMessages: jest.fn().mockReturnValue(Promise.resolve()),
-        flush: jest.fn().mockReturnValue(Promise.resolve()),
-    }
+        connect: jest.fn(),
+    } as any
+
+    // Rather than calling create we just create a new instance with the underlying node-rdkafka producer mocked.
+    const kafkaProducer = new ActualKafkaProducerWrapper(mockHighLevelProducer)
 
     class MockKafkaProducer {
-        static create = jest.fn(() => Promise.resolve(mockKafkaProducer))
+        static create = jest.fn(() => Promise.resolve(kafkaProducer))
     }
 
     return {
         KafkaProducerWrapper: MockKafkaProducer,
-        _producer: mockKafkaProducer,
+        _producer: kafkaProducer,
     }
 })
 

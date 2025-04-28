@@ -345,11 +345,20 @@ export function serializeHogFunctionInvocation(invocation: HogFunctionInvocation
     const serializedInvocation: HogFunctionInvocationSerialized = {
         ...invocation,
         hogFunctionId: invocation.hogFunction.id,
-        // We clear the params as they are never used in the serialized form
-        queueParameters: undefined,
     }
 
     delete (serializedInvocation as any).hogFunction
+
+    return serializedInvocation
+}
+
+export function serializeHogFunctionInvocationForCyclotron(
+    invocation: HogFunctionInvocation
+): HogFunctionInvocationSerialized {
+    const serializedInvocation = serializeHogFunctionInvocation(invocation)
+
+    // Ensure we don't include this as it is set elsewhere
+    delete serializedInvocation.queueParameters
 
     return serializedInvocation
 }
@@ -366,7 +375,7 @@ export function invocationToCyclotronJobUpdate(invocation: HogFunctionInvocation
     }
 
     const updates: CyclotronJobUpdate = {
-        vmState: serializeHogFunctionInvocation(invocation),
+        vmState: serializeHogFunctionInvocationForCyclotron(invocation),
         priority: invocation.queuePriority,
         queueName: invocation.queue,
         parameters,

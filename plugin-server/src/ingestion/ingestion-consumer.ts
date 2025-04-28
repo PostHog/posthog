@@ -3,7 +3,7 @@ import { Counter } from 'prom-client'
 import { z } from 'zod'
 
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
-import { KafkaConsumer } from '../kafka/batch-consumer-v2'
+import { KafkaConsumer, parseKafkaHeaders } from '../kafka/batch-consumer-v2'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { ingestionOverflowingMessagesTotal } from '../main/ingestion-queues/batch-processing/metrics'
 import {
@@ -430,15 +430,15 @@ export class IngestionConsumer {
 
         if (error?.isRetriable === false) {
             const sentryEventId = captureException(error)
-            const headers: MessageHeader[] = message.headers ?? []
-            headers.push({ ['sentry-event-id']: sentryEventId })
-            headers.push({ ['event-id']: event.uuid })
             try {
                 await this.kafkaProducer!.produce({
                     topic: this.dlqTopic,
                     value: message.value,
                     key: message.key ?? null, // avoid undefined, just to be safe
-                    headers: headers,
+                    headers: {
+                        'sentry-event-id': sentryEventId,
+                        'event-id': event.uuid,
+                    },
                 })
             } catch (error) {
                 // If we can't send to the DLQ and it's not retriable, just continue. We'll commit the
@@ -599,7 +599,7 @@ export class IngestionConsumer {
                     // (extremely) unlikely event that it is, set it to ``null``
                     // instead as that behavior is safer.
                     key: preservePartitionLocality ? message.key ?? null : null,
-                    headers: headers,
+                    headers: parseKafkaHeaders(headers),
                 })
             })
         )
@@ -617,7 +617,7 @@ export class IngestionConsumer {
                     topic: this.testingTopic!,
                     value: message.value,
                     key: message.key ?? null,
-                    headers: message.headers,
+                    headers: parseKafkaHeaders(message.headers),
                 })
             )
         )

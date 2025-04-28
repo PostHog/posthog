@@ -42,6 +42,8 @@ export async function resetKafka(extraServerConfig?: Partial<PluginsServerConfig
         KAFKA_EVENTS_DEAD_LETTER_QUEUE,
     ])
 
+    await resetAllTopics(kafka)
+
     return kafka
 }
 
@@ -59,4 +61,17 @@ export async function createTopics(kafka: Kafka, topics: string[]) {
         })
     }
     await admin.disconnect()
+}
+
+export async function resetAllTopics(kafka: Kafka) {
+    const admin = kafka.admin()
+    try {
+        await admin.connect()
+        const topics = await admin.listTopics()
+        await admin.deleteTopics({ topics })
+    } catch (error) {
+        throw error
+    } finally {
+        await admin.disconnect()
+    }
 }

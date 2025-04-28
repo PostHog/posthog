@@ -34,7 +34,7 @@ export type TopicMessage = {
     messages: {
         value: string | Buffer | null
         key?: MessageKey
-        headers?: Record<string, string | Buffer>
+        headers?: Record<string, string>
     }[]
 }
 
@@ -98,12 +98,18 @@ export class KafkaProducerWrapper {
         value: MessageValue
         key: MessageKey
         topic: string
-        headers?: MessageHeader[]
+        headers?: Record<string, string>
     }): Promise<void> {
         try {
             const produceTimer = ingestEventKafkaProduceLatency.labels({ topic }).startTimer()
             kafkaProducerMessagesQueuedCounter.labels({ topic_name: topic }).inc()
             logger.debug('📤', 'Producing message', { topic: topic })
+
+            // NOTE: The MessageHeader type is super weird. Essentially you are passing in a record and it expects a string key and a string or buffer value.
+            const kafkaHeaders: MessageHeader[] =
+                Object.entries(headers ?? {}).map(([key, value]) => ({
+                    [key]: value,
+                })) ?? []
 
             const result = await new Promise((resolve, reject) => {
                 this.producer.produce(
@@ -112,7 +118,7 @@ export class KafkaProducerWrapper {
                     value,
                     key,
                     Date.now(),
-                    headers ?? [],
+                    kafkaHeaders,
                     (error: any, offset: NumberNullUndefined) => {
                         return error ? reject(error) : resolve(offset)
                     }
@@ -156,10 +162,7 @@ export class KafkaProducerWrapper {
                             topic: record.topic,
                             key: message.key ? Buffer.from(message.key) : null,
                             value: message.value ? Buffer.from(message.value) : null,
-                            headers: Object.entries(message.headers ?? {}).map(([key, value]) => ({
-                                key,
-                                value,
-                            })),
+                            headers: message.headers,
                         })
                     )
                 )

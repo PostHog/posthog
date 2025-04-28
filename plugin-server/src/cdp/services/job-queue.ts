@@ -7,7 +7,7 @@ import { chunk } from 'lodash'
 import { Message } from 'node-rdkafka'
 import { Counter, Gauge, Histogram } from 'prom-client'
 
-import { KafkaConsumer } from '../../kafka/batch-consumer-v2'
+import { KafkaConsumer, parseKafkaHeaders } from '../../kafka/batch-consumer-v2'
 import { KafkaProducerWrapper, TopicMessage } from '../../kafka/producer'
 import { Hub } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
@@ -23,6 +23,7 @@ import {
     invocationToCyclotronJobUpdate,
     isLegacyPluginHogFunction,
     serializeHogFunctionInvocation,
+    serializeHogFunctionInvocationForCyclotron,
 } from '../utils'
 import { HogFunctionManagerService } from './hog-function-manager.service'
 
@@ -174,7 +175,7 @@ export class CyclotronJobQueue {
                 functionId: item.hogFunction.id,
                 queueName: isLegacyPluginHogFunction(item.hogFunction) ? 'plugin' : 'hog',
                 priority: item.queuePriority,
-                vmState: serializeHogFunctionInvocation(item),
+                vmState: serializeHogFunctionInvocationForCyclotron(item),
             }
         })
 
@@ -289,7 +290,9 @@ export class CyclotronJobQueue {
         // NOTE: As there is only ever one consumer per process we use the KAFKA_CONSUMER_ vars as with any other consumer
         this.kafkaConsumer = new KafkaConsumer({ groupId, topic, callEachBatchWhenEmpty: true })
 
+        logger.info('🔄', 'Connecting kafka consumer', { groupId, topic })
         await this.kafkaConsumer.connect(async (messages) => {
+            logger.info('🔄', 'Consuming kafka batch', { count: messages.length })
             await this.consumeKafkaBatch(messages)
         })
     }
@@ -306,23 +309,26 @@ export class CyclotronJobQueue {
 
     private async createKafkaJobs(invocations: HogFunctionInvocation[]) {
         const producer = this.getKafkaProducer()
-        const payload: TopicMessage = {
-            topic: `cdp-cyclotron-${this.queue}`,
-            messages: invocations.map((x) => {
-                const serialized = serializeHogFunctionInvocation(x)
-                // NOTE: Should we compress this already?
-                return {
-                    value: JSON.stringify(serialized),
-                    key: x.id,
-                    headers: {
-                        hogFunctionId: x.hogFunction.id,
-                        teamId: x.globals.project.id.toString(),
-                    },
-                }
-            }),
-        }
 
-        await producer.queueMessages(payload)
+        const messages = invocations.map((x) => {
+            const serialized = serializeHogFunctionInvocation(x)
+            return {
+                topic: `cdp_cyclotron_${x.queue}`,
+                messages: [
+                    {
+                        // NOTE: Should we compress this already?
+                        value: JSON.stringify(serialized),
+                        key: x.id,
+                        headers: {
+                            hogFunctionId: x.hogFunction.id,
+                            teamId: x.globals.project.id.toString(),
+                        },
+                    },
+                ],
+            }
+        })
+
+        await producer.queueMessages(messages)
     }
 
     private async updateKafkaJobs(invocationResults: HogFunctionInvocationResult[]) {
@@ -330,6 +336,10 @@ export class CyclotronJobQueue {
         const invocations = invocationResults.reduce((acc, res) => {
             if (res.finished) {
                 return acc
+            }
+
+            if (res.invocation.queue === 'fetch' && !res.invocation.queueParameters) {
+                throw new Error('Fetch job has no queue parameters')
             }
 
             return [...acc, res.invocation]
@@ -351,11 +361,11 @@ export class CyclotronJobQueue {
         const hogFunctionIds = new Set<string>()
 
         messages.forEach((message) => {
-            message.headers?.forEach((header) => {
-                if (header.key === 'hogFunctionId' && header.value) {
-                    hogFunctionIds.add(header.value.toString())
-                }
-            })
+            const headers = parseKafkaHeaders(message.headers ?? [])
+            const hogFunctionId = headers['hogFunctionId']
+            if (hogFunctionId) {
+                hogFunctionIds.add(hogFunctionId)
+            }
         })
 
         const hogFunctions = await this.hogFunctionManager.getHogFunctions(Array.from(hogFunctionIds))

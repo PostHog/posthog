@@ -25,10 +25,6 @@ export type DecodedKafkaMessage = {
 }
 
 export class KafkaProducerObserver {
-    public readonly queueMessagesSpy: jest.SpyInstance<
-        Promise<void>,
-        Parameters<typeof KafkaProducerWrapper.prototype.queueMessages>
-    >
     public readonly produceSpy: jest.SpyInstance<
         Promise<void>,
         Parameters<typeof KafkaProducerWrapper.prototype.produce>
@@ -36,25 +32,11 @@ export class KafkaProducerObserver {
 
     constructor(private producer: KafkaProducerWrapper) {
         // Spy on the methods we need
-        this.queueMessagesSpy = jest.spyOn(producer, 'queueMessages')
         this.produceSpy = jest.spyOn(producer, 'produce')
-    }
-
-    public getQueuedMessages() {
-        return this.queueMessagesSpy.mock.calls.reduce((acc, call) => {
-            return acc.concat(Array.isArray(call[0]) ? call[0] : [call[0]])
-        }, [] as TopicMessage[])
     }
 
     public getProducedMessages() {
         return this.produceSpy.mock.calls.reduce((acc, call) => {
-            const headers = call[0].headers?.reduce<Record<string, string>>((acc, header) => {
-                const key = Object.keys(header)[0]
-                const value = header[key]
-                acc[key] = value.toString()
-                return acc
-            }, {})
-
             return acc.concat([
                 {
                     topic: call[0].topic,
@@ -62,7 +44,7 @@ export class KafkaProducerObserver {
                         {
                             key: call[0].key,
                             value: call[0].value,
-                            headers: headers,
+                            headers: call[0].headers,
                         },
                     ],
                 },
@@ -71,7 +53,7 @@ export class KafkaProducerObserver {
     }
 
     public getParsedQueuedMessages(): ParsedTopicMessage[] {
-        const allMessages = this.getProducedMessages().concat(this.getQueuedMessages())
+        const allMessages = this.getProducedMessages()
         return allMessages.map((topicMessage) => ({
             topic: topicMessage.topic,
             messages: topicMessage.messages.map((message) => ({
@@ -125,7 +107,6 @@ export class KafkaProducerObserver {
     }
 
     public resetKafkaProducer() {
-        this.queueMessagesSpy.mockClear()
         this.produceSpy.mockClear()
     }
 }
