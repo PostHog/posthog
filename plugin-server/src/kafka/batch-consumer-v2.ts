@@ -376,7 +376,6 @@ export class KafkaConsumer {
         if (this.isStopping) {
             return
         }
-
         // Mark as stopping - this will also essentially stop the consumer loop
         this.isStopping = true
 
