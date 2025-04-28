@@ -1,56 +1,57 @@
 import { IconCopy } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
 import { concatValues } from 'lib/components/Errors/utils'
 import useIsHovering from 'lib/hooks/useIsHovering'
+import { identifierToHuman } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
+import { Properties } from 'posthog-js'
 import { useRef } from 'react'
-import { match, P } from 'ts-pattern'
+import { match } from 'ts-pattern'
 
-import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
-import { cancelEvent } from '../utils'
+import { cancelEvent, ExceptionAttributes } from '../utils'
 
-export function ContextDisplay({ className }: { className?: string }): JSX.Element {
-    const { exceptionAttributes, showContext, propertiesLoading } = useValues(errorTrackingIssueSceneLogic)
+export interface ContextDisplayProps {
+    className?: string
+    attributes: ExceptionAttributes | null
+    additionalProperties: Properties
+    loading: boolean
+}
+
+export function ContextDisplay({
+    className,
+    attributes,
+    additionalProperties,
+    loading,
+}: ContextDisplayProps): JSX.Element {
     return (
         <div className={cn('pt-8 transition-[width] duration-200', className)}>
-            {match([showContext, propertiesLoading, exceptionAttributes])
-                .with([false, P.any, P.any], () => null)
-                .with([true, true, P.any], () => (
+            {match(loading)
+                .with(true, () => (
                     <div className="flex justify-center w-full h-32 items-center">
                         <Spinner />
                     </div>
                 ))
-                .with([true, false, P.nullish], () => <div>No data available</div>)
-                .with([true, false, P.any], ([, , attrs]) => {
+                .with(false, () => {
+                    const additionalEntries = Object.entries(additionalProperties).map(
+                        ([key, value]) => [identifierToHuman(key, 'title'), value] as [string, unknown]
+                    )
+                    const exceptionEntries =
+                        attributes &&
+                        ([
+                            ['Level', attributes.level],
+                            ['Synthetic', attributes.synthetic],
+                            ['Library', concatValues(attributes, 'lib', 'libVersion')],
+                            ['Handled', attributes.handled],
+                            ['Browser', concatValues(attributes, 'browser', 'browserVersion')],
+                            ['OS', concatValues(attributes, 'os', 'osVersion')],
+                            ['URL', attributes.url],
+                        ] as [string, unknown][])
                     return (
-                        <table
-                            className="border-spacing-0 border-separate rounded w-full border overflow-hidden cursor-default"
-                            onClick={cancelEvent}
-                        >
-                            <tbody className="w-full">
-                                {[
-                                    { label: 'Level', value: attrs?.level },
-                                    { label: 'Synthetic', value: attrs?.synthetic },
-                                    {
-                                        label: 'Library',
-                                        value: concatValues(attrs, 'lib', 'libVersion'),
-                                    },
-                                    { label: 'Handled', value: attrs?.handled },
-                                    {
-                                        label: 'Browser',
-                                        value: concatValues(attrs, 'browser', 'browserVersion'),
-                                    },
-                                    { label: 'OS', value: concatValues(attrs, 'os', 'osVersion') },
-                                    { label: 'URL', value: attrs?.url },
-                                ]
-                                    .filter((row) => row.value !== undefined)
-                                    .map((row, index) => (
-                                        <ContextRow key={index} label={row.label} value={String(row.value)} />
-                                    ))}
-                            </tbody>
-                        </table>
+                        <div className="space-y-2">
+                            <ContextTable entries={exceptionEntries || []} />
+                            {additionalEntries.length > 0 && <ContextTable entries={additionalEntries} />}
+                        </div>
                     )
                 })
                 .exhaustive()}
@@ -61,6 +62,24 @@ export function ContextDisplay({ className }: { className?: string }): JSX.Eleme
 type ContextRowProps = {
     label: string
     value: string
+}
+
+function ContextTable({ entries }: { entries: [string, unknown][] }): JSX.Element {
+    return (
+        <table
+            className="border-spacing-0 border-separate rounded w-full border overflow-hidden cursor-default"
+            onClick={cancelEvent}
+        >
+            <tbody className="w-full">
+                {entries
+                    .filter(([, value]) => value !== undefined)
+                    .map(([key, value]) => (
+                        <ContextRow key={key} label={key} value={String(value)} />
+                    ))}
+                {entries.length == 0 && <tr className="w-full text-center">No data available</tr>}
+            </tbody>
+        </table>
+    )
 }
 
 function ContextRow({ label, value }: ContextRowProps): JSX.Element {

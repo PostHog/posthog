@@ -157,6 +157,7 @@ export function TaxonomicPropertyFilter({
                         type: filter?.type,
                         label: filter?.label,
                         ...(isGroupPropertyFilter(filter) ? { group_type_index: filter.group_type_index } : {}),
+                        ...(filter.type === PropertyFilterType.Cohort ? { cohort_name: filter.cohort_name } : {}),
                     } as AnyPropertyFilter)
                 }
                 if (newOperator && newValue && !isOperatorMulti(newOperator) && !isOperatorRegex(newOperator)) {
