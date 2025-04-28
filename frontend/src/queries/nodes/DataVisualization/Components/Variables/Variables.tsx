@@ -36,19 +36,17 @@ export const VariablesForDashboard = (): JSX.Element => {
 
     return (
         <>
-            <div className="flex gap-4 flex-wrap px-px mt-4 mb-2">
-                {dashboardVariables.map((n) => (
-                    <VariableComponent
-                        key={n.variable.id}
-                        variable={n.variable}
-                        showEditingUI={false}
-                        onChange={(variableId, value, isNull) => overrideVariableValue(variableId, value, isNull, true)}
-                        variableOverridesAreSet={false}
-                        emptyState={<i className="text-xs">No override set</i>}
-                        insightsUsingVariable={n.insights}
-                    />
-                ))}
-            </div>
+            {dashboardVariables.map((n) => (
+                <VariableComponent
+                    key={n.variable.id}
+                    variable={n.variable}
+                    showEditingUI={false}
+                    onChange={(variableId, value, isNull) => overrideVariableValue(variableId, value, isNull, true)}
+                    variableOverridesAreSet={false}
+                    emptyState={<i className="text-xs">No override set</i>}
+                    insightsUsingVariable={n.insights}
+                />
+            ))}
         </>
     )
 }

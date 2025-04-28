@@ -13,7 +13,6 @@ import { Counter, Summary } from 'prom-client'
 import { PluginsServerConfig } from '../types'
 import { DependencyUnavailableError, MessageSizeTooLarge } from '../utils/db/error'
 import { logger } from '../utils/logger'
-import { getSpan } from '../utils/sentry'
 import { createRdConnectionConfigFromEnvVars, getProducerConfigFromEnv, KafkaConfigTarget } from './config'
 
 // TODO: Rewrite this description
@@ -103,7 +102,6 @@ export class KafkaProducerWrapper {
     }): Promise<void> {
         try {
             const produceTimer = ingestEventKafkaProduceLatency.labels({ topic }).startTimer()
-            const produceSpan = getSpan()?.startChild({ op: 'kafka_produce' })
             kafkaProducerMessagesQueuedCounter.labels({ topic_name: topic }).inc()
             logger.debug('📤', 'Producing message', { topic: topic })
 
@@ -121,7 +119,6 @@ export class KafkaProducerWrapper {
                 )
             })
 
-            produceSpan?.finish()
             kafkaProducerMessagesWrittenCounter.labels({ topic_name: topic }).inc()
             logger.debug('📤', 'Produced message', { topic: topic, offset: result })
             produceTimer()

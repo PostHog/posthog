@@ -1895,7 +1895,7 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
 }
 
 export interface ErrorTrackingIssueAssignee {
-    type: 'user_group' | 'user'
+    type: 'user_group' | 'user' | 'role'
     id: integer | string
 }
 

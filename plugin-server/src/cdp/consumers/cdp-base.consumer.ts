@@ -1,5 +1,3 @@
-import { Counter, Histogram } from 'prom-client'
-
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { runInstrumentedFunction } from '../../main/utils'
 import { Hub, PluginServerService, TeamId } from '../../types'
@@ -12,25 +10,6 @@ import { HogFunctionMonitoringService } from '../services/hog-function-monitorin
 import { HogMaskerService } from '../services/hog-masker.service'
 import { HogWatcherService } from '../services/hog-watcher.service'
 import { HogFunctionTypeType } from '../types'
-
-// Metrics that were at the top of the file
-export const histogramKafkaBatchSize = new Histogram({
-    name: 'cdp_function_executor_batch_size',
-    help: 'The size of the batches we are receiving from Kafka',
-    buckets: [0, 50, 100, 250, 500, 750, 1000, 1500, 2000, 3000, Infinity],
-})
-
-export const histogramKafkaBatchSizeKb = new Histogram({
-    name: 'cdp_function_executor_batch_size_kb',
-    help: 'The size in kb of the batches we are receiving from Kafka',
-    buckets: [0, 128, 512, 1024, 5120, 10240, 20480, 51200, 102400, 204800, Infinity],
-})
-
-export const counterParseError = new Counter({
-    name: 'cdp_function_parse_error',
-    help: 'A function invocation was parsed with an error',
-    labelNames: ['error'],
-})
 
 export interface TeamIDWithConfig {
     teamId: TeamId | null
