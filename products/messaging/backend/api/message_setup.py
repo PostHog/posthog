@@ -19,7 +19,7 @@ class MessageSetupViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response({"error": "Domain parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
 
         mailjet = MailjetProvider()
-        setup_result = mailjet.setup_email_domain(domain)
+        setup_result = mailjet.setup_email_domain(domain, team_id=self.team.id, created_by=request.user)
         return Response(setup_result)
 
     @action(methods=["POST"], detail=False, url_path="email/verify")
@@ -32,5 +32,5 @@ class MessageSetupViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response({"error": "Domain parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
 
         mailjet = MailjetProvider()
-        verification_result = mailjet.verify_email_domain(domain)
+        verification_result = mailjet.verify_email_domain(domain, team_id=self.team.id)
         return Response(verification_result)
