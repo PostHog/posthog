@@ -8,7 +8,7 @@ import { Message } from 'node-rdkafka'
 import { Counter, Gauge, Histogram } from 'prom-client'
 
 import { KafkaConsumer, parseKafkaHeaders } from '../../kafka/batch-consumer-v2'
-import { KafkaProducerWrapper, TopicMessage } from '../../kafka/producer'
+import { KafkaProducerWrapper } from '../../kafka/producer'
 import { Hub } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
