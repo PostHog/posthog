@@ -150,7 +150,7 @@ export class IngestionConsumer {
         await this.kafkaConsumer.connect(async (messages) => {
             return await runInstrumentedFunction({
                 statsKey: `ingestionConsumer.handleEachBatch`,
-                sendTimeoutGuardToSentry: false,
+                sendException: false,
                 func: async () => await this.handleKafkaBatch(messages),
             })
         })
