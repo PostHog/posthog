@@ -1843,7 +1843,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       linkText: 'Active hours',
                                       canOpenModal: true,
                                       query: {
-                                          kind: NodeKind.HeatMapQuery,
+                                          kind: NodeKind.EventsHeatMapQuery,
                                           source: {
                                               kind: NodeKind.EventsNode,
                                               event: '$pageview',
@@ -1852,7 +1852,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                           },
                                           properties: webAnalyticsFilters,
                                           dateRange,
-                                          conversionGoal,
                                       },
                                       docs: {
                                           url: 'https://posthog.com/docs/web-analytics/dashboard#active-hours',

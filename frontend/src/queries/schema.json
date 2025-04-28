@@ -420,7 +420,7 @@
                     "$ref": "#/definitions/VectorSearchQuery"
                 },
                 {
-                    "$ref": "#/definitions/HeatMapQuery"
+                    "$ref": "#/definitions/EventsHeatMapQuery"
                 }
             ]
         },
@@ -2508,6 +2508,77 @@
             ],
             "type": "object"
         },
+        "CachedEventsHeatMapQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hasMore": {
+                    "type": "boolean"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "results": {
+                    "$ref": "#/definitions/EventsHeatMapStructuredResult"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
         "CachedEventsQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -3233,77 +3304,6 @@
                 "results",
                 "timezone",
                 "types"
-            ],
-            "type": "object"
-        },
-        "CachedHeatMapQueryResponse": {
-            "additionalProperties": false,
-            "properties": {
-                "cache_key": {
-                    "type": "string"
-                },
-                "cache_target_age": {
-                    "format": "date-time",
-                    "type": "string"
-                },
-                "calculation_trigger": {
-                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
-                    "type": "string"
-                },
-                "error": {
-                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-                    "type": "string"
-                },
-                "hasMore": {
-                    "type": "boolean"
-                },
-                "hogql": {
-                    "description": "Generated HogQL query.",
-                    "type": "string"
-                },
-                "is_cached": {
-                    "type": "boolean"
-                },
-                "last_refresh": {
-                    "format": "date-time",
-                    "type": "string"
-                },
-                "limit": {
-                    "$ref": "#/definitions/integer"
-                },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
-                },
-                "next_allowed_client_refresh": {
-                    "format": "date-time",
-                    "type": "string"
-                },
-                "query_status": {
-                    "$ref": "#/definitions/QueryStatus",
-                    "description": "Query status indicates whether next to the provided data, a query is still running."
-                },
-                "results": {
-                    "$ref": "#/definitions/HeatMapStructuredResult"
-                },
-                "timezone": {
-                    "type": "string"
-                },
-                "timings": {
-                    "description": "Measured timings for different parts of the query generation process",
-                    "items": {
-                        "$ref": "#/definitions/QueryTiming"
-                    },
-                    "type": "array"
-                }
-            },
-            "required": [
-                "cache_key",
-                "is_cached",
-                "last_refresh",
-                "next_allowed_client_refresh",
-                "results",
-                "timezone"
             ],
             "type": "object"
         },
@@ -6314,7 +6314,7 @@
                                     "description": "Query status indicates whether next to the provided data, a query is still running."
                                 },
                                 "results": {
-                                    "$ref": "#/definitions/HeatMapStructuredResult"
+                                    "$ref": "#/definitions/EventsHeatMapStructuredResult"
                                 },
                                 "timings": {
                                     "description": "Measured timings for different parts of the query generation process",
@@ -6932,7 +6932,7 @@
                             "$ref": "#/definitions/WebVitalsPathBreakdownQuery"
                         },
                         {
-                            "$ref": "#/definitions/HeatMapQuery"
+                            "$ref": "#/definitions/EventsHeatMapQuery"
                         },
                         {
                             "$ref": "#/definitions/SessionAttributionExplorerQuery"
@@ -8187,6 +8187,183 @@
                 }
             },
             "required": ["id", "distinct_id", "properties", "event", "timestamp", "elements"],
+            "type": "object"
+        },
+        "EventsHeatMapColumnAggregationResult": {
+            "additionalProperties": false,
+            "properties": {
+                "column": {
+                    "$ref": "#/definitions/integer"
+                },
+                "value": {
+                    "$ref": "#/definitions/integer"
+                }
+            },
+            "required": ["column", "value"],
+            "type": "object"
+        },
+        "EventsHeatMapDataResult": {
+            "additionalProperties": false,
+            "properties": {
+                "column": {
+                    "$ref": "#/definitions/integer"
+                },
+                "row": {
+                    "$ref": "#/definitions/integer"
+                },
+                "value": {
+                    "$ref": "#/definitions/integer"
+                }
+            },
+            "required": ["row", "column", "value"],
+            "type": "object"
+        },
+        "EventsHeatMapQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter"
+                },
+                "conversionGoal": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/WebAnalyticsConversionGoal"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "doPathCleaning": {
+                    "type": "boolean"
+                },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
+                "includeRevenue": {
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "EventsHeatMapQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "orderBy": {
+                    "$ref": "#/definitions/WebAnalyticsOrderBy"
+                },
+                "properties": {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
+                },
+                "response": {
+                    "$ref": "#/definitions/EventsHeatMapQueryResponse"
+                },
+                "sampling": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "enabled": {
+                            "type": "boolean"
+                        },
+                        "forceSamplingRate": {
+                            "$ref": "#/definitions/SamplingRate"
+                        }
+                    },
+                    "type": "object"
+                },
+                "source": {
+                    "$ref": "#/definitions/HeatMapQuerySource"
+                },
+                "useSessionsTable": {
+                    "deprecated": "ignored, always treated as enabled *",
+                    "type": "boolean"
+                }
+            },
+            "required": ["kind", "properties", "source"],
+            "type": "object"
+        },
+        "EventsHeatMapQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hasMore": {
+                    "type": "boolean"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "results": {
+                    "$ref": "#/definitions/EventsHeatMapStructuredResult"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
+        "EventsHeatMapRowAggregationResult": {
+            "additionalProperties": false,
+            "properties": {
+                "row": {
+                    "$ref": "#/definitions/integer"
+                },
+                "value": {
+                    "$ref": "#/definitions/integer"
+                }
+            },
+            "required": ["row", "value"],
+            "type": "object"
+        },
+        "EventsHeatMapStructuredResult": {
+            "additionalProperties": false,
+            "properties": {
+                "allAggregations": {
+                    "$ref": "#/definitions/integer"
+                },
+                "columnAggregations": {
+                    "items": {
+                        "$ref": "#/definitions/EventsHeatMapColumnAggregationResult"
+                    },
+                    "type": "array"
+                },
+                "data": {
+                    "items": {
+                        "$ref": "#/definitions/EventsHeatMapDataResult"
+                    },
+                    "type": "array"
+                },
+                "rowAggregations": {
+                    "items": {
+                        "$ref": "#/definitions/EventsHeatMapRowAggregationResult"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["data", "rowAggregations", "columnAggregations", "allAggregations"],
             "type": "object"
         },
         "EventsNode": {
@@ -10214,185 +10391,8 @@
                 }
             ]
         },
-        "HeatMapColumnAggregationResult": {
-            "additionalProperties": false,
-            "properties": {
-                "column": {
-                    "$ref": "#/definitions/integer"
-                },
-                "value": {
-                    "$ref": "#/definitions/integer"
-                }
-            },
-            "required": ["column", "value"],
-            "type": "object"
-        },
-        "HeatMapDataResult": {
-            "additionalProperties": false,
-            "properties": {
-                "column": {
-                    "$ref": "#/definitions/integer"
-                },
-                "row": {
-                    "$ref": "#/definitions/integer"
-                },
-                "value": {
-                    "$ref": "#/definitions/integer"
-                }
-            },
-            "required": ["row", "column", "value"],
-            "type": "object"
-        },
-        "HeatMapQuery": {
-            "additionalProperties": false,
-            "properties": {
-                "compareFilter": {
-                    "$ref": "#/definitions/CompareFilter"
-                },
-                "conversionGoal": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/WebAnalyticsConversionGoal"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
-                },
-                "dateRange": {
-                    "$ref": "#/definitions/DateRange"
-                },
-                "doPathCleaning": {
-                    "type": "boolean"
-                },
-                "filterTestAccounts": {
-                    "type": "boolean"
-                },
-                "includeRevenue": {
-                    "type": "boolean"
-                },
-                "kind": {
-                    "const": "HeatMapQuery",
-                    "type": "string"
-                },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
-                },
-                "orderBy": {
-                    "$ref": "#/definitions/WebAnalyticsOrderBy"
-                },
-                "properties": {
-                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
-                },
-                "response": {
-                    "$ref": "#/definitions/HeatMapQueryResponse"
-                },
-                "sampling": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "enabled": {
-                            "type": "boolean"
-                        },
-                        "forceSamplingRate": {
-                            "$ref": "#/definitions/SamplingRate"
-                        }
-                    },
-                    "type": "object"
-                },
-                "source": {
-                    "$ref": "#/definitions/HeatMapQuerySource"
-                },
-                "useSessionsTable": {
-                    "deprecated": "ignored, always treated as enabled *",
-                    "type": "boolean"
-                }
-            },
-            "required": ["kind", "properties", "source"],
-            "type": "object"
-        },
-        "HeatMapQueryResponse": {
-            "additionalProperties": false,
-            "properties": {
-                "error": {
-                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-                    "type": "string"
-                },
-                "hasMore": {
-                    "type": "boolean"
-                },
-                "hogql": {
-                    "description": "Generated HogQL query.",
-                    "type": "string"
-                },
-                "limit": {
-                    "$ref": "#/definitions/integer"
-                },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
-                },
-                "query_status": {
-                    "$ref": "#/definitions/QueryStatus",
-                    "description": "Query status indicates whether next to the provided data, a query is still running."
-                },
-                "results": {
-                    "$ref": "#/definitions/HeatMapStructuredResult"
-                },
-                "timings": {
-                    "description": "Measured timings for different parts of the query generation process",
-                    "items": {
-                        "$ref": "#/definitions/QueryTiming"
-                    },
-                    "type": "array"
-                }
-            },
-            "required": ["results"],
-            "type": "object"
-        },
         "HeatMapQuerySource": {
             "$ref": "#/definitions/EventsNode"
-        },
-        "HeatMapRowAggregationResult": {
-            "additionalProperties": false,
-            "properties": {
-                "row": {
-                    "$ref": "#/definitions/integer"
-                },
-                "value": {
-                    "$ref": "#/definitions/integer"
-                }
-            },
-            "required": ["row", "value"],
-            "type": "object"
-        },
-        "HeatMapStructuredResult": {
-            "additionalProperties": false,
-            "properties": {
-                "allAggregations": {
-                    "$ref": "#/definitions/integer"
-                },
-                "columnAggregations": {
-                    "items": {
-                        "$ref": "#/definitions/HeatMapColumnAggregationResult"
-                    },
-                    "type": "array"
-                },
-                "data": {
-                    "items": {
-                        "$ref": "#/definitions/HeatMapDataResult"
-                    },
-                    "type": "array"
-                },
-                "rowAggregations": {
-                    "items": {
-                        "$ref": "#/definitions/HeatMapRowAggregationResult"
-                    },
-                    "type": "array"
-                }
-            },
-            "required": ["data", "rowAggregations", "columnAggregations", "allAggregations"],
-            "type": "object"
         },
         "HogCompileResponse": {
             "additionalProperties": false,
@@ -12089,7 +12089,7 @@
                 "WebVitalsQuery",
                 "WebVitalsPathBreakdownQuery",
                 "WebPageURLSearchQuery",
-                "HeatMapQuery",
+                "EventsHeatMapQuery",
                 "RevenueAnalyticsOverviewQuery",
                 "RevenueAnalyticsGrowthRateQuery",
                 "RevenueAnalyticsTopCustomersQuery",
@@ -13896,7 +13896,7 @@
                             "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
                         "results": {
-                            "$ref": "#/definitions/HeatMapStructuredResult"
+                            "$ref": "#/definitions/EventsHeatMapStructuredResult"
                         },
                         "timings": {
                             "description": "Measured timings for different parts of the query generation process",
@@ -14544,7 +14544,7 @@
                             "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
                         "results": {
-                            "$ref": "#/definitions/HeatMapStructuredResult"
+                            "$ref": "#/definitions/EventsHeatMapStructuredResult"
                         },
                         "timings": {
                             "description": "Measured timings for different parts of the query generation process",
@@ -15634,7 +15634,7 @@
                     "$ref": "#/definitions/WebPageURLSearchQuery"
                 },
                 {
-                    "$ref": "#/definitions/HeatMapQuery"
+                    "$ref": "#/definitions/EventsHeatMapQuery"
                 },
                 {
                     "$ref": "#/definitions/RevenueAnalyticsOverviewQuery"

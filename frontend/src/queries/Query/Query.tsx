@@ -32,7 +32,7 @@ import { WebVitalsPathBreakdown } from '../nodes/WebVitals/WebVitalsPathBreakdow
 import {
     isDataTableNode,
     isDataVisualizationNode,
-    isHeatMapQuery,
+    isEventsHeatMapQuery,
     isHogQuery,
     isInsightVizNode,
     isRevenueAnalyticsGrowthRateQuery,
@@ -175,7 +175,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
         component = <WebVitalsPathBreakdown query={query} cachedResults={props.cachedResults} context={queryContext} />
     } else if (isHogQuery(query)) {
         component = <HogDebug query={query} setQuery={setQuery as (query: any) => void} queryKey={String(uniqueKey)} />
-    } else if (isHeatMapQuery(query)) {
+    } else if (isEventsHeatMapQuery(query)) {
         component = <WebActiveHoursHeatmap query={query} context={queryContext} cachedResults={props.cachedResults} />
     } else {
         component = <DataNode query={query} cachedResults={props.cachedResults} />

@@ -6,20 +6,20 @@ from posthog.hogql_queries.web_analytics.web_analytics_query_runner import (
     WebAnalyticsQueryRunner,
 )
 from posthog.schema import (
-    CachedHeatMapQueryResponse,
-    HeatMapQueryResponse,
-    HeatMapDataResult,
-    HeatMapRowAggregationResult,
-    HeatMapColumnAggregationResult,
-    HeatMapStructuredResult,
-    HeatMapQuery,
+    CachedEventsHeatMapQueryResponse,
+    EventsHeatMapQueryResponse,
+    EventsHeatMapDataResult,
+    EventsHeatMapRowAggregationResult,
+    EventsHeatMapColumnAggregationResult,
+    EventsHeatMapStructuredResult,
+    EventsHeatMapQuery,
 )
 
 
-class HeatMapQueryRunner(WebAnalyticsQueryRunner):
-    query: HeatMapQuery
-    response: HeatMapQueryResponse
-    cached_response: CachedHeatMapQueryResponse
+class EventsHeatMapQueryRunner(WebAnalyticsQueryRunner):
+    query: EventsHeatMapQuery
+    response: EventsHeatMapQueryResponse
+    cached_response: CachedEventsHeatMapQueryResponse
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -74,13 +74,13 @@ class HeatMapQueryRunner(WebAnalyticsQueryRunner):
             modifiers=self.modifiers,
         )
 
-        day_and_hours: list[HeatMapDataResult] = []
-        days: list[HeatMapRowAggregationResult] = []
-        hours: list[HeatMapColumnAggregationResult] = []
+        day_and_hours: list[EventsHeatMapDataResult] = []
+        days: list[EventsHeatMapRowAggregationResult] = []
+        hours: list[EventsHeatMapColumnAggregationResult] = []
 
         if not response.results:
-            return HeatMapQueryResponse(
-                results=HeatMapStructuredResult(
+            return EventsHeatMapQueryResponse(
+                results=EventsHeatMapStructuredResult(
                     data=day_and_hours, rowAggregations=days, columnAggregations=hours, allAggregations=0
                 ),
                 timings=response.timings,
@@ -101,22 +101,22 @@ class HeatMapQueryRunner(WebAnalyticsQueryRunner):
             key = hours_and_days_keys[i]
             day, hour = map(int, key.split(","))
             total = int(hours_and_days_values[i])
-            day_and_hours.append(HeatMapDataResult(row=day, column=hour, value=total))
+            day_and_hours.append(EventsHeatMapDataResult(row=day, column=hour, value=total))
 
         # Process day-only entries
         for i in range(len(days_keys)):
             day = int(days_keys[i])
             total = int(days_values[i])
-            days.append(HeatMapRowAggregationResult(row=day, value=total))
+            days.append(EventsHeatMapRowAggregationResult(row=day, value=total))
 
         # Process hour-only entries
         for i in range(len(hours_keys)):
             hour = int(hours_keys[i])
             total = int(hours_values[i])
-            hours.append(HeatMapColumnAggregationResult(column=hour, value=total))
+            hours.append(EventsHeatMapColumnAggregationResult(column=hour, value=total))
 
-        return HeatMapQueryResponse(
-            results=HeatMapStructuredResult(
+        return EventsHeatMapQueryResponse(
+            results=EventsHeatMapStructuredResult(
                 data=day_and_hours, rowAggregations=days, columnAggregations=hours, allAggregations=totalOverall
             ),
             timings=response.timings,

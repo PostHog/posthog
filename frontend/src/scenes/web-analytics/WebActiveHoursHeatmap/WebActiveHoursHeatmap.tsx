@@ -4,12 +4,12 @@ import { teamLogic } from 'scenes/teamLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import {
     AnyResponseType,
-    HeatMapColumnAggregationResult,
-    HeatMapDataResult,
-    HeatMapRowAggregationResult,
-    HeatMapStructuredResult,
+    EventsHeatMapColumnAggregationResult,
+    EventsHeatMapDataResult,
+    EventsHeatMapRowAggregationResult,
+    EventsHeatMapStructuredResult,
 } from '~/queries/schema/schema-general'
-import { HeatMapQuery } from '~/queries/schema/schema-general'
+import { EventsHeatMapQuery } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
 import { EventsHeatMap } from '../EventsHeatMap/EventsHeatMap'
@@ -25,7 +25,7 @@ import {
 } from './utils'
 
 interface WebActiveHoursHeatmapProps {
-    query: HeatMapQuery
+    query: EventsHeatMapQuery
     context: QueryContext
     cachedResults?: AnyResponseType
 }
@@ -63,7 +63,7 @@ export function WebActiveHoursHeatmap(props: WebActiveHoursHeatmapProps): JSX.El
 
 function processData(
     weekStartDay: number,
-    results: HeatMapStructuredResult,
+    results: EventsHeatMapStructuredResult,
     columnLabels: string[],
     rowLabels: string[]
 ): {
@@ -97,7 +97,7 @@ function processData(
             minOverall = 0
         }
 
-        results.data.forEach((result: HeatMapDataResult) => {
+        results.data.forEach((result: EventsHeatMapDataResult) => {
             const adjustedDay = (result.row - weekStartDay + rowLabels.length) % rowLabels.length
             matrix[adjustedDay][result.column] = result.value
             maxOverall = Math.max(maxOverall, result.value)
@@ -108,7 +108,7 @@ function processData(
     // Calculate columns aggregations
     const columnsAggregations: number[] = Array.from({ length: columnLabels.length }, () => 0)
     if (results?.columnAggregations) {
-        results.columnAggregations.forEach((result: HeatMapColumnAggregationResult) => {
+        results.columnAggregations.forEach((result: EventsHeatMapColumnAggregationResult) => {
             columnsAggregations[result.column] = result.value
         })
     }
@@ -116,7 +116,7 @@ function processData(
     // Calculate rows aggregations
     const rowsAggregations: number[] = Array.from({ length: rowLabels.length }, () => 0)
     if (results?.rowAggregations) {
-        results.rowAggregations.forEach((result: HeatMapRowAggregationResult) => {
+        results.rowAggregations.forEach((result: EventsHeatMapRowAggregationResult) => {
             const adjustedDay = (result.row - weekStartDay + rowLabels.length) % rowLabels.length
             rowsAggregations[adjustedDay] = result.value
         })

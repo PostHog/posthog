@@ -13,12 +13,12 @@ import {
     DataWarehouseNode,
     DateRange,
     ErrorTrackingQuery,
+    EventsHeatMapQuery,
     EventsNode,
     EventsQuery,
     FunnelsQuery,
     GoalLine,
     GroupsQuery,
-    HeatMapQuery,
     HogQLASTQuery,
     HogQLMetadata,
     HogQLQuery,
@@ -213,8 +213,8 @@ export function isErrorTrackingQuery(node?: Record<string, any> | null): node is
     return node?.kind === NodeKind.ErrorTrackingQuery
 }
 
-export function isHeatMapQuery(node?: Record<string, any> | null): node is HeatMapQuery {
-    return node?.kind === NodeKind.HeatMapQuery
+export function isEventsHeatMapQuery(node?: Record<string, any> | null): node is EventsHeatMapQuery {
+    return node?.kind === NodeKind.EventsHeatMapQuery
 }
 
 export function containsHogQLQuery(node?: Record<string, any> | null): boolean {

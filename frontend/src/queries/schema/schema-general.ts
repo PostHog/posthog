@@ -105,7 +105,7 @@ export enum NodeKind {
     WebVitalsQuery = 'WebVitalsQuery',
     WebVitalsPathBreakdownQuery = 'WebVitalsPathBreakdownQuery',
     WebPageURLSearchQuery = 'WebPageURLSearchQuery',
-    HeatMapQuery = 'HeatMapQuery',
+    EventsHeatMapQuery = 'EventsHeatMapQuery',
 
     // Revenue analytics queries
     RevenueAnalyticsOverviewQuery = 'RevenueAnalyticsOverviewQuery',
@@ -166,7 +166,7 @@ export type AnyDataNode =
     | RecordingsQuery
     | TracesQuery
     | VectorSearchQuery
-    | HeatMapQuery
+    | EventsHeatMapQuery
 
 /**
  * @discriminator kind
@@ -204,7 +204,7 @@ export type QuerySchema =
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
     | WebPageURLSearchQuery
-    | HeatMapQuery
+    | EventsHeatMapQuery
 
     // Revenue analytics
     | RevenueAnalyticsOverviewQuery
@@ -707,7 +707,7 @@ export interface DataTableNode
                     | WebGoalsQuery
                     | WebVitalsQuery
                     | WebVitalsPathBreakdownQuery
-                    | HeatMapQuery
+                    | EventsHeatMapQuery
                     | SessionAttributionExplorerQuery
                     | RevenueAnalyticsOverviewQuery
                     | RevenueAnalyticsGrowthRateQuery
@@ -737,7 +737,7 @@ export interface DataTableNode
         | WebGoalsQuery
         | WebVitalsQuery
         | WebVitalsPathBreakdownQuery
-        | HeatMapQuery
+        | EventsHeatMapQuery
         | SessionAttributionExplorerQuery
         | RevenueAnalyticsOverviewQuery
         | RevenueAnalyticsGrowthRateQuery
@@ -2916,37 +2916,37 @@ export type CachedWebPageURLSearchQueryResponse = CachedQueryResponse<WebPageURL
 
 export type HeatMapQuerySource = EventsNode
 
-export interface HeatMapQuery extends WebAnalyticsQueryBase<HeatMapQueryResponse> {
-    kind: NodeKind.HeatMapQuery
+export interface EventsHeatMapQuery extends WebAnalyticsQueryBase<EventsHeatMapQueryResponse> {
+    kind: NodeKind.EventsHeatMapQuery
     source: HeatMapQuerySource
 }
 
-export interface HeatMapQueryResponse extends AnalyticsQueryResponseBase<HeatMapStructuredResult> {
+export interface EventsHeatMapQueryResponse extends AnalyticsQueryResponseBase<EventsHeatMapStructuredResult> {
     hasMore?: boolean
     limit?: integer
 }
 
-export interface HeatMapDataResult {
+export interface EventsHeatMapDataResult {
     row: integer
     column: integer
     value: integer
 }
 
-export interface HeatMapRowAggregationResult {
+export interface EventsHeatMapRowAggregationResult {
     row: integer
     value: integer
 }
 
-export interface HeatMapColumnAggregationResult {
+export interface EventsHeatMapColumnAggregationResult {
     column: integer
     value: integer
 }
 
-export interface HeatMapStructuredResult {
-    data: HeatMapDataResult[]
-    rowAggregations: HeatMapRowAggregationResult[]
-    columnAggregations: HeatMapColumnAggregationResult[]
+export interface EventsHeatMapStructuredResult {
+    data: EventsHeatMapDataResult[]
+    rowAggregations: EventsHeatMapRowAggregationResult[]
+    columnAggregations: EventsHeatMapColumnAggregationResult[]
     allAggregations: integer
 }
 
-export type CachedHeatMapQueryResponse = CachedQueryResponse<HeatMapQueryResponse>
+export type CachedEventsHeatMapQueryResponse = CachedQueryResponse<EventsHeatMapQueryResponse>
