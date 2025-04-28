@@ -130,7 +130,7 @@ import {
     SlackChannelType,
     SubscriptionType,
     Survey,
-    SurveyStats,
+    SurveyStatsResponse,
     TeamType,
     UserBasicType,
     UserGroup,
@@ -2664,12 +2664,21 @@ const api = {
         async getResponsesCount(): Promise<{ [key: string]: number }> {
             return await new ApiRequest().surveysResponsesCount().get()
         },
-        async summarize_responses(surveyId: Survey['id'], questionIndex: number | undefined): Promise<any> {
-            let apiRequest = new ApiRequest().survey(surveyId).withAction('summarize_responses')
+        async summarize_responses(
+            surveyId: Survey['id'],
+            questionIndex: number | undefined,
+            questionId: string | undefined
+        ): Promise<any> {
+            const apiRequest = new ApiRequest().survey(surveyId).withAction('summarize_responses')
+            const queryParams: Record<string, string> = {}
+
             if (questionIndex !== undefined) {
-                apiRequest = apiRequest.withQueryString('questionIndex=' + questionIndex)
+                queryParams['question_index'] = questionIndex.toString()
             }
-            return await apiRequest.create()
+            if (questionId !== undefined) {
+                queryParams['question_id'] = questionId
+            }
+            return await apiRequest.withQueryString(queryParams).create()
         },
         async getSurveyStats({
             surveyId,
@@ -2679,7 +2688,13 @@ const api = {
             surveyId: Survey['id']
             dateFrom?: string | null
             dateTo?: string | null
-        }): Promise<SurveyStats> {
+        }): Promise<
+            SurveyStatsResponse & {
+                survey_id: string
+                start_date: string
+                end_date?: string
+            }
+        > {
             const apiRequest = new ApiRequest().survey(surveyId).withAction('stats')
             const queryParams: Record<string, string> = {}
             if (dateFrom) {
@@ -2697,7 +2712,7 @@ const api = {
         }: {
             dateFrom?: string | null
             dateTo?: string | null
-        }): Promise<SurveyStats> {
+        }): Promise<SurveyStatsResponse> {
             const apiRequest = new ApiRequest().surveys().withAction('stats')
             const queryParams: Record<string, string> = {}
             if (dateFrom) {

@@ -55,6 +55,7 @@ import {
     InsightLogicProps,
     InsightType,
     IntervalType,
+    PropertyFilterBaseValue,
     PropertyFilterType,
     PropertyMathType,
     PropertyOperator,
@@ -468,7 +469,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     if (similarFilterExists) {
                         // if there's already a matching property, turn it off or merge them
                         return oldPropertyFilters
-                            .map((f) => {
+                            .map((f: WebAnalyticsPropertyFilter) => {
                                 if (
                                     f.key !== key ||
                                     f.type !== type ||
@@ -477,7 +478,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     return f
                                 }
                                 const oldValue = (Array.isArray(f.value) ? f.value : [f.value]).filter(isNotNil)
-                                let newValue: (string | number | bigint)[]
+                                let newValue: PropertyFilterBaseValue[]
                                 if (oldValue.includes(value)) {
                                     // If there are multiple values for this filter, reduce that to just the one being clicked
                                     if (oldValue.length > 1) {
@@ -963,9 +964,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 const includeRevenue = !(conversionGoal && 'actionId' in conversionGoal)
 
                 const revenueEventsSeries: EventsNode[] =
-                    includeRevenue && currentTeam?.revenue_tracking_config
+                    includeRevenue && currentTeam?.revenue_analytics_config
                         ? ([
-                              ...currentTeam.revenue_tracking_config.events.map((e) => ({
+                              ...currentTeam.revenue_analytics_config.events.map((e) => ({
                                   name: e.eventName,
                                   event: e.eventName,
                                   custom_name: e.eventName,
@@ -1845,6 +1846,28 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                           kind: NodeKind.WebActiveHoursHeatMapQuery,
                                           properties: webAnalyticsFilters,
                                           dateRange,
+                                      },
+                                      docs: {
+                                          url: 'https://posthog.com/docs/web-analytics/dashboard#active-hours',
+                                          title: 'Active hours',
+                                          description: (
+                                              <>
+                                                  <div>
+                                                      <p>
+                                                          Active hours displays a heatmap showing the number of unique
+                                                          users who performed any pageview event, broken down by hour of
+                                                          the day and day of the week.
+                                                      </p>
+                                                      <p>
+                                                          Note: It is expected that selecting a time range longer than 7
+                                                          days will include additional occurrences of weekdays and
+                                                          hours, potentially increasing the user counts in those
+                                                          buckets. The recommendation is to select 7 closed days or
+                                                          multiple of 7 closed day ranges.
+                                                      </p>
+                                                  </div>
+                                              </>
+                                          ),
                                       },
                                       insightProps: createInsightProps(TileId.ACTIVE_HOURS, ActiveHoursTab.NORMAL),
                                   },

@@ -1,4 +1,4 @@
-import { LemonButtonProps } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
@@ -8,13 +8,20 @@ import { dayjs } from 'lib/dayjs'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { formatDate, isOperatorDate, isOperatorFlag, isOperatorMulti, toString } from 'lib/utils'
 import { useEffect } from 'react'
+import {
+    AssigneeIconDisplay,
+    AssigneeLabelDisplay,
+    AssigneeResolver,
+} from 'scenes/error-tracking/components/Assignee/AssigneeDisplay'
+import { AssigneeSelect } from 'scenes/error-tracking/components/Assignee/AssigneeSelect'
 
 import {
     PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS,
     PROPERTY_FILTER_TYPES_WITH_TEMPORAL_SUGGESTIONS,
     propertyDefinitionsModel,
 } from '~/models/propertyDefinitionsModel'
-import { GroupTypeIndex, PropertyFilterType, PropertyOperator, PropertyType } from '~/types'
+import { ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
+import { GroupTypeIndex, PropertyFilterType, PropertyFilterValue, PropertyOperator, PropertyType } from '~/types'
 
 export interface PropertyValueProps {
     propertyKey: string
@@ -22,16 +29,16 @@ export interface PropertyValueProps {
     endpoint?: string // Endpoint to fetch options from
     placeholder?: string
     onSet: CallableFunction
-    value?: string | number | bigint | Array<string | number | bigint> | null // | ErrorTrackingIssueAssignee TODO - @david
+    value?: PropertyFilterValue
     operator: PropertyOperator
     autoFocus?: boolean
     eventNames?: string[]
     addRelativeDateTimeOptions?: boolean
-    forceSingleSelect?: boolean
     inputClassName?: string
     additionalPropertiesFilter?: { key: string; values: string | string[] }[]
     groupTypeIndex?: GroupTypeIndex
     size?: LemonButtonProps['size']
+    editable?: boolean
 }
 
 export function PropertyValue({
@@ -46,24 +53,23 @@ export function PropertyValue({
     autoFocus = false,
     eventNames = [],
     addRelativeDateTimeOptions = false,
-    forceSingleSelect = false,
     inputClassName = undefined,
     additionalPropertiesFilter = [],
     groupTypeIndex = undefined,
+    editable = true,
 }: PropertyValueProps): JSX.Element {
     const { formatPropertyValueForDisplay, describeProperty, options } = useValues(propertyDefinitionsModel)
     const { loadPropertyValues } = useActions(propertyDefinitionsModel)
 
-    const isMultiSelect = operator && isOperatorMulti(operator) && !forceSingleSelect
+    const isMultiSelect = operator && isOperatorMulti(operator)
     const isDateTimeProperty = operator && isOperatorDate(operator)
     const propertyDefinitionType = propertyFilterTypeToPropertyDefinitionType(type)
 
     const isDurationProperty =
         propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Duration
 
-    // TODO - @david
-    // const isAssigneeProperty =
-    //     propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Assignee
+    const isAssigneeProperty =
+        propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Assignee
 
     const load = (newInput: string | undefined): void => {
         loadPropertyValues({
@@ -92,20 +98,34 @@ export function PropertyValue({
         }
     }
 
-    // TODO - @david
-    // if (isAssigneeProperty) {
-    //     return (
-    //         <AssigneeSelect
-    //             showName
-    //             type="secondary"
-    //             fullWidth
-    //             allowRemoval={false}
-    //             size={size}
-    //             assignee={value as ErrorTrackingIssueAssignee}
-    //             onChange={setValue}
-    //         />
-    //     )
-    // }
+    if (isAssigneeProperty) {
+        return editable ? (
+            <AssigneeSelect assignee={value as ErrorTrackingIssueAssignee} onChange={setValue}>
+                {(displayAssignee) => (
+                    <LemonButton fullWidth type="secondary" size={size}>
+                        <AssigneeLabelDisplay assignee={displayAssignee} placeholder="Choose user" />
+                    </LemonButton>
+                )}
+            </AssigneeSelect>
+        ) : (
+            <AssigneeResolver assignee={value as ErrorTrackingIssueAssignee}>
+                {({ assignee }) => (
+                    <>
+                        <AssigneeIconDisplay assignee={assignee} />
+                        <AssigneeLabelDisplay assignee={assignee} />
+                    </>
+                )}
+            </AssigneeResolver>
+        )
+    }
+
+    const formattedValues = (value === null || value === undefined ? [] : Array.isArray(value) ? value : [value]).map(
+        (label) => String(formatPropertyValueForDisplay(propertyKey, label, propertyDefinitionType, groupTypeIndex))
+    )
+
+    if (!editable) {
+        return <>{formattedValues.join(' or ')}</>
+    }
 
     if (isDurationProperty) {
         return <DurationPicker autoFocus={autoFocus} value={value as number} onChange={setValue} />
@@ -114,7 +134,12 @@ export function PropertyValue({
     if (isDateTimeProperty) {
         if (!addRelativeDateTimeOptions || operator === PropertyOperator.IsDateExact) {
             return (
-                <PropertyFilterDatePicker autoFocus={autoFocus} operator={operator} value={value} setValue={setValue} />
+                <PropertyFilterDatePicker
+                    autoFocus={autoFocus}
+                    operator={operator}
+                    value={value as string | number | null}
+                    setValue={setValue}
+                />
             )
         }
 
@@ -154,10 +179,6 @@ export function PropertyValue({
             />
         )
     }
-
-    const formattedValues = (value === null || value === undefined ? [] : Array.isArray(value) ? value : [value]).map(
-        (label) => String(formatPropertyValueForDisplay(propertyKey, label, propertyDefinitionType, groupTypeIndex))
-    )
 
     return (
         <LemonInputSelect

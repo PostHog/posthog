@@ -1047,6 +1047,7 @@ dependencies = [
  "health",
  "httpmock",
  "rayon",
+ "rdkafka",
  "reqwest 0.12.3",
  "serde",
  "serde_json",
