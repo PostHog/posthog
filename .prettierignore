@@ -6,6 +6,7 @@ staticfiles
 .env
 *.code-workspace
 frontend/.cache/
+frontend/src/taxonomy/core-filter-definitions-by-group.json
 .mypy_cache
 frontend/dist/
 *Type.ts
