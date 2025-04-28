@@ -98,7 +98,7 @@ function processData(
         }
 
         results.data.forEach((result: HeatMapDataResult) => {
-            const adjustedDay = (result.row - weekStartDay) % rowLabels.length
+            const adjustedDay = (result.row - weekStartDay + rowLabels.length) % rowLabels.length
             matrix[adjustedDay][result.column] = result.value
             maxOverall = Math.max(maxOverall, result.value)
             minOverall = Math.min(minOverall, result.value)
@@ -117,7 +117,7 @@ function processData(
     const rowsAggregations: number[] = Array.from({ length: rowLabels.length }, () => 0)
     if (results?.rowAggregations) {
         results.rowAggregations.forEach((result: HeatMapRowAggregationResult) => {
-            const adjustedDay = (result.row - weekStartDay) % rowLabels.length
+            const adjustedDay = (result.row - weekStartDay + rowLabels.length) % rowLabels.length
             rowsAggregations[adjustedDay] = result.value
         })
     }
