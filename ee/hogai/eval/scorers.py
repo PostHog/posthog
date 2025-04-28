@@ -1,5 +1,6 @@
 from autoevals.partial import ScorerWithPartial
 from autoevals.ragas import AnswerSimilarity
+from langchain_core.messages import AIMessage as LangchainAIMessage
 
 from braintrust import Score
 from posthog.schema import AssistantMessage, AssistantToolCall
@@ -12,8 +13,14 @@ class ToolRelevance(ScorerWithPartial):
         self.semantic_similarity_args = semantic_similarity_args
 
     def _run_eval_sync(self, output, expected, **kwargs):
-        assert isinstance(expected, AssistantToolCall)
-        assert isinstance(output, AssistantMessage)
+        if expected is None:
+            return Score(name=self._name(), score=1 if not output or not output.tool_calls else 0)
+        if output is None:
+            return Score(name=self._name(), score=0)
+        if not isinstance(expected, AssistantToolCall):
+            raise TypeError(f"Eval case expected must be an AssistantToolCall, not {type(expected)}")
+        if not isinstance(output, AssistantMessage | LangchainAIMessage):
+            raise TypeError(f"Eval case output must be an AssistantMessage, not {type(output)}")
         if output.tool_calls and len(output.tool_calls) > 1:
             raise ValueError("Parallel tool calls not supported by this scorer yet")
         score = 0.0  # 0.0 to 1.0
