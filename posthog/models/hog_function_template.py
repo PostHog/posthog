@@ -30,7 +30,8 @@ class HogFunctionTemplate(UUIDModel):
     description = models.TextField(blank=True, null=True)
 
     # Core Template Content
-    hog = models.TextField()
+    code = models.TextField()
+    source = models.CharField(max_length=20, default="hog")  # "hog" or "javascript"
     inputs_schema = models.JSONField()
     bytecode = models.JSONField(null=True, blank=True)
 
@@ -172,11 +173,14 @@ class HogFunctionTemplate(UUIDModel):
             for mapping_template_dict in self.mapping_templates:
                 mapping_templates_list.append(HogFunctionMappingTemplate(**mapping_template_dict))
 
+        # hog is only set if source is hog, otherwise None
+        hog_value = self.code if self.source == "hog" else None
+
         # Create the dataclass
         return HogFunctionTemplateDTO(
             id=self.template_id,
             name=self.name,
-            hog=self.hog,
+            hog=hog_value,
             inputs_schema=self.inputs_schema,
             free=self.free,
             type=cast(HogFunctionTemplateType, self.type),
@@ -194,13 +198,16 @@ class HogFunctionTemplate(UUIDModel):
     def compile_bytecode(self):
         """
         Compiles the Hog source code to bytecode and stores it in the bytecode field.
-        This should be called after changing the hog field.
+        This should be called after changing the code field.
         """
+        if self.source != "hog":
+            self.bytecode = None
+            return
         try:
             from posthog.cdp.validation import compile_hog
 
             # Compile the hog source to bytecode and store it in the database field
-            self.bytecode = compile_hog(self.hog, self.type)
+            self.bytecode = compile_hog(self.code, self.type)
         except Exception as e:
             logger.error(
                 "Failed to compile template bytecode",
@@ -229,10 +236,14 @@ class HogFunctionTemplate(UUIDModel):
         if not isinstance(dataclass_template, DataclassTemplate):
             raise TypeError(f"Expected HogFunctionTemplate dataclass, got {type(dataclass_template)}")
 
+        # Determine source type (default to hog if not present)
+        source = getattr(dataclass_template, "source", "hog")
+
         # Calculate sha based on content hash
         template_dict = {
             "id": dataclass_template.id,
-            "hog": dataclass_template.hog,
+            "code": dataclass_template.hog,  # still using hog for now
+            "source": source,
             "inputs_schema": dataclass_template.inputs_schema,
             "status": dataclass_template.status,
             "mappings": [dataclasses.asdict(m) for m in dataclass_template.mappings]
@@ -255,16 +266,19 @@ class HogFunctionTemplate(UUIDModel):
         if dataclass_template.mapping_templates:
             mapping_templates = [dataclasses.asdict(template) for template in dataclass_template.mapping_templates]
 
-        # Compile bytecode
-        try:
-            bytecode = compile_hog(dataclass_template.hog, dataclass_template.type)
-        except Exception as e:
-            logger.error(
-                "Failed to compile template bytecode during creation",
-                template_id=dataclass_template.id,
-                error=str(e),
-                exc_info=True,
-            )
+        # Compile bytecode only for hog
+        if source == "hog":
+            try:
+                bytecode = compile_hog(dataclass_template.hog, dataclass_template.type)
+            except Exception as e:
+                logger.error(
+                    "Failed to compile template bytecode during creation",
+                    template_id=dataclass_template.id,
+                    error=str(e),
+                    exc_info=True,
+                )
+                bytecode = None
+        else:
             bytecode = None
 
         # First check if a template with the same hash (sha) already exists
@@ -281,7 +295,8 @@ class HogFunctionTemplate(UUIDModel):
                 "sha": sha,
                 "name": dataclass_template.name,
                 "description": dataclass_template.description,
-                "hog": dataclass_template.hog,
+                "code": dataclass_template.hog,  # still using hog for now
+                "source": source,
                 "inputs_schema": dataclass_template.inputs_schema,
                 "bytecode": bytecode,
                 "type": dataclass_template.type,
