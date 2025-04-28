@@ -18,14 +18,12 @@ class EventIngestionRestrictionConfigAdmin(admin.ModelAdmin):
         ),
     )
 
+    @admin.display(boolean=True, description="Has Distinct IDs")
     def has_distinct_ids(self, obj):
         return bool(obj.distinct_ids)
 
-    has_distinct_ids.boolean = True
-    has_distinct_ids.short_description = "Has Distinct IDs"
-
-    def get_form(self, request, obj=None, **kwargs):
-        form = super().get_form(request, obj, **kwargs)
+    def get_form(self, request, obj=None, change=False, **kwargs):
+        form = super().get_form(request, obj, change, **kwargs)
         restriction_type_field = form.base_fields.get("restriction_type")
         if restriction_type_field:
             restriction_type_field.help_text = (
