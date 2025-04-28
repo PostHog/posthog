@@ -194,7 +194,7 @@ class TestSyncHogFunctionTemplates:
 
             # Verify core template fields
             assert db_template.name == template.name
-            assert db_template.hog == template.hog
+            assert db_template.code == template.hog
             assert db_template.type == template.type
             assert db_template.bytecode is not None  # Bytecode should be compiled
 
@@ -266,7 +266,7 @@ class TestSyncHogFunctionTemplates:
         assert template_3.sha != initial_sha  # sha should be different
         assert template_3.name == "Modified Test Template"
         assert template_3.description == "This template was modified"
-        assert template_3.hog == "return null"
+        assert template_3.code == "return null"
 
         # Verify still only one template exists in the database
         template_count = DBHogFunctionTemplate.objects.filter(template_id="test-versioning-template").count()
