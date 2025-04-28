@@ -43,7 +43,6 @@ export function FolderSelect({ value, onChange, className }: FolderSelectProps):
         const allFolders = getAllFolderIds(value)
         const newExpandedFolders = allFolders.filter((folder) => !expandedFolders.includes(folder))
         if (newExpandedFolders.length > 0) {
-            setExpandedFolders([...expandedFolders, ...newExpandedFolders])
             for (const folder of newExpandedFolders) {
                 if (!touchedFolders.includes(folder)) {
                     loadFolderIfNotLoaded(folder)
@@ -55,7 +54,7 @@ export function FolderSelect({ value, onChange, className }: FolderSelectProps):
     }, [value, expandedFolders, touchedFolders])
 
     return (
-        <div className={clsx('bg-[white] p-2 border rounded-[var(--radius)] overflow-y-scroll', className)}>
+        <div className={clsx('bg-surface-primary p-2 border rounded-[var(--radius)] overflow-y-scroll', className)}>
             <LemonTree
                 ref={treeRef}
                 className="px-0 py-1"
