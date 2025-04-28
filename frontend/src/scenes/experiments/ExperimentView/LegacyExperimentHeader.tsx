@@ -13,6 +13,9 @@ export function LegacyExperimentHeader(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
 
     const showNewEngineBanner =
+        // We use the isLegacyExperiment to check if the experiment does _not_ have any legacy metrics added already
+        // We don't want to show the banner then, as we can't automatically migrate yet. So that would be confusing,
+        // as it has no effect then.
         !isLegacyExperiment(experiment) &&
         featureFlags[FEATURE_FLAGS.SHOW_NEW_EXPERIMENTATION_ENGINE_BANNER] === 'enabled'
 
