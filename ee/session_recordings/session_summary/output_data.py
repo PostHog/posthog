@@ -195,7 +195,6 @@ def calculate_time_since_start(session_timestamp: str, session_start_time: datet
     if not session_start_time or not session_timestamp:
         return None
     timestamp_datetime = datetime.fromisoformat(session_timestamp)
-    # TODO Check why the event could happen before the session started
     return max(0, int((timestamp_datetime - session_start_time).total_seconds() * 1000))
 
 
