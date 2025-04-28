@@ -463,6 +463,13 @@ def send_error_tracking_issue_assigned(assignment: ErrorTrackingIssueAssignment,
             for membership in memberships_to_email
             if (membership.user in group_users and membership.user != assigner)
         ]
+    elif assignment.role:
+        role_users = assignment.role.members.all()
+        memberships_to_email = [
+            membership
+            for membership in memberships_to_email
+            if (membership.user in role_users and membership.user != assigner)
+        ]
 
     campaign_key: str = f"error_tracking_issue_assigned_{assignment.id}_updated_at_{assignment.created_at.timestamp()}"
     message = EmailMessage(

@@ -1156,7 +1156,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         ],
         projectTreeRef: [
             () => [(_, props: FeatureFlagLogicProps) => props.id],
-            (id): ProjectTreeRef => ({ type: 'feature_flag', ref: String(id) }),
+            (id): ProjectTreeRef => ({ type: 'feature_flag', ref: id === 'link' || id === 'new' ? null : String(id) }),
         ],
 
         [SIDE_PANEL_CONTEXT_KEY]: [

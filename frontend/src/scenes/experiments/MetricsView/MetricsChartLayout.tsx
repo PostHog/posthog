@@ -35,51 +35,58 @@ export function MetricsChartLayout({
 
     const valueToX = (value: number): number => valueToXCoordinate(value, chartBound, viewBoxWidth, horizontalPadding)
 
-    const metricTitlePanelWidth = '20%'
+    // Ensure a minimum height for the title panel even when chart is empty/error state
+    const metricTitlePanelHeight = Math.max(chartSvgHeight, 80)
 
     return (
         <div className="rounded bg-[var(--bg-table)]">
-            {/* Metric title panel */}
-            {/* eslint-disable-next-line react/forbid-dom-props */}
-            <div style={{ width: metricTitlePanelWidth, verticalAlign: 'top', display: 'inline-block' }}>
-                {isFirstMetric && (
+            <div className="flex">
+                {/* Metric title panel - 20% width with right border */}
+                <div className="w-1/5 border-r border-primary">
+                    {isFirstMetric && (
+                        <>
+                            {/* Spacer div to match tick panel height */}
+                            <div
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{ height: `${ticksSvgHeight}px` }}
+                            />
+                            <div className="w-full border-t border-primary" />
+                        </>
+                    )}
+
+                    {/* Container for metric title that will match the chart height */}
                     <div
+                        className="p-2"
                         // eslint-disable-next-line react/forbid-dom-props
-                        style={{ height: `${ticksSvgHeight}px` }}
-                    />
-                )}
-                {isFirstMetric && <div className="w-full border-t border-primary" />}
-
-                {/* Container for metric title that will match the chart height */}
-                <div
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={{ height: `${chartSvgHeight}px`, borderRight: '1px solid var(--border-primary)' }}
-                    className="p-2"
-                >
-                    {metricTitlePanel}
-                </div>
-            </div>
-
-            {/* SVGs container */}
-            <div className="inline-block align-top min-w-[780px] w-4/5">
-                {/* Ticks */}
-                {isFirstMetric && (
-                    <div className="flex justify-center">
-                        <TickPanel
-                            svgRef={ticksSvgRef}
-                            tickValues={tickValues}
-                            valueToX={valueToX}
-                            viewBoxWidth={viewBoxWidth}
-                            tickPanelHeight={tickPanelHeight}
-                        />
+                        style={{ height: `${metricTitlePanelHeight}px` }}
+                    >
+                        {metricTitlePanel}
                     </div>
-                )}
-                {isFirstMetric && <div className="w-full border-t border-primary" />}
+                </div>
 
-                {/* Chart content panel with proper reference for animation */}
-                <div className="flex justify-center">
-                    {/* Pass the SVG reference to the chart content */}
-                    {typeof chartContent === 'function' ? chartContent(chartSvgRef) : chartContent}
+                {/* SVGs container - 80% width */}
+                <div className="w-4/5 min-w-[780px]">
+                    {/* Ticks */}
+                    {isFirstMetric && (
+                        <>
+                            <div className="flex justify-center">
+                                <TickPanel
+                                    svgRef={ticksSvgRef}
+                                    tickValues={tickValues}
+                                    valueToX={valueToX}
+                                    viewBoxWidth={viewBoxWidth}
+                                    tickPanelHeight={tickPanelHeight}
+                                />
+                            </div>
+                            <div className="w-full border-t border-primary" />
+                        </>
+                    )}
+
+                    {/* Chart content panel with proper reference for animation */}
+                    <div className="flex justify-center">
+                        {/* Pass the SVG reference to the chart content */}
+                        {typeof chartContent === 'function' ? chartContent(chartSvgRef) : chartContent}
+                    </div>
                 </div>
             </div>
         </div>

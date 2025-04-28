@@ -59,6 +59,7 @@ export function TaxonomicPropertyFilter({
     exactMatchFeatureFlagCohortOperators,
     hideBehavioralCohorts,
     addFilterDocLink,
+    editable = true,
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
     const groupTypes = taxonomicGroupTypes || [
@@ -137,6 +138,8 @@ export function TaxonomicPropertyFilter({
                 filter?.type || PropertyDefinitionType.Event,
                 isGroupPropertyFilter(filter) ? filter?.group_type_index : undefined
             )}
+            size={size}
+            editable={editable}
             type={filter?.type}
             propertyKey={filter?.key}
             operator={isPropertyFilterWithOperator(filter) ? filter.operator : null}
@@ -168,6 +171,20 @@ export function TaxonomicPropertyFilter({
         />
     )
 
+    const filterContent =
+        filter?.type === 'cohort'
+            ? filter.cohort_name || `Cohort #${filter?.value}`
+            : filter?.type === PropertyFilterType.EventMetadata && filter?.key?.startsWith('$group_')
+            ? filter.label || `Group ${filter?.value}`
+            : filter?.key && (
+                  <PropertyKeyInfo
+                      value={filter.key}
+                      disablePopover
+                      ellipsis
+                      type={PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[filter.type]}
+                  />
+              )
+
     return (
         <div
             className={clsx('TaxonomicPropertyFilter', {
@@ -181,6 +198,7 @@ export function TaxonomicPropertyFilter({
                     className={clsx('TaxonomicPropertyFilter__row', {
                         'TaxonomicPropertyFilter__row--or-filtering': orFiltering,
                         'TaxonomicPropertyFilter__row--showing-operators': showOperatorValueSelect,
+                        'TaxonomicPropertyFilter__row--editable': editable,
                     })}
                 >
                     {hasRowOperator && (
@@ -188,8 +206,12 @@ export function TaxonomicPropertyFilter({
                             {orFiltering ? (
                                 <>
                                     {propertyGroupType && index !== 0 && filter?.key && (
-                                        <div className="text-sm font-medium">
-                                            {propertyGroupType === FilterLogicalOperator.And ? '&' : propertyGroupType}
+                                        <div className="flex items-center">
+                                            {propertyGroupType === FilterLogicalOperator.And ? (
+                                                <OperandTag operand="and" />
+                                            ) : (
+                                                <OperandTag operand="or" />
+                                            )}
                                         </div>
                                     )}
                                 </>
@@ -209,38 +231,28 @@ export function TaxonomicPropertyFilter({
                     )}
                     <div className="TaxonomicPropertyFilter__row-items">
                         {showOperatorValueSelect && placeOperatorValueSelectOnLeft && operatorValueSelect}
-                        <LemonDropdown
-                            overlay={taxonomicFilter}
-                            placement="bottom-start"
-                            visible={dropdownOpen}
-                            onClickOutside={closeDropdown}
-                        >
-                            <LemonButton
-                                type="secondary"
-                                icon={!valuePresent ? <IconPlusSmall /> : undefined}
-                                data-attr={'property-select-toggle-' + index}
-                                sideIcon={null} // The null sideIcon is here on purpose - it prevents the dropdown caret
-                                onClick={() => (dropdownOpen ? closeDropdown() : openDropdown())}
-                                size={size}
-                                tooltipDocLink={addFilterDocLink}
+                        {editable ? (
+                            <LemonDropdown
+                                overlay={taxonomicFilter}
+                                placement="bottom-start"
+                                visible={dropdownOpen}
+                                onClickOutside={closeDropdown}
                             >
-                                {filter?.type === 'cohort' ? (
-                                    filter.cohort_name || `Cohort #${filter?.value}`
-                                ) : filter?.type === PropertyFilterType.EventMetadata &&
-                                  filter?.key?.startsWith('$group_') ? (
-                                    filter.label || `Group ${filter?.value}`
-                                ) : filter?.key ? (
-                                    <PropertyKeyInfo
-                                        value={filter.key}
-                                        disablePopover
-                                        ellipsis
-                                        type={PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[filter.type]}
-                                    />
-                                ) : (
-                                    addText || 'Add filter'
-                                )}
-                            </LemonButton>
-                        </LemonDropdown>
+                                <LemonButton
+                                    type="secondary"
+                                    icon={!valuePresent ? <IconPlusSmall /> : undefined}
+                                    data-attr={'property-select-toggle-' + index}
+                                    sideIcon={null} // The null sideIcon is here on purpose - it prevents the dropdown caret
+                                    onClick={() => (dropdownOpen ? closeDropdown() : openDropdown())}
+                                    size={size}
+                                    tooltipDocLink={addFilterDocLink}
+                                >
+                                    {filterContent ?? (addText || 'Add filter')}
+                                </LemonButton>
+                            </LemonDropdown>
+                        ) : (
+                            filterContent
+                        )}
                         {showOperatorValueSelect && !placeOperatorValueSelectOnLeft && operatorValueSelect}
                     </div>
                 </div>

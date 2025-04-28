@@ -45,6 +45,7 @@ export function ProjectTree(): JSX.Element {
         checkedItemsCount,
         checkedItemCountNumeric,
         scrollTargetId,
+        editingItemId,
     } = useValues(projectTreeLogic)
 
     const {
@@ -65,6 +66,7 @@ export function ProjectTree(): JSX.Element {
         setCheckedItems,
         assureVisibility,
         clearScrollTarget,
+        setEditingItemId,
     } = useActions(projectTreeLogic)
 
     const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier, setProjectTreeMode } =
@@ -276,7 +278,7 @@ export function ProjectTree(): JSX.Element {
                         asChild
                         onClick={(e) => {
                             e.stopPropagation()
-                            rename(item.record as unknown as FileSystemEntry)
+                            setEditingItemId(item.id)
                         }}
                     >
                         <ButtonPrimitive menuItem>Rename</ButtonPrimitive>
@@ -406,6 +408,16 @@ export function ProjectTree(): JSX.Element {
                     if (folder) {
                         toggleFolderOpen(folder?.id || '', isExpanded)
                     }
+                }}
+                isItemEditing={(item) => {
+                    return editingItemId === item.id
+                }}
+                onItemNameChange={(item, name) => {
+                    if (item.name !== name) {
+                        rename(name, item.record as unknown as FileSystemEntry)
+                    }
+                    // Clear the editing item id when the name changes
+                    setEditingItemId('')
                 }}
                 expandedItemIds={searchTerm ? expandedSearchFolders : expandedFolders}
                 onSetExpandedItemIds={searchTerm ? setExpandedSearchFolders : setExpandedFolders}

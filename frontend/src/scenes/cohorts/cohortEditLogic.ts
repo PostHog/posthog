@@ -329,7 +329,14 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     }, 1000)
                 )
             } else {
-                actions.setCohort(cohort)
+                // Only update calculation-related fields, preserve user edits for other fields
+                const calculationFields = {
+                    is_calculating: cohort.is_calculating,
+                    errors_calculating: cohort.errors_calculating,
+                    last_calculation: cohort.last_calculation,
+                    count: cohort.count,
+                }
+                actions.setCohort({ ...values.cohort, ...calculationFields })
                 cohortsModel.actions.updateCohort(cohort)
                 personsLogic.findMounted({ syncWithUrl: true })?.actions.loadCohorts() // To ensure sync on person page
                 if (values.pollTimeout) {

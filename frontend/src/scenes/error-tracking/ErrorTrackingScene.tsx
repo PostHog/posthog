@@ -172,22 +172,20 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                         assignee={record.assignee}
                         onChange={(assignee) => assignIssue(record.id, assignee)}
                     >
-                        {(anyAssignee) => {
-                            return (
-                                <div
-                                    className="flex items-center hover:bg-fill-button-tertiary-hover p-[0.1rem] rounded cursor-pointer"
-                                    role="button"
-                                >
-                                    <AssigneeIconDisplay assignee={anyAssignee} size="xsmall" />
-                                    <AssigneeLabelDisplay
-                                        assignee={anyAssignee}
-                                        className="ml-1 text-xs text-secondary"
-                                        size="xsmall"
-                                    />
-                                    <IconChevronDown />
-                                </div>
-                            )
-                        }}
+                        {(anyAssignee) => (
+                            <div
+                                className="flex items-center hover:bg-fill-button-tertiary-hover p-[0.1rem] rounded cursor-pointer"
+                                role="button"
+                            >
+                                <AssigneeIconDisplay assignee={anyAssignee} size="xsmall" />
+                                <AssigneeLabelDisplay
+                                    assignee={anyAssignee}
+                                    className="ml-1 text-xs text-secondary"
+                                    size="xsmall"
+                                />
+                                <IconChevronDown />
+                            </div>
+                        )}
                     </AssigneeSelect>
                 </div>
             </div>

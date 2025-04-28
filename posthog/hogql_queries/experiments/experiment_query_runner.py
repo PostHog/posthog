@@ -3,6 +3,7 @@ from zoneinfo import ZoneInfo
 from posthog.constants import ExperimentNoResultsErrorKeys
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import property_to_expr
@@ -592,6 +593,7 @@ class ExperimentQueryRunner(QueryRunner):
             team=self.team,
             timings=self.timings,
             modifiers=create_default_modifiers_for_team(self.team),
+            settings=HogQLGlobalSettings(max_execution_time=180),
         )
 
         # NOTE: For now, remove the $multiple variant
