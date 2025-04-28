@@ -21,7 +21,7 @@ export function MessagingTabs(): JSX.Element {
     }
 
     if (isLibraryEnabled) {
-        tabs.push({ key: 'library', label: 'Library' })
+        tabs.push({ key: 'library', label: 'Templates' })
     }
 
     return <LemonTabs activeKey={currentTab} onChange={(tab) => setTab(tab as MessagingTab)} tabs={tabs} />

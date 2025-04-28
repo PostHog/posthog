@@ -43,8 +43,6 @@ import {
     TimestampFormat,
 } from '../../types'
 import { fetchAction, fetchAllActionsGroupedByTeam } from '../../worker/ingestion/action-manager'
-import { fetchOrganization } from '../../worker/ingestion/organization-manager'
-import { fetchTeam, fetchTeamByToken } from '../../worker/ingestion/team-manager'
 import { parseRawClickHouseEvent } from '../event'
 import { parseJSON } from '../json-parse'
 import { logger } from '../logger'
@@ -122,6 +120,10 @@ export type GroupId = [GroupTypeIndex, GroupKey]
 export interface CachedGroupData {
     properties: Properties
     created_at: ClickHouseTimestamp
+}
+
+export interface PersonPropertiesSize {
+    total_props_bytes: number
 }
 
 export const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
@@ -497,6 +499,36 @@ export class DB {
         }
     }
 
+    // temporary: measure person record JSONB blob sizes
+    public async personPropertiesSize(teamId: number, distinctId: string): Promise<number> {
+        const values = [teamId, distinctId]
+        const queryString = `
+            SELECT (COALESCE(octet_length(properties::text)::bigint, 0::bigint) +
+                COALESCE(octet_length(properties_last_updated_at::text)::bigint, 0::bigint) +
+                COALESCE(octet_length(properties_last_operation::text)::bigint, 0::bigint)) AS total_props_bytes
+            FROM posthog_person
+            JOIN posthog_persondistinctid ON (posthog_persondistinctid.person_id = posthog_person.id)
+            WHERE
+                posthog_person.team_id = $1
+                AND posthog_persondistinctid.team_id = $1
+                AND posthog_persondistinctid.distinct_id = $2`
+
+        const { rows } = await this.postgres.query<PersonPropertiesSize>(
+            PostgresUse.COMMON_READ,
+            queryString,
+            values,
+            'personPropertiesSize'
+        )
+
+        // the returned value from the DB query can be NULL if the record
+        // specified by the team and distinct ID inputs doesn't exist
+        if (rows.length > 0) {
+            return Number(rows[0].total_props_bytes)
+        }
+
+        return 0
+    }
+
     public async fetchPerson(
         teamId: number,
         distinctId: string,
@@ -683,6 +715,11 @@ export class DB {
         // Without races, the returned person (updatedPerson) should have a version that's only +1 the person in memory
         const versionDisparity = updatedPerson.version - person.version - 1
         if (versionDisparity > 0) {
+            logger.info('🧑‍🦰', 'Person update version mismatch', {
+                team_id: updatedPerson.team_id,
+                person_id: updatedPerson.id,
+                version_disparity: versionDisparity,
+            })
             personUpdateVersionMismatchCounter.inc()
         }
 
@@ -1098,22 +1135,6 @@ export class DB {
 
     public async fetchAction(id: Action['id']): Promise<Action | null> {
         return await fetchAction(this.postgres, id)
-    }
-
-    // Organization
-
-    public async fetchOrganization(organizationId: string): Promise<RawOrganization | undefined> {
-        return await fetchOrganization(this.postgres, organizationId)
-    }
-
-    // Team
-
-    public async fetchTeam(teamId: Team['id']): Promise<Team | null> {
-        return await fetchTeam(this.postgres, teamId)
-    }
-
-    public async fetchTeamByToken(token: string): Promise<Team | null> {
-        return await fetchTeamByToken(this.postgres, token)
     }
 
     // Hook (EE)

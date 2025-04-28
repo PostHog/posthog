@@ -105,7 +105,9 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
                         a.created_at.isAfter(b.created_at) ? a : b
                     )
 
-                    if (!latestNotification.unread) {
+                    const hasUnread = values.notifications.some((ic) => ic.unread)
+
+                    if (!hasUnread) {
                         return current
                     }
 

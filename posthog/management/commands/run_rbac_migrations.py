@@ -3,13 +3,13 @@ from typing import Any
 
 import structlog
 from django.core.management.base import BaseCommand
-from django.db.models import Q
 
 from posthog.rbac.migrations.rbac_team_migration import rbac_team_access_control_migration
 from posthog.rbac.migrations.rbac_feature_flag_migration import rbac_feature_flag_role_access_migration
 from posthog.models.organization import Organization
 from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
 from ee.models.rbac.role import Role
+from datetime import datetime
 
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)
@@ -19,16 +19,18 @@ class Command(BaseCommand):
     help = "Run RBAC migrations for specified organizations"
 
     def add_arguments(self, parser):
-        group = parser.add_mutually_exclusive_group(required=True)
+        group = parser.add_mutually_exclusive_group()
         group.add_argument(
             "--org-ids",
             type=str,
+            dest="org_ids",
             help="Comma-separated list of organization IDs",
         )
         group.add_argument(
-            "--backfill",
-            action="store_true",
-            help="Find and migrate all organizations that need the RBAC migration",
+            "--rollout-date",
+            type=str,
+            help="Date from which to start the rollout (YYYY-MM-DD format)",
+            dest="rollout_date",
         )
         parser.add_argument(
             "--dry-run",
@@ -37,29 +39,49 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        if options["org_ids"]:
-            org_ids_input = options["org_ids"]
-            # Parse comma-separated list of organization IDs
-            org_ids = [int(org_id.strip()) for org_id in org_ids_input.split(",")]
-        else:  # backfill option
+        org_ids_input = options["org_ids"]
+        rollout_date_str = options["rollout_date"]
+
+        if org_ids_input:
+            org_ids = [org_id.strip() for org_id in org_ids_input.split(",")]
+
+        elif rollout_date_str:
             self.stdout.write("Finding organizations that need RBAC migration...")
-            org_ids = self.find_organizations_needing_migration()
+
+            # Parse rollout date
+            try:
+                rollout_date = datetime.strptime(rollout_date_str, "%Y-%m-%d").date()
+            except ValueError:
+                self.stdout.write(self.style.ERROR(f"Invalid date format. Please use YYYY-MM-DD format."))
+                return
+
+            self.stdout.write(f"Using rollout date: {rollout_date}")
+
+            # Find organizations that need migration and were created after the rollout date
+            all_org_ids = self.find_organizations_needing_migration(rollout_date)
+            org_ids = all_org_ids
+
+            if options.get("dry_run"):
+                self.stdout.write(
+                    f"Would migrate {len(org_ids)} organizations eligible for RBAC migration (created on or after {rollout_date})."
+                )
+                return
+
+            self.stdout.write(
+                f"Found {len(org_ids)} organizations eligible for RBAC migration (created on or after {rollout_date})."
+            )
 
             if not org_ids:
                 self.stdout.write(self.style.SUCCESS("No organizations found that need RBAC migration."))
                 return
 
             self.stdout.write(f"Found {len(org_ids)} organizations that need RBAC migration.")
-            for org_id in org_ids:
-                try:
-                    org = Organization.objects.get(id=org_id)
-                    self.stdout.write(f"  - Organization {org_id}: {org.name}")
-                except Organization.DoesNotExist:
-                    self.stdout.write(f"  - Organization {org_id}: [Not Found]")
 
-            if options["dry_run"]:
-                self.stdout.write(self.style.WARNING("Dry run mode - no migrations were performed."))
-                return
+        else:
+            self.stdout.write(
+                "No organization IDs or rollout date provided. Please specify either --org-ids or --rollout-date."
+            )
+            return
 
         # Run migrations
         results = self.run_migrations_for_organizations(org_ids)
@@ -100,12 +122,13 @@ class Command(BaseCommand):
                     error = org_result["feature_flag_migration"]["error"] or "Unknown error"
                     self.stdout.write(self.style.ERROR(f"  Feature flag migration failed: {error}"))
 
-    def find_organizations_needing_migration(self) -> list[int]:
+    def find_organizations_needing_migration(self, rollout_date) -> list[int]:
         """
         Find organizations that need RBAC migration based on the following criteria:
         - Has a team with access_control = True
         - Has an OrganizationResourceAccess row
         - Has a Role with feature flag access settings
+        - Created after the rollout date
 
         Returns:
             List of organization IDs that need migration
@@ -114,23 +137,38 @@ class Command(BaseCommand):
         orgs_with_team_access_control = (
             Organization.objects.filter(team__access_control=True).values_list("id", flat=True).distinct()
         )
+        logger.info(f"Found {len(orgs_with_team_access_control)} organizations with team access control")
 
         # Find organizations with OrganizationResourceAccess rows
         orgs_with_resource_access = OrganizationResourceAccess.objects.values_list(
             "organization_id", flat=True
         ).distinct()
+        logger.info(f"Found {len(orgs_with_resource_access)} organizations with resource access")
 
         # Find organizations with roles that have feature flag access
         orgs_with_feature_flag_roles = (
-            Role.objects.filter(Q(feature_flags_access_level__isnull=False) | Q(feature_flag_access__isnull=False))
-            .values_list("organization_id", flat=True)
-            .distinct()
+            Role.objects.filter(feature_flag_access__isnull=False).values_list("organization_id", flat=True).distinct()
         )
+        logger.info(f"Found {len(orgs_with_feature_flag_roles)} organizations with feature flag roles")
+
+        # Find organizations created after the rollout date
+        orgs_after_rollout_date = Organization.objects.filter(created_at__date__gte=rollout_date).values_list(
+            "id", flat=True
+        )
+        logger.info(f"Found {len(orgs_after_rollout_date)} organizations created on or after {rollout_date}")
 
         # Combine all organization IDs
-        all_org_ids = (
+        needs_migration = (
             set(orgs_with_team_access_control) | set(orgs_with_resource_access) | set(orgs_with_feature_flag_roles)
         )
+        logger.info(f"Found {len(needs_migration)} total organizations that need migration")
+
+        eligible_orgs = needs_migration & set(orgs_after_rollout_date)
+        logger.info(
+            f"Found {len(eligible_orgs)} organizations eligible for migration (created on or after {rollout_date})"
+        )
+
+        all_org_ids = eligible_orgs
 
         return sorted(all_org_ids)
 

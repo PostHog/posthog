@@ -53,7 +53,8 @@ impl FlagService {
                         }
                         (Ok(token), false)
                     }
-                    Err(_) => {
+                    Err(e) => {
+                        tracing::error!("Token validation failed for token '{}': {:?}", token, e);
                         inc(
                             TOKEN_VALIDATION_ERRORS_COUNTER,
                             &[("reason".to_string(), "token_not_found".to_string())],
@@ -160,7 +161,9 @@ mod tests {
     use serde_json::json;
 
     use crate::{
-        flags::flag_models::{FeatureFlag, FlagFilters, FlagGroupType, TEAM_FLAGS_CACHE_PREFIX},
+        flags::flag_models::{
+            FeatureFlag, FlagFilters, FlagPropertyGroup, TEAM_FLAGS_CACHE_PREFIX,
+        },
         properties::property_models::{OperatorType, PropertyFilter},
         utils::test_utils::{insert_new_team_in_redis, setup_pg_reader_client, setup_redis_client},
     };
@@ -221,10 +224,10 @@ mod tests {
                     name: Some("Beta Feature".to_string()),
                     key: "beta_feature".to_string(),
                     filters: FlagFilters {
-                        groups: vec![FlagGroupType {
+                        groups: vec![FlagPropertyGroup {
                             properties: Some(vec![PropertyFilter {
                                 key: "country".to_string(),
-                                value: json!("US"),
+                                value: Some(json!("US")),
                                 operator: Some(OperatorType::Exact),
                                 prop_type: "person".to_string(),
                                 group_type_index: None,
@@ -268,10 +271,10 @@ mod tests {
                     name: Some("Premium Feature".to_string()),
                     key: "premium_feature".to_string(),
                     filters: FlagFilters {
-                        groups: vec![FlagGroupType {
+                        groups: vec![FlagPropertyGroup {
                             properties: Some(vec![PropertyFilter {
                                 key: "is_premium".to_string(),
-                                value: json!(true),
+                                value: Some(json!(true)),
                                 operator: Some(OperatorType::Exact),
                                 prop_type: "person".to_string(),
                                 group_type_index: None,

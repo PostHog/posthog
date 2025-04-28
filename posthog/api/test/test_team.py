@@ -807,10 +807,10 @@ def team_api_test_factory():
                     "Ensure this value is greater than or equal to 0.",
                 ],
                 [
-                    "greater than 15000",
-                    "15001",
+                    "greater than 30000",
+                    "30001",
                     "max_value",
-                    "Ensure this value is less than or equal to 15000.",
+                    "Ensure this value is less than or equal to 30000.",
                 ],
                 ["too many digits", "0.5", "invalid_input", "A valid integer is required."],
             ]

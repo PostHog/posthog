@@ -19,7 +19,8 @@ export async function processPersonsStep(
         String(event.distinct_id),
         timestamp,
         processPerson,
-        runner.hub.db
+        runner.hub.db,
+        runner.hub.PERSON_JSONB_SIZE_ESTIMATE_ENABLE
     ).update()
 
     return [event, person, kafkaAck]

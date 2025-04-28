@@ -280,8 +280,8 @@ LEFT JOIN (
             or(events.event == '$pageview', events.event == '$screen'),
             breakdown_value IS NOT NULL,
             {inside_periods},
-            {event_properties},
-            {session_properties},
+            {bounce_event_properties}, -- Using filtered properties but excluding pathname
+            {session_properties}
         )
         GROUP BY session_id, breakdown_value
     )
@@ -295,6 +295,7 @@ ON counts.breakdown_value = bounce.breakdown_value
                     "where_breakdown": self.where_breakdown(),
                     "session_properties": self._session_properties(),
                     "event_properties": self._event_properties(),
+                    "bounce_event_properties": self._event_properties_for_bounce_rate(),
                     "bounce_breakdown_value": self._bounce_entry_pathname_breakdown(),
                     "current_period": self._current_period_expression(),
                     "previous_period": self._previous_period_expression(),
@@ -440,6 +441,21 @@ GROUP BY session_id, breakdown_value
             map_scroll_property(p)
             for p in self.query.properties + self._test_account_filters
             if get_property_type(p) in ["event", "person"]
+        ]
+        return property_to_expr(properties, team=self.team, scope="event")
+
+    def _event_properties_for_bounce_rate(self) -> ast.Expr:
+        # Exclude pathname filters for bounce rate calculation
+        #
+        # This provides consistent bounce rates when filtering by multiple pathnames.
+        # Without this, pathname filters would affect which sessions are considered for the
+        # bounce rates calculations but since we group them by entry_pathname, the results could be misleading
+        # as the events would be filtered by a IN(pathname) and the bounce shown would be for the first pathname
+        # which users are not necessarily expecting to see.
+        properties = [
+            p
+            for p in self.query.properties + self._test_account_filters
+            if not (get_property_type(p) == "event" and get_property_key(p) == "$pathname")
         ]
         return property_to_expr(properties, team=self.team, scope="event")
 

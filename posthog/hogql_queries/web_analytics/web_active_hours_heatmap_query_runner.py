@@ -6,20 +6,20 @@ from posthog.hogql_queries.web_analytics.web_analytics_query_runner import (
     WebAnalyticsQueryRunner,
 )
 from posthog.schema import (
-    CachedWebActiveHoursHeatMapQueryResponse,
-    WebActiveHoursHeatMapQuery,
-    WebActiveHoursHeatMapQueryResponse,
-    WebActiveHoursHeatMapDayAndHourResult,
-    WebActiveHoursHeatMapDayResult,
-    WebActiveHoursHeatMapHourResult,
-    WebActiveHoursHeatMapStructuredResult,
+    CachedEventsHeatMapQueryResponse,
+    EventsHeatMapQueryResponse,
+    EventsHeatMapDataResult,
+    EventsHeatMapRowAggregationResult,
+    EventsHeatMapColumnAggregationResult,
+    EventsHeatMapStructuredResult,
+    EventsHeatMapQuery,
 )
 
 
-class WebActiveHoursHeatMapQueryRunner(WebAnalyticsQueryRunner):
-    query: WebActiveHoursHeatMapQuery
-    response: WebActiveHoursHeatMapQueryResponse
-    cached_response: CachedWebActiveHoursHeatMapQueryResponse
+class EventsHeatMapQueryRunner(WebAnalyticsQueryRunner):
+    query: EventsHeatMapQuery
+    response: EventsHeatMapQueryResponse
+    cached_response: CachedEventsHeatMapQueryResponse
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -37,16 +37,23 @@ class WebActiveHoursHeatMapQueryRunner(WebAnalyticsQueryRunner):
                 query.total
             FROM (
                 SELECT
-                    uniqMap(map(concat(toString(toDayOfWeek(timestamp)), ',' ,toString(toHour(timestamp))), events.person_id)) as hoursAndDays,
-                    uniqMap(map(toHour(timestamp), events.person_id)) as hours,
-                    uniqMap(map(toDayOfWeek(timestamp), events.person_id)) as days,
+                    uniqMap(map(concat(toString(toDayOfWeek(uniqueSessionEvents.timestamp)), ',' ,toString(toHour(uniqueSessionEvents.timestamp))), uniqueSessionEvents.person_id)) as hoursAndDays,
+                    uniqMap(map(toHour(uniqueSessionEvents.timestamp), uniqueSessionEvents.person_id)) as hours,
+                    uniqMap(map(toDayOfWeek(uniqueSessionEvents.timestamp), uniqueSessionEvents.person_id)) as days,
                     uniq(person_id) as total
-                FROM events
-                WHERE and(
-                    event = '$pageview',
-                    {all_properties},
-                    {current_period}
-                )
+                FROM (
+                    SELECT
+                        any(events.person_id) as person_id,
+                        session.session_id as session_id,
+                        min(session.$start_timestamp) as timestamp
+                    FROM events
+                    WHERE and(
+                        event = '$pageview',
+                        {all_properties}
+                    )
+                    GROUP BY session_id
+                ) as uniqueSessionEvents
+                WHERE {current_period}
             ) as query
             """,
             placeholders={
@@ -60,21 +67,21 @@ class WebActiveHoursHeatMapQueryRunner(WebAnalyticsQueryRunner):
     def calculate(self):
         query = self.to_query()
         response = execute_hogql_query(
-            query_type="date_and_time_heatmap_query",
+            query_type="web_active_hours_heatmap_query",
             query=query,
             team=self.team,
             timings=self.timings,
             modifiers=self.modifiers,
         )
 
-        day_and_hours: list[WebActiveHoursHeatMapDayAndHourResult] = []
-        days: list[WebActiveHoursHeatMapDayResult] = []
-        hours: list[WebActiveHoursHeatMapHourResult] = []
+        day_and_hours: list[EventsHeatMapDataResult] = []
+        days: list[EventsHeatMapRowAggregationResult] = []
+        hours: list[EventsHeatMapColumnAggregationResult] = []
 
         if not response.results:
-            return WebActiveHoursHeatMapQueryResponse(
-                results=WebActiveHoursHeatMapStructuredResult(
-                    dayAndHours=day_and_hours, days=days, hours=hours, total=0
+            return EventsHeatMapQueryResponse(
+                results=EventsHeatMapStructuredResult(
+                    data=day_and_hours, rowAggregations=days, columnAggregations=hours, allAggregations=0
                 ),
                 timings=response.timings,
                 hogql=response.hogql,
@@ -94,23 +101,23 @@ class WebActiveHoursHeatMapQueryRunner(WebAnalyticsQueryRunner):
             key = hours_and_days_keys[i]
             day, hour = map(int, key.split(","))
             total = int(hours_and_days_values[i])
-            day_and_hours.append(WebActiveHoursHeatMapDayAndHourResult(day=day, hour=hour, total=total))
+            day_and_hours.append(EventsHeatMapDataResult(row=day, column=hour, value=total))
 
         # Process day-only entries
         for i in range(len(days_keys)):
             day = int(days_keys[i])
             total = int(days_values[i])
-            days.append(WebActiveHoursHeatMapDayResult(day=day, total=total))
+            days.append(EventsHeatMapRowAggregationResult(row=day, value=total))
 
         # Process hour-only entries
         for i in range(len(hours_keys)):
             hour = int(hours_keys[i])
             total = int(hours_values[i])
-            hours.append(WebActiveHoursHeatMapHourResult(hour=hour, total=total))
+            hours.append(EventsHeatMapColumnAggregationResult(column=hour, value=total))
 
-        return WebActiveHoursHeatMapQueryResponse(
-            results=WebActiveHoursHeatMapStructuredResult(
-                dayAndHours=day_and_hours, days=days, hours=hours, total=totalOverall
+        return EventsHeatMapQueryResponse(
+            results=EventsHeatMapStructuredResult(
+                data=day_and_hours, rowAggregations=days, columnAggregations=hours, allAggregations=totalOverall
             ),
             timings=response.timings,
             hogql=response.hogql,
