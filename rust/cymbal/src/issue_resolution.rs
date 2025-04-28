@@ -376,7 +376,7 @@ async fn send_internal_event(
         if let Some(role_id) = assignment.role_id {
             event
                 .insert_prop(
-                    "assigned_to_role",
+                    "assignee",
                     json!({"type": "role", "id": role_id.to_string()}),
                 )
                 .expect("Strings are serializable");
