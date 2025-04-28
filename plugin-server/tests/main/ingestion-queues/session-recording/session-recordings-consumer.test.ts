@@ -4,6 +4,8 @@ import { mkdirSync, readdirSync, rmSync } from 'node:fs'
 import { Message, TopicPartitionOffset } from 'node-rdkafka'
 import path from 'path'
 
+import { KafkaConsumer } from '~/src/kafka/consumer'
+
 import { defaultConfig } from '../../../../src/config/config'
 import { SessionRecordingIngester } from '../../../../src/main/ingestion-queues/session-recording/session-recordings-consumer'
 import { Hub, PluginsServerConfig, Team } from '../../../../src/types'
@@ -24,8 +26,6 @@ const config: PluginsServerConfig = {
     SESSION_RECORDING_OVERFLOW_MIN_PER_BATCH: 1,
     SESSION_RECORDING_REDIS_PREFIX,
 }
-
-const noop = () => undefined
 
 async function deleteKeys(hub: Hub) {
     await deleteKeysWithPrefix(hub.redisPool, SESSION_RECORDING_REDIS_PREFIX)
@@ -49,15 +49,6 @@ const waitForExpect = async <T>(fn: () => T | Promise<T>, timeout = 10_000, inte
     }
 }
 
-const mockConsumer = {
-    on: jest.fn(),
-    offsetsStore: jest.fn(),
-    queryWatermarkOffsets: jest.fn(),
-    assignments: jest.fn(),
-    isConnected: jest.fn(() => true),
-    getMetadata: jest.fn(),
-}
-
 // Mock the Upload class
 jest.mock('@aws-sdk/lib-storage', () => {
     return {
@@ -74,24 +65,11 @@ jest.mock('@aws-sdk/lib-storage', () => {
     }
 })
 
-jest.mock('../../../../src/kafka/batch-consumer', () => {
-    return {
-        startBatchConsumer: jest.fn(() =>
-            Promise.resolve({
-                join: () => ({
-                    finally: jest.fn(),
-                }),
-                stop: jest.fn(),
-                consumer: mockConsumer,
-            })
-        ),
-    }
-})
-
 jest.setTimeout(1000)
 
 describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOverflow) => {
     let ingester: SessionRecordingIngester
+    let mockConsumer: jest.Mocked<KafkaConsumer>
 
     let hub: Hub
     let team: Team
@@ -109,21 +87,32 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
     })
 
     beforeEach(async () => {
+        mockConsumer = {
+            on: jest.fn(),
+            offsetsStore: jest.fn(),
+            queryWatermarkOffsets: jest.fn(),
+            assignments: jest.fn(),
+            isHealthy: jest.fn(() => true),
+            connect: jest.fn(),
+            disconnect: jest.fn(),
+            getPartitionsForTopic: jest.fn(() => Promise.resolve([])),
+            heartbeat: jest.fn(),
+        } as unknown as jest.Mocked<KafkaConsumer>
+
         // The below mocks simulate committing to kafka and querying the offsets
         mockCommittedOffsets = {}
         mockOffsets = {}
-        mockConsumer.offsetsStore.mockImplementation(
-            (tpo: TopicPartitionOffset) => (mockCommittedOffsets[tpo.partition] = tpo.offset)
-        )
-        mockConsumer.queryWatermarkOffsets.mockImplementation((_topic, partition, _timeout, cb) => {
-            cb(null, { highOffset: mockOffsets[partition] ?? 1, lowOffset: 0 })
+        mockConsumer.offsetsStore.mockImplementation((tpo: TopicPartitionOffset[]) => {
+            tpo.forEach((tpo) => (mockCommittedOffsets[tpo.partition] = tpo.offset))
+        })
+        mockConsumer.queryWatermarkOffsets.mockImplementation((_topic, partition, _timeout) => {
+            return Promise.resolve([mockOffsets[partition] ?? 1, 0])
         })
 
-        mockConsumer.getMetadata.mockImplementation((options, cb) => {
-            cb(null, {
-                topics: [{ name: options.topic, partitions: [{ id: 0 }, { id: 1 }, { id: 2 }] }],
-            })
+        mockConsumer.getPartitionsForTopic.mockImplementation(() => {
+            return Promise.resolve([{ id: 0 } as any, { id: 1 } as any, { id: 2 } as any])
         })
+
         hub = await createHub()
         team = await getFirstTeam(hub)
         teamToken = team.api_token
@@ -132,6 +121,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
         await deleteKeys(hub)
 
         ingester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage!, consumeOverflow, redisConn)
+        ingester['kafkaConsumer'] = mockConsumer as any
         await ingester.start()
 
         mockConsumer.assignments.mockImplementation(() => [createTP(0, consumedTopic), createTP(1, consumedTopic)])
@@ -181,7 +171,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
         expect(ingester.sessions['2-sid1-throw']).toBeTruthy()
         expect(ingester.sessions['2-sid2']).toBeTruthy()
 
-        await expect(() => ingester.flushAllReadySessions(noop)).rejects.toThrow(
+        await expect(() => ingester.flushAllReadySessions()).rejects.toThrow(
             'Failed to flush sessions. With 1 errors out of 2 sessions.'
         )
     })
@@ -214,22 +204,8 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
                 consumeOverflow,
                 undefined
             )
+            ingester['kafkaConsumer'] = mockConsumer as any
             expect(ingester['isDebugLoggingEnabled'](partition)).toEqual(expected)
-        })
-
-        it('can parse absence of debug partition config', () => {
-            const config = {
-                KAFKA_HOSTS: 'localhost:9092',
-            } satisfies Partial<PluginsServerConfig> as PluginsServerConfig
-
-            const ingester = new SessionRecordingIngester(
-                config,
-                hub.postgres,
-                hub.objectStorage!,
-                consumeOverflow,
-                undefined
-            )
-            expect(ingester['debugPartition']).toBeUndefined()
         })
 
         it('creates a new session manager if needed', async () => {
@@ -279,7 +255,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
                 lastMessageTimestamp: Date.now() + defaultConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS,
             }
 
-            await ingester.flushAllReadySessions(noop)
+            await ingester.flushAllReadySessions()
 
             await waitForExpect(() => {
                 expect(ingester.sessions[`1-${sessionId}`]).not.toBeTruthy()
@@ -288,7 +264,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
 
         describe('offset committing', () => {
             it('should commit offsets in simple cases', async () => {
-                await ingester.handleEachBatch([createMessage('sid1'), createMessage('sid1')], noop)
+                await ingester.handleEachBatch([createMessage('sid1'), createMessage('sid1')])
                 expect(ingester.partitionMetrics[1]).toMatchObject({
                     lastMessageOffset: 2,
                 })
@@ -310,7 +286,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
             })
 
             it.skip('should commit higher values but not lower', async () => {
-                await ingester.handleEachBatch([createMessage('sid1')], noop)
+                await ingester.handleEachBatch([createMessage('sid1')])
                 await ingester.sessions[`${team.id}-sid1`].flush('buffer_age')
                 expect(ingester.partitionMetrics[1].lastMessageOffset).toBe(1)
                 await commitAllOffsets()
@@ -328,7 +304,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
                 await commitAllOffsets()
                 expect(mockConsumer.offsetsStore).toHaveBeenCalledTimes(1)
 
-                await ingester.handleEachBatch([createMessage('sid1')], noop)
+                await ingester.handleEachBatch([createMessage('sid1')])
                 await ingester.sessions[`${team.id}-sid1`].flush('buffer_age')
                 await commitAllOffsets()
 
@@ -343,10 +319,12 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
             })
 
             it('should commit the lowest known offset if there is a blocking session', async () => {
-                await ingester.handleEachBatch(
-                    [createMessage('sid1'), createMessage('sid2'), createMessage('sid2'), createMessage('sid2')],
-                    noop
-                )
+                await ingester.handleEachBatch([
+                    createMessage('sid1'),
+                    createMessage('sid2'),
+                    createMessage('sid2'),
+                    createMessage('sid2'),
+                ])
                 await ingester.sessions[`${team.id}-sid2`].flush('buffer_age')
                 await commitAllOffsets()
 
@@ -370,10 +348,12 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
             })
 
             it('should commit one lower than the blocking session if that is the highest', async () => {
-                await ingester.handleEachBatch(
-                    [createMessage('sid1'), createMessage('sid2'), createMessage('sid2'), createMessage('sid2')],
-                    noop
-                )
+                await ingester.handleEachBatch([
+                    createMessage('sid1'),
+                    createMessage('sid2'),
+                    createMessage('sid2'),
+                    createMessage('sid2'),
+                ])
                 // Flush the second session so the first one is still blocking
                 await ingester.sessions[`${team.id}-sid2`].flush('buffer_age')
                 await commitAllOffsets()
@@ -382,7 +362,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
                 expect(mockConsumer.offsetsStore).not.toHaveBeenCalled()
 
                 // Add a new message and session and flush the old one
-                await ingester.handleEachBatch([createMessage('sid2')], noop)
+                await ingester.handleEachBatch([createMessage('sid2')])
                 await ingester.sessions[`${team.id}-sid1`].flush('buffer_age')
                 await commitAllOffsets()
 
@@ -397,13 +377,14 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
             })
 
             it.skip('should not be affected by other partitions ', async () => {
-                await ingester.handleEachBatch(
-                    [createMessage('sid1', 1), createMessage('sid2', 2), createMessage('sid2', 2)],
-                    noop
-                )
+                await ingester.handleEachBatch([
+                    createMessage('sid1', 1),
+                    createMessage('sid2', 2),
+                    createMessage('sid2', 2),
+                ])
 
                 await ingester.sessions[`${team.id}-sid1`].flush('buffer_age')
-                await ingester.handleEachBatch([createMessage('sid1', 1)], noop)
+                await ingester.handleEachBatch([createMessage('sid1', 1)])
 
                 // We should now have a blocking session on partition 1 and 2 with partition 1 being committable
                 await commitAllOffsets()
@@ -444,10 +425,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
                 ingester.persistentHighWaterMarker.getWaterMarks(createTP(partition, consumedTopic))
 
             it('should update session watermarkers with flushing', async () => {
-                await ingester.handleEachBatch(
-                    [createMessage('sid1'), createMessage('sid2'), createMessage('sid3')],
-                    noop
-                )
+                await ingester.handleEachBatch([createMessage('sid1'), createMessage('sid2'), createMessage('sid3')])
                 await expect(getSessionWaterMarks()).resolves.toEqual({})
 
                 await ingester.sessions[`${team.id}-sid1`].flush('buffer_age')
@@ -458,10 +436,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
             })
 
             it('should update partition watermarkers when committing', async () => {
-                await ingester.handleEachBatch(
-                    [createMessage('sid1'), createMessage('sid2'), createMessage('sid1')],
-                    noop
-                )
+                await ingester.handleEachBatch([createMessage('sid1'), createMessage('sid2'), createMessage('sid1')])
                 await ingester.sessions[`${team.id}-sid1`].flush('buffer_age')
                 await commitAllOffsets()
                 expect(mockConsumer.offsetsStore).toHaveBeenCalledTimes(1)
@@ -491,7 +466,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
                 const events = [createMessage('sid1'), createMessage('sid2'), createMessage('sid2')]
 
                 await expect(getPersistentWaterMarks()).resolves.toEqual({})
-                await ingester.handleEachBatch([events[0], events[1]], noop)
+                await ingester.handleEachBatch([events[0], events[1]])
                 await ingester.sessions[`${team.id}-sid2`].flush('buffer_age')
                 await commitAllOffsets()
                 expect(mockConsumer.offsetsStore).not.toHaveBeenCalled()
@@ -505,7 +480,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
 
                 // Simulate a re-processing
                 await ingester.destroySessions(Object.entries(ingester.sessions))
-                await ingester.handleEachBatch(events, noop)
+                await ingester.handleEachBatch(events)
                 expect(ingester.sessions[`${team.id}-sid2`].buffer.count).toBe(1)
                 expect(ingester.sessions[`${team.id}-sid1`].buffer.count).toBe(1)
             })
@@ -523,6 +498,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
                     consumeOverflow,
                     undefined
                 )
+                otherIngester['kafkaConsumer'] = mockConsumer as any
                 await otherIngester.start()
             })
 
@@ -542,7 +518,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
                     createTP(2, consumedTopic),
                     createTP(3, consumedTopic),
                 ])
-                await ingester.handleEachBatch([...partitionMsgs1, ...partitionMsgs2], noop)
+                await ingester.handleEachBatch([...partitionMsgs1, ...partitionMsgs2])
 
                 expect(
                     Object.values(ingester.sessions).map((x) => `${x.partition}:${x.sessionId}:${x.buffer.count}`)
@@ -563,7 +539,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
                     createTP(2, consumedTopic),
                     createTP(3, consumedTopic),
                 ])
-                await otherIngester.handleEachBatch([...partitionMsgs2, createMessage('session_id_4', 2)], noop)
+                await otherIngester.handleEachBatch([...partitionMsgs2, createMessage('session_id_4', 2)])
                 await Promise.all(rebalancePromises)
 
                 // Should still have the partition 1 sessions that didnt move
@@ -578,10 +554,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
             })
 
             it("flushes and commits as it's revoked", async () => {
-                await ingester.handleEachBatch(
-                    [createMessage('sid1'), createMessage('sid2'), createMessage('sid3', 2)],
-                    noop
-                )
+                await ingester.handleEachBatch([createMessage('sid1'), createMessage('sid2'), createMessage('sid3', 2)])
 
                 expect(readdirSync(config.SESSION_RECORDING_LOCAL_DIRECTORY + '/session-buffer-files')).toEqual([
                     expect.stringContaining(`${team.id}.sid1.`), // gz
@@ -618,13 +591,10 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
         describe('when a team is disabled', () => {
             it('can commit even if an entire batch is disabled', async () => {
                 // non-zero offset because the code can't commit offset 0
-                await ingester.handleEachBatch(
-                    [
-                        createKafkaMessage(consumedTopic, 'invalid_token', { offset: 12 }),
-                        createKafkaMessage(consumedTopic, 'invalid_token', { offset: 13 }),
-                    ],
-                    noop
-                )
+                await ingester.handleEachBatch([
+                    createKafkaMessage(consumedTopic, 'invalid_token', { offset: 12 }),
+                    createKafkaMessage(consumedTopic, 'invalid_token', { offset: 13 }),
+                ])
                 expect(mockConsumer.offsetsStore).toHaveBeenCalledTimes(1)
                 expect(mockConsumer.offsetsStore).toHaveBeenCalledWith([
                     {
@@ -653,7 +623,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
                                   size: size_bytes,
                                   timestamp: first_timestamp + n * timestamp_delta,
                               })
-                              await ingester.handleEachBatch([message], noop)
+                              await ingester.handleEachBatch([message])
                           }
                       }
 
@@ -711,8 +681,8 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
 
         describe('lag reporting', () => {
             it('should return the latest offsets', async () => {
-                mockConsumer.queryWatermarkOffsets.mockImplementation((_topic, partition, _timeout, cb) => {
-                    cb(null, { highOffset: 1000 + partition, lowOffset: 0 })
+                mockConsumer.queryWatermarkOffsets.mockImplementation((_topic, partition, _timeout) => {
+                    return Promise.resolve([0, 1000 + partition])
                 })
 
                 const results = await ingester.latestOffsetsRefresher.get()
@@ -726,13 +696,12 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
 
         describe('heartbeats', () => {
             it('it should send them whilst processing', async () => {
-                const heartbeat = jest.fn()
                 // non-zero offset because the code can't commit offset 0
                 const partitionMsgs1 = [createMessage('session_id_1', 1), createMessage('session_id_2', 1)]
-                await ingester.handleEachBatch(partitionMsgs1, heartbeat)
+                await ingester.handleEachBatch(partitionMsgs1)
 
                 // NOTE: the number here can change as we change the code. Important is that it is called a number of times
-                expect(heartbeat).toBeCalledTimes(6)
+                expect(mockConsumer.heartbeat).toBeCalledTimes(6)
             })
         })
     })
@@ -741,7 +710,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
         describe('stop()', () => {
             const setup = async (): Promise<void> => {
                 const partitionMsgs1 = [createMessage('session_id_1', 1), createMessage('session_id_2', 1)]
-                await ingester.handleEachBatch(partitionMsgs1, noop)
+                await ingester.handleEachBatch(partitionMsgs1)
             }
 
             // NOTE: This test is a sanity check for the follow up test. It demonstrates what happens if we shutdown in the wrong order

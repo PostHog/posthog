@@ -258,8 +258,8 @@ export const surveyLogic = kea<surveyLogicType>([
     }),
     loaders(({ props, actions, values }) => ({
         responseSummary: {
-            summarize: async ({ questionIndex }: { questionIndex?: number }) => {
-                return api.surveys.summarize_responses(props.id, questionIndex)
+            summarize: async ({ questionIndex, questionId }: { questionIndex?: number; questionId?: string }) => {
+                return api.surveys.summarize_responses(props.id, questionIndex, questionId)
             },
         },
         survey: {

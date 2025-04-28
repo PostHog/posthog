@@ -55,6 +55,7 @@ import {
     InsightLogicProps,
     InsightType,
     IntervalType,
+    PropertyFilterBaseValue,
     PropertyFilterType,
     PropertyMathType,
     PropertyOperator,
@@ -468,7 +469,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     if (similarFilterExists) {
                         // if there's already a matching property, turn it off or merge them
                         return oldPropertyFilters
-                            .map((f) => {
+                            .map((f: WebAnalyticsPropertyFilter) => {
                                 if (
                                     f.key !== key ||
                                     f.type !== type ||
@@ -477,7 +478,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     return f
                                 }
                                 const oldValue = (Array.isArray(f.value) ? f.value : [f.value]).filter(isNotNil)
-                                let newValue: (string | number | bigint)[]
+                                let newValue: PropertyFilterBaseValue[]
                                 if (oldValue.includes(value)) {
                                     // If there are multiple values for this filter, reduce that to just the one being clicked
                                     if (oldValue.length > 1) {
@@ -1842,7 +1843,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       linkText: 'Active hours',
                                       canOpenModal: true,
                                       query: {
-                                          kind: NodeKind.WebActiveHoursHeatMapQuery,
+                                          kind: NodeKind.EventsHeatMapQuery,
+                                          source: {
+                                              kind: NodeKind.EventsNode,
+                                              event: '$pageview',
+                                              name: '$pageview',
+                                              math: BaseMathType.UniqueUsers,
+                                          },
                                           properties: webAnalyticsFilters,
                                           dateRange,
                                       },

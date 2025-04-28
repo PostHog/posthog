@@ -28,6 +28,10 @@ import { Layout } from 'react-grid-layout'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'
 import { Holdout } from 'scenes/experiments/holdoutsLogic'
+import {
+    ConversionRateInputType,
+    EventConfig,
+} from 'scenes/experiments/RunningTimeCalculator/runningTimeCalculatorLogic'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 import { Params, Scene, SceneConfig } from 'scenes/sceneTypes'
@@ -36,6 +40,7 @@ import { WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 import type {
     DashboardFilter,
     DatabaseSchemaField,
+    ErrorTrackingIssueAssignee,
     ExperimentExposureCriteria,
     ExperimentFunnelsQuery,
     ExperimentMetric,
@@ -715,13 +720,8 @@ export interface ToolbarProps extends ToolbarParams {
 
 export type PathCleaningFilter = { alias?: string; regex?: string }
 
-export type PropertyFilterValue =
-    | string
-    | number
-    | bigint
-    | (string | number | bigint)[]
-    // | ErrorTrackingIssueAssignee - TODO - @david
-    | null
+export type PropertyFilterBaseValue = string | number | bigint | ErrorTrackingIssueAssignee
+export type PropertyFilterValue = PropertyFilterBaseValue | PropertyFilterBaseValue[] | null
 
 /** Sync with plugin-server/src/types.ts */
 export enum PropertyOperator {
@@ -842,7 +842,6 @@ export enum PropertyFilterType {
     DataWarehouse = 'data_warehouse',
     DataWarehousePersonProperty = 'data_warehouse_person_property',
     ErrorTrackingIssue = 'error_tracking_issue',
-    ErrorTrackingIssueProperty = 'error_tracking_issue_property',
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -883,11 +882,6 @@ export interface DataWarehousePersonPropertyFilter extends BasePropertyFilter {
 
 export interface ErrorTrackingIssueFilter extends BasePropertyFilter {
     type: PropertyFilterType.ErrorTrackingIssue
-    operator: PropertyOperator
-}
-
-export interface ErrorTrackingIssuePropertyFilter extends BasePropertyFilter {
-    type: PropertyFilterType.ErrorTrackingIssueProperty
     operator: PropertyOperator
 }
 
@@ -954,7 +948,6 @@ export type AnyPropertyFilter =
     | DataWarehousePropertyFilter
     | DataWarehousePersonPropertyFilter
     | ErrorTrackingIssueFilter
-    | ErrorTrackingIssuePropertyFilter
 
 /** Any filter type supported by `property_to_expr(scope="person", ...)`. */
 export type AnyPersonScopeFilter =
@@ -1100,6 +1093,7 @@ export enum SessionRecordingUsageType {
 
 export enum SessionRecordingSidebarTab {
     OVERVIEW = 'overview',
+    SESSION_SUMMARY = 'ai-summary',
     INSPECTOR = 'inspector',
     DEBUGGER = 'debugger',
     NETWORK_WATERFALL = 'network-waterfall',
@@ -1440,6 +1434,7 @@ export enum StepOrderValue {
 export enum PersonsTabType {
     FEED = 'feed',
     EVENTS = 'events',
+    EXCEPTIONS = 'exceptions',
     SESSION_RECORDINGS = 'sessionRecordings',
     PROPERTIES = 'properties',
     COHORTS = 'cohorts',
@@ -3460,6 +3455,7 @@ export enum PropertyType {
     Duration = 'Duration',
     Selector = 'Selector',
     Cohort = 'Cohort',
+    Assignee = 'Assignee',
 }
 
 export enum PropertyDefinitionType {
@@ -3470,7 +3466,7 @@ export enum PropertyDefinitionType {
     Session = 'session',
     LogEntry = 'log_entry',
     Meta = 'meta',
-    // Resource = 'resource', - TODO @david
+    Resource = 'resource',
 }
 
 export interface PropertyDefinition {
@@ -3545,9 +3541,17 @@ export interface Experiment {
     saved_metrics_ids: { id: number; metadata: { type: 'primary' | 'secondary' } }[]
     saved_metrics: any[]
     parameters: {
+        /**
+         * This is the state of the Running Time Calculator modal, while
+         * minimum_detectable_effect, recommended_running_time, and recommended_sample_size
+         * are the results of the Running Time Calculator.
+         */
         exposure_estimate_config?: {
-            event: string
-            properties: AnyPropertyFilter[]
+            eventFilter: EventConfig | null
+            metric: ExperimentMetric | null
+            conversionRateInputType: ConversionRateInputType
+            manualConversionRate: number | null
+            uniqueUsers: number | null
         } | null
         minimum_detectable_effect?: number
         recommended_running_time?: number

@@ -54,33 +54,28 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
             editingView.status === 'Cancelled' ||
             editingView.status === 'Running')
 
-    const AddSQLVariablesButton = useMemo(
-        () => (
-            <LemonButton
-                onClick={() => setActiveTab(EditorSidebarTab.QueryVariables)}
-                icon={<IconBrackets />}
-                type="tertiary"
-                size="xsmall"
-                id="sql-editor-query-window-add-variables"
-            >
-                Add SQL variables
-            </LemonButton>
-        ),
-        []
+    const renderAddSQLVariablesButton = (): JSX.Element => (
+        <LemonButton
+            onClick={() => setActiveTab(EditorSidebarTab.QueryVariables)}
+            icon={<IconBrackets />}
+            type="tertiary"
+            size="xsmall"
+            id="sql-editor-query-window-add-variables"
+        >
+            Add SQL variables
+        </LemonButton>
     )
-    const MaterializeButton = useMemo(
-        () => (
-            <LemonButton
-                onClick={() => setActiveTab(EditorSidebarTab.QueryInfo)}
-                icon={<IconBolt />}
-                type="tertiary"
-                size="xsmall"
-                id="sql-editor-query-window-materialize"
-            >
-                Materialize
-            </LemonButton>
-        ),
-        []
+
+    const renderMaterializeButton = (): JSX.Element => (
+        <LemonButton
+            onClick={() => setActiveTab(EditorSidebarTab.QueryInfo)}
+            icon={<IconBolt />}
+            type="tertiary"
+            size="xsmall"
+            id="sql-editor-query-window-materialize"
+        >
+            Materialize
+        </LemonButton>
     )
 
     return (
@@ -141,10 +136,10 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                         >
                             {isMaterializedView ? 'Update and re-materialize view' : 'Update view'}
                         </LemonButton>
-                        {!isMaterializedView && MaterializeButton}
+                        {!isMaterializedView && renderMaterializeButton()}
                     </>
                 )}
-                {editingInsight && AddSQLVariablesButton}
+                {editingInsight && renderAddSQLVariablesButton()}
                 {!editingInsight && !editingView && (
                     <>
                         <LemonButton
@@ -156,8 +151,8 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                         >
                             Save as view
                         </LemonButton>
-                        {MaterializeButton}
-                        {AddSQLVariablesButton}
+                        {renderMaterializeButton()}
+                        {renderAddSQLVariablesButton()}
                     </>
                 )}
             </div>
