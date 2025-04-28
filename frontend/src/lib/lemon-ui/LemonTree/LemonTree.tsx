@@ -1312,7 +1312,9 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                 const element = containerRef.current?.querySelector(
                     `[data-id="${CSS.escape(defaultSelectedFolderOrNodeId)}"]`
                 ) as HTMLElement
-                element.focus()
+                if (element) {
+                    element.focus()
+                }
                 setSelectedId(defaultSelectedFolderOrNodeId)
             }
         }, [defaultSelectedFolderOrNodeId, hasFocusedContent])
@@ -1397,7 +1399,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                     innerClassName="relative"
                     styledScrollbars
                 >
-                    <TreeNodeDroppable id="" isDroppable={enableDragAndDrop}>
+                    <TreeNodeDroppable id="" isDroppable={enableDragAndDrop} isRoot isDragging={isDragging}>
                         <LemonTreeNode
                             data={data}
                             mode={mode}
@@ -1418,7 +1420,9 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                             itemSideAction={itemSideAction}
                             isItemEditing={isItemEditing}
                             onItemNameChange={onItemNameChange}
-                            className="deprecated-space-y-px p-1"
+                            className={cn('deprecated-space-y-px p-1', {
+                                'flex-1': isDragging,
+                            })}
                             isItemDraggable={isItemDraggable}
                             isItemDroppable={isItemDroppable}
                             enableDragAndDrop={enableDragAndDrop}
@@ -1436,7 +1440,11 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                     </TreeNodeDroppable>
 
                     {/* Context menu for empty space, takes up remaining space */}
-                    <div className="flex-1 w-full h-full absolute top-0 left-0">
+                    <div
+                        className={cn('flex-1 w-full h-full absolute top-0 left-0 z-1', {
+                            hidden: isDragging,
+                        })}
+                    >
                         <ContextMenu>
                             <ContextMenuTrigger className="flex-1 w-full h-full">
                                 <div className="h-full w-full" />
@@ -1449,7 +1457,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                 {/* Custom drag overlay */}
                 <DragOverlay dropAnimation={null}>
                     {activeDragItem && (
-                        <ButtonPrimitive className="min-w-[var(--project-panel-inner-width)]">
+                        <ButtonPrimitive className="min-w-[var(--project-panel-inner-width)] ">
                             <div className="shrink-0">
                                 <TreeNodeDisplayIcon
                                     item={activeDragItem}
