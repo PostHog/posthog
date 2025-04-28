@@ -42,6 +42,7 @@ export interface PropertyFilterInternalProps {
     disablePopover: boolean
     filters: AnyPropertyFilter[]
     setFilter: (index: number, property: AnyPropertyFilter) => void
+    editable?: boolean
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     taxonomicFilterOptionsFromProp?: TaxonomicFilterProps['optionsFromProp']
     eventNames?: string[]
