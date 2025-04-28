@@ -8,6 +8,8 @@ export enum RestrictionType {
     FORCE_OVERFLOW_FROM_INGESTION = 'force_overflow_from_ingestion',
 }
 
+const REDIS_KEY_PREFIX = 'event_restriction_dynamic_config'
+
 /*
  *
  * Events can be restricted for ingestion through static and dynamic configs.
@@ -55,16 +57,15 @@ export class EventIngestionRestrictionManager {
             }
         })
 
-        void this.dynamicConfigRefresher.get().catch((error) => {
-            logger.error('Failed to initialize event ingestion restriction dynamic config', { error })
-        })
+        if (this.hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG) {
+            void this.dynamicConfigRefresher.get().catch((error) => {
+                logger.error('Failed to initialize event ingestion restriction dynamic config', { error })
+            })
+        }
     }
 
-    // NICKS TODO: audit this with unit tests
-    // NICKS TODO: change the hub config env var name
-    // NICKS TODO: change all names...
-    async fetchDynamicEventIngestionRestrictionConfig(): Promise<Record<string, Set<string>>> {
-        if (!this.hub.USE_DYNAMIC_TOKEN_RESTRICTION_CONFIG) {
+    async fetchDynamicEventIngestionRestrictionConfig(): Promise<Partial<Record<RestrictionType, Set<string>>>> {
+        if (!this.hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG) {
             return {}
         }
 
@@ -72,13 +73,12 @@ export class EventIngestionRestrictionManager {
             const redisClient = await this.hub.redisPool.acquire()
             try {
                 const pipeline = redisClient.pipeline()
-                pipeline.get(`${RestrictionType.DROP_EVENT_FROM_INGESTION}`)
-                pipeline.get(`${RestrictionType.SKIP_PERSON_PROCESSING}`)
-                pipeline.get(`${RestrictionType.FORCE_OVERFLOW_FROM_INGESTION}`)
+                pipeline.get(`${REDIS_KEY_PREFIX}:${RestrictionType.DROP_EVENT_FROM_INGESTION}`)
+                pipeline.get(`${REDIS_KEY_PREFIX}:${RestrictionType.SKIP_PERSON_PROCESSING}`)
+                pipeline.get(`${REDIS_KEY_PREFIX}:${RestrictionType.FORCE_OVERFLOW_FROM_INGESTION}`)
                 const [dropResult, skipResult, overflowResult] = await pipeline.exec()
 
-                // NICKS TODO: audit whether or not we need strict checking of what we ge back from redis...i.e. the comma delimited thing
-                const result: Record<string, Set<string>> = {}
+                const result: Partial<Record<RestrictionType, Set<string>>> = {}
                 if (dropResult?.[1]) {
                     result[RestrictionType.DROP_EVENT_FROM_INGESTION] = new Set(
                         (dropResult[1] as string).split(',').filter(Boolean)
@@ -120,7 +120,7 @@ export class EventIngestionRestrictionManager {
             return true
         }
 
-        if (!this.hub.USE_DYNAMIC_TOKEN_RESTRICTION_CONFIG) {
+        if (!this.hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG) {
             return false
         }
 
@@ -149,7 +149,7 @@ export class EventIngestionRestrictionManager {
             return true
         }
 
-        if (!this.hub.USE_DYNAMIC_TOKEN_RESTRICTION_CONFIG) {
+        if (!this.hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG) {
             return false
         }
 
@@ -178,7 +178,7 @@ export class EventIngestionRestrictionManager {
             return true
         }
 
-        if (!this.hub.USE_DYNAMIC_TOKEN_RESTRICTION_CONFIG) {
+        if (!this.hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG) {
             return false
         }
 

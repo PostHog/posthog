@@ -1,7 +1,6 @@
 from django.contrib import admin
 from django.utils.html import format_html
 from posthog.admin.inlines.group_type_mapping_inline import GroupTypeMappingInline
-from posthog.admin.inlines.token_restriction_config_inline import TokenRestrictionConfigInline
 from django.urls import reverse
 
 from posthog.models import Team
@@ -41,7 +40,7 @@ class TeamAdmin(admin.ModelAdmin):
         "updated_at",
     ]
 
-    inlines = [GroupTypeMappingInline, TokenRestrictionConfigInline]
+    inlines = [GroupTypeMappingInline]
     fieldsets = [
         (
             None,

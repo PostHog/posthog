@@ -85,7 +85,7 @@ from .subscription import Subscription
 from .tag import Tag
 from .tagged_item import TaggedItem
 from .team import Team, TeamRevenueAnalyticsConfig
-from .token_restriction_config import TokenRestrictionConfig
+from .event_ingestion_restriction_config import EventIngestionRestrictionConfig
 from .uploaded_media import UploadedMedia
 from .user import User, UserManager
 from .user_group import UserGroup, UserGroupMembership
@@ -183,7 +183,7 @@ __all__ = [
     "Team",
     "TeamRevenueAnalyticsConfig",
     "Text",
-    "TokenRestrictionConfig",
+    "EventIngestionRestrictionConfig",
     "UploadedMedia",
     "User",
     "UserScenePersonalisation",

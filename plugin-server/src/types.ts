@@ -338,10 +338,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     CDP_HOG_WATCHER_SAMPLE_RATE: number
     // for enablement/sampling of expensive person JSONB sizes; value in [0,1]
     PERSON_JSONB_SIZE_ESTIMATE_ENABLE: number
-    USE_DYNAMIC_TOKEN_RESTRICTION_CONFIG: boolean
-    TOKEN_RESTRICTION_CACHE_TTL_MS: number
-    TOKEN_RESTRICTION_CACHE_HIT_SIZE: number
-    TOKEN_RESTRICTION_CACHE_MISS_SIZE: number
+    USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG: boolean
 }
 
 export interface Hub extends PluginsServerConfig {

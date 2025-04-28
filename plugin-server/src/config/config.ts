@@ -256,10 +256,7 @@ export function getDefaultConfig(): PluginsServerConfig {
 
         PERSON_CACHE_ENABLED_FOR_UPDATES: true,
         PERSON_CACHE_ENABLED_FOR_CHECKS: true,
-        USE_DYNAMIC_TOKEN_RESTRICTION_CONFIG: false,
-        TOKEN_RESTRICTION_CACHE_TTL_MS: 1000 * 60 * 60 * 24, // 24 hours by default
-        TOKEN_RESTRICTION_CACHE_HIT_SIZE: 1000,
-        TOKEN_RESTRICTION_CACHE_MISS_SIZE: 1000,
+        USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG: false,
     }
 }
 

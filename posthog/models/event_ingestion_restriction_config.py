@@ -7,11 +7,13 @@ from django.dispatch import receiver
 from django.contrib.postgres.fields import ArrayField
 import json
 
+DYNAMIC_CONFIG_REDIS_KEY_PREFIX = "event_restriction_dynamic_config"
+
 
 class RestrictionType(models.TextChoices):
     # NICKS TODO: audit these against what we use in redis
     SKIP_PERSON_PROCESSING = "skip_person_processing"
-    DROP_EVENTS_FROM_INGESTION = "drop_events_from_ingestion"
+    DROP_EVENT_FROM_INGESTION = "drop_event_from_ingestion"
     FORCE_OVERFLOW_FROM_INGESTION = "force_overflow_from_ingestion"
 
 
@@ -25,16 +27,11 @@ class EventIngestionRestrictionConfig(UUIDModel):
     restriction_type = models.CharField(max_length=100, choices=RestrictionType.choices)
     distinct_ids = ArrayField(models.CharField(max_length=450), default=list, blank=True, null=True)
 
-    # Redis key prefixes for caching
-    SKIP_PERSON_KEY_FORMAT = "skip_person_processing:{}"
-    DROP_EVENT_FROM_INGESTION_KEY_FORMAT = "drop_event_from_ingestion:{}"
-    FORCE_OVERFLOW_FROM_INGESTION_KEY_FORMAT = "force_overflow_from_ingestion:{}"
-
     class Meta:
         unique_together = ("token", "restriction_type")
 
     def get_redis_key(self):
-        return f"event_restriction_dynamic_config:{self.restriction_type}"
+        return f"{DYNAMIC_CONFIG_REDIS_KEY_PREFIX}:{self.restriction_type}"
 
 
 @receiver(post_save, sender=EventIngestionRestrictionConfig)

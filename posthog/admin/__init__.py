@@ -24,7 +24,7 @@ from posthog.admin.admins import (
     ProjectAdmin,
     HogFunctionAdmin,
     GroupTypeMappingAdmin,
-    TokenRestrictionConfigAdmin,
+    EventIngestionRestrictionConfigAdmin,
 )
 from posthog.models import (
     Organization,
@@ -50,7 +50,7 @@ from posthog.models import (
     DataWarehouseTable,
     HogFunction,
     GroupTypeMapping,
-    TokenRestrictionConfig,
+    EventIngestionRestrictionConfig,
 )
 
 admin.site.register(Organization, OrganizationAdmin)
@@ -82,4 +82,4 @@ admin.site.register(Survey, SurveyAdmin)
 
 admin.site.register(DataWarehouseTable, DataWarehouseTableAdmin)
 admin.site.register(HogFunction, HogFunctionAdmin)
-admin.site.register(TokenRestrictionConfig, TokenRestrictionConfigAdmin)
+admin.site.register(EventIngestionRestrictionConfig, EventIngestionRestrictionConfigAdmin)

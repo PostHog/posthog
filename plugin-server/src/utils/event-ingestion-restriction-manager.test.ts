@@ -40,7 +40,7 @@ describe('EventIngestionRestrictionManager', () => {
         redisClient.pipeline = jest.fn().mockReturnValue(pipelineMock)
 
         hub = {
-            USE_DYNAMIC_TOKEN_RESTRICTION_CONFIG: true,
+            USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG: true,
             redisPool: require('./db/redis').createRedisPool(),
         } as unknown as Hub
 
@@ -75,17 +75,42 @@ describe('EventIngestionRestrictionManager', () => {
     describe('fetchDynamicEventIngestionRestrictionConfig', () => {
         beforeEach(() => {
             // Set the property to enable dynamic config
-            hub.USE_DYNAMIC_TOKEN_RESTRICTION_CONFIG = true
+            hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG = true
         })
 
         it('returns empty object if dynamic config is disabled', async () => {
-            hub.USE_DYNAMIC_TOKEN_RESTRICTION_CONFIG = false
+            hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG = false
             const result = await eventIngestionRestrictionManager.fetchDynamicEventIngestionRestrictionConfig()
             expect(result).toEqual({})
             expect(hub.redisPool.acquire).not.toHaveBeenCalled()
         })
 
+        it('never calls Redis through dynamicConfigRefresher when USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG is false', () => {
+            hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG = false
+
+            // Create a new manager with the flag set to false
+            const manager = new EventIngestionRestrictionManager(hub as Hub)
+
+            // Create a spy on the fetchDynamicEventIngestionRestrictionConfig method
+            const fetchSpy = jest.spyOn(manager, 'fetchDynamicEventIngestionRestrictionConfig')
+
+            // Call the methods that might trigger Redis access
+            manager.shouldDropEvent('test-token')
+            manager.shouldSkipPerson('test-token')
+            manager.shouldForceOverflow('test-token')
+
+            // Verify that fetchDynamicEventIngestionRestrictionConfig was never called
+            expect(fetchSpy).not.toHaveBeenCalled()
+
+            // Additionally verify Redis wasn't accessed
+            expect(hub.redisPool.acquire).not.toHaveBeenCalled()
+        })
+
         it('fetches and parses Redis data correctly', async () => {
+            // on class initialization, we load the cache, so assert that pipeline get was called 3 times
+            expect(pipelineMock.get).toHaveBeenCalledTimes(3)
+            // now clear the mock, so we can assert again below
+            pipelineMock.get.mockClear()
             pipelineMock.exec.mockResolvedValue([
                 [null, 'token1,token2'],
                 [null, 'token3,token4'],
@@ -146,7 +171,7 @@ describe('EventIngestionRestrictionManager', () => {
         })
 
         it('returns false if dynamic config is disabled', () => {
-            hub.USE_DYNAMIC_TOKEN_RESTRICTION_CONFIG = false
+            hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG = false
             expect(eventIngestionRestrictionManager.shouldDropEvent('token')).toBe(false)
         })
 
@@ -201,7 +226,7 @@ describe('EventIngestionRestrictionManager', () => {
         })
 
         it('returns false if dynamic config is disabled', () => {
-            hub.USE_DYNAMIC_TOKEN_RESTRICTION_CONFIG = false
+            hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG = false
             expect(eventIngestionRestrictionManager.shouldSkipPerson('token')).toBe(false)
         })
 
@@ -256,7 +281,7 @@ describe('EventIngestionRestrictionManager', () => {
         })
 
         it('returns false if dynamic config is disabled', () => {
-            hub.USE_DYNAMIC_TOKEN_RESTRICTION_CONFIG = false
+            hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG = false
             expect(eventIngestionRestrictionManager.shouldForceOverflow('token')).toBe(false)
         })
 
