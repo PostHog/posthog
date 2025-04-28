@@ -99,34 +99,7 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
         this.personCheckCache = new Map()
     }
 
-    private getCacheKey(teamId: number, distinctId: string): string {
-        return `${teamId}:${distinctId}`
-    }
-
-    private clearCache(): void {
-        this.personCache.clear()
-        this.personCheckCache.clear()
-    }
-
-    private getCachedPerson(teamId: number, distinctId: string): InternalPerson | null | undefined {
-        const cacheKey = this.getCacheKey(teamId, distinctId)
-        return this.personCache.get(cacheKey)
-    }
-
-    private getCheckCachedPerson(teamId: number, distinctId: string): InternalPerson | null | undefined {
-        const cacheKey = this.getCacheKey(teamId, distinctId)
-        return this.personCheckCache.get(cacheKey)
-    }
-
-    private setCachedPerson(teamId: number, distinctId: string, person: InternalPerson | null): void {
-        const cacheKey = this.getCacheKey(teamId, distinctId)
-        this.personCache.set(cacheKey, person)
-    }
-
-    private setCheckCachedPerson(teamId: number, distinctId: string, person: InternalPerson | null): void {
-        const cacheKey = this.getCacheKey(teamId, distinctId)
-        this.personCheckCache.set(cacheKey, person)
-    }
+    // Public interface methods
 
     async inTransaction<T>(description: string, transaction: (tx: TransactionClient) => Promise<T>): Promise<T> {
         return await this.db.postgres.transaction(PostgresUse.COMMON_WRITE, description, transaction)
@@ -263,6 +236,39 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
     getMethodCounts(): Map<MethodName, number> {
         return new Map(this.methodCounts)
     }
+
+    // Private cache management methods
+
+    private getCacheKey(teamId: number, distinctId: string): string {
+        return `${teamId}:${distinctId}`
+    }
+
+    private clearCache(): void {
+        this.personCache.clear()
+        this.personCheckCache.clear()
+    }
+
+    private getCachedPerson(teamId: number, distinctId: string): InternalPerson | null | undefined {
+        const cacheKey = this.getCacheKey(teamId, distinctId)
+        return this.personCache.get(cacheKey)
+    }
+
+    private getCheckCachedPerson(teamId: number, distinctId: string): InternalPerson | null | undefined {
+        const cacheKey = this.getCacheKey(teamId, distinctId)
+        return this.personCheckCache.get(cacheKey)
+    }
+
+    private setCachedPerson(teamId: number, distinctId: string, person: InternalPerson | null): void {
+        const cacheKey = this.getCacheKey(teamId, distinctId)
+        this.personCache.set(cacheKey, person)
+    }
+
+    private setCheckCachedPerson(teamId: number, distinctId: string, person: InternalPerson | null): void {
+        const cacheKey = this.getCacheKey(teamId, distinctId)
+        this.personCheckCache.set(cacheKey, person)
+    }
+
+    // Private utility methods
 
     private incrementCount(method: MethodName): void {
         this.methodCounts.set(method, (this.methodCounts.get(method) || 0) + 1)
