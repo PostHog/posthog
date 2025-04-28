@@ -127,6 +127,7 @@ export class KafkaConsumer {
             'fetch.wait.max.ms': 50,
             'queued.min.messages': 100000,
             'queued.max.messages.kbytes': 102400, // 1048576 is the default, we go smaller to reduce mem usage.
+            'client.rack': defaultConfig.KAFKA_CLIENT_RACK, // Helps with cross-AZ traffic awareness and is not unique to the consumer
             // Custom settings and overrides - this is where most configuration overrides should be done
             ...getConsumerConfigFromEnv(),
             // Finally any specifically given consumer config overrides
