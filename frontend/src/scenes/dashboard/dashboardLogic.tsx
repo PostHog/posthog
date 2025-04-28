@@ -950,7 +950,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 allVariables: Variable[],
                 temporaryVariables: Record<string, HogQLVariable>
             ): { variable: Variable; insights: string[] }[] => {
-                const dataVizNodes = dashboard.tiles
+                const dataVizNodes = (dashboard?.tiles ?? [])
                     .map((n) => ({ query: n.insight?.query, title: n.insight?.name }))
                     .filter((n) => n.query?.kind === NodeKind.DataVisualizationNode)
                     .filter(
@@ -1542,7 +1542,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }
             })
 
-            await runWithLimit(fetchItemFunctions, 4)
+            await runWithLimit(fetchItemFunctions, 1)
 
             eventUsageLogic.actions.reportDashboardRefreshed(dashboardId, values.newestRefreshed)
         },
