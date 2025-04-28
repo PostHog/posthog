@@ -161,16 +161,14 @@ function FeaturePreview({ feature }: { feature: EnrichedEarlyAccessFeature }): J
             </div>
             <p className="my-2">{description || <i>No description.</i>}</p>
             <div>
-                {!isFeedbackActive ? (
+                {!isFeedbackActive && (
                     <Link onClick={() => beginEarlyAccessFeatureFeedback(flagKey)}>Give feedback</Link>
-                ) : null}
+                )}
+                {!isFeedbackActive && documentationUrl && <span>&nbsp;•&nbsp;</span>}
                 {documentationUrl && (
-                    <>
-                        {' • '}
-                        <Link to={documentationUrl} target="_blank">
-                            Learn more
-                        </Link>
-                    </>
+                    <Link to={documentationUrl} target="_blank">
+                        Learn more
+                    </Link>
                 )}
             </div>
             {isFeedbackActive && (

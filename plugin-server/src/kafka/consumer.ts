@@ -10,6 +10,9 @@ import {
     TopicPartition,
     TopicPartitionOffset,
 } from 'node-rdkafka'
+import { Gauge } from 'prom-client'
+import { exponentialBuckets } from 'prom-client'
+import { Histogram } from 'prom-client'
 
 import { kafkaRebalancePartitionCount, latestOffsetTimestampGauge } from '../main/ingestion-queues/metrics'
 import { logger } from '../utils/logger'
@@ -225,3 +228,35 @@ export const disconnectConsumer = async (consumer: RdKafkaConsumer) => {
         })
     })
 }
+
+export const consumedBatchDuration = new Histogram({
+    name: 'consumed_batch_duration_ms',
+    help: 'Main loop consumer batch processing duration in ms',
+    labelNames: ['topic', 'groupId'],
+})
+
+export const consumerBatchSize = new Histogram({
+    name: 'consumed_batch_size',
+    help: 'Size of the batch fetched by the consumer',
+    labelNames: ['topic', 'groupId'],
+    buckets: exponentialBuckets(1, 3, 5),
+})
+
+export const consumedMessageSizeBytes = new Histogram({
+    name: 'consumed_message_size_bytes',
+    help: 'Size of consumed message value in bytes',
+    labelNames: ['topic', 'groupId', 'messageType'],
+    buckets: exponentialBuckets(1, 8, 4).map((bucket) => bucket * 1024),
+})
+
+export const kafkaAbsolutePartitionCount = new Gauge({
+    name: 'kafka_absolute_partition_count',
+    help: 'Number of partitions assigned to this consumer. (Absolute value from the consumer state.)',
+    labelNames: ['topic'],
+})
+
+export const gaugeBatchUtilization = new Gauge({
+    name: 'consumer_batch_utilization',
+    help: 'Indicates how big batches are we are processing compared to the max batch size. Useful as a scaling metric',
+    labelNames: ['groupId'],
+})

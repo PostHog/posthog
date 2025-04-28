@@ -39,6 +39,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         EVENT_OVERFLOW_BUCKET_CAPACITY: 1000,
         EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: 1.0,
         SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
+        CONSUMER_BATCH_SIZE: 500,
+        CONSUMER_MAX_HEARTBEAT_INTERVAL_MS: 30_000,
         KAFKA_HOSTS: 'kafka:9092', // KEEP IN SYNC WITH posthog/settings/data_stores.py
         KAFKA_PRODUCER_HOSTS: undefined,
         KAFKA_CLIENT_CERT_B64: undefined,
@@ -61,9 +63,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_CONSUMPTION_REBALANCE_TIMEOUT_MS: null,
         KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS: 30_000,
         KAFKA_CONSUMPTION_MAX_POLL_INTERVAL_MS: 300_000,
-        KAFKA_TOPIC_CREATION_TIMEOUT_MS: isDevEnv() ? 30_000 : 5_000, // rdkafka default is 5s, increased in devenv to resist to slow kafka
         KAFKA_TOPIC_METADATA_REFRESH_INTERVAL_MS: undefined,
-        KAFKA_FLUSH_FREQUENCY_MS: isTestEnv() ? 5 : 500,
         APP_METRICS_FLUSH_FREQUENCY_MS: isTestEnv() ? 5 : 20_000,
         APP_METRICS_FLUSH_MAX_QUEUE_SIZE: isTestEnv() ? 5 : 1000,
         REDIS_URL: 'redis://127.0.0.1',

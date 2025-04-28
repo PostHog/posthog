@@ -123,8 +123,8 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
         "recording_domains": [
           "https://recordings.posthog.com/",
         ],
-        "revenue_tracking_config": {
-          "baseCurrency": "USD",
+        "revenue_analytics_config": {
+          "base_currency": "USD",
           "events": [
             {
               "eventName": "purchase",

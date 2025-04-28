@@ -1,7 +1,6 @@
 import json
 from datetime import timedelta
 from functools import cached_property
-from pydantic import ValidationError
 from typing import Any, Literal, Optional, cast
 from uuid import UUID
 
@@ -19,7 +18,7 @@ from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.geoip import get_geoip_properties
 from posthog.jwt import PosthogJwtAudience, encode_jwt
-from posthog.models import ProductIntent, Team, User
+from posthog.models import ProductIntent, Team, User, TeamRevenueAnalyticsConfig
 from posthog.models.activity_logging.activity_log import (
     Detail,
     dict_changes_between,
@@ -49,7 +48,6 @@ from posthog.permissions import (
 from posthog.rate_limit import SetupWizardAuthenticationRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
-from posthog.schema import RevenueTrackingConfig
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import (
     get_instance_realm,
@@ -57,6 +55,17 @@ from posthog.utils import (
     get_week_start_for_country_code,
 )
 from django.core.cache import cache
+
+
+def _format_serializer_errors(serializer_errors: dict) -> str:
+    """Formats DRF serializer errors into a human readable string."""
+    error_messages: list[str] = []
+    for field, field_errors in serializer_errors.items():
+        if isinstance(field_errors, list):
+            error_messages.extend(f"{field}: {error}" for error in field_errors)
+        else:
+            error_messages.append(f"{field}: {field_errors}")
+    return ". ".join(error_messages)
 
 
 class CachingTeamSerializer(serializers.ModelSerializer):
@@ -150,32 +159,31 @@ TEAM_CONFIG_FIELDS = (
     "flags_persistence_default",
     "capture_dead_clicks",
     "default_data_theme",
-    "revenue_tracking_config",
+    "revenue_analytics_config",
     "onboarding_tasks",
 )
 
 TEAM_CONFIG_FIELDS_SET = set(TEAM_CONFIG_FIELDS)
 
 
-class RevenueTrackingConfigSerializer(serializers.Field):
-    def to_representation(self, value):
-        # When reading, access the revenue_config from the team model
-        if value is None:
-            return None
-        # Get the instance (Team) that has this field
-        team = self.parent.instance
-        if team and hasattr(team, "revenue_config"):
-            return team.revenue_config.model_dump() if team.revenue_config else None
-        return None
+class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
+    events = serializers.JSONField(required=False)
+
+    class Meta:
+        model = TeamRevenueAnalyticsConfig
+        fields = ["base_currency", "events"]
+
+    def to_representation(self, instance):
+        repr = super().to_representation(instance)
+        if instance.events:
+            repr["events"] = [event.model_dump() for event in instance.events]
+        return repr
 
     def to_internal_value(self, data):
-        if data is None:
-            return None
-
-        try:
-            return RevenueTrackingConfig.model_validate(data).model_dump()
-        except ValidationError as e:
-            raise serializers.ValidationError(str(e))
+        internal_value = super().to_internal_value(data)
+        if "events" in internal_value:
+            internal_value["_events"] = internal_value["events"]
+        return internal_value
 
 
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
@@ -187,7 +195,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     live_events_token = serializers.SerializerMethodField()
     product_intents = serializers.SerializerMethodField()
     access_control_version = serializers.SerializerMethodField()
-    revenue_tracking_config = RevenueTrackingConfigSerializer(required=False)
+    revenue_analytics_config = TeamRevenueAnalyticsConfigSerializer(required=False)
 
     class Meta:
         model = Team
@@ -278,6 +286,20 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         return ProductIntent.objects.filter(team=obj).values(
             "product_type", "created_at", "onboarding_completed_at", "updated_at"
         )
+
+    @staticmethod
+    def validate_revenue_analytics_config(value):
+        if value is None:
+            return None
+
+        if not isinstance(value, dict):
+            raise exceptions.ValidationError("Must provide a dictionary or None.")
+
+        serializer = TeamRevenueAnalyticsConfigSerializer(data=value)
+        if not serializer.is_valid():
+            raise exceptions.ValidationError(_format_serializer_errors(serializer.errors))
+
+        return serializer.validated_data
 
     @staticmethod
     def validate_session_recording_linked_flag(value) -> dict | None:
@@ -434,6 +456,16 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     def update(self, instance: Team, validated_data: dict[str, Any]) -> Team:
         before_update = instance.__dict__.copy()
+
+        # Should be validated already, but let's be extra sure
+        if config_data := validated_data.pop("revenue_analytics_config", None):
+            serializer = TeamRevenueAnalyticsConfigSerializer(
+                instance.revenue_analytics_config, data=config_data, partial=True
+            )
+            if not serializer.is_valid():
+                raise serializers.ValidationError(_format_serializer_errors(serializer.errors))
+
+            serializer.save()
 
         if "survey_config" in validated_data:
             if instance.survey_config is not None and validated_data.get("survey_config") is not None:

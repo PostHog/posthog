@@ -47,7 +47,6 @@ from posthog.schema import (
     DataWarehousePropertyFilter,
     DataWarehousePersonPropertyFilter,
     ErrorTrackingIssueFilter,
-    ErrorTrackingIssuePropertyFilter,
 )
 from posthog.warehouse.models import DataWarehouseJoin
 from posthog.utils import get_from_dict_or_attr
@@ -302,7 +301,6 @@ def property_to_expr(
         | DataWarehousePropertyFilter
         | DataWarehousePersonPropertyFilter
         | ErrorTrackingIssueFilter
-        | ErrorTrackingIssuePropertyFilter
     ),
     team: Team,
     scope: Literal["event", "person", "group", "session", "replay", "replay_entity"] = "event",
@@ -676,9 +674,11 @@ def action_to_expr(action: Action, events_alias: Optional[str] = None) -> ast.Ex
                 expr = ast.CompareOperation(
                     op=ast.CompareOperationOp.Eq,
                     left=ast.Field(
-                        chain=[events_alias, "properties", "$current_url"]
-                        if events_alias
-                        else ["properties", "$current_url"]
+                        chain=(
+                            [events_alias, "properties", "$current_url"]
+                            if events_alias
+                            else ["properties", "$current_url"]
+                        )
                     ),
                     right=ast.Constant(value=step.url),
                 )
@@ -686,9 +686,11 @@ def action_to_expr(action: Action, events_alias: Optional[str] = None) -> ast.Ex
                 expr = ast.CompareOperation(
                     op=ast.CompareOperationOp.Regex,
                     left=ast.Field(
-                        chain=[events_alias, "properties", "$current_url"]
-                        if events_alias
-                        else ["properties", "$current_url"]
+                        chain=(
+                            [events_alias, "properties", "$current_url"]
+                            if events_alias
+                            else ["properties", "$current_url"]
+                        )
                     ),
                     right=ast.Constant(value=step.url),
                 )
@@ -696,9 +698,11 @@ def action_to_expr(action: Action, events_alias: Optional[str] = None) -> ast.Ex
                 expr = ast.CompareOperation(
                     op=ast.CompareOperationOp.Like,
                     left=ast.Field(
-                        chain=[events_alias, "properties", "$current_url"]
-                        if events_alias
-                        else ["properties", "$current_url"]
+                        chain=(
+                            [events_alias, "properties", "$current_url"]
+                            if events_alias
+                            else ["properties", "$current_url"]
+                        )
                     ),
                     right=ast.Constant(value=f"%{step.url}%"),
                 )
