@@ -1089,6 +1089,7 @@ export enum SessionRecordingUsageType {
 
 export enum SessionRecordingSidebarTab {
     OVERVIEW = 'overview',
+    SESSION_SUMMARY = 'ai-summary',
     INSPECTOR = 'inspector',
     DEBUGGER = 'debugger',
     NETWORK_WATERFALL = 'network-waterfall',
