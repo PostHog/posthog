@@ -185,6 +185,7 @@ pub async fn validate_personal_api_key(
                 u.current_team_id as team_id,
                 t.organization_id,
                 t.project_id,
+                t.api_token as project_api_key,
                 pk.user_id,
                 pk.label,
                 pk.value,

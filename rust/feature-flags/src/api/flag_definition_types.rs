@@ -11,4 +11,7 @@ pub struct FlagDefinitionsResponse {
     pub flags: Vec<FeatureFlag>,
 
     pub group_type_mapping: HashMap<String, String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quota_limited: Option<Vec<String>>, // list of quota limited resources
 }

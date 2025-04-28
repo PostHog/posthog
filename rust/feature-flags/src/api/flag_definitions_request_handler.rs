@@ -6,7 +6,8 @@ use crate::api::{
 use crate::client::database::Client;
 use crate::flags::flag_group_type_mapping::GroupTypeMappingCache;
 use crate::flags::flag_service::FlagService;
-use std::sync::Arc;
+use limiters::redis::ServiceName;
+use std::{collections::HashMap, sync::Arc};
 
 pub async fn process_flags_definitions_request(
     context: &RequestContext,
@@ -18,7 +19,21 @@ pub async fn process_flags_definitions_request(
         return Err(FlagError::InvalidScopes(e.to_string()));
     }
 
-    // TODO: Quota limited check.
+    let billing_limited = context
+        .state
+        .billing_limiter
+        .is_limited(api_key.project_api_key.as_str())
+        .await;
+    if billing_limited {
+        // return an empty FlagsResponse with a quotaLimited field called "feature_flags"
+        // TODO docs
+        return Ok(FlagDefinitionsResponse {
+            flags: vec![],
+            group_type_mapping: HashMap::new(),
+            quota_limited: Some(vec![ServiceName::FeatureFlags.as_string()]),
+            request_id: context.request.id,
+        });
+    }
 
     // TODO: Query the flag definitions from the cache/database
     let flag_service = FlagService::new(context.state.redis.clone(), context.state.reader.clone());
@@ -32,6 +47,7 @@ pub async fn process_flags_definitions_request(
         request_id: context.request.id,
         flags: all_flags.flags,
         group_type_mapping,
+        quota_limited: None,
     };
 
     return Ok(response);

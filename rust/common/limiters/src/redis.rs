@@ -14,7 +14,7 @@ use tracing::instrument;
 /// We have an async celery worker that regularly checks on accounts + assesses if they are beyond
 /// a billing limit. If this is the case, a key is set in redis.
 ///
-/// For replay sessions we also check if too many events are coming in in ingestion for a single session
+/// For replay sessions we also check if too many events are coming in ingestion for a single session
 /// and set a redis key to redirect further events to overflow.
 ///
 /// For feature flag evaluations we still return a 200 response, but add an entry to the response body

@@ -112,6 +112,7 @@ mod tests {
             scoped_teams: scoped_teams,
             scopes: scopes,
             mask_value: "mask".to_string(),
+            project_api_key: "project_api_key".to_string(),
         }
     }
 

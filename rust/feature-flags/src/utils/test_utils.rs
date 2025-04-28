@@ -8,7 +8,7 @@ use crate::{
     },
     team::team_models::{Team, TEAM_TOKEN_CACHE_PREFIX},
 };
-use anyhow::Error;
+use anyhow::{Context, Error};
 use axum::async_trait;
 use chrono::Utc;
 use common_redis::{Client as RedisClientTrait, RedisClient};

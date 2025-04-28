@@ -12,6 +12,7 @@ pub struct PersonalAPIKey {
     pub last_used_at: Option<DateTime<Utc>>,
     pub team_id: Option<i32>,
     pub project_id: Option<i64>,
+    pub project_api_key: String,
     pub organization_id: Uuid,
     pub user_id: i32,
     pub scoped_organizations: Vec<String>,
