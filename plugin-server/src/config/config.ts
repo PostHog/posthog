@@ -253,6 +253,9 @@ export function getDefaultConfig(): PluginsServerConfig {
                 24) * // amount of time salt is valid in one timezone
             60 *
             60,
+
+        PERSON_CACHE_ENABLED_FOR_UPDATES: true,
+        PERSON_CACHE_ENABLED_FOR_CHECKS: true,
     }
 }
 

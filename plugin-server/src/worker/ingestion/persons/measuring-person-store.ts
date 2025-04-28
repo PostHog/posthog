@@ -36,25 +36,33 @@ const ALL_METHODS: MethodName[] = [
     'addPersonlessDistinctIdForMerge',
 ]
 
+export interface PersonsStoreOptions {
+    personCacheEnabledForUpdates: boolean
+    personCacheEnabledForChecks: boolean
+}
+
 export class MeasuringPersonsStore implements PersonsStore {
-    constructor(private db: DB) {}
+    constructor(private db: DB, private options: PersonsStoreOptions) {}
 
     forBatch(): PersonsStoreForBatch {
-        return new MeasuringPersonsStoreForBatch(this.db)
+        return new MeasuringPersonsStoreForBatch(this.db, this.options)
     }
 }
 
 export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
     private distinctIdStores: Map<string, MeasuringPersonsStoreForDistinctIdBatch>
 
-    constructor(private db: DB) {
+    constructor(private db: DB, private options: PersonsStoreOptions) {
         this.distinctIdStores = new Map()
     }
 
     forDistinctID(token: string, distinctId: string): PersonsStoreForDistinctIdBatch {
         const key = `${token}:${distinctId}`
         if (!this.distinctIdStores.has(key)) {
-            this.distinctIdStores.set(key, new MeasuringPersonsStoreForDistinctIdBatch(this.db, token, distinctId))
+            this.distinctIdStores.set(
+                key,
+                new MeasuringPersonsStoreForDistinctIdBatch(this.db, token, distinctId, this.options)
+            )
         } else {
             logger.warn('⚠️', 'Reusing existing persons store for distinct ID in batch', { token, distinctId })
         }
@@ -90,7 +98,15 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
     private personCache: Map<string, InternalPerson | null>
     private personCheckCache: Map<string, InternalPerson | null>
 
-    constructor(private db: DB, private token: string, private distinctId: string) {
+    constructor(
+        private db: DB,
+        private token: string,
+        private distinctId: string,
+        private options: PersonsStoreOptions = {
+            personCacheEnabledForUpdates: true,
+            personCacheEnabledForChecks: true,
+        }
+    ) {
         this.methodCounts = new Map()
         for (const method of ALL_METHODS) {
             this.methodCounts.set(method, 0)
@@ -127,6 +143,7 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
 
     async fetchForUpdate(teamId: Team['id'], distinctId: string): Promise<InternalPerson | null> {
         this.incrementCount('fetchForUpdate')
+
         const cachedPerson = this.getCachedPerson(teamId, distinctId)
         if (cachedPerson !== undefined) {
             return cachedPerson
@@ -249,21 +266,33 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
     }
 
     private getCachedPerson(teamId: number, distinctId: string): InternalPerson | null | undefined {
+        if (!this.options.personCacheEnabledForUpdates) {
+            return undefined
+        }
         const cacheKey = this.getCacheKey(teamId, distinctId)
         return this.personCache.get(cacheKey)
     }
 
     private getCheckCachedPerson(teamId: number, distinctId: string): InternalPerson | null | undefined {
+        if (!this.options.personCacheEnabledForChecks) {
+            return undefined
+        }
         const cacheKey = this.getCacheKey(teamId, distinctId)
         return this.personCheckCache.get(cacheKey)
     }
 
     private setCachedPerson(teamId: number, distinctId: string, person: InternalPerson | null): void {
+        if (!this.options.personCacheEnabledForUpdates) {
+            return
+        }
         const cacheKey = this.getCacheKey(teamId, distinctId)
         this.personCache.set(cacheKey, person)
     }
 
     private setCheckCachedPerson(teamId: number, distinctId: string, person: InternalPerson | null): void {
+        if (!this.options.personCacheEnabledForChecks) {
+            return
+        }
         const cacheKey = this.getCacheKey(teamId, distinctId)
         this.personCheckCache.set(cacheKey, person)
     }
