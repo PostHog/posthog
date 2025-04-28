@@ -38,6 +38,12 @@ class Command(BaseCommand):
             default=4,
             help="Maximum TTL in days to set on stale keys.",
         )
+        parser.add_argument(
+            "--skip-idle-check",
+            action=argparse.BooleanOptionalAction,
+            default=True,
+            help="Skip the idle check and set TTL on all keys (that do not already have one).",
+        )
 
     def _gather_keys_with_no_ttl(self, keys) -> list[dict]:
         pipe = self._redis_client.pipeline()
@@ -72,15 +78,15 @@ class Command(BaseCommand):
         pipe = self._redis_client.pipeline()
         keys_to_expire = []
 
+        logger.info(f"Expiring keys. Checking {len(results)} items")
+
         for result in results:
             key = result["key"]
-            idletime = result["idletime"]
             ttl = result["ttl"]
 
-            if idletime is None:
-                continue  # Key disappeared between SCAN and OBJECT IDLETIME
+            idletime = -1 if result["idletime"] is None else result["idletime"]
 
-            if idletime > self._idle_threshold_seconds:
+            if self._skip_idle_check or idletime > self._idle_threshold_seconds:
                 if self._dry_run:
                     updated += 1
                 else:
@@ -118,7 +124,7 @@ class Command(BaseCommand):
 
         self._ttl_min_seconds = min_ttl_days * 24 * 3600
         self._ttl_max_seconds = max_ttl_days * 24 * 3600
-
+        self._skip_idle_check = options["skip_idle_check"]
         self._dry_run = options["dry_run"]
 
         cursor = 0
