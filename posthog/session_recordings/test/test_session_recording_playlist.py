@@ -189,6 +189,32 @@ class TestSessionRecordingPlaylist(APIBaseTest):
             ],
         }
 
+    def test_creates_playlist_without_type(self):
+        response = self._create_playlist({"name": "test"})
+        playlist_id = response.json()["id"]
+        playlist = SessionRecordingPlaylist.objects.get(id=playlist_id)
+        assert playlist.type is None
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["name"] == "test"
+
+    def test_creates_playlist_with_filters_type(self):
+        response = self._create_playlist({"name": "test filters", "type": "filters"})
+        playlist_id = response.json()["id"]
+        playlist = SessionRecordingPlaylist.objects.get(id=playlist_id)
+        assert playlist.type == SessionRecordingPlaylist.PlaylistType.FILTERS
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["name"] == "test filters"
+        assert response.json()["type"] == SessionRecordingPlaylist.PlaylistType.FILTERS
+
+    def test_creates_playlist_with_collection_type(self):
+        response = self._create_playlist({"name": "test collection", "type": "collection"})
+        playlist_id = response.json()["id"]
+        playlist = SessionRecordingPlaylist.objects.get(id=playlist_id)
+        assert playlist.type == SessionRecordingPlaylist.PlaylistType.COLLECTION
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["name"] == "test collection"
+        assert response.json()["type"] == SessionRecordingPlaylist.PlaylistType.COLLECTION
+
     def test_creates_playlist(self):
         response = self._create_playlist({"name": "test"})
 
@@ -632,3 +658,67 @@ class TestSessionRecordingPlaylist(APIBaseTest):
             ).count()
             == 0
         )
+
+    def test_filters_playlist_by_type(self):
+        # Setup playlists with different types and conditions
+        p_filters_explicit = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="Filters Explicit",
+            filters={"events": [{"id": "test"}]},
+            type=SessionRecordingPlaylist.PlaylistType.FILTERS,
+        )
+        p_collection_explicit_items = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="Collection Explicit Items",
+            filters={"events": [{"id": "test"}]},
+            type=SessionRecordingPlaylist.PlaylistType.COLLECTION,
+        )
+        p_collection_explicit_no_filters = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="Collection Explicit No Filters",
+            type=SessionRecordingPlaylist.PlaylistType.COLLECTION,
+        )
+        p_null_filters_no_items = SessionRecordingPlaylist.objects.create(
+            team=self.team, name="Null Filters No Items", filters={"events": [{"id": "test"}]}, type=None
+        )
+        p_null_filters_items = SessionRecordingPlaylist.objects.create(
+            team=self.team, name="Null Filters Items", filters={"events": [{"id": "test"}]}, type=None
+        )
+        p_null_no_filters_items = SessionRecordingPlaylist.objects.create(
+            team=self.team, name="Null No Filters Items", type=None
+        )
+
+        # Add items to relevant playlists
+        recording = SessionRecording.objects.create(team=self.team, session_id=uuid4())
+        SessionRecordingPlaylistItem.objects.create(playlist=p_collection_explicit_items, recording=recording)
+        SessionRecordingPlaylistItem.objects.create(playlist=p_collection_explicit_no_filters, recording=recording)
+        SessionRecordingPlaylistItem.objects.create(playlist=p_null_filters_items, recording=recording)
+        SessionRecordingPlaylistItem.objects.create(playlist=p_null_no_filters_items, recording=recording)
+
+        # Test filtering by type=filters
+        response_filters = self.client.get(f"/api/projects/{self.team.id}/session_recording_playlists?type=filters")
+        assert response_filters.status_code == status.HTTP_200_OK
+        results_filters = response_filters.json()["results"]
+        assert len(results_filters) == 2
+        assert {p["id"] for p in results_filters} == {p_filters_explicit.id, p_null_filters_no_items.id}
+
+        # Test filtering by type=collection
+        response_collection = self.client.get(
+            f"/api/projects/{self.team.id}/session_recording_playlists?type=collection"
+        )
+        assert response_collection.status_code == status.HTTP_200_OK
+        results_collection = response_collection.json()["results"]
+        assert len(results_collection) == 4
+        assert {p["id"] for p in results_collection} == {
+            p_collection_explicit_items.id,
+            p_collection_explicit_no_filters.id,
+            p_null_filters_items.id,
+            p_null_no_filters_items.id,
+        }
+
+        # Test listing without type filter (should include all non-deleted)
+        response_all = self.client.get(f"/api/projects/{self.team.id}/session_recording_playlists")
+        assert response_all.status_code == status.HTTP_200_OK
+        results_all = response_all.json()["results"]
+        # Assuming no other playlists were created in the setup
+        assert len(results_all) == 6
