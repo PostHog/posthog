@@ -1,3 +1,4 @@
+import { IconCheckCircle } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { LemonTree, LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
@@ -32,7 +33,7 @@ export function FolderSelect({ value, onChange, className }: FolderSelectProps):
     const { createFolder, loadFolderIfNotLoaded } = useActions(projectTreeLogic)
 
     const treeRef = useRef<LemonTreeRef>(null)
-
+    const [selectedFolder, setSelectedFolder] = useState<string | undefined>(value)
     const [expandedFolders, setExpandedFolders] = useState<string[]>([])
     const [touchedFolders, setTouchedFolders] = useState<string[]>([])
 
@@ -57,17 +58,19 @@ export function FolderSelect({ value, onChange, className }: FolderSelectProps):
         <div className={clsx('bg-surface-primary p-2 border rounded-[var(--radius)] overflow-y-scroll', className)}>
             <LemonTree
                 ref={treeRef}
+                folderSelectMode
                 className="px-0 py-1"
                 data={projectTreeOnlyFolders}
                 mode="tree"
                 tableViewKeys={treeTableKeys}
-                defaultSelectedFolderOrNodeId={value ? 'project-tree/' + value : undefined}
+                defaultSelectedFolderOrNodeId={value ? 'project-folder/' + value : undefined}
                 isItemActive={(item) => item.record?.path === value}
                 enableMultiSelection={false}
                 showFolderActiveState={true}
                 checkedItemCount={0}
                 onFolderClick={(folder) => {
                     if (folder?.id) {
+                        setSelectedFolder(folder?.record?.path)
                         if (!touchedFolders.includes(folder?.id)) {
                             loadFolderIfNotLoaded(folder?.id)
                             setTouchedFolders([...touchedFolders, folder?.id])
@@ -84,6 +87,20 @@ export function FolderSelect({ value, onChange, className }: FolderSelectProps):
                             }
                         }
                     }
+                }}
+                renderItem={(item) => {
+                    return (
+                        <span>
+                            {item.record?.path === selectedFolder ? (
+                                <span className="flex items-center gap-1">
+                                    {item.displayName}
+                                    <IconCheckCircle className="size-4 text-success" />
+                                </span>
+                            ) : (
+                                item.displayName
+                            )}
+                        </span>
+                    )
                 }}
                 expandedItemIds={expandedFolders}
                 onSetExpandedItemIds={setExpandedFolders}
