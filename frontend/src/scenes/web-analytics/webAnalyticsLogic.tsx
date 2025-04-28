@@ -2273,6 +2273,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 } else {
                     urlParams.set('conversionGoal.customEventName', conversionGoal.customEventName)
                 }
+            } else {
+                urlParams.delete('conversionGoal.actionId')
+                urlParams.delete('conversionGoal.customEventName')
             }
             if (dateFrom !== INITIAL_DATE_FROM || dateTo !== INITIAL_DATE_TO || interval !== INITIAL_INTERVAL) {
                 urlParams.set('date_from', dateFrom ?? '')
@@ -2302,6 +2305,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             }
             if (compareFilter) {
                 urlParams.set('compare_filter', JSON.stringify(compareFilter))
+            } else {
+                urlParams.delete('compare_filter')
             }
 
             const { featureFlags } = featureFlagLogic.values
@@ -2315,6 +2320,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             }
             if (deviceTypeFilter) {
                 urlParams.set('device_type', deviceTypeFilter)
+            } else {
+                urlParams.delete('device_type')
             }
             if (tileVisualizations) {
                 urlParams.set('tile_visualizations', JSON.stringify(tileVisualizations))
