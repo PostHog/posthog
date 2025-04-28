@@ -176,11 +176,17 @@ def stream_llm_session_summary(
                 # The only way to raise ValueError is data hallucinations and inconsistencies (like missing mapping data).
                 # Such exceptions should be retried as early as possible to decrease the latency of the stream.
                 logger.exception(
-                    f"Hallucinated data or inconsistencies in the session summary for session_id {session_id}: {err}"
+                    f"Hallucinated data or inconsistencies in the session summary for session_id {session_id}: {err}",
+                    session_id=session_id,
+                    user_pk=user.pk,
                 )
                 raise ExceptionToRetry()
     except (openai.APIError, openai.APITimeoutError, openai.RateLimitError) as err:
-        logger.exception(f"Error streaming LLM for session_id {session_id} by user {user.pk}: {err}")
+        logger.exception(
+            f"Error streaming LLM for session_id {session_id} by user {user.pk}: {err}",
+            session_id=session_id,
+            user_pk=user.pk,
+        )
         raise ExceptionToRetry()
     # Final validation of accumulated content (to decide if to retry the whole stream or not)
     try:
@@ -199,7 +205,11 @@ def stream_llm_session_summary(
             final_validation=True,
         )
         if not final_summary:
-            logger.exception(f"Final LLM content validation failed for session_id {session_id}")
+            logger.exception(
+                f"Final LLM content validation failed for session_id {session_id}",
+                session_id=session_id,
+                user_pk=user.pk,
+            )
             raise ValueError("Final content validation failed")
 
         # If parsing succeeds, yield the final validated summary
@@ -207,7 +217,11 @@ def stream_llm_session_summary(
         yield sse_event_to_send
     # At this stage, when all the chunks are processed, any exception should be retried to ensure valid final content
     except (SummaryValidationError, ValueError) as err:
-        logger.exception(f"Failed to validate final LLM content for session_id {session_id}: {str(err)}")
+        logger.exception(
+            f"Failed to validate final LLM content for session_id {session_id}: {str(err)}",
+            session_id=session_id,
+            user_pk=user.pk,
+        )
         raise ExceptionToRetry()
 
 
