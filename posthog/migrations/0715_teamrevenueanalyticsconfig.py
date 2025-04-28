@@ -183,7 +183,7 @@ class Migration(migrations.Migration):
                         max_length=3,
                     ),
                 ),
-                ("events", models.JSONField(db_column="events", default=list)),
+                ("_events", models.JSONField(db_column="events", default=list)),
             ],
         ),
     ]

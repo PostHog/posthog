@@ -2306,3 +2306,14 @@ class TestPrinter(BaseTest):
         query = parse_expr("avgArray([1, 2, 3])")
         printed = print_ast(query, HogQLContext(team_id=self.team.pk), dialect="hogql")
         assert printed == "avgArray([1, 2, 3])"
+
+    def test_print_percentage_call_alias(self):
+        select = parse_select("SELECT concat('%', 'word', '%') LIMIT 1")
+        printed = print_ast(
+            select, HogQLContext(team_id=self.team.pk, enable_select_queries=True), dialect="clickhouse"
+        )
+
+        assert (
+            printed
+            == "SELECT concat(%(hogql_val_0)s, %(hogql_val_1)s, %(hogql_val_2)s) AS `concat('', 'word', '')` LIMIT 1"
+        )

@@ -36,6 +36,7 @@ import { WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 import type {
     DashboardFilter,
     DatabaseSchemaField,
+    ErrorTrackingIssueAssignee,
     ExperimentExposureCriteria,
     ExperimentFunnelsQuery,
     ExperimentMetric,
@@ -50,7 +51,7 @@ import type {
     QueryStatus,
     RecordingOrder,
     RecordingsQuery,
-    RevenueTrackingConfig,
+    RevenueAnalyticsConfig,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
@@ -597,7 +598,7 @@ export interface TeamType extends TeamBasicType {
     live_events_token: string
     cookieless_server_hash_mode?: CookielessServerHashMode
     human_friendly_comparison_periods: boolean
-    revenue_tracking_config: RevenueTrackingConfig
+    revenue_analytics_config: RevenueAnalyticsConfig
     onboarding_tasks?: {
         [key: string]: ActivationTaskStatus
     }
@@ -715,13 +716,8 @@ export interface ToolbarProps extends ToolbarParams {
 
 export type PathCleaningFilter = { alias?: string; regex?: string }
 
-export type PropertyFilterValue =
-    | string
-    | number
-    | bigint
-    | (string | number | bigint)[]
-    // | ErrorTrackingIssueAssignee - TODO - @david
-    | null
+export type PropertyFilterBaseValue = string | number | bigint | ErrorTrackingIssueAssignee
+export type PropertyFilterValue = PropertyFilterBaseValue | PropertyFilterBaseValue[] | null
 
 /** Sync with plugin-server/src/types.ts */
 export enum PropertyOperator {
@@ -842,7 +838,6 @@ export enum PropertyFilterType {
     DataWarehouse = 'data_warehouse',
     DataWarehousePersonProperty = 'data_warehouse_person_property',
     ErrorTrackingIssue = 'error_tracking_issue',
-    ErrorTrackingIssueProperty = 'error_tracking_issue_property',
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -883,11 +878,6 @@ export interface DataWarehousePersonPropertyFilter extends BasePropertyFilter {
 
 export interface ErrorTrackingIssueFilter extends BasePropertyFilter {
     type: PropertyFilterType.ErrorTrackingIssue
-    operator: PropertyOperator
-}
-
-export interface ErrorTrackingIssuePropertyFilter extends BasePropertyFilter {
-    type: PropertyFilterType.ErrorTrackingIssueProperty
     operator: PropertyOperator
 }
 
@@ -954,7 +944,6 @@ export type AnyPropertyFilter =
     | DataWarehousePropertyFilter
     | DataWarehousePersonPropertyFilter
     | ErrorTrackingIssueFilter
-    | ErrorTrackingIssuePropertyFilter
 
 /** Any filter type supported by `property_to_expr(scope="person", ...)`. */
 export type AnyPersonScopeFilter =
@@ -1100,6 +1089,7 @@ export enum SessionRecordingUsageType {
 
 export enum SessionRecordingSidebarTab {
     OVERVIEW = 'overview',
+    SESSION_SUMMARY = 'ai-summary',
     INSPECTOR = 'inspector',
     DEBUGGER = 'debugger',
     NETWORK_WATERFALL = 'network-waterfall',
@@ -1440,6 +1430,7 @@ export enum StepOrderValue {
 export enum PersonsTabType {
     FEED = 'feed',
     EVENTS = 'events',
+    EXCEPTIONS = 'exceptions',
     SESSION_RECORDINGS = 'sessionRecordings',
     PROPERTIES = 'properties',
     COHORTS = 'cohorts',
@@ -3460,6 +3451,7 @@ export enum PropertyType {
     Duration = 'Duration',
     Selector = 'Selector',
     Cohort = 'Cohort',
+    Assignee = 'Assignee',
 }
 
 export enum PropertyDefinitionType {
@@ -3470,7 +3462,7 @@ export enum PropertyDefinitionType {
     Session = 'session',
     LogEntry = 'log_entry',
     Meta = 'meta',
-    // Resource = 'resource', - TODO @david
+    Resource = 'resource',
 }
 
 export interface PropertyDefinition {
@@ -5296,6 +5288,7 @@ export interface ProjectTreeRef {
     /**
      * The ref of the file system object.
      * Usually the "id" or "short_id" of the database object.
+     * "null" opens the "new" page
      */
-    ref: string
+    ref: string | null
 }

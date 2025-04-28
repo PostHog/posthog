@@ -78,7 +78,7 @@ export const manifest: ProductManifest = {
             href: () => urls.insightNew({ type: InsightType.TRENDS }),
         },
         {
-            path: `Insight/Funnels`,
+            path: `Insight/Funnel`,
             type: 'insight',
             href: () => urls.insightNew({ type: InsightType.FUNNELS }),
         },

@@ -31,6 +31,7 @@ from posthog.hogql.escape_sql import (
     escape_clickhouse_string,
     escape_hogql_identifier,
     escape_hogql_string,
+    safe_identifier,
 )
 from posthog.hogql.functions import (
     ADD_OR_NULL_DATETIME_FUNCTIONS,
@@ -385,7 +386,7 @@ class _Printer(Visitor):
                             # Non-unique hidden alias. Skip.
                             column = column.expr
                     elif isinstance(column, ast.Call):
-                        column_alias = print_prepared_ast(column, self.context, dialect="hogql")
+                        column_alias = safe_identifier(print_prepared_ast(column, self.context, dialect="hogql"))
                         column = ast.Alias(alias=column_alias, expr=column)
                     columns.append(self.visit(column))
             else:
