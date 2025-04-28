@@ -3,10 +3,12 @@ import { ErrorTrackingException, ErrorTrackingRuntime } from 'lib/components/Err
 import { getRuntimeFromLib } from 'lib/components/Errors/utils'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { componentsToDayJs, dateStringToComponents, isStringDateRegex, objectsEqual } from 'lib/utils'
+import { Properties } from 'posthog-js'
 import { MouseEvent } from 'react'
 import { Params } from 'scenes/sceneTypes'
 
 import { DateRange, ErrorTrackingIssue } from '~/queries/schema/schema-general'
+import { isPostHogProperty } from '~/taxonomy/taxonomy'
 
 import { DEFAULT_ERROR_TRACKING_DATE_RANGE, DEFAULT_ERROR_TRACKING_FILTER_GROUP } from './errorTrackingLogic'
 
@@ -146,6 +148,14 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
         level,
         ingestionErrors,
     }
+}
+
+export function getAdditionalProperties(properties: Properties, isCloudOrDev: boolean | undefined): Properties {
+    return Object.fromEntries(
+        Object.entries(properties).filter(([key]) => {
+            return !isPostHogProperty(key, isCloudOrDev)
+        })
+    )
 }
 
 export function getSessionId(properties: Record<string, any>): string | undefined {
