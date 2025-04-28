@@ -3459,6 +3459,7 @@ export enum PropertyType {
     Selector = 'Selector',
     Cohort = 'Cohort',
     Assignee = 'Assignee',
+    StringArray = 'StringArray',
 }
 
 export enum PropertyDefinitionType {
