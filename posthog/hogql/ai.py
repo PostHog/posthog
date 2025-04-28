@@ -19,8 +19,12 @@ openai_client = OpenAI(posthog_client=posthoganalytics) if os.getenv("OPENAI_API
 
 UNCLEAR_PREFIX = "UNCLEAR:"
 
-IDENTITY_MESSAGE = "HogQL is PostHog's variant of SQL. It supports most of ClickHouse SQL. You write HogQL based on a prompt. You don't help with other knowledge."
+IDENTITY_MESSAGE = """HogQL is PostHog's variant of SQL. It supports most of ClickHouse SQL. You write HogQL based on a prompt. You don't help with other knowledge.
 
+Clickhouse DOES NOT support the following functions:
+- LAG/LEAD
+
+"""
 HOGQL_EXAMPLE_MESSAGE = """Example HogQL query for prompt "weekly active users that performed event ACTIVATION_EVENT on example.com/foo/ 3 times or more, by week":
 
 SELECT week_of, countIf(weekly_event_count >= 3)

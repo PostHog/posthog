@@ -1153,15 +1153,21 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except (ValueError, TypeError):
             question_index = None
 
+        question_id = request.query_params.get("question_id", None)
+
+        if question_index is None and question_id is None:
+            raise exceptions.ValidationError("question_index or question_id is required")
+
         summary = summarize_survey_responses(
             survey_id=survey_id,
             question_index=question_index,
+            question_id=question_id,
             survey_start=(survey.start_date or survey.created_at).replace(hour=0, minute=0, second=0, microsecond=0),
             survey_end=end_date,
             team=self.team,
             user=user,
         )
-        timings = summary.pop("timings", None)
+        timings_header = summary.pop("timings_header", None)
         cache.set(cache_key, summary, timeout=30)
 
         posthoganalytics.capture(
@@ -1170,10 +1176,8 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         # let the browser cache for half the time we cache on the server
         r = Response(summary, headers={"Cache-Control": "max-age=15"})
-        if timings:
-            r.headers["Server-Timing"] = ", ".join(
-                f"{key};dur={round(duration, ndigits=2)}" for key, duration in timings.items()
-            )
+        if timings_header:
+            r.headers["Server-Timing"] = timings_header
         return r
 
 

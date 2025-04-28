@@ -1,6 +1,6 @@
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
-import { CoreFilterDefinition, PropertyFilterValue } from '~/types'
+import { CoreFilterDefinition } from '~/types'
 
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from './taxonomy'
 
@@ -13,7 +13,7 @@ export function isCoreFilter(key: string): boolean {
 export type PropertyKey = string | null | undefined
 
 export function getCoreFilterDefinition(
-    value: string | PropertyFilterValue | undefined,
+    value: string | null | undefined,
     type: TaxonomicFilterGroupType
 ): CoreFilterDefinition | null {
     if (value == undefined) {

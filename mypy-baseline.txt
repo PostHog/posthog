@@ -436,6 +436,7 @@ posthog/warehouse/external_data_source/source.py:0: error: Incompatible types in
 posthog/warehouse/external_data_source/source.py:0: error: Incompatible types in assignment (expression has type "int", target has type "str")  [assignment]
 posthog/warehouse/external_data_source/source.py:0: error: Incompatible types in assignment (expression has type "int", target has type "str")  [assignment]
 posthog/warehouse/models/ssh_tunnel.py:0: error: Incompatible types in assignment (expression has type "NoEncryption", variable has type "BestAvailableEncryption")  [assignment]
+posthog/warehouse/models/table.py:0: error: Incompatible return value type (got "dict[str, dict[str, object]]", expected "dict[str, dict[str, str | bool]] | dict[str, str]")  [return-value]
 posthog/warehouse/models/table.py:0: error: Item "None" of "DataWarehouseCredential | None" has no attribute "access_key"  [union-attr]
 posthog/warehouse/models/table.py:0: error: Item "None" of "DataWarehouseCredential | None" has no attribute "access_key"  [union-attr]
 posthog/warehouse/models/table.py:0: error: Item "None" of "DataWarehouseCredential | None" has no attribute "access_key"  [union-attr]
@@ -444,3 +445,4 @@ posthog/warehouse/models/table.py:0: error: Item "None" of "DataWarehouseCredent
 posthog/warehouse/models/table.py:0: error: Item "None" of "DataWarehouseCredential | None" has no attribute "access_secret"  [union-attr]
 posthog/warehouse/models/table.py:0: error: Item "None" of "DataWarehouseCredential | None" has no attribute "access_secret"  [union-attr]
 posthog/warehouse/models/table.py:0: error: Item "None" of "DataWarehouseCredential | None" has no attribute "access_secret"  [union-attr]
+posthog/warehouse/models/table.py:0: error: Subclass of "list[tuple[str, ...]]" and "int" cannot exist: would have incompatible method signatures  [unreachable]

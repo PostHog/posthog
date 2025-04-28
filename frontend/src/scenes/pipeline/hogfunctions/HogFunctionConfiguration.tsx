@@ -24,6 +24,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
+import { HogFunctionBroadcastDelivery } from 'products/messaging/frontend/HogFunctionCustomConfiguration/HogFunctionBroadcastDelivery'
 import { useEffect, useState } from 'react'
 import { useRef } from 'react'
 import { urls } from 'scenes/urls'
@@ -36,7 +37,7 @@ import { hogFunctionConfigurationLogic, mightDropEvents } from './hogFunctionCon
 import { HogFunctionIconEditable } from './HogFunctionIcon'
 import { HogFunctionInputs } from './HogFunctionInputs'
 import { HogFunctionStatusIndicator } from './HogFunctionStatusIndicator'
-import { HogFunctionTest, HogFunctionTestPlaceholder } from './HogFunctionTest'
+import { HogFunctionTest } from './HogFunctionTest'
 import { HogFunctionMappings } from './mapping/HogFunctionMappings'
 import { HogFunctionEventEstimates } from './metrics/HogFunctionEventEstimates'
 export interface HogFunctionConfigurationProps {
@@ -88,7 +89,6 @@ export function HogFunctionConfiguration({
         type,
         usesGroups,
         hasGroupsAddon,
-        broadcastLoading,
     } = useValues(logic)
 
     // State for debounced mightDropEvents check
@@ -123,7 +123,6 @@ export function HogFunctionConfiguration({
         duplicateFromTemplate,
         setConfigurationValue,
         deleteHogFunction,
-        sendBroadcast,
     } = useActions(logic)
     const canEditTransformationHogCode = useFeatureFlag('HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED')
     const sourceCodeRef = useRef<HTMLDivElement>(null)
@@ -233,8 +232,7 @@ export function HogFunctionConfiguration({
                 (type === 'transformation' && canEditTransformationHogCode)))
     const showPersonsCount = displayOptions.showPersonsCount ?? ['broadcast'].includes(type)
     const showTesting =
-        displayOptions.showTesting ??
-        ['destination', 'internal_destination', 'transformation', 'broadcast', 'email'].includes(type)
+        displayOptions.showTesting ?? ['destination', 'internal_destination', 'transformation', 'email'].includes(type)
 
     const showLeftPanel = showOverview || showExpectedVolume || showPersonsCount || showFilters
 
@@ -389,6 +387,7 @@ export function HogFunctionConfiguration({
                                                         // TODO: swap for a link to the persons page
                                                         combineUrl(urls.activity(), {}, { q: personsListQuery }).url
                                                     }
+                                                    target="_blank"
                                                 >
                                                     <strong>
                                                         {personsCount ?? 0} {personsCount !== 1 ? 'people' : 'person'}
@@ -563,40 +562,7 @@ export function HogFunctionConfiguration({
                             {showTesting ? (
                                 <HogFunctionTest configurable={!displayOptions.hideTestingConfiguration} />
                             ) : null}
-                            {type === 'broadcast' ? (
-                                <HogFunctionTestPlaceholder
-                                    title="Send broadcast"
-                                    description={
-                                        id && id !== 'new' ? (
-                                            <div className="mt-2 space-y-2">
-                                                <LemonButton
-                                                    type="primary"
-                                                    onClick={sendBroadcast}
-                                                    loading={personsCountLoading || broadcastLoading}
-                                                >
-                                                    Send to {personsCount} emails
-                                                </LemonButton>
-                                                <div>
-                                                    <strong>Please note:</strong> Clicking the button above will
-                                                    synchronously send to all the e-mails. While this is fine for
-                                                    testing with small lists, please don't use this for production use
-                                                    cases yet.
-                                                </div>
-                                            </div>
-                                        ) : (
-                                            <div className="mt-2 space-y-2">
-                                                <LemonButton
-                                                    type="primary"
-                                                    disabledReason="Must save to send broadcast"
-                                                >
-                                                    Send to {personsCount} emails
-                                                </LemonButton>
-                                                <div>Save your configuration to send a broadcast</div>
-                                            </div>
-                                        )
-                                    }
-                                />
-                            ) : null}
+                            {type === 'broadcast' && <HogFunctionBroadcastDelivery />}
                             <div className="flex justify-end gap-2">{saveButtons}</div>
                         </div>
                     </div>

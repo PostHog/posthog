@@ -13,6 +13,7 @@ from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DatabaseField,
     DateDatabaseField,
+    DecimalDatabaseField,
     DateTimeDatabaseField,
     ExpressionField,
     FieldOrTable,
@@ -287,7 +288,7 @@ class Database(BaseModel):
             self.merge_or_setattr(f_name, f_def)
 
             # No need to add TableGroups to the view table names,
-            # they're already with their chained name
+            # they're already with their chained names
             if isinstance(f_def, TableGroup):
                 continue
 
@@ -477,6 +478,12 @@ def create_hogql_database(
                 for view in revenue_views:
                     views[view.name] = view
                     create_nested_table_group(view.name.split("."), views, view)
+
+        # No need to call `create_nested_table_group` because these arent using dot notation
+        with timings.measure("for_events"):
+            revenue_views = RevenueAnalyticsRevenueView.for_events(team)
+            for view in revenue_views:
+                views[view.name] = view
 
     with timings.measure("data_warehouse_tables"):
         with timings.measure("select"):
@@ -921,11 +928,17 @@ def serialize_database(
             url_pattern=warehouse_table.url_pattern,
             schema=schema,
             source=source,
+            row_count=warehouse_table.row_count,
         )
 
     # Fetch all views in a single query
     all_views = (
-        DataWarehouseSavedQuery.objects.exclude(deleted=True).filter(team_id=context.team_id).all() if views else []
+        DataWarehouseSavedQuery.objects.select_related("table")
+        .exclude(deleted=True)
+        .filter(team_id=context.team_id)
+        .all()
+        if views
+        else []
     )
 
     # Process views using prefetched data
@@ -956,11 +969,16 @@ def serialize_database(
         if not saved_query:
             continue
 
+        row_count: int | None = None
+        if saved_query.table:
+            row_count = saved_query.table.row_count
+
         tables[view_name] = DatabaseSchemaViewTable(
             fields=fields_dict,
             id=str(saved_query.pk),
             name=view_name,
             query=HogQLQuery(query=saved_query.query["query"]),
+            row_count=row_count,
         )
 
     return tables
@@ -985,6 +1003,8 @@ def constant_type_to_serialized_field_type(constant_type: ast.ConstantType) -> D
         return DatabaseSerializedFieldType.INTEGER
     if isinstance(constant_type, ast.FloatType):
         return DatabaseSerializedFieldType.FLOAT
+    if isinstance(constant_type, ast.DecimalType):
+        return DatabaseSerializedFieldType.DECIMAL
     return None
 
 
@@ -1042,6 +1062,15 @@ def serialize_fields(
                         name=field_key,
                         hogql_value=hogql_value,
                         type=DatabaseSerializedFieldType.FLOAT,
+                        schema_valid=schema_valid,
+                    )
+                )
+            elif isinstance(field, DecimalDatabaseField):
+                field_output.append(
+                    DatabaseSchemaField(
+                        name=field_key,
+                        hogql_value=hogql_value,
+                        type=DatabaseSerializedFieldType.DECIMAL,
                         schema_valid=schema_valid,
                     )
                 )

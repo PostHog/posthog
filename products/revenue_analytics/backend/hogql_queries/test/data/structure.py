@@ -1,6 +1,10 @@
-from posthog.schema import CurrencyCode, RevenueTrackingConfig
+from posthog.schema import RevenueAnalyticsEventItem, RevenueCurrencyPropertyConfig
 
-REVENUE_TRACKING_CONFIG = RevenueTrackingConfig(baseCurrency=CurrencyCode.GBP, events=[])
+REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT = RevenueAnalyticsEventItem(
+    eventName="purchase",
+    revenueProperty="revenue",
+    revenueCurrencyProperty=RevenueCurrencyPropertyConfig(property="currency"),
+)
 
 STRIPE_CHARGE_COLUMNS = {
     "id": "String",

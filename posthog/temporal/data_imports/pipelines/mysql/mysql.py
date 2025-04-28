@@ -114,7 +114,7 @@ def _get_partition_settings(
 
     table_size, row_count = result
 
-    if row_count == 0:
+    if table_size is None or row_count is None or row_count == 0:
         return None
 
     avg_row_size = table_size / row_count

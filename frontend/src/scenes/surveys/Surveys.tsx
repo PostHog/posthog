@@ -32,7 +32,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { ActivityScope, ProductKey, ProgressStatus, Survey } from '~/types'
 
-import { SurveyQuestionLabel } from './constants'
+import { SURVEY_TYPE_LABEL_MAP, SurveyQuestionLabel } from './constants'
 import { SurveysDisabledBanner, SurveySettings } from './SurveySettings'
 import { getSurveyStatus, surveysLogic, SurveysTabs } from './surveysLogic'
 
@@ -257,6 +257,9 @@ export function Surveys(): JSX.Element {
                                     {
                                         dataIndex: 'type',
                                         title: 'Mode',
+                                        render: function RenderType(_, survey) {
+                                            return SURVEY_TYPE_LABEL_MAP[survey.type]
+                                        },
                                     },
                                     {
                                         title: 'Question type',

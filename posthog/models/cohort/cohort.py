@@ -16,6 +16,7 @@ from posthog.constants import PropertyOperatorType
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.filters.filter import Filter
 from posthog.models.person import Person
+from posthog.models.person.person import READ_DB_FOR_PERSONS
 from posthog.models.property import BehavioralPropertyType, Property, PropertyGroup
 from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
 from posthog.settings.base_variables import TEST
@@ -300,7 +301,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             for i in range(0, len(items), batchsize):
                 batch = items[i : i + batchsize]
                 persons_query = (
-                    Person.objects.filter(team_id=team_id)
+                    Person.objects.db_manager(READ_DB_FOR_PERSONS)
+                    .filter(team_id=team_id)
                     .filter(
                         Q(
                             persondistinctid__team_id=team_id,
@@ -360,7 +362,10 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             for i in range(0, len(items), batchsize):
                 batch = items[i : i + batchsize]
                 persons_query = (
-                    Person.objects.filter(team_id=team_id).filter(uuid__in=batch).exclude(cohort__id=self.id)
+                    Person.objects.db_manager(READ_DB_FOR_PERSONS)
+                    .filter(team_id=team_id)
+                    .filter(uuid__in=batch)
+                    .exclude(cohort__id=self.id)
                 )
                 if insert_in_clickhouse:
                     insert_static_cohort(

@@ -1,3 +1,6 @@
+export enum AggregationLabel {
+    All = 'All',
+}
 export interface AxisConfig {
     values: string[]
     startIndex?: number
@@ -6,11 +9,6 @@ export interface AxisConfig {
 export interface AggregationConfig {
     label: string
     fn: (values: number[]) => number
-}
-
-export const Sum: AggregationConfig = {
-    label: 'Sum',
-    fn: (values) => values.reduce((acc, val) => acc + val, 0),
 }
 
 export const DaysAbbreviated: AxisConfig = {
