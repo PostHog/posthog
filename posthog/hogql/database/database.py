@@ -149,6 +149,9 @@ class Database(BaseModel):
     sessions: Union[SessionsTableV1, SessionsTableV2] = SessionsTableV1()
     heatmaps: HeatmapsTable = HeatmapsTable()
     exchange_rate: ExchangeRateTable = ExchangeRateTable()
+    
+    # Web analytics pre-aggregated tables (internal use only)
+    web_overview_daily: WebOverviewDailyTable = WebOverviewDailyTable()
 
     # Web analytics pre-aggregated tables (internal use only)
     web_overview_daily: WebOverviewDailyTable = WebOverviewDailyTable()
