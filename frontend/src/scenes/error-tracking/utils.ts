@@ -68,24 +68,27 @@ export const mergeIssues = (
 export type ExceptionAttributes = {
     ingestionErrors?: string[]
     exceptionList: ErrorTrackingException[]
-    fingerprintRecords?: FingerprintRecordPart[]
+    fingerprintRecords: FingerprintRecordPart[]
     runtime: ErrorTrackingRuntime
     type?: string
     value?: string
     synthetic?: boolean
-    library?: string
+    lib?: string
+    libVersion?: string
     browser?: string
+    browserVersion?: string
     os?: string
+    osVersion?: string
     sentryUrl?: string
     level?: string
     url?: string
-    unhandled: boolean
+    handled: boolean
 }
 
 export function getExceptionAttributes(properties: Record<string, any>): ExceptionAttributes {
     const {
-        $lib,
-        $lib_version,
+        $lib: lib,
+        $lib_version: libVersion,
         $browser: browser,
         $browser_version: browserVersion,
         $os: os,
@@ -122,21 +125,24 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
     }
 
     const handled = exceptionList?.[0]?.mechanism?.handled ?? false
-    const runtime: ErrorTrackingRuntime = getRuntimeFromLib($lib)
+    const runtime: ErrorTrackingRuntime = getRuntimeFromLib(lib)
 
     return {
         type,
         value,
         synthetic,
         runtime,
-        library: $lib && $lib_version ? `${$lib} ${$lib_version}` : undefined,
-        browser: browser ? `${browser} ${browserVersion}` : undefined,
-        os: os ? `${os} ${osVersion}` : undefined,
-        url: url,
+        lib,
+        libVersion,
+        browser,
+        browserVersion,
+        os,
+        osVersion,
+        url,
         sentryUrl,
         exceptionList: exceptionList || [],
-        fingerprintRecords: fingerprintRecords,
-        unhandled: !handled,
+        fingerprintRecords: fingerprintRecords || [],
+        handled,
         level,
         ingestionErrors,
     }

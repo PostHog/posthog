@@ -1,61 +1,112 @@
-import { IconChevronDown, IconWarning } from '@posthog/icons'
-import { LemonCard, LemonSwitch, Spinner } from '@posthog/lemon-ui'
+import { IconBox, IconDocument, IconList } from '@posthog/icons'
+import { LemonCard, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { TZLabel } from 'lib/components/TZLabel'
 import ViewRecordingButton, { mightHaveRecording } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import { IconSubtitles, IconSubtitlesOff } from 'lib/lemon-ui/icons'
+import { ButtonGroupPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
-import { match, P } from 'ts-pattern'
+import { match } from 'ts-pattern'
+
+import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 
 import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
 import { Collapsible } from './Collapsible'
 import { ContextDisplay } from './ContextDisplay'
-import { StacktraceDisplay } from './StacktraceDisplay'
+import { ExceptionAttributesIconList } from './ExceptionAttributes/ExceptionAttributesIconList'
+import { StacktraceBaseDisplayProps, StacktraceEmptyDisplay } from './Stacktrace/StacktraceBase'
+import { StacktraceGenericDisplay } from './Stacktrace/StacktraceGenericDisplay'
+import { StacktraceTextDisplay } from './Stacktrace/StacktraceTextDisplay'
+import { ToggleButtonPrimitive } from './ToggleButton/ToggleButton'
 
 export function IssueCard(): JSX.Element {
-    const { propertiesLoading, firstSeen, properties, sessionId, showStacktrace, showAllFrames, showContext } =
-        useValues(errorTrackingIssueSceneLogic)
-    const { setShowStacktrace, setShowAllFrames, setShowContext } = useActions(errorTrackingIssueSceneLogic)
+    const {
+        propertiesLoading,
+        firstSeen,
+        issueLoading,
+        properties,
+        exceptionAttributes,
+        issue,
+        sessionId,
+        showStacktrace,
+        showAllFrames,
+        showContext,
+        showAsText,
+    } = useValues(errorTrackingIssueSceneLogic)
+    const { setShowStacktrace, setShowAllFrames, setShowContext, setShowAsText } =
+        useActions(errorTrackingIssueSceneLogic)
+    const stacktraceDisplayProps = {
+        className: cn('flex-grow', showContext ? 'w-2/3' : 'w-full'),
+        truncateMessage: !showStacktrace,
+        attributes: exceptionAttributes,
+        showAllFrames: showAllFrames,
+        loading: propertiesLoading,
+    }
     return (
-        <LemonCard
-            hoverEffect={false}
-            className="p-0 group cursor-pointer p-2 px-3 relative"
-            onClick={() => {
-                setShowStacktrace(!showStacktrace)
-            }}
-        >
+        <LemonCard hoverEffect={false} className="p-0 group p-2 px-3 relative overflow-hidden">
             <Collapsible
                 isExpanded={showStacktrace && !propertiesLoading}
-                className="pb-2 flex w-full"
-                minHeight="calc(var(--spacing) * 13)"
+                className="pb-1 flex w-full"
+                minHeight="calc(var(--spacing) * 12)"
             >
-                <StacktraceDisplay
-                    className={cn('flex-grow', showContext ? 'w-2/3' : 'w-full')}
-                    truncateMessage={!showStacktrace}
+                <StacktraceIssueDisplay
+                    {...stacktraceDisplayProps}
+                    showAsText={showAsText}
+                    issue={issue}
+                    issueLoading={issueLoading}
                 />
-                <ContextDisplay className={cn('', showContext ? 'w-1/3 pl-2' : 'w-0')} />
+                <ContextDisplay className={cn('', showContext && showStacktrace ? 'w-1/3 pl-2' : 'w-0')} />
             </Collapsible>
-            <IssueCardActions className="absolute top-2 right-3 flex gap-2 items-center">
-                <LemonSwitch
-                    id="show-all-frames"
-                    label="Show all frames"
-                    checked={showAllFrames}
-                    size="xsmall"
-                    bordered
-                    onChange={setShowAllFrames}
-                    className="select-none"
-                />
-                <LemonSwitch
-                    id="show-context"
-                    label="Show context"
-                    checked={showContext}
-                    size="xsmall"
-                    bordered
-                    onChange={setShowContext}
-                    className="select-none"
-                />
+            <IssueCardActions className="absolute top-2 right-3 flex gap-2 items-center z-10">
+                <ButtonGroupPrimitive size="sm">
+                    <ToggleButtonPrimitive
+                        className="px-2"
+                        checked={showStacktrace}
+                        onCheckedChange={() => setShowStacktrace(!showStacktrace)}
+                    >
+                        {match(showStacktrace)
+                            .with(false, () => (
+                                <>
+                                    <IconSubtitles />
+                                    Show details
+                                </>
+                            ))
+                            .with(true, () => (
+                                <>
+                                    <IconSubtitlesOff />
+                                    Hide details
+                                </>
+                            ))
+                            .exhaustive()}
+                    </ToggleButtonPrimitive>
+                    <ToggleButtonPrimitive
+                        iconOnly
+                        checked={showAsText}
+                        onCheckedChange={setShowAsText}
+                        tooltip="Show as text"
+                    >
+                        <IconDocument />
+                    </ToggleButtonPrimitive>
+                    <ToggleButtonPrimitive
+                        iconOnly
+                        checked={showAllFrames}
+                        onCheckedChange={setShowAllFrames}
+                        tooltip="Show vendor frames"
+                    >
+                        <IconBox />
+                    </ToggleButtonPrimitive>
+                    <ToggleButtonPrimitive
+                        iconOnly
+                        checked={showContext}
+                        onCheckedChange={setShowContext}
+                        tooltip="Show context"
+                    >
+                        <IconList />
+                    </ToggleButtonPrimitive>
+                </ButtonGroupPrimitive>
             </IssueCardActions>
-            <div className="flex justify-between items-center">
-                <StacktraceExpander />
+            <div className="flex justify-between items-center pt-1">
+                <EventPropertiesPreview />
                 <IssueCardActions>
                     {
                         // We should timestamp from event properties here but for now only first seen event is accessible and data is not available
@@ -76,42 +127,66 @@ export function IssueCard(): JSX.Element {
     )
 }
 
-function StacktraceExpander(): JSX.Element {
-    const { showStacktrace, propertiesLoading, hasStacktrace } = useValues(errorTrackingIssueSceneLogic)
+function EventPropertiesPreview(): JSX.Element {
+    const { exceptionAttributes, propertiesLoading } = useValues(errorTrackingIssueSceneLogic)
     return (
         <span className="flex items-center gap-1 text-muted group-hover:text-brand-red">
-            {match([propertiesLoading, hasStacktrace])
-                .with([true, P.any], () => (
+            {match(propertiesLoading)
+                .with(true, () => (
                     <span className="text-muted space-x-2 text-xs">
                         <Spinner />
-                        <span>Loading stacktrace...</span>
+                        <span>Loading details...</span>
                     </span>
                 ))
-                .with([false, false], () => (
-                    <>
-                        <IconWarning />
-                        No stacktrace available
-                    </>
-                ))
-                .with([false, true], () => (
-                    <>
-                        <span className="text-xs">{showStacktrace ? 'Hide details' : 'Show details'}</span>
-                        <IconChevronDown
-                            className={cn('transition-transform duration-300', {
-                                'rotate-180': showStacktrace,
-                            })}
-                        />
-                    </>
-                ))
-                .otherwise(() => null)}
+                .with(false, () => <ExceptionAttributesIconList attributes={exceptionAttributes!} />)
+                .exhaustive()}
         </span>
     )
 }
 
-function IssueCardActions({ children, className }: { children: React.ReactNode; className?: string }): JSX.Element {
+function IssueCardActions({
+    children,
+    onlyOnHover = false,
+    className,
+}: {
+    children: React.ReactNode
+    onlyOnHover?: boolean
+    className?: string
+}): JSX.Element {
     return (
-        <div className={cn('flex justify-between items-center gap-1', className)} onClick={(e) => e.stopPropagation()}>
+        <div
+            className={cn('flex justify-between items-center gap-1 bg-surface-primary', className, {
+                'opacity-0 group-hover:opacity-100 transition-opacity': onlyOnHover,
+            })}
+            onClick={(e) => e.stopPropagation()}
+        >
             {children}
         </div>
+    )
+}
+
+function StacktraceIssueDisplay({
+    showAsText,
+    issue,
+    issueLoading,
+    ...stacktraceDisplayProps
+}: {
+    showAsText: boolean
+    issue: ErrorTrackingRelationalIssue | null
+    issueLoading: boolean
+} & Omit<StacktraceBaseDisplayProps, 'renderLoading' | 'renderEmpty'>): JSX.Element {
+    const Component = showAsText ? StacktraceTextDisplay : StacktraceGenericDisplay
+    return (
+        <Component
+            {...stacktraceDisplayProps}
+            renderLoading={(renderHeader) =>
+                renderHeader({
+                    type: issue?.name ?? undefined,
+                    value: issue?.description ?? undefined,
+                    loading: issueLoading,
+                })
+            }
+            renderEmpty={() => <StacktraceEmptyDisplay />}
+        />
     )
 }

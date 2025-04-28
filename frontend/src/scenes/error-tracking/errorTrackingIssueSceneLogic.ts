@@ -74,6 +74,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         updateStatus: (status: ErrorTrackingIssueStatus) => ({ status }),
         updateAssignee: (assignee: ErrorTrackingIssueAssignee | null) => ({ assignee }),
         setLastSeen: (lastSeen: Dayjs) => ({ lastSeen }),
+        setShowAsText: (showAsText: boolean) => ({ showAsText }),
     }),
 
     defaults({
@@ -82,6 +83,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         summary: null as ErrorTrackingIssueSummary | null,
         volumeResolution: 50,
         lastSeen: null as Dayjs | null,
+        showAsText: false as boolean,
     }),
 
     reducers({
@@ -106,6 +108,9 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 }
                 return prevLastSeen
             },
+        },
+        showAsText: {
+            setShowAsText: (_, { showAsText }: { showAsText: boolean }) => showAsText,
         },
     }),
 
@@ -250,6 +255,8 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 posthog.capture('error_tracking_issue_assigned', { issue_id: props.id })
                 await api.errorTracking.assignIssue(props.id, assignee)
             },
+            setShowContext: () => actions.setShowStacktrace(true),
+            setShowAllFrames: () => actions.setShowStacktrace(true),
         }
     }),
 
