@@ -339,9 +339,9 @@ ON counts.breakdown_value = bounce.breakdown_value
                 any(person_id) AS filtered_person_id,
                 countIf(events.event = '$pageview' OR events.event = '$screen') AS filtered_pageview_count,
                 {breakdown_value} AS breakdown_value,
+                countIf(events.event = '$exception') AS errors_count,
                 countIf(events.event = '$rageclick') AS rage_clicks_count,
                 countIf(events.event = '$dead_click') AS dead_clicks_count,
-                countIf(events.event = '$exception') AS errors_count,
                 session.session_id AS session_id,
                 min(session.$start_timestamp) as start_timestamp
             FROM events
@@ -365,9 +365,9 @@ ON counts.breakdown_value = bounce.breakdown_value
 
     def _frustration_metrics_order_by(self) -> list[ast.OrderExpr] | None:
         return [
+            ast.OrderExpr(expr=ast.Field(chain=["context.columns.errors"]), order="DESC"),
             ast.OrderExpr(expr=ast.Field(chain=["context.columns.rage_clicks"]), order="DESC"),
             ast.OrderExpr(expr=ast.Field(chain=["context.columns.dead_clicks"]), order="DESC"),
-            ast.OrderExpr(expr=ast.Field(chain=["context.columns.errors"]), order="DESC"),
         ]
 
     def _main_inner_query(self, breakdown):
