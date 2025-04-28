@@ -27,12 +27,7 @@ def call_node(demo_org_team_user):
     def callable(message: str) -> AssistantMessage:
         conversation = Conversation.objects.create(team=demo_org_team_user[1], user=demo_org_team_user[2])
         raw_state = graph.invoke(
-            AssistantState(messages=[HumanMessage(content=message)]),
-            {
-                "configurable": {
-                    "thread_id": conversation.id,
-                }
-            },
+            AssistantState(messages=[HumanMessage(content=message)]), {"configurable": {"thread_id": conversation.id}}
         )
         state = AssistantState.model_validate(raw_state)
         assert isinstance(state.messages[-1], AssistantMessage)
@@ -45,6 +40,7 @@ def call_node(demo_org_team_user):
 def eval_root(call_node):
     Eval(
         BRAINTRUST_PROJECT_NAME,
+        experiment_name="root",
         data=[
             EvalCase(
                 input="Create an SQL insight to calculate active users recently",

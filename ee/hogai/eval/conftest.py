@@ -1,7 +1,7 @@
 import datetime
 from collections.abc import Generator
 from pathlib import Path
-
+from braintrust_langchain import BraintrustCallbackHandler, set_global_handler
 from braintrust import init_logger
 from django.conf import settings
 import pytest
@@ -15,7 +15,9 @@ from posthog.tasks.demo_create_data import HedgeboxMatrix
 
 BRAINTRUST_PROJECT_NAME = "Max AI"
 
+handler = BraintrustCallbackHandler()
 init_logger(BRAINTRUST_PROJECT_NAME)
+set_global_handler(handler)
 
 
 @pytest.fixture(scope="package")
