@@ -74,7 +74,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             offsetIncrease,
         }),
         loadFolderFailure: (folder: string, error: string) => ({ folder, error }),
-        rename: (item: FileSystemEntry) => ({ item }),
+        rename: (value: string, item: FileSystemEntry) => ({ value, item }),
         createFolder: (parentPath: string) => ({ parentPath }),
         loadSearchResults: (searchTerm: string, offset = 0) => ({ searchTerm, offset }),
         assureVisibility: (projectTreeRef: ProjectTreeRef) => ({ projectTreeRef }),
@@ -91,6 +91,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         updateSyncedFiles: (files: FileSystemEntry[]) => ({ files }),
         scrollToView: (item: FileSystemEntry) => ({ item }),
         clearScrollTarget: true,
+        setEditingItemId: (id: string) => ({ id }),
     }),
     loaders(({ actions, values }) => ({
         unfiledItems: [
@@ -453,6 +454,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 scrollToView: (_, { item }) =>
                     item.type === 'folder' ? `project-folder/${item.path}` : `project/${item.id}`,
                 clearScrollTarget: () => '',
+            },
+        ],
+        editingItemId: [
+            '',
+            {
+                setEditingItemId: (_, { id }) => id,
             },
         ],
     }),
@@ -1145,13 +1152,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 }
             }
         },
-        rename: ({ item }) => {
+        rename: ({ value, item }) => {
             const splits = splitPath(item.path)
             if (splits.length > 0) {
-                const currentName = splits[splits.length - 1].replace(/\\/g, '')
-                const folder = prompt('New name?', currentName)
-                if (folder) {
-                    actions.moveItem(item, joinPath([...splits.slice(0, -1), folder]))
+                if (value) {
+                    actions.moveItem(item, joinPath([...splits.slice(0, -1), value]))
+                    actions.setEditingItemId(item.id)
                 }
             }
         },
