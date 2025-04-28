@@ -326,7 +326,7 @@ class TestDatabaseHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMa
 
     @patch("posthog.api.hog_function_template.settings")
     def test_db_team_gets_db_template_and_inmemory_subtemplate(self, mock_settings):
-        """For allowed teams, template comes from DB, sub_template comes from in-memory"""
+        """For allowed teams, template comes from DB, sub_template comes from in-memory (both list and retrieve endpoints)"""
         mock_settings.USE_DB_TEMPLATES_FOR_TEAMS = [self.team.id]
 
         # Create a unique template in the DB
@@ -343,12 +343,12 @@ class TestDatabaseHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMa
             free=True,
         )
 
-        # Should get the DB template
+        # Should get the DB template (retrieve endpoint)
         response = self.client.get("/api/projects/@current/hog_function_templates/unique-db-template")
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["name"] == "Unique DB Template"
 
-        # Should get the in-memory sub_template (not from DB)
+        # Should get the in-memory sub_template (list endpoint)
         response_sub = self.client.get(
             "/api/projects/@current/hog_function_templates/?type=internal_destination&sub_template_id=activity-log"
         )
@@ -356,3 +356,14 @@ class TestDatabaseHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMa
         assert len(response_sub.json()["results"]) > 0
         template = response_sub.json()["results"][0]
         assert template["id"] == "template-slack-activity-log"
+
+        # Should get the in-memory sub_template (retrieve endpoint)
+        response_retrieve_sub = self.client.get(
+            "/api/projects/@current/hog_function_templates/template-slack-activity-log"
+        )
+        assert response_retrieve_sub.status_code == status.HTTP_200_OK, response_retrieve_sub.json()
+        assert response_retrieve_sub.json()["id"] == "template-slack-activity-log"
+
+        # Should 404 for a non-existent template
+        response_missing = self.client.get("/api/projects/@current/hog_function_templates/does-not-exist")
+        assert response_missing.status_code == status.HTTP_404_NOT_FOUND

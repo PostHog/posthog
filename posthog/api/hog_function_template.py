@@ -217,16 +217,17 @@ class PublicHogFunctionTemplateViewSet(viewsets.GenericViewSet):
 
     def retrieve(self, request: Request, *args, **kwargs):
         team = self.get_team()
-
-        # Only use DB templates for specific teams, otherwise use in-memory templates
         allowed_teams = [int(team_id) for team_id in settings.USE_DB_TEMPLATES_FOR_TEAMS]
+        template_id = kwargs["pk"]
         if team and team.id in allowed_teams:
-            item = HogFunctionTemplates.template_from_db(kwargs["pk"])
+            item = HogFunctionTemplates.template_from_db(template_id)
+            if not item and template_id in HogFunctionTemplates._cached_sub_templates_by_id:
+                item = HogFunctionTemplates._cached_sub_templates_by_id[template_id]
         else:
-            item = HogFunctionTemplates.template(kwargs["pk"])
+            item = HogFunctionTemplates.template(template_id)
 
         if not item:
-            raise NotFound(f"Template with id {kwargs['pk']} not found.")
+            raise NotFound(f"Template with id {template_id} not found.")
 
         serializer = self.get_serializer(item)
         return Response(serializer.data)
