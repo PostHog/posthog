@@ -143,6 +143,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
             "last_modified_at",
             "last_modified_by",
             "recordings_counts",
+            "type",
         ]
         read_only_fields = [
             "id",
@@ -193,11 +194,14 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
         team = self.context["get_team"]()
 
         created_by = validated_data.pop("created_by", request.user)
+        playlist_type = validated_data.pop("type", None)  # Extract type if provided
+
         playlist = SessionRecordingPlaylist.objects.create(
             team=team,
             created_by=created_by,
             last_modified_by=request.user,
-            **validated_data,
+            type=playlist_type,  # Explicitly set the type
+            **validated_data,  # Pass remaining validated data
         )
 
         log_playlist_activity(
@@ -271,19 +275,30 @@ class SessionRecordingPlaylistViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
         filters = request.GET.dict()
 
+        # Pre-calculate Q objects for playlists with items
+        playlist_ids_with_items = SessionRecordingPlaylistItem.objects.values_list("playlist_id", flat=True)
+        has_items = Q(id__in=playlist_ids_with_items)
+        has_no_items = ~has_items
+        has_filters = ~Q(filters={})
+        type_is_null = Q(type__isnull=True)
+
         for key in filters:
+            request_value = filters[key]
             if key == "user":
                 queryset = queryset.filter(created_by=request.user)
-            elif key == "type" and filters["type"] == "saved_filters":
-                # Filter for playlists that have filters and no items
-                queryset = queryset.exclude(
-                    Q(filters={}) | Q(id__in=SessionRecordingPlaylistItem.objects.values_list("playlist_id", flat=True))
-                )
-            elif key == "type" and filters["type"] == "collection":
-                # Filter for playlists that have no filters or have items
-                queryset = queryset.filter(
-                    Q(id__in=SessionRecordingPlaylistItem.objects.values_list("playlist_id", flat=True))
-                )
+            elif key == "type":
+                if request_value == SessionRecordingPlaylist.PlaylistType.FILTERS:
+                    # Explicitly type 'filters' OR (null type AND has filters AND no items)
+                    queryset = queryset.filter(
+                        Q(type=SessionRecordingPlaylist.PlaylistType.FILTERS)
+                        | (type_is_null & has_filters & has_no_items)
+                    )
+                elif request_value == SessionRecordingPlaylist.PlaylistType.COLLECTION:
+                    # Explicitly type 'collection' OR (null type AND has items)
+                    queryset = queryset.filter(
+                        Q(type=SessionRecordingPlaylist.PlaylistType.COLLECTION) | (type_is_null & has_items)
+                    )
+                # If type param is something else, ignore it for now
             elif key == "pinned":
                 queryset = queryset.filter(pinned=True)
             elif key == "date_from":

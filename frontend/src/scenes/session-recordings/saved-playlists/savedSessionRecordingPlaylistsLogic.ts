@@ -104,7 +104,7 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
                     date_from: undefined,
                     date_to: undefined,
                     pinned: undefined,
-                    type: 'saved_filters',
+                    type: 'filters',
                 }
 
                 const response = await api.recordings.listPlaylists(toParams(params))

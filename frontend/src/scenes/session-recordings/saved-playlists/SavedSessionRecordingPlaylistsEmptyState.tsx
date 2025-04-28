@@ -22,7 +22,7 @@ export function SavedSessionRecordingPlaylistsEmptyState(): JSX.Element {
                     type="primary"
                     data-attr="add-session-playlist-button-empty-state"
                     icon={<IconPlus />}
-                    onClick={() => void createPlaylist({}, true)}
+                    onClick={() => void createPlaylist({ type: 'collection' }, true)}
                 >
                     New collection
                 </LemonButton>

@@ -105,6 +105,7 @@ export const playlistPopoverLogic = kea<playlistPopoverLogicType>([
                 await breakpoint(100)
                 const newPlaylist = await createPlaylist({
                     name,
+                    type: 'collection',
                 })
 
                 actions.reportRecordingPlaylistCreated('pin')
