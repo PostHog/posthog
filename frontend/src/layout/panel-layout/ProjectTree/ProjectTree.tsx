@@ -432,12 +432,12 @@ export function ProjectTree(): JSX.Element {
                     }
                     const oldItem = viableItems.find((i) => itemToId(i) === oldId)
                     const newItem = viableItems.find((i) => itemToId(i) === newId)
-                    if (oldItem === newItem || !oldItem || !newItem) {
+                    if (oldItem === newItem || !oldItem) {
                         return false
                     }
 
                     const oldPath = oldItem.path
-                    const folder = newItem.path
+                    const folder = newItem?.path || ''
 
                     if (checkedItems[oldId]) {
                         moveCheckedItems(folder)
