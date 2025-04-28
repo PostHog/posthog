@@ -73,12 +73,22 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
 
 export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForDistinctIdBatch {
     private methodCounts: Map<MethodName, number>
+    private personCache: Map<string, InternalPerson | null>
 
     constructor(private db: DB, private token: string, private distinctId: string) {
         this.methodCounts = new Map()
         for (const method of ALL_METHODS) {
             this.methodCounts.set(method, 0)
         }
+        this.personCache = new Map()
+    }
+
+    private getCacheKey(teamId: number, distinctId: string): string {
+        return `${teamId}:${distinctId}`
+    }
+
+    private clearCache(): void {
+        this.personCache.clear()
     }
 
     async inTransaction<T>(description: string, transaction: (tx: TransactionClient) => Promise<T>): Promise<T> {
@@ -93,7 +103,14 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
 
     async fetchForUpdate(teamId: Team['id'], distinctId: string): Promise<InternalPerson | null> {
         this.incrementCount('fetchForUpdate')
+        const cacheKey = this.getCacheKey(teamId, distinctId)
+
+        if (this.personCache.has(cacheKey)) {
+            return this.personCache.get(cacheKey) ?? null
+        }
+
         const person = await this.db.fetchPerson(teamId, distinctId, { useReadReplica: false })
+        this.personCache.set(cacheKey, person ?? null)
         return person ?? null
     }
 
@@ -110,6 +127,7 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
         tx?: TransactionClient
     ): Promise<[InternalPerson, TopicMessage[]]> {
         this.incrementCount('createPerson')
+        this.clearCache()
         return await this.db.createPerson(
             createdAt,
             properties,
@@ -130,11 +148,13 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
         tx?: TransactionClient
     ): Promise<[InternalPerson, TopicMessage[]]> {
         this.incrementCount('updatePersonDeprecated')
+        this.clearCache()
         return await this.db.updatePersonDeprecated(person, update, tx)
     }
 
     async deletePerson(person: InternalPerson, tx?: TransactionClient): Promise<TopicMessage[]> {
         this.incrementCount('deletePerson')
+        this.clearCache()
         return await this.db.deletePerson(person, tx)
     }
 
@@ -145,6 +165,7 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
         tx?: TransactionClient
     ): Promise<TopicMessage[]> {
         this.incrementCount('addDistinctId')
+        this.clearCache()
         return await this.db.addDistinctId(person, distinctId, version, tx)
     }
 
@@ -154,6 +175,7 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
         tx?: TransactionClient
     ): Promise<TopicMessage[]> {
         this.incrementCount('moveDistinctIds')
+        this.clearCache()
         return await this.db.moveDistinctIds(source, target, tx)
     }
 
@@ -164,11 +186,13 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
         tx?: TransactionClient
     ): Promise<void> {
         this.incrementCount('updateCohortsAndFeatureFlagsForMerge')
+        this.clearCache()
         await this.db.updateCohortsAndFeatureFlagsForMerge(teamID, sourcePersonID, targetPersonID, tx)
     }
 
     async addPersonlessDistinctId(teamId: Team['id'], distinctId: string): Promise<boolean> {
         this.incrementCount('addPersonlessDistinctId')
+        this.clearCache()
         return await this.db.addPersonlessDistinctId(teamId, distinctId)
     }
 
@@ -178,6 +202,7 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
         tx?: TransactionClient
     ): Promise<boolean> {
         this.incrementCount('addPersonlessDistinctIdForMerge')
+        this.clearCache()
         return await this.db.addPersonlessDistinctIdForMerge(teamId, distinctId, tx)
     }
 
