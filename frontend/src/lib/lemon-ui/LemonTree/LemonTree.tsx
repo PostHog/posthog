@@ -863,6 +863,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                 const nodeArray = nodes instanceof Array ? nodes : [nodes]
 
                 nodeArray.forEach((node) => {
+                    // if folderSelectMode we don't return folder items
                     if (!folderSelectMode || (folderSelectMode && node.children)) {
                         items.push(node)
                     }
