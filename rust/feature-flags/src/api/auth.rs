@@ -1,3 +1,4 @@
+use crate::api::errors::FlagError;
 use crate::api::request_handler::RequestInfo;
 use crate::client::database::Client;
 use crate::flags::models::PersonalAPIKey;
@@ -35,6 +36,21 @@ pub enum AuthError {
 
     #[error("Invalid scopes: {0}")]
     InvalidScopes(String),
+}
+
+impl From<crate::api::auth::AuthError> for FlagError {
+    fn from(e: crate::api::auth::AuthError) -> Self {
+        use crate::api::auth::AuthError;
+        match e {
+            AuthError::InvalidPersonalApiKey | AuthError::NoPersonalApiKey => {
+                FlagError::NoPersonalApiKeyError
+            }
+            AuthError::InvalidKey(_) => FlagError::PersonalApiKeyValidationError,
+            AuthError::Internal(msg) => FlagError::Internal(msg),
+            AuthError::RequestDecodingError(msg) => FlagError::RequestDecodingError(msg),
+            AuthError::InvalidScopes(msg) => FlagError::InvalidScopes(msg),
+        }
+    }
 }
 
 // Ported from auth.py
@@ -168,6 +184,7 @@ pub async fn validate_personal_api_key(
                 pk.id,
                 u.current_team_id as team_id,
                 t.organization_id,
+                t.project_id,
                 pk.user_id,
                 pk.label,
                 pk.value,
@@ -285,6 +302,7 @@ mod tests {
                 lib_version: None,
                 sent_at: None,
                 personal_api_key: None,
+                send_cohorts: None,
             },
         };
 
@@ -307,6 +325,7 @@ mod tests {
                 lib_version: None,
                 sent_at: None,
                 personal_api_key: None,
+                send_cohorts: None,
             },
         };
 
@@ -329,6 +348,7 @@ mod tests {
                 lib_version: None,
                 sent_at: None,
                 personal_api_key: Some("test-token".to_string()),
+                send_cohorts: None,
             },
         };
 
@@ -357,6 +377,7 @@ mod tests {
                 lib_version: None,
                 sent_at: None,
                 personal_api_key: Some("query-token".to_string()),
+                send_cohorts: None,
             },
         };
 
@@ -379,6 +400,7 @@ mod tests {
                 lib_version: None,
                 sent_at: None,
                 personal_api_key: None,
+                send_cohorts: None,
             },
         };
 
@@ -400,6 +422,7 @@ mod tests {
                 lib_version: None,
                 sent_at: None,
                 personal_api_key: None,
+                send_cohorts: None,
             },
         };
 
@@ -424,6 +447,7 @@ mod tests {
                 lib_version: None,
                 sent_at: None,
                 personal_api_key: None,
+                send_cohorts: None,
             },
         };
 

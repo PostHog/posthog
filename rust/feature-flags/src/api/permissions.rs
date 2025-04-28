@@ -106,6 +106,7 @@ mod tests {
             last_used_at: None,
             team_id,
             organization_id,
+            project_id: Some(23),
             user_id: 1,
             scoped_organizations: scoped_organizations,
             scoped_teams: scoped_teams,

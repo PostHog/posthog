@@ -74,6 +74,9 @@ pub struct FlagsQueryParams {
 
     /// Optional personal API key.
     pub personal_api_key: Option<String>,
+
+    /// Whether to send cohorts to the client. Only applies to the flags definition endpoint.
+    pub send_cohorts: Option<bool>,
 }
 
 /// Represents information about the request.
