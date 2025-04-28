@@ -449,11 +449,22 @@ class ErrorTrackingQueryRunner(QueryRunner):
             queryset = (
                 queryset.filter(assignment__user_id=self.query.assignee.id)
                 if self.query.assignee.type == "user"
-                else queryset.filter(assignment__user_group_id=self.query.assignee.id)
+                else (
+                    queryset.filter(assignment__role_id=self.query.assignee.id)
+                    if self.query.assignee.type == "role"
+                    else queryset.filter(assignment__user_group_id=self.query.assignee.id)
+                )
             )
 
         issues = queryset.values(
-            "id", "status", "name", "description", "first_seen", "assignment__user_id", "assignment__user_group_id"
+            "id",
+            "status",
+            "name",
+            "description",
+            "first_seen",
+            "assignment__user_id",
+            "assignment__user_group_id",
+            "assignment__role_id",
         )
 
         results = {}
@@ -469,11 +480,12 @@ class ErrorTrackingQueryRunner(QueryRunner):
 
             assignment_user_id = issue.get("assignment__user_id")
             assignment_user_group_id = issue.get("assignment__user_group_id")
+            assignment_role_id = issue.get("assignment__role_id")
 
-            if assignment_user_id or assignment_user_group_id:
+            if assignment_user_id or assignment_user_group_id or assignment_role_id:
                 result["assignee"] = {
-                    "id": assignment_user_id or str(assignment_user_group_id),
-                    "type": "user" if assignment_user_id else "user_group",
+                    "id": assignment_user_id or str(assignment_user_group_id) or str(assignment_role_id),
+                    "type": ("user" if assignment_user_id else "user_group" if assignment_user_group_id else "role"),
                 }
 
             results[issue["id"]] = result
@@ -506,7 +518,11 @@ class ErrorTrackingQueryRunner(QueryRunner):
             queryset = (
                 queryset.filter(assignment__user_id=self.query.assignee.id)
                 if self.query.assignee.type == "user"
-                else queryset.filter(assignment__user_group_id=self.query.assignee.id)
+                else (
+                    queryset.filter(assignment__role_id=str(self.query.assignee.id))
+                    if self.query.assignee.type == "role"
+                    else queryset.filter(assignment__user_group_id=str(self.query.assignee.id))
+                )
             )
 
         if not use_prefetched:
