@@ -1,5 +1,6 @@
 from typing import Any
 from django.conf import settings
+import hashlib
 
 import structlog
 from asgiref.sync import async_to_sync
@@ -165,17 +166,29 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         was_sync_frequency_updated = False
 
         with transaction.atomic():
+            locked_instance = DataWarehouseSavedQuery.objects.select_for_update().get(pk=instance.pk)
+
+            # Get latest activity log for this model
+            current_query = self.context["request"].data.get("current_query", None)
+            latest_query = locked_instance.query["query"]
+
+            if (
+                hashlib.sha1(current_query.encode("utf-8")).hexdigest()
+                != hashlib.sha1(latest_query.encode("utf-8")).hexdigest()
+            ):
+                raise serializers.ValidationError("The query was modified by someone else.")
+
             if sync_frequency == "never":
-                delete_saved_query_schedule(str(instance.id))
-                instance.sync_frequency_interval = None
+                delete_saved_query_schedule(str(locked_instance.id))
+                locked_instance.sync_frequency_interval = None
                 validated_data["sync_frequency_interval"] = None
             elif sync_frequency:
                 sync_frequency_interval = sync_frequency_to_sync_frequency_interval(sync_frequency)
                 validated_data["sync_frequency_interval"] = sync_frequency_interval
                 was_sync_frequency_updated = True
-                instance.sync_frequency_interval = sync_frequency_interval
+                locked_instance.sync_frequency_interval = sync_frequency_interval
 
-            view: DataWarehouseSavedQuery = super().update(instance, validated_data)
+            view: DataWarehouseSavedQuery = super().update(locked_instance, validated_data)
 
             # Only update columns and status if the query has changed
             if "query" in validated_data:

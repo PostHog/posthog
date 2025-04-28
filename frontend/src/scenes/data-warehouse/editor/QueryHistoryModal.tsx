@@ -141,7 +141,7 @@ export function QueryHistoryModal(): JSX.Element {
     const { editingView } = useValues(multitabEditorLogic)
 
     return (
-        <LemonModal title="View History" isOpen={isHistoryModalOpen} onClose={closeHistoryModal} width={800}>
+        <LemonModal title="View history" isOpen={isHistoryModalOpen} onClose={closeHistoryModal} width={800}>
             <div className="ActivityLog">
                 <QueryHistoryLog id={editingView?.id} />
             </div>
