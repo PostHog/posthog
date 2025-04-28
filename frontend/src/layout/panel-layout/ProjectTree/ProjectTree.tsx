@@ -437,7 +437,7 @@ export function ProjectTree(): JSX.Element {
                     }
 
                     const oldPath = oldItem.path
-                    // if no path, empty and that means it's a root item
+                    // if no path, that means it's a root item
                     const folder = newItem?.path || ''
 
                     if (checkedItems[oldId]) {
