@@ -8,7 +8,6 @@ import { timeoutGuard } from '../../../utils/db/utils'
 import { normalizeProcessPerson } from '../../../utils/event'
 import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
-import { runInSpan } from '../../../utils/sentry'
 import { PersonsStoreForDistinctIdBatch } from '../persons/persons-store-for-distinct-id-batch'
 import { EventsProcessor } from '../process-event'
 import { captureIngestionWarning, generateEventDeadLetterQueueMessage } from '../utils'
@@ -326,42 +325,34 @@ export class EventPipelineRunner {
         }
     }
 
-    protected runStep<Step extends (...args: any[]) => any>(
+    protected async runStep<Step extends (...args: any[]) => any>(
         step: Step,
         args: Parameters<Step>,
         teamId: number,
         sentToDql = true
     ): Promise<ReturnType<Step>> {
         const timer = new Date()
-        return runInSpan(
-            {
-                op: 'runStep',
-                description: step.name,
-            },
-            async () => {
-                const sendToSentry = false
-                const timeout = timeoutGuard(
-                    `Event pipeline step stalled. Timeout warning after ${this.hub.PIPELINE_STEP_STALLED_LOG_TIMEOUT} sec! step=${step.name} team_id=${teamId} distinct_id=${this.originalEvent.distinct_id}`,
-                    () => ({
-                        step: step.name,
-                        event: JSON.stringify(this.originalEvent),
-                        teamId: teamId,
-                        distinctId: this.originalEvent.distinct_id,
-                    }),
-                    this.hub.PIPELINE_STEP_STALLED_LOG_TIMEOUT * 1000,
-                    sendToSentry
-                )
-                try {
-                    const result = await step(...args)
-                    pipelineStepMsSummary.labels(step.name).observe(Date.now() - timer.getTime())
-                    return result
-                } catch (err) {
-                    await this.handleError(err, step.name, args, teamId, sentToDql)
-                } finally {
-                    clearTimeout(timeout)
-                }
-            }
+        const sendToSentry = false
+        const timeout = timeoutGuard(
+            `Event pipeline step stalled. Timeout warning after ${this.hub.PIPELINE_STEP_STALLED_LOG_TIMEOUT} sec! step=${step.name} team_id=${teamId} distinct_id=${this.originalEvent.distinct_id}`,
+            () => ({
+                step: step.name,
+                event: JSON.stringify(this.originalEvent),
+                teamId: teamId,
+                distinctId: this.originalEvent.distinct_id,
+            }),
+            this.hub.PIPELINE_STEP_STALLED_LOG_TIMEOUT * 1000,
+            sendToSentry
         )
+        try {
+            const result = await step(...args)
+            pipelineStepMsSummary.labels(step.name).observe(Date.now() - timer.getTime())
+            return result
+        } catch (err) {
+            throw await this.mapError(err, step.name, args, teamId, sentToDql)
+        } finally {
+            clearTimeout(timeout)
+        }
     }
 
     private shouldRetry(err: any): boolean {
@@ -375,7 +366,7 @@ export class EventPipelineRunner {
         return false
     }
 
-    private async handleError(err: any, currentStepName: string, currentArgs: any, teamId: number, sentToDql: boolean) {
+    private async mapError(err: any, currentStepName: string, currentArgs: any, teamId: number, sentToDql: boolean) {
         logger.error('🔔', 'step_failed', { currentStepName, err })
         captureException(err, {
             tags: { team_id: teamId, pipeline_step: currentStepName },
@@ -387,7 +378,7 @@ export class EventPipelineRunner {
         // Should we throw or should we drop and send the event to DLQ.
         if (this.shouldRetry(err)) {
             pipelineStepThrowCounter.labels(currentStepName).inc()
-            throw err
+            return err
         }
 
         if (sentToDql) {
@@ -410,6 +401,6 @@ export class EventPipelineRunner {
         }
 
         // These errors are dropped rather than retried
-        throw new StepErrorNoRetry(currentStepName, currentArgs, err.message)
+        return new StepErrorNoRetry(currentStepName, currentArgs, err.message)
     }
 }

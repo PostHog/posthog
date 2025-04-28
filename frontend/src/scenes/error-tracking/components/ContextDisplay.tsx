@@ -1,6 +1,7 @@
 import { IconCopy } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+import { concatValues } from 'lib/components/Errors/utils'
 import useIsHovering from 'lib/hooks/useIsHovering'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
@@ -13,7 +14,7 @@ import { cancelEvent } from '../utils'
 export function ContextDisplay({ className }: { className?: string }): JSX.Element {
     const { exceptionAttributes, showContext, propertiesLoading } = useValues(errorTrackingIssueSceneLogic)
     return (
-        <div className={cn('pt-14 transition-[width] duration-200', className)}>
+        <div className={cn('pt-8 transition-[width] duration-200', className)}>
             {match([showContext, propertiesLoading, exceptionAttributes])
                 .with([false, P.any, P.any], () => null)
                 .with([true, true, P.any], () => (
@@ -32,10 +33,16 @@ export function ContextDisplay({ className }: { className?: string }): JSX.Eleme
                                 {[
                                     { label: 'Level', value: attrs?.level },
                                     { label: 'Synthetic', value: attrs?.synthetic },
-                                    { label: 'Library', value: attrs?.library },
-                                    { label: 'Unhandled', value: attrs?.unhandled },
-                                    { label: 'Browser', value: attrs?.browser },
-                                    { label: 'OS', value: attrs?.os },
+                                    {
+                                        label: 'Library',
+                                        value: concatValues(attrs, 'lib', 'libVersion'),
+                                    },
+                                    { label: 'Handled', value: attrs?.handled },
+                                    {
+                                        label: 'Browser',
+                                        value: concatValues(attrs, 'browser', 'browserVersion'),
+                                    },
+                                    { label: 'OS', value: concatValues(attrs, 'os', 'osVersion') },
                                     { label: 'URL', value: attrs?.url },
                                 ]
                                     .filter((row) => row.value !== undefined)
@@ -60,14 +67,19 @@ function ContextRow({ label, value }: ContextRowProps): JSX.Element {
     const valueRef = useRef<HTMLTableCellElement>(null)
     const isHovering = useIsHovering(valueRef)
     return (
-        <tr className="even:bg-fill-tertiary w-full">
+        <tr className="even:bg-fill-tertiary w-full group">
             <th className="border-r-1 font-semibold text-xs p-1 w-1/3 text-left">{label}</th>
             <td ref={valueRef} className="w-full truncate p-1 text-xs max-w-0 relative" title={value}>
                 {String(value)}
-                <div className="absolute right-0 top-[50%] translate-y-[-50%]" hidden={!isHovering}>
+                <div
+                    className={cn(
+                        'absolute right-0 top-[50%] translate-y-[-50%] group-even:bg-fill-tertiary group-odd:bg-fill-primary drop-shadow-sm',
+                        isHovering ? 'opacity-100' : 'opacity-0'
+                    )}
+                >
                     <LemonButton
                         size="xsmall"
-                        className="p-0 rounded-none"
+                        className={cn('p-0 rounded-none')}
                         tooltip="Copy"
                         onClick={() => {
                             copyToClipboard(value).catch((error) => {

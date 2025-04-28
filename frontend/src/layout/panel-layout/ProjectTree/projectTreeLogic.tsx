@@ -43,7 +43,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             panelLayoutLogic,
             ['searchTerm'],
             breadcrumbsLogic,
-            ['projectTreeRef', 'appBreadcrumbs'],
+            ['projectTreeRef', 'appBreadcrumbs', 'sceneBreadcrumbs'],
         ],
         actions: [panelLayoutLogic, ['setSearchTerm']],
     })),
@@ -74,7 +74,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             offsetIncrease,
         }),
         loadFolderFailure: (folder: string, error: string) => ({ folder, error }),
-        rename: (item: FileSystemEntry) => ({ item }),
+        rename: (value: string, item: FileSystemEntry) => ({ value, item }),
         createFolder: (parentPath: string) => ({ parentPath }),
         loadSearchResults: (searchTerm: string, offset = 0) => ({ searchTerm, offset }),
         assureVisibility: (projectTreeRef: ProjectTreeRef) => ({ projectTreeRef }),
@@ -91,6 +91,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         updateSyncedFiles: (files: FileSystemEntry[]) => ({ files }),
         scrollToView: (item: FileSystemEntry) => ({ item }),
         clearScrollTarget: true,
+        setEditingItemId: (id: string) => ({ id }),
     }),
     loaders(({ actions, values }) => ({
         unfiledItems: [
@@ -455,6 +456,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 clearScrollTarget: () => '',
             },
         ],
+        editingItemId: [
+            '',
+            {
+                setEditingItemId: (_, { id }) => id,
+            },
+        ],
     }),
     selectors({
         savedItems: [
@@ -774,7 +781,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         projectTreeRefEntry: [
             (s) => [s.projectTreeRef, s.sortedItems],
             (projectTreeRef, sortedItems): FileSystemEntry | null => {
-                if (!projectTreeRef) {
+                if (!projectTreeRef || !projectTreeRef.type || !projectTreeRef.ref) {
                     return null
                 }
                 const treeItem = projectTreeRef.type.endsWith('/')
@@ -786,19 +793,44 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             },
         ],
         projectTreeRefBreadcrumbs: [
-            (s) => [s.projectTreeRefEntry, s.appBreadcrumbs],
-            (projectTreeRefEntry, appBreadcrumbs): Breadcrumb[] | null => {
-                if (!projectTreeRefEntry) {
+            (s) => [s.projectTreeRef, s.projectTreeRefEntry, s.lastNewOperation, s.appBreadcrumbs, s.sceneBreadcrumbs],
+            (
+                projectTreeRef,
+                projectTreeRefEntry,
+                lastNewOperation,
+                appBreadcrumbs,
+                sceneBreadcrumbs
+            ): Breadcrumb[] | null => {
+                let folders: string[] = []
+                let lastBreadcrumb: Breadcrumb | null = null
+
+                if (projectTreeRefEntry?.path) {
+                    folders = splitPath(projectTreeRefEntry.path)
+                    lastBreadcrumb = {
+                        key: `project-tree/${projectTreeRefEntry.path}`,
+                        name: folders.pop(),
+                        path: projectTreeRefEntry.href, // link to actual page
+                    }
+                } else if (!projectTreeRefEntry && projectTreeRef?.ref === null && lastNewOperation) {
+                    folders = splitPath(lastNewOperation.folder)
+                    lastBreadcrumb =
+                        sceneBreadcrumbs.length > 0
+                            ? sceneBreadcrumbs.slice(-1)[0]
+                            : {
+                                  key: `new/${lastNewOperation.folder}`,
+                                  name: 'New',
+                                  path: joinPath([...folders, 'New']),
+                              }
+                } else {
                     return null
                 }
-                const pathParts = splitPath(projectTreeRefEntry.path)
-                const breadcrumbs: ProjectTreeBreadcrumb[] = pathParts.map((path, index) => ({
+                const breadcrumbs: ProjectTreeBreadcrumb[] = folders.map((path, index) => ({
                     key: `project-tree/${path}`,
                     name: path,
-                    path: joinPath(pathParts.slice(0, index + 1)),
+                    path: joinPath(folders.slice(0, index + 1)),
                     type: 'folder',
                 }))
-                return [...appBreadcrumbs, ...breadcrumbs]
+                return [...appBreadcrumbs, ...breadcrumbs, ...(lastBreadcrumb ? [lastBreadcrumb] : [])]
             },
         ],
     }),
@@ -1084,15 +1116,26 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             actions.queueAction({ type: item.type === 'folder' ? 'prepare-delete' : 'delete', item, path: item.path })
         },
         addFolder: ({ folder }) => {
-            if (values.viableItems.find((item) => item.path === folder && item.type === 'folder')) {
-                return
+            // Like Mac, we don't allow duplicate folder names
+            // So we need to increment the folder name until we find a unique one
+            let folderName = folder
+            let counter = 2
+            while (values.viableItems.find((item) => item.path === folderName && item.type === 'folder')) {
+                folderName = `${folder} ${counter}`
+                counter++
             }
+
             actions.queueAction({
                 type: 'create',
-                item: { id: `project/${folder}`, path: folder, type: 'folder' },
-                path: folder,
-                newPath: folder,
+                item: { id: `project/${folderName}`, path: folderName, type: 'folder' },
+                path: folderName,
+                newPath: folderName,
             })
+
+            // Always set the editing item ID after a short delay to ensure the folder is in the DOM
+            setTimeout(() => {
+                actions.setEditingItemId(`project-folder/${folderName}`)
+            }, 50)
         },
         toggleFolderOpen: ({ folderId }) => {
             if (values.searchTerm) {
@@ -1120,31 +1163,26 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 }
             }
         },
-        rename: ({ item }) => {
+        rename: ({ value, item }) => {
             const splits = splitPath(item.path)
             if (splits.length > 0) {
-                const currentName = splits[splits.length - 1].replace(/\\/g, '')
-                const folder = prompt('New name?', currentName)
-                if (folder) {
-                    actions.moveItem(item, joinPath([...splits.slice(0, -1), folder]))
+                if (value) {
+                    actions.moveItem(item, joinPath([...splits.slice(0, -1), value]))
+                    actions.setEditingItemId(item.id)
                 }
             }
         },
         createFolder: ({ parentPath }) => {
-            const promptMessage = parentPath ? `Create a folder under "${parentPath}":` : 'Create a new folder:'
-            const folder = prompt(promptMessage, '')
-            if (folder) {
-                const parentSplits = parentPath ? splitPath(parentPath) : []
-                const newPath = joinPath([...parentSplits, folder])
-                actions.addFolder(newPath)
-            }
+            const parentSplits = parentPath ? splitPath(parentPath) : []
+            const newPath = joinPath([...parentSplits, 'Untitled folder'])
+            actions.addFolder(newPath)
         },
         setSearchTerm: ({ searchTerm }) => {
             actions.loadSearchResults(searchTerm)
         },
         assureVisibility: async ({ projectTreeRef }, breakpoint) => {
             if (projectTreeRef) {
-                if (projectTreeRef.type === 'folder') {
+                if (projectTreeRef.type === 'folder' && projectTreeRef.ref) {
                     actions.expandProjectFolder(projectTreeRef.ref)
                     const item = values.viableItems.find(
                         (item) => item.type === 'folder' && item.path === projectTreeRef.ref
@@ -1165,7 +1203,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 let path: string | undefined
                 if (treeItem) {
                     path = treeItem.path
-                } else {
+                } else if (projectTreeRef.ref !== null) {
                     const resp = await api.fileSystem.list(
                         projectTreeRef.type.endsWith('/')
                             ? { ref: projectTreeRef.ref, type__startswith: projectTreeRef.type }
