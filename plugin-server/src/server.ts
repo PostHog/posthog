@@ -26,6 +26,7 @@ import {
     startAsyncWebhooksHandlerConsumer,
 } from './main/ingestion-queues/on-event-handler-consumer'
 import { SessionRecordingIngester } from './main/ingestion-queues/session-recording/session-recordings-consumer'
+import { DefaultBatchConsumerFactory } from './main/ingestion-queues/session-recording-v2/batch-consumer-factory'
 import { SessionRecordingIngester as SessionRecordingIngesterV2 } from './main/ingestion-queues/session-recording-v2/consumer'
 import { setupCommonRoutes } from './router'
 import { Hub, PluginServerService, PluginsServerConfig } from './types'
@@ -167,6 +168,7 @@ export class PluginServer {
                         id: 'session-recordings-blob',
                         onShutdown: async () => await ingester.stop(),
                         healthcheck: () => ingester.isHealthy() ?? false,
+                        batchConsumer: ingester.batchConsumer,
                     }
                 })
             }
@@ -190,9 +192,16 @@ export class PluginServer {
             if (capabilities.sessionRecordingBlobIngestionV2) {
                 serviceLoaders.push(async () => {
                     const postgres = hub?.postgres ?? new PostgresRouter(this.config)
+                    const batchConsumerFactory = new DefaultBatchConsumerFactory(this.config)
                     const producer = hub?.kafkaProducer ?? (await KafkaProducerWrapper.create(this.config))
 
-                    const ingester = new SessionRecordingIngesterV2(this.config, false, postgres, producer)
+                    const ingester = new SessionRecordingIngesterV2(
+                        this.config,
+                        false,
+                        postgres,
+                        batchConsumerFactory,
+                        producer
+                    )
                     await ingester.start()
                     return ingester.service
                 })
@@ -201,9 +210,16 @@ export class PluginServer {
             if (capabilities.sessionRecordingBlobIngestionV2Overflow) {
                 serviceLoaders.push(async () => {
                     const postgres = hub?.postgres ?? new PostgresRouter(this.config)
+                    const batchConsumerFactory = new DefaultBatchConsumerFactory(this.config)
                     const producer = hub?.kafkaProducer ?? (await KafkaProducerWrapper.create(this.config))
 
-                    const ingester = new SessionRecordingIngesterV2(this.config, true, postgres, producer)
+                    const ingester = new SessionRecordingIngesterV2(
+                        this.config,
+                        true,
+                        postgres,
+                        batchConsumerFactory,
+                        producer
+                    )
                     await ingester.start()
                     return ingester.service
                 })
@@ -279,6 +295,18 @@ export class PluginServer {
                 })
             }
 
+            // If join rejects or throws, then the consumer is unhealthy and we should shut down the process.
+            // Ideally we would also join all the other background tasks as well to ensure we stop the
+            // server if we hit any errors and don't end up with zombie instances, but I'll leave that
+            // refactoring for another time. Note that we have the liveness health checks already, so in K8s
+            // cases zombies should be reaped anyway, albeit not in the most efficient way.
+
+            this.services.forEach((service) => {
+                service.batchConsumer?.join().catch(async (error) => {
+                    logger.error('💥', 'Unexpected task joined!', { error: error.stack ?? error })
+                    await this.stop(error)
+                })
+            })
             pluginServerStartupTimeMs.inc(Date.now() - startupTimer.valueOf())
             logger.info('🚀', `All systems go in ${Date.now() - startupTimer.valueOf()}ms`)
         } catch (error) {
