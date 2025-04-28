@@ -73,7 +73,22 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
 
 export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForDistinctIdBatch {
     private methodCounts: Map<MethodName, number>
+    /**
+     * We maintain two separate person caches for different read patterns:
+     *
+     * personCache: Used by fetchForUpdate, contains data from the primary database.
+     * Must be used when we need to modify person properties to avoid race conditions
+     * with stale data. This is the source of truth for writes.
+     *
+     * personCheckCache: Used by fetchForChecking, contains data from read replicas.
+     * Can be used for read-only operations but may return stale data. Should NOT be
+     * used when we need to modify person properties as it could lead to race conditions
+     * or lost updates.
+     *
+     * Both caches are cleared on any operation that modifies person data.
+     */
     private personCache: Map<string, InternalPerson | null>
+    private personCheckCache: Map<string, InternalPerson | null>
 
     constructor(private db: DB, private token: string, private distinctId: string) {
         this.methodCounts = new Map()
@@ -81,6 +96,7 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
             this.methodCounts.set(method, 0)
         }
         this.personCache = new Map()
+        this.personCheckCache = new Map()
     }
 
     private getCacheKey(teamId: number, distinctId: string): string {
@@ -89,6 +105,7 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
 
     private clearCache(): void {
         this.personCache.clear()
+        this.personCheckCache.clear()
     }
 
     private getCachedPerson(teamId: number, distinctId: string): InternalPerson | null | undefined {
@@ -96,9 +113,19 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
         return this.personCache.get(cacheKey)
     }
 
+    private getCheckCachedPerson(teamId: number, distinctId: string): InternalPerson | null | undefined {
+        const cacheKey = this.getCacheKey(teamId, distinctId)
+        return this.personCheckCache.get(cacheKey)
+    }
+
     private setCachedPerson(teamId: number, distinctId: string, person: InternalPerson | null): void {
         const cacheKey = this.getCacheKey(teamId, distinctId)
         this.personCache.set(cacheKey, person)
+    }
+
+    private setCheckCachedPerson(teamId: number, distinctId: string, person: InternalPerson | null): void {
+        const cacheKey = this.getCacheKey(teamId, distinctId)
+        this.personCheckCache.set(cacheKey, person)
     }
 
     async inTransaction<T>(description: string, transaction: (tx: TransactionClient) => Promise<T>): Promise<T> {
@@ -107,12 +134,21 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
 
     async fetchForChecking(teamId: Team['id'], distinctId: string): Promise<InternalPerson | null> {
         this.incrementCount('fetchForChecking')
+
+        // First check the main cache
         const cachedPerson = this.getCachedPerson(teamId, distinctId)
         if (cachedPerson !== undefined) {
             return cachedPerson
         }
 
+        // Then check the checking-specific cache
+        const checkCachedPerson = this.getCheckCachedPerson(teamId, distinctId)
+        if (checkCachedPerson !== undefined) {
+            return checkCachedPerson
+        }
+
         const person = await this.db.fetchPerson(teamId, distinctId, { useReadReplica: true })
+        this.setCheckCachedPerson(teamId, distinctId, person ?? null)
         return person ?? null
     }
 
