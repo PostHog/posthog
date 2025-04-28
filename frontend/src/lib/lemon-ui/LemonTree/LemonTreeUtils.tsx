@@ -253,6 +253,8 @@ export const TreeNodeDraggable = (props: DraggableProps): JSX.Element => {
 type DroppableProps = DragAndDropProps & {
     isDroppable: boolean
     className?: string
+    isDragging?: boolean
+    isRoot?: boolean
 }
 
 export const TreeNodeDroppable = (props: DroppableProps): JSX.Element => {
@@ -262,9 +264,10 @@ export const TreeNodeDroppable = (props: DroppableProps): JSX.Element => {
         <div
             ref={setNodeRef}
             className={cn(
-                'flex flex-col transition-all duration-150 rounded',
+                'flex flex-col transition-all duration-150 rounded relative z-2 ',
                 props.className,
-                props.isDroppable && isOver && 'ring-2 ring-inset ring-accent bg-accent-highlight-secondary'
+                props.isDroppable && isOver && 'ring-2 ring-inset ring-accent bg-accent-highlight-secondary',
+                props.isRoot && props.isDragging && 'h-full'
             )}
         >
             {props.children}

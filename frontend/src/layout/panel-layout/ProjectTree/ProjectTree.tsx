@@ -435,6 +435,7 @@ export function ProjectTree(): JSX.Element {
                     if (oldItem === newItem || !oldItem || !newItem) {
                         return false
                     }
+
                     const oldPath = oldItem.path
                     const folder = newItem.path
 
