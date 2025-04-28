@@ -108,6 +108,5 @@ export function formatConversationDate(updatedAt: string | null): string {
     if (diff < 60) {
         return 'Just now'
     }
-    const humanFriendlyLabel = humanFriendlyDuration(diff)
-    return humanFriendlyLabel.split(' ')[0]
+    return humanFriendlyDuration(diff, { maxUnits: 1 })
 }
