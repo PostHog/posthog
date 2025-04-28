@@ -1945,6 +1945,9 @@ class WebAnalyticsOrderByFields(StrEnum):
     UNIQUE_CONVERSIONS = "UniqueConversions"
     CONVERSION_RATE = "ConversionRate"
     CONVERTING_USERS = "ConvertingUsers"
+    RAGE_CLICKS = "RageClicks"
+    DEAD_CLICKS = "DeadClicks"
+    ERRORS = "Errors"
 
 
 class Sampling(BaseModel):
@@ -1985,6 +1988,7 @@ class WebStatsBreakdown(StrEnum):
     CITY = "City"
     TIMEZONE = "Timezone"
     LANGUAGE = "Language"
+    FRUSTRATION_METRICS = "FrustrationMetrics"
 
 
 class WebVitalsMetric(StrEnum):
