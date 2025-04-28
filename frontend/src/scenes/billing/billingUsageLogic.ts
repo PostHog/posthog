@@ -24,13 +24,16 @@ export interface BillingUsageResponse {
 }
 
 export interface BillingUsageFilters {
-    usage_type?: string
-    breakdowns?: string[]
+    usage_types?: string[]
+    team_ids?: number[]
+    breakdowns?: ('type' | 'team')[]
     show_values_on_series?: boolean
 }
 
 export const DEFAULT_BILLING_USAGE_FILTERS: BillingUsageFilters = {
-    breakdowns: ['type', 'team'],
+    breakdowns: ['type'],
+    usage_types: [],
+    team_ids: [],
 }
 
 export interface BillingUsageLogicProps {
@@ -53,11 +56,12 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
             null as BillingUsageResponse | null,
             {
                 loadBillingUsage: async () => {
-                    const { usage_type, show_values_on_series, breakdowns } = values.filters
+                    const { usage_types, team_ids, show_values_on_series, breakdowns } = values.filters
                     const params = {
-                        ...(usage_type ? { usage_type } : {}),
+                        ...(usage_types && usage_types.length > 0 ? { usage_types: JSON.stringify(usage_types) } : {}),
+                        ...(team_ids && team_ids.length > 0 ? { team_ids: JSON.stringify(team_ids) } : {}),
                         ...(show_values_on_series ? { show_values_on_series } : {}),
-                        ...(breakdowns ? { breakdowns: JSON.stringify(breakdowns) } : {}),
+                        ...(breakdowns && breakdowns.length > 0 ? { breakdowns: JSON.stringify(breakdowns) } : {}),
                         start_date: values.dateFrom || dayjs().subtract(30, 'day').format('YYYY-MM-DD'),
                         end_date: values.dateTo || dayjs().format('YYYY-MM-DD'),
                         organization_id: values.currentOrganization?.id,

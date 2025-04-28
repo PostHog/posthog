@@ -1,4 +1,5 @@
 import { IconPencil } from '@posthog/icons'
+import { IconCheck, IconX } from '@posthog/icons'
 import { LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import Fuse from 'fuse.js'
@@ -49,6 +50,9 @@ export type LemonInputSelectProps = Pick<
     popoverClassName?: string
     size?: 'xsmall' | 'small' | 'medium' | 'large'
     transparentBackground?: boolean
+    displayMode?: 'snacks' | 'count'
+    showSelectAll?: boolean
+    showClearAll?: boolean
 }
 
 export function LemonInputSelect({
@@ -74,6 +78,9 @@ export function LemonInputSelect({
     transparentBackground,
     autoWidth = true,
     fullWidth = false,
+    displayMode = 'snacks',
+    showSelectAll,
+    showClearAll,
 }: LemonInputSelectProps): JSX.Element {
     const [showPopover, setShowPopover] = useState(false)
     const [inputValue, _setInputValue] = useState('')
@@ -306,9 +313,10 @@ export function LemonInputSelect({
     }
 
     const valuesPrefix = useMemo(() => {
-        if (mode !== 'multiple' || values.length === 0) {
+        if (mode !== 'multiple' || values.length === 0 || displayMode !== 'snacks') {
             return null
         }
+
         const preInputValues = itemBeingEditedIndex !== null ? values.slice(0, itemBeingEditedIndex) : values
 
         // TRICKY: We don't want the popover to affect the snack buttons
@@ -327,7 +335,9 @@ export function LemonInputSelect({
     const valuesAndEditButtonSuffix = useMemo(() => {
         // The edit button only applies to single-select mode with custom values allowed, when in no-input state
         const isEditButtonVisible = mode !== 'multiple' && allowCustomValues && values.length && !inputValue
-        const postInputValues = itemBeingEditedIndex !== null ? values.slice(itemBeingEditedIndex) : []
+
+        const postInputValues =
+            displayMode === 'snacks' && itemBeingEditedIndex !== null ? values.slice(itemBeingEditedIndex) : []
 
         if (!isEditButtonVisible && postInputValues.length === 0) {
             return null
@@ -358,6 +368,21 @@ export function LemonInputSelect({
             </PopoverReferenceContext.Provider>
         )
     }, [mode, values, allowCustomValues, itemBeingEditedIndex, inputValue])
+
+    const countPlaceholder = useMemo(() => {
+        if (displayMode !== 'count' || mode !== 'multiple') {
+            return placeholder
+        }
+        const selectedCount = values.length
+        const totalCount = options.length
+
+        if (selectedCount === 0) {
+            return `None selected` // Empty array now means none
+        } else if (selectedCount === totalCount) {
+            return `All ${totalCount} selected`
+        }
+        return `${selectedCount}/${totalCount} selected`
+    }, [displayMode, mode, values, options, placeholder])
 
     return (
         <LemonDropdown
@@ -400,7 +425,7 @@ export function LemonInputSelect({
                                         ) : undefined
                                     }
                                     sideAction={
-                                        !option.__isInput
+                                        !option.__isInput && allowCustomValues
                                             ? {
                                                   // To reduce visual clutter we only show the icon on focus or hover,
                                                   // but we do want it present to make sure the layout is stable
@@ -452,13 +477,48 @@ export function LemonInputSelect({
                             )}
                         </>
                     )}
+
+                    {(showSelectAll || showClearAll) && mode === 'multiple' && (
+                        <div className="flex pb-0.5 gap-1">
+                            {showSelectAll && (
+                                <LemonButton
+                                    size="xsmall"
+                                    className="flex-1"
+                                    disabledReason={
+                                        values.length === allOptionsMap.size
+                                            ? 'All options are already selected'
+                                            : undefined
+                                    }
+                                    onClick={() => onChange?.(Array.from(allOptionsMap.keys()))}
+                                    icon={<IconCheck />}
+                                    tooltip="Select all options"
+                                >
+                                    All
+                                </LemonButton>
+                            )}
+                            {showClearAll && (
+                                <LemonButton
+                                    size="xsmall"
+                                    className="flex-1"
+                                    disabledReason={values.length === 0 ? 'No options are selected' : undefined}
+                                    onClick={() => onChange?.([])}
+                                    icon={<IconX />}
+                                    tooltip="Unselect all options"
+                                >
+                                    Clear
+                                </LemonButton>
+                            )}
+                        </div>
+                    )}
                 </div>
             }
         >
             <LemonInput
                 inputRef={inputRef}
                 placeholder={
-                    values.length === 0
+                    displayMode === 'count'
+                        ? countPlaceholder
+                        : values.length === 0
                         ? placeholder
                         : mode === 'single'
                         ? allOptionsMap.get(values[0])?.label ?? values[0]

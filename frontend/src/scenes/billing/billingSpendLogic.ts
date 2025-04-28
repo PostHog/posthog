@@ -25,17 +25,21 @@ export interface BillingSpendResponse {
     next?: string
 }
 
-// Removed usage_type
+// Added usage_types and team_ids
 export interface BillingSpendFilters {
     // Renamed interface
-    breakdowns?: string[]
+    usage_types?: string[] // Added
+    team_ids?: number[] // Added
+    breakdowns?: ('type' | 'team')[] // Changed type to match usage
     show_values_on_series?: boolean // Is this relevant for spend? Keeping for now.
 }
 
-// Removed usage_type
+// Added usage_types and team_ids, adjusted default breakdown to just type
 export const DEFAULT_BILLING_SPEND_FILTERS: BillingSpendFilters = {
     // Renamed const
-    breakdowns: ['type', 'team'], // Default breakdown for spend? Keeping type+team for now.
+    usage_types: [], // Added, initialize empty
+    team_ids: [], // Added, initialize empty
+    breakdowns: ['type'], // Default breakdown for spend now matches usage
 }
 
 export interface BillingSpendLogicProps {
@@ -62,11 +66,13 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
             {
                 loadBillingSpend: async () => {
                     // Renamed action
-                    // Removed usage_type from filters destructuring and params
-                    const { show_values_on_series, breakdowns } = values.filters
+                    // Added usage_types and team_ids to filters destructuring and params
+                    const { usage_types, team_ids, show_values_on_series, breakdowns } = values.filters
                     const params = {
+                        ...(usage_types && usage_types.length > 0 ? { usage_types: JSON.stringify(usage_types) } : {}), // Added
+                        ...(team_ids && team_ids.length > 0 ? { team_ids: JSON.stringify(team_ids) } : {}), // Added
                         ...(show_values_on_series ? { show_values_on_series } : {}),
-                        ...(breakdowns ? { breakdowns: JSON.stringify(breakdowns) } : {}), // Ensure breakdowns are stringified
+                        ...(breakdowns && breakdowns.length > 0 ? { breakdowns: JSON.stringify(breakdowns) } : {}), // Ensure breakdowns are stringified
                         start_date: values.dateFrom || dayjs().subtract(30, 'day').format('YYYY-MM-DD'),
                         end_date: values.dateTo || dayjs().format('YYYY-MM-DD'),
                         organization_id: values.currentOrganization?.id,
