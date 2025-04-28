@@ -18,7 +18,7 @@ def get_available_contexts() -> list:
         sys.exit(1)
 
 
-def get_current_context() -> str:
+def get_current_context() -> str | None:
     """Get current kubernetes context."""
     try:
         result = subprocess.run(["kubectl", "config", "current-context"], capture_output=True, text=True, check=True)
