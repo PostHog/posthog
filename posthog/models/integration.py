@@ -632,7 +632,7 @@ class GoogleAdsIntegration:
             )
 
             if response.status_code != 200:
-                return []
+                return accounts
 
             data = response.json()
 
