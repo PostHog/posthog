@@ -1,5 +1,6 @@
 import { Hub } from '../types'
 import { BackgroundRefresher } from './background-refresher'
+import { parseJson } from './json-parse'
 import { logger } from './logger'
 
 export enum RestrictionType {
@@ -8,7 +9,7 @@ export enum RestrictionType {
     FORCE_OVERFLOW_FROM_INGESTION = 'force_overflow_from_ingestion',
 }
 
-const REDIS_KEY_PREFIX = 'event_restriction_dynamic_config'
+export const REDIS_KEY_PREFIX = 'event_ingestion_restriction_dynamic_config'
 
 /*
  *
@@ -29,7 +30,6 @@ export class EventIngestionRestrictionManager {
     private dynamicConfigRefresher: BackgroundRefresher<Partial<Record<string, Set<string>>>>
     private latestDynamicConfig: Partial<Record<RestrictionType, Set<string>>> = {}
 
-    // NICKS TODO: need to clean up options vs hub (and do we need Hub?)
     constructor(
         hub: Hub,
         options: {
@@ -47,12 +47,12 @@ export class EventIngestionRestrictionManager {
 
         this.dynamicConfigRefresher = new BackgroundRefresher(async () => {
             try {
-                logger.info('🔁', 'token_restriction_manager - refreshing dynamic config in the background')
+                logger.info('🔁', 'ingestion_event_restriction_manager - refreshing dynamic config in the background')
                 const config = await this.fetchDynamicEventIngestionRestrictionConfig()
                 this.latestDynamicConfig = config
                 return config
             } catch (error) {
-                logger.error('token_restriction_manager - error refreshing dynamic config', { error })
+                logger.error('ingestion event restriction manager - error refreshing dynamic config', { error })
                 return {}
             }
         })
@@ -79,21 +79,28 @@ export class EventIngestionRestrictionManager {
                 const [dropResult, skipResult, overflowResult] = await pipeline.exec()
 
                 const result: Partial<Record<RestrictionType, Set<string>>> = {}
-                if (dropResult?.[1]) {
-                    result[RestrictionType.DROP_EVENT_FROM_INGESTION] = new Set(
-                        (dropResult[1] as string).split(',').filter(Boolean)
-                    )
+                const processRedisResult = (redisResult: any, restrictionType: RestrictionType) => {
+                    if (!redisResult?.[1]) {
+                        return
+                    }
+
+                    try {
+                        const parsedArray = parseJson(redisResult[1] as string)
+                        if (Array.isArray(parsedArray)) {
+                            result[restrictionType] = new Set(parsedArray)
+                        } else {
+                            logger.warn(`Expected array for ${restrictionType} but got different JSON type`)
+                            result[restrictionType] = new Set()
+                        }
+                    } catch (error) {
+                        logger.warn(`Failed to parse JSON for ${restrictionType}`, { error })
+                        result[restrictionType] = new Set()
+                    }
                 }
-                if (skipResult?.[1]) {
-                    result[RestrictionType.SKIP_PERSON_PROCESSING] = new Set(
-                        (skipResult[1] as string).split(',').filter(Boolean)
-                    )
-                }
-                if (overflowResult?.[1]) {
-                    result[RestrictionType.FORCE_OVERFLOW_FROM_INGESTION] = new Set(
-                        (overflowResult[1] as string).split(',').filter(Boolean)
-                    )
-                }
+
+                processRedisResult(dropResult, RestrictionType.DROP_EVENT_FROM_INGESTION)
+                processRedisResult(skipResult, RestrictionType.SKIP_PERSON_PROCESSING)
+                processRedisResult(overflowResult, RestrictionType.FORCE_OVERFLOW_FROM_INGESTION)
                 return result
             } catch (error) {
                 logger.warn('Error reading dynamic config for event ingestion restrictions from Redis', { error })

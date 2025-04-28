@@ -1,7 +1,11 @@
 import { Redis } from 'ioredis'
 
 import { Hub } from '../types'
-import { EventIngestionRestrictionManager, RestrictionType } from './event-ingestion-restriction-manager'
+import {
+    EventIngestionRestrictionManager,
+    REDIS_KEY_PREFIX,
+    RestrictionType,
+} from './event-ingestion-restriction-manager'
 
 jest.mock('./db/redis', () => {
     const redisClient = {
@@ -127,9 +131,15 @@ describe('EventIngestionRestrictionManager', () => {
 
             expect(hub.redisPool.acquire).toHaveBeenCalled()
             expect(pipelineMock.get).toHaveBeenCalledTimes(3)
-            expect(pipelineMock.get).toHaveBeenCalledWith(RestrictionType.DROP_EVENT_FROM_INGESTION)
-            expect(pipelineMock.get).toHaveBeenCalledWith(RestrictionType.SKIP_PERSON_PROCESSING)
-            expect(pipelineMock.get).toHaveBeenCalledWith(RestrictionType.FORCE_OVERFLOW_FROM_INGESTION)
+            expect(pipelineMock.get).toHaveBeenCalledWith(
+                `${REDIS_KEY_PREFIX}:${RestrictionType.DROP_EVENT_FROM_INGESTION}`
+            )
+            expect(pipelineMock.get).toHaveBeenCalledWith(
+                `${REDIS_KEY_PREFIX}:${RestrictionType.SKIP_PERSON_PROCESSING}`
+            )
+            expect(pipelineMock.get).toHaveBeenCalledWith(
+                `${REDIS_KEY_PREFIX}:${RestrictionType.FORCE_OVERFLOW_FROM_INGESTION}`
+            )
             expect(hub.redisPool.release).toHaveBeenCalledWith(redisClient)
         })
 

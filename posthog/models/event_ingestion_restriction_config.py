@@ -7,11 +7,10 @@ from django.dispatch import receiver
 from django.contrib.postgres.fields import ArrayField
 import json
 
-DYNAMIC_CONFIG_REDIS_KEY_PREFIX = "event_restriction_dynamic_config"
+DYNAMIC_CONFIG_REDIS_KEY_PREFIX = "event_ingestion_restriction_dynamic_config"
 
 
 class RestrictionType(models.TextChoices):
-    # NICKS TODO: audit these against what we use in redis
     SKIP_PERSON_PROCESSING = "skip_person_processing"
     DROP_EVENT_FROM_INGESTION = "drop_event_from_ingestion"
     FORCE_OVERFLOW_FROM_INGESTION = "force_overflow_from_ingestion"
@@ -22,7 +21,6 @@ class EventIngestionRestrictionConfig(UUIDModel):
     Configuration for various restrictions we can set by token or token:distinct_id
     """
 
-    # NICKS TODO: figure out blank or null or what?
     token = models.CharField(max_length=100)
     restriction_type = models.CharField(max_length=100, choices=RestrictionType.choices)
     distinct_ids = ArrayField(models.CharField(max_length=450), default=list, blank=True, null=True)
