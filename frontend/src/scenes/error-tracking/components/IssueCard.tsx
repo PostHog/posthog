@@ -26,6 +26,7 @@ export function IssueCard(): JSX.Element {
         issueLoading,
         properties,
         exceptionAttributes,
+        additionalProperties,
         issue,
         sessionId,
         showStacktrace,
@@ -39,7 +40,17 @@ export function IssueCard(): JSX.Element {
         className: cn('flex-grow', showContext ? 'w-2/3' : 'w-full'),
         truncateMessage: !showStacktrace,
         attributes: exceptionAttributes,
-        showAllFrames: showAllFrames,
+        showAllFrames,
+        showAsText,
+        issue,
+        issueLoading,
+        loading: propertiesLoading,
+    }
+    const contextDisplayProps = {
+        className: cn(showContext && showStacktrace ? 'w-1/3 pl-2' : 'w-0'),
+        attributes: exceptionAttributes,
+        additionalProperties,
+        showContext,
         loading: propertiesLoading,
     }
     return (
@@ -49,13 +60,8 @@ export function IssueCard(): JSX.Element {
                 className="pb-1 flex w-full"
                 minHeight="calc(var(--spacing) * 12)"
             >
-                <StacktraceIssueDisplay
-                    {...stacktraceDisplayProps}
-                    showAsText={showAsText}
-                    issue={issue}
-                    issueLoading={issueLoading}
-                />
-                <ContextDisplay className={cn('', showContext && showStacktrace ? 'w-1/3 pl-2' : 'w-0')} />
+                <StacktraceIssueDisplay {...stacktraceDisplayProps} />
+                <ContextDisplay {...contextDisplayProps} />
             </Collapsible>
             <IssueCardActions className="absolute top-2 right-3 flex gap-2 items-center z-10">
                 <ButtonGroupPrimitive size="sm">

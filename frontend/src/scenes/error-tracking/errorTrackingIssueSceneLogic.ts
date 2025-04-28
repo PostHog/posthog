@@ -8,6 +8,7 @@ import { hasStacktrace } from 'lib/components/Errors/utils'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { objectsEqual } from 'lib/utils'
 import { posthog } from 'posthog-js'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Params, Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -27,6 +28,7 @@ import { errorTrackingIssueEventsQuery, errorTrackingIssueQuery } from './querie
 import {
     defaultSearchParams,
     ExceptionAttributes,
+    getAdditionalProperties,
     getExceptionAttributes,
     getSessionId,
     resolveDateRange,
@@ -50,6 +52,8 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             ['dateRange', 'filterTestAccounts', 'filterGroup', 'searchQuery', 'showStacktrace', 'showContext'],
             stackFrameLogic,
             ['frameOrderReversed', 'showAllFrames'],
+            preflightLogic,
+            ['isCloudOrDev'],
         ],
         actions: [
             errorTrackingLogic,
@@ -164,6 +168,11 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         exceptionAttributes: [
             (s) => [s.properties],
             (properties: Record<string, string>) => (properties ? getExceptionAttributes(properties) : null),
+        ],
+        additionalProperties: [
+            (s) => [s.properties, s.isCloudOrDev],
+            (properties: Record<string, string>, isCloudOrDev: boolean | undefined) =>
+                properties ? getAdditionalProperties(properties, isCloudOrDev) : {},
         ],
         exceptionList: [
             (s) => [s.exceptionAttributes, s.frameOrderReversed],

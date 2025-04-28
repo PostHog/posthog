@@ -132,3 +132,9 @@ export const POSTHOG_EVENT_PROMOTED_PROPERTIES = {
     $set: ['$set', '$set_once'],
 }
 export type KNOWN_PROMOTED_PROPERTY_PARENTS = keyof typeof POSTHOG_EVENT_PROMOTED_PROPERTIES
+
+export function isPostHogProperty(propertyKey: string, isCloudOrDev: boolean | undefined = false): boolean {
+    const isPostHogProperty = propertyKey.startsWith('$') || PROPERTY_KEYS.includes(propertyKey)
+    const isNonDollarPostHogProperty = isCloudOrDev && CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS.includes(propertyKey)
+    return !isPostHogProperty && !isNonDollarPostHogProperty
+}
