@@ -91,26 +91,40 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
         this.personCache.clear()
     }
 
+    private getCachedPerson(teamId: number, distinctId: string): InternalPerson | null | undefined {
+        const cacheKey = this.getCacheKey(teamId, distinctId)
+        return this.personCache.get(cacheKey)
+    }
+
+    private setCachedPerson(teamId: number, distinctId: string, person: InternalPerson | null): void {
+        const cacheKey = this.getCacheKey(teamId, distinctId)
+        this.personCache.set(cacheKey, person)
+    }
+
     async inTransaction<T>(description: string, transaction: (tx: TransactionClient) => Promise<T>): Promise<T> {
         return await this.db.postgres.transaction(PostgresUse.COMMON_WRITE, description, transaction)
     }
 
     async fetchForChecking(teamId: Team['id'], distinctId: string): Promise<InternalPerson | null> {
         this.incrementCount('fetchForChecking')
+        const cachedPerson = this.getCachedPerson(teamId, distinctId)
+        if (cachedPerson !== undefined) {
+            return cachedPerson
+        }
+
         const person = await this.db.fetchPerson(teamId, distinctId, { useReadReplica: true })
         return person ?? null
     }
 
     async fetchForUpdate(teamId: Team['id'], distinctId: string): Promise<InternalPerson | null> {
         this.incrementCount('fetchForUpdate')
-        const cacheKey = this.getCacheKey(teamId, distinctId)
-
-        if (this.personCache.has(cacheKey)) {
-            return this.personCache.get(cacheKey) ?? null
+        const cachedPerson = this.getCachedPerson(teamId, distinctId)
+        if (cachedPerson !== undefined) {
+            return cachedPerson
         }
 
         const person = await this.db.fetchPerson(teamId, distinctId, { useReadReplica: false })
-        this.personCache.set(cacheKey, person ?? null)
+        this.setCachedPerson(teamId, distinctId, person ?? null)
         return person ?? null
     }
 
