@@ -24,6 +24,31 @@ import { IngestionConsumer } from './ingestion-consumer'
 const DEFAULT_TEST_TIMEOUT = 5000
 jest.setTimeout(DEFAULT_TEST_TIMEOUT)
 
+const mockConsumer = {
+    on: jest.fn(),
+    commitSync: jest.fn(),
+    commit: jest.fn(),
+    queryWatermarkOffsets: jest.fn(),
+    committed: jest.fn(),
+    assignments: jest.fn(),
+    isConnected: jest.fn(() => true),
+    getMetadata: jest.fn(),
+}
+
+jest.mock('../../src/kafka/batch-consumer', () => {
+    return {
+        startBatchConsumer: jest.fn(() =>
+            Promise.resolve({
+                join: () => ({
+                    finally: jest.fn(),
+                }),
+                stop: jest.fn(),
+                consumer: mockConsumer,
+            })
+        ),
+    }
+})
+
 jest.mock('../utils/posthog', () => {
     const original = jest.requireActual('../utils/posthog')
     return {
@@ -63,18 +88,6 @@ describe('IngestionConsumer', () => {
     let team: Team
     let team2: Team
     let fixedTime: DateTime
-
-    const createIngestionConsumer = async (hub: Hub) => {
-        const ingester = new IngestionConsumer(hub)
-        // NOTE: We don't actually use kafka so we skip instantiation for faster tests
-        ingester['kafkaConsumer'] = {
-            connect: jest.fn(),
-            disconnect: jest.fn(),
-            isHealthy: jest.fn(),
-        } as any
-        await ingester.start()
-        return ingester
-    }
 
     const createEvent = (event?: Partial<PipelineEvent>): PipelineEvent => ({
         distinct_id: 'user-1',
@@ -119,7 +132,8 @@ describe('IngestionConsumer', () => {
 
     describe('general', () => {
         beforeEach(async () => {
-            ingester = await createIngestionConsumer(hub)
+            ingester = new IngestionConsumer(hub)
+            await ingester.start()
         })
 
         it('should have the correct config', () => {
@@ -214,7 +228,8 @@ describe('IngestionConsumer', () => {
                     // Reset ingester with force overflow token:distinct_id pair
                     await ingester.stop()
                     hub.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID = `${team.api_token}:team1-user`
-                    ingester = await createIngestionConsumer(hub)
+                    ingester = new IngestionConsumer(hub)
+                    await ingester.start()
                 })
 
                 it('should force events with matching token:distinct_id to overflow', async () => {
@@ -247,7 +262,8 @@ describe('IngestionConsumer', () => {
                     // Reset ingester with multiple force overflow token:distinct_id pairs
                     await ingester.stop()
                     hub.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID = `${team.api_token}:user1,${team2.api_token}:user2`
-                    ingester = await createIngestionConsumer(hub)
+                    ingester = new IngestionConsumer(hub)
+                    await ingester.start()
 
                     const events = [
                         createEvent({ token: team.api_token, distinct_id: 'user1' }), // should overflow
@@ -325,7 +341,8 @@ describe('IngestionConsumer', () => {
             describe('with DROP_EVENTS_BY_TOKEN_DISTINCT_ID drops events with matching token:distinct_id when only event keys are listed', () => {
                 beforeEach(async () => {
                     hub.DROP_EVENTS_BY_TOKEN_DISTINCT_ID = `${team.api_token}:distinct-id-to-ignore,phc_other:distinct-id-to-ignore`
-                    ingester = await createIngestionConsumer(hub)
+                    ingester = new IngestionConsumer(hub)
+                    await ingester.start()
                 })
                 it('should drop events with matching token and distinct_id', async () => {
                     const messages = createKafkaMessages([
@@ -369,7 +386,8 @@ describe('IngestionConsumer', () => {
                 beforeEach(async () => {
                     const distinct_id_to_drop = 'team1_user_to_drop'
                     hub.DROP_EVENTS_BY_TOKEN_DISTINCT_ID = `${team.api_token}:${distinct_id_to_drop},${team2.api_token}`
-                    ingester = await createIngestionConsumer(hub)
+                    ingester = new IngestionConsumer(hub)
+                    await ingester.start()
                 })
 
                 it('should still drop events with matching token and distinct_id (event key)', async () => {
@@ -429,7 +447,8 @@ describe('IngestionConsumer', () => {
 
     describe('event batching', () => {
         beforeEach(async () => {
-            ingester = await createIngestionConsumer(hub)
+            ingester = new IngestionConsumer(hub)
+            await ingester.start()
         })
 
         it('should batch events based on the distinct_id', async () => {
@@ -470,7 +489,8 @@ describe('IngestionConsumer', () => {
         let messages: Message[]
 
         beforeEach(async () => {
-            ingester = await createIngestionConsumer(hub)
+            ingester = new IngestionConsumer(hub)
+            await ingester.start()
             // Simulate some sort of error happening by mocking out the runner
             messages = createKafkaMessages([createEvent()])
             jest.spyOn(logger, 'error').mockImplementation(() => {})
@@ -519,7 +539,8 @@ describe('IngestionConsumer', () => {
          */
 
         beforeEach(async () => {
-            ingester = await createIngestionConsumer(hub)
+            ingester = new IngestionConsumer(hub)
+            await ingester.start()
         })
 
         const eventTests: [string, () => PipelineEvent[]][] = [
@@ -757,7 +778,8 @@ describe('IngestionConsumer', () => {
                 bytecode: hogByteCode,
             })
 
-            ingester = await createIngestionConsumer(hub)
+            ingester = new IngestionConsumer(hub)
+            await ingester.start()
         })
 
         it(
@@ -988,7 +1010,8 @@ describe('IngestionConsumer', () => {
     describe('testing topic', () => {
         it('should emit to the testing topic', async () => {
             hub.INGESTION_CONSUMER_TESTING_TOPIC = 'testing_topic'
-            ingester = await createIngestionConsumer(hub)
+            ingester = new IngestionConsumer(hub)
+            await ingester.start()
 
             const messages = createKafkaMessages([createEvent()])
             await ingester.handleKafkaBatch(messages)
