@@ -453,7 +453,7 @@ HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS = get_list(os.getenv("HOG_TRANSFORMATIO
 CREATE_HOG_FUNCTION_FROM_PLUGIN_CONFIG = get_from_env("CREATE_HOG_FUNCTION_FROM_PLUGIN_CONFIG", False, type_cast=bool)
 
 # use the database templates instead of in-memory templates for those teams
-USE_DB_TEMPLATES_FOR_TEAMS = get_list(os.getenv("USE_DB_TEMPLATES_FOR_TEAMS", ""))  # Owner CDP (meikel)
+USE_DB_TEMPLATES_FOR_TEAMS = get_list(os.getenv("USE_DB_TEMPLATES_FOR_TEAMS", "1"))  # Owner CDP (meikel)
 
 ####
 # Livestream
