@@ -9,7 +9,7 @@ import {
     serializeHogFunctionInvocation,
 } from '../../cdp/utils'
 import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
-import { KafkaConsumer } from '../../kafka/consumer'
+import { KafkaConsumer } from '../../kafka/batch-consumer-v2'
 import { runInstrumentedFunction } from '../../main/utils'
 import { Hub, RawClickHouseEvent } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
