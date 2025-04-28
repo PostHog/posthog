@@ -324,6 +324,7 @@ const HIDDEN_DESTINATIONS = [
     'plugin-segment-reddit-conversions-api',
     'plugin-segment-customerio',
     'plugin-segment-slack',
+    'plugin-segment-webhook-extensible',
 ]
 
 export const SEGMENT_DESTINATIONS = Object.entries(destinations)
