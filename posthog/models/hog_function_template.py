@@ -1,4 +1,6 @@
 from django.db import models
+from django.db.models import Subquery, OuterRef, Max
+
 from typing import Literal, Optional, cast
 import hashlib
 import structlog
@@ -137,9 +139,6 @@ class HogFunctionTemplate(UUIDModel):
 
         if not include_deprecated:
             filters["status__in"] = ["alpha", "beta", "stable"]
-
-        # First get the latest template_id and sha pairs
-        from django.db.models import Subquery, OuterRef, Max
 
         # Get the max created_at for each template_id
         latest_created_at = (
