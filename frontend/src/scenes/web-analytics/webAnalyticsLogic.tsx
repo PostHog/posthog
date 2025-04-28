@@ -2007,7 +2007,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               canOpenModal: true,
                               canOpenInsight: false,
                               docs: {
-+                                  title: 'Frustrating Pages',
+                                  title: 'Frustrating Pages',
                                   description: (
                                       <>
                                           <div>
