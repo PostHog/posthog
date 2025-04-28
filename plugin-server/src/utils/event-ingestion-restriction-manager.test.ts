@@ -116,9 +116,9 @@ describe('EventIngestionRestrictionManager', () => {
             // now clear the mock, so we can assert again below
             pipelineMock.get.mockClear()
             pipelineMock.exec.mockResolvedValue([
-                [null, 'token1,token2'],
-                [null, 'token3,token4'],
-                [null, 'token5,token6'],
+                [null, JSON.stringify(['token1', 'token2'])],
+                [null, JSON.stringify(['token3', 'token4'])],
+                [null, JSON.stringify(['token5', 'token6'])],
             ])
 
             const result = await eventIngestionRestrictionManager.fetchDynamicEventIngestionRestrictionConfig()
