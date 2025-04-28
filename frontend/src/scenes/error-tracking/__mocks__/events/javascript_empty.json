@@ -362,7 +362,9 @@
         "$exception_types": ["Error"],
         "$exception_values": ["Oh my!"],
         "$exception_sources": [],
-        "$exception_functions": []
+        "$exception_functions": [],
+        "internal_user_id": "12344",
+        "request_id": "lkjaslkjslkjslksj"
     },
     "timestamp": "2025-03-24T08:43:54.275000Z",
     "team_id": 1,
