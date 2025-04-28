@@ -223,6 +223,9 @@ export function getDefaultConfig(): PluginsServerConfig {
         PROPERTY_DEFS_CONSUMER_ENABLED_TEAMS: isDevEnv() ? '*' : '',
         PROPERTY_DEFS_WRITE_DISABLED: isProdEnv() ? true : false, // For now we don't want to do writes on prod - only count them
 
+        // temporary: enable, rate limit expensive measurement in persons processing; value in [0,1]
+        PERSON_JSONB_SIZE_ESTIMATE_ENABLE: 0, // defaults to off
+
         // Session recording V2
         SESSION_RECORDING_MAX_BATCH_SIZE_KB: 100 * 1024, // 100MB
         SESSION_RECORDING_MAX_BATCH_AGE_MS: 10 * 1000, // 10 seconds
