@@ -21,11 +21,11 @@ import {
     PluginsServerConfig,
 } from '../types'
 import { normalizeEvent } from '../utils/event'
+import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restriction-manager'
 import { parseJSON } from '../utils/json-parse'
 import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
 import { retryIfRetriable } from '../utils/retries'
-import { TokenRestrictionManager } from '../utils/token-restriction-manager'
 import { UUIDT } from '../utils/utils'
 import { EventPipelineResult, EventPipelineRunner } from '../worker/ingestion/event-pipeline/runner'
 import { MeasuringPersonsStore } from '../worker/ingestion/persons/measuring-person-store'
@@ -93,7 +93,7 @@ export class IngestionConsumer {
     private tokenDistinctIdsToSkipPersons: string[] = []
     private tokenDistinctIdsToForceOverflow: string[] = []
     private personStore: MeasuringPersonsStore
-    private tokenRestrictionManager: TokenRestrictionManager
+    private eventIngestionRestrictionManager: EventIngestionRestrictionManager
 
     constructor(
         private hub: Hub,
@@ -120,10 +120,10 @@ export class IngestionConsumer {
         this.tokenDistinctIdsToForceOverflow = hub.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID.split(',').filter(
             (x) => !!x
         )
-        this.tokenRestrictionManager = new TokenRestrictionManager(hub, {
-            dropEventTokens: this.tokenDistinctIdsToDrop,
-            skipPersonTokens: this.tokenDistinctIdsToSkipPersons,
-            forceOverflowTokens: this.tokenDistinctIdsToForceOverflow,
+        this.eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
+            staticDropEventTokens: this.tokenDistinctIdsToDrop,
+            staticSkipPersonTokens: this.tokenDistinctIdsToSkipPersons,
+            staticForceOverflowTokens: this.tokenDistinctIdsToForceOverflow,
         })
         this.testingTopic = overrides.INGESTION_CONSUMER_TESTING_TOPIC ?? hub.INGESTION_CONSUMER_TESTING_TOPIC
 
@@ -320,7 +320,7 @@ export class IngestionConsumer {
         const kafkaTimestamp = eventsForDistinctId.events[0].message.timestamp
         const eventKey = `${token}:${distinctId}`
 
-        // Check if this token is in the force overflow list
+        // Check if this token is in the force overflow static/dynamic config list
         const shouldForceOverflow = this.shouldForceOverflow(token, distinctId)
 
         // Check the rate limiter and emit to overflow if necessary
@@ -498,35 +498,8 @@ export class IngestionConsumer {
         return new EventPipelineRunner(this.hub, event, this.hogTransformer, breadcrumbs, personsStoreForDistinctId)
     }
 
-    private async parseKafkaBatch(messages: Message[]): Promise<IncomingEventsByDistinctId> {
+    private parseKafkaBatch(messages: Message[]): Promise<IncomingEventsByDistinctId> {
         const batches: IncomingEventsByDistinctId = {}
-        const tokensToFetchFromCache = new Set<string>()
-
-        // We want a single blocking call for priming the cache
-        // Loop over all messages and collect tokens that need to be primed
-        // then kick of a promise.all to prime the cache for all tokens
-        for (const message of messages) {
-            let token: string | undefined
-
-            message.headers?.forEach((header) => {
-                if (header.key === 'token') {
-                    token = header.value.toString()
-                    if (token) {
-                        tokensToFetchFromCache.add(token)
-                    }
-                }
-            })
-        }
-
-        if (tokensToFetchFromCache.size > 0) {
-            await Promise.all(
-                Array.from(tokensToFetchFromCache).map((token) =>
-                    this.tokenRestrictionManager.primeRestrictionsCache(token)
-                )
-            )
-        }
-
-        const tokensAlreadyFetched = tokensToFetchFromCache
 
         for (const message of messages) {
             let distinctId: string | undefined
@@ -554,13 +527,7 @@ export class IngestionConsumer {
                 ...combinedEvent,
             })
 
-            // In case the headers were not set we prime cache again, and check the parsed message now
-            if (event.token && !tokensAlreadyFetched.has(event.token)) {
-                // NOTE: this looks like we are adding a block on each message, but in practice tokens should be
-                // in the header and we've already fetched...this is just for safety
-                await this.tokenRestrictionManager.primeRestrictionsCache(event.token)
-                tokensAlreadyFetched.add(event.token)
-            }
+            // In case the headers were not set we check the parsed message now
             if (this.shouldDropEvent(combinedEvent.token, combinedEvent.distinct_id)) {
                 this.logDroppedEvent(combinedEvent.token, combinedEvent.distinct_id)
                 continue
@@ -590,7 +557,7 @@ export class IngestionConsumer {
             batches[eventKey].events.push({ message, event })
         }
 
-        return batches
+        return Promise.resolve(batches)
     }
 
     private logDroppedEvent(token?: string, distinctId?: string) {
@@ -610,21 +577,21 @@ export class IngestionConsumer {
         if (!token) {
             return false
         }
-        return this.tokenRestrictionManager.shouldDropEvent(token, distinctId)
+        return this.eventIngestionRestrictionManager.shouldDropEvent(token, distinctId)
     }
 
     private shouldSkipPerson(token?: string, distinctId?: string) {
         if (!token) {
             return false
         }
-        return this.tokenRestrictionManager.shouldSkipPerson(token, distinctId)
+        return this.eventIngestionRestrictionManager.shouldSkipPerson(token, distinctId)
     }
 
     private shouldForceOverflow(token?: string, distinctId?: string) {
         if (!token) {
             return false
         }
-        return this.tokenRestrictionManager.shouldForceOverflow(token, distinctId)
+        return this.eventIngestionRestrictionManager.shouldForceOverflow(token, distinctId)
     }
 
     private overflowEnabled() {

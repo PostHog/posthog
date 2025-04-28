@@ -32,7 +32,6 @@ import { Celery } from './celery'
 import { DB } from './db'
 import { PostgresRouter } from './postgres'
 import { createRedisPool } from './redis'
-import { LRUTokenRestrictionCache } from './token-restriction-cache'
 
 // `node-postgres` would return dates as plain JS Date objects, which would use the local timezone.
 // This converts all date fields to a proper luxon UTC DateTime and then casts them to a string
@@ -137,18 +136,11 @@ export async function createHub(
 
     const cookielessManager = new CookielessManager(serverConfig, redisPool, teamManager)
 
-    const tokenRestrictionCache = new LRUTokenRestrictionCache({
-        hitCacheSize: serverConfig.TOKEN_RESTRICTION_CACHE_HIT_SIZE,
-        missCacheSize: serverConfig.TOKEN_RESTRICTION_CACHE_MISS_SIZE,
-        ttlMs: serverConfig.TOKEN_RESTRICTION_CACHE_TTL_MS,
-    })
-
     const hub: Omit<Hub, 'legacyOneventCompareService'> = {
         ...serverConfig,
         instanceId,
         capabilities,
         db,
-        tokenRestrictionCache,
         postgres,
         redisPool,
         clickhouse,

@@ -1,15 +1,16 @@
 from django.contrib import admin
-from posthog.models.token_restriction_config import TokenRestrictionConfig, RestrictionType
+from django.contrib import messages
+from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig, RestrictionType
 
 
-@admin.register(TokenRestrictionConfig)
-class TokenRestrictionConfigAdmin(admin.ModelAdmin):
-    list_display = ("id", "token", "restriction_type", "has_distinct_ids", "enabled")
-    list_filter = ("restriction_type", "enabled")
+@admin.register(EventIngestionRestrictionConfig)
+class EventIngestionRestrictionConfigAdmin(admin.ModelAdmin):
+    list_display = ("id", "token", "restriction_type", "has_distinct_ids")
+    list_filter = ("restriction_type",)
     search_fields = ("token", "distinct_ids")
     readonly_fields = ("id", "created_at")
     fieldsets = (
-        (None, {"fields": ("token", "restriction_type", "enabled")}),
+        (None, {"fields": ("token", "restriction_type")}),
         (
             "Distinct IDs",
             {
@@ -42,10 +43,16 @@ class TokenRestrictionConfigAdmin(admin.ModelAdmin):
                 f"{RestrictionType.FORCE_OVERFLOW_FROM_INGESTION.label}: Force overflow from ingestion for specified tokens/distinct IDs."
             )
 
-        enabled_field = form.base_fields.get("enabled")
-        if enabled_field:
-            enabled_field.help_text = (
-                "When disabled, the restriction will not be applied and the Redis key will be deleted."
-            )
-
         return form
+
+    def get_readonly_fields(self, request, obj=None):
+        if obj:
+            return (*self.readonly_fields, "token", "restriction_type", "distinct_ids")
+        return self.readonly_fields
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        messages.warning(
+            request,
+            "Editing existing configs is not supported. Please delete this configuration and create a new one if you need to make changes.",
+        )
+        return super().change_view(request, object_id, form_url, extra_context)
