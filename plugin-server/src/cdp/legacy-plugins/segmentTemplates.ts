@@ -306,9 +306,43 @@ const translateInputsSchema = (inputs_schema: Record<string, any> | undefined): 
         })) as HogFunctionInputSchemaType[]
 }
 
+const APPROVED_DESTINATIONS = ['plugin-segment-mixpanel', 'plugin-segment-amplitude', 'plugin-segment-launchdarkly']
+
+const HIDDEN_DESTINATIONS = [
+    'plugin-segment-snap-conversions',
+    'plugin-segment-google-sheets-dev',
+    'plugin-segment-google-analytics-4',
+    'plugin-segment-google-campaign-manager-360',
+    'plugin-segment-hubspot-cloud',
+    'plugin-segment-facebook-conversions-api',
+    'plugin-segment-june-actions',
+    'plugin-segment-intercom-cloud',
+    'plugin-segment-avo',
+    // 'plugin-segment-drip', seems to be broken in segment as well :/
+    'plugin-segment-loops',
+    'plugin-segment-google-enhanced-conversions',
+    'plugin-segment-reddit-conversions-api',
+    'plugin-segment-customerio',
+    'plugin-segment-slack',
+]
+
 export const SEGMENT_DESTINATIONS = Object.entries(destinations)
     .filter(([_, destination]) => destination)
+    .filter(
+        ([_, destination]) =>
+            !HIDDEN_DESTINATIONS.includes(
+                'plugin-segment-' +
+                    (destination.slug?.replace('actions-', '') ??
+                        destination.name.replace('Actions ', '').replaceAll(' ', '-').toLowerCase())
+            )
+    )
     .map(([_, destination]) => {
+        const id =
+            'plugin-segment-' +
+            (destination.slug?.replace('actions-', '') ??
+                destination.name.replace('Actions ', '').replaceAll(' ', '-').toLowerCase())
+        const name = destination.name.replace(' (Actions)', '').replace('Actions ', '')
+
         return {
             /* eslint-disable-next-line @typescript-eslint/require-await */
             onEvent: async (
@@ -361,13 +395,11 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations)
             },
             template: {
                 free: false,
-                status: 'beta',
+                status: APPROVED_DESTINATIONS.includes(id) ? 'beta' : 'alpha',
                 type: 'destination',
-                id:
-                    destination.slug?.replace('actions-', 'plugin-segment-') ??
-                    `plugin-segment-${destination.name.replace('Actions ', '').replaceAll(' ', '-').toLowerCase()}`,
-                name: destination.name.replace(' (Actions)', '').replace('Actions ', ''),
-                description: `Send event data to ${destination.name.replace(' (Actions)', '').replace('Actions ', '')}`,
+                id,
+                name,
+                description: `Send event data to ${name}`,
                 icon_url: `https://img.logo.dev/${destination.slug?.split('-')[1]}.com?token=pk_NiEhY0r4ToO7w_3DQvOALw`,
                 category: [],
                 inputs_schema: translateInputsSchema(destination.authentication?.fields),
