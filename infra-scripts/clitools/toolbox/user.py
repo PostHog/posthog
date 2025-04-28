@@ -56,6 +56,8 @@ def parse_arn(arn: str) -> dict:
 
         # Extract role name from the role path (e.g. "developers" from "AWSReservedSSO_developers_0847e649a00cc5e7")
         role_parts = role_path.split("_")
+        if len(role_parts) < 2:
+            return {"toolbox-claimed": sanitize_label(arn)}  # fallback for unexpected format
         role_name = role_parts[1]  # For AWSReservedSSO_* format
 
         # Sanitize values for kubernetes labels
