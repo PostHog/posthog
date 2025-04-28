@@ -442,13 +442,7 @@ def property_to_expr(
             chain = ["session"]
         elif property.type == "session" and scope == "session":
             chain = ["sessions"]
-        elif property.type in [
-            "recording",
-            "data_warehouse",
-            "log_entry",
-            "event_metadata",
-            "error_tracking_issue_property",
-        ]:
+        elif property.type in ["recording", "data_warehouse", "log_entry", "event_metadata"]:
             chain = []
         else:
             chain = ["properties"]
@@ -481,9 +475,23 @@ def property_to_expr(
                         if operator in (PropertyOperator.EXACT, PropertyOperator.IN_)
                         else ast.CompareOperationOp.NotIn
                     )
-                    return ast.CompareOperation(
-                        op=op, left=field, right=ast.Tuple(exprs=[ast.Constant(value=v) for v in value])
+
+                    left = ast.Field(chain=["v"]) if property.type == "error_tracking_issue_property" else field
+                    expr = ast.CompareOperation(
+                        op=op, left=left, right=ast.Tuple(exprs=[ast.Constant(value=v) for v in value])
                     )
+
+                    if property.type == "error_tracking_issue_property":
+                        return parse_expr(
+                            "arrayExists(v -> {expr}, {key})",
+                            {
+                                "expr": expr,
+                                "key": field,
+                            },
+                        )
+                    else:
+                        return expr
+
                 exprs = [
                     property_to_expr(
                         Property(
@@ -507,8 +515,8 @@ def property_to_expr(
                     return ast.And(exprs=exprs)
                 return ast.Or(exprs=exprs)
 
-        return _expr_to_compare_op(
-            expr=expr,
+        expr = _expr_to_compare_op(
+            expr=ast.Field(chain=["v"]) if property.type == "error_tracking_issue_property" else expr,
             value=value,
             operator=operator,
             team=team,
@@ -516,6 +524,13 @@ def property_to_expr(
             is_json_field=property.type != "session",
         )
 
+        if property.type == "error_tracking_issue_property":
+            return parse_expr(
+                "arrayExists(v -> {expr}, {key})",
+                {"expr": expr, "key": field},
+            )
+        else:
+            return expr
     elif property.type == "element":
         if scope == "person":
             raise NotImplementedError(f"property_to_expr for scope {scope} not implemented for type '{property.type}'")
