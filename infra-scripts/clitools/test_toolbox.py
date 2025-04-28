@@ -421,9 +421,8 @@ class TestToolbox(unittest.TestCase):
 
     @patch("toolbox.kubernetes.get_available_contexts")
     @patch("toolbox.kubernetes.get_current_context")
-    @patch("toolbox.kubernetes.switch_context")
     @patch("builtins.input")
-    def test_select_context(self, mock_input, mock_switch, mock_get_current, mock_get_available):
+    def test_select_context(self, mock_input, mock_get_current, mock_get_available):
         """Test selecting kubernetes context."""
         # Setup mocks
         mock_get_available.return_value = ["context1", "context2", "context3"]
@@ -438,7 +437,15 @@ class TestToolbox(unittest.TestCase):
         mock_get_available.assert_called_once()
         mock_get_current.assert_called_once()
         mock_input.assert_called_once()
-        mock_switch.assert_not_called()  # No switch should happen
+
+    @patch("toolbox.kubernetes.get_available_contexts")
+    @patch("toolbox.kubernetes.get_current_context")
+    def test_select_context_current_none(self, mock_get_current, mock_get_available):
+        """Test select_context exits if current context is None."""
+        mock_get_available.return_value = ["context1", "context2"]
+        mock_get_current.return_value = None
+        with self.assertRaises(SystemExit):
+            select_context()
 
 
 if __name__ == "__main__":

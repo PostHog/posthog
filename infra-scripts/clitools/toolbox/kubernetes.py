@@ -43,6 +43,9 @@ def select_context():
     """List available contexts and let user select one."""
     contexts = get_available_contexts()
     current = get_current_context()
+    if current is None:
+        print("❌ Could not determine current kubernetes context.")  # noqa: T201
+        sys.exit(1)
 
     if not contexts:
         print("❌ No kubernetes contexts found.")  # noqa: T201
