@@ -1087,6 +1087,11 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 if (searchParams.open_view) {
                     // Open view
                     const viewId = searchParams.open_view
+
+                    if (values.dataWarehouseSavedQueries.length === 0) {
+                        await dataWarehouseViewsLogic.asyncActions.loadDataWarehouseSavedQueries()
+                    }
+
                     const view = values.dataWarehouseSavedQueries.find((n) => n.id === viewId)
                     if (!view) {
                         lemonToast.error('View not found')
