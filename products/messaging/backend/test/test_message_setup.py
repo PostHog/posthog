@@ -53,7 +53,9 @@ class TestMessageSetupViewSet(APIBaseTest):
         self.assertEqual(response.json(), expected_result)
 
         # Verify the mock was called correctly
-        mock_mailjet.setup_email_domain.assert_called_once_with("example.com")
+        mock_mailjet.setup_email_domain.assert_called_once_with(
+            "example.com", team_id=self.team.id, created_by=self.user
+        )
 
     @patch("products.messaging.backend.api.message_setup.MailjetProvider")
     def test_email_verify_domain_parameter_required(self, mock_mailjet_provider):
@@ -96,4 +98,4 @@ class TestMessageSetupViewSet(APIBaseTest):
         self.assertEqual(response.json(), expected_result)
 
         # Verify the mock was called correctly
-        mock_mailjet.verify_email_domain.assert_called_once_with("example.com")
+        mock_mailjet.verify_email_domain.assert_called_once_with("example.com", team_id=self.team.id)
