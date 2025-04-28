@@ -363,7 +363,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'error-tracking-auto-assignment',
                 title: 'Auto assignment',
                 component: <ErrorTrackingAutoAssignment />,
-                // flag: 'ERROR_TRACKING_ALERT_ROUTING',
+                flag: 'ERROR_TRACKING_ALERT_ROUTING',
             },
             {
                 id: 'error-tracking-symbol-sets',
