@@ -28,7 +28,7 @@ def get_current_context() -> str | None:
         return None
 
 
-def switch_context(context: str):
+def switch_context(context: str) -> bool:
     """Switch to specified kubernetes context."""
     try:
         subprocess.run(["kubectl", "config", "use-context", context], check=True)
