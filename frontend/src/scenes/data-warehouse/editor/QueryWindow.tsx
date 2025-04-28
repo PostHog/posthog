@@ -149,6 +149,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                             icon={<IconBook />}
                             type="tertiary"
                             size="xsmall"
+                            id="sql-editor-query-window-history"
                         >
                             History
                         </LemonButton>
