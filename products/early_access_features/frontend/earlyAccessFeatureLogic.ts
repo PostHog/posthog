@@ -6,6 +6,7 @@ import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import posthog from 'posthog-js'
 
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { performQuery } from '~/queries/query'
@@ -192,11 +193,22 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
     }),
     listeners(({ actions, values, props }) => ({
         updateStage: async ({ stage }) => {
-            'id' in values.earlyAccessFeature &&
-                (await api.earlyAccessFeatures.update(props.id, {
+            let previousStage = values.earlyAccessFeature?.stage
+            if ('id' in values.earlyAccessFeature) {
+                await api.earlyAccessFeatures.update(props.id, {
                     ...values.earlyAccessFeature,
                     stage: stage,
-                }))
+                })
+                // Fire event if moving from concept to beta
+                if (previousStage === 'concept' && stage === 'beta') {
+                    posthog.capture('user moved feature preview stage', {
+                        from: 'concept',
+                        to: 'beta',
+                        feature_flag_key: values.earlyAccessFeature?.feature_flag?.key,
+                        feature_id: values.earlyAccessFeature?.id,
+                    })
+                }
+            }
             if (props.id) {
                 refreshTreeItem('early_access_feature', props.id)
             }
