@@ -145,6 +145,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         shareTab: true,
         openHistoryModal: true,
         closeHistoryModal: true,
+        setInProgressViewEdit: (viewId: string, historyId: string) => ({ viewId, historyId }),
+        deleteInProgressViewEdit: (viewId: string) => ({ viewId }),
     })),
     propsChanged(({ actions, props }, oldProps) => {
         if (!oldProps.monaco && !oldProps.editor && props.monaco && props.editor) {
@@ -294,6 +296,21 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             {
                 openHistoryModal: () => true,
                 closeHistoryModal: () => false,
+            },
+        ],
+        // if a view edit starts, store the historyId in the state
+        inProgressViewEdits: [
+            {} as Record<DataWarehouseSavedQuery['id'], string>,
+            {
+                setInProgressViewEdit: (state, { viewId, historyId }) => ({
+                    ...state,
+                    [viewId]: historyId,
+                }),
+                deleteInProgressViewEdit: (state, { viewId }) => {
+                    const newInProgressViewEdits = { ...state }
+                    delete newInProgressViewEdits[viewId]
+                    return newInProgressViewEdits
+                },
             },
         ],
     })),
@@ -697,7 +714,14 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             }
             actions.setCacheLoading(false)
         },
-        setQueryInput: () => {
+        setQueryInput: ({ queryInput }) => {
+            if (values.activeModelUri?.view) {
+                if (queryInput === values.activeModelUri.view?.query.query) {
+                    actions.deleteInProgressViewEdit(values.activeModelUri.view.id)
+                } else if (!values.inProgressViewEdits[values.activeModelUri.view.id]) {
+                    actions.setInProgressViewEdit(values.activeModelUri.view.id, 'test history id')
+                }
+            }
             actions.updateState()
         },
         updateState: async ({ skipBreakpoint }, breakpoint) => {

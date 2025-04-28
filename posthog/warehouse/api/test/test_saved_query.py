@@ -35,6 +35,7 @@ class TestSavedQuery(APIBaseTest):
                 }
             ],
         )
+        self.assertIsNotNone(saved_query["latest_history_id"])
 
     def test_create_with_types(self):
         with patch.object(DataWarehouseSavedQuery, "get_columns") as mock_get_columns:
@@ -663,7 +664,7 @@ class TestSavedQuery(APIBaseTest):
                         "kind": "HogQLQuery",
                         "query": "select event as event from events LIMIT 10",
                     },
-                    "current_query": saved_query["query"]["query"],
+                    "edited_history_id": saved_query["latest_history_id"],
                 },
             )
 

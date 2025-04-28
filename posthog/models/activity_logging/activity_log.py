@@ -429,7 +429,7 @@ def log_activity(
     detail: Detail,
     was_impersonated: Optional[bool],
     force_save: bool = False,
-) -> None:
+) -> ActivityLog | None:
     if was_impersonated and user is None:
         logger.warn(
             "activity_log.failed_to_write_to_activity_log",
@@ -451,7 +451,7 @@ def log_activity(
             )
             return
 
-        ActivityLog.objects.create(
+        activity_log = ActivityLog.objects.create(
             organization_id=organization_id,
             team_id=team_id,
             user=user,
@@ -462,6 +462,7 @@ def log_activity(
             activity=activity,
             detail=detail,
         )
+        return activity_log
     except Exception as e:
         logger.warn(
             "activity_log.failed_to_write_to_activity_log",
