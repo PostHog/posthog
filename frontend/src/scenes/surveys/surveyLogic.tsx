@@ -367,9 +367,27 @@ export const surveyLogic = kea<surveyLogicType>([
                     ? values.answerFilterHogQLExpression.slice(4)
                     : '1=1' // Use '1=1' for SQL TRUE
 
+                // Define the CTE to find the latest relevant event UUID for each submission ID
+                const latestSurveySentEventsCTE = `
+                    WITH LatestSurveySentEvents AS (
+                        SELECT argMax(uuid, timestamp) as latest_uuid
+                        FROM events
+                        WHERE event = '${SurveyEventName.SENT}'
+                          AND properties.$survey_id = '${props.id}'
+                          AND timestamp >= '${startDate}'
+                          AND timestamp <= '${endDate}'
+                          ${values.answerFilterHogQLExpression} -- Apply answer filter within CTE
+                          AND {filters} -- Apply property filter within CTE
+                        GROUP BY properties.$survey_submission_id
+                    )
+                `
+
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
+                    // Combine CTE definition with the main query
                     query: `
+                        ${latestSurveySentEventsCTE}
+                        -- QUERYING BASE STATS
                         SELECT
                             event as event_name,
                             count() as total_count,
@@ -383,8 +401,24 @@ export const surveyLogic = kea<surveyLogicType>([
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
                             AND {filters} -- Apply property filters here
-                            -- Apply answer filters only to 'survey sent' events
-                            AND (event != '${SurveyEventName.SENT}' OR (${answerFilterCondition}))
+                            -- Main condition for handling partial responses and answer filters:
+                            AND (
+                                -- Include non-'sent' events directly
+                                event != '${SurveyEventName.SENT}'
+                                OR
+                                -- Include 'sent' events only if they meet answer filter AND (are old OR are the latest in their submission chain identified by the CTE)
+                                (
+                                    (${answerFilterCondition}) -- Apply answer filters ONLY to 'sent' events
+                                    AND
+                                    (
+                                        -- Include old events without submission ID
+                                        properties.$survey_submission_id IS NULL
+                                        OR
+                                        -- Include the latest event from each submission ID chain found by the CTE
+                                        uuid IN (SELECT latest_uuid FROM LatestSurveySentEvents)
+                                    )
+                                )
+                            )
                         GROUP BY event
                     `,
                     filters: {
@@ -764,7 +798,6 @@ export const surveyLogic = kea<surveyLogicType>([
             // Load survey stats data
             actions.loadSurveyBaseStats()
             actions.loadSurveyDismissedAndSentCount()
-
             // Load results for each question
             values.survey.questions.forEach((question, index) => {
                 switch (question.type) {
