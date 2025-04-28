@@ -325,6 +325,7 @@ const HIDDEN_DESTINATIONS = [
     'plugin-segment-customerio',
     'plugin-segment-slack',
     'plugin-segment-webhook-extensible',
+    'plugin-segment-gleap-cloud-actions',
 ]
 
 export const SEGMENT_DESTINATIONS = Object.entries(destinations)
@@ -401,7 +402,7 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations)
                 id,
                 name,
                 description: `Send event data to ${name}`,
-                icon_url: `https://img.logo.dev/${destination.slug?.split('-')[1]}.com?token=pk_NiEhY0r4ToO7w_3DQvOALw`,
+                icon_url: `/api/environments/@current/hog_functions/icon/?id=${destination.slug?.split('-')[1]}.com`,
                 category: [],
                 inputs_schema: translateInputsSchema(destination.authentication?.fields),
                 hog: 'return event',
