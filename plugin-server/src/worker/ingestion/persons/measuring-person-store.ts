@@ -6,7 +6,7 @@ import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team 
 import { DB } from '../../../utils/db/db'
 import { PostgresUse, TransactionClient } from '../../../utils/db/postgres'
 import { logger } from '../../../utils/logger'
-import { personMethodCallsPerBatchHistogram } from './metrics'
+import { personCacheOperationsCounter, personMethodCallsPerBatchHistogram } from './metrics'
 import { PersonsStore } from './persons-store'
 import { PersonsStoreForBatch } from './persons-store-for-batch'
 import { PersonsStoreForDistinctIdBatch } from './persons-store-for-distinct-id-batch'
@@ -39,6 +39,13 @@ const ALL_METHODS: MethodName[] = [
 export interface PersonsStoreOptions {
     personCacheEnabledForUpdates: boolean
     personCacheEnabledForChecks: boolean
+}
+
+interface CacheMetrics {
+    updateCacheHits: number
+    updateCacheMisses: number
+    checkCacheHits: number
+    checkCacheMisses: number
 }
 
 export class MeasuringPersonsStore implements PersonsStore {
@@ -75,12 +82,19 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
             for (const [method, count] of methodCounts.entries()) {
                 personMethodCallsPerBatchHistogram.observe({ method }, count)
             }
+
+            const cacheMetrics = store.getCacheMetrics()
+            personCacheOperationsCounter.inc({ cache: 'update', operation: 'hit' }, cacheMetrics.updateCacheHits)
+            personCacheOperationsCounter.inc({ cache: 'update', operation: 'miss' }, cacheMetrics.updateCacheMisses)
+            personCacheOperationsCounter.inc({ cache: 'check', operation: 'hit' }, cacheMetrics.checkCacheHits)
+            personCacheOperationsCounter.inc({ cache: 'check', operation: 'miss' }, cacheMetrics.checkCacheMisses)
         }
     }
 }
 
 export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForDistinctIdBatch {
     private methodCounts: Map<MethodName, number>
+    private cacheMetrics: CacheMetrics
     /**
      * We maintain two separate person caches for different read patterns:
      *
@@ -113,6 +127,12 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
         }
         this.personCache = new Map()
         this.personCheckCache = new Map()
+        this.cacheMetrics = {
+            updateCacheHits: 0,
+            updateCacheMisses: 0,
+            checkCacheHits: 0,
+            checkCacheMisses: 0,
+        }
     }
 
     // Public interface methods
@@ -254,6 +274,10 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
         return new Map(this.methodCounts)
     }
 
+    getCacheMetrics(): CacheMetrics {
+        return this.cacheMetrics
+    }
+
     // Private cache management methods
 
     private getCacheKey(teamId: number, distinctId: string): string {
@@ -267,18 +291,32 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
 
     private getCachedPerson(teamId: number, distinctId: string): InternalPerson | null | undefined {
         if (!this.options.personCacheEnabledForUpdates) {
+            this.cacheMetrics.updateCacheMisses++
             return undefined
         }
         const cacheKey = this.getCacheKey(teamId, distinctId)
-        return this.personCache.get(cacheKey)
+        const result = this.personCache.get(cacheKey)
+        if (result !== undefined) {
+            this.cacheMetrics.updateCacheHits++
+        } else {
+            this.cacheMetrics.updateCacheMisses++
+        }
+        return result
     }
 
     private getCheckCachedPerson(teamId: number, distinctId: string): InternalPerson | null | undefined {
         if (!this.options.personCacheEnabledForChecks) {
+            this.cacheMetrics.checkCacheMisses++
             return undefined
         }
         const cacheKey = this.getCacheKey(teamId, distinctId)
-        return this.personCheckCache.get(cacheKey)
+        const result = this.personCheckCache.get(cacheKey)
+        if (result !== undefined) {
+            this.cacheMetrics.checkCacheHits++
+        } else {
+            this.cacheMetrics.checkCacheMisses++
+        }
+        return result
     }
 
     private setCachedPerson(teamId: number, distinctId: string, person: InternalPerson | null): void {
