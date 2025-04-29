@@ -3,11 +3,12 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"github.com/prometheus/client_golang/prometheus"
 	"log"
+	"strconv"
 	"time"
 
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
-	"github.com/getsentry/sentry-go"
 )
 
 type PostHogEventWrapper struct {
@@ -49,11 +50,14 @@ func NewPostHogKafkaConsumer(
 	outgoingChan chan PostHogEvent, statsChan chan CountEvent) (*PostHogKafkaConsumer, error) {
 
 	config := &kafka.ConfigMap{
-		"bootstrap.servers":  brokers,
-		"group.id":           groupID,
-		"auto.offset.reset":  "latest",
-		"enable.auto.commit": false,
-		"security.protocol":  securityProtocol,
+		"bootstrap.servers":          brokers,
+		"group.id":                   groupID,
+		"auto.offset.reset":          "latest",
+		"enable.auto.commit":         false,
+		"security.protocol":          securityProtocol,
+		"fetch.message.max.bytes":    1_000_000_000,
+		"fetch.max.bytes":            1_000_000_000,
+		"queued.max.messages.kbytes": 1_000_000,
 	}
 
 	consumer, err := kafka.NewConsumer(config)
@@ -72,7 +76,6 @@ func NewPostHogKafkaConsumer(
 
 func (c *PostHogKafkaConsumer) Consume() {
 	if err := c.consumer.SubscribeTopics([]string{c.topic}, nil); err != nil {
-		sentry.CaptureException(err)
 		log.Fatalf("Failed to subscribe to topic: %v", err)
 	}
 
@@ -89,11 +92,10 @@ func (c *PostHogKafkaConsumer) Consume() {
 				}
 			}
 			log.Printf("Error consuming message: %v", err)
-			sentry.CaptureException(err)
 			continue
 		}
 
-		msgConsumed.Inc()
+		msgConsumed.With(prometheus.Labels{"partition": strconv.Itoa(int(msg.TopicPartition.Partition))}).Inc()
 		phEvent := parse(c.geolocator, msg.Value)
 
 		c.outgoingChan <- phEvent
@@ -145,7 +147,8 @@ func parse(geolocator GeoLocator, kafkaMessage []byte) PostHogEvent {
 		var err error
 		phEvent.Lat, phEvent.Lng, err = geolocator.Lookup(ipStr)
 		if err != nil && err.Error() != "invalid IP address" { // An invalid IP address is not an error on our side
-			sentry.CaptureException(err)
+			// TODO capture error to PostHog
+			_ = err
 		}
 	}
 

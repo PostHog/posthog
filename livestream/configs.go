@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/fsnotify/fsnotify"
-	"github.com/getsentry/sentry-go"
 	"github.com/spf13/viper"
 )
 
@@ -19,7 +18,7 @@ func loadConfigs() {
 
 	err := viper.ReadInConfig()
 	if err != nil {
-		sentry.CaptureException(err)
+		// TODO capture error to PostHog
 		log.Fatalf("fatal error config file: %v", err)
 	}
 
