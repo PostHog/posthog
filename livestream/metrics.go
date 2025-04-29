@@ -6,10 +6,13 @@ import (
 )
 
 var (
-	msgConsumed = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "livestream_kafka_consumed_total",
-		Help: "The total number of processed events",
-	})
+	msgConsumed = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "livestream_kafka_consumed_total",
+			Help: "The total number of processed events",
+		},
+		[]string{"partition"},
+	)
 	timeoutConsume = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "livestream_kafka_timeout_total",
 		Help: "The total number of timeout consume",

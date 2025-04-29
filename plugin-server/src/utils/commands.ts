@@ -1,6 +1,5 @@
 import express from 'express'
 
-import { runInstrumentedFunction } from '../main/utils'
 import { Hub, PluginServerService } from '../types'
 import { reloadPlugins } from '../worker/tasks'
 import { populatePluginCapabilities } from '../worker/vm/lazy'
@@ -24,15 +23,6 @@ export class ServerCommands {
             [this.hub.PLUGINS_RELOAD_PUBSUB_CHANNEL]: async () => {
                 logger.info('⚡', '[PubSub] Reloading plugins!')
                 await reloadPlugins(this.hub)
-            },
-            'reset-available-product-features-cache': async (message) => {
-                const { organizationId } = parseJSON(message) as { organizationId: string }
-                logger.info('⚡', '[PubSub] Resetting available product features cache!', { organizationId })
-
-                await runInstrumentedFunction({
-                    statsKey: 'reset-available-product-features-cache',
-                    func: () => Promise.resolve(this.hub.teamManager.orgAvailableFeaturesChanged(organizationId)),
-                })
             },
             'populate-plugin-capabilities': async (message) => {
                 const { pluginId } = parseJSON(message) as { pluginId: string }

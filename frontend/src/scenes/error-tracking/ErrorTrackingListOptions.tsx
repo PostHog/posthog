@@ -92,13 +92,11 @@ export const ErrorTrackingListOptions = (): JSX.Element => {
                         <div className="flex items-center gap-1">
                             <span>Assigned to:</span>
                             <AssigneeSelect assignee={assignee} onChange={(assignee) => setAssignee(assignee)}>
-                                {(displayAssignee) => {
-                                    return (
-                                        <LemonButton type="secondary" size="small">
-                                            <AssigneeLabelDisplay assignee={displayAssignee} placeholder="Any user" />
-                                        </LemonButton>
-                                    )
-                                }}
+                                {(displayAssignee) => (
+                                    <LemonButton type="secondary" size="small">
+                                        <AssigneeLabelDisplay assignee={displayAssignee} placeholder="Any user" />
+                                    </LemonButton>
+                                )}
                             </AssigneeSelect>
                         </div>
                     </span>
