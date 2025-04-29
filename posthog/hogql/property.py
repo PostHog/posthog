@@ -47,6 +47,7 @@ from posthog.schema import (
     DataWarehousePropertyFilter,
     DataWarehousePersonPropertyFilter,
     ErrorTrackingIssueFilter,
+    ErrorTrackingIssuePropertyFilter,
 )
 from posthog.warehouse.models import DataWarehouseJoin
 from posthog.utils import get_from_dict_or_attr
@@ -301,6 +302,7 @@ def property_to_expr(
         | DataWarehousePropertyFilter
         | DataWarehousePersonPropertyFilter
         | ErrorTrackingIssueFilter
+        | ErrorTrackingIssuePropertyFilter
     ),
     team: Team,
     scope: Literal["event", "person", "group", "session", "replay", "replay_entity"] = "event",
