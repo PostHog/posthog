@@ -1,5 +1,5 @@
 import { Monaco } from '@monaco-editor/react'
-import { IconBolt, IconBrackets, IconDownload, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
+import { IconBolt, IconBook, IconBrackets, IconDownload, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -14,6 +14,7 @@ import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogi
 import { editorSizingLogic } from './editorSizingLogic'
 import { multitabEditorLogic } from './multitabEditorLogic'
 import { OutputPane } from './OutputPane'
+import { QueryHistoryModal } from './QueryHistoryModal'
 import { QueryPane } from './QueryPane'
 import { QueryTabs } from './QueryTabs'
 import { editorSidebarLogic, EditorSidebarTab } from './sidebar/editorSidebarLogic'
@@ -48,6 +49,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
         saveAsView,
         fixErrors: fixHogQLErrors,
     } = useActions(multitabEditorLogic)
+    const { openHistoryModal } = useActions(multitabEditorLogic)
 
     const { response, responseError } = useValues(dataNodeLogic)
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
@@ -63,33 +65,28 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
             editingView.status === 'Cancelled' ||
             editingView.status === 'Running')
 
-    const AddSQLVariablesButton = useMemo(
-        () => (
-            <LemonButton
-                onClick={() => setActiveTab(EditorSidebarTab.QueryVariables)}
-                icon={<IconBrackets />}
-                type="tertiary"
-                size="xsmall"
-                id="sql-editor-query-window-add-variables"
-            >
-                Add SQL variables
-            </LemonButton>
-        ),
-        []
+    const renderAddSQLVariablesButton = (): JSX.Element => (
+        <LemonButton
+            onClick={() => setActiveTab(EditorSidebarTab.QueryVariables)}
+            icon={<IconBrackets />}
+            type="tertiary"
+            size="xsmall"
+            id="sql-editor-query-window-add-variables"
+        >
+            Add SQL variables
+        </LemonButton>
     )
-    const MaterializeButton = useMemo(
-        () => (
-            <LemonButton
-                onClick={() => setActiveTab(EditorSidebarTab.QueryInfo)}
-                icon={<IconBolt />}
-                type="tertiary"
-                size="xsmall"
-                id="sql-editor-query-window-materialize"
-            >
-                Materialize
-            </LemonButton>
-        ),
-        []
+
+    const renderMaterializeButton = (): JSX.Element => (
+        <LemonButton
+            onClick={() => setActiveTab(EditorSidebarTab.QueryInfo)}
+            icon={<IconBolt />}
+            type="tertiary"
+            size="xsmall"
+            id="sql-editor-query-window-materialize"
+        >
+            Materialize
+        </LemonButton>
     )
 
     return (
@@ -150,10 +147,19 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                         >
                             {isMaterializedView ? 'Update and re-materialize view' : 'Update view'}
                         </LemonButton>
-                        {!isMaterializedView && MaterializeButton}
+                        {!isMaterializedView && renderMaterializeButton()}
+                        <LemonButton
+                            onClick={() => openHistoryModal()}
+                            icon={<IconBook />}
+                            type="tertiary"
+                            size="xsmall"
+                            id="sql-editor-query-window-history"
+                        >
+                            History
+                        </LemonButton>
                     </>
                 )}
-                {editingInsight && AddSQLVariablesButton}
+                {editingInsight && renderAddSQLVariablesButton()}
                 {!editingInsight && !editingView && (
                     <>
                         <LemonButton
@@ -165,8 +171,8 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                         >
                             Save as view
                         </LemonButton>
-                        {MaterializeButton}
-                        {AddSQLVariablesButton}
+                        {renderMaterializeButton()}
+                        {renderAddSQLVariablesButton()}
                     </>
                 )}
                 <LemonButton
@@ -215,6 +221,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                 }}
             />
             <InternalQueryWindow />
+            <QueryHistoryModal />
         </div>
     )
 }

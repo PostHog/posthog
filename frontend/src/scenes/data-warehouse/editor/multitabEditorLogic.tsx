@@ -146,6 +146,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         onRejectSuggestedQueryInput: true,
         setResponse: (response: Record<string, any> | null) => ({ response, currentTab: values.activeModelUri }),
         shareTab: true,
+        openHistoryModal: true,
+        closeHistoryModal: true,
     })),
     propsChanged(({ actions, props }, oldProps) => {
         if (!oldProps.monaco && !oldProps.editor && props.monaco && props.editor) {
@@ -288,6 +290,13 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             '',
             {
                 _setSuggestedQueryInput: (_, { suggestedQueryInput }) => suggestedQueryInput,
+            },
+        ],
+        isHistoryModalOpen: [
+            false as boolean,
+            {
+                openHistoryModal: () => true,
+                closeHistoryModal: () => false,
             },
         ],
     })),
@@ -1093,6 +1102,11 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 if (searchParams.open_view) {
                     // Open view
                     const viewId = searchParams.open_view
+
+                    if (values.dataWarehouseSavedQueries.length === 0) {
+                        await dataWarehouseViewsLogic.asyncActions.loadDataWarehouseSavedQueries()
+                    }
+
                     const view = values.dataWarehouseSavedQueries.find((n) => n.id === viewId)
                     if (!view) {
                         lemonToast.error('View not found')

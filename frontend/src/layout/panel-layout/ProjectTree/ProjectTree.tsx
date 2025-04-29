@@ -45,6 +45,7 @@ export function ProjectTree(): JSX.Element {
         checkedItemsCount,
         checkedItemCountNumeric,
         scrollTargetId,
+        editingItemId,
     } = useValues(projectTreeLogic)
 
     const {
@@ -65,6 +66,7 @@ export function ProjectTree(): JSX.Element {
         setCheckedItems,
         assureVisibility,
         clearScrollTarget,
+        setEditingItemId,
     } = useActions(projectTreeLogic)
 
     const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier, setProjectTreeMode } =
@@ -276,7 +278,7 @@ export function ProjectTree(): JSX.Element {
                         asChild
                         onClick={(e) => {
                             e.stopPropagation()
-                            rename(item.record as unknown as FileSystemEntry)
+                            setEditingItemId(item.id)
                         }}
                     >
                         <ButtonPrimitive menuItem>Rename</ButtonPrimitive>
@@ -407,6 +409,16 @@ export function ProjectTree(): JSX.Element {
                         toggleFolderOpen(folder?.id || '', isExpanded)
                     }
                 }}
+                isItemEditing={(item) => {
+                    return editingItemId === item.id
+                }}
+                onItemNameChange={(item, name) => {
+                    if (item.name !== name) {
+                        rename(name, item.record as unknown as FileSystemEntry)
+                    }
+                    // Clear the editing item id when the name changes
+                    setEditingItemId('')
+                }}
                 expandedItemIds={searchTerm ? expandedSearchFolders : expandedFolders}
                 onSetExpandedItemIds={searchTerm ? setExpandedSearchFolders : setExpandedFolders}
                 enableDragAndDrop={true}
@@ -420,11 +432,13 @@ export function ProjectTree(): JSX.Element {
                     }
                     const oldItem = viableItems.find((i) => itemToId(i) === oldId)
                     const newItem = viableItems.find((i) => itemToId(i) === newId)
-                    if (oldItem === newItem || !oldItem || !newItem) {
+                    if (oldItem === newItem || !oldItem) {
                         return false
                     }
+
                     const oldPath = oldItem.path
-                    const folder = newItem.path
+                    // if no path, that means it's a root item
+                    const folder = newItem?.path || ''
 
                     if (checkedItems[oldId]) {
                         moveCheckedItems(folder)
