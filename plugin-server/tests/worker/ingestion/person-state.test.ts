@@ -86,7 +86,8 @@ describe('PersonState.update()', () => {
             event.distinct_id!,
             timestampParam,
             processPerson,
-            customHub ? customHub.db : hub.db
+            customHub ? customHub.db : hub.db,
+            0
         )
     }
 

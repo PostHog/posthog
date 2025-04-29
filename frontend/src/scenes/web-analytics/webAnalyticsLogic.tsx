@@ -1843,7 +1843,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       linkText: 'Active hours',
                                       canOpenModal: true,
                                       query: {
-                                          kind: NodeKind.WebActiveHoursHeatMapQuery,
+                                          kind: NodeKind.EventsHeatMapQuery,
+                                          source: {
+                                              kind: NodeKind.EventsNode,
+                                              event: '$pageview',
+                                              name: '$pageview',
+                                              math: BaseMathType.UniqueUsers,
+                                          },
                                           properties: webAnalyticsFilters,
                                           dateRange,
                                       },
