@@ -3969,7 +3969,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         with freeze_time("2022-05-07 12:23:07"):
 
-            def make_request_and_assert_requests_recorded(expected_requests: dict[str, int] | None = None):
+            def make_request_and_assert_requests_recorded(expected_requests=None):
                 response = self.client.get(
                     f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
                     HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
