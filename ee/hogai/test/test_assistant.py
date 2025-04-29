@@ -1302,7 +1302,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
             # Run the assistant and capture output
             output = self._run_assistant_graph(graph, conversation=self.conversation)
-            expected_output = [
+            expected_output: list = [
                 ("message", HumanMessage(content="Hello")),
             ]
 
