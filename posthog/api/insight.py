@@ -455,15 +455,9 @@ class InsightSerializer(InsightBasicSerializer):
             if dashboards is not None:
                 self._update_insight_dashboards(dashboards, instance)
 
-        _fs_folder = validated_data.pop("_fs_folder", None)
-
         updated_insight = super().update(instance, validated_data)
         if not are_alerts_supported_for_insight(updated_insight):
             instance.alertconfiguration_set.all().delete()
-
-        if _fs_folder is not None:
-            updated_insight._fs_folder = _fs_folder
-            updated_insight.save()
 
         self._log_insight_update(before_update, dashboards_before_change, updated_insight, current_url, session_id)
 
@@ -1121,7 +1115,7 @@ When set, the specified dashboard's filters and date range override will be appl
     # Creates or updates an InsightViewed object for the user/insight combo
     # ******************************************
     @action(methods=["POST"], detail=True, required_scopes=["insight:read"])
-    def viewed(self, request: request.Request, *args, **kwargs) -> Response:
+    def viewed(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         InsightViewed.objects.update_or_create(
             team=self.team,
             user=request.user,

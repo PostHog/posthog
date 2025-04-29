@@ -172,10 +172,6 @@ class NotebookSerializer(NotebookMinimalSerializer):
                     validated_data["version"] = locked_instance.version + 1
 
                 updated_notebook = super().update(locked_instance, validated_data)
-                _fs_folder = validated_data.pop("_fs_folder", None)
-                if _fs_folder is not None:
-                    updated_notebook.set_fs_folder(_fs_folder)
-                    updated_notebook.save()
 
         changes = changes_between("Notebook", previous=before_update, current=updated_notebook)
 
