@@ -595,6 +595,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         runner = EventsQueryRunner(query=query, team=self.team)
         response = runner.run()
+        assert isinstance(response, CachedEventsQueryResponse)
         display_names = [row[1]["display_name"] for row in response.results]
         assert set(display_names) == {"Test User"}
 
@@ -629,5 +630,6 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         runner = EventsQueryRunner(query=query, team=self.team)
         response = runner.run()
+        assert isinstance(response, CachedEventsQueryResponse)
         display_names = [row[1]["display_name"] for row in response.results]
         assert set(display_names) == {"id_email", "id_anon"}
