@@ -144,3 +144,52 @@ PrefilledManyValues.args = {
     allowCustomValues: true,
     value: names.map((_, i) => `user-${i}`),
 }
+
+export const WithSelectAllAndClear: Story = Template.bind({})
+WithSelectAllAndClear.args = {
+    mode: 'multiple',
+    showSelectAll: true,
+    showClearAll: true,
+}
+
+export const WithSelectAllOnly: Story = Template.bind({})
+WithSelectAllOnly.args = {
+    mode: 'multiple',
+    showSelectAll: true,
+}
+
+export const WithClearOnly: Story = Template.bind({})
+WithClearOnly.args = {
+    mode: 'multiple',
+    showClearAll: true,
+}
+
+export const CountModeAllSelected: Story = Template.bind({})
+CountModeAllSelected.args = {
+    mode: 'multiple',
+    displayMode: 'count',
+    value: names.map((_, i) => `user-${i}`),
+}
+
+export const CountModePartiallySelected: Story = Template.bind({})
+CountModePartiallySelected.args = {
+    mode: 'multiple',
+    displayMode: 'count',
+    value: names.slice(0, 10).map((_, i) => `user-${i}`),
+}
+
+export const CountModeNoneSelected: Story = Template.bind({})
+CountModeNoneSelected.args = {
+    mode: 'multiple',
+    displayMode: 'count',
+    value: [],
+}
+
+export const CountModeWithSelectClear: Story = Template.bind({})
+CountModeWithSelectClear.args = {
+    mode: 'multiple',
+    displayMode: 'count',
+    showSelectAll: true,
+    showClearAll: true,
+    value: names.slice(0, 5).map((_, i) => `user-${i}`),
+}
