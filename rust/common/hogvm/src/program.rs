@@ -43,7 +43,6 @@ impl Program {
                 }
                 let version = version.unwrap_or(JsonValue::Number(Number::from(0)));
                 match version {
-                    // We don't actually
                     JsonValue::Number(n) => n.as_u64().ok_or(VmError::InvalidBytecode(
                         "Invalid version number".to_string(),
                     ))?,
