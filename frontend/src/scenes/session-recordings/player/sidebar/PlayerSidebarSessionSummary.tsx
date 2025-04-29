@@ -8,7 +8,7 @@ import {
     IconThumbsUp,
     IconWarning,
 } from '@posthog/icons'
-import { LemonBanner, LemonCollapse, LemonDivider, LemonSkeleton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCollapse, LemonDivider, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -60,14 +60,20 @@ function LoadingTimer({ operation }: { operation?: string }): JSX.Element {
     const [elapsedSeconds, setElapsedSeconds] = useState(0)
 
     useEffect(() => {
+        if (operation !== undefined) {
+            setElapsedSeconds(0) // Reset timer only when operation changes and is provided
+        }
+    }, [operation])
+
+    useEffect(() => {
         const interval = setInterval(() => {
             setElapsedSeconds((prev) => prev + 1)
         }, 1000)
 
         return () => clearInterval(interval)
-    }, [])
+    }, []) // Keep this dependency array empty to avoid resetting interval
 
-    return <span className="font-mono text-xs">{elapsedSeconds}s</span>
+    return <span className="font-mono text-xs text-muted">{elapsedSeconds}s</span>
 }
 
 function SegmentMetaTable({ meta }: SegmentMetaProps): JSX.Element | null {
@@ -222,28 +228,23 @@ interface SessionSummaryLoadingStateProps {
     outOf?: number
 }
 
-function SessionSummaryLoadingState({
-    operation,
-    counter,
-    name,
-    outOf,
-}: SessionSummaryLoadingStateProps): JSX.Element {
+function SessionSummaryLoadingState({ operation, counter, name, outOf }: SessionSummaryLoadingStateProps): JSX.Element {
     return (
         <div className="mb-4 grid grid-cols-[auto_1fr] gap-x-2">
             <Spinner className="text-2xl row-span-2 self-center" />
             <div className="flex items-center justify-between">
                 <span className="text-muted">
-                    {operation}
+                    {operation}&nbsp;
                     {counter !== undefined && (
                         <span className="font-semibold">
                             ({counter}
-                            {outOf ? ` of ${outOf}` : ''})
+                            {outOf ? ` out of ${outOf}` : ''})
                         </span>
                     )}
                     {name ? ':' : ''}
                 </span>
                 <div className="flex items-center gap-1 ml-auto font-mono text-xs">
-                    <LoadingTimer />
+                    <LoadingTimer operation={operation} />
                 </div>
             </div>
             {name ? (
@@ -294,7 +295,7 @@ function SessionSummary(): JSX.Element {
         if (hasSegmentsWithOutcomes) {
             return {
                 finished: false,
-                operation: 'Researching the success of the each segment',
+                operation: 'Analyzing the success of each segment',
             }
         }
         // If some segments have key actions already, it means we stream the key actions for each segment
@@ -319,8 +320,8 @@ function SessionSummary(): JSX.Element {
             const currentSegment = segments[currentSegmentIndex]
             return {
                 finished: false,
-                operation: 'Researching key actions for the segment',
-                counter: currentSegment?.meta?.key_action_count ?? undefined,
+                operation: 'Researching key actions for segments',
+                counter: currentSegmentIndex,
                 name: currentSegment?.name ?? undefined,
                 outOf: segments.length,
             }
@@ -347,36 +348,33 @@ function SessionSummary(): JSX.Element {
                         </LemonTag>
                     </h3>
 
-                    {sessionSummary?.session_outcome ? (
-                        <div className="mb-2">
-                            {sessionSummary.session_outcome.success !== null &&
-                            sessionSummary.session_outcome.success !== undefined &&
-                            sessionSummary.session_outcome.description ? (
-                                <LemonBanner
-                                    type={sessionSummary.session_outcome.success ? 'success' : 'error'}
-                                    className="mb-4"
-                                >
-                                    <div className="text-sm font-normal">
-                                        <div>{sessionSummary.session_outcome.description}</div>
-                                    </div>
-                                </LemonBanner>
-                            ) : (
-                                <div className="mb-4">
-                                    <LemonSkeleton className="h-12" />
+                    <div className="mb-2">
+                        {sessionSummaryLoadingState.finished &&
+                        sessionSummary?.session_outcome &&
+                        sessionSummary.session_outcome.success !== null &&
+                        sessionSummary.session_outcome.success !== undefined &&
+                        sessionSummary.session_outcome.description ? (
+                            <LemonBanner
+                                type={sessionSummary.session_outcome.success ? 'success' : 'error'}
+                                className="mb-4"
+                            >
+                                <div className="text-sm font-normal">
+                                    <div>{sessionSummary.session_outcome.description}</div>
                                 </div>
-                            )}
-                            <LemonDivider />
-                        </div>
-                    ) : null}
-
-                    {sessionSummaryLoadingState.finished ? null : (
-                        <SessionSummaryLoadingState
-                            finished={sessionSummaryLoadingState.finished}
-                            operation={sessionSummaryLoadingState.operation}
-                            counter={sessionSummaryLoadingState.counter}
-                            name={sessionSummaryLoadingState.name}
-                        />
-                    )}
+                            </LemonBanner>
+                        ) : (
+                            <div className="mb-4">
+                                <SessionSummaryLoadingState
+                                    finished={sessionSummaryLoadingState.finished}
+                                    operation={sessionSummaryLoadingState.operation}
+                                    counter={sessionSummaryLoadingState.counter}
+                                    name={sessionSummaryLoadingState.name}
+                                    outOf={sessionSummaryLoadingState.outOf}
+                                />
+                            </div>
+                        )}
+                        <LemonDivider />
+                    </div>
                     {sessionSummary?.segments?.map((segment) => {
                         const matchingSegmentOutcome = sessionSummary?.segment_outcomes?.find(
                             (outcome) => outcome.segment_index === segment.index
