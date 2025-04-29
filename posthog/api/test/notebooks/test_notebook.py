@@ -253,11 +253,11 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
         notebook_short_id = response.json()["short_id"]
 
         from posthog.models.file_system.file_system import FileSystem
 
         fs_entry = FileSystem.objects.filter(team=self.team, ref=notebook_short_id, type="notebook").first()
-        self.assertIsNotNone(fs_entry)
-        self.assertIn("Notebooks/Special Team Folder", fs_entry.path)
+        assert fs_entry is not None
+        assert "Notebooks/Special Team Folder" in fs_entry.path

@@ -3483,10 +3483,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
         insight_id = response.json()["short_id"]
 
-        self.assertTrue(insight_id)
+        assert insight_id is not None
 
         from posthog.models.file_system.file_system import FileSystem
 
         fs_entry = FileSystem.objects.filter(team=self.team, ref=str(insight_id), type="insight").first()
-        self.assertIsNotNone(fs_entry)
-        self.assertIn("Special Folder/Subfolder", fs_entry.path)
+        assert fs_entry is not None
+        assert "Special Folder/Subfolder" in fs_entry.path
