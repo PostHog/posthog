@@ -16,6 +16,7 @@ import {
 } from '../_tests/fixtures'
 import { CdpEventsConsumer } from './cdp-events.consumer'
 import { CdpInternalEventsConsumer } from './cdp-internal-event.consumer'
+import { CyclotronJobQueue } from '../services/job-queue'
 
 jest.mock('../../../src/utils/fetch', () => {
     return {
@@ -33,15 +34,6 @@ const mockFetch: jest.Mock = require('../../../src/utils/fetch').trackedFetch
 
 jest.setTimeout(1000)
 
-// Add mock for CyclotronManager
-const mockBulkCreateJobs = jest.fn()
-jest.mock('@posthog/cyclotron', () => ({
-    CyclotronManager: jest.fn().mockImplementation(() => ({
-        connect: jest.fn(),
-        bulkCreateJobs: mockBulkCreateJobs,
-    })),
-}))
-
 /**
  * NOTE: The internal and normal events consumers are very similar so we can test them together
  */
@@ -53,6 +45,7 @@ describe.each([
     let hub: Hub
     let team: Team
     let team2: Team
+    let mockQueueInvocations: jest.Mock
 
     const insertHogFunction = async (hogFunction: Partial<HogFunctionType>) => {
         const teamId = hogFunction.team_id ?? team.id
@@ -81,10 +74,16 @@ describe.each([
             isHealthy: jest.fn(),
         } as any
 
+        processor['cyclotronJobQueue'] = {
+            queueInvocations: jest.fn(),
+            startAsProducer: jest.fn(() => Promise.resolve()),
+        } as unknown as jest.Mocked<CyclotronJobQueue>
+
+        mockQueueInvocations = jest.mocked(processor['cyclotronJobQueue']['queueInvocations'])
+
         await processor.start()
 
         mockFetch.mockClear()
-        mockBulkCreateJobs.mockClear()
     })
 
     afterEach(async () => {
@@ -187,34 +186,7 @@ describe.each([
                 ])
 
                 // Verify Cyclotron jobs
-                expect(mockBulkCreateJobs).toHaveBeenCalledWith(
-                    expect.arrayContaining([
-                        expect.objectContaining({
-                            teamId: team.id,
-                            functionId: fnFetchNoFilters.id,
-                            queueName: 'hog',
-                            priority: 1,
-                            vmState: expect.objectContaining({
-                                hogFunctionId: fnFetchNoFilters.id,
-                                teamId: team.id,
-                                queue: 'hog',
-                                globals: expect.any(Object),
-                            }),
-                        }),
-                        expect.objectContaining({
-                            teamId: team.id,
-                            functionId: fnPrinterPageviewFilters.id,
-                            queueName: 'hog',
-                            priority: 1,
-                            vmState: expect.objectContaining({
-                                hogFunctionId: fnPrinterPageviewFilters.id,
-                                teamId: team.id,
-                                queue: 'hog',
-                                globals: expect.any(Object),
-                            }),
-                        }),
-                    ])
-                )
+                expect(mockQueueInvocations).toHaveBeenCalledWith(invocations)
             })
 
             it("should filter out functions that don't match the filter", async () => {
@@ -226,22 +198,7 @@ describe.each([
                 expect(invocations).toMatchObject([matchInvocation(fnFetchNoFilters, globals)])
 
                 // Verify only one Cyclotron job is created (for fnFetchNoFilters)
-                expect(mockBulkCreateJobs).toHaveBeenCalledWith(
-                    expect.arrayContaining([
-                        expect.objectContaining({
-                            teamId: team.id,
-                            functionId: fnFetchNoFilters.id,
-                            queueName: 'hog',
-                            priority: 1,
-                            vmState: expect.objectContaining({
-                                hogFunctionId: fnFetchNoFilters.id,
-                                teamId: team.id,
-                                queue: 'hog',
-                                globals: expect.any(Object),
-                            }),
-                        }),
-                    ])
-                )
+                expect(mockQueueInvocations).toHaveBeenCalledWith(invocations)
 
                 // Still verify the metric for the filtered function
                 expect(
