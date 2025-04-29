@@ -15,7 +15,7 @@ var (
 	)
 	TimeoutConsume = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "livestream_kafka_timeout_total",
-		Help: "The total number of timeout consume",
+		Help: "The total number of consume timeouts",
 	})
 	ConnectFailure = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "livestream_kafka_connect_failure_total",
