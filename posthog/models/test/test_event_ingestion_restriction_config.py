@@ -40,7 +40,7 @@ class TestEventIngestionRestrictionConfig(BaseTest):
         redis_data = self.redis_client.get(redis_key)
         self.assertIsNotNone(redis_data)
 
-        data = json.loads(redis_data)
+        data = json.loads(redis_data if redis_data is not None else b"[]")
         self.assertEqual(sorted(data), sorted(["test_token:id1", "test_token:id2"]))
 
     def test_post_save_signal_without_distinct_ids(self):
@@ -54,7 +54,7 @@ class TestEventIngestionRestrictionConfig(BaseTest):
         redis_data = self.redis_client.get(redis_key)
         self.assertIsNotNone(redis_data)
 
-        data = json.loads(redis_data)
+        data = json.loads(redis_data if redis_data is not None else b"[]")
         self.assertEqual(data, ["test_token"])
 
     def test_post_save_signal_with_existing_data(self):
@@ -73,7 +73,7 @@ class TestEventIngestionRestrictionConfig(BaseTest):
         redis_data = self.redis_client.get(redis_key)
         self.assertIsNotNone(redis_data)
 
-        data = json.loads(redis_data)
+        data = json.loads(redis_data if redis_data is not None else b"[]")
         self.assertEqual(sorted(data), sorted(["existing_token:existing_id", "test_token:id1", "test_token:id2"]))
 
     def test_post_delete_signal_with_distinct_ids(self):
@@ -93,7 +93,7 @@ class TestEventIngestionRestrictionConfig(BaseTest):
         redis_data = self.redis_client.get(redis_key)
         self.assertIsNotNone(redis_data)
 
-        data = json.loads(redis_data)
+        data = json.loads(redis_data if redis_data is not None else b"[]")
         self.assertEqual(data, ["other_token"])
 
     def test_post_delete_signal_without_distinct_ids(self):
@@ -114,7 +114,7 @@ class TestEventIngestionRestrictionConfig(BaseTest):
         redis_data = self.redis_client.get(redis_key)
         self.assertIsNotNone(redis_data)
 
-        data = json.loads(redis_data)
+        data = json.loads(redis_data if redis_data is not None else b"[]")
         self.assertEqual(data, ["other_token"])
 
     def test_post_delete_signal_removes_key_when_empty(self):
