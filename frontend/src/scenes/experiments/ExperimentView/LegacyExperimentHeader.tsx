@@ -13,6 +13,8 @@ export function LegacyExperimentHeader(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
 
     const showNewEngineBanner =
+        // We don't want to show the banner if the experiment has already started
+        !experiment.start_date &&
         // We use the isLegacyExperiment to check if the experiment does _not_ have any legacy metrics added already
         // We don't want to show the banner then, as we can't automatically migrate yet. So that would be confusing,
         // as it has no effect then.

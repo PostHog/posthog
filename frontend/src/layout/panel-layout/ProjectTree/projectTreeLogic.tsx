@@ -92,6 +92,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         scrollToView: (item: FileSystemEntry) => ({ item }),
         clearScrollTarget: true,
         setEditingItemId: (id: string) => ({ id }),
+        setMovingItems: (items: FileSystemEntry[]) => ({ items }),
     }),
     loaders(({ actions, values }) => ({
         unfiledItems: [
@@ -442,6 +443,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 setCheckedItems: (_, { checkedItems }) => checkedItems,
             },
         ],
+        movingItems: [
+            [] as FileSystemEntry[],
+            {
+                setMovingItems: (_, { items }) => items,
+            },
+        ],
         lastCheckedItem: [
             null as { id: string; checked: boolean; shift: boolean } | null,
             {
@@ -778,6 +785,16 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 return `${sum}${hasFolder ? '+' : ''}`
             },
         ],
+        checkedItemsArray: [
+            (s) => [s.checkedItems, s.viableItemsById],
+            (checkedItems, viableItemsById): FileSystemEntry[] => {
+                return Object.entries(checkedItems)
+                    .filter(([_, checked]) => checked)
+                    .map(([id]) => viableItemsById[id])
+                    .filter(Boolean)
+            },
+        ],
+
         projectTreeRefEntry: [
             (s) => [s.projectTreeRef, s.sortedItems],
             (projectTreeRef, sortedItems): FileSystemEntry | null => {
