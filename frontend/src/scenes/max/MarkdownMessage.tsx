@@ -22,11 +22,9 @@ export const MarkdownMessage = memo(function MarkdownMessage({
 }): JSX.Element {
     const blocks = useMemo(() => parseMarkdownIntoBlocks(content), [content])
     return (
-        <LemonMarkdown.Container>
+        <LemonMarkdown.Container className={className}>
             {blocks.map((block, index) => (
-                <LemonMarkdown.Renderer key={`${id}-block_${index}`} className={className}>
-                    {block}
-                </LemonMarkdown.Renderer>
+                <LemonMarkdown.Renderer key={`${id}-block_${index}`}>{block}</LemonMarkdown.Renderer>
             ))}
         </LemonMarkdown.Container>
     )
