@@ -400,6 +400,7 @@ class UserViewSet(
         lookup_value = self.kwargs[self.lookup_field]
         request_user = cast(User, self.request.user)  # Must be authenticated to access this endpoint
         if lookup_value == "@me":
+            self.check_object_permissions(self.request, request_user)
             return request_user
 
         if not request_user.is_staff:
@@ -420,15 +421,6 @@ class UserViewSet(
             **super().get_serializer_context(),
             "user_permissions": UserPermissions(cast(User, self.request.user)),
         }
-
-    def destroy(self, request, *args, **kwargs):
-        user = self.get_object()
-
-        self.check_object_permissions(request, user)
-
-        user.delete()
-
-        return Response(status=204)
 
     @action(methods=["POST"], detail=False, permission_classes=[AllowAny])
     def verify_email(self, request, **kwargs):
