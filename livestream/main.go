@@ -26,7 +26,7 @@ func main() {
 		AttachStacktrace: true,
 	})
 	if err != nil {
-		sentry.CaptureException(err)
+		// TODO capture error to PostHog
 		log.Fatalf("sentry.Init: %s", err)
 	}
 	// Flush buffered events before the program terminates.
@@ -56,16 +56,16 @@ func main() {
 
 	geolocator, err := NewMaxMindGeoLocator(mmdb)
 	if err != nil {
-		sentry.CaptureException(err)
+		// TODO capture error to PostHog
 		log.Fatalf("Failed to open MMDB: %v", err)
 	}
 
 	stats := newStatsKeeper()
 
-	phEventChan := make(chan PostHogEvent, 1000)
-	statsChan := make(chan CountEvent, 1000)
-	subChan := make(chan Subscription, 1000)
-	unSubChan := make(chan Subscription, 1000)
+	phEventChan := make(chan PostHogEvent, 10000)
+	statsChan := make(chan CountEvent, 10000)
+	subChan := make(chan Subscription, 10000)
+	unSubChan := make(chan Subscription, 10000)
 
 	go stats.keepStats(statsChan)
 
@@ -75,7 +75,7 @@ func main() {
 	}
 	consumer, err := NewPostHogKafkaConsumer(brokers, kafkaSecurityProtocol, groupID, topic, geolocator, phEventChan, statsChan)
 	if err != nil {
-		sentry.CaptureException(err)
+		// TODO capture error to PostHog
 		log.Fatalf("Failed to create Kafka consumer: %v", err)
 	}
 	defer consumer.Close()

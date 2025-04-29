@@ -3,7 +3,7 @@ module github.com/posthog/posthog/livestream
 go 1.24
 
 require (
-	github.com/confluentinc/confluent-kafka-go/v2 v2.8.0
+	github.com/confluentinc/confluent-kafka-go/v2 v2.10.0
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/getsentry/sentry-go v0.32.0
 	github.com/gofrs/uuid/v5 v5.3.2
