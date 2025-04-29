@@ -207,7 +207,12 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             )
                         ) : (
                             <InsightSaveButton
-                                saveAs={saveAs}
+                                saveAs={() =>
+                                    openSaveTo({
+                                        callback: (folder) => saveAs(undefined, undefined, folder),
+                                        defaultFolder: 'Unfiled/Insights',
+                                    })
+                                }
                                 saveInsight={(redirectToViewMode) =>
                                     insight.short_id
                                         ? saveInsight(redirectToViewMode)
