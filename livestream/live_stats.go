@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/posthog/posthog/livestream/metrics"
 	"log"
 	"time"
 
@@ -47,6 +48,6 @@ func (ts *Stats) keepStats(statsChan chan CountEvent) {
 		store.Add(event.DistinctID, noSpaceType{})
 
 		ts.GlobalStore.Add(event.DistinctID, noSpaceType{})
-		handledEvents.Inc()
+		metrics.HandledEvents.Inc()
 	}
 }

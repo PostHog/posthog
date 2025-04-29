@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"github.com/posthog/posthog/livestream/metrics"
 	"log"
 	"strconv"
 	"time"
@@ -96,9 +97,9 @@ func (c *PostHogKafkaConsumer) Consume() {
 			var inErr kafka.Error
 			if errors.As(err, &inErr) {
 				if inErr.Code() == kafka.ErrTransport {
-					connectFailure.Inc()
+					metrics.ConnectFailure.Inc()
 				} else if inErr.IsTimeout() {
-					timeoutConsume.Inc()
+					metrics.TimeoutConsume.Inc()
 					continue
 				}
 			}
@@ -107,7 +108,7 @@ func (c *PostHogKafkaConsumer) Consume() {
 			continue
 		}
 
-		msgConsumed.With(prometheus.Labels{"partition": strconv.Itoa(int(msg.TopicPartition.Partition))}).Inc()
+		metrics.MsgConsumed.With(prometheus.Labels{"partition": strconv.Itoa(int(msg.TopicPartition.Partition))}).Inc()
 		c.incoming <- msg.Value
 	}
 }
