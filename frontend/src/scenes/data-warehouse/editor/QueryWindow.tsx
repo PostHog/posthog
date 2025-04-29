@@ -1,10 +1,21 @@
 import { Monaco } from '@monaco-editor/react'
-import { IconBolt, IconBrackets, IconDownload, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
-import { LemonDivider } from '@posthog/lemon-ui'
+import {
+    IconBolt,
+    IconBook,
+    IconBrackets,
+    IconDownload,
+    IconMagicWand,
+    IconPlayFilled,
+    IconSidebarClose,
+    IconWarning,
+} from '@posthog/icons'
+import { LemonDivider, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { editor as importedEditor } from 'monaco-editor'
 import { useMemo } from 'react'
 
@@ -12,8 +23,10 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { editorSizingLogic } from './editorSizingLogic'
+import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
 import { multitabEditorLogic } from './multitabEditorLogic'
 import { OutputPane } from './OutputPane'
+import { QueryHistoryModal } from './QueryHistoryModal'
 import { QueryPane } from './QueryPane'
 import { QueryTabs } from './QueryTabs'
 import { editorSidebarLogic, EditorSidebarTab } from './sidebar/editorSidebarLogic'
@@ -39,6 +52,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
         setMetadataLoading,
         saveAsView,
     } = useActions(multitabEditorLogic)
+    const { openHistoryModal } = useActions(multitabEditorLogic)
 
     const { response } = useValues(dataNodeLogic)
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
@@ -46,6 +60,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
     const { sidebarWidth } = useValues(editorSizingLogic)
     const { resetDefaultSidebarWidth } = useActions(editorSizingLogic)
     const { setActiveTab } = useActions(editorSidebarLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const isMaterializedView =
         !!editingView?.status &&
@@ -54,33 +69,28 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
             editingView.status === 'Cancelled' ||
             editingView.status === 'Running')
 
-    const AddSQLVariablesButton = useMemo(
-        () => (
-            <LemonButton
-                onClick={() => setActiveTab(EditorSidebarTab.QueryVariables)}
-                icon={<IconBrackets />}
-                type="tertiary"
-                size="xsmall"
-                id="sql-editor-query-window-add-variables"
-            >
-                Add SQL variables
-            </LemonButton>
-        ),
-        []
+    const renderAddSQLVariablesButton = (): JSX.Element => (
+        <LemonButton
+            onClick={() => setActiveTab(EditorSidebarTab.QueryVariables)}
+            icon={<IconBrackets />}
+            type="tertiary"
+            size="xsmall"
+            id="sql-editor-query-window-add-variables"
+        >
+            Add SQL variables
+        </LemonButton>
     )
-    const MaterializeButton = useMemo(
-        () => (
-            <LemonButton
-                onClick={() => setActiveTab(EditorSidebarTab.QueryInfo)}
-                icon={<IconBolt />}
-                type="tertiary"
-                size="xsmall"
-                id="sql-editor-query-window-materialize"
-            >
-                Materialize
-            </LemonButton>
-        ),
-        []
+
+    const renderMaterializeButton = (): JSX.Element => (
+        <LemonButton
+            onClick={() => setActiveTab(EditorSidebarTab.QueryInfo)}
+            icon={<IconBolt />}
+            type="tertiary"
+            size="xsmall"
+            id="sql-editor-query-window-materialize"
+        >
+            Materialize
+        </LemonButton>
     )
 
     return (
@@ -141,10 +151,19 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                         >
                             {isMaterializedView ? 'Update and re-materialize view' : 'Update view'}
                         </LemonButton>
-                        {!isMaterializedView && MaterializeButton}
+                        {!isMaterializedView && renderMaterializeButton()}
+                        <LemonButton
+                            onClick={() => openHistoryModal()}
+                            icon={<IconBook />}
+                            type="tertiary"
+                            size="xsmall"
+                            id="sql-editor-query-window-history"
+                        >
+                            History
+                        </LemonButton>
                     </>
                 )}
-                {editingInsight && AddSQLVariablesButton}
+                {editingInsight && renderAddSQLVariablesButton()}
                 {!editingInsight && !editingView && (
                     <>
                         <LemonButton
@@ -156,10 +175,11 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                         >
                             Save as view
                         </LemonButton>
-                        {MaterializeButton}
-                        {AddSQLVariablesButton}
+                        {renderMaterializeButton()}
+                        {renderAddSQLVariablesButton()}
                     </>
                 )}
+                {featureFlags[FEATURE_FLAGS.SQL_EDITOR_AI_ERROR_FIXER] && <FixErrorButton />}
             </div>
             <QueryPane
                 originalValue={suggestedQueryInput && suggestedQueryInput != queryInput ? queryInput ?? ' ' : undefined}
@@ -194,6 +214,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                 }}
             />
             <InternalQueryWindow />
+            <QueryHistoryModal />
         </div>
     )
 }
@@ -250,4 +271,61 @@ function InternalQueryWindow(): JSX.Element | null {
     }
 
     return <OutputPane />
+}
+
+function FixErrorButton(): JSX.Element {
+    const { queryInput, fixErrorsError, metadata } = useValues(multitabEditorLogic)
+    const { fixErrors: fixHogQLErrors } = useActions(multitabEditorLogic)
+    const { responseError } = useValues(dataNodeLogic)
+    const { responseLoading: fixHogQLErrorsLoading } = useValues(fixSQLErrorsLogic)
+
+    const queryError = responseError || metadata?.errors?.map((n) => n.message)?.join('. ') || undefined
+
+    const icon = useMemo(() => {
+        if (fixHogQLErrorsLoading) {
+            return <Spinner />
+        }
+
+        if (fixErrorsError) {
+            return <IconWarning className="text-warning" />
+        }
+
+        return <IconMagicWand />
+    }, [fixHogQLErrorsLoading, fixErrorsError])
+
+    const disabledReason = useMemo(() => {
+        if (!queryError) {
+            return 'No query error to fix'
+        }
+
+        if (fixErrorsError) {
+            return fixErrorsError
+        }
+
+        return false
+    }, [queryError, fixErrorsError])
+
+    const content = useMemo(() => {
+        if (fixHogQLErrorsLoading) {
+            return 'Fixing...'
+        }
+
+        if (fixErrorsError) {
+            return "Can't fix"
+        }
+
+        return 'Fix errors'
+    }, [fixErrorsError, fixHogQLErrorsLoading])
+
+    return (
+        <LemonButton
+            type="tertiary"
+            size="xsmall"
+            disabledReason={disabledReason}
+            icon={icon}
+            onClick={() => fixHogQLErrors(queryInput, queryError)}
+        >
+            {content}
+        </LemonButton>
+    )
 }
