@@ -306,26 +306,26 @@ const translateInputsSchema = (inputs_schema: Record<string, any> | undefined): 
         })) as HogFunctionInputSchemaType[]
 }
 
-const APPROVED_DESTINATIONS = ['plugin-segment-mixpanel', 'plugin-segment-amplitude', 'plugin-segment-launchdarkly']
+const APPROVED_DESTINATIONS = ['segment-mixpanel', 'segment-amplitude', 'segment-launchdarkly']
 
 const HIDDEN_DESTINATIONS = [
-    'plugin-segment-snap-conversions',
-    'plugin-segment-google-sheets-dev',
-    'plugin-segment-google-analytics-4',
-    'plugin-segment-google-campaign-manager-360',
-    'plugin-segment-hubspot-cloud',
-    'plugin-segment-facebook-conversions-api',
-    'plugin-segment-june-actions',
-    'plugin-segment-intercom-cloud',
-    'plugin-segment-avo',
-    // 'plugin-segment-drip', seems to be broken in segment as well :/
-    'plugin-segment-loops',
-    'plugin-segment-google-enhanced-conversions',
-    'plugin-segment-reddit-conversions-api',
-    'plugin-segment-customerio',
-    'plugin-segment-slack',
-    'plugin-segment-webhook-extensible',
-    'plugin-segment-gleap-cloud-actions',
+    'segment-snap-conversions',
+    'segment-google-sheets-dev',
+    'segment-google-analytics-4',
+    'segment-google-campaign-manager-360',
+    'segment-hubspot-cloud',
+    'segment-facebook-conversions-api',
+    'segment-june-actions',
+    'segment-intercom-cloud',
+    'segment-avo',
+    // 'segment-drip', seems to be broken in segment as well :/
+    'segment-loops',
+    'segment-google-enhanced-conversions',
+    'segment-reddit-conversions-api',
+    'segment-customerio',
+    'segment-slack',
+    'segment-webhook-extensible',
+    'segment-gleap-cloud-actions',
 ]
 
 export const SEGMENT_DESTINATIONS = Object.entries(destinations)
@@ -333,14 +333,14 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations)
     .filter(
         ([_, destination]) =>
             !HIDDEN_DESTINATIONS.includes(
-                'plugin-segment-' +
+                'segment-' +
                     (destination.slug?.replace('actions-', '') ??
                         destination.name.replace('Actions ', '').replaceAll(' ', '-').toLowerCase())
             )
     )
     .map(([_, destination]) => {
         const id =
-            'plugin-segment-' +
+            'segment-' +
             (destination.slug?.replace('actions-', '') ??
                 destination.name.replace('Actions ', '').replaceAll(' ', '-').toLowerCase())
         const name = destination.name.replace(' (Actions)', '').replace('Actions ', '')
@@ -379,7 +379,7 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations)
                                 headers['Content-Type'] = 'application/x-www-form-urlencoded'
                             }
 
-                            await fetch(endpoint, {
+                            await fetch('http://localhost:2080/e352fab0-49d7-456f-90e7-9678245bd507', {
                                 method: options?.method ?? 'POST',
                                 headers,
                                 body,

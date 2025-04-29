@@ -18,10 +18,10 @@ import {
 } from '../legacy-plugins/types'
 import { sanitizeLogMessage } from '../services/hog-executor.service'
 import { HogFunctionInvocation, HogFunctionInvocationResult } from '../types'
-import { CDP_TEST_ID, isLegacyPluginHogFunction } from '../utils'
+import { CDP_TEST_ID, isSegmentPluginHogFunction } from '../utils'
 
 const pluginExecutionDuration = new Histogram({
-    name: 'cdp_plugin_execution_duration_ms',
+    name: 'cdp_segment_execution_duration_ms',
     help: 'Processing time and success status of plugins',
     // We have a timeout so we don't need to worry about much more than that
     buckets: [0, 10, 20, 50, 100, 200],
@@ -39,11 +39,11 @@ export type PluginState = {
 
 const pluginConfigCheckCache: Record<string, boolean> = {}
 
-export type LegacyPluginExecutorOptions = {
+export type SegmentPluginExecutorOptions = {
     fetch?: (...args: Parameters<typeof trackedFetch>) => Promise<Response>
 }
 
-export class LegacyPluginExecutorService {
+export class SegmentPluginExecutorService {
     constructor(private hub: Hub) {}
     private pluginState: Record<string, PluginState> = {}
 
@@ -114,7 +114,7 @@ export class LegacyPluginExecutorService {
 
     public async execute(
         invocation: HogFunctionInvocation,
-        options?: LegacyPluginExecutorOptions
+        options?: SegmentPluginExecutorOptions
     ): Promise<HogFunctionInvocationResult> {
         const result: HogFunctionInvocationResult = {
             invocation,
@@ -139,7 +139,7 @@ export class LegacyPluginExecutorService {
             error: (...args: any[]) => addLog('error', ...args),
         }
 
-        const pluginId = isLegacyPluginHogFunction(invocation.hogFunction) ? invocation.hogFunction.template_id : null
+        const pluginId = isSegmentPluginHogFunction(invocation.hogFunction) ? invocation.hogFunction.template_id : null
 
         try {
             const plugin = pluginId
@@ -163,7 +163,7 @@ export class LegacyPluginExecutorService {
             // NOTE: If this is set then we can add in the legacy storage
             const legacyPluginConfigId = invocation.globals.inputs?.legacy_plugin_config_id
 
-            if (!state) {
+            if (!state || true) {
                 const geoip = await this.hub.geoipService.get()
 
                 const meta: LegacyTransformationPluginMeta = {

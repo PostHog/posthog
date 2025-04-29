@@ -460,3 +460,7 @@ export function buildExportedFunctionInvoker(
 export function isLegacyPluginHogFunction(hogFunction: HogFunctionType): boolean {
     return hogFunction.template_id?.startsWith('plugin-') ?? false
 }
+
+export function isSegmentPluginHogFunction(hogFunction: HogFunctionType): boolean {
+    return hogFunction.template_id?.startsWith('segment-') ?? false
+}

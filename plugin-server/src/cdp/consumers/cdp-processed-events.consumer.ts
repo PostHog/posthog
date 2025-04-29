@@ -8,6 +8,7 @@ import { Hub, RawClickHouseEvent } from '~/src/types'
 import {
     convertToHogFunctionInvocationGlobals,
     isLegacyPluginHogFunction,
+    isSegmentPluginHogFunction,
     serializeHogFunctionInvocation,
 } from '../../cdp/utils'
 import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
@@ -58,7 +59,11 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
             return {
                 teamId: item.globals.project.id,
                 functionId: item.hogFunction.id,
-                queueName: isLegacyPluginHogFunction(item.hogFunction) ? 'plugin' : 'hog',
+                queueName: isSegmentPluginHogFunction(item.hogFunction)
+                    ? 'segment'
+                    : isLegacyPluginHogFunction(item.hogFunction)
+                    ? 'plugin'
+                    : 'hog',
                 priority: item.priority,
                 vmState: serializeHogFunctionInvocation(item),
             }
