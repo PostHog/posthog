@@ -64,8 +64,9 @@ export async function createActionFromEvent(
                 ...(event.elements?.length > 0 ? elementsToAction(event.elements) : {}),
             },
         ],
-        _create_in_folder: createInFolder,
+        ...(typeof createInFolder === 'string' ? { _create_in_folder: createInFolder } : {}),
     }
+
     if (event.event === '$autocapture') {
         actionData.name = autoCaptureEventToDescription(event)
         if (dataAttributes?.length > 0 && event.elements.length > 0) {

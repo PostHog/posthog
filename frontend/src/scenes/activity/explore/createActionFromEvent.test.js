@@ -216,6 +216,7 @@ describe('createActionFromEvent()', () => {
                 given.event,
                 1,
                 given.dataAttributes,
+                given.createInFolder,
                 given.recurse
             )
         })
