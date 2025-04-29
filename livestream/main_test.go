@@ -38,10 +38,10 @@ func TestStatsHandler(t *testing.T) {
 
 	// Create a mock TeamStats
 	stats := &events.Stats{
-		Store: make(map[string]*expirable.LRU[string, events.noSpaceType]),
+		Store: make(map[string]*expirable.LRU[string, events.NoSpaceType]),
 	}
-	stats.Store["mock_token"] = expirable.NewLRU[string, events.noSpaceType](100, nil, time.Minute)
-	stats.Store["mock_token"].Add("user1", events.noSpaceType{})
+	stats.Store["mock_token"] = expirable.NewLRU[string, events.NoSpaceType](100, nil, time.Minute)
+	stats.Store["mock_token"].Add("user1", events.NoSpaceType{})
 
 	// Add the teamStats to the context
 	c.Set("teamStats", stats)
