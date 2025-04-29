@@ -1,4 +1,4 @@
-import { getExceptionAttributes } from 'scenes/error-tracking/utils'
+import { ExceptionAttributes, getExceptionAttributes } from 'scenes/error-tracking/utils'
 
 describe('Error Display', () => {
     it('can read sentry stack trace when $exception_list is not present', () => {
@@ -49,7 +49,8 @@ describe('Error Display', () => {
         }
         const result = getExceptionAttributes(eventProperties)
         expect(result).toEqual({
-            browser: 'Chrome 92.0.4515',
+            browser: 'Chrome',
+            browserVersion: '92.0.4515',
             value: 'There was an error creating the support ticket with zendesk.',
             exceptionList: [
                 {
@@ -72,15 +73,16 @@ describe('Error Display', () => {
                     value: 'There was an error creating the support ticket with zendesk.',
                 },
             ],
-
             synthetic: undefined,
-            unhandled: false,
+            handled: true,
             type: 'Error',
-            library: 'posthog-js 1.0.0',
+            lib: 'posthog-js',
+            libVersion: '1.0.0',
             level: undefined,
-            os: 'Windows 10',
+            os: 'Windows',
+            osVersion: '10',
             ingestionErrors: undefined,
-            fingerprintRecords: undefined,
+            fingerprintRecords: [],
             url: undefined,
             runtime: 'web',
             sentryUrl:
@@ -114,22 +116,25 @@ describe('Error Display', () => {
         }
         const result = getExceptionAttributes(eventProperties)
         expect(result).toEqual({
-            browser: 'Chrome 92.0.4515',
+            browser: 'Chrome',
+            browserVersion: '92.0.4515',
             value: 'the message sent into sentry captureMessage',
             exceptionList: [],
             ingestionErrors: undefined,
-            unhandled: true,
+            handled: false,
             synthetic: undefined,
             type: undefined,
-            fingerprintRecords: undefined,
+            fingerprintRecords: [],
             url: undefined,
             runtime: 'web',
-            library: 'posthog-js 1.0.0',
+            lib: 'posthog-js',
+            libVersion: '1.0.0',
             level: 'info',
-            os: 'Windows 10',
+            os: 'Windows',
+            osVersion: '10',
             sentryUrl:
                 'https://sentry.io/organizations/posthog/issues/?project=1899813&query=40e442d79c22473391aeeeba54c82163',
-        })
+        } as ExceptionAttributes)
     })
 
     it('can read exception_list stack trace when $exception_type and message are not present', () => {
@@ -168,14 +173,17 @@ describe('Error Display', () => {
         }
         const result = getExceptionAttributes(eventProperties)
         expect(result).toEqual({
-            browser: 'Chrome 92.0.4515',
+            browser: 'Chrome',
+            browserVersion: '92.0.4515',
             value: 'There was an error creating the support ticket with zendesk2.',
             synthetic: false,
             type: 'Error',
-            library: 'posthog-js 1.0.0',
+            lib: 'posthog-js',
+            libVersion: '1.0.0',
             level: undefined,
-            os: 'Windows 10',
-            fingerprintRecords: undefined,
+            os: 'Windows',
+            osVersion: '10',
+            fingerprintRecords: [],
             url: undefined,
             runtime: 'web',
             sentryUrl: undefined,
@@ -202,7 +210,7 @@ describe('Error Display', () => {
                 },
             ],
             ingestionErrors: undefined,
-            unhandled: false,
+            handled: true,
         })
     })
 })

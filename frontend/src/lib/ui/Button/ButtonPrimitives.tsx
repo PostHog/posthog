@@ -119,7 +119,7 @@ interface ButtonAsAnchorProps extends ButtonBaseProps, Omit<React.AnchorHTMLAttr
 
 type ButtonProps = ButtonAsButtonProps | ButtonAsAnchorProps
 
-const buttonVariants = cva({
+export const buttonVariants = cva({
     base: `
         button-primitive
         group/button-primitive

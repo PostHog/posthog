@@ -310,6 +310,54 @@ class TestProperty(BaseTest):
             self._parse_expr("person.properties.a = 'b'"),
         )
 
+    def test_property_to_expr_error_tracking_issue_properties(self):
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "type": "error_tracking_issue_property",
+                    "key": "$exception_types",
+                    "value": "ReferenceError",
+                    "operator": "icontains",
+                }
+            ),
+            self._parse_expr("arrayExists(v -> toString(v) ilike '%ReferenceError%', properties.$exception_types)"),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "type": "error_tracking_issue_property",
+                    "key": "$exception_types",
+                    "value": ["ReferenceError", "TypeError"],
+                    "operator": "exact",
+                }
+            ),
+            self._parse_expr("arrayExists(v -> v in ('ReferenceError', 'TypeError'), properties.$exception_types)"),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "type": "error_tracking_issue_property",
+                    "key": "$exception_types",
+                    "value": ["ReferenceError", "TypeError"],
+                    "operator": "is_not",
+                }
+            ),
+            self._parse_expr("arrayExists(v -> v not in ('ReferenceError', 'TypeError'), properties.$exception_types)"),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "key": "$exception_types",
+                    "value": "ValidationError",
+                    "operator": "not_regex",
+                    "type": "error_tracking_issue_property",
+                }
+            ),
+            self._parse_expr(
+                "arrayExists(v -> ifNull(not(match(toString(v), 'ValidationError')), 1), properties.$exception_types)"
+            ),
+        )
+
     def test_property_to_expr_element(self):
         self.assertEqual(
             self._property_to_expr(

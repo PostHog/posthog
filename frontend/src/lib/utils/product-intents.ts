@@ -39,7 +39,7 @@ export enum ProductIntentContext {
     WEB_ANALYTICS_RECORDINGS = 'web_analytics_recordings',
     WEB_ANALYTICS_ERROR_TRACKING = 'web_analytics_error_tracking',
     WEB_ANALYTICS_ERRORS = 'web_analytics_errors',
-
+    WEB_ANALYTICS_FRUSTRATING_PAGES = 'web_analytics_frustrating_pages',
     // Actions
     ACTION_VIEW_RECORDINGS = 'action_view_recordings',
 
