@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"strconv"
 	"time"
 
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
@@ -174,5 +175,9 @@ func parse(geolocator GeoLocator, kafkaMessage []byte) PostHogEvent {
 }
 
 func (c *PostHogKafkaConsumer) Close() {
-	c.consumer.Close()
+	if err := c.consumer.Close(); err != nil {
+		// TODO capture error to PostHog
+		log.Printf("Failed to close consumer: %v", err)
+	}
+	close(c.incoming)
 }
