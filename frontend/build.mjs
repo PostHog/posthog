@@ -58,6 +58,20 @@ await buildInParallel(
             writeMetaFile: true,
             extraPlugins: [
                 {
+                    /**
+                     * The toolbar includes many parts of the main posthog app,
+                     * but we don't want to include everything in the toolbar bundle.
+                     * Partly because it would be too big, and partly because some things
+                     * in the main app cause problems for people using CSPs on their sites.
+                     *
+                     * It wasn't possible to tree-shake the dependencies out of the bundle,
+                     * and we don't want to change the app code significantly just for the toolbar
+                     *
+                     * So instead we replace some imports in the toolbar with a fake empty module
+                     *
+                     * This is ever so slightly hacky, but it gets customers up and running
+                     *
+                     * */
                     name: 'denylist-imports',
                     setup(build) {
                         // Explicit denylist of paths we don't want in the toolbar bundle
