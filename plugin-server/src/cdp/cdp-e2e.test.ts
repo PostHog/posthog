@@ -16,6 +16,7 @@ import { FetchError } from 'node-fetch'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
 import { resetKafka } from '~/tests/helpers/kafka'
+import { logger } from '../utils/logger'
 
 jest.mock('../../src/utils/fetch', () => {
     return {
@@ -133,7 +134,9 @@ describe.each([['cyclotron' as const], ['kafka' as const]])('CDP Consumer loop: 
                     expect(mockProducerObserver.getProducedKafkaMessagesForTopic('log_entries_test')).toHaveLength(5)
                 }, 5000)
             } catch (e) {
-                console.log(mockProducerObserver.getProducedKafkaMessages())
+                logger.warn('[TESTS] Failed to wait for log messages', {
+                    messages: mockProducerObserver.getProducedKafkaMessages(),
+                })
                 throw e
             }
 
@@ -246,7 +249,12 @@ describe.each([['cyclotron' as const], ['kafka' as const]])('CDP Consumer loop: 
 
             await waitForExpect(() => {
                 expect(mockProducerObserver.getProducedKafkaMessages().length).toBeGreaterThan(10)
-            }, 5000)
+            }, 5000).catch((e) => {
+                logger.warn('[TESTS] Failed to wait for log messages', {
+                    messages: mockProducerObserver.getProducedKafkaMessages(),
+                })
+                throw e
+            })
 
             const logMessages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)
 

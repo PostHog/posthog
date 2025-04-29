@@ -84,7 +84,7 @@ export class CyclotronJobQueue {
     }
 
     public async stop() {
-        await this.cyclotronWorker?.disconnect()
+        await Promise.all([this.cyclotronWorker?.disconnect(), this.kafkaConsumer?.disconnect()])
     }
 
     public isHealthy() {
@@ -325,6 +325,8 @@ export class CyclotronJobQueue {
                 ],
             }
         })
+
+        logger.debug('🔄', 'Queueing kafka jobs', { messages })
 
         await producer.queueMessages(messages)
     }

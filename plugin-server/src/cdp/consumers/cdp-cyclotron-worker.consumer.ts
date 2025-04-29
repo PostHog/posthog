@@ -1,4 +1,5 @@
 import { Hub } from '../../types'
+import { logger } from '../../utils/logger'
 import { CyclotronJobQueue } from '../services/job-queue'
 import {
     HogFunctionInvocation,
@@ -74,6 +75,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
 
     public async stop() {
         await super.stop()
+        logger.info('🔄', 'Stopping cyclotron worker consumer')
         await this.cyclotronJobQueue.stop()
     }
 
