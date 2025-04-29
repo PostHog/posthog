@@ -74,7 +74,7 @@ describe('getProducerMapping', () => {
             'Invalid mapping: wrong_queue:kafka - queue wrong_queue must be one of *, hog, fetch, plugin',
         ],
         ['hog:kafka:1.1', 'Invalid mapping: hog:kafka:1.1 - percentage 1.1 must be a number between 0 and 1'],
-        ['hog:kafka', 'Invalid mapping: hog:kafka - percentage is required'],
+        ['hog:kafka', 'No mapping for the default queue for example: *:postgres'],
     ])('should throw for bad values for %s', (mapping, error) => {
         expect(() => getProducerMapping(mapping)).toThrow(error)
     })

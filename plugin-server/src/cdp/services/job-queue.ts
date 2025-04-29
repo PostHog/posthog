@@ -79,9 +79,14 @@ export class CyclotronJobQueue {
      * Helper to only start the producer related code (e.g. when not a consumer)
      */
     public async startAsProducer() {
-        if (this.consumerMode === 'postgres') {
+        // We only need to connect to the queue targets that are configured
+        const targets = new Set<CyclotronJobQueueTarget>(Object.values(this.producerMapping).map((x) => x.target))
+
+        if (targets.has('postgres')) {
             await this.startCyclotronManager()
-        } else {
+        }
+
+        if (targets.has('kafka')) {
             await this.startKafkaProducer()
         }
     }
@@ -93,9 +98,11 @@ export class CyclotronJobQueue {
         if (this.consumerMode === 'postgres') {
             await this.startCyclotronWorker()
         } else {
-            await this.startKafkaProducer()
             await this.startKafkaConsumer()
         }
+
+        // The consumer always needs the producers as well
+        await this.startAsProducer()
     }
 
     public async stop() {
