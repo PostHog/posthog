@@ -1,24 +1,25 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { FolderSelect } from 'lib/components/FolderSelect/FolderSelect'
-import { saveToLogic, SaveToLogicProps } from 'lib/components/SaveTo/saveToLogic'
+import { saveToLogic } from 'lib/components/SaveTo/saveToLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 
 import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 
-const defaultPath = 'Unfiled'
-
 export function SaveToModal(): JSX.Element {
-    const { isOpen, form } = useValues(saveToLogic)
-    const { closeModal, submitForm } = useActions(saveToLogic)
+    const { isOpen, form, isFeatureEnabled } = useValues(saveToLogic)
+    const { closeSaveTo, submitForm } = useActions(saveToLogic)
+    const allFolders = splitPath(form.folder || '')
 
-    const allFolders = splitPath(form.folder || defaultPath)
+    if (!isFeatureEnabled) {
+        return <></>
+    }
 
     return (
         <LemonModal
-            onClose={closeModal}
+            onClose={closeSaveTo}
             isOpen={isOpen}
             title="Select a folder to save to"
             footer={
@@ -52,26 +53,4 @@ export function SaveToModal(): JSX.Element {
             </div>
         </LemonModal>
     )
-}
-
-export interface UseSaveToResponse {
-    openModal: () => void
-    closeModal: () => void
-    SaveToModal: () => JSX.Element
-    selectedFolder: string | undefined
-}
-
-export function useSaveTo(props: SaveToLogicProps): UseSaveToResponse {
-    const { openModal, closeModal } = useActions(saveToLogic(props))
-    const { lastNewFolder } = useValues(saveToLogic(props))
-    return {
-        openModal,
-        closeModal,
-        SaveToModal: () => (
-            <BindLogic logic={saveToLogic} props={props}>
-                <SaveToModal />
-            </BindLogic>
-        ),
-        selectedFolder: lastNewFolder ?? undefined,
-    }
 }

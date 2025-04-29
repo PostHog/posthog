@@ -86,11 +86,16 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             insight,
             options,
         }),
-        saveAs: (redirectToViewMode?: boolean, persist?: boolean) => ({ redirectToViewMode, persist }),
-        saveAsConfirmation: (name: string, redirectToViewMode = false, persist = true) => ({
+        saveAs: (redirectToViewMode?: boolean, persist?: boolean, folder?: string | null) => ({
+            redirectToViewMode,
+            persist,
+            folder,
+        }),
+        saveAsConfirmation: (name: string, redirectToViewMode = false, persist = true, folder?: string | null) => ({
             name,
             redirectToViewMode,
             persist,
+            folder,
         }),
         saveInsight: (redirectToViewMode: boolean = true, folder: string | null = null) => ({
             redirectToViewMode,
@@ -393,10 +398,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     saved: true,
                     dashboards,
                     tags,
-                }
-                const fsFolder = folder ?? getLastNewFolder()
-                if (fsFolder) {
-                    insightRequest._fs_folder = fsFolder
+                    _fs_folder: folder ?? getLastNewFolder(),
                 }
 
                 savedInsight = insightNumericId
@@ -454,7 +456,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         saveInsightSuccess: async () => {
             activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.CreateFirstInsight)
         },
-        saveAs: async ({ redirectToViewMode, persist }) => {
+        saveAs: async ({ redirectToViewMode, persist, folder }) => {
             LemonDialog.openForm({
                 title: 'Save as new insight',
                 initialValues: {
@@ -471,14 +473,15 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 errors: {
                     name: (name) => (!name ? 'You must enter a name' : undefined),
                 },
-                onSubmit: async ({ name }) => actions.saveAsConfirmation(name, redirectToViewMode, persist),
+                onSubmit: async ({ name }) => actions.saveAsConfirmation(name, redirectToViewMode, persist, folder),
             })
         },
-        saveAsConfirmation: async ({ name, redirectToViewMode, persist }) => {
+        saveAsConfirmation: async ({ name, redirectToViewMode, persist, folder }) => {
             const insight = await insightsApi.create({
                 name,
                 query: values.query,
                 saved: true,
+                _fs_folder: folder ?? getLastNewFolder(),
             })
 
             if (router.values.location.pathname.includes(urls.sqlEditor())) {

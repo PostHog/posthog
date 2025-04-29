@@ -12,12 +12,10 @@ import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
-import { useSaveTo } from 'lib/components/SaveTo/SaveTo'
-import { SaveToLogicProps } from 'lib/components/SaveTo/saveToLogic'
+import { saveToLogic } from 'lib/components/SaveTo/saveToLogic'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -25,7 +23,6 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { useState } from 'react'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
@@ -87,7 +84,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
     // other logics
     useMountedLogic(insightCommandLogic(insightProps))
-    const { featureFlags } = useValues(featureFlagLogic)
     const { tags: allExistingTags } = useValues(tagsModel)
     const { user } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
@@ -100,17 +96,10 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const showCohortButton =
         isDataTableNode(query) || isDataVisualizationNode(query) || isHogQLQuery(query) || isEventsQuery(query)
 
-    const saveToProps: SaveToLogicProps = {
-        defaultFolder: 'Unfiled/Insights',
-        type: 'insight',
-        onSave: (folder: string | null) => saveInsight(true, folder),
-    }
-    const { selectedFolder, openModal, SaveToModal } = useSaveTo(saveToProps)
-    const canSaveTo = !selectedFolder && featureFlags[FEATURE_FLAGS.TREE_VIEW] && !insight.short_id
+    const { openSaveTo } = useActions(saveToLogic)
 
     return (
         <>
-            {canSaveTo ? <SaveToModal /> : null}
             {hasDashboardItemId && (
                 <>
                     <SubscriptionsModal
@@ -218,9 +207,19 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             )
                         ) : (
                             <InsightSaveButton
-                                saveAs={saveAs}
-                                saveInsight={saveInsight}
-                                saveTo={canSaveTo ? openModal : undefined}
+                                saveAs={() =>
+                                    insight.short_id
+                                        ? saveAs()
+                                        : openSaveTo({ callback: () => saveAs(), defaultFolder: 'Unfiled/Insights' })
+                                }
+                                saveInsight={(redirectToViewMode) =>
+                                    insight.short_id
+                                        ? saveInsight(redirectToViewMode)
+                                        : openSaveTo({
+                                              callback: (folder) => saveInsight(redirectToViewMode, folder),
+                                              defaultFolder: 'Unfiled/Insights',
+                                          })
+                                }
                                 isSaved={hasDashboardItemId}
                                 addingToDashboard={!!insight.dashboards?.length && !insight.id}
                                 insightSaving={insightSaving}
