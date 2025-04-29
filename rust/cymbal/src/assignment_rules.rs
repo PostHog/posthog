@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
 use common_types::TeamId;
-use hogvm::{ExecutionContext, StepOutcome, VmError};
+use hogvm::{ExecutionContext, Program, StepOutcome, VmError};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::PgConnection;
@@ -190,7 +190,8 @@ pub fn try_rule(rule_bytecode: &Value, issue: &Value, props: &Value) -> Result<b
     globals.insert("properties".to_string(), props.clone());
     let globals: Value = serde_json::to_value(globals)
         .expect("Can construct a json object from a hashmap of String:JsonValue");
-    let context = ExecutionContext::with_defaults(rule_bytecode).with_globals(globals);
+    let program = Program::new(rule_bytecode.clone())?;
+    let context = ExecutionContext::with_defaults(program).with_globals(globals);
     let mut vm = context.to_vm()?;
 
     metrics::counter!(ASSIGNMENT_RULES_TRIED).increment(1);

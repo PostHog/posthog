@@ -3,15 +3,13 @@ package main
 
 import (
 	"encoding/json"
+	"github.com/labstack/echo/v4"
+	"github.com/posthog/posthog/livestream/events"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
-
-	"github.com/hashicorp/golang-lru/v2/expirable"
-	"github.com/labstack/echo/v4"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestIndex(t *testing.T) {
@@ -36,18 +34,15 @@ func TestStatsHandler(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer mock_token")
 
 	// Create a mock TeamStats
-	stats := &Stats{
-		Store: make(map[string]*expirable.LRU[string, noSpaceType]),
-	}
-	stats.Store["mock_token"] = expirable.NewLRU[string, noSpaceType](100, nil, time.Minute)
-	stats.Store["mock_token"].Add("user1", noSpaceType{})
+	stats := events.NewStatsKeeper()
+	stats.GetStoreForToken("mock_token").Add("user1", events.NoSpaceType{})
 
 	// Add the teamStats to the context
 	c.Set("teamStats", stats)
 
 	handler := func(c echo.Context) error {
 		return c.JSON(http.StatusOK, map[string]interface{}{
-			"users_on_product": stats.Store["mock_token"].Len(),
+			"users_on_product": stats.GetStoreForToken("mock_token").Len(),
 		})
 	}
 

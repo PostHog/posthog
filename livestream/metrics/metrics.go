@@ -1,4 +1,4 @@
-package main
+package metrics
 
 import (
 	"github.com/prometheus/client_golang/prometheus"
@@ -6,23 +6,23 @@ import (
 )
 
 var (
-	msgConsumed = promauto.NewCounterVec(
+	MsgConsumed = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "livestream_kafka_consumed_total",
 			Help: "The total number of processed events",
 		},
 		[]string{"partition"},
 	)
-	timeoutConsume = promauto.NewCounter(prometheus.CounterOpts{
+	TimeoutConsume = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "livestream_kafka_timeout_total",
-		Help: "The total number of timeout consume",
+		Help: "The total number of consume timeouts",
 	})
-	connectFailure = promauto.NewCounter(prometheus.CounterOpts{
+	ConnectFailure = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "livestream_kafka_connect_failure_total",
 		Help: "The total number of failed connect attempts",
 	})
-	handledEvents = promauto.NewCounter(prometheus.CounterOpts{
+	HandledEvents = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "livestream_ph_events_total",
-		Help: "The total number of handled PostHog events, less or equal than consumed",
+		Help: "The total number of handled PostHog events, less than or equal to consumed",
 	})
 )

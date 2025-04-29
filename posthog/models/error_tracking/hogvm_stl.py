@@ -15,4 +15,9 @@ RUST_HOGVM_STL = [
     "indexOf",
     "notEmpty",
     "match",
+    "arrayExists",
+    "arrayFilter",
+    "arrayMap",
+    "arrayCount",
+    "arrayReduce",
 ]
