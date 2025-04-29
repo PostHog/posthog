@@ -3,12 +3,11 @@ package main
 import (
 	"encoding/json"
 	"errors"
-	"github.com/prometheus/client_golang/prometheus"
 	"log"
-	"strconv"
 	"time"
 
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 type PostHogEventWrapper struct {
