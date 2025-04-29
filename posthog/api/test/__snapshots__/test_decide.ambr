@@ -1388,7 +1388,9 @@
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
-         AND "posthog_filesystem"."type" = 'feature_flag')
+         AND "posthog_filesystem"."type" = 'feature_flag'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
 # name: TestDecide.test_flag_with_behavioural_cohorts.11
@@ -2248,7 +2250,9 @@
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
-         AND "posthog_filesystem"."type" = 'cohort')
+         AND "posthog_filesystem"."type" = 'cohort'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
 # name: TestDecide.test_flag_with_regular_cohorts
@@ -2445,7 +2449,9 @@
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
-         AND "posthog_filesystem"."type" = 'feature_flag')
+         AND "posthog_filesystem"."type" = 'feature_flag'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
 # name: TestDecide.test_flag_with_regular_cohorts.11
@@ -3279,7 +3285,9 @@
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
-         AND "posthog_filesystem"."type" = 'cohort')
+         AND "posthog_filesystem"."type" = 'cohort'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
 # name: TestDecide.test_web_app_queries
@@ -6150,7 +6158,9 @@
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
-         AND "posthog_filesystem"."type" = 'feature_flag')
+         AND "posthog_filesystem"."type" = 'feature_flag'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.11
@@ -7500,7 +7510,9 @@
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
-         AND "posthog_filesystem"."type" = 'cohort')
+         AND "posthog_filesystem"."type" = 'cohort'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_regular_cohorts
@@ -7697,7 +7709,9 @@
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
-         AND "posthog_filesystem"."type" = 'feature_flag')
+         AND "posthog_filesystem"."type" = 'feature_flag'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.11
@@ -9017,6 +9031,8 @@
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
-         AND "posthog_filesystem"."type" = 'cohort')
+         AND "posthog_filesystem"."type" = 'cohort'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---

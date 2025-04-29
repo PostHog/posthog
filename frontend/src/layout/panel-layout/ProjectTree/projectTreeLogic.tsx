@@ -84,7 +84,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         createFolder: (parentPath: string) => ({ parentPath }),
         loadSearchResults: (searchTerm: string, offset = 0) => ({ searchTerm, offset }),
         assureVisibility: (projectTreeRef: ProjectTreeRef) => ({ projectTreeRef }),
-        setLastNewOperation: (objectType: string | null, folder: string | null) => ({ objectType, folder }),
+        setLastNewFolder: (folder: string | null) => ({ folder }),
         onItemChecked: (id: string, checked: boolean, shift: boolean) => ({ id, checked, shift }),
         setLastCheckedItem: (id: string, checked: boolean, shift: boolean) => ({ id, checked, shift }),
         setCheckedItems: (checkedItems: Record<string, boolean>) => ({ checkedItems }),
@@ -385,14 +385,11 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 },
             },
         ],
-        lastNewOperation: [
-            null as { objectType: string; folder: string } | null,
+        lastNewFolder: [
+            null as string | null,
             {
-                setLastNewOperation: (_, { folder, objectType }) => {
-                    if (folder && objectType) {
-                        return { folder, objectType }
-                    }
-                    return null
+                setLastNewFolder: (_, { folder }) => {
+                    return folder ?? null
                 },
             },
         ],
@@ -817,11 +814,11 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             },
         ],
         projectTreeRefBreadcrumbs: [
-            (s) => [s.projectTreeRef, s.projectTreeRefEntry, s.lastNewOperation, s.appBreadcrumbs, s.sceneBreadcrumbs],
+            (s) => [s.projectTreeRef, s.projectTreeRefEntry, s.lastNewFolder, s.appBreadcrumbs, s.sceneBreadcrumbs],
             (
                 projectTreeRef,
                 projectTreeRefEntry,
-                lastNewOperation,
+                lastNewFolder,
                 appBreadcrumbs,
                 sceneBreadcrumbs
             ): Breadcrumb[] | null => {
@@ -835,13 +832,13 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         name: folders.pop(),
                         path: projectTreeRefEntry.href, // link to actual page
                     }
-                } else if (!projectTreeRefEntry && projectTreeRef?.ref === null && lastNewOperation) {
-                    folders = splitPath(lastNewOperation.folder)
+                } else if (!projectTreeRefEntry && projectTreeRef?.ref === null && lastNewFolder) {
+                    folders = splitPath(lastNewFolder)
                     lastBreadcrumb =
                         sceneBreadcrumbs.length > 0
                             ? sceneBreadcrumbs.slice(-1)[0]
                             : {
-                                  key: `new/${lastNewOperation.folder}`,
+                                  key: `new/${lastNewFolder}`,
                                   name: 'New',
                                   path: joinPath([...folders, 'New']),
                               }
@@ -1232,34 +1229,42 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     )
                     breakpoint() // bail if we opened some other item in the meanwhile
                     if (resp.results && resp.results.length > 0) {
-                        const { lastNewOperation } = values
                         const result = resp.results[0]
                         path = result.path
 
-                        // Check if a "new" action was recently initiated for this object type.
-                        // If so, move the item to the new path.
-                        // TODO: also check that this was created by you (we need to add the user's uuid to metadata)
-                        // - const createdBy = result.meta?.created_by
+                        // TODO: REMOVE THIS OLD LOGIC! ... in favor of directly passing _create_in_folder to the API calls
                         if (
-                            result.path.startsWith('Unfiled/') &&
-                            lastNewOperation &&
-                            (lastNewOperation.objectType === result.type ||
-                                (lastNewOperation.objectType.includes('/') &&
-                                    result.type?.includes('/') &&
-                                    lastNewOperation.objectType.split('/')[0] === result.type.split('/')[0]))
+                            result.type &&
+                            ([
+                                'dashboard',
+                                'early_access_feature',
+                                'experiment',
+                                'feature_flag',
+                                'session_recording_playlist',
+                                'survey',
+                            ].includes(result.type) ||
+                                result.type.startsWith('hog_function/'))
                         ) {
-                            const newPath = joinPath([
-                                ...splitPath(lastNewOperation.folder),
-                                ...splitPath(result.path).slice(-1),
-                            ])
-                            actions.createSavedItem({ ...result, path: newPath })
-                            path = newPath
-                            await api.fileSystem.move(result.id, newPath)
+                            // Check if a "new" action was recently initiated for this object type.
+                            // If so, move the item to the new path.
+                            const { lastNewFolder } = values
+                            if (result.path.startsWith('Unfiled/') && typeof lastNewFolder === 'string') {
+                                const newPath = joinPath([
+                                    ...splitPath(lastNewFolder),
+                                    ...splitPath(result.path).slice(-1),
+                                ])
+                                actions.createSavedItem({ ...result, path: newPath })
+                                path = newPath
+                                await api.fileSystem.move(result.id, newPath)
+                            } else {
+                                actions.createSavedItem(result)
+                            }
+                            if (lastNewFolder) {
+                                actions.setLastNewFolder(null)
+                            }
+                            // </TODO>
                         } else {
                             actions.createSavedItem(result)
-                        }
-                        if (lastNewOperation) {
-                            actions.setLastNewOperation(null, null)
                         }
                     }
                 }
@@ -1278,11 +1283,22 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 : api.fileSystem.list({ type, ref }))
             actions.updateSyncedFiles(items.results)
         },
+        setLastNewFolder: ({ folder }) => {
+            if (folder) {
+                actions.assureVisibility({ type: 'folder', ref: folder })
+            }
+        },
     })),
-    subscriptions(({ actions }) => ({
+    subscriptions(({ actions, values }) => ({
         projectTreeRef: (newRef: ProjectTreeRef | null) => {
             if (newRef) {
-                actions.assureVisibility(newRef)
+                if (newRef.ref === null) {
+                    if (typeof values.lastNewFolder === 'string') {
+                        actions.assureVisibility({ type: 'folder', ref: values.lastNewFolder })
+                    }
+                } else {
+                    actions.assureVisibility(newRef)
+                }
             }
         },
     })),
@@ -1297,4 +1313,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
 
 export function refreshTreeItem(type: string, ref: string): void {
     projectTreeLogic.findMounted()?.actions.syncTypeAndRef(type, ref)
+}
+
+export function getLastNewFolder(): string | undefined {
+    return projectTreeLogic.findMounted()?.values.lastNewFolder ?? undefined
 }

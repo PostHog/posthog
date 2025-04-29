@@ -37,22 +37,28 @@ export function FolderSelect({ value, onChange, className }: FolderSelectProps):
     const [expandedFolders, setExpandedFolders] = useState<string[]>([])
     const [touchedFolders, setTouchedFolders] = useState<string[]>([])
 
-    useEffect(() => {
-        if (!value) {
+    function expandFolders(folder: string): void {
+        if (!folder) {
             return
         }
-        const allFolders = getAllFolderIds(value)
+        const allFolders = getAllFolderIds(folder)
         const newExpandedFolders = allFolders.filter((folder) => !expandedFolders.includes(folder))
         if (newExpandedFolders.length > 0) {
+            setExpandedFolders([...expandedFolders, ...newExpandedFolders])
             for (const folder of newExpandedFolders) {
                 if (!touchedFolders.includes(folder)) {
                     loadFolderIfNotLoaded(folder)
                 }
             }
             const newTouchedFolders = allFolders.filter((folder) => !touchedFolders.includes(folder))
-            setTouchedFolders([...touchedFolders, ...newTouchedFolders])
+            if (newTouchedFolders.length > 0) {
+                setTouchedFolders([...touchedFolders, ...newTouchedFolders])
+            }
         }
-    }, [value, expandedFolders, touchedFolders])
+    }
+    useEffect(() => {
+        value && expandFolders(value)
+    }, [value])
 
     return (
         <div className={clsx('bg-surface-primary p-2 border rounded-[var(--radius)] overflow-y-scroll', className)}>
