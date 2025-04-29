@@ -1,4 +1,5 @@
 import { IconWarning } from '@posthog/icons'
+import { openSaveToModal } from 'lib/components/SaveTo/saveToLogic'
 import ViewRecordingButton, { mightHaveRecording } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -27,12 +28,18 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                     {getCurrentTeamId() && (
                         <LemonButton
                             onClick={() =>
-                                void createActionFromEvent(
-                                    getCurrentTeamId(),
-                                    event,
-                                    0,
-                                    teamLogic.findMounted()?.values.currentTeam?.data_attributes || []
-                                )
+                                openSaveToModal({
+                                    callback: (folder) => {
+                                        void createActionFromEvent(
+                                            getCurrentTeamId(),
+                                            event,
+                                            0,
+                                            teamLogic.findMounted()?.values.currentTeam?.data_attributes || [],
+                                            folder
+                                        )
+                                    },
+                                    defaultFolder: 'Unfiled/Actions',
+                                })
                             }
                             fullWidth
                             data-attr="events-table-create-action"

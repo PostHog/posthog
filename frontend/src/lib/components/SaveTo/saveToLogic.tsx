@@ -13,8 +13,11 @@ export interface SaveToLogicProps {
 }
 
 export interface OpenSaveToProps {
+    /** Folder to preselect. */
     folder?: string | null
+    /** Folder to use if the default folder is missing */
     defaultFolder?: string | null
+    /** Returns the folder when selected, or null if the modal was closed */
     callback: (folder: string | null) => void
 }
 
@@ -26,22 +29,23 @@ export const saveToLogic = kea<saveToLogicType>([
         actions: [projectTreeLogic, ['setLastNewFolder']],
     })),
     actions({
-        openSaveTo: (props: OpenSaveToProps) => props,
-        closeSaveTo: true,
+        openSaveToModal: (props: OpenSaveToProps) => props,
+        closeSaveToModal: true,
+        closedSaveToModal: true,
     }),
     reducers({
         isOpen: [
             false,
             {
-                openSaveTo: () => true,
-                closeSaveTo: () => false,
+                openSaveToModal: () => true,
+                closedSaveToModal: () => false,
             },
         ],
         callback: [
             null as null | ((folder: string | null) => void),
             {
-                openSaveTo: (_, { callback }) => callback,
-                closeSaveTo: () => null,
+                openSaveToModal: (_, { callback }) => callback,
+                closedSaveToModal: () => null,
             },
         ],
     }),
@@ -52,13 +56,17 @@ export const saveToLogic = kea<saveToLogicType>([
         setLastNewFolder: ({ folder }) => {
             actions.setFormValue('folder', folder)
         },
-        openSaveTo: ({ folder, defaultFolder }) => {
+        openSaveToModal: ({ folder, defaultFolder }) => {
             const realFolder = folder ?? values.lastNewFolder ?? defaultFolder ?? null
             if (!values.isFeatureEnabled) {
                 values.callback?.(realFolder)
             } else {
                 actions.setFormValue('folder', realFolder)
             }
+        },
+        closeSaveToModal: () => {
+            values.callback?.(null)
+            actions.closedSaveToModal()
         },
     })),
     forms(({ actions, values }) => ({
@@ -72,8 +80,17 @@ export const saveToLogic = kea<saveToLogicType>([
             submit: (formValues) => {
                 actions.setLastNewFolder(formValues.folder)
                 values.callback?.(formValues.folder ?? null)
-                actions.closeSaveTo()
+                actions.closedSaveToModal()
             },
         },
     })),
 ])
+
+export function openSaveToModal(props: OpenSaveToProps): void {
+    const logic = saveToLogic.findMounted()
+    if (logic) {
+        logic.actions.openSaveToModal(props)
+    } else {
+        console.error('SaveToLogic not mounted as part of GlobalModals')
+    }
+}

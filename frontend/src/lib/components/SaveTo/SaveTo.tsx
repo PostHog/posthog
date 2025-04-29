@@ -10,7 +10,7 @@ import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 
 export function SaveToModal(): JSX.Element {
     const { isOpen, form, isFeatureEnabled } = useValues(saveToLogic)
-    const { closeSaveTo, submitForm } = useActions(saveToLogic)
+    const { closeSaveToModal, submitForm } = useActions(saveToLogic)
     const allFolders = splitPath(form.folder || '')
 
     if (!isFeatureEnabled) {
@@ -19,7 +19,7 @@ export function SaveToModal(): JSX.Element {
 
     return (
         <LemonModal
-            onClose={closeSaveTo}
+            onClose={closeSaveToModal}
             isOpen={isOpen}
             title="Select a folder to save to"
             footer={

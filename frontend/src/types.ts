@@ -656,6 +656,7 @@ export interface ActionType {
     bytecode?: any[]
     bytecode_error?: string
     pinned_at: string | null
+    _create_in_folder?: string | null
 }
 
 /** Sync with plugin-server/src/types.ts */

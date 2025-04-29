@@ -47,9 +47,10 @@ export async function createActionFromEvent(
     event: EventType,
     increment: number,
     dataAttributes: string[],
+    createInFolder: string | null = null,
     recurse: typeof createActionFromEvent = createActionFromEvent
 ): Promise<void> {
-    const actionData: Pick<ActionType, 'name' | 'steps'> = {
+    const actionData: Pick<ActionType, 'name' | 'steps' | '_create_in_folder'> = {
         name: '',
         steps: [
             {
@@ -63,6 +64,7 @@ export async function createActionFromEvent(
                 ...(event.elements?.length > 0 ? elementsToAction(event.elements) : {}),
             },
         ],
+        _create_in_folder: createInFolder,
     }
     if (event.event === '$autocapture') {
         actionData.name = autoCaptureEventToDescription(event)
