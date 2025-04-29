@@ -356,11 +356,13 @@ export function EditAlertModal({
                                         />
                                     </div>
                                 </div>
-                                <div className="deprecated-space-y-5">
-                                    <div className="flex flex-col">
-                                        <AlertDestinationSelector alertId={alertId} />
+                                {!!alertId && (
+                                    <div className="deprecated-space-y-5">
+                                        <div className="flex flex-col">
+                                            <AlertDestinationSelector alertId={alertId} />
+                                        </div>
                                     </div>
-                                </div>
+                                )}
                             </div>
 
                             <div className="deprecated-space-y-2">

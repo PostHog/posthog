@@ -298,7 +298,7 @@ if (res.status != 200 or res.body.ok == false) {
                             "type": "header",
                             "text": {
                                 "type": "plain_text",
-                                "text": "Alert threshold breached for insight '{event.properties.insight_name}'",
+                                "text": "Alert '{event.properties.alert_name}' firing for insight '{event.properties.insight_name}'",
                             },
                         },
                         {
