@@ -31,7 +31,6 @@ import {
 } from '~/types'
 
 import { getNiceTickValues } from './MetricsView/utils'
-import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 import {
     exposureConfigToFilter,
     featureFlagEligibleForExperiment,
@@ -40,7 +39,6 @@ import {
     getViewRecordingFilters,
     isLegacyExperiment,
     isLegacyExperimentQuery,
-    isLegacySharedMetric,
     metricToFilter,
     metricToQuery,
     percentageDistribution,
@@ -955,8 +953,10 @@ describe('hasLegacyMetrics', () => {
             metrics_secondary: [],
             saved_metrics: [
                 {
-                    kind: NodeKind.ExperimentTrendsQuery,
-                    count_query: { kind: NodeKind.TrendsQuery, series: [] },
+                    query: {
+                        kind: NodeKind.ExperimentTrendsQuery,
+                        count_query: { kind: NodeKind.TrendsQuery, series: [] },
+                    },
                 },
             ],
         } as unknown as Experiment
@@ -991,33 +991,23 @@ describe('hasLegacyMetrics', () => {
 
         expect(isLegacyExperiment(experiment)).toBe(false)
     })
-})
-
-describe('hasLegacySharedMetrics', () => {
-    it('returns true if shared metrics contain legacy query', () => {
-        const sharedMetric = {
-            query: {
-                kind: NodeKind.ExperimentTrendsQuery,
-                count_query: { kind: NodeKind.TrendsQuery, series: [] },
-            },
-        } as unknown as SharedMetric
-
-        expect(isLegacySharedMetric(sharedMetric)).toBe(true)
-    })
 
     it('returns false if shared metrics contain no legacy queries', () => {
-        const sharedMetric = {
-            query: {
-                kind: NodeKind.ExperimentMetric,
-                metric_type: ExperimentMetricType.MEAN,
-                source: { kind: NodeKind.EventsNode, event: 'test' },
-            },
-        } as unknown as SharedMetric
+        const experiment = {
+            ...experimentJson,
+            metrics: [],
+            metrics_secondary: [],
+            saved_metrics: [
+                {
+                    query: {
+                        kind: NodeKind.ExperimentMetric,
+                        metric_type: ExperimentMetricType.MEAN,
+                        source: { kind: NodeKind.EventsNode, event: 'test' },
+                    },
+                },
+            ],
+        } as unknown as Experiment
 
-        expect(isLegacySharedMetric(sharedMetric)).toBe(false)
-    })
-
-    it('returns false for empty shared metrics array', () => {
-        expect(isLegacySharedMetric({} as SharedMetric)).toBe(false)
+        expect(isLegacyExperiment(experiment)).toBe(false)
     })
 })
