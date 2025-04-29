@@ -12,6 +12,7 @@ import { LemonBanner, LemonCollapse, LemonDivider, LemonSkeleton, LemonTag, Link
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { useEffect, useState } from 'react'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
@@ -413,6 +414,20 @@ function LoadSessionSummaryButton(): JSX.Element {
     )
 }
 
+function LoadingTimer(): JSX.Element {
+    const [elapsedSeconds, setElapsedSeconds] = useState(0)
+
+    useEffect(() => {
+        const interval = setInterval(() => {
+            setElapsedSeconds((prev) => prev + 1)
+        }, 1000)
+
+        return () => clearInterval(interval)
+    }, [])
+
+    return <span>({elapsedSeconds}s)</span>
+}
+
 export function PlayerSidebarSessionSummary(): JSX.Element | null {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { sessionSummary, sessionSummaryLoading } = useValues(playerMetaLogic(logicProps))
@@ -421,7 +436,7 @@ export function PlayerSidebarSessionSummary(): JSX.Element | null {
         <div className="rounded border bg-surface-primary px-2 py-1">
             {sessionSummaryLoading ? (
                 <>
-                    Thinking... <Spinner />{' '}
+                    Researching the session... <Spinner /> <LoadingTimer />
                 </>
             ) : sessionSummary ? (
                 <SessionSummary />
