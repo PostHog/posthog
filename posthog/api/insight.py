@@ -462,7 +462,7 @@ class InsightSerializer(InsightBasicSerializer):
             instance.alertconfiguration_set.all().delete()
 
         if _fs_folder is not None:
-            updated_insight.set_fs_folder(_fs_folder)
+            updated_insight._fs_folder = _fs_folder
             updated_insight.save()
 
         self._log_insight_update(before_update, dashboards_before_change, updated_insight, current_url, session_id)

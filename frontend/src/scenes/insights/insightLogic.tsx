@@ -398,12 +398,14 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     saved: true,
                     dashboards,
                     tags,
-                    _fs_folder: folder ?? getLastNewFolder(),
                 }
 
                 savedInsight = insightNumericId
                     ? await insightsApi.update(insightNumericId, insightRequest)
-                    : await insightsApi.create(insightRequest)
+                    : await insightsApi.create({
+                          ...insightRequest,
+                          _fs_folder: folder ?? getLastNewFolder(),
+                      })
                 savedInsightsLogic.findMounted()?.actions.loadInsights() // Load insights afresh
                 // remove draft query from local storage
                 localStorage.removeItem(`draft-query-${values.currentTeamId}`)
