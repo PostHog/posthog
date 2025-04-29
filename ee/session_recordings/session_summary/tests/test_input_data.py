@@ -301,7 +301,7 @@ def test_get_paginated_session_events(
 ):
     items_per_page = 2
     max_pages = 3
-    mock_metadata = RecordingMetadata(**mock_raw_metadata)
+    mock_metadata = RecordingMetadata(**mock_raw_metadata)  # type: ignore
     mock_columns = mock_events_columns[:10]
     # Prepare mock pages data (add columns to each page)
     processed_pages_data = [(mock_columns, events) if events is not None else (None, None) for events in pages_data]
