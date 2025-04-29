@@ -94,14 +94,13 @@ describe('IngestionConsumer', () => {
         await resetTestDatabase()
         hub = await createHub()
 
-        hub.kafkaProducer = mockProducer
+        // hub.kafkaProducer = mockProducer
         team = await getFirstTeam(hub)
         const team2Id = await createTeam(hub.db.postgres, team.organization_id)
         team2 = (await getTeam(hub, team2Id))!
     })
 
     afterEach(async () => {
-        jest.restoreAllMocks()
         if (ingester) {
             await ingester.stop()
         }
@@ -505,9 +504,7 @@ describe('IngestionConsumer', () => {
             jest.spyOn(logger, 'error').mockImplementation(() => {})
         })
 
-        afterEach(() => {
-            jest.restoreAllMocks()
-        })
+        afterEach(() => {})
 
         it('should handle explicitly non retriable errors by sending to DLQ', async () => {
             // NOTE: I don't think this makes a lot of sense but currently is just mimicing existing behavior for the migration
@@ -1029,7 +1026,7 @@ describe('IngestionConsumer', () => {
             expect(forSnapshot(mockProducerObserver.getProducedKafkaMessages())).toMatchInlineSnapshot(`
                 [
                   {
-                    "headers": undefined,
+                    "headers": {},
                     "key": "THIS IS NOT A TOKEN FOR TEAM 2:user-1",
                     "topic": "testing_topic",
                     "value": {

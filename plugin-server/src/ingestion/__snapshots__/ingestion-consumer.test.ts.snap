@@ -5,7 +5,6 @@ exports[`IngestionConsumer error handling should handle explicitly non retriable
   {
     "headers": {
       "event-id": "<REPLACED-UUID-0>",
-      "sentry-event-id": "test-sentry-id-123",
     },
     "key": "THIS IS NOT A TOKEN FOR TEAM 2:user-1",
     "topic": "events_plugin_ingestion_dlq_test",
@@ -99,37 +98,15 @@ exports[`IngestionConsumer general overflow should emit to overflow if token and
 exports[`IngestionConsumer general should process a standard event 1`] = `
 [
   {
-    "headers": {
-      "kafka-consumer-breadcrumbs": "[{"topic":"test","partition":1,"offset":0,"processed_at":"2025-01-01T00:00:00.000Z","consumer_id":"events-ingestion-consumer"}]",
-    },
-    "key": "<REPLACED-UUID-0>",
-    "topic": "clickhouse_events_json_test",
-    "value": {
-      "created_at": "2025-01-01 00:00:00.000",
-      "distinct_id": "user-1",
-      "elements_chain": "",
-      "event": "$pageview",
-      "person_created_at": "2025-01-01 00:00:00",
-      "person_id": "<REPLACED-UUID-1>",
-      "person_mode": "full",
-      "person_properties": "{"$current_url":"http://localhost:8000","$creator_event_uuid":"<REPLACED-UUID-0>","$initial_current_url":"http://localhost:8000"}",
-      "project_id": 2,
-      "properties": "{"$current_url":"http://localhost:8000","$ip":"127.0.0.1","$set":{"$current_url":"http://localhost:8000"},"$set_once":{"$initial_current_url":"http://localhost:8000"}}",
-      "team_id": 2,
-      "timestamp": "2025-01-01 00:00:00.000",
-      "uuid": "<REPLACED-UUID-0>",
-    },
-  },
-  {
     "headers": undefined,
     "key": null,
     "topic": "clickhouse_person_test",
     "value": {
       "created_at": "2025-01-01 00:00:00",
-      "id": "<REPLACED-UUID-1>",
+      "id": "<REPLACED-UUID-0>",
       "is_deleted": 0,
       "is_identified": 0,
-      "properties": "{"$current_url":"http://localhost:8000","$creator_event_uuid":"<REPLACED-UUID-0>","$initial_current_url":"http://localhost:8000"}",
+      "properties": "{"$current_url":"http://localhost:8000","$creator_event_uuid":"<REPLACED-UUID-1>","$initial_current_url":"http://localhost:8000"}",
       "team_id": 2,
       "version": 0,
     },
@@ -141,9 +118,31 @@ exports[`IngestionConsumer general should process a standard event 1`] = `
     "value": {
       "distinct_id": "user-1",
       "is_deleted": 0,
-      "person_id": "<REPLACED-UUID-1>",
+      "person_id": "<REPLACED-UUID-0>",
       "team_id": 2,
       "version": 0,
+    },
+  },
+  {
+    "headers": {
+      "kafka-consumer-breadcrumbs": "[{"topic":"test","partition":1,"offset":0,"processed_at":"2025-01-01T00:00:00.000Z","consumer_id":"events-ingestion-consumer"}]",
+    },
+    "key": "<REPLACED-UUID-1>",
+    "topic": "clickhouse_events_json_test",
+    "value": {
+      "created_at": "2025-01-01 00:00:00.000",
+      "distinct_id": "user-1",
+      "elements_chain": "",
+      "event": "$pageview",
+      "person_created_at": "2025-01-01 00:00:00",
+      "person_id": "<REPLACED-UUID-0>",
+      "person_mode": "full",
+      "person_properties": "{"$current_url":"http://localhost:8000","$creator_event_uuid":"<REPLACED-UUID-1>","$initial_current_url":"http://localhost:8000"}",
+      "project_id": 2,
+      "properties": "{"$current_url":"http://localhost:8000","$ip":"127.0.0.1","$set":{"$current_url":"http://localhost:8000"},"$set_once":{"$initial_current_url":"http://localhost:8000"}}",
+      "team_id": 2,
+      "timestamp": "2025-01-01 00:00:00.000",
+      "uuid": "<REPLACED-UUID-1>",
     },
   },
 ]
