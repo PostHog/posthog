@@ -73,7 +73,8 @@ func main() {
 	if !isProd {
 		kafkaSecurityProtocol = "PLAINTEXT"
 	}
-	consumer, err := NewPostHogKafkaConsumer(brokers, kafkaSecurityProtocol, groupID, topic, geolocator, phEventChan, statsChan)
+	consumer, err := NewPostHogKafkaConsumer(brokers, kafkaSecurityProtocol, groupID, topic, geolocator, phEventChan,
+		statsChan, 4)
 	if err != nil {
 		// TODO capture error to PostHog
 		log.Fatalf("Failed to create Kafka consumer: %v", err)
