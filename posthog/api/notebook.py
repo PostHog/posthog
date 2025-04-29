@@ -81,6 +81,7 @@ def log_notebook_activity(
 class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     created_by = UserBasicSerializer(read_only=True)
     last_modified_by = UserBasicSerializer(read_only=True)
+    _fs_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
         model = Notebook
@@ -94,6 +95,7 @@ class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSe
             "last_modified_at",
             "last_modified_by",
             "user_access_level",
+            "_fs_folder",
         ]
         read_only_fields = fields
 
@@ -114,6 +116,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
             "last_modified_at",
             "last_modified_by",
             "user_access_level",
+            "_fs_folder",
         ]
         read_only_fields = [
             "id",
@@ -169,6 +172,10 @@ class NotebookSerializer(NotebookMinimalSerializer):
                     validated_data["version"] = locked_instance.version + 1
 
                 updated_notebook = super().update(locked_instance, validated_data)
+                _fs_folder = validated_data.pop("_fs_folder", None)
+                if _fs_folder is not None:
+                    updated_notebook.set_fs_folder(_fs_folder)
+                    updated_notebook.save()
 
         changes = changes_between("Notebook", previous=before_update, current=updated_notebook)
 

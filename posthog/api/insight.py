@@ -377,7 +377,6 @@ class InsightSerializer(InsightBasicSerializer):
     @monitor(feature=Feature.INSIGHT, endpoint="insight", method="POST")
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Insight:
         request = self.context["request"]
-        # _fs_folder = validated_data.pop("_fs_folder", None)
         tags = validated_data.pop("tags", None)  # tags are created separately as global tag relationships
         team_id = self.context["team_id"]
         current_url = request.headers.get("Referer")
@@ -402,10 +401,6 @@ class InsightSerializer(InsightBasicSerializer):
 
         # Manual tag creation since this create method doesn't call super()
         self._attempt_set_tags(tags, insight)
-        #
-        # if _fs_folder is not None:
-        #     insight.set_fs_folder(_fs_folder)
-        #     insight.save()
 
         properties = {}
         properties["$current_url"] = current_url
