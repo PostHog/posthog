@@ -1,4 +1,3 @@
-from typing import Literal
 from django.conf import settings
 
 CLICKHOUSE_CLUSTER = settings.CLICKHOUSE_CLUSTER
@@ -34,85 +33,74 @@ def DISTRIBUTED_TABLE_TEMPLATE(dist_table_name, base_table_name, columns):
     """
 
 
+# Column definitions
+WEB_OVERVIEW_METRICS_COLUMNS = """
+    persons_uniq_state AggregateFunction(uniq, UUID),
+    sessions_uniq_state AggregateFunction(uniq, String),
+    pageviews_count_state AggregateFunction(sum, UInt64),
+    total_session_duration_state AggregateFunction(sum, Int64),
+    total_bounces_state AggregateFunction(sum, UInt64)
+"""
+
+WEB_STATS_COLUMNS = """
+    persons_uniq_state AggregateFunction(uniq, UUID),
+    sessions_uniq_state AggregateFunction(uniq, String),
+    pageviews_count_state AggregateFunction(sum, UInt64),
+    browser String, 
+    os String,
+    viewport String,
+    referring_domain String,
+    utm_source String,
+    utm_campaign String,
+    utm_medium String,
+    utm_term String,
+    utm_content String,
+    country String
+"""
+
+# Table definitions with ordering
+WEB_OVERVIEW_ORDER_BY = "(team_id, day_bucket, host, device_type)"
+WEB_STATS_ORDER_BY = "(team_id, day_bucket, host, device_type, os, browser, viewport, referring_domain, utm_source, utm_campaign, utm_medium, country)"
+
+
+def create_table_pair(base_table_name, columns, order_by, on_cluster=True):
+    """Create both a local and distributed table with the same schema"""
+    base_sql = TABLE_TEMPLATE(base_table_name, columns, order_by, on_cluster)
+    dist_sql = DISTRIBUTED_TABLE_TEMPLATE(f"{base_table_name}_distributed", base_table_name, columns)
+    return base_sql, dist_sql
+
+
 # Overview metrics table
-def WEB_OVERVIEW_METRICS_DAILY_SQL(table_name="web_overview_daily", on_cluster=True):
-    columns = """
-        persons_uniq_state AggregateFunction(uniq, UUID),
-        sessions_uniq_state AggregateFunction(uniq, String),
-        pageviews_count_state AggregateFunction(sum, UInt64),
-        total_session_duration_state AggregateFunction(sum, Int64),
-        total_bounces_state AggregateFunction(sum, UInt64)
-    """
-    order_by = "(team_id, day_bucket, host, device_type)"
-    return TABLE_TEMPLATE(table_name, columns, order_by, on_cluster)
+def WEB_OVERVIEW_METRICS_DAILY_SQL(table_name="web_overview_metrics_daily", on_cluster=True):
+    return TABLE_TEMPLATE(table_name, WEB_OVERVIEW_METRICS_COLUMNS, WEB_OVERVIEW_ORDER_BY, on_cluster)
 
 
 def DISTRIBUTED_WEB_OVERVIEW_METRICS_DAILY_SQL():
-    columns = """
-        persons_uniq_state AggregateFunction(uniq, UUID),
-        sessions_uniq_state AggregateFunction(uniq, String),
-        pageviews_count_state AggregateFunction(sum, UInt64),
-        total_session_duration_state AggregateFunction(sum, Int64),
-        total_bounces_state AggregateFunction(sum, UInt64)
-    """
-    return DISTRIBUTED_TABLE_TEMPLATE("web_overview_metrics_daily_distributed", "web_overview_metrics_daily", columns)
+    return DISTRIBUTED_TABLE_TEMPLATE("web_overview_metrics_daily_distributed", "web_overview_metrics_daily", WEB_OVERVIEW_METRICS_COLUMNS)
 
 
 # Web stats table
 def WEB_STATS_DAILY_SQL(table_name="web_stats_daily", on_cluster=True):
-    columns = """
-        persons_uniq_state AggregateFunction(uniq, UUID),
-        sessions_uniq_state AggregateFunction(uniq, String),
-        pageviews_count_state AggregateFunction(sum, UInt64),
-        browser String, 
-        os String,
-        viewport String,
-        referring_domain String,
-        utm_source String,
-        utm_campaign String,
-        utm_medium String,
-        utm_term String,
-        utm_content String,
-        country String
-    """
-    order_by = "(team_id, day_bucket, host, device_type, os, browser, viewport, referring_domain, utm_source, utm_campaign, utm_medium, country)"
-    return TABLE_TEMPLATE(table_name, columns, order_by, on_cluster)
+    return TABLE_TEMPLATE(table_name, WEB_STATS_COLUMNS, WEB_STATS_ORDER_BY, on_cluster)
 
 
 def DISTRIBUTED_WEB_STATS_DAILY_SQL():
-    columns = """
-        persons_uniq_state AggregateFunction(uniq, UUID),
-        sessions_uniq_state AggregateFunction(uniq, String),
-        pageviews_count_state AggregateFunction(sum, UInt64),
-        browser String, 
-        os String,
-        viewport String,
-        referring_domain String,
-        utm_source String,
-        utm_campaign String,
-        utm_medium String,
-        utm_term String,
-        utm_content String,
-        country String
-    """
-    return DISTRIBUTED_TABLE_TEMPLATE("web_stats_daily_distributed", "web_stats_daily", columns)
+    return DISTRIBUTED_TABLE_TEMPLATE("web_stats_daily_distributed", "web_stats_daily", WEB_STATS_COLUMNS)
 
 # SQL for inserting into web overview metrics table
 def WEB_OVERVIEW_INSERT_SQL(date_start, date_end, team_ids, timezone="UTC", settings="", target_suffix=""):
     return f"""
     INSERT INTO web_overview_daily{target_suffix}
     SELECT
-      toStartOfDay(start_timestamp) AS period_day,
+      toStartOfDay(start_timestamp) AS day_bucket,
       team_id,
       host,
       device_type,
-      uniqState(session_person_id) AS session_user_uniq_state,
-      uniqState(session_id) AS session_uniq_state,
-      avgState(toFloat64(session_duration)) AS session_duration_state,
+      uniqState(session_person_id) AS persons_uniq_state,
+      uniqState(session_id) AS sessions_uniq_state,
       sumState(session_duration) AS total_session_duration_state,
-      avgState(toFloat64(ifNull(is_bounce, 0))) * 100 AS bounce_rate_state,
       sumState(toUInt64(ifNull(is_bounce, 0))) AS total_bounces_state,
-      sumState(pageview_count) AS pageview_count_state
+      sumState(pageview_count) AS pageviews_count_state
     FROM
       (
         SELECT
@@ -168,7 +156,7 @@ def WEB_OVERVIEW_INSERT_SQL(date_start, date_end, team_ids, timezone="UTC", sett
         GROUP BY events__session.session_id, e.team_id, host, device_type
         SETTINGS {settings}
       )
-    GROUP BY period_day, team_id, host, device_type
+    GROUP BY day_bucket, team_id, host, device_type
     SETTINGS {settings}
     """
 
@@ -177,7 +165,7 @@ def WEB_STATS_INSERT_SQL(date_start, date_end, team_ids, timezone="UTC", setting
     return f"""
     INSERT INTO web_stats_daily{target_suffix}
     SELECT
-        toStartOfDay(start_timestamp) AS period_day,
+        toStartOfDay(start_timestamp) AS day_bucket,
         team_id,
         host,
         device_type,
@@ -191,9 +179,9 @@ def WEB_STATS_INSERT_SQL(date_start, date_end, team_ids, timezone="UTC", setting
         utm_term,
         utm_content,
         country AS country,
-        uniqState(session_person_id) AS session_user_uniq_state,
-        uniqState(session_id) AS session_uniq_state,
-        sumState(pageview_count) AS pageview_count_state
+        uniqState(session_person_id) AS persons_uniq_state,
+        uniqState(session_id) AS sessions_uniq_state,
+        sumState(pageview_count) AS pageviews_count_state
     FROM
     (
         SELECT
@@ -268,7 +256,7 @@ def WEB_STATS_INSERT_SQL(date_start, date_end, team_ids, timezone="UTC", setting
         SETTINGS {settings}
     )
     GROUP BY
-        period_day,
+        day_bucket,
         team_id,
         host,
         device_type,
