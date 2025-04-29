@@ -6,6 +6,8 @@ import type { fixSQLErrorsLogicType } from './fixSQLErrorsLogicType'
 
 export interface Response {
     query: string
+    trace_id: string
+    error?: string
 }
 
 export const fixSQLErrorsLogic = kea<fixSQLErrorsLogicType>([

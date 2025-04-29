@@ -1,10 +1,21 @@
 import { Monaco } from '@monaco-editor/react'
-import { IconBolt, IconBook, IconBrackets, IconDownload, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
-import { LemonDivider } from '@posthog/lemon-ui'
+import {
+    IconBolt,
+    IconBook,
+    IconBrackets,
+    IconDownload,
+    IconMagicWand,
+    IconPlayFilled,
+    IconSidebarClose,
+    IconWarning,
+} from '@posthog/icons'
+import { LemonDivider, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { editor as importedEditor } from 'monaco-editor'
 import { useMemo } from 'react'
 
@@ -12,6 +23,7 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { editorSizingLogic } from './editorSizingLogic'
+import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
 import { multitabEditorLogic } from './multitabEditorLogic'
 import { OutputPane } from './OutputPane'
 import { QueryHistoryModal } from './QueryHistoryModal'
@@ -26,16 +38,8 @@ interface QueryWindowProps {
 export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Element {
     const codeEditorKey = `hogQLQueryEditor/${router.values.location.pathname}`
 
-    const {
-        allTabs,
-        activeModelUri,
-        queryInput,
-        editingView,
-        editingInsight,
-        sourceQuery,
-        suggestedQueryInput,
-        metadata,
-    } = useValues(multitabEditorLogic)
+    const { allTabs, activeModelUri, queryInput, editingView, editingInsight, sourceQuery, suggestedQueryInput } =
+        useValues(multitabEditorLogic)
     const {
         renameTab,
         selectTab,
@@ -47,16 +51,16 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
         setMetadata,
         setMetadataLoading,
         saveAsView,
-        fixErrors: fixHogQLErrors,
     } = useActions(multitabEditorLogic)
     const { openHistoryModal } = useActions(multitabEditorLogic)
 
-    const { response, responseError } = useValues(dataNodeLogic)
+    const { response } = useValues(dataNodeLogic)
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
     const { updateDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
     const { sidebarWidth } = useValues(editorSizingLogic)
     const { resetDefaultSidebarWidth } = useActions(editorSizingLogic)
     const { setActiveTab } = useActions(editorSidebarLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const isMaterializedView =
         !!editingView?.status &&
@@ -175,18 +179,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                         {renderAddSQLVariablesButton()}
                     </>
                 )}
-                <LemonButton
-                    type="tertiary"
-                    size="xsmall"
-                    onClick={() =>
-                        fixHogQLErrors(
-                            queryInput,
-                            responseError || metadata?.errors?.map((n) => n.message)?.join('. ') || undefined
-                        )
-                    }
-                >
-                    Fix Errors!
-                </LemonButton>
+                {featureFlags[FEATURE_FLAGS.SQL_EDITOR_AI_ERROR_FIXER] && <FixErrorButton />}
             </div>
             <QueryPane
                 originalValue={suggestedQueryInput && suggestedQueryInput != queryInput ? queryInput ?? ' ' : undefined}
@@ -278,4 +271,61 @@ function InternalQueryWindow(): JSX.Element | null {
     }
 
     return <OutputPane />
+}
+
+function FixErrorButton(): JSX.Element {
+    const { queryInput, fixErrorsError, metadata } = useValues(multitabEditorLogic)
+    const { fixErrors: fixHogQLErrors } = useActions(multitabEditorLogic)
+    const { responseError } = useValues(dataNodeLogic)
+    const { responseLoading: fixHogQLErrorsLoading } = useValues(fixSQLErrorsLogic)
+
+    const queryError = responseError || metadata?.errors?.map((n) => n.message)?.join('. ') || undefined
+
+    const icon = useMemo(() => {
+        if (fixHogQLErrorsLoading) {
+            return <Spinner />
+        }
+
+        if (fixErrorsError) {
+            return <IconWarning className="text-warning" />
+        }
+
+        return <IconMagicWand />
+    }, [fixHogQLErrorsLoading, fixErrorsError])
+
+    const disabledReason = useMemo(() => {
+        if (!queryError) {
+            return 'No query error to fix'
+        }
+
+        if (fixErrorsError) {
+            return fixErrorsError
+        }
+
+        return false
+    }, [queryError, fixErrorsError])
+
+    const content = useMemo(() => {
+        if (fixHogQLErrorsLoading) {
+            return 'Fixing...'
+        }
+
+        if (fixErrorsError) {
+            return "Can't fix"
+        }
+
+        return 'Fix errors'
+    }, [fixErrorsError, fixHogQLErrorsLoading])
+
+    return (
+        <LemonButton
+            type="tertiary"
+            size="xsmall"
+            disabledReason={disabledReason}
+            icon={icon}
+            onClick={() => fixHogQLErrors(queryInput, queryError)}
+        >
+            {content}
+        </LemonButton>
+    )
 }

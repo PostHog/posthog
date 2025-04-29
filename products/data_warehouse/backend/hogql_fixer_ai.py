@@ -1,5 +1,4 @@
 import os
-from typing import Optional
 from ee.hogai.tool import MaxTool
 from posthog.hogql.database.database import create_hogql_database, serialize_database
 from posthog.hogql.context import HogQLContext
@@ -99,7 +98,7 @@ class HogQLQueryFixerTool(MaxTool):
     thinking_message: str = "Fixing errors in the SQL query"
     root_system_prompt_template: str = SQL_ASSISTANT_ROOT_SYSTEM_PROMPT
 
-    def _run_impl(self) -> tuple[str, str]:
+    def _run_impl(self) -> tuple[str, str | None]:
         database = create_hogql_database(self._team_id)
         hogql_context = HogQLContext(team_id=self._team_id, enable_select_queries=True, database=database)
 
@@ -136,7 +135,6 @@ class HogQLQueryFixerTool(MaxTool):
             template_format="mustache",
         )
 
-        final_error: Optional[Exception] = None
         for i in range(3):
             try:
                 chain = prompt | self._model
@@ -145,10 +143,8 @@ class HogQLQueryFixerTool(MaxTool):
                 break
             except PydanticOutputParserException as e:
                 prompt += f"\n\nWe've ran this prompt {i+1} time{'s' if i+1 > 1 else ''} now. The newly updated query gave us this error: {e.validation_message}"
-                final_error = e
         else:
-            if final_error is not None:
-                raise final_error
+            return "", None
 
         return parsed_result, parsed_result
 

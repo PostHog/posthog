@@ -12,6 +12,7 @@ import { removeUndefinedAndNull } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import isEqual from 'lodash.isequal'
 import { editor, Uri } from 'monaco-editor'
+import posthog from 'posthog-js'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -100,7 +101,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             editorSceneLogic,
             ['reportAIQueryPrompted', 'reportAIQueryAccepted', 'reportAIQueryRejected', 'reportAIQueryPromptOpen'],
             fixSQLErrorsLogic,
-            ['fixErrors', 'fixErrorsSuccess'],
+            ['fixErrors', 'fixErrorsSuccess', 'fixErrorsFailure'],
         ],
     })),
     actions(({ values }) => ({
@@ -299,10 +300,22 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 closeHistoryModal: () => false,
             },
         ],
+        fixErrorsError: [
+            null as string | null,
+            {
+                setQueryInput: () => null,
+                fixErrorsFailure: (_, { error }) => error,
+            },
+        ],
     })),
     listeners(({ values, props, actions, asyncActions }) => ({
         fixErrorsSuccess: ({ response }) => {
             actions.setSuggestedQueryInput(response.query)
+
+            posthog.capture('ai-error-fixer-success', { trace_id: response.trace_id })
+        },
+        fixErrorsFailure: () => {
+            posthog.capture('ai-error-fixer-failure')
         },
         shareTab: () => {
             const currentTab = values.activeModelUri
