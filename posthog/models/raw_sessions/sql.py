@@ -438,13 +438,14 @@ GROUP BY
 
 RAW_SESSIONS_TABLE_MV_SQL = (
     lambda: """
-CREATE MATERIALIZED VIEW IF NOT EXISTS {table_name}
+CREATE MATERIALIZED VIEW IF NOT EXISTS {table_name} {on_cluster_clause}
 TO {database}.{target_table}
 AS
 {select_sql}
 """.format(
         table_name=f"{TABLE_BASE_NAME}_mv",
         target_table=f"writable_{TABLE_BASE_NAME}",
+        on_cluster_clause=ON_CLUSTER_CLAUSE(),
         database=settings.CLICKHOUSE_DATABASE,
         select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL(),
     )
@@ -452,11 +453,12 @@ AS
 
 RAW_SESSION_TABLE_UPDATE_SQL = (
     lambda: """
-ALTER TABLE {table_name}
+ALTER TABLE {table_name} {on_cluster_clause}
 MODIFY QUERY
 {select_sql}
 """.format(
         table_name=f"{TABLE_BASE_NAME}_mv",
+        on_cluster_clause=ON_CLUSTER_CLAUSE(),
         select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL(),
     )
 )
