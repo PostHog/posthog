@@ -6,7 +6,6 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/labstack/echo/v4"
 	"github.com/posthog/posthog/livestream/auth"
 	"github.com/posthog/posthog/livestream/events"
@@ -42,17 +41,15 @@ func statsHandler(stats *events.Stats) func(c echo.Context) error {
 			return c.JSON(http.StatusUnauthorized, resp{Error: "wrong token claims"})
 		}
 
-		var hash *expirable.LRU[string, events.NoSpaceType]
-		var ok bool
-		if hash, ok = stats.Store[token]; !ok {
+		store := stats.GetExistingStoreForToken(token)
+		if store == nil {
 			resp := resp{
 				Error: "no stats",
 			}
 			return c.JSON(http.StatusOK, resp)
 		}
-
 		siteStats := resp{
-			UsersOnProduct: hash.Len(),
+			UsersOnProduct: store.Len(),
 		}
 		return c.JSON(http.StatusOK, siteStats)
 	}
