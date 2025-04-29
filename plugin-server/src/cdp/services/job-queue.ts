@@ -357,10 +357,6 @@ export class CyclotronJobQueue {
             return
         }
 
-        if (messages.length > 0) {
-            logger.info('🔄', 'Consuming kafka batch', { count: messages.length })
-        }
-
         const invocations: HogFunctionInvocation[] = []
         const hogFunctionIds = new Set<string>()
 
