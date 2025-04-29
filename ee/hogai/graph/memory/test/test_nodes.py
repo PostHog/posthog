@@ -464,9 +464,6 @@ class TestMemoryOnboardingEnquiryNode(ClickhouseTestMixin, BaseTest):
             self.core_memory.append_initial_memory(
                 "Question: What is your pricing model?\nAnswer: We use a subscription model"
             )
-            self.core_memory.append_initial_memory(
-                "Question: What is your pricing model?\nAnswer: We use a subscription model"
-            )
             self.core_memory.append_initial_memory("Question: What is your target market?")
             state = AssistantState(
                 messages=[HumanMessage(content="We target enterprise customers")],
