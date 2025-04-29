@@ -19,6 +19,8 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useEffect, useRef, useState } from 'react'
 import { urls } from 'scenes/urls'
 
+import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
+
 import { CodeSnippet, Language } from '../CodeSnippet'
 import type { debugCHQueriesLogicType } from './DebugCHQueriesType'
 
@@ -229,16 +231,24 @@ export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element 
     const { setPathFilter, loadDebugResponse } = useActions(logic)
 
     const errorTrackingLink = (key: string, value: string | number): string => {
-        const filterGroup = JSON.stringify({
-            type: 'AND',
-            values: [
-                {
-                    type: 'AND',
-                    values: [{ key, value: [value], operator: 'exact', type: 'event' }],
-                },
-            ],
+        return urls.errorTracking({
+            filterGroup: {
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                key,
+                                value: [value],
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.Event,
+                            },
+                        ],
+                    },
+                ],
+            },
         })
-        return urls.errorTracking(`filterGroup=${filterGroup}`)
     }
 
     return (

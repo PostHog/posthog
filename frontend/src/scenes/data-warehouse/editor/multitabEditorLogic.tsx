@@ -143,6 +143,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         onRejectSuggestedQueryInput: true,
         setResponse: (response: Record<string, any> | null) => ({ response, currentTab: values.activeModelUri }),
         shareTab: true,
+        openHistoryModal: true,
+        closeHistoryModal: true,
     })),
     propsChanged(({ actions, props }, oldProps) => {
         if (!oldProps.monaco && !oldProps.editor && props.monaco && props.editor) {
@@ -285,6 +287,13 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             '',
             {
                 _setSuggestedQueryInput: (_, { suggestedQueryInput }) => suggestedQueryInput,
+            },
+        ],
+        isHistoryModalOpen: [
+            false as boolean,
+            {
+                openHistoryModal: () => true,
+                closeHistoryModal: () => false,
             },
         ],
     })),
