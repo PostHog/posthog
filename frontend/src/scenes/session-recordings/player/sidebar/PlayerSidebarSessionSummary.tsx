@@ -56,6 +56,20 @@ interface SegmentMetaProps {
     meta: SegmentMeta | null | undefined
 }
 
+function LoadingTimer(): JSX.Element {
+    const [elapsedSeconds, setElapsedSeconds] = useState(0)
+
+    useEffect(() => {
+        const interval = setInterval(() => {
+            setElapsedSeconds((prev) => prev + 1)
+        }, 1000)
+
+        return () => clearInterval(interval)
+    }, [])
+
+    return <span className="font-mono text-xs">{elapsedSeconds}s</span>
+}
+
 function SegmentMetaTable({ meta }: SegmentMetaProps): JSX.Element | null {
     if (!meta) {
         return null
@@ -211,16 +225,21 @@ function SessionSummaryLoadingState({ operation, counter, name, outOf }: Session
     return (
         <div className="mb-4 grid grid-cols-[auto_1fr] gap-x-2">
             <Spinner className="text-2xl row-span-2 self-center" />
-            <span className="text-muted">
-                {operation}
-                {counter !== undefined && (
-                    <span className="font-semibold">
-                        ({counter}
-                        {outOf ? ` of ${outOf}` : ''})
-                    </span>
-                )}
-                {name ? ':' : ''}
-            </span>
+            <div className="flex items-center justify-between">
+                <span className="text-muted">
+                    {operation}
+                    {counter !== undefined && (
+                        <span className="font-semibold">
+                            ({counter}
+                            {outOf ? ` of ${outOf}` : ''})
+                        </span>
+                    )}
+                    {name ? ':' : ''}
+                </span>
+                <div className="flex items-center gap-1 ml-auto font-mono text-xs">
+                    <LoadingTimer />
+                </div>
+            </div>
             {name ? (
                 <div className="font-semibold">{name}</div>
             ) : (
@@ -414,20 +433,6 @@ function LoadSessionSummaryButton(): JSX.Element {
     )
 }
 
-function LoadingTimer(): JSX.Element {
-    const [elapsedSeconds, setElapsedSeconds] = useState(0)
-
-    useEffect(() => {
-        const interval = setInterval(() => {
-            setElapsedSeconds((prev) => prev + 1)
-        }, 1000)
-
-        return () => clearInterval(interval)
-    }, [])
-
-    return <span>{elapsedSeconds}s</span>
-}
-
 export function PlayerSidebarSessionSummary(): JSX.Element | null {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { sessionSummary, sessionSummaryLoading } = useValues(playerMetaLogic(logicProps))
@@ -440,7 +445,7 @@ export function PlayerSidebarSessionSummary(): JSX.Element | null {
                         <div>
                             Researching the session... <Spinner />
                         </div>
-                        <div className="flex items-center gap-1 ml-auto font-mono text-xs">
+                        <div className="flex items-center gap-1 ml-auto">
                             <LoadingTimer />
                         </div>
                     </div>
