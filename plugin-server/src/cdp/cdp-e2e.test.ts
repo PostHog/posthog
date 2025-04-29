@@ -63,6 +63,7 @@ describe.each([['cyclotron' as const], ['kafka' as const]])('CDP Consumer loop: 
 
             hub.CDP_FETCH_RETRIES = 2
             hub.CDP_FETCH_BACKOFF_BASE_MS = 100 // fast backoff
+            hub.CDP_CYCLOTRON_COMPRESS_KAFKA_DATA = true
             hub.CYCLOTRON_DATABASE_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron'
             hub.CDP_CYCLOTRON_DELIVERY_MODE = mode
 
