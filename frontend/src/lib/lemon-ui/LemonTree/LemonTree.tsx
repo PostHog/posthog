@@ -942,7 +942,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                     const element = containerRef.current?.querySelector(
                         `[data-id="${CSS.escape(match.id)}"]`
                     ) as HTMLElement
-                    element.focus()
+                    element?.focus()
 
                     // If item is in a collapsed folder, expand the path to it
                     const path = findPathToItem(Array.isArray(data) ? data : [data], match.id)
@@ -1028,7 +1028,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                 // Now use the escaped ID in your query
                 const element = containerRef.current?.querySelector(`[data-id=${CSS.escape(id)}]`) as HTMLElement
                 // Focus the element
-                element.focus()
+                element?.focus()
             }, 100)
         }, [])
 
@@ -1080,7 +1080,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                                     const element = containerRef.current?.querySelector(
                                         `[data-id="${CSS.escape(nextItem.id)}"]`
                                     ) as HTMLElement
-                                    element.focus()
+                                    element?.focus()
                                 }
                             }
                         }
@@ -1134,13 +1134,13 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                                 const element = containerRef.current?.querySelector(
                                     `[data-id="${CSS.escape(parentItem.id)}"]`
                                 ) as HTMLElement
-                                element.focus()
+                                element?.focus()
                             } else {
                                 // If parent is already collapsed, just focus it
                                 const element = containerRef.current?.querySelector(
                                     `[data-id="${CSS.escape(parentItem.id)}"]`
                                 ) as HTMLElement
-                                element.focus()
+                                element?.focus()
                             }
                         }
                         break
@@ -1157,7 +1157,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                                 const element = containerRef.current?.querySelector(
                                     `[data-id="${CSS.escape(firstItem.id)}"]`
                                 ) as HTMLElement
-                                element.focus()
+                                element?.focus()
                             }
                         } else {
                             const nextItem = findNextFocusableItem(visibleItems, currentIndex, 1)
@@ -1165,7 +1165,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                                 const element = containerRef.current?.querySelector(
                                     `[data-id="${CSS.escape(nextItem.id)}"]`
                                 ) as HTMLElement
-                                element.focus()
+                                element?.focus()
                             }
                         }
                         break
@@ -1182,7 +1182,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                                 const element = containerRef.current?.querySelector(
                                     `[data-id="${CSS.escape(lastItem.id)}"]`
                                 ) as HTMLElement
-                                element.focus()
+                                element?.focus()
                             }
                         } else {
                             const prevItem = findNextFocusableItem(visibleItems, currentIndex, -1)
@@ -1190,7 +1190,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                                 const element = containerRef.current?.querySelector(
                                     `[data-id="${CSS.escape(prevItem.id)}"]`
                                 ) as HTMLElement
-                                element.focus()
+                                element?.focus()
                             }
                         }
                         break
@@ -1205,7 +1205,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                             const element = containerRef.current?.querySelector(
                                 `[data-id="${CSS.escape(visibleItems[0].id)}"]`
                             ) as HTMLElement
-                            element.focus()
+                            element?.focus()
                         }
                         break
                     }
@@ -1219,7 +1219,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                             const element = containerRef.current?.querySelector(
                                 `[data-id="${CSS.escape(visibleItems[visibleItems.length - 1].id)}"]`
                             ) as HTMLElement
-                            element.focus()
+                            element?.focus()
                         }
                         break
                     }
@@ -1326,9 +1326,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                 const element = containerRef.current?.querySelector(
                     `[data-id="${CSS.escape(defaultSelectedFolderOrNodeId)}"]`
                 ) as HTMLElement
-                if (element) {
-                    element.focus()
-                }
+                element?.focus()
                 setSelectedId(defaultSelectedFolderOrNodeId)
             }
         }, [defaultSelectedFolderOrNodeId, hasFocusedContent])
@@ -1338,7 +1336,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             focusItem: (id: string) => {
                 // Find and focus the actual DOM element
                 const element = containerRef.current?.querySelector(`[data-id="${CSS.escape(id)}"]`) as HTMLElement
-                element.focus()
+                element?.focus()
             },
         }))
 
