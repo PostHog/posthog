@@ -26,7 +26,7 @@
             "label": "Assignee"
         }
     },
-    "error_tracking_issueproperties": {
+    "error_tracking_issue_properties": {
         "$exception_types": {
             "description": "The type of the exception.",
             "label": "Exception type"
