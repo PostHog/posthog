@@ -42,16 +42,16 @@ type KafkaConsumerInterface interface {
 type PostHogKafkaConsumer struct {
 	consumer     KafkaConsumerInterface
 	topic        string
-	geolocator   main.GeoLocator
+	geolocator   GeoLocator
 	incoming     chan []byte
 	outgoingChan chan PostHogEvent
-	statsChan    chan main.CountEvent
+	statsChan    chan CountEvent
 	parallel     int
 }
 
 func NewPostHogKafkaConsumer(
-	brokers string, securityProtocol string, groupID string, topic string, geolocator main.GeoLocator,
-	outgoingChan chan PostHogEvent, statsChan chan main.CountEvent, parallel int) (*PostHogKafkaConsumer, error) {
+	brokers string, securityProtocol string, groupID string, topic string, geolocator GeoLocator,
+	outgoingChan chan PostHogEvent, statsChan chan CountEvent, parallel int) (*PostHogKafkaConsumer, error) {
 
 	config := &kafka.ConfigMap{
 		"bootstrap.servers":          brokers,
@@ -120,11 +120,11 @@ func (c *PostHogKafkaConsumer) runParsing() {
 		}
 		phEvent := parse(c.geolocator, value)
 		c.outgoingChan <- phEvent
-		c.statsChan <- main.CountEvent{Token: phEvent.Token, DistinctID: phEvent.DistinctId}
+		c.statsChan <- CountEvent{Token: phEvent.Token, DistinctID: phEvent.DistinctId}
 	}
 }
 
-func parse(geolocator main.GeoLocator, kafkaMessage []byte) PostHogEvent {
+func parse(geolocator GeoLocator, kafkaMessage []byte) PostHogEvent {
 	var wrapperMessage PostHogEventWrapper
 	if err := json.Unmarshal(kafkaMessage, &wrapperMessage); err != nil {
 		log.Printf("Error decoding JSON %s: %v", err, string(kafkaMessage))
