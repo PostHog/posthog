@@ -404,7 +404,7 @@ export function HogFunctionInputWithSchema({
     setConfigurationValue,
 }: HogFunctionInputWithSchemaProps): JSX.Element {
     const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: schema.key })
-    const { showSource } = useValues(hogFunctionConfigurationLogic)
+    const { showSource, expertMode } = useValues(hogFunctionConfigurationLogic)
     const [editing, setEditing] = useState(false)
 
     const value = configuration.inputs?.[schema.key]
@@ -492,7 +492,7 @@ export function HogFunctionInputWithSchema({
                                             Supports templating
                                         </LemonButton>
                                     )}
-                                    {showSource && (
+                                    {showSource && expertMode && (
                                         <LemonButton
                                             size="small"
                                             noPadding

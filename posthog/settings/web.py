@@ -449,7 +449,7 @@ API_QUERIES_ENABLED = get_from_env("API_QUERIES_ENABLED", False, type_cast=str_t
 
 # Teams allowed to modify transformation code (comma-separated list of team IDs),
 # keep in sync with client-side feature flag HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED
-HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS = get_list(os.getenv("HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS", ""))
+HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS = get_list(os.getenv("HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS", "1"))
 CREATE_HOG_FUNCTION_FROM_PLUGIN_CONFIG = get_from_env("CREATE_HOG_FUNCTION_FROM_PLUGIN_CONFIG", False, type_cast=bool)
 
 # use the database templates instead of in-memory templates for those teams
