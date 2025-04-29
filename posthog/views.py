@@ -100,10 +100,6 @@ Disallow: /*%40*
 Disallow: /*@*
 
 # Block authentication paths
-Disallow: /login
-Disallow: /login/
-Disallow: /signup
-Disallow: /signup/
 Disallow: /verify_email/
 Disallow: /authorize_and_redirect
 
@@ -112,6 +108,7 @@ Disallow: /e/
 Disallow: /s/
 Disallow: /i/
 Disallow: /decide/
+Disallow: /flags/
 """
     return HttpResponse(ROBOTS_TXT_CONTENT, content_type="text/plain")
 
