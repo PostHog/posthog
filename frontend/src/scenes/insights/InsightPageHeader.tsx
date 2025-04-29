@@ -207,8 +207,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             <InsightSaveButton
                                 saveAs={() =>
                                     openSaveToModal({
-                                        callback: (folder) =>
-                                            typeof folder === 'string' ? saveAs(undefined, undefined, folder) : null,
+                                        callback: (folder) => saveAs(undefined, undefined, folder),
                                         defaultFolder: 'Unfiled/Insights',
                                     })
                                 }
@@ -216,10 +215,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                     insight.short_id
                                         ? saveInsight(redirectToViewMode)
                                         : openSaveToModal({
-                                              callback: (folder) =>
-                                                  typeof folder === 'string'
-                                                      ? saveInsight(redirectToViewMode, folder)
-                                                      : null,
+                                              callback: (folder) => saveInsight(redirectToViewMode, folder),
                                               defaultFolder: 'Unfiled/Insights',
                                           })
                                 }

@@ -17,8 +17,10 @@ export interface OpenSaveToProps {
     folder?: string | null
     /** Folder to use if the default folder is missing */
     defaultFolder?: string | null
-    /** Returns the folder when selected, or null if the modal was closed */
-    callback: (folder: string | null) => void
+    /** Returns the folder when selected */
+    callback: (folder: string) => void
+    /** Triggered if the modal was closed */
+    cancelCallback?: () => void
 }
 
 export const saveToLogic = kea<saveToLogicType>([
@@ -42,9 +44,16 @@ export const saveToLogic = kea<saveToLogicType>([
             },
         ],
         callback: [
-            null as null | ((folder: string | null) => void),
+            null as null | ((folder: string) => void),
             {
-                openSaveToModal: (_, { callback }) => callback,
+                openSaveToModal: (_, { callback }) => callback ?? null,
+                closedSaveToModal: () => null,
+            },
+        ],
+        cancelCallback: [
+            null as null | (() => void),
+            {
+                openSaveToModal: (_, { cancelCallback }) => cancelCallback ?? null,
                 closedSaveToModal: () => null,
             },
         ],
@@ -59,13 +68,13 @@ export const saveToLogic = kea<saveToLogicType>([
         openSaveToModal: ({ folder, defaultFolder }) => {
             const realFolder = folder ?? values.lastNewFolder ?? defaultFolder ?? null
             if (!values.isFeatureEnabled) {
-                values.callback?.(realFolder)
+                values.callback?.(realFolder ?? '')
             } else {
                 actions.setFormValue('folder', realFolder)
             }
         },
         closeSaveToModal: () => {
-            values.callback?.(null)
+            values.cancelCallback?.()
             actions.closedSaveToModal()
         },
     })),
@@ -79,7 +88,7 @@ export const saveToLogic = kea<saveToLogicType>([
             }),
             submit: (formValues) => {
                 actions.setLastNewFolder(formValues.folder)
-                values.callback?.(formValues.folder ?? null)
+                values.callback?.(formValues.folder ?? '')
                 actions.closedSaveToModal()
             },
         },
