@@ -114,9 +114,9 @@ export function Products(): JSX.Element {
                             ))}
                         </div>
 
-                        <div className="flex gap-2 justify-center items-center">
+                        <div className={clsx('flex gap-6 items-center justify-center', hasIngestedEvent && 'flex-col')}>
                             {selectedProducts.length > 1 ? (
-                                <>
+                                <div className="flex gap-2 items-center justify-center">
                                     <LemonLabel>Start first with</LemonLabel>
                                     <LemonSelect
                                         value={firstProductOnboarding}
@@ -137,7 +137,7 @@ export function Products(): JSX.Element {
                                     >
                                         Go
                                     </LemonButton>
-                                </>
+                                </div>
                             ) : (
                                 <LemonButton
                                     type="primary"
@@ -155,8 +155,7 @@ export function Products(): JSX.Element {
                             {hasIngestedEvent && (
                                 <LemonButton
                                     sideIcon={<IconArrowRight />}
-                                    status="default"
-                                    type="primary"
+                                    status="alt"
                                     onClick={() => {
                                         skipOnboarding()
                                     }}
