@@ -2156,6 +2156,17 @@ class TestPrinter(BaseTest):
             # Verify the utility function was called with correct parameters
             mock_get_survey_response.assert_called_once_with(2, "abc123", True)
 
+    def test_unique_survey_submissions_filter(self):
+        query = parse_select("select uuid from events where uniqueSurveySubmissionsFilter('survey123')")
+        printed = print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+        )
+        self.assertEqual(
+            printed,
+            "select uuid from events where uuid in (select uuid from events where event = 'survey sent' and properties.$survey_id = 'survey123' and properties.$survey_submission_id is null)",
+        )
+
     def test_override_timezone(self):
         context = HogQLContext(
             team_id=self.team.pk,
