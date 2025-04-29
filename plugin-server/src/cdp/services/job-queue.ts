@@ -34,13 +34,13 @@ import { HogFunctionManagerService } from './hog-function-manager.service'
 const cyclotronBatchUtilizationGauge = new Gauge({
     name: 'cdp_cyclotron_batch_utilization',
     help: 'Indicates how big batches are we are processing compared to the max batch size. Useful as a scaling metric',
-    labelNames: ['queue'],
+    labelNames: ['queue', 'source'],
 })
 
 const counterJobsProcessed = new Counter({
     name: 'cdp_cyclotron_jobs_processed',
     help: 'The number of jobs we are managing to process',
-    labelNames: ['queue'],
+    labelNames: ['queue', 'source'],
 })
 
 const histogramCyclotronJobsCreated = new Histogram({
@@ -278,7 +278,7 @@ export class CyclotronJobQueue {
     private async consumeCyclotronJobs(jobs: CyclotronJob[]) {
         const worker = this.getCyclotronWorker()
         cyclotronBatchUtilizationGauge
-            .labels({ queue: this.queue })
+            .labels({ queue: this.queue, source: 'postgres' })
             .set(jobs.length / this.config.CDP_CYCLOTRON_BATCH_SIZE)
 
         const invocations: HogFunctionInvocation[] = []
@@ -318,7 +318,7 @@ export class CyclotronJobQueue {
 
         await Promise.all([this.consumeBatch!(invocations), ...failReleases])
 
-        counterJobsProcessed.inc({ queue: this.queue }, jobs.length)
+        counterJobsProcessed.inc({ queue: this.queue, source: 'postgres' }, jobs.length)
     }
 
     private async updateCyclotronJobs(invocationResults: HogFunctionInvocationResult[]) {
@@ -439,7 +439,7 @@ export class CyclotronJobQueue {
 
     private async consumeKafkaBatch(messages: Message[]) {
         cyclotronBatchUtilizationGauge
-            .labels({ queue: this.queue })
+            .labels({ queue: this.queue, source: 'kafka' })
             .set(messages.length / this.config.CDP_CYCLOTRON_BATCH_SIZE)
 
         if (messages.length === 0) {
@@ -489,7 +489,7 @@ export class CyclotronJobQueue {
 
         await this.consumeBatch!(invocations)
 
-        counterJobsProcessed.inc({ queue: this.queue }, invocations.length)
+        counterJobsProcessed.inc({ queue: this.queue, source: 'kafka' }, invocations.length)
     }
 }
 
