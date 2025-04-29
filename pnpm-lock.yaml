@@ -1263,18 +1263,6 @@ importers:
       '@posthog/siphash':
         specifier: 1.1.1
         version: 1.1.1
-      '@sentry/node':
-        specifier: 7.112.1
-        version: 7.112.1
-      '@sentry/profiling-node':
-        specifier: 7.112.1
-        version: 7.112.1
-      '@sentry/tracing':
-        specifier: 7.112.1
-        version: 7.112.1
-      '@sentry/utils':
-        specifier: 7.112.1
-        version: 7.112.1
       '@types/lru-cache':
         specifier: ^5.1.0
         version: 5.1.1
@@ -1360,8 +1348,8 @@ importers:
         specifier: ^8.6.0
         version: 8.11.0
       posthog-node:
-        specifier: 4.5.2
-        version: 4.5.2
+        specifier: 4.14.0
+        version: 4.14.0
       pretty-bytes:
         specifier: ^5.6.0
         version: 5.6.0
@@ -1411,9 +1399,6 @@ importers:
       '@babel/types':
         specifier: ^7.20.2
         version: 7.26.3
-      '@sentry/types':
-        specifier: 7.112.1
-        version: 7.112.1
       '@swc-node/register':
         specifier: ^1.10.9
         version: 1.10.9(@swc/core@1.10.14(@swc/helpers@0.5.15))(@swc/types@0.1.19)(typescript@4.9.5)
@@ -5257,15 +5242,6 @@ packages:
     resolution: {integrity: sha512-jIgXT+ahUS7zmhDMAzsgQHCNA6ZwZAp0Bwjoz0tcuGzNcv7mOCnjHz5YooJVQgXuREV653RmEuGGTklrpn6S2w==}
     engines: {node: '>=8'}
 
-  '@sentry/node@7.112.1':
-    resolution: {integrity: sha512-4nGqP133jDNgPADJMR+pTroo9TTYyrXuGVI1RO2lhZpLbRu7ksR6hgsQE00+0L/EhPM4IiW75iwwHePFwqWY6A==}
-    engines: {node: '>=8'}
-
-  '@sentry/profiling-node@7.112.1':
-    resolution: {integrity: sha512-NKAcGJQde97EGtx7YYaJQPuZ8K/RXyv/BCh7AOHm9EgLTV4oCG8BAYzSd/euVJWmNDLX1mT7ejYRXKsg9HJ1/w==}
-    engines: {node: '>=8.0.0'}
-    hasBin: true
-
   '@sentry/react@7.112.1':
     resolution: {integrity: sha512-q0fDW3omq/NPaL7yRqWA1USxGtEAcdFZOngIMsr9Bc4fJBGXDO+xLwPWjo1MIVvdDBJJYL/9Z56ppqTb3kiGXw==}
     engines: {node: '>=8'}
@@ -5275,10 +5251,6 @@ packages:
   '@sentry/replay@7.112.1':
     resolution: {integrity: sha512-4lobxfgmbB2C7ZHk1inWt9IRIvlQa2Sczau5ngE4Qd4mZSKIgIYGtIJC52uOuGvBcP8gHiIbA7ACihkd7834Ew==}
     engines: {node: '>=12'}
-
-  '@sentry/tracing@7.112.1':
-    resolution: {integrity: sha512-/ScTA0RxHbtg8axsXtYqGba8Qq9rpSgCPh2L4XSKiszYKlq+po4c0YeoFQOdYVHUmMQZDkXBxLWZPxd/Oz1N+g==}
-    engines: {node: '>=8'}
 
   '@sentry/types@7.112.1':
     resolution: {integrity: sha512-5dLIxWZfCXH5kExrsWc+R6loMr3RR6OQuonVNL3Fa8Dw37Q7aExCrjRmocOHeQKhHwNBd3QhYm7phjnbxS6Oaw==}
@@ -7423,6 +7395,9 @@ packages:
 
   axios@1.7.9:
     resolution: {integrity: sha512-LhLcE7Hbiryz8oMDdDptSrWowmB4Bl6RCt6sIJKpRB4XtVf0iEgewX3au/pJqm+Py1kCASkb/FFKjxQaLtxJvw==}
+
+  axios@1.9.0:
+    resolution: {integrity: sha512-re4CqKTJaURpzbLHtIi6XpDv20/CnpXOtjRY5/CU32L8gU8ek9UIivcfvSWvmKEngmVbrUtPpdDwWDWL7DNHvg==}
 
   babel-core@7.0.0-bridge.0:
     resolution: {integrity: sha512-poPX9mZH/5CSanm50Q+1toVci6pv5KSRv/5TWCwtzQS5XEwn40BcCrgIeMFWP9CKKIniKXNxoIOnOq4VVlGXhg==}
@@ -9726,10 +9701,6 @@ packages:
 
   form-data@3.0.1:
     resolution: {integrity: sha512-RHkBKtLWUVwd7SqRIvCZMEvAMoGUp0XU+seQiZejj0COz3RI3hWP4sCv3gZWWLjJTd7rGwcsF5eKZGii0r/hbg==}
-    engines: {node: '>= 6'}
-
-  form-data@4.0.0:
-    resolution: {integrity: sha512-ETEklSGi5t0QMZuiXoA/Q6vcnxcLQP5vdugSpuAyi6SVGi2clPPp+xgEhuMaHC+zGgn31Kd235W35f7Hykkaww==}
     engines: {node: '>= 6'}
 
   form-data@4.0.1:
@@ -12154,10 +12125,6 @@ packages:
   no-case@3.0.4:
     resolution: {integrity: sha512-fgAN3jGAh+RoxUGZHTSOLJIqUc2wmoBwGR4tbpNAKmmovFoWq0OdRkb0VkldReO2a2iBT/OEulG9XSUc10r3zg==}
 
-  node-abi@3.74.0:
-    resolution: {integrity: sha512-c5XK0MjkGBrQPGYG24GBADZud0NCbznxNx0ZkS+ebUTrmV1qTDxPxSL8zEAPURXSbLRWVexxmP4986BziahL5w==}
-    engines: {node: '>=10'}
-
   node-abort-controller@3.1.1:
     resolution: {integrity: sha512-AGK2yQKIjRuqnc6VkX2Xj5d+QW8xZ87pa1UK6yA6ouUyuxfHuMP6umE5QK7UmTeOAymo+Zx1Fxiuw9rVx8taHQ==}
 
@@ -13272,8 +13239,8 @@ packages:
       rrweb-snapshot:
         optional: true
 
-  posthog-node@4.5.2:
-    resolution: {integrity: sha512-dncxqeXUDwjr4UD9pYanPWsG7jQPe01ctTm7KqKAi5a9GeH3cEICHyw5Qw2SPXfcA6MZLypuFoCTPET/NOfDzw==}
+  posthog-node@4.14.0:
+    resolution: {integrity: sha512-PitSiuxGiVFl0ItuhIfi3Sq1tcaMU4vlbPu1wv0qufTJGDjWthOOr4vYfFIs1xkbJFOQcfGczMXkr44kX5TDDg==}
     engines: {node: '>=15.0.0'}
 
   posthtml-parser@0.11.0:
@@ -20235,19 +20202,6 @@ snapshots:
       '@sentry/utils': 7.112.1
       localforage: 1.10.0
 
-  '@sentry/node@7.112.1':
-    dependencies:
-      '@sentry-internal/tracing': 7.112.1
-      '@sentry/core': 7.112.1
-      '@sentry/integrations': 7.112.1
-      '@sentry/types': 7.112.1
-      '@sentry/utils': 7.112.1
-
-  '@sentry/profiling-node@7.112.1':
-    dependencies:
-      detect-libc: 2.0.3
-      node-abi: 3.74.0
-
   '@sentry/react@7.112.1(react@18.2.0)':
     dependencies:
       '@sentry/browser': 7.112.1
@@ -20263,10 +20217,6 @@ snapshots:
       '@sentry/core': 7.112.1
       '@sentry/types': 7.112.1
       '@sentry/utils': 7.112.1
-
-  '@sentry/tracing@7.112.1':
-    dependencies:
-      '@sentry-internal/tracing': 7.112.1
 
   '@sentry/types@7.112.1': {}
 
@@ -23246,6 +23196,14 @@ snapshots:
   axe-core@4.5.1: {}
 
   axios@1.7.9:
+    dependencies:
+      follow-redirects: 1.15.9
+      form-data: 4.0.1
+      proxy-from-env: 1.1.0
+    transitivePeerDependencies:
+      - debug
+
+  axios@1.9.0:
     dependencies:
       follow-redirects: 1.15.9
       form-data: 4.0.1
@@ -26312,12 +26270,6 @@ snapshots:
       combined-stream: 1.0.8
       mime-types: 2.1.35
 
-  form-data@4.0.0:
-    dependencies:
-      asynckit: 0.4.0
-      combined-stream: 1.0.8
-      mime-types: 2.1.35
-
   form-data@4.0.1:
     dependencies:
       asynckit: 0.4.0
@@ -29306,10 +29258,6 @@ snapshots:
       lower-case: 2.0.2
       tslib: 2.8.1
 
-  node-abi@3.74.0:
-    dependencies:
-      semver: 7.7.0
-
   node-abort-controller@3.1.1: {}
 
   node-addon-api@6.1.0: {}
@@ -30787,9 +30735,9 @@ snapshots:
     optionalDependencies:
       '@rrweb/types': 2.0.0-alpha.17
 
-  posthog-node@4.5.2:
+  posthog-node@4.14.0:
     dependencies:
-      axios: 1.7.9
+      axios: 1.9.0
     transitivePeerDependencies:
       - debug
 
@@ -32733,7 +32681,7 @@ snapshots:
       cookiejar: 2.1.4
       debug: 4.4.0(supports-color@8.1.1)
       fast-safe-stringify: 2.1.1
-      form-data: 4.0.0
+      form-data: 4.0.1
       formidable: 3.5.1
       methods: 1.1.2
       mime: 2.6.0

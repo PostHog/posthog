@@ -212,9 +212,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     PLUGINS_RELOAD_PUBSUB_CHANNEL: string // Redis channel for reload events'
     PLUGINS_DEFAULT_LOG_LEVEL: PluginLogLevel
     LOG_LEVEL: LogLevel
-    SENTRY_DSN: string | null
-    SENTRY_PLUGIN_SERVER_TRACING_SAMPLE_RATE: number // Rate of tracing in plugin server (between 0 and 1)
-    SENTRY_PLUGIN_SERVER_PROFILING_SAMPLE_RATE: number // Rate of profiling in plugin server (between 0 and 1)
     HTTP_SERVER_PORT: number
     SCHEDULE_LOCK_TTL: number // how many seconds to hold the lock for the schedule
     DISABLE_MMDB: boolean // whether to disable fetching MaxMind database for IP location
