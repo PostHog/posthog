@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 import pyarrow as pa
 
-from posthog.temporal.data_imports.pipelines.source.sql import Table, Column, TableReference
+from posthog.temporal.data_imports.pipelines.source.sql import Column, Table, TableReference
 
 
 class TestColumn(Column):

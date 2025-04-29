@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import math
 from collections.abc import Iterator
 from typing import Any
@@ -154,7 +156,7 @@ class MSSQLColumn(Column):
         return pa.field(self.name, arrow_type, nullable=self.nullable)
 
 
-def _get_table(cursor: Cursor, schema: str, table_name: str) -> Table:
+def _get_table(cursor: Cursor, schema: str, table_name: str) -> Table[MSSQLColumn]:
     query = """
         SELECT
             COLUMN_NAME,

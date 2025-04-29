@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import math
 import re
 from collections.abc import Iterator
@@ -235,7 +237,7 @@ class MySQLColumn(Column):
         return pa.field(self.name, arrow_type, nullable=self.nullable)
 
 
-def _get_table(cursor: Cursor, schema: str, table_name: str) -> Table:
+def _get_table(cursor: Cursor, schema: str, table_name: str) -> Table[MySQLColumn]:
     query = """
         SELECT
             column_name,

@@ -82,23 +82,26 @@ class TableReference(TableBase):
         return cls(name=name, parents=parents)
 
 
-class Table(TableBase):
+ColumnType = typing.TypeVar("ColumnType", bound=Column)
+
+
+class Table(TableBase, typing.Generic[ColumnType]):
     """A table obtained from a `SQLSource`.
 
     A table may be better understood as a container of `Column`, so indexing,
-    iteration, and membership tests are supported.
+    iteration, length checks, and membership tests are supported.
     """
 
     def __init__(
         self,
         name: str,
-        columns: list[Column],
+        columns: list[ColumnType],
         parents: tuple[str, ...] | None = None,
     ) -> None:
         super().__init__(name, parents)
         self.columns = columns
 
-    def __iter__(self) -> collections.abc.Iterator[Column]:
+    def __iter__(self) -> collections.abc.Iterator[ColumnType]:
         """Iterate through this `Table`'s columns."""
         yield from self.columns
 
@@ -106,7 +109,7 @@ class Table(TableBase):
         """Return the number of columns in this `Table`."""
         return len(self.columns)
 
-    def __getitem__(self, key: int | str) -> Column:
+    def __getitem__(self, key: int | str) -> ColumnType:
         """Get a column from this `Table`.
 
         Raises:
@@ -121,7 +124,7 @@ class Table(TableBase):
 
         raise TypeError(f"unsupported key type: '{type(key)}'")
 
-    def __contains__(self, column: Column | str) -> bool:
+    def __contains__(self, column: ColumnType | str) -> bool:
         """Check if this `Table` contains a column.
 
         Accepts both an object that implements `Column` and a `str`. The latter
@@ -141,7 +144,7 @@ class Table(TableBase):
             return column in self.columns
 
     @functools.lru_cache
-    def _get_column_by_name(self, key: str) -> Column:
+    def _get_column_by_name(self, key: str) -> ColumnType:
         """Get a column from this `Table` by its name.
 
         Raises:

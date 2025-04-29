@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import math
 from collections.abc import Iterator
 from typing import Any, LiteralString, Optional, cast
@@ -238,7 +240,7 @@ class PostgreSQLColumn(Column):
         return pa.field(self.name, arrow_type, nullable=self.nullable)
 
 
-def _get_table(cursor: psycopg.Cursor, schema: str, table_name: str) -> Table:
+def _get_table(cursor: psycopg.Cursor, schema: str, table_name: str) -> Table[PostgreSQLColumn]:
     query = sql.SQL("""
         SELECT
             column_name,
