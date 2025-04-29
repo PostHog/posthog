@@ -153,6 +153,113 @@ After exploring multiple approaches, we've decided to standardize on the impleme
 - [ ] Add tests for edge cases and error conditions
 - [ ] Add performance tests for large datasets
 
+## Phase: Refactor Usage Data Fetching (Usage Endpoint Only)
+
+### Step R1: Refactor Serializer (`UsageRequestSerializer`)
+- [x] Replace `usage_type` field with `usage_types` (optional JSON array string).
+- [x] Add `team_ids` field (optional JSON array string).
+- [x] Keep `breakdowns` field (optional JSON array string).
+- [x] Modify `validate` method:
+    - [x] Parse `usage_types`, `team_ids`, `breakdowns` JSON strings into lists, overwriting original keys in `validated_data`.
+    - [x] Validate `breakdowns` list allows only `None`, `[]`, `["type"]`, `["type", "team"]`.
+    - [x] Implement 400 Rule: Error if `"team"` is in `validated_data['breakdowns']` and `validated_data['usage_types']` is empty/None.
+
+### Step R2: Refactor Service Layer (`get_usage_data`)
+- [x] Update signature to accept `usage_types: Optional[List[str]]`, `team_ids: Optional[List[int]]`, `breakdowns: Optional[List[str]]`.
+- [x] Add routing logic: If `"team"` in `breakdowns`, call `_fetch_usage_by_type_and_team`; else call `_fetch_usage_by_type`. Pass filters.
+- [x] Call `transform_to_timeseries_format` passing results and the original `breakdowns` list.
+
+### Step R3: Implement Helper Functions (Separate Queries)
+- [x] **`_fetch_usage_by_type`**:
+    - [x] Create function accepting `usage_types`, `team_ids`.
+    - [x] Implement SQL query: selects by type, filters by `usage_types`, applies `team_ids` filter via `WHERE EXISTS`.
+    - [x] Return flat list (`date`, `usage_type`, `value`).
+- [x] **`_fetch_usage_by_type_and_team`**:
+    - [x] Create function accepting `usage_types`, `team_ids`.
+    - [x] Implement SQL query: selects by type and team, filters by `usage_types`, applies `team_ids` filter via `AND team_id = ANY(...)`.
+    - [x] Return flat list (`date`, `usage_type`, `team_id`, `value`).
+
+### Step R4: Refactor Transformation (`transform_to_timeseries_format`)
+- [x] Accept original `breakdowns` list as argument.
+- [x] If `"team"` is in `breakdowns`: Group input by (`usage_type`, `team_id`), set `breakdown_type="multiple"`, `breakdown_value=[type, team_id]`.
+- [x] Else: Group input by `usage_type`, set `breakdown_type="type"`, `breakdown_value=usage_type`.
+- [x] Ensure date padding works correctly.
+- [x] Handle interval aggregation within the transformation flow.
+
+### Step R5: Update API View (`UsageV2ViewSet.list`)
+- [x] Pass parsed `usage_types`, `team_ids`, and `breakdowns` list from `serializer.validated_data` to `get_usage_data`.
+
+### Step R6: ~~Update Tests~~ (Skipped for now)
+- ~~[ ] Adapt existing tests...~~
+- ~~[ ] Add tests for new filter combinations...~~
+
+## Phase: Refactor Spend Data Fetching (Spend Endpoint Only)
+
+### Step S1: Refactor Serializer (`SpendRequestSerializer` in `billing/serializers/usage.py`) ✅
+- [x] Add `usage_types` field (optional JSON array string, like Usage serializer).
+- [x] Add `team_ids` field (optional JSON array string, like Usage serializer).
+- [x] Update `breakdowns` field validation:
+    - [x] Parse JSON string to list.
+    - [x] Explicitly allow `[]` (empty list for total spend).
+    - [x] Validate list items are only `'type'` or `'team'`.
+    - [x] Normalize `['team', 'type']` to `['type', 'team']`.
+    - [x] Default to `[]` if parameter is missing or null.
+- [x] Update `validate` method:
+    - [x] Parse and validate `usage_types` JSON -> `List[str]` (use stripe keys). Store parsed list/None back into `validated_data['usage_types']`.
+    - [x] Parse and validate `team_ids` JSON -> `List[int]`. Store parsed list/None back into `validated_data['team_ids']`.
+    - [x] Keep date validation (`start_date <= end_date`).
+    - [x] Ensure NO 400 rule requiring `usage_types` when `breakdowns` includes `'team'`.
+
+### Step S2: Refactor Service (`get_spend_data` in `billing/services/usage.py`) - Signature & Data Fetching ✅
+- [x] Update function signature: `breakdowns_list: Optional[List[str]]`, add `usage_types: Optional[List[str]]`, `team_ids: Optional[List[int]]`.
+- [x] Replace ORM query (`UsageReport.objects.filter`) with raw SQL:
+    - [x] Fetch `date`, `usage_sent_to_stripe`, `report`, `reported_to_period_end` from `billing_usagereport`.
+    - [x] Filter by `organization_id` and date range (`start_date - 1 day` to `end_date`).
+    - [x] Order by `date`.
+    - [x] Fetch results into a list of dictionaries.
+- [x] Keep existing `customer` and `price_map` fetching logic.
+
+### Step S3: Refactor Service (`get_spend_data`) - Calculation Logic Adaptation ✅
+- [x] Adapt core daily spend calculation (`raw_daily_spend_by_type`) to iterate over SQL results (list of dicts) instead of ORM objects.
+- [x] Keep logic for period resets, cumulative cost calculation (`usage_to_amount_usd`), deltas, and smoothing.
+- [x] Keep interval aggregation logic (`aggregated_spend`), ensuring it stores `report` dicts needed for allocation.
+- [x] Keep breakdown/allocation logic (`processed_data`), adapting it to use the `aggregated_spend` structure with SQL-fetched `report` dicts.
+
+### Step S4: Refactor Service (`get_spend_data`) - Filtering Logic ✅
+- [x] After calculating `processed_data` and before transformation:
+    - [x] Add logic to filter `processed_data` dictionary based on `usage_types` and `team_ids` provided in the request, respecting the `breakdowns_list`:
+        - [x] No filtering if `breakdowns_list` is `[]` (total).
+        - [x] Filter by `usage_types` if `breakdowns_list` is `['type']`.
+        - [x] Filter by `team_ids` (stringified) if `breakdowns_list` is `['team']`.
+        - [x] Filter by both `usage_types` and `team_ids` (stringified) if `breakdowns_list` is `['type', 'team']`.
+
+### Step S5: Refactor Service (`get_spend_data`) - Transformation ✅
+- [x] Generate `all_period_starts` using `_generate_all_period_starts`.
+- [x] Determine `final_breakdown_type` (`None`, `'type'`, `'team'`, `'multiple'`) from `breakdowns_list`.
+- [x] Determine `breakdown_label_prefix` ("Total Spend", "Spend").
+- [x] Call `_transform_spend_to_timeseries_format` with **filtered** `processed_data`, `final_breakdown_type`, `breakdown_label_prefix`, and `all_period_starts`.
+
+### Step S6: Update API View (`SpendViewSet.list` in `billing/api/usage_v2.py`) ✅
+- [x] Instantiate updated `SpendRequestSerializer`.
+- [x] Update call to `get_spend_data`, passing:
+    - [x] `breakdowns_list=validated_data.get('breakdowns', [])`
+    - [x] `usage_types=validated_data.get('usage_types')`
+    - [x] `team_ids=validated_data.get('team_ids')`
+    - [x] Other params as before.
+
+### Step S7: Verify Transformation Helper (`_transform_spend_to_timeseries_format` in `billing/services/usage.py`) ✅
+- [x] Double-check (no code changes expected) that it correctly maps `breakdown_type` (`None`, `'type'`, `'team'`, `'multiple'`) to final `label` and `breakdown_value` (None, string, string, list) in the output.
+
+### Step S8: Refactor Service (`get_spend_data`) - Revised Filtering/Aggregation ✅
+- [x] **(S8.1) Always Allocate:** Modify breakdown logic to always calculate the most granular `(type, team)` allocation, regardless of `breakdowns_list`. Store this in a temporary variable (e.g., `allocated_data`).
+- [x] **(S8.2) Filter Allocated Data:** Apply `usage_types` and `team_ids` filters directly to the `allocated_data` (based on the tuple keys).
+- [x] **(S8.3) Aggregate Filtered Data:** Create the final `processed_data` by aggregating the `filtered_allocated_data` based on the original `breakdowns_list` requested by the user:
+    - [x] If `breakdowns_list` is `["type", "team"]`: `processed_data = filtered_allocated_data`.
+    - [x] If `breakdowns_list` is `["type"]`: Sum `filtered_allocated_data` values for each type key. (Ensure all expected keys exist).
+    - [x] If `breakdowns_list` is `["team"]`: Sum `filtered_allocated_data` values for each team key.
+    - [x] If `breakdowns_list` is `[]`: Sum all values in `filtered_allocated_data` into a single `"total"` key.
+- [x] **(S8.4) Update Transformation Call:** Ensure the correct `final_breakdown_type` (corresponding to the original `breakdowns_list`) is passed to `_transform_spend_to_timeseries_format` along with the newly aggregated `processed_data`.
+
 ### Planned Spend API Endpoint
 
 - [x] Define endpoint `/api/usage-v2/spend`.

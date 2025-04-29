@@ -92,18 +92,14 @@ GET /api/usage-v2/spend/      # For calculated spend
 - `organization_id`: string (required)
 - `start_date`: string (required, ISO format)
 - `end_date`: string (required, ISO format)
-- `usage_types`: string (optional) - JSON array of usage type identifiers (e.g. `["event_count_in_period","recording_count_in_period"]`). If omitted or empty ⇒ all types. Passing a single-item array is equivalent to the old `usage_type` param. Default: *all types*.
-- `team_ids`: string (optional) - JSON array of team IDs to include (e.g. `[123,456]`). Default: *all teams*.
-- `breakdowns`: string (optional) - JSON array of breakdown dimensions (e.g., '["type"]', '["team"]', or '["type","team"]')
+- `usage_types`: string (optional) - JSON array of usage type identifiers (e.g. `["event_count_in_period","recording_count_in_period"]`). If omitted or empty ⇒ all supported types (`SUPPORTED_USAGE_TYPES`). Default: *all types*.
+- `team_ids`: string (optional) - JSON array of team IDs to include (e.g. `[123,456]`). If omitted or empty -> all teams considered (no team filtering applied). Default: *all teams*.
+- `breakdowns`: string (optional) - JSON array of breakdown dimensions. Valid values: `[]` (or omitted), `["type"]`, `["type", "team"]`. Default: `["type"]` (effectively always breaking down by type).
 - `interval`: string (optional, default='day')
   - Supported values: 'day', 'week', 'month'
-- `compare`: string (optional)
-  - Supported values: 'previous_period'
-- `show_values_on_series`: boolean (optional, default=false)
+- `compare`: string (optional) # Note: Not yet implemented
 
 Note: Filters (`usage_types`, `team_ids`) apply regardless of the chosen breakdowns. You can, for instance, request a team breakdown limited to three specific teams (`team_ids=[1,2,3]`).
-
-Validation: For the *usage volume* endpoint, if `breakdowns` includes "team" **and** `usage_types` is empty or not provided, the API returns **400 Bad Request**.
 
 #### Query Parameters (Spend: `/api/usage-v2/spend/`)
 - `organization_id`: string (required)
@@ -124,15 +120,16 @@ interface UsageResponse {
     type: "timeseries";
     results: Array<{
         id: number;           // Unique identifier for the series
-        label: string;        // Display name (e.g., "Events" or "Team A" or "Events::Team A")
+        label: string;        // Display name (e.g., "Events" or "Events::Team 123")
         data: number[];       // Array of values
         dates: string[];      // Array of dates in ISO 8601 format (YYYY-MM-DD)
-        breakdown_type: 'type' | 'team' | 'multiple' | null;  // What this series represents
-        breakdown_value: string | string[] | null;            // Identifier for the breakdown dimension(s)
+        // Updated breakdown types/values:
+        breakdown_type: 'type' | 'multiple' | null; // 'type' if only type breakdown, 'multiple' if type+team breakdown.
+        breakdown_value: string | string[] | null; // <usage_type> if breakdown_type is 'type', [<usage_type>, <team_id>] if breakdown_type is 'multiple'.
         compare_label?: string;            // For comparison periods
-        count?: number;       // Total for percentage calculations
+        count?: number;       // Total for percentage calculations (Note: Not currently implemented)
     }>;
-    next?: string;  // Cursor for pagination if needed
+    next?: string;  // Cursor for pagination if needed (Note: Not currently implemented)
 }
 ```
 
@@ -163,56 +160,93 @@ interface SpendResponse {
 
 ### Multiple Breakdowns Support
 
-The API supports breaking down usage data by one or more dimensions simultaneously using the `breakdowns` parameter, which accepts a JSON array of breakdown dimensions.
+The usage (not spend) API supports breaking down usage data by type (always) and optionally by team.
 
-#### Examples:
+- **Default/Type Breakdown:** If `breakdowns` is omitted, `[]`, or `["type"]`, the API returns one series per filtered/supported `usage_type`.
+  - `breakdown_type` will be `'type'`. 
+  - `breakdown_value` will be the `<usage_type>` string.
+- **Type and Team Breakdown:** If `breakdowns` is `["type", "team"]`, the API returns one series for each combination of filtered/supported `usage_type` and `team_id` present in the data.
+  - `breakdown_type` will be `'multiple'`.
+  - `breakdown_value` will be an array `[<usage_type>, <team_id>]`.
 
-1. No breakdown (total usage):
-```
-GET /api/usage-v2/?organization_id=123&start_date=2025-04-09&end_date=2025-04-16&usage_type=event_count_in_period
-```
 
-2. Single breakdown by type (all usage types):
-```
-GET /api/usage-v2/?organization_id=123&start_date=2025-04-09&end_date=2025-04-16&breakdowns=["type"]
-```
+The spend API supports requests without any breakdowns (since aggregating totals across usage types makes sense) as well as any combination of `type` and `team`.
 
-3. Single breakdown by team:
-```
-GET /api/usage-v2/?organization_id=123&start_date=2025-04-09&end_date=2025-04-16&usage_type=event_count_in_period&breakdowns=["team"]
-```
+#### Examples (usage, not spend):
 
-4. Multiple breakdowns (both type and team):
+1. Breakdown by type (default - all types, all teams):
+```
+GET /api/usage-v2/?organization_id=123&start_date=2025-04-09&end_date=2025-04-16
+# Equivalent to: GET /api/usage-v2/?...&breakdowns=["type"]
+```
+Response will contain series like:
+`{ ..., label: "Events", breakdown_type: "type", breakdown_value: "event_count_in_period" }`
+`{ ..., label: "Recordings", breakdown_type: "type", breakdown_value: "recording_count_in_period" }`
+...
+
+2. Breakdown by type, filtered by specific types and teams:
+```
+GET /api/usage-v2/?organization_id=123&start_date=2025-04-09&end_date=2025-04-16&usage_types=["event_count_in_period","recording_count_in_period"]&team_ids=[1,2]
+```
+Response will contain series for Events and Recordings, but only including data from reports where team 1 or team 2 had *any* usage reported.
+`{ ..., label: "Events", breakdown_type: "type", breakdown_value: "event_count_in_period" }`
+`{ ..., label: "Recordings", breakdown_type: "type", breakdown_value: "recording_count_in_period" }`
+
+3. Breakdown by type and team (all types, all teams):
 ```
 GET /api/usage-v2/?organization_id=123&start_date=2025-04-09&end_date=2025-04-16&breakdowns=["type","team"]
 ```
+Response will contain series like:
+`{ ..., label: "Events::Team 1", breakdown_type: "multiple", breakdown_value: ["event_count_in_period", "1"] }`
+`{ ..., label: "Recordings::Team 1", breakdown_type: "multiple", breakdown_value: ["recording_count_in_period", "1"] }`
+`{ ..., label: "Events::Team 2", breakdown_type: "multiple", breakdown_value: ["event_count_in_period", "2"] }`
+...
+
+4. Breakdown by type and team, filtered by specific types and teams:
+```
+GET /api/usage-v2/?organization_id=123&start_date=2025-04-09&end_date=2025-04-16&usage_types=["event_count_in_period"]&team_ids=[1,2]&breakdowns=["type","team"]
+```
+Response will contain series only for Events and only for teams 1 and 2:
+`{ ..., label: "Events::Team 1", breakdown_type: "multiple", breakdown_value: ["event_count_in_period", "1"] }`
+`{ ..., label: "Events::Team 2", breakdown_type: "multiple", breakdown_value: ["event_count_in_period", "2"] }`
+
 
 With multiple breakdowns, the `breakdown_value` field in the response will be an array containing values for each dimension, and labels will be formatted with a double-colon separator (e.g., "Events::Team 123").
 
 #### SQL Implementation for Multiple Breakdowns
 
 ```sql
-WITH usage_types AS (
-    SELECT unnest(%s::text[]) as type
-),
-team_usage AS (
-    SELECT 
-        date,
-        team_id,
-        type,
-        (report->'teams'->team_id->>type)::numeric as value
-    FROM billing_usagereport
-    CROSS JOIN jsonb_object_keys(report->'teams') as team_id
-    CROSS JOIN usage_types
-    WHERE organization_id = %s 
-    AND date BETWEEN %s::date AND %s::date
+-- Example SQL for breakdown by type, filtered by team_ids (if provided)
+SELECT
+    br.date::date,
+    ut.type as usage_type,
+    COALESCE((br.report->>ut.type)::numeric, 0) as value
+FROM billing_usagereport br
+CROSS JOIN unnest(%s::text[]) as ut(type) -- Takes list of usage_types or all
+WHERE br.organization_id = %s
+AND br.date BETWEEN %s::date AND %s::date
+-- Optional filter:
+AND EXISTS (
+    SELECT 1
+    FROM jsonb_object_keys(br.report->'teams') team_id
+    WHERE team_id::text = ANY(%s::text[]) -- Takes list of team_ids
 )
-SELECT 
-    date,
-    ARRAY[type, team_id] as breakdown_value,
-    COALESCE(value, 0) as value
-FROM team_usage
-ORDER BY date, team_id, type
+ORDER BY br.date, ut.type;
+
+-- Example SQL for breakdown by type and team, filtered by usage_types and team_ids (if provided)
+SELECT
+    br.date::date,
+    ut.type as usage_type,
+    team_id::text,
+    COALESCE((br.report->'teams'->team_id->>ut.type)::numeric, 0) as value
+FROM billing_usagereport br
+CROSS JOIN jsonb_object_keys(br.report->'teams') as team_id
+CROSS JOIN unnest(%s::text[]) as ut(type) -- Takes list of usage_types (guaranteed non-empty)
+WHERE br.organization_id = %s
+AND br.date BETWEEN %s::date AND %s::date
+-- Optional filter:
+AND team_id::text = ANY(%s::text[]) -- Takes list of team_ids
+ORDER BY br.date, ut.type, team_id;
 ```
 
 #### Authentication
@@ -238,33 +272,25 @@ ORDER BY date, team_id
 2. Server Transformation (in billing service):
 ```python
 # Example transformation from DB records to series format
-def transform_to_timeseries_format(records: List[Dict]) -> List[Dict]:
-    series_map = defaultdict(lambda: {"data": [], "dates": []})
-    
-    # Group by breakdown value (team or type)
-    for record in sorted(records, key=lambda x: x["date"]):
-        series = series_map[record["breakdown_value"]]
-        series["data"].append(record["value"])
-        series["dates"].append(record["date"].strftime("%Y-%m-%d"))  # Format dates as ISO 8601 (YYYY-MM-DD)
-    
-    # Convert to final format
-    return [
-        {
-            "id": idx,
-            "label": f"Team {breakdown_value}" if breakdown == "team" else breakdown_value,
-            "data": series["data"],
-            "dates": series["dates"],
-            "breakdown_type": breakdown,
-            "breakdown_value": breakdown_value,
-        }
-        for idx, (breakdown_value, series) in enumerate(series_map.items())
-    ]
+def transform_to_timeseries_format(
+    data: List[Dict[str, Any]],
+    breakdowns: Optional[List[str]] = None,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    interval: str = "day",
+) -> List[Dict[str, Any]]:
+    # ... (Implementation now handles flat list input) ...
+    # ... (Groups data based on whether 'team' is in breakdowns) ...
+    # ... (Applies interval aggregation) ...
+    # ... (Pads dates and formats output) ...
+    # Returns list of series dictionaries
+    pass
 
-# Response will be pre-transformed series ready for LineGraph
+# Response is constructed in get_usage_data:
 return {
     "status": "ok",
     "type": "timeseries",
-    "results": transform_to_timeseries_format(db_records)
+    "results": result_list # result_list from transform_to_timeseries_format
 }
 ```
 
@@ -317,7 +343,7 @@ This approach was chosen over alternatives that attempted to leverage the existi
 The implementation now utilizes shared components for consistency:
 
 1.  **`billingUsageLogic` / `billingSpendLogic`**: Kea logics for state management and API interaction.
-    - Manage filter state (usage type, breakdown, interval, compare, date range).
+    - Manage filter state (usage types, team IDs, breakdown, interval, compare, date range).
     - Handle API calls via loaders to fetch data (`/api/billing/usage/` or `/api/billing/spend/`).
     - Provide processed data (`series`, `dates`) to the UI via selectors.
     - Auto-load data on mount and when filters change.
@@ -341,8 +367,8 @@ We now treat *break-down* and *filter-down* as orthogonal controls:
 
 | Control | Type | Default | Notes |
 |---------|------|---------|-------|
-| **Break down by** | Checkbox list (`type`, `team`) | none | Checking both == "type & team" |
-| **Usage types** | Multi-select tag list | all | — |
+| **Break down by** | Checkbox list (`type`, `team`) | type only | Checking both == `["type", "team"]`. `type` is always implied (only in usage, not spend). | 
+| **Usage types** | Multi-select tag list | all | Required if `team` breakdown checked. |
 | **Teams** | Multi-select tag list (searchable) | all | — |
 
 Client-side validation mirrors the backend rule above: volume view + team breakdown with zero selected usage types is blocked with inline error.
@@ -552,10 +578,10 @@ def get_usage_data(
     organization_id: str,
     start_date: date,
     end_date: date,
-    usage_type: Optional[str] = None,
-    breakdown: Optional[str] = None,
-    interval: str = 'day',
-    include_zeros: bool = True
+    breakdowns_list: Optional[List[str]] = None,
+    usage_types: Optional[List[str]] = None,
+    team_ids: Optional[List[int]] = None,
+    interval: str = "day",
 ) -> Dict[str, Any]:
     """
     Get usage data for the specified organization and parameters.
@@ -564,62 +590,53 @@ def get_usage_data(
         organization_id: The organization to query data for
         start_date: Beginning of date range 
         end_date: End of date range
-        usage_type: Type of usage to query
-        breakdown: How to break down results ('type', 'team', or None)
+        breakdowns_list: List of breakdown dimensions to apply
+        usage_types: List of usage types to include
+        team_ids: List of team IDs to include
         interval: Time aggregation ('day', 'week', 'month')
-        include_zeros: Whether to include zero values
         
     Returns:
         A dictionary with formatted time-series data
     """
     # Validate parameters
-    if breakdown == 'type':
-        # When breaking down by type, we ignore usage_type and fetch all types
-        raw_data = get_usage_by_type(
-            organization_id=organization_id,
-            start_date=start_date,
-            end_date=end_date
-        )
-    elif breakdown == 'team':
-        if usage_type:
-            # Single usage type broken down by team
-            raw_data = get_usage_by_team(
-                organization_id=organization_id,
-                start_date=start_date,
-                end_date=end_date,
-                usage_type=usage_type
-            )
-        else:
-            # All usage types broken down by team
-            raw_data = get_all_usage_by_team(
-                organization_id=organization_id,
-                start_date=start_date,
-                end_date=end_date
-            )
-    else:
-        # Single usage type for entire organization
-        raw_data = get_base_usage(
+    if breakdowns_list and "team" in breakdowns_list and not usage_types:
+        raise ValueError("If 'team' is in breakdowns, 'usage_types' must be provided")
+    
+    is_team_breakdown = "team" in (breakdowns_list or [])
+
+    if is_team_breakdown:
+        raw_data = _fetch_usage_by_type_and_team(
             organization_id=organization_id,
             start_date=start_date,
             end_date=end_date,
-            usage_type=usage_type
+            usage_types=usage_types,
+            team_ids=team_ids
+        )
+    else:
+        raw_data = _fetch_usage_by_type(
+            organization_id=organization_id,
+            start_date=start_date,
+            end_date=end_date,
+            usage_types=usage_types
         )
     
     # Apply interval aggregation if needed
     if interval != 'day':
         raw_data = apply_interval_aggregation(raw_data, interval)
     
-    # Filter out zeros if requested
-    if not include_zeros:
-        raw_data = [item for item in raw_data if item['value'] > 0]
-    
     # Transform to time-series format expected by frontend
-    result = transform_to_timeseries_format(raw_data, breakdown)
+    result_list = transform_to_timeseries_format(
+        data=raw_data,
+        breakdowns=breakdowns_list,
+        start_date=start_date,
+        end_date=end_date,
+        interval=interval,
+    )
     
     return {
         "status": "ok",
         "type": "timeseries",
-        "results": result
+        "results": result_list
     }
 
 # Helper functions to execute SQL queries
@@ -630,39 +647,14 @@ def execute_query(query: str, params: List[Any]) -> List[Dict[str, Any]]:
         columns = [col[0] for col in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
-# Query functions
-def get_base_usage(
+# Refactored Query functions
+def _fetch_usage_by_type(
     organization_id: str,
     start_date: date,
     end_date: date,
-    usage_type: str
+    usage_types: Optional[List[str]] = None,
 ) -> List[Dict[str, Any]]:
-    """Get usage data for a single metric across the entire organization."""
-    query = """
-        WITH daily_usage AS (
-            SELECT 
-                date,
-                (report->>%s)::numeric as value
-            FROM billing_usagereport
-            WHERE organization_id = %s 
-            AND date BETWEEN %s AND %s
-        )
-        SELECT 
-            date,
-            NULL as breakdown_value,
-            COALESCE(value, 0) as value
-        FROM daily_usage
-        ORDER BY date
-    """
-    
-    return execute_query(query, [usage_type, organization_id, start_date, end_date])
-
-def get_usage_by_type(
-    organization_id: str,
-    start_date: date,
-    end_date: date
-) -> List[Dict[str, Any]]:
-    """Get usage data broken down by usage type."""
+    """Fetches usage data aggregated by type, applying filters."""
     query = """
         WITH usage_data AS (
             SELECT 
@@ -682,16 +674,45 @@ def get_usage_by_type(
         ORDER BY date, usage_type
     """
     
-    return execute_query(query, [SUPPORTED_USAGE_TYPES, organization_id, start_date, end_date])
+    return execute_query(query, [usage_types or SUPPORTED_USAGE_TYPES, organization_id, start_date, end_date])
 
-# Additional query functions would be implemented for team breakdown and interval aggregation
+def _fetch_usage_by_type_and_team(
+    organization_id: str,
+    start_date: date,
+    end_date: date,
+    usage_types: Optional[List[str]] = None,
+    team_ids: Optional[List[int]] = None,
+) -> List[Dict[str, Any]]:
+    """Fetches usage data broken down by type and team, applying filters."""
+    query = """
+        SELECT
+            br.date::date,
+            ut.type as usage_type,
+            COALESCE((br.report->>ut.type)::numeric, 0) as value
+        FROM billing_usagereport br
+        CROSS JOIN unnest(%s::text[]) as ut(type) -- Takes list of usage_types or all
+        WHERE br.organization_id = %s
+        AND br.date BETWEEN %s::date AND %s::date
+        -- Optional filter:
+        AND EXISTS (
+            SELECT 1
+            FROM jsonb_object_keys(br.report->'teams') team_id
+            WHERE team_id::text = ANY(%s::text[]) -- Takes list of team_ids
+        )
+        ORDER BY br.date, ut.type;
+    """
+    
+    return execute_query(query, [usage_types or SUPPORTED_USAGE_TYPES, organization_id, start_date, end_date, team_ids or []])
 
 # Transformation functions
 def transform_to_timeseries_format(
     data: List[Dict[str, Any]],
-    breakdown: Optional[str] = None
+    breakdowns: Optional[List[str]] = None,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    interval: str = "day",
 ) -> List[Dict[str, Any]]:
-    """Transform raw data into time-series format for the frontend."""
+    """Transform raw flat data into time-series format for the frontend."""
     series_map = {}
     
     for item in data:
@@ -711,7 +732,7 @@ def transform_to_timeseries_format(
     result = []
     for idx, (breakdown_value, series) in enumerate(series_map.items()):
         label = breakdown_value
-        if breakdown == 'team':
+        if breakdowns and "team" in breakdowns:
             label = f"Team {breakdown_value}"
         
         result.append({
@@ -719,11 +740,23 @@ def transform_to_timeseries_format(
             "label": label,
             "data": series["data"],
             "dates": series["dates"],
-            "breakdown_type": breakdown,
-            "breakdown_value": breakdown_value if breakdown_value != 'total' else None
+            "breakdown_type": 'multiple' if breakdowns and "team" in breakdowns else 'type',
+            "breakdown_value": breakdown_value if breakdowns and "team" not in breakdowns else None
         })
         
     return result
+
+def apply_interval_aggregation(
+    data: List[Dict[str, Any]],
+    interval: str = "day",
+) -> List[Dict[str, Any]]:
+    """Apply interval aggregation to the given data."""
+    if interval == 'day':
+        return data
+    
+    # Implement interval aggregation logic based on the interval type
+    # This is a placeholder and should be replaced with actual implementation
+    return data
 ```
 
 ## Service Architecture

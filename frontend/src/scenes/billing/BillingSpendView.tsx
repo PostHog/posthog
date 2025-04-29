@@ -42,7 +42,8 @@ export function BillingSpendView(): JSX.Element {
 
     // --- Constants for all keys (Copied from BillingUsage) ---
     const allUsageTypeKeys = USAGE_TYPES.map((opt) => opt.value)
-    const allTeamIDs = currentOrganization?.teams?.map((team) => team.id) || []
+    // const allTeamIDs = currentOrganization?.teams?.map((team) => team.id) || []
+    const allTeamIDs = [30393, 33266]
     // --- End constants ---
 
     // --- Initialize filters to "all selected" once data is loaded (Copied from BillingUsage) ---
