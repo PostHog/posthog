@@ -296,7 +296,7 @@ export function HogFunctionConfiguration({
                                             <span className="font-semibold">{configuration.name}</span>
                                             <div className="flex gap-2">
                                                 {template && <DestinationTag status={template.status} />}
-                                                {expertMode && <LemonTag type="warning">Expert mode</LemonTag>}
+                                                {expertMode && <LemonTag type="warning">Advanced mode</LemonTag>}
                                             </div>
                                         </div>
 
@@ -492,13 +492,33 @@ export function HogFunctionConfiguration({
                                                 Enter advanced mode
                                             </LemonButton>
                                         ) : (
-                                            <LemonButton
-                                                size="xsmall"
-                                                type="secondary"
-                                                onClick={() => setShowDisableConfirm(true)}
-                                            >
-                                                Disable advanced mode
-                                            </LemonButton>
+                                            <>
+                                                <LemonButton
+                                                    size="xsmall"
+                                                    type="secondary"
+                                                    onClick={() => setShowDisableConfirm(true)}
+                                                    status="default"
+                                                >
+                                                    Disable advanced mode
+                                                </LemonButton>
+                                                {showSource ? (
+                                                    <LemonButton
+                                                        size="xsmall"
+                                                        type="secondary"
+                                                        onClick={() => setShowSource(false)}
+                                                    >
+                                                        Hide source
+                                                    </LemonButton>
+                                                ) : (
+                                                    <LemonButton
+                                                        size="xsmall"
+                                                        type="secondary"
+                                                        onClick={() => setShowSource(true)}
+                                                    >
+                                                        Show source
+                                                    </LemonButton>
+                                                )}
+                                            </>
                                         )}
                                     </div>
 
