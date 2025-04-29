@@ -312,6 +312,84 @@ class OrganizationMembership(UUIDModel):
             if membership_being_updated.level > self.level:
                 raise exceptions.PermissionDenied("You can only edit others with level lower or equal to you.")
 
+    def get_scoped_api_keys(self):
+        """
+        Get API keys that are scoped to this organization or its teams.
+        Returns a dictionary with information about the keys.
+        """
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from django.db.models import Q
+        from posthog.models.team.team import Team
+        from django.utils import timezone
+
+        # Get teams that belong to this organization
+        team_ids = list(Team.objects.filter(organization_id=self.organization_id).values_list("id", flat=True))
+
+        # Find API keys scoped to either the organization or any of its teams
+        personal_api_keys = PersonalAPIKey.objects.filter(user=self.user).filter(
+            Q(scoped_organizations__contains=[str(self.organization_id)]) | Q(scoped_teams__overlap=team_ids)
+        )
+
+        # Get keys with more details
+        keys_data = []
+        has_keys = personal_api_keys.exists()
+
+        # Check if any keys were used in the last week
+        one_week_ago = timezone.now() - timezone.timedelta(days=7)
+        keys_active_last_week = personal_api_keys.filter(last_used_at__gte=one_week_ago).exists()
+
+        # Get detailed information about each key
+        for key in personal_api_keys:
+            keys_data.append({"name": key.label, "last_used_at": key.last_used_at})
+
+        return {
+            "personal_api_keys": personal_api_keys,
+            "has_keys": has_keys,
+            "keys_active_last_week": keys_active_last_week,
+            "keys": keys_data,
+            "team_ids": team_ids,
+        }
+
+    def remove_scoped_api_keys(self, requesting_user):
+        """
+        Remove organization and team scoping from API keys.
+        Returns True if any keys were updated.
+        """
+        from posthog.utils import posthoganalytics
+        from posthog.event_usage import groups
+
+        api_keys_data = self.get_scoped_api_keys()
+        personal_api_keys = api_keys_data["personal_api_keys"]
+        team_ids = api_keys_data["team_ids"]
+
+        if personal_api_keys.exists():
+            posthoganalytics.capture(
+                str(requesting_user.distinct_id),
+                "scope removed on personal api keys",
+                properties={
+                    "personal_api_keys": [pk.id for pk in personal_api_keys],
+                },
+                groups=groups(self.organization),
+            )
+
+            # Remove organization from scoped_organizations
+            for key in personal_api_keys:
+                # Handle organization scoping
+                if key.scoped_organizations and str(self.organization_id) in key.scoped_organizations:
+                    key.scoped_organizations = [
+                        org_id for org_id in key.scoped_organizations if org_id != str(self.organization_id)
+                    ]
+
+                # Handle team scoping
+                if key.scoped_teams:
+                    key.scoped_teams = [team_id for team_id in key.scoped_teams if team_id not in team_ids]
+
+                key.save()
+
+            return True
+
+        return False
+
     __repr__ = sane_repr("organization", "user", "level")
 
 

@@ -1,4 +1,4 @@
-from unittest.mock import call, patch
+from unittest.mock import call, patch, ANY
 
 from rest_framework import status
 
@@ -85,6 +85,213 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
             call(self.organization),
         ]
 
+    def test_scoped_api_keys_endpoint(self):
+        # Create a user who is a member of the organization
+        user = User.objects.create_and_join(self.organization, "test@x.com", None, "X")
+
+        # Initially, the user has no scoped API keys
+        response = self.client.get(f"/api/organizations/@current/members/{user.uuid}/scoped_api_keys/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(response_data["has_keys"], False)
+        self.assertEqual(response_data["keys_active_last_week"], False)
+        self.assertEqual(response_data["keys"], [])
+
+        # Create a personal API key with scoped organizations
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from django.utils import timezone
+        from posthog.models.team.team import Team
+
+        # Create a key that hasn't been used recently - scoped to organization
+        old_key = PersonalAPIKey.objects.create(
+            user=user,
+            label="Old Org Key",
+            scoped_organizations=[str(self.organization.id)],
+            last_used_at=timezone.now() - timezone.timedelta(days=14),
+        )
+
+        # Check response with one inactive key
+        response = self.client.get(f"/api/organizations/@current/members/{user.uuid}/scoped_api_keys/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(response_data["has_keys"], True)
+        self.assertEqual(response_data["keys_active_last_week"], False)
+        self.assertEqual(len(response_data["keys"]), 1)
+        self.assertEqual(response_data["keys"][0]["name"], "Old Org Key")
+        self.assertEqual(
+            response_data["keys"][0]["last_used_at"], old_key.last_used_at.isoformat().replace("+00:00", "Z")
+        )
+
+        # Create a key that has been used recently - scoped to team
+        team_key = PersonalAPIKey.objects.create(
+            user=user,
+            label="Team Key",
+            scoped_teams=[self.team.id],
+            last_used_at=timezone.now() - timezone.timedelta(days=2),
+        )
+
+        # Check response with both keys (one org-scoped, one team-scoped)
+        response = self.client.get(f"/api/organizations/@current/members/{user.uuid}/scoped_api_keys/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(response_data["has_keys"], True)
+        self.assertEqual(response_data["keys_active_last_week"], True)
+        self.assertEqual(len(response_data["keys"]), 2)
+
+        # Verify both keys are in the response with correct data
+        key_names = [k["name"] for k in response_data["keys"]]
+        self.assertIn("Old Org Key", key_names)
+        self.assertIn("Team Key", key_names)
+
+        # Find each key in the response and verify its last_used_at
+        for key_data in response_data["keys"]:
+            if key_data["name"] == "Old Org Key":
+                self.assertEqual(key_data["last_used_at"], old_key.last_used_at.isoformat().replace("+00:00", "Z"))
+            elif key_data["name"] == "Team Key":
+                self.assertEqual(key_data["last_used_at"], team_key.last_used_at.isoformat().replace("+00:00", "Z"))
+
+        # Test with a user who doesn't have scoped API keys for this organization or its teams
+        other_org = Organization.objects.create(name="Other Org")
+        other_user = User.objects.create_and_join(other_org, "other@x.com", None, "Other")
+        other_team = Team.objects.create(organization=other_org, name="Other Team", project=self.team.project)
+
+        # Create a key scoped to the other organization
+        PersonalAPIKey.objects.create(user=other_user, label="Other Org Key", scoped_organizations=[str(other_org.id)])
+
+        # Create a key scoped to the other team
+        PersonalAPIKey.objects.create(user=other_user, label="Other Team Key", scoped_teams=[other_team.id])
+
+        # Add the other user to our organization
+        other_user.join(organization=self.organization)
+
+        # The endpoint should return empty data since the API keys are not scoped to our organization or its teams
+        response = self.client.get(f"/api/organizations/@current/members/{other_user.uuid}/scoped_api_keys/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(response_data["has_keys"], False)
+        self.assertEqual(response_data["keys_active_last_week"], False)
+        self.assertEqual(response_data["keys"], [])
+
+    @patch("posthoganalytics.capture")
+    def test_delete_member_with_scoped_api_keys(self, mock_capture):
+        # Create a user with a personal API key scoped to the organization
+        user = User.objects.create_and_join(self.organization, "test@x.com", None, "X")
+        from posthog.models.personal_api_key import PersonalAPIKey
+
+        api_key = PersonalAPIKey.objects.create(
+            user=user, label="Test Key", scoped_organizations=[str(self.organization.id)]
+        )
+
+        # Set the current user as admin
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        # Delete the member
+        response = self.client.delete(f"/api/organizations/@current/members/{user.uuid}/")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        # Verify the API key was updated to remove the organization from scoped_organizations
+        api_key.refresh_from_db()
+        self.assertEqual(api_key.scoped_organizations, [])
+
+        # Verify analytics were captured
+        mock_capture.assert_any_call(
+            str(self.user.distinct_id),
+            "scope removed on personal api keys",
+            properties={
+                "personal_api_keys": [api_key.id],
+            },
+            groups={"instance": ANY, "organization": str(self.organization.id)},
+        )
+
+        # Verify the member removal analytics were also captured
+        mock_capture.assert_any_call(
+            str(self.user.distinct_id),
+            "organization member removed",
+            properties={
+                "removed_member_id": user.distinct_id,
+                "removed_by_id": self.user.distinct_id,
+                "organization_id": self.organization.id,
+                "organization_name": self.organization.name,
+                "removal_type": "removed_by_other",
+            },
+            groups={"instance": ANY, "organization": str(self.organization.id)},
+        )
+
+    @patch("posthoganalytics.capture")
+    def test_delete_member_with_multiple_scoped_api_keys(self, mock_capture):
+        # Create a user with multiple personal API keys, some scoped to this organization
+        user = User.objects.create_and_join(self.organization, "test@x.com", None, "X")
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.team.team import Team
+
+        # Create an API key scoped to this organization
+        api_key1 = PersonalAPIKey.objects.create(
+            user=user, label="Org Scoped Key", scoped_organizations=[str(self.organization.id)]
+        )
+
+        # Create an API key scoped to this team
+        api_key2 = PersonalAPIKey.objects.create(user=user, label="Team Scoped Key", scoped_teams=[self.team.id])
+
+        # Create another organization and a key scoped to both organizations
+        other_org = Organization.objects.create(name="Other Org")
+        user.join(organization=other_org)
+        other_team = Team.objects.create(organization=other_org, name="Other Team", project=self.team.project)
+
+        # Key scoped to both organizations
+        api_key3 = PersonalAPIKey.objects.create(
+            user=user, label="Multi-Org Key", scoped_organizations=[str(self.organization.id), str(other_org.id)]
+        )
+
+        # Key scoped to both teams
+        api_key4 = PersonalAPIKey.objects.create(
+            user=user, label="Multi-Team Key", scoped_teams=[self.team.id, other_team.id]
+        )
+
+        # Key scoped to other organization only
+        api_key5 = PersonalAPIKey.objects.create(
+            user=user, label="Other Org Key", scoped_organizations=[str(other_org.id)]
+        )
+
+        # Key scoped to other team only
+        api_key6 = PersonalAPIKey.objects.create(user=user, label="Other Team Key", scoped_teams=[other_team.id])
+
+        # Set the current user as admin
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        # Delete the member
+        response = self.client.delete(f"/api/organizations/@current/members/{user.uuid}/")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        # Verify the API keys were updated correctly
+        api_key1.refresh_from_db()
+        api_key2.refresh_from_db()
+        api_key3.refresh_from_db()
+        api_key4.refresh_from_db()
+        api_key5.refresh_from_db()
+        api_key6.refresh_from_db()
+
+        # Organization-scoped keys
+        self.assertEqual(api_key1.scoped_organizations, [])  # Org-only key should have empty scoped_organizations
+        self.assertEqual(api_key3.scoped_organizations, [str(other_org.id)])  # Multi-org key should only have other org
+        self.assertEqual(api_key5.scoped_organizations, [str(other_org.id)])  # Other-org key should be unchanged
+
+        # Team-scoped keys
+        self.assertEqual(api_key2.scoped_teams, [])  # Team-only key should have empty scoped_teams
+        self.assertEqual(api_key4.scoped_teams, [other_team.id])  # Multi-team key should only have other team
+        self.assertEqual(api_key6.scoped_teams, [other_team.id])  # Other-team key should be unchanged
+
+        # Verify analytics were captured with all affected keys
+        mock_capture.assert_any_call(
+            str(self.user.distinct_id),
+            "scope removed on personal api keys",
+            properties={
+                "personal_api_keys": [api_key1.id, api_key2.id, api_key3.id, api_key4.id],
+            },
+            groups={"instance": ANY, "organization": str(self.organization.id)},
+        )
+
     @patch("posthoganalytics.capture")
     @patch("posthog.models.user.User.update_billing_organization_users")
     def test_leave_organization(self, mock_update_billing_organization_users, mock_capture):
@@ -104,7 +311,7 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
                 "organization_name": self.organization.name,
                 "removal_type": "self_removal",
             },
-            groups={"instance": "http://localhost:8010", "organization": str(self.organization.id)},
+            groups={"instance": ANY, "organization": str(self.organization.id)},
         )
 
         assert mock_update_billing_organization_users.call_count == 1
