@@ -25,17 +25,67 @@ def get_session_metadata(session_id: str, team: Team, local_path: str | None = N
     return session_metadata
 
 
-def get_session_events(
-    session_id: str, session_metadata: RecordingMetadata, team: Team, local_path: str | None = None
+def _get_paginated_session_events(
+    session_id: str,
+    session_metadata: RecordingMetadata,
+    team: Team,
+    max_pages: int,
+    items_per_page: int,
+    events_to_ignore: list[str] | None = None,
+    extra_fields: list[str] | None = None,
 ) -> tuple[list[str], list[tuple[str | datetime | list[str] | None, ...]]]:
-    if not local_path:
-        session_events_columns, session_events = SessionReplayEvents().get_events(
+    """
+    Get session events with pagination to handle large sessions.
+    Returns combined results from all pages up to max_pages.
+    """
+    all_events = []
+    columns = None
+    events_obj = SessionReplayEvents()
+    for page in range(max_pages):
+        page_columns, page_events = events_obj.get_events(
             session_id=str(session_id),
             team=team,
             metadata=session_metadata,
-            events_to_ignore=[
-                "$feature_flag_called",
-            ],
+            events_to_ignore=events_to_ignore,
+            extra_fields=extra_fields,
+            limit=items_per_page,
+            page=page,
+        )
+        # Expect columns to be exact for all the page as we don't change the query
+        if page_columns and not columns:
+            columns = page_columns
+        # Avoid the next page if no events are returned
+        if not page_events:
+            break
+        all_events.extend(page_events)
+        # Or we got less than the page size (reached the end)
+        if len(page_events) < items_per_page:
+            break
+    if not columns or not all_events:
+        raise ValueError(f"No events found for session_id {session_id}")
+    return columns, all_events
+
+
+def get_session_events(
+    session_id: str,
+    session_metadata: RecordingMetadata,
+    team: Team,
+    local_path: str | None = None,
+    # The estimation that we can cover 2 hours/3000 events per page within 200 000 token window,
+    # but as GPT-4.1 allows up to 1kk tokens, we can allow up to 4 hours sessions to be covered
+    # TODO: Check if it's a meaningful approach, or should we just analyze firt N events for huge sessions
+    # TODO: Move to a config
+    max_pages: int = 2,
+    items_per_page: int = 3000,
+) -> tuple[list[str], list[tuple[str | datetime | list[str] | None, ...]]]:
+    if not local_path:
+        return _get_paginated_session_events(
+            session_id=str(session_id),
+            team=team,
+            session_metadata=session_metadata,
+            max_pages=max_pages,
+            items_per_page=items_per_page,
+            events_to_ignore=["$feature_flag_called"],
             extra_fields=EXTRA_SUMMARY_EVENT_FIELDS,
         )
     else:
@@ -43,7 +93,7 @@ def get_session_events(
             local_path, extra_fields=EXTRA_SUMMARY_EVENT_FIELDS
         )
     if not session_events_columns or not session_events:
-        raise ValueError(f"no events found for session_id {session_id}")
+        raise ValueError(f"No events found for session_id {session_id}")
     return session_events_columns, session_events
 
 
