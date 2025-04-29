@@ -20,7 +20,7 @@ from posthog.queries.base import property_group_to_Q
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.renderers import SafeJSONRenderer
 from datetime import datetime
-from typing import Any, cast, Optional
+from typing import Any, cast, Optional, Union
 
 from django.conf import settings
 from django.db.models import QuerySet, Prefetch, prefetch_related_objects, OuterRef, Subquery
@@ -284,7 +284,7 @@ class CohortSerializer(serializers.ModelSerializer):
         if "type" not in prop:
             raise ValidationError({"property_filter": "Property filter must have a 'type' field", "received": prop})
 
-        REQUIRED_KEYS = {
+        REQUIRED_KEYS: dict[str, Union[list[str], dict[str, list[str]]]] = {
             "behavioral": ["key", "type", "value", "event_type"],
             "cohort": ["key", "type", "value"],
             "standard": {
@@ -296,15 +296,16 @@ class CohortSerializer(serializers.ModelSerializer):
 
         prop_type = prop["type"]
         if prop_type == "behavioral":
-            required_keys = REQUIRED_KEYS["behavioral"]
+            required_keys = cast(list[str], REQUIRED_KEYS["behavioral"])
         elif prop_type == "cohort":
-            required_keys = REQUIRED_KEYS["cohort"]
+            required_keys = cast(list[str], REQUIRED_KEYS["cohort"])
         else:
             operator = prop.get("operator")
+            standard_keys = cast(dict[str, list[str]], REQUIRED_KEYS["standard"])
             if operator in ["is_set", "is_not_set"]:
-                required_keys = REQUIRED_KEYS["standard"][operator]
+                required_keys = standard_keys[operator]
             else:
-                required_keys = REQUIRED_KEYS["standard"]["default"]
+                required_keys = standard_keys["default"]
 
         missing_keys = [key for key in required_keys if key not in prop]
         if missing_keys:
