@@ -471,7 +471,7 @@ function cyclotronJobToInvocation(job: CyclotronJob, hogFunction: HogFunctionTyp
         globals: parsedState?.globals ?? ({} as unknown as HogFunctionInvocationGlobalsWithInputs),
         teamId: hogFunction.team_id,
         hogFunction,
-        queue: (job.queueName as any) ?? 'hog',
+        queue: (job.queueName as HogFunctionInvocationJobQueue) ?? 'hog',
         queuePriority: job.priority,
         queueScheduledAt: job.scheduled ? DateTime.fromISO(job.scheduled) : undefined,
         queueMetadata: job.metadata ?? undefined,
