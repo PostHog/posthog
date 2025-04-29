@@ -17,7 +17,7 @@ export function FingerprintRecordPartDisplay({
     const isHovering = useIsHovering(iconRef)
     return (
         <Tooltip title={getPartPieces(part)} placement="right">
-            <span ref={iconRef}>
+            <span ref={iconRef} className="inline-flex items-center">
                 <IconFingerprint className={className} color={isHovering ? 'red' : 'gray'} fontSize="17px" />
             </span>
         </Tooltip>

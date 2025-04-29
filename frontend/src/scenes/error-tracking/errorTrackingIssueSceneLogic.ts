@@ -8,6 +8,7 @@ import { hasStacktrace } from 'lib/components/Errors/utils'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { objectsEqual } from 'lib/utils'
 import { posthog } from 'posthog-js'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Params, Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -27,6 +28,7 @@ import { errorTrackingIssueEventsQuery, errorTrackingIssueQuery } from './querie
 import {
     defaultSearchParams,
     ExceptionAttributes,
+    getAdditionalProperties,
     getExceptionAttributes,
     getSessionId,
     resolveDateRange,
@@ -50,6 +52,8 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             ['dateRange', 'filterTestAccounts', 'filterGroup', 'searchQuery', 'showStacktrace', 'showContext'],
             stackFrameLogic,
             ['frameOrderReversed', 'showAllFrames'],
+            preflightLogic,
+            ['isCloudOrDev'],
         ],
         actions: [
             errorTrackingLogic,
@@ -74,6 +78,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         updateStatus: (status: ErrorTrackingIssueStatus) => ({ status }),
         updateAssignee: (assignee: ErrorTrackingIssueAssignee | null) => ({ assignee }),
         setLastSeen: (lastSeen: Dayjs) => ({ lastSeen }),
+        setShowAsText: (showAsText: boolean) => ({ showAsText }),
     }),
 
     defaults({
@@ -82,6 +87,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         summary: null as ErrorTrackingIssueSummary | null,
         volumeResolution: 50,
         lastSeen: null as Dayjs | null,
+        showAsText: false as boolean,
     }),
 
     reducers({
@@ -106,6 +112,9 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 }
                 return prevLastSeen
             },
+        },
+        showAsText: {
+            setShowAsText: (_, { showAsText }: { showAsText: boolean }) => showAsText,
         },
     }),
 
@@ -159,6 +168,11 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         exceptionAttributes: [
             (s) => [s.properties],
             (properties: Record<string, string>) => (properties ? getExceptionAttributes(properties) : null),
+        ],
+        additionalProperties: [
+            (s) => [s.properties, s.isCloudOrDev],
+            (properties: Record<string, string>, isCloudOrDev: boolean | undefined) =>
+                properties ? getAdditionalProperties(properties, isCloudOrDev) : {},
         ],
         exceptionList: [
             (s) => [s.exceptionAttributes, s.frameOrderReversed],
@@ -250,6 +264,8 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 posthog.capture('error_tracking_issue_assigned', { issue_id: props.id })
                 await api.errorTracking.assignIssue(props.id, assignee)
             },
+            setShowContext: () => actions.setShowStacktrace(true),
+            setShowAllFrames: () => actions.setShowStacktrace(true),
         }
     }),
 
