@@ -10,15 +10,20 @@ import { Conversation, ProductKey } from '~/types'
 import { maxLogic } from './maxLogic'
 import { formatConversationDate, getConversationUrl } from './utils'
 
-export function ConversationHistory(): JSX.Element {
+export interface ConversationHistoryProps {
+    displayHeader?: boolean
+}
+
+export function ConversationHistory({ displayHeader = false }: ConversationHistoryProps): JSX.Element {
     const { location } = useValues(router)
     const { conversationHistory, conversationHistoryLoading } = useValues(maxLogic)
     const { toggleConversationHistory } = useActions(maxLogic)
     const { updateHasSeenProductIntroFor } = useActions(userLogic)
 
     return (
-        <div className="flex flex-col gap-4 w-full self-center px-4 py-8 grow">
-            {conversationHistory ? (
+        <div className="flex flex-col gap-4 w-full self-center px-4 py-8 grow max-w-screen-lg">
+            {displayHeader && <h2 className="text-xl font-bold">Chat history</h2>}
+            {conversationHistory.length > 0 ? (
                 conversationHistory.map((conversation) => (
                     <ConversationCard
                         key={conversation.id}

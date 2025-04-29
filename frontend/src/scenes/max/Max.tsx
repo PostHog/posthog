@@ -127,7 +127,7 @@ export function MaxInstance({ sidePanel }: MaxInstanceProps): JSX.Element {
             )}
             <PageHeader delimited buttons={headerButtons} />
             {conversationHistoryVisible ? (
-                <ConversationHistory />
+                <ConversationHistory displayHeader={!sidePanel} />
             ) : !threadVisible ? (
                 <div className="@container/max-welcome relative flex flex-col gap-4 px-4 pb-8 grow">
                     <div className="flex-1 items-center justify-center flex flex-col gap-3">
