@@ -76,6 +76,7 @@ func NewPostHogKafkaConsumer(
 
 func (c *PostHogKafkaConsumer) Consume() {
 	if err := c.consumer.SubscribeTopics([]string{c.topic}, nil); err != nil {
+		// TODO capture error to PostHog
 		log.Fatalf("Failed to subscribe to topic: %v", err)
 	}
 
@@ -92,6 +93,7 @@ func (c *PostHogKafkaConsumer) Consume() {
 				}
 			}
 			log.Printf("Error consuming message: %v", err)
+			// TODO capture error to PostHog
 			continue
 		}
 
