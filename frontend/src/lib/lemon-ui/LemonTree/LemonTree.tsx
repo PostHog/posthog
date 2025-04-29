@@ -392,7 +392,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                                 'relative z-1 focus-visible:bg-fill-button-tertiary-hover h-[var(--button-height-base)] motion-safe:transition-[padding] duration-50',
                                                                 {
                                                                     'bg-fill-button-tertiary-hover':
-                                                                        selectedId === item.id ||
+                                                                        (folderSelectMode && selectedId === item.id) ||
                                                                         isContextMenuOpenForItem === item.id,
                                                                     'bg-fill-button-tertiary-active':
                                                                         getItemActiveState(item),

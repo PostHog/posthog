@@ -30,26 +30,28 @@
             "label": "Text"
         }
     },
+    "error_tracking_issue_properties": {
+        "$exception_functions": {
+            "description": "A function contained in the exception.",
+            "label": "Exception function"
+        },
+        "$exception_messages": {
+            "description": "The description of the exception.",
+            "label": "Exception message"
+        },
+        "$exception_sources": {
+            "description": "A source file included in the exception.",
+            "label": "Exception source"
+        },
+        "$exception_types": {
+            "description": "The type of the exception.",
+            "label": "Exception type"
+        }
+    },
     "error_tracking_issues": {
         "assignee": {
             "description": "The current assignee of an issue.",
             "label": "Assignee"
-        },
-        "exception_function": {
-            "description": "A function contained in the exception.",
-            "label": "Exception function"
-        },
-        "exception_message": {
-            "description": "The description of the exception.",
-            "label": "Exception message"
-        },
-        "exception_source": {
-            "description": "A source file included in the exception.",
-            "label": "Exception source"
-        },
-        "exception_type": {
-            "description": "The type of the exception.",
-            "label": "Exception type"
         }
     },
     "event_metadata": {
