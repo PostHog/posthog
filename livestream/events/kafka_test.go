@@ -1,4 +1,4 @@
-package main
+package events
 
 import (
 	"encoding/json"
@@ -27,8 +27,10 @@ func TestPostHogKafkaConsumer_Consume(t *testing.T) {
 		consumer:     mockConsumer,
 		topic:        "test-topic",
 		geolocator:   mockGeoLocator,
+		incoming:     make(chan []byte),
 		outgoingChan: outgoingChan,
 		statsChan:    statsChan,
+		parallel:     1,
 	}
 
 	// Mock SubscribeTopics
@@ -89,6 +91,7 @@ func TestPostHogKafkaConsumer_Close(t *testing.T) {
 	mockConsumer := new(mocks.KafkaConsumerInterface)
 	consumer := &PostHogKafkaConsumer{
 		consumer: mockConsumer,
+		incoming: make(chan []byte),
 	}
 
 	mockConsumer.On("Close").Return(nil)

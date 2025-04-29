@@ -13,4 +13,10 @@ RUST_HOGVM_STL = [
     "arrayStringConcat",
     "has",
     "indexOf",
+    "notEmpty",
+    "arrayCount",
+    "arrayFilter",
+    "arrayExists",
+    "arrayReduce",
+    "arrayMap",
 ]

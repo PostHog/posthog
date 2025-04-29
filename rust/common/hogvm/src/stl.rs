@@ -1,10 +1,14 @@
 use std::collections::HashMap;
 
+use serde_json::{json, Value as JsonValue};
+
 use crate::{
     error::VmError,
     memory::VmHeap,
+    program::Module,
     values::{HogLiteral, HogValue, Num},
     vm::HogVM,
+    ExportedFunction,
 };
 
 pub const TO_STRING_RECURSION_LIMIT: usize = 32;
@@ -15,6 +19,12 @@ pub type NativeFunction = fn(&HogVM, Vec<HogValue>) -> Result<HogValue, VmError>
 
 pub fn stl_map() -> HashMap<String, NativeFunction> {
     stl().iter().map(|(a, b)| (a.to_string(), *b)).collect()
+}
+
+pub fn hog_stl_map() -> HashMap<String, Module> {
+    let mut res = HashMap::new();
+    res.insert("stl".to_string(), hog_stl());
+    res
 }
 
 // NOTE - if you make changes to this, be sure to re-run `bin/dump_hogvm_stl`
@@ -245,6 +255,25 @@ pub const fn stl() -> &'static [(&'static str, NativeFunction)] {
             }
         }),
     ]
+}
+
+pub fn hog_stl() -> Module {
+    let funcs = json!({
+      "arrayCount": [2, [33, 0, 36, 1, 36, 3, 2, "values", 1, 33, 1, 36, 4, 2, "length", 1, 31, 36, 6, 36, 5, 16, 40, 31, 36, 4, 36, 5, 45, 37, 7, 36, 7, 36, 0, 54, 1, 40, 7, 33, 1, 36, 2, 6, 37, 2, 36, 5, 33, 1, 6, 37, 5, 39, -38, 35, 35, 35, 35, 35, 36, 2, 38, 35]],
+      "arrayExists": [2, [36, 1, 36, 2, 2, "values", 1, 33, 1, 36, 3, 2, "length", 1, 31, 36, 5, 36, 4, 16, 40, 26, 36, 3, 36, 4, 45, 37, 6, 36, 6, 36, 0, 54, 1, 40, 2, 29, 38, 36, 4, 33, 1, 6, 37, 4, 39, -33, 35, 35, 35, 35, 35, 30, 38]],
+      "arrayFilter": [2, [43, 0, 36, 1, 36, 3, 2, "values", 1, 33, 1, 36, 4, 2, "length", 1, 31, 36, 6, 36, 5, 16, 40, 33, 36, 4, 36, 5, 45, 37, 7, 36, 7, 36, 0, 54, 1, 40, 9, 36, 2, 36, 7, 2, "arrayPushBack", 2, 37, 2, 36, 5, 33, 1, 6, 37, 5, 39, -40, 35, 35, 35, 35, 35, 36, 2, 38, 35]],
+      "arrayMap": [2, [43, 0, 36, 1, 36, 3, 2, "values", 1, 33, 1, 36, 4, 2, "length", 1, 31, 36, 6, 36, 5, 16, 40, 29, 36, 4, 36, 5, 45, 37, 7, 36, 2, 36, 7, 36, 0, 54, 1, 2, "arrayPushBack", 2, 37, 2, 36, 5, 33, 1, 6, 37, 5, 39, -36, 35, 35, 35, 35, 35, 36, 2, 38, 35]],
+      "arrayReduce": [3, [36, 2, 36, 1, 36, 4, 2, "values", 1, 33, 1, 36, 5, 2, "length", 1, 31, 36, 7, 36, 6, 16, 40, 26, 36, 5, 36, 6, 45, 37, 8, 36, 3, 36, 8, 36, 0, 54, 2, 37, 3, 36, 6, 33, 1, 6, 37, 6, 39, -33, 35, 35, 35, 35, 35, 36, 3, 38, 35]],
+    });
+
+    let funcs: HashMap<String, (usize, Vec<JsonValue>)> =
+        serde_json::from_value(funcs).expect("All stl functions are valid");
+    let mut res = Module::new();
+    for (name, (arg_count, bytecode)) in funcs {
+        let func = ExportedFunction::new(arg_count, bytecode);
+        res.add_function(name, func);
+    }
+    res
 }
 
 // TODO - this is slow, because rather than using a string buffer, we're allocating a new string each time

@@ -1,10 +1,10 @@
-use std::{any::Any, cmp::min, collections::HashMap};
+use std::{any::Any, collections::HashMap};
 
 use serde::de::DeserializeOwned;
-use serde_json::{Number, Value as JsonValue};
+use serde_json::Value as JsonValue;
 
 use crate::{
-    context::ExecutionContext,
+    context::{ExecutionContext, Symbol},
     error::VmError,
     memory::{HeapReference, VmHeap},
     ops::Operation,
@@ -46,81 +46,55 @@ pub struct HogVM<'a> {
     throw_frames: Vec<ThrowFrame>,
     ip: usize,
 
-    context: &'a ExecutionContext<'a>,
-    version: usize,
+    context: &'a ExecutionContext,
+    // The base program is None, but calling into e.g. hog standard library functions involves changing the "module"
+    // the pointer is currently pointing into to e.g. "arrayExists", as part of the function call that branches into
+    // that function.
+    current_symbol: Option<Symbol>,
 }
 
 struct CallFrame {
     ret_ptr: usize,               // Where to jump back to when we're done
+    ret_symbol: Option<Symbol>,   // The module to return to when we're done
     stack_start: usize,           // Point in the stack the frame values start
     captures: Vec<HeapReference>, // Values captured from the parent scope/frame
 }
 
 struct ThrowFrame {
-    catch_ptr: usize,   // The ptr to jump to if we throw
-    stack_start: usize, // The stack size when we entered the try
-    call_depth: usize,  // The depth of the call stack when we entered the try
+    catch_ptr: usize,             // The ptr to jump to if we throw
+    catch_symbol: Option<Symbol>, // The module to return to if we throw
+    stack_start: usize,           // The stack size when we entered the try
+    call_depth: usize,            // The depth of the call stack when we entered the try
 }
 
 impl<'a> HogVM<'a> {
-    pub fn new(context: &'a ExecutionContext<'a>) -> Result<Self, VmError> {
-        if context.bytecode.is_empty() {
-            return Err(VmError::InvalidBytecode(
-                "Missing bytecode marker at position 0".to_string(),
-            ));
-        }
-
-        let mut ip = 1; // Skip the bytecode marker
-        let bytecode_marker = context.bytecode[0].clone();
-
-        let version = match bytecode_marker {
-            JsonValue::String(s) if s == "_H" => {
-                let version = context.bytecode.get(1).cloned();
-                if version.is_some() {
-                    ip += 1; // Skip the version marker
-                }
-                let version = version.unwrap_or(JsonValue::Number(Number::from(0)));
-                match version {
-                    JsonValue::Number(n) => n.as_u64().ok_or(VmError::InvalidBytecode(
-                        "Invalid version number".to_string(),
-                    ))?,
-                    _ => {
-                        return Err(VmError::InvalidBytecode(
-                            "Invalid version number".to_string(),
-                        ))
-                    }
-                }
-            }
-            _ => {
-                return Err(VmError::InvalidBytecode(format!(
-                    "Invalid bytecode marker: {:?}",
-                    bytecode_marker
-                )))
-            }
-        };
-
+    pub fn new(context: &'a ExecutionContext) -> Result<Self, VmError> {
         Ok(Self {
             stack: Vec::new(),
             stack_frames: Vec::new(),
             throw_frames: Vec::new(),
-            ip,
+            ip: 0,
+            current_symbol: None,
             context,
             heap: VmHeap::new(context.max_heap_size),
-            version: version as usize,
         })
     }
 
     /// Step the virtual machine, writing some debug information to the provided output function.
     pub fn debug_step(&mut self, output: &dyn Fn(String)) -> Result<StepOutcome, VmError> {
         let op: Operation = self.next()?;
+        let mut surrounding = Vec::new();
+        let start = self.ip.saturating_sub(2);
+        for i in 0..5 {
+            if let Ok(op) = self.context.get_bytecode(start + i, &self.current_symbol) {
+                surrounding.push(op);
+            }
+        }
+
         self.ip -= 1;
         output(format!(
-            "Op ({}): {:?} [{:?}], Stack: {:?}",
-            self.ip,
-            op,
-            &self.context.bytecode
-                [self.ip.saturating_sub(1)..min(self.ip + 2, self.context.bytecode.len())],
-            self.stack
+            "Op ({}), module {:?}: {:?} [{:?}], Stack: {:?}",
+            self.ip, self.current_symbol, op, surrounding, self.stack
         ));
         self.step()
     }
@@ -167,11 +141,18 @@ impl<'a> HogVM<'a> {
                 if available_args < arg_count {
                     return Err(VmError::NotEnoughArguments(name, available_args, arg_count));
                 }
+                let symbol = Symbol::new("stl", &name);
+                if self.context.has_symbol(&symbol) {
+                    // Cross module calls are done in a manner very similar to CallLocal, just with some
+                    // messing around with the current state module.
+                    return self.prep_cross_module_call(symbol, arg_count);
+                }
+
                 let mut args = Vec::with_capacity(arg_count);
                 for _ in 0..arg_count {
                     args.push(self.pop_stack()?);
                 }
-                if self.version != 0 {
+                if self.context.version() != 0 {
                     // In v0, the arguments were expected to be passed in
                     // stack pop order, not push order. We simulate that here
                     // but always popping, but then maybe reversing
@@ -348,7 +329,8 @@ impl<'a> HogVM<'a> {
                 // if self.stack_frames.is_empty() {
                 //     return Ok(StepOutcome::Finished(result.deref(&self.heap)?.clone()));
                 // };
-
+                //
+                self.current_symbol = frame.ret_symbol;
                 self.truncate_stack(frame.stack_start)?;
                 self.ip = frame.ret_ptr;
                 self.push_stack(result)?;
@@ -505,6 +487,7 @@ impl<'a> HogVM<'a> {
                     .ok_or(VmError::IntegerOverflow)? as usize;
                 let frame = ThrowFrame {
                     catch_ptr: catch_ip,
+                    catch_symbol: self.current_symbol.clone(),
                     stack_start: self.stack.len(),
                     call_depth: self.stack_frames.len(),
                 };
@@ -544,6 +527,7 @@ impl<'a> HogVM<'a> {
                 self.truncate_stack(frame.stack_start)?;
                 self.stack_frames.truncate(frame.call_depth);
                 self.ip = frame.catch_ptr;
+                self.current_symbol = frame.catch_symbol;
                 self.push_stack(exception)?;
             }
             Operation::Callable => {
@@ -557,6 +541,7 @@ impl<'a> HogVM<'a> {
                     stack_arg_count,
                     capture_count: captured_arg_count,
                     ip: self.ip,
+                    symbol: self.current_symbol.clone(), // Cross-module jumps are currently only done via CallGlobal
                 }
                 .into();
                 self.push_stack(HogLiteral::Callable(callable))?;
@@ -619,10 +604,12 @@ impl<'a> HogVM<'a> {
                 }
                 let frame = CallFrame {
                     ret_ptr: self.ip,
+                    ret_symbol: self.current_symbol.clone(),
                     stack_start: self.stack.len().saturating_sub(callable.stack_arg_count),
                     captures: closure.captures,
                 };
                 self.stack_frames.push(frame);
+                self.current_symbol = callable.symbol.clone(); // Prep to jump across the module boundary, if that's what we're doing
                 self.ip = callable.ip; // Do the jump
             }
             Operation::GetUpvalue => {
@@ -702,12 +689,8 @@ impl<'a> HogVM<'a> {
     where
         T: DeserializeOwned + Any,
     {
-        let Some(next) = self.context.bytecode.get(self.ip) else {
-            return Err(VmError::EndOfProgram(self.ip));
-        };
-
+        let next = self.context.get_bytecode(self.ip, &self.current_symbol)?;
         self.ip += 1;
-
         let next_type_name = next_type_name(next);
         let expected = std::any::type_name::<T>();
 
@@ -784,6 +767,39 @@ impl<'a> HogVM<'a> {
 
     fn prep_native_call(&self, name: String, args: Vec<HogValue>) -> StepOutcome {
         StepOutcome::NativeCall(name, args)
+    }
+
+    fn prep_cross_module_call(
+        &mut self,
+        symbol: Symbol,
+        arg_count: usize,
+    ) -> Result<StepOutcome, VmError> {
+        // See CallLocal for details on how this works, but effectively, a cross-module call is just a
+        // local call plus a current "module/function" change
+        let to_call = self.context.get_symbol(&symbol)?;
+        if arg_count > to_call.arg_count() {
+            return Err(VmError::InvalidCall(format!(
+                "Too many args - expected {}, got {}",
+                to_call.arg_count(),
+                arg_count
+            )));
+        }
+        let null_args = to_call.arg_count().saturating_sub(arg_count);
+        for _ in 0..null_args {
+            self.push_stack(HogLiteral::Null)?;
+        }
+        let frame = CallFrame {
+            ret_ptr: self.ip,
+            ret_symbol: self.current_symbol.clone(),
+            stack_start: self.stack.len().saturating_sub(to_call.arg_count()),
+            captures: Vec::new(), // Cross module calls never involve captures
+        };
+
+        self.stack_frames.push(frame);
+        self.current_symbol = Some(symbol);
+        self.ip = 0;
+
+        Ok(StepOutcome::Continue)
     }
 
     // Construct a hog value from a Json object. If the json object would be heap allocated
@@ -899,25 +915,8 @@ pub fn sync_execute(context: &ExecutionContext, print_debug: bool) -> Result<Jso
             StepOutcome::Continue => {}
             StepOutcome::Finished(res) => return Ok(res),
             StepOutcome::NativeCall(name, args) => {
-                let Some(native_fn) = context.native_fns.get(&name) else {
-                    return Err(fail(VmError::UnknownFunction(name), Some(&vm), i));
-                };
-                let result = native_fn(&vm, args);
-                match result {
-                    Ok(HogValue::Ref(ptr)) => {
-                        vm.push_stack(ptr).map_err(|e| fail(e, Some(&vm), i))?
-                    }
-                    Ok(HogValue::Lit(lit)) => match lit {
-                        // Object types returned from native functions get heap allocated, just like ones declared
-                        // in the bytecode, whereas other types are pushed directly onto the stack. The purity of
-                        // native functions means we don't need to worry about memory management for these values,
-                        // beyond what the heap internally manages.
-                        HogLiteral::Array(_) | HogLiteral::Object(_) => {
-                            let ptr = vm.heap.emplace(lit).map_err(|e| fail(e, Some(&vm), i))?;
-                            vm.push_stack(ptr).map_err(|e| fail(e, Some(&vm), i))?;
-                        }
-                        _ => vm.push_stack(lit).map_err(|e| fail(e, Some(&vm), i))?,
-                    },
+                match context.execute_native_function_call(&mut vm, &name, args) {
+                    Ok(_) => {}
                     Err(err) => return Err(fail(err, Some(&vm), i)),
                 };
             }
