@@ -453,11 +453,6 @@ export const maxLogic = kea<maxLogicType>([
             const conversation = conversationHistory.find((c) => c.id === values.conversationId)
             if (conversation) {
                 actions.loadThread(conversation)
-
-                // react-markdown renders the messages asynchronously
-                setTimeout(() => {
-                    actions.scrollThreadToBottom('instant')
-                }, 250)
             } else {
                 // If the conversation is not found, clean the thread so that the UI is consistent
                 actions.cleanThread()
@@ -478,6 +473,7 @@ export const maxLogic = kea<maxLogicType>([
 
             if (conversation.status === ConversationStatus.Idle) {
                 actions.setThreadLoading(false)
+                actions.scrollThreadToBottom('instant')
             } else {
                 // If the conversation is not idle, we need to show a loader and poll the conversation status.
                 actions.setThreadLoading(true)
@@ -694,6 +690,7 @@ export const maxLogic = kea<maxLogicType>([
 
                 if (conversation) {
                     actions.loadThread(conversation)
+                    actions.scrollThreadToBottom('instant')
                 } else if (values.conversationHistoryLoading) {
                     // Conversation hasn't been loaded yet, so we handle it in `loadConversationHistory`
                     actions.setConversationId(search.chat)
