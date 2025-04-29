@@ -103,6 +103,7 @@ export const SUB_TEMPLATE_COMMON: Record<SubTemplateId, HogFunctionSubTemplate> 
     'insight-alert-firing': {
         id: 'insight-alert-firing',
         name: 'Insight Alert Firing',
+        type: 'internal_destination',
         filters: {
             events: [
                 {

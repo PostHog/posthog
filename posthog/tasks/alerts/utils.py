@@ -140,7 +140,7 @@ def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> 
             team_id=alert.team_id,
             event=InternalEventEvent(
                 event="$insight_alert_firing",
-                distinct_id="team_{alert.team_id}",
+                distinct_id=f"team_{alert.team_id}",
                 properties=props,
             ),
         )
@@ -187,7 +187,7 @@ def send_notifications_for_breaches(alert: AlertConfiguration, breaches: list[st
         logger.info(f"Send notifications about {len(breaches)} anomalies", alert_id=alert.id)
         message.send()
 
-    trigger_alert_hog_functions(alert=alert, properties={"breaches": breaches})
+    trigger_alert_hog_functions(alert=alert, properties={"breaches": ", ".join(breaches)})
 
 
 def send_notifications_for_errors(alert: AlertConfiguration, error: dict) -> None:

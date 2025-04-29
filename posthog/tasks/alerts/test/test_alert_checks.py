@@ -1,11 +1,13 @@
 from typing import Optional
 from unittest.mock import MagicMock, patch
+from datetime import datetime
 
 from freezegun import freeze_time
 
 from posthog.models.alert import AlertCheck
 from posthog.models.instance_setting import set_instance_setting
-from posthog.tasks.alerts.utils import send_notifications_for_breaches
+from posthog.tasks.alerts.utils import send_notifications_for_breaches, trigger_alert_hog_functions
+from posthog.cdp.internal_events import InternalEventEvent
 from posthog.tasks.alerts.checks import check_alert
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events, ClickhouseDestroyTablesMixin
 from posthog.api.test.dashboards import DashboardAPI
@@ -419,3 +421,39 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
 
         checks = AlertCheck.objects.filter(alert_configuration=self.alert["id"])
         assert len(checks) == 1
+
+    @patch("posthog.tasks.alerts.utils.capture_exception")
+    @patch("posthog.tasks.alerts.utils.produce_internal_event")
+    def test_trigger_alert_hog_functions_success(
+        self,
+        mock_produce_internal_event: MagicMock,
+        mock_capture_exception: MagicMock,
+        mock_send_notifications_for_breaches: MagicMock,
+        mock_send_notifications_for_errors: MagicMock,
+    ) -> None:
+        alert = AlertConfiguration.objects.get(pk=self.alert["id"])
+        alert.state = AlertState.FIRING
+        alert.last_checked_at = datetime.now()
+        alert.save()
+
+        test_properties = {"breaches": ["breach 1", "breach 2"]}
+
+        trigger_alert_hog_functions(alert=alert, properties=test_properties)
+
+        expected_props = {
+            "alert_id": str(alert.id),
+            "alert_name": alert.name,
+            "insight_name": alert.insight.name,
+            "insight_id": alert.insight.short_id,
+            "state": alert.state,
+            "last_checked_at": alert.last_checked_at.isoformat(),
+            **test_properties,
+        }
+        expected_event = InternalEventEvent(
+            event="$insight_alert_firing",
+            distinct_id=f"team_{alert.team_id}",
+            properties=expected_props,
+        )
+
+        mock_produce_internal_event.assert_called_once_with(team_id=alert.team_id, event=expected_event)
+        mock_capture_exception.assert_not_called()

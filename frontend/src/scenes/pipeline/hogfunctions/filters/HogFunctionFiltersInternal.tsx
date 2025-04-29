@@ -1,5 +1,6 @@
 import { LemonSelect } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+import { INSIGHT_ALERT_FIRING_EVENT_ID } from 'lib/components/Alerts/views/AlertDestinationSelector'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -46,6 +47,10 @@ const getTaxonomicGroupTypes = (
         return [TaxonomicFilterGroupType.ErrorTrackingIssues]
     }
     return []
+}
+
+const isAlertDestination = (value?: HogFunctionFiltersType): boolean => {
+    return value?.events?.[0]?.id === INSIGHT_ALERT_FIRING_EVENT_ID
 }
 
 const getSimpleFilterValue = (value?: HogFunctionFiltersType): string | undefined => {
@@ -98,6 +103,21 @@ export function HogFunctionFiltersInternal(): JSX.Element {
                                 pageKey={`hog-function-internal-property-filters-${id}`}
                                 buttonSize="small"
                                 disablePopover
+                            />
+                        ) : null}
+                        {isAlertDestination(value) ? (
+                            <PropertyFilters
+                                propertyFilters={value?.events?.[0]?.properties ?? []}
+                                taxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
+                                pageKey={`hog-function-internal-property-filters-${id}`}
+                                buttonSize="small"
+                                disablePopover
+                                onChange={(properties: AnyPropertyFilter[]) => {
+                                    onChange({
+                                        ...value,
+                                        properties,
+                                    })
+                                }}
                             />
                         ) : null}
                     </>
