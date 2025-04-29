@@ -64,7 +64,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         queueAction: (action: ProjectTreeAction) => ({ action }),
         removeQueuedAction: (action: ProjectTreeAction) => ({ action }),
         createSavedItem: (savedItem: FileSystemEntry) => ({ savedItem }),
-        updateSavedItem: (savedItem: FileSystemEntry, oldPath: string) => ({ savedItem, oldPath }),
         deleteSavedItem: (savedItem: FileSystemEntry) => ({ savedItem }),
         setExpandedFolders: (folderIds: string[]) => ({ folderIds }),
         setExpandedSearchFolders: (folderIds: string[]) => ({ folderIds }),
@@ -288,24 +287,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     }
                     return newState
                 },
-                updateSavedItem: (state, { savedItem, oldPath }) => {
-                    const oldFolder = joinPath(splitPath(oldPath).slice(0, -1))
-                    const folder = joinPath(splitPath(savedItem.path).slice(0, -1))
-
-                    if (oldFolder === folder) {
-                        return {
-                            ...state,
-                            [folder]: (state[folder] ?? []).map((item) =>
-                                item.id === savedItem.id ? savedItem : item
-                            ),
-                        }
-                    }
-                    return {
-                        ...state,
-                        [oldFolder]: (state[oldFolder] ?? []).filter((item) => item.id !== savedItem.id),
-                        [folder]: [...(state[folder] ?? []), savedItem],
-                    }
-                },
                 deleteSavedItem: (state, { savedItem }) => {
                     const folder = joinPath(splitPath(savedItem.path).slice(0, -1))
                     const newState = {
@@ -398,18 +379,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 deleteSavedItem: (state, { savedItem }) => {
                     if (state.searchTerm && state.results.length > 0) {
                         const newResults = state.results.filter((result) => result.id !== savedItem.id)
-                        return { ...state, results: newResults }
-                    }
-                    return state
-                },
-                updateSavedItem: (state, { savedItem, oldPath }) => {
-                    if (state.searchTerm && state.results.length > 0) {
-                        const newResults = state.results.map((result) => {
-                            if (result.id === savedItem.id) {
-                                return { ...savedItem, path: oldPath }
-                            }
-                            return result
-                        })
                         return { ...state, results: newResults }
                     }
                     return state
@@ -934,9 +903,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             actions.checkSelectedFolders()
         },
         loadSearchResultsSuccess: () => {
-            actions.checkSelectedFolders()
-        },
-        updateSavedItem: () => {
             actions.checkSelectedFolders()
         },
         deleteSavedItem: () => {
