@@ -1,6 +1,6 @@
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 from pydantic import BaseModel, ConfigDict
 
@@ -63,6 +63,13 @@ class StringDatabaseField(DatabaseField):
         from posthog.hogql.ast import StringType
 
         return StringType(nullable=self.is_nullable())
+
+
+class UnknownDatabaseField(DatabaseField):
+    def get_constant_type(self) -> "ConstantType":
+        from posthog.hogql.ast import UnknownType
+
+        return UnknownType(nullable=self.is_nullable())
 
 
 class StringJSONDatabaseField(DatabaseField):
@@ -169,6 +176,21 @@ class TableGroup(FieldOrTable):
 
     def get_table(self, name: str) -> "Table | TableGroup":
         return self.tables[name]
+
+    def merge_with(self, table_group: "TableGroup"):
+        for name, table in table_group.tables.items():
+            if name in self.tables:
+                if isinstance(self.tables[name], TableGroup) and isinstance(table, TableGroup):
+                    # Yes, casts are required to make mypy happy
+                    this_table = cast("TableGroup", self.tables[name])
+                    other_table = cast("TableGroup", table)
+                    this_table.merge_with(other_table)
+                else:
+                    raise ValueError(f"Conflict between Table and TableGroup: {name} already exists")
+            else:
+                self.tables[name] = table
+
+        return self
 
     def to_printed_clickhouse(self, context: "HogQLContext") -> str:
         raise NotImplementedError("TableGroup.to_printed_clickhouse not overridden")

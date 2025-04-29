@@ -253,16 +253,23 @@ export const cohortOperatorMap: Record<string, string> = {
 }
 
 export const stickinessOperatorMap: Record<string, string> = {
-    exact: 'Exactly',
-    gte: 'At least',
-    lte: 'At most (but at least once)',
+    exact: '= Exactly',
+    gte: '≥ At least',
+    lte: '≤ At most (but at least once)',
 }
 
 export const cleanedPathOperatorMap: Record<string, string> = {
     is_cleaned_path_exact: '= equals',
 }
 
+export const assigneeOperatorMap: Record<string, string> = {
+    exact: '= is',
+    is_not: '≠ is not',
+    is_not_set: '✕ is not set',
+}
+
 export const allOperatorsMapping: Record<string, string> = {
+    ...assigneeOperatorMap,
     ...stickinessOperatorMap,
     ...dateTimeOperatorMap,
     ...stringOperatorMap,
@@ -285,6 +292,7 @@ const operatorMappingChoice: Record<keyof typeof PropertyType, Record<string, st
     Duration: durationOperatorMap,
     Selector: selectorOperatorMap,
     Cohort: cohortOperatorMap,
+    Assignee: assigneeOperatorMap,
 }
 
 export function chooseOperatorMap(propertyType: PropertyType | undefined): Record<string, string> {
@@ -474,11 +482,19 @@ export function slugify(text: string): string {
 export const DEFAULT_DECIMAL_PLACES = 2
 
 /** Format number with comma as the thousands separator. */
-export function humanFriendlyNumber(d: number, precision: number = DEFAULT_DECIMAL_PLACES): string {
-    if (isNaN(precision) || precision < 0) {
-        precision = DEFAULT_DECIMAL_PLACES
+export function humanFriendlyNumber(
+    d: number,
+    maximumFractionDigits: number = DEFAULT_DECIMAL_PLACES,
+    minimumFractionDigits: number = 0
+): string {
+    if (isNaN(maximumFractionDigits) || maximumFractionDigits < 0) {
+        maximumFractionDigits = DEFAULT_DECIMAL_PLACES
     }
-    return d.toLocaleString('en-US', { maximumFractionDigits: precision })
+    if (isNaN(minimumFractionDigits) || minimumFractionDigits < 0) {
+        minimumFractionDigits = 0
+    }
+
+    return d.toLocaleString('en-US', { maximumFractionDigits, minimumFractionDigits })
 }
 
 export function humanFriendlyLargeNumber(d: number): string {
@@ -833,9 +849,9 @@ export function determineDifferenceType(
     return 'minute'
 }
 
-const DATE_FORMAT = 'MMMM D, YYYY'
-const DATE_TIME_FORMAT = 'MMMM D, YYYY HH:mm:ss'
-const DATE_FORMAT_WITHOUT_YEAR = 'MMMM D'
+export const DATE_FORMAT = 'MMMM D, YYYY'
+export const DATE_TIME_FORMAT = 'MMMM D, YYYY HH:mm:ss'
+export const DATE_FORMAT_WITHOUT_YEAR = 'MMMM D'
 
 export const formatDate = (date: dayjs.Dayjs, format?: string): string => {
     return date.format(format ?? DATE_FORMAT)

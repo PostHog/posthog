@@ -168,8 +168,8 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 else ast.Field(chain=["properties", DEFAULT_REVENUE_PROPERTY])
             )
             base_currency = (
-                ast.Constant(value=self.team.revenue_config.baseCurrency.value)
-                if self.team.revenue_config.baseCurrency is not None
+                ast.Constant(value=self.team.revenue_analytics_config.base_currency)
+                if self.team.revenue_analytics_config.base_currency is not None
                 else ast.Constant(value=DEFAULT_CURRENCY_VALUE)
             )
 

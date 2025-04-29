@@ -1,6 +1,5 @@
 import json
 from typing import Optional, cast
-from common.hogvm.python.execute import validate_bytecode
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from django_filters import BaseInFilter, CharFilter, FilterSet
@@ -295,12 +294,6 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             else:
                 attrs["bytecode"] = compile_hog(attrs["hog"], hog_type)
                 attrs["transpiled"] = None
-
-                # Test execution to catch memory/execution exceptions only for transformations
-                if hog_type == "transformation":
-                    is_valid, error_message = validate_bytecode(attrs["bytecode"], attrs.get("inputs", {}))
-                    if not is_valid:
-                        raise serializers.ValidationError({"hog": error_message})
 
         if is_create:
             if not attrs.get("hog"):

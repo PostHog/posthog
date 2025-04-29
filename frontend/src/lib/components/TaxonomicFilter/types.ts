@@ -137,8 +137,10 @@ export enum TaxonomicFilterGroupType {
     HogQLExpression = 'hogql_expression',
     Notebooks = 'notebooks',
     LogEntries = 'log_entries',
+    ErrorTrackingIssues = 'error_tracking_issues',
     // Misc
     Replay = 'replay',
+    Resources = 'resources',
 }
 
 export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {

@@ -10,6 +10,7 @@ use capture::router::router;
 use capture::sinks::Event;
 use capture::time::TimeSource;
 use capture::v0_request::{DataType, ProcessedEvent};
+//use chrono::Utc;
 use common_redis::MockRedisClient;
 use health::HealthRegistry;
 use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, QUOTA_LIMITER_CACHE_KEY};
@@ -92,7 +93,9 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
             // Skip comment lines
             continue;
         }
+
         let case: RequestDump = serde_json::from_str(&line_contents)?;
+
         let raw_body = general_purpose::STANDARD.decode(&case.body)?;
         assert_eq!(
             case.method, "POST",
@@ -114,6 +117,12 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
         )
         .expect("failed to create billing limiter");
 
+        // disable historical rerouting for this test,
+        // since we use fixture files with old timestamps
+        let enable_historical_rerouting = false;
+        let historical_rerouting_threshold_days = 1_i64;
+        let historical_tokens_keys = None;
+
         let app = router(
             timesource,
             liveness.clone(),
@@ -125,6 +134,9 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
             CaptureMode::Events,
             None,
             25 * 1024 * 1024,
+            enable_historical_rerouting,
+            historical_rerouting_threshold_days,
+            historical_tokens_keys,
         );
 
         let client = TestClient::new(app);
@@ -173,6 +185,7 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
 
             // Normalizing the expected event to align with known django->rust inconsistencies
             let mut expected = expected.clone();
+
             if let Some(value) = expected.get_mut("sent_at") {
                 // Default ISO format is different between python and rust, both are valid
                 // Parse and re-print the value before comparison

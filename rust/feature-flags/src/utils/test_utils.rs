@@ -3,7 +3,7 @@ use crate::{
     cohorts::cohort_models::{Cohort, CohortId},
     config::{Config, DEFAULT_TEST_CONFIG},
     flags::flag_models::{
-        FeatureFlag, FeatureFlagRow, FlagFilters, FlagGroupType, TEAM_FLAGS_CACHE_PREFIX,
+        FeatureFlag, FeatureFlagRow, FlagFilters, FlagPropertyGroup, TEAM_FLAGS_CACHE_PREFIX,
     },
     team::team_models::{Team, TEAM_TOKEN_CACHE_PREFIX},
 };
@@ -525,7 +525,7 @@ pub fn create_test_flag(
         name: name.or(Some("Test Flag".to_string())),
         key: key.unwrap_or_else(|| "test_flag".to_string()),
         filters: filters.unwrap_or_else(|| FlagFilters {
-            groups: vec![FlagGroupType {
+            groups: vec![FlagPropertyGroup {
                 properties: Some(vec![]),
                 rollout_percentage: Some(100.0),
                 variant: None,

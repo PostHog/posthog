@@ -1,15 +1,17 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use common_types::Team;
+use common_types::{Team, TeamId};
 use moka::sync::{Cache, CacheBuilder};
 
 use crate::{
-    app_context::AppContext, config::Config, error::UnhandledError, pipeline::IncomingEvent,
+    app_context::AppContext, assignment_rules::AssignmentRule, config::Config,
+    error::UnhandledError, metric_consts::ANCILLARY_CACHE, pipeline::IncomingEvent,
     sanitize_string, WithIndices,
 };
 
 pub struct TeamManager {
-    cache: Cache<String, Option<Team>>,
+    token_cache: Cache<String, Option<Team>>,
+    assignment_rules: Cache<TeamId, Vec<AssignmentRule>>,
 }
 
 impl TeamManager {
@@ -18,7 +20,19 @@ impl TeamManager {
             .time_to_live(Duration::from_secs(config.team_cache_ttl_secs))
             .build();
 
-        Self { cache }
+        let assignment_rules = CacheBuilder::new(config.max_assignment_rule_cache_size)
+            .time_to_live(Duration::from_secs(config.assignment_rule_cache_ttl_secs))
+            .weigher(|_, v: &Vec<AssignmentRule>| {
+                v.iter()
+                    .map(|rule| rule.bytecode.as_array().map_or(0, Vec::len) as u32)
+                    .sum()
+            })
+            .build();
+
+        Self {
+            token_cache: cache,
+            assignment_rules,
+        }
     }
 
     pub async fn get_team<'c, E>(
@@ -29,15 +43,42 @@ impl TeamManager {
     where
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
     {
-        match self.cache.get(api_token) {
+        match self.token_cache.get(api_token) {
             // We cache "no team" results too, so we don't have to query the database again
-            Some(maybe_team) => Ok(maybe_team),
+            Some(maybe_team) => {
+                metrics::counter!(ANCILLARY_CACHE, "type" => "team", "outcome" => "hit")
+                    .increment(1);
+                Ok(maybe_team)
+            }
             None => {
+                metrics::counter!(ANCILLARY_CACHE, "type" => "team", "outcome" => "miss")
+                    .increment(1);
                 let team = Team::load_by_token(e, api_token).await?;
-                self.cache.insert(api_token.to_string(), team.clone());
+                self.token_cache.insert(api_token.to_string(), team.clone());
                 Ok(team)
             }
         }
+    }
+
+    pub async fn get_rules<'c, E>(
+        &self,
+        e: E,
+        team_id: TeamId,
+    ) -> Result<Vec<AssignmentRule>, UnhandledError>
+    where
+        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+    {
+        if let Some(rules) = self.assignment_rules.get(&team_id) {
+            metrics::counter!(ANCILLARY_CACHE, "type" => "assignment_rules", "outcome" => "hit")
+                .increment(1);
+            return Ok(rules.clone());
+        }
+        metrics::counter!(ANCILLARY_CACHE, "type" => "assignment_rules", "outcome" => "miss")
+            .increment(1);
+        // If we have no rules for the team, we just put an empty vector in the cache
+        let rules = AssignmentRule::load_for_team(e, team_id).await?;
+        self.assignment_rules.insert(team_id, rules.clone());
+        Ok(rules)
     }
 }
 

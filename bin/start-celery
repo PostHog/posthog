@@ -3,6 +3,9 @@
 
 set -e
 
+export CLICKHOUSE_API_USER="api"
+export CLICKHOUSE_API_PASSWORD="apipass"
+
 source ./bin/celery-queues.env
 
 # start celery worker with heartbeat (-B)

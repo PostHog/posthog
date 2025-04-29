@@ -430,7 +430,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     }
 
                     const sessionEventsQuery = hogql`
-                            SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type, properties.$viewport_width, properties.$viewport_height
+                            SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type, properties.$viewport_width, properties.$viewport_height, properties.$screen_name
                             FROM events
                             WHERE timestamp > ${start.subtract(TWENTY_FOUR_HOURS_IN_MS, 'ms')}
                               AND timestamp < ${end.add(TWENTY_FOUR_HOURS_IN_MS, 'ms')}
@@ -506,6 +506,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                                     $pathname: pathname,
                                     $viewport_width: viewportWidth,
                                     $viewport_height: viewportHeight,
+                                    $screen_name: event.length > 9 ? event[9] : undefined,
                                 },
                                 playerTime: +dayjs(event[2]) - +start,
                                 fullyLoaded: false,

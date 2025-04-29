@@ -128,7 +128,7 @@ export class CdpApi {
             const hogFunction = isNewFunction
                 ? null
                 : await this.hogFunctionManager.fetchHogFunction(req.params.id).catch(() => null)
-            const team = await this.hub.teamManager.fetchTeam(parseInt(team_id)).catch(() => null)
+            const team = await this.hub.teamManager.getTeam(parseInt(team_id)).catch(() => null)
 
             if (!team) {
                 return res.status(404).json({ error: 'Team not found' })
@@ -242,7 +242,7 @@ export class CdpApi {
                                     ],
                                 }
                             } else {
-                                response = await this.fetchExecutor.executeLocally(invocation)
+                                response = await this.fetchExecutor.execute(invocation)
                             }
                         } else {
                             response = this.hogExecutor.execute(invocation)

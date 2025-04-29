@@ -3,6 +3,7 @@ import { dayjs } from 'lib/dayjs'
 
 import { CurrencyCode } from '~/queries/schema/schema-general'
 import {
+    AccessControlLevel,
     ActivationTaskStatus,
     CohortType,
     DataColorThemeModel,
@@ -90,7 +91,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     autocapture_web_vitals_opt_in: false,
     autocapture_exceptions_errors_to_ignore: [],
     effective_membership_level: OrganizationMembershipLevel.Admin,
-    user_access_level: 'admin',
+    user_access_level: AccessControlLevel.Admin,
     access_control: true,
     group_types: [
         {
@@ -125,8 +126,8 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     live_events_token: '123',
     capture_dead_clicks: false,
     human_friendly_comparison_periods: false,
-    revenue_tracking_config: {
-        baseCurrency: CurrencyCode.USD,
+    revenue_analytics_config: {
+        base_currency: CurrencyCode.USD,
         events: [
             {
                 eventName: 'purchase',

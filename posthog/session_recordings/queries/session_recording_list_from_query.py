@@ -1,8 +1,6 @@
 from typing import Any, cast, Optional, Union
 from datetime import datetime, timedelta, UTC
 
-import posthoganalytics
-
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
@@ -19,6 +17,7 @@ from posthog.schema import (
 
 import structlog
 
+from posthog.exceptions_capture import capture_exception
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
 from posthog.session_recordings.queries.sub_queries.cohort_subquery import CohortPropertyGroupsSubQuery
 from posthog.session_recordings.queries.sub_queries.events_subquery import ReplayFiltersEventsSubQuery
@@ -258,7 +257,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
 
         remaining_properties = _strip_person_and_event_and_cohort_properties(self._query.properties)
         if remaining_properties:
-            posthoganalytics.capture_exception(UnexpectedQueryProperties(remaining_properties))
+            capture_exception(UnexpectedQueryProperties(remaining_properties))
             optional_exprs.append(property_to_expr(remaining_properties, team=self._team, scope="replay"))
 
         if self._query.console_log_filters:
@@ -268,9 +267,9 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 where=property_to_expr(
                     # convert to a property group so we can insert the correct operand
                     PropertyGroupFilterValue(
-                        type=FilterLogicalOperator.AND_
-                        if self.property_operand == "AND"
-                        else FilterLogicalOperator.OR_,
+                        type=(
+                            FilterLogicalOperator.AND_ if self.property_operand == "AND" else FilterLogicalOperator.OR_
+                        ),
                         values=self._query.console_log_filters,
                     ),
                     team=self._team,

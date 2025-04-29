@@ -1849,7 +1849,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
     @snapshot_clickhouse_queries
     def test_query_runner_with_data_warehouse_subscriptions_table(self):
-        table_name = self.create_data_warehouse_table_with_subscriptions()
+        subscriptions_table_name = self.create_data_warehouse_table_with_subscriptions()
 
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
@@ -1862,7 +1862,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         metric = ExperimentMeanMetric(
             source=ExperimentDataWarehouseNode(
-                table_name=table_name,
+                table_name=subscriptions_table_name,
                 events_join_key="person.properties.email",
                 data_warehouse_join_key="subscription_customer.customer_email",
                 timestamp_field="subscription_created_at",

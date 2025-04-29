@@ -59,23 +59,26 @@ const EditorSidebarOverlay = (): JSX.Element => {
                             onClick={() => copy()}
                         />
                     )}
-                    <LemonMenu
-                        items={[
-                            {
-                                label: 'Add join',
-                                onClick: () => {
-                                    if (selectedSchema) {
-                                        selectSourceTable(selectedSchema.name)
-                                        toggleJoinTableModal()
-                                    }
+
+                    {selectedSchema && 'type' in selectedSchema && selectedSchema.type !== 'managed_view' && (
+                        <LemonMenu
+                            items={[
+                                {
+                                    label: 'Add join',
+                                    onClick: () => {
+                                        if (selectedSchema) {
+                                            selectSourceTable(selectedSchema.name)
+                                            toggleJoinTableModal()
+                                        }
+                                    },
                                 },
-                            },
-                        ]}
-                    >
-                        <div>
-                            <LemonButton size="small" noPadding icon={<IconEllipsis />} />
-                        </div>
-                    </LemonMenu>
+                            ]}
+                        >
+                            <div>
+                                <LemonButton size="small" noPadding icon={<IconEllipsis />} />
+                            </div>
+                        </LemonMenu>
+                    )}
                 </div>
             </header>
             <div className="overflow-y-auto flex-1">

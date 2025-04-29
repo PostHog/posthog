@@ -563,8 +563,8 @@ importers:
         specifier: workspace:*
         version: link:../common/hogvm/typescript
       '@posthog/icons':
-        specifier: 0.12.0
-        version: 0.12.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.12.1
+        version: 0.12.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@posthog/plugin-scaffold':
         specifier: ^1.4.4
         version: 1.4.4
@@ -848,8 +848,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.236.0
-        version: 1.236.0(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.236.8
+        version: 1.236.8(@rrweb/types@2.0.0-alpha.17)
       posthog-js-lite:
         specifier: 3.0.0
         version: 3.0.0
@@ -1369,8 +1369,8 @@ importers:
         specifier: ^8.6.0
         version: 8.11.0
       posthog-node:
-        specifier: 4.5.2
-        version: 4.5.2
+        specifier: 4.14.0
+        version: 4.14.0
       pretty-bytes:
         specifier: ^5.6.0
         version: 5.6.0
@@ -1794,6 +1794,9 @@ importers:
       kea:
         specifier: '*'
         version: 3.1.5(react@18.2.0)
+      kea-forms:
+        specifier: '*'
+        version: 3.2.0(kea@3.1.5(react@18.2.0))
       kea-loaders:
         specifier: '*'
         version: 3.0.0(kea@3.1.5(react@18.2.0))
@@ -4593,8 +4596,8 @@ packages:
       react: '>=16.14.0'
       react-dom: '>=16.14.0'
 
-  '@posthog/icons@0.12.0':
-    resolution: {integrity: sha512-T/zjahcSwwAGneCNHNt2HnW1V45N5uHA64DqHpm7t+WF3i55/mz6w9zoNEmOn7JsmhCh2YZPxZS2Q9krImROHA==}
+  '@posthog/icons@0.12.1':
+    resolution: {integrity: sha512-Vix+4L8h2hawu2bZ2QaJOeDbw7lMx5Q/eiPit9fcH2e0UEl/oYFH80/hffNEQPtJ+op9IMY0TKfxJza9sCzNBw==}
     peerDependencies:
       react: '>=16.14.0'
       react-dom: '>=16.14.0'
@@ -5413,15 +5416,6 @@ packages:
     resolution: {integrity: sha512-jIgXT+ahUS7zmhDMAzsgQHCNA6ZwZAp0Bwjoz0tcuGzNcv7mOCnjHz5YooJVQgXuREV653RmEuGGTklrpn6S2w==}
     engines: {node: '>=8'}
 
-  '@sentry/node@7.112.1':
-    resolution: {integrity: sha512-4nGqP133jDNgPADJMR+pTroo9TTYyrXuGVI1RO2lhZpLbRu7ksR6hgsQE00+0L/EhPM4IiW75iwwHePFwqWY6A==}
-    engines: {node: '>=8'}
-
-  '@sentry/profiling-node@7.112.1':
-    resolution: {integrity: sha512-NKAcGJQde97EGtx7YYaJQPuZ8K/RXyv/BCh7AOHm9EgLTV4oCG8BAYzSd/euVJWmNDLX1mT7ejYRXKsg9HJ1/w==}
-    engines: {node: '>=8.0.0'}
-    hasBin: true
-
   '@sentry/react@7.112.1':
     resolution: {integrity: sha512-q0fDW3omq/NPaL7yRqWA1USxGtEAcdFZOngIMsr9Bc4fJBGXDO+xLwPWjo1MIVvdDBJJYL/9Z56ppqTb3kiGXw==}
     engines: {node: '>=8'}
@@ -5431,10 +5425,6 @@ packages:
   '@sentry/replay@7.112.1':
     resolution: {integrity: sha512-4lobxfgmbB2C7ZHk1inWt9IRIvlQa2Sczau5ngE4Qd4mZSKIgIYGtIJC52uOuGvBcP8gHiIbA7ACihkd7834Ew==}
     engines: {node: '>=12'}
-
-  '@sentry/tracing@7.112.1':
-    resolution: {integrity: sha512-/ScTA0RxHbtg8axsXtYqGba8Qq9rpSgCPh2L4XSKiszYKlq+po4c0YeoFQOdYVHUmMQZDkXBxLWZPxd/Oz1N+g==}
-    engines: {node: '>=8'}
 
   '@sentry/types@7.112.1':
     resolution: {integrity: sha512-5dLIxWZfCXH5kExrsWc+R6loMr3RR6OQuonVNL3Fa8Dw37Q7aExCrjRmocOHeQKhHwNBd3QhYm7phjnbxS6Oaw==}
@@ -7741,6 +7731,9 @@ packages:
 
   axios@1.7.9:
     resolution: {integrity: sha512-LhLcE7Hbiryz8oMDdDptSrWowmB4Bl6RCt6sIJKpRB4XtVf0iEgewX3au/pJqm+Py1kCASkb/FFKjxQaLtxJvw==}
+
+  axios@1.9.0:
+    resolution: {integrity: sha512-re4CqKTJaURpzbLHtIi6XpDv20/CnpXOtjRY5/CU32L8gU8ek9UIivcfvSWvmKEngmVbrUtPpdDwWDWL7DNHvg==}
 
   babel-core@7.0.0-bridge.0:
     resolution: {integrity: sha512-poPX9mZH/5CSanm50Q+1toVci6pv5KSRv/5TWCwtzQS5XEwn40BcCrgIeMFWP9CKKIniKXNxoIOnOq4VVlGXhg==}
@@ -10069,10 +10062,6 @@ packages:
 
   form-data@3.0.1:
     resolution: {integrity: sha512-RHkBKtLWUVwd7SqRIvCZMEvAMoGUp0XU+seQiZejj0COz3RI3hWP4sCv3gZWWLjJTd7rGwcsF5eKZGii0r/hbg==}
-    engines: {node: '>= 6'}
-
-  form-data@4.0.0:
-    resolution: {integrity: sha512-ETEklSGi5t0QMZuiXoA/Q6vcnxcLQP5vdugSpuAyi6SVGi2clPPp+xgEhuMaHC+zGgn31Kd235W35f7Hykkaww==}
     engines: {node: '>= 6'}
 
   form-data@4.0.1:
@@ -12506,10 +12495,6 @@ packages:
   no-case@3.0.4:
     resolution: {integrity: sha512-fgAN3jGAh+RoxUGZHTSOLJIqUc2wmoBwGR4tbpNAKmmovFoWq0OdRkb0VkldReO2a2iBT/OEulG9XSUc10r3zg==}
 
-  node-abi@3.74.0:
-    resolution: {integrity: sha512-c5XK0MjkGBrQPGYG24GBADZud0NCbznxNx0ZkS+ebUTrmV1qTDxPxSL8zEAPURXSbLRWVexxmP4986BziahL5w==}
-    engines: {node: '>=10'}
-
   node-abort-controller@3.1.1:
     resolution: {integrity: sha512-AGK2yQKIjRuqnc6VkX2Xj5d+QW8xZ87pa1UK6yA6ouUyuxfHuMP6umE5QK7UmTeOAymo+Zx1Fxiuw9rVx8taHQ==}
 
@@ -12526,6 +12511,7 @@ packages:
   node-domexception@1.0.0:
     resolution: {integrity: sha512-/jKZoMpw0F8GRwl4/eLROPA3cfcXtLApP0QzLmUT/HuPCZWyB7IY9ZrMeKw2O/nFIqPQB3PVM9aYm0F312AXDQ==}
     engines: {node: '>=10.5.0'}
+    deprecated: Use your platform's native DOMException instead
 
   node-fetch-native@1.2.0:
     resolution: {integrity: sha512-5IAMBTl9p6PaAjYCnMv5FmqIF6GcZnawAVnzaCG0rX2aYZJ4CxEkZNtVPuTRug7fL7wyM5BQYTlAzcyMPi6oTQ==}
@@ -13618,8 +13604,8 @@ packages:
       rrweb-snapshot:
         optional: true
 
-  posthog-js@1.236.0:
-    resolution: {integrity: sha512-tTKBu/ZHVfBHAvpHhLQX+8WfNWr1q4r2fZmySBYJPR+pK+HQtSwvjHCibaH6ukK38HphLCqc48YTbQGUbZn7Nw==}
+  posthog-js@1.236.8:
+    resolution: {integrity: sha512-Nmd1LP9lAairJ2gkIIHNHeY8c7F6nO0g6OWaAHe6MfRnKWwnzBoLkDXEX4ptvooQVKnQ3eS7UR0Q+112TAn9qw==}
     peerDependencies:
       '@rrweb/types': 2.0.0-alpha.17
       rrweb-snapshot: 2.0.0-alpha.17
@@ -13629,8 +13615,8 @@ packages:
       rrweb-snapshot:
         optional: true
 
-  posthog-node@4.5.2:
-    resolution: {integrity: sha512-dncxqeXUDwjr4UD9pYanPWsG7jQPe01ctTm7KqKAi5a9GeH3cEICHyw5Qw2SPXfcA6MZLypuFoCTPET/NOfDzw==}
+  posthog-node@4.14.0:
+    resolution: {integrity: sha512-PitSiuxGiVFl0ItuhIfi3Sq1tcaMU4vlbPu1wv0qufTJGDjWthOOr4vYfFIs1xkbJFOQcfGczMXkr44kX5TDDg==}
     engines: {node: '>=15.0.0'}
 
   posthtml-parser@0.11.0:
@@ -15864,8 +15850,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.248.0:
-    resolution: {integrity: sha512-jXse36Qo8LT8XsI0/3bVeKe7NV8QGEih+Yji6y4qAQqC4CNWZBJAbofvRS0eb5Ad2uiLdxYQIbRiDQvoy8bkJA==}
+  unlayer-types@1.251.0:
+    resolution: {integrity: sha512-HPu4I6+mq8kSEHvtzOb8OUsxw4mQagKB4d+Ukg3Vp6OVWibwi6GGdDpsI1xKXAYcrIGLgKrOAzJ3MfD98HRCLA==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -20290,7 +20276,7 @@ snapshots:
       react: 18.2.0
       react-dom: 18.2.0(react@18.2.0)
 
-  '@posthog/icons@0.12.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
+  '@posthog/icons@0.12.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
     dependencies:
       react: 18.2.0
       react-dom: 18.2.0(react@18.2.0)
@@ -21161,19 +21147,6 @@ snapshots:
       '@sentry/utils': 7.112.1
       localforage: 1.10.0
 
-  '@sentry/node@7.112.1':
-    dependencies:
-      '@sentry-internal/tracing': 7.112.1
-      '@sentry/core': 7.112.1
-      '@sentry/integrations': 7.112.1
-      '@sentry/types': 7.112.1
-      '@sentry/utils': 7.112.1
-
-  '@sentry/profiling-node@7.112.1':
-    dependencies:
-      detect-libc: 2.0.3
-      node-abi: 3.74.0
-
   '@sentry/react@7.112.1(react@18.2.0)':
     dependencies:
       '@sentry/browser': 7.112.1
@@ -21189,10 +21162,6 @@ snapshots:
       '@sentry/core': 7.112.1
       '@sentry/types': 7.112.1
       '@sentry/utils': 7.112.1
-
-  '@sentry/tracing@7.112.1':
-    dependencies:
-      '@sentry-internal/tracing': 7.112.1
 
   '@sentry/types@7.112.1': {}
 
@@ -24438,6 +24407,14 @@ snapshots:
     transitivePeerDependencies:
       - debug
 
+  axios@1.9.0:
+    dependencies:
+      follow-redirects: 1.15.9
+      form-data: 4.0.1
+      proxy-from-env: 1.1.0
+    transitivePeerDependencies:
+      - debug
+
   babel-core@7.0.0-bridge.0(@babel/core@7.26.0):
     dependencies:
       '@babel/core': 7.26.0
@@ -27506,12 +27483,6 @@ snapshots:
       combined-stream: 1.0.8
       mime-types: 2.1.35
 
-  form-data@4.0.0:
-    dependencies:
-      asynckit: 0.4.0
-      combined-stream: 1.0.8
-      mime-types: 2.1.35
-
   form-data@4.0.1:
     dependencies:
       asynckit: 0.4.0
@@ -30498,10 +30469,6 @@ snapshots:
       lower-case: 2.0.2
       tslib: 2.8.1
 
-  node-abi@3.74.0:
-    dependencies:
-      semver: 7.7.0
-
   node-abort-controller@3.1.1: {}
 
   node-addon-api@6.1.0: {}
@@ -31969,7 +31936,7 @@ snapshots:
     optionalDependencies:
       '@rrweb/types': 2.0.0-alpha.17
 
-  posthog-js@1.236.0(@rrweb/types@2.0.0-alpha.17):
+  posthog-js@1.236.8(@rrweb/types@2.0.0-alpha.17):
     dependencies:
       core-js: 3.40.0
       fflate: 0.4.8
@@ -31978,9 +31945,9 @@ snapshots:
     optionalDependencies:
       '@rrweb/types': 2.0.0-alpha.17
 
-  posthog-node@4.5.2:
+  posthog-node@4.14.0:
     dependencies:
-      axios: 1.7.9
+      axios: 1.9.0
     transitivePeerDependencies:
       - debug
 
@@ -32474,7 +32441,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.2.0):
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.248.0
+      unlayer-types: 1.251.0
 
   react-error-overlay@6.0.9: {}
 
@@ -33921,7 +33888,7 @@ snapshots:
       cookiejar: 2.1.4
       debug: 4.4.0(supports-color@8.1.1)
       fast-safe-stringify: 2.1.1
-      form-data: 4.0.0
+      form-data: 4.0.1
       formidable: 3.5.1
       methods: 1.1.2
       mime: 2.6.0
@@ -34595,7 +34562,7 @@ snapshots:
 
   universalify@2.0.0: {}
 
-  unlayer-types@1.248.0: {}
+  unlayer-types@1.251.0: {}
 
   unpipe@1.0.0: {}
 

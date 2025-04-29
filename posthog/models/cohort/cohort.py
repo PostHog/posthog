@@ -6,7 +6,7 @@ import posthoganalytics
 import structlog
 from django.conf import settings
 from django.db import connection, models
-from django.db.models import Case, Q, When, QuerySet
+from django.db.models import Q, QuerySet
 from django.db.models.expressions import F
 
 from django.utils import timezone
@@ -16,6 +16,7 @@ from posthog.constants import PropertyOperatorType
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.filters.filter import Filter
 from posthog.models.person import Person
+from posthog.models.person.person import READ_DB_FOR_PERSONS
 from posthog.models.property import BehavioralPropertyType, Property, PropertyGroup
 from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
 from posthog.settings.base_variables import TEST
@@ -218,7 +219,6 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
     def calculate_people_ch(self, pending_version: int, *, initiating_user_id: Optional[int] = None):
         from posthog.models.cohort.util import recalculate_cohortpeople
-        from posthog.tasks.calculate_cohort import clear_stale_cohort
 
         use_hogql_cohorts = posthoganalytics.feature_enabled(
             "enable_hogql_cohort_calculation",
@@ -274,8 +274,6 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             duration=(time.monotonic() - start_time),
         )
 
-        clear_stale_cohort.delay(self.pk, before_version=pending_version)
-
     def insert_users_by_list(self, items: list[str], *, team_id: Optional[int] = None) -> None:
         """
         Insert a list of users identified by their distinct ID into the cohort, for the given team.
@@ -303,7 +301,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             for i in range(0, len(items), batchsize):
                 batch = items[i : i + batchsize]
                 persons_query = (
-                    Person.objects.filter(team_id=team_id)
+                    Person.objects.db_manager(READ_DB_FOR_PERSONS)
+                    .filter(team_id=team_id)
                     .filter(
                         Q(
                             persondistinctid__team_id=team_id,
@@ -363,7 +362,10 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             for i in range(0, len(items), batchsize):
                 batch = items[i : i + batchsize]
                 persons_query = (
-                    Person.objects.filter(team_id=team_id).filter(uuid__in=batch).exclude(cohort__id=self.id)
+                    Person.objects.db_manager(READ_DB_FOR_PERSONS)
+                    .filter(team_id=team_id)
+                    .filter(uuid__in=batch)
+                    .exclude(cohort__id=self.id)
                 )
                 if insert_in_clickhouse:
                     insert_static_cohort(
@@ -400,13 +402,6 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             capture_exception(err)
 
     __repr__ = sane_repr("id", "name", "last_calculation")
-
-
-def get_and_update_pending_version(cohort: Cohort):
-    cohort.pending_version = Case(When(pending_version__isnull=True, then=1), default=F("pending_version") + 1)
-    cohort.save(update_fields=["pending_version"])
-    cohort.refresh_from_db()
-    return cohort.pending_version
 
 
 class CohortPeople(models.Model):

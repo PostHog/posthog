@@ -1,12 +1,10 @@
 import json
-from unittest.mock import ANY
+from unittest.mock import ANY, patch
 
-from rest_framework import status
 from django.core.cache import cache
 from django.test.client import Client
-from unittest.mock import patch
+from rest_framework import status
 
-from products.early_access_features.backend.models import EarlyAccessFeature
 from posthog.models import FeatureFlag, Person
 from posthog.models.team.team_caching import set_team_in_cache
 from posthog.test.base import (
@@ -15,6 +13,7 @@ from posthog.test.base import (
     QueryMatchingTest,
     snapshot_postgres_queries,
 )
+from products.early_access_features.backend.models import EarlyAccessFeature
 
 
 class TestEarlyAccessFeature(APIBaseTest):
@@ -40,7 +39,7 @@ class TestEarlyAccessFeature(APIBaseTest):
         assert response_data["stage"] == "concept"
         assert response_data["feature_flag"]["key"] == "hick-bondoogling"
         assert response_data["feature_flag"]["active"]
-        assert not response_data["feature_flag"]["filters"].get("super_groups", None)
+        assert response_data["feature_flag"]["filters"].get("super_groups", None)
         assert len(response_data["feature_flag"]["filters"]["groups"]) == 1
         assert response_data["feature_flag"]["filters"]["groups"][0]["rollout_percentage"] == 0
         assert isinstance(response_data["created_at"], str)

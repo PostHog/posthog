@@ -1,7 +1,8 @@
 // eslint-disable-next-line simple-import-sort/imports
 import { getProducedKafkaMessages, getProducedKafkaMessagesForTopic } from '~/tests/helpers/mocks/producer.mock'
 
-import { CdpCyclotronWorker, CdpCyclotronWorkerFetch } from '../../src/cdp/consumers/cdp-cyclotron-worker.consumer'
+import { CdpCyclotronWorker } from '../../src/cdp/consumers/cdp-cyclotron-worker.consumer'
+import { CdpCyclotronWorkerFetch } from '../../src/cdp/consumers/cdp-cyclotron-worker-fetch.consumer'
 import { CdpProcessedEventsConsumer } from '../../src/cdp/consumers/cdp-processed-events.consumer'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../../src/cdp/types'
 import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '../../src/config/kafka-topics'
@@ -11,6 +12,8 @@ import { waitForExpect } from '~/tests/helpers/expectations'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './_tests/examples'
 import { createHogExecutionGlobals, insertHogFunction as _insertHogFunction } from './_tests/fixtures'
+import { FetchError } from 'node-fetch'
+import { forSnapshot } from '~/tests/helpers/snapshots'
 
 jest.mock('../../src/utils/fetch', () => {
     return {
@@ -49,6 +52,9 @@ describe('CDP Consumer loop', () => {
             await resetTestDatabase()
             hub = await createHub()
             team = await getFirstTeam(hub)
+
+            hub.CDP_FETCH_RETRIES = 2
+            hub.CDP_FETCH_BACKOFF_BASE_MS = 100 // fast backoff
 
             fnFetchNoFilters = await insertHogFunction({
                 ...HOG_EXAMPLES.simple_fetch,
@@ -210,6 +216,33 @@ describe('CDP Consumer loop', () => {
                     },
                 },
             ])
+        })
+
+        it('should handle fetch failures with retries', async () => {
+            mockFetch.mockRejectedValue(new FetchError('Test error', 'request-timeout'))
+
+            const invocations = await processedEventsConsumer.processBatch([globals])
+
+            expect(invocations).toHaveLength(1)
+
+            await waitForExpect(() => {
+                expect(getProducedKafkaMessages().length).toBeGreaterThan(10)
+            }, 5000)
+
+            const logMessages = getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)
+
+            // Ignore the last message as it is non-deterministic
+            expect(forSnapshot(logMessages.map((m) => m.value.message).slice(0, -1))).toMatchInlineSnapshot(`
+                [
+                  "Executing function",
+                  "Suspending function due to async function call 'fetch'. Payload: 2031 bytes. Event: <REPLACED-UUID-0>",
+                  "Fetch failed after 2 attempts",
+                  "Fetch failure of kind timeout with status (none) and message FetchError: Test error",
+                  "Fetch failure of kind timeout with status (none) and message FetchError: Test error",
+                  "Resuming function",
+                  "Fetch response:, {"status":503,"body":{"event":{"uuid":"<REPLACED-UUID-0>","event":"$pageview","elements_chain":"","distinct_id":"distinct_id","url":"http://localhost:8000/events/1","properties":{"$current_url":"https://posthog.com","$lib_version":"1.0.0"},"timestamp":"2024-09-03T09:00:00Z"},"groups":{},"nested":{"foo":"http://localhost:8000/events/1"},"person":{"id":"uuid","name":"test","url":"http://localhost:8000/persons/1","properties":{"email":"test@posthog.com","first_name":"Pumpkin"}},"event_url":"http://localhost:8000/events/1-test"}}",
+                ]
+            `)
         })
     })
 })

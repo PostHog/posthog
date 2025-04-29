@@ -96,7 +96,7 @@ def alerts_backlog_task() -> None:
         capture_ph_event(
             ANIRUDH_DISTINCT_ID,
             "alert check backlog",
-            properties={
+            additional_properties={
                 "calculation_interval": AlertCalculationInterval.DAILY,
                 "backlog": daily_alerts_breaching_sla,
             },
@@ -105,7 +105,7 @@ def alerts_backlog_task() -> None:
         capture_ph_event(
             ANIRUDH_DISTINCT_ID,
             "alert check backlog",
-            properties={
+            additional_properties={
                 "calculation_interval": AlertCalculationInterval.HOURLY,
                 "backlog": hourly_alerts_breaching_sla,
             },
@@ -265,7 +265,7 @@ def check_alert(alert_id: str, capture_ph_event: Callable = lambda *args, **kwar
         logger.exception(AlertCheckException(err))
         capture_exception(
             AlertCheckException(err),
-            properties={
+            additional_properties={
                 "alert_configuration_id": alert_id,
             },
         )

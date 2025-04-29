@@ -15,7 +15,7 @@ import psycopg2
 from psycopg2 import sql
 import pymysql
 
-from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionMode
+from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode
 from posthog.warehouse.s3 import get_s3_client
 from .external_data_source import ExternalDataSource
 from posthog.warehouse.data_load.service import (
@@ -144,6 +144,14 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
     def partition_mode(self) -> PartitionMode | None:
         if self.sync_type_config:
             return self.sync_type_config.get("partition_mode", None)
+
+        return None
+
+    @property
+    def partition_format(self) -> PartitionFormat | None:
+        # This key doesn't get reset on pipeline_reset and can only be set via the DB directly right now
+        if self.sync_type_config:
+            return self.sync_type_config.get("partition_format", None)
 
         return None
 

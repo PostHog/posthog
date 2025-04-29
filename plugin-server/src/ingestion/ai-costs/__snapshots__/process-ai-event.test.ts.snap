@@ -354,9 +354,9 @@ exports[`processAiEvent() smoke test every model processes deepseek-chat-v3-0324
 
 exports[`processAiEvent() smoke test every model processes deepseek-r1 1`] = `
 {
-  "$ai_input_cost_usd": 0.000054,
-  "$ai_output_cost_usd": 0.000109,
-  "$ai_total_cost_usd": 0.000163,
+  "$ai_input_cost_usd": 0.00005,
+  "$ai_output_cost_usd": 0.00015,
+  "$ai_total_cost_usd": 0.0002,
 }
 `;
 
@@ -1304,6 +1304,14 @@ exports[`processAiEvent() smoke test every model processes o1-pro 1`] = `
 }
 `;
 
+exports[`processAiEvent() smoke test every model processes o3 1`] = `
+{
+  "$ai_input_cost_usd": 0.001,
+  "$ai_output_cost_usd": 0.002,
+  "$ai_total_cost_usd": 0.003,
+}
+`;
+
 exports[`processAiEvent() smoke test every model processes o3-mini 1`] = `
 {
   "$ai_input_cost_usd": 0.00011,
@@ -1313,6 +1321,22 @@ exports[`processAiEvent() smoke test every model processes o3-mini 1`] = `
 `;
 
 exports[`processAiEvent() smoke test every model processes o3-mini-high 1`] = `
+{
+  "$ai_input_cost_usd": 0.00011,
+  "$ai_output_cost_usd": 0.00022,
+  "$ai_total_cost_usd": 0.00033,
+}
+`;
+
+exports[`processAiEvent() smoke test every model processes o4-mini 1`] = `
+{
+  "$ai_input_cost_usd": 0.00011,
+  "$ai_output_cost_usd": 0.00022,
+  "$ai_total_cost_usd": 0.00033,
+}
+`;
+
+exports[`processAiEvent() smoke test every model processes o4-mini-high 1`] = `
 {
   "$ai_input_cost_usd": 0.00011,
   "$ai_output_cost_usd": 0.00022,

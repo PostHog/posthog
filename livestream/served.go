@@ -6,7 +6,6 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/getsentry/sentry-go"
 	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/labstack/echo/v4"
 )
@@ -117,7 +116,7 @@ func streamEventsHandler(log echo.Logger, subChan chan Subscription, filter *Fil
 			case payload := <-subscription.EventChan:
 				jsonData, err := json.Marshal(payload)
 				if err != nil {
-					sentry.CaptureException(err)
+					// TODO capture error to PostHog
 					log.Errorf("Error marshalling payload: %w", err)
 					continue
 				}

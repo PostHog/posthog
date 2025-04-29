@@ -12,7 +12,7 @@
        (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS path,
                quantile(0.75)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''), 'Float64')) AS value
         FROM events
-        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
         GROUP BY path
         HAVING ifNull(greaterOrEquals(value, 0), 0)))
   ORDER BY value ASC,
@@ -42,7 +42,7 @@
        (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS path,
                quantile(0.75)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''), 'Float64')) AS value
         FROM events
-        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
         GROUP BY path
         HAVING ifNull(greaterOrEquals(value, 0), 0)))
   ORDER BY value ASC,
@@ -72,7 +72,7 @@
        (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS path,
                quantile(0.75)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''), 'Float64')) AS value
         FROM events
-        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
         GROUP BY path
         HAVING ifNull(greaterOrEquals(value, 0), 0)))
   ORDER BY value ASC,
@@ -102,7 +102,7 @@
        (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS path,
                quantile(0.75)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_LCP_value'), ''), 'null'), '^"|"$', ''), 'Float64')) AS value
         FROM events
-        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
         GROUP BY path
         HAVING ifNull(greaterOrEquals(value, 0), 0)))
   ORDER BY value ASC,
@@ -132,7 +132,7 @@
        (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS path,
                quantile(0.75)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''), 'Float64')) AS value
         FROM events
-        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
         GROUP BY path
         HAVING ifNull(greaterOrEquals(value, 0), 0)))
   ORDER BY value ASC,
@@ -162,7 +162,7 @@
        (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS path,
                quantile(0.75)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''), 'Float64')) AS value
         FROM events
-        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
         GROUP BY path
         HAVING ifNull(greaterOrEquals(value, 0), 0)))
   ORDER BY value ASC,
@@ -192,7 +192,7 @@
        (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS path,
                quantile(0.9)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''), 'Float64')) AS value
         FROM events
-        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
         GROUP BY path
         HAVING ifNull(greaterOrEquals(value, 0), 0)))
   ORDER BY value ASC,
@@ -222,7 +222,7 @@
        (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS path,
                quantile(0.99)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''), 'Float64')) AS value
         FROM events
-        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
         GROUP BY path
         HAVING ifNull(greaterOrEquals(value, 0), 0)))
   ORDER BY value ASC,
@@ -252,7 +252,7 @@
        (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS path,
                quantile(0.75)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''), 'Float64')) AS value
         FROM events
-        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', ''), '/path1'), 0)))
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', ''), '/path1'), 0)))
         GROUP BY path
         HAVING ifNull(greaterOrEquals(value, 0), 0)))
   ORDER BY value ASC,

@@ -13,6 +13,7 @@ import {
     DataWarehouseNode,
     DateRange,
     ErrorTrackingQuery,
+    EventsHeatMapQuery,
     EventsNode,
     EventsQuery,
     FunnelsQuery,
@@ -38,9 +39,9 @@ import {
     QueryStatusResponse,
     ResultCustomizationBy,
     RetentionQuery,
-    RevenueAnalyticsChurnRateQuery,
     RevenueAnalyticsGrowthRateQuery,
     RevenueAnalyticsOverviewQuery,
+    RevenueAnalyticsTopCustomersQuery,
     RevenueExampleDataWarehouseTablesQuery,
     RevenueExampleEventsQuery,
     SavedInsightNode,
@@ -158,10 +159,10 @@ export function isRevenueAnalyticsGrowthRateQuery(
     return node?.kind === NodeKind.RevenueAnalyticsGrowthRateQuery
 }
 
-export function isRevenueAnalyticsChurnRateQuery(
+export function isRevenueAnalyticsTopCustomersQuery(
     node?: Record<string, any> | null
-): node is RevenueAnalyticsChurnRateQuery {
-    return node?.kind === NodeKind.RevenueAnalyticsChurnRateQuery
+): node is RevenueAnalyticsTopCustomersQuery {
+    return node?.kind === NodeKind.RevenueAnalyticsTopCustomersQuery
 }
 
 export function isWebOverviewQuery(node?: Record<string, any> | null): node is WebOverviewQuery {
@@ -210,6 +211,10 @@ export function isRevenueExampleDataWarehouseTablesQuery(
 
 export function isErrorTrackingQuery(node?: Record<string, any> | null): node is ErrorTrackingQuery {
     return node?.kind === NodeKind.ErrorTrackingQuery
+}
+
+export function isEventsHeatMapQuery(node?: Record<string, any> | null): node is EventsHeatMapQuery {
+    return node?.kind === NodeKind.EventsHeatMapQuery
 }
 
 export function containsHogQLQuery(node?: Record<string, any> | null): boolean {

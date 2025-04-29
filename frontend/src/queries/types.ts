@@ -47,6 +47,7 @@ export type QueryContextColumnComponent = ComponentType<{
     query: DataTableNode | DataVisualizationNode
     record: unknown
     recordIndex: number
+    rowCount: number
     value: unknown
 }>
 
