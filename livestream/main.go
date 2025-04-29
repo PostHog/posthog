@@ -1,12 +1,10 @@
 package main
 
 import (
-	"errors"
 	"log"
 	"net/http"
 	"time"
 
-	"github.com/getsentry/sentry-go"
 	"github.com/labstack/echo-contrib/echoprometheus"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
@@ -18,40 +16,30 @@ import (
 func main() {
 	loadConfigs()
 
-	isProd := viper.GetBool("prod")
-
-	err := sentry.Init(sentry.ClientOptions{
-		Dsn:              viper.GetString("sentry.dsn"),
-		Debug:            !isProd,
-		AttachStacktrace: true,
-	})
-	if err != nil {
-		// TODO capture error to PostHog
-		log.Fatalf("sentry.Init: %s", err)
-	}
-	// Flush buffered events before the program terminates.
-	// Set the timeout to the maximum duration the program can afford to wait.
-	defer sentry.Flush(2 * time.Second)
-
+	isDebug := viper.GetBool("debug")
 	mmdb := viper.GetString("mmdb.path")
 	if mmdb == "" {
-		sentry.CaptureException(errors.New("mmdb.path must be set"))
+		// TODO capture error to PostHog
 		log.Fatal("mmdb.path must be set")
 	}
 	brokers := viper.GetString("kafka.brokers")
 	if brokers == "" {
-		sentry.CaptureException(errors.New("kafka.brokers must be set"))
+		// TODO capture error to PostHog
 		log.Fatal("kafka.brokers must be set")
 	}
 	topic := viper.GetString("kafka.topic")
 	if topic == "" {
-		sentry.CaptureException(errors.New("kafka.topic must be set"))
+		// TODO capture error to PostHog
 		log.Fatal("kafka.topic must be set")
 	}
 	groupID := viper.GetString("kafka.group_id")
 	if groupID == "" {
-		sentry.CaptureException(errors.New("kafka.group_id must be set"))
+		// TODO capture error to PostHog
 		log.Fatal("kafka.group_id must be set")
+	}
+	parallelism := viper.GetInt("parallelism")
+	if parallelism == 0 {
+		parallelism = 1
 	}
 
 	geolocator, err := NewMaxMindGeoLocator(mmdb)
@@ -70,11 +58,11 @@ func main() {
 	go stats.keepStats(statsChan)
 
 	kafkaSecurityProtocol := "SSL"
-	if !isProd {
+	if isDebug {
 		kafkaSecurityProtocol = "PLAINTEXT"
 	}
 	consumer, err := NewPostHogKafkaConsumer(brokers, kafkaSecurityProtocol, groupID, topic, geolocator, phEventChan,
-		statsChan, 4)
+		statsChan, parallelism)
 	if err != nil {
 		// TODO capture error to PostHog
 		log.Fatalf("Failed to create Kafka consumer: %v", err)
@@ -118,7 +106,7 @@ func main() {
 
 	e.GET("/events", streamEventsHandler(e.Logger, subChan, filter))
 
-	if !isProd {
+	if isDebug {
 		e.GET("/jwt", func(c echo.Context) error {
 			claims, err := getAuth(c.Request().Header)
 			if err != nil {
