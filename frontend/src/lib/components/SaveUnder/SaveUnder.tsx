@@ -5,7 +5,6 @@ import { saveUnderLogic, SaveUnderLogicProps } from 'lib/components/SaveUnder/sa
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 
@@ -21,14 +20,10 @@ export function SaveUnderModal(): JSX.Element {
         <LemonModal
             onClose={closeModal}
             isOpen={isOpen}
-            title="Select a folder to save in"
+            title="Select a folder to save to"
             footer={
                 <>
-                    <div className="flex-1 flex gap-2 items-center">
-                        <LemonButton type="secondary" onClick={closeModal}>
-                            Close
-                        </LemonButton>
-                    </div>
+                    <div className="flex-1" />
                     <LemonButton
                         type="primary"
                         onClick={submitForm}
@@ -59,36 +54,24 @@ export function SaveUnderModal(): JSX.Element {
     )
 }
 
-export function SaveUnder(props: SaveUnderLogicProps): JSX.Element {
-    const { openModal } = useActions(saveUnderLogic(props))
-    const { form, lastNewOperation } = useValues(saveUnderLogic(props))
-    const { objectRef, defaultFolder } = props
-    const actualFolder = lastNewOperation?.folder || form.folder || defaultFolder || defaultPath
-    const pathParts = splitPath(actualFolder)
-    const lastPath = pathParts.length > 0 ? pathParts[pathParts.length - 1] || defaultPath : defaultPath
+export interface UseSaveUnderResponse {
+    openModal: () => void
+    closeModal: () => void
+    SaveUnderModal: () => JSX.Element
+    selectedFolder: string | undefined
+}
 
-    return (
-        <BindLogic logic={saveUnderLogic} props={props}>
-            <div className="text-xs font-normal text-center mr-1">
-                <div className="text-muted">{!objectRef ? 'Save' : 'Saved'} under</div>
-                <Tooltip
-                    title={
-                        <>
-                            {pathParts.map((pathPart, index) => (
-                                <span key={index}>
-                                    {pathPart}
-                                    {index < pathParts.length - 1 ? ' / ' : ''}
-                                </span>
-                            ))}
-                        </>
-                    }
-                >
-                    <div className="underline cursor-pointer" onClick={openModal}>
-                        {lastPath}
-                    </div>
-                </Tooltip>
-            </div>
-            <SaveUnderModal />
-        </BindLogic>
-    )
+export function useSaveUnder(props: SaveUnderLogicProps): UseSaveUnderResponse {
+    const { openModal, closeModal } = useActions(saveUnderLogic(props))
+    const { lastNewOperation } = useValues(saveUnderLogic(props))
+    return {
+        openModal,
+        closeModal,
+        SaveUnderModal: () => (
+            <BindLogic logic={saveUnderLogic} props={props}>
+                <SaveUnderModal />
+            </BindLogic>
+        ),
+        selectedFolder: lastNewOperation?.objectType === props.type ? lastNewOperation?.folder : undefined,
+    }
 }

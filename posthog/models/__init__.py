@@ -129,6 +129,7 @@ __all__ = [
     "EventDefinition",
     "EventProperty",
     "Experiment",
+    "ExperimentHoldout",
     "ExperimentSavedMetric",
     "ExportedAsset",
     "FeatureFlag",

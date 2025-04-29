@@ -12,8 +12,6 @@ import type { errorTrackingSceneLogicType } from './errorTrackingSceneLogicType'
 import { errorTrackingQuery } from './queries'
 import { defaultSearchParams } from './utils'
 
-export type SparklineSelectedPeriod = 'custom' | 'day'
-
 export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
     path(['scenes', 'error-tracking', 'errorTrackingSceneLogic']),
 
@@ -27,7 +25,6 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
         setOrderDirection: (orderDirection: ErrorTrackingQuery['orderDirection']) => ({ orderDirection }),
         setStatus: (status: ErrorTrackingQuery['status']) => ({ status }),
         setSelectedIssueIds: (ids: string[]) => ({ ids }),
-        setSparklineSelectedPeriod: (period: SparklineSelectedPeriod) => ({ period }),
     }),
 
     reducers({
@@ -56,13 +53,6 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
             [] as string[],
             {
                 setSelectedIssueIds: (_, { ids }) => ids,
-            },
-        ],
-        sparklineSelectedPeriod: [
-            'custom' as SparklineSelectedPeriod,
-            { persist: true },
-            {
-                setSparklineSelectedPeriod: (_, { period }) => period,
             },
         ],
         volumeResolution: [20],
