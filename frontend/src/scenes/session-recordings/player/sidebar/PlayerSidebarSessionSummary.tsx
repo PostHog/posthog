@@ -56,7 +56,7 @@ interface SegmentMetaProps {
     meta: SegmentMeta | null | undefined
 }
 
-function LoadingTimer(): JSX.Element {
+function LoadingTimer({ operation }: { operation?: string }): JSX.Element {
     const [elapsedSeconds, setElapsedSeconds] = useState(0)
 
     useEffect(() => {
@@ -215,13 +215,19 @@ function SessionSegmentView({
 }
 
 interface SessionSummaryLoadingStateProps {
-    operation: string
+    finished: boolean
+    operation?: string
     counter?: number
     name?: string
     outOf?: number
 }
 
-function SessionSummaryLoadingState({ operation, counter, name, outOf }: SessionSummaryLoadingStateProps): JSX.Element {
+function SessionSummaryLoadingState({
+    operation,
+    counter,
+    name,
+    outOf,
+}: SessionSummaryLoadingStateProps): JSX.Element {
     return (
         <div className="mb-4 grid grid-cols-[auto_1fr] gap-x-2">
             <Spinner className="text-2xl row-span-2 self-center" />
@@ -256,10 +262,11 @@ function SessionSummary(): JSX.Element {
     const { sessionSummary, summaryHasHadFeedback } = useValues(playerMetaLogic(logicProps))
     const { sessionSummaryFeedback } = useActions(playerMetaLogic(logicProps))
 
-    const getSessionSummaryLoadingState = (): SessionSummaryLoadingStateProps | null => {
+    const getSessionSummaryLoadingState = (): SessionSummaryLoadingStateProps => {
         if (!sessionSummary) {
             return {
-                operation: 'Researching...',
+                finished: false,
+                operation: 'Researching the session...',
             }
         }
         const segments = sessionSummary.segments || []
@@ -279,11 +286,14 @@ function SessionSummary(): JSX.Element {
         )
         // If all segments have a success outcome, it means the data is fully loaded and loading state can be hidden
         if (allSegmentsHaveSuccess) {
-            return null
+            return {
+                finished: true,
+            }
         }
         // If some segments have outcomes already, it means we stream the success and summary of each segment
         if (hasSegmentsWithOutcomes) {
             return {
+                finished: false,
                 operation: 'Researching the success of the each segment',
             }
         }
@@ -308,6 +318,7 @@ function SessionSummary(): JSX.Element {
             }
             const currentSegment = segments[currentSegmentIndex]
             return {
+                finished: false,
                 operation: 'Researching key actions for the segment',
                 counter: currentSegment?.meta?.key_action_count ?? undefined,
                 name: currentSegment?.name ?? undefined,
@@ -316,6 +327,7 @@ function SessionSummary(): JSX.Element {
         }
         // If no segments have key actions or outcomes, it means we are researching the segments for the session
         return {
+            finished: false,
             operation: 'Researching segments for the session...',
             counter: segments.length || undefined,
         }
@@ -357,8 +369,9 @@ function SessionSummary(): JSX.Element {
                         </div>
                     ) : null}
 
-                    {sessionSummaryLoadingState && (
+                    {sessionSummaryLoadingState.finished ? null : (
                         <SessionSummaryLoadingState
+                            finished={sessionSummaryLoadingState.finished}
                             operation={sessionSummaryLoadingState.operation}
                             counter={sessionSummaryLoadingState.counter}
                             name={sessionSummaryLoadingState.name}
