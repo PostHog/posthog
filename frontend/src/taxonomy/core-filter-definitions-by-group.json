@@ -445,11 +445,11 @@
             "label": "Initial UTM source"
         },
         "$client_session_initial_utm_term": {
-            "description": "UTM Source. (First-touch, session-scoped)",
+            "description": "UTM term. (First-touch, session-scoped)",
             "examples": [
                 "free goodies"
             ],
-            "label": "Initial UTM source"
+            "label": "Initial UTM term"
         },
         "$configured_session_timeout_ms": {
             "description": "Configured session timeout in milliseconds.",
@@ -2584,11 +2584,11 @@
             "label": "Initial UTM source"
         },
         "$client_session_initial_utm_term": {
-            "description": "UTM Source. (First-touch, session-scoped)",
+            "description": "UTM term. (First-touch, session-scoped)",
             "examples": [
                 "free goodies"
             ],
-            "label": "Initial UTM source"
+            "label": "Initial UTM term"
         },
         "$configured_session_timeout_ms": {
             "description": "Configured session timeout in milliseconds.",

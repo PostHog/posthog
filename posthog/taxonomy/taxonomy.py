@@ -1212,8 +1212,8 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["bottom link", "second button"],
         },
         "$client_session_initial_utm_term": {
-            "label": "Initial UTM source",
-            "description": "UTM Source. (First-touch, session-scoped)",
+            "label": "Initial UTM term",
+            "description": "UTM term. (First-touch, session-scoped)",
             "examples": ["free goodies"],
         },
         "$network_carrier": {
