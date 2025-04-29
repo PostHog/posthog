@@ -6,7 +6,7 @@ import dagster
 from dagster import Field, StringSource, IntSource, Array
 
 from clickhouse_driver import Client
-from dags.common import JobOwners
+from dags.common import JobOwners, ClickhouseClusterResource
 from posthog.models.web_preaggregated.sql import (
     WEB_OVERVIEW_METRICS_DAILY_SQL,
     DISTRIBUTED_WEB_OVERVIEW_METRICS_DAILY_SQL,
@@ -44,11 +44,6 @@ WEB_ANALYTICS_CONFIG_SCHEMA = {
         default_value="UTC",
         description="Timezone to use for date calculations"
     ),
-    "target_suffix": Field(
-        str,
-        default_value="",
-        description="Optional suffix to append to table names (e.g., for testing)"
-    ),
     "clickhouse_settings": Field(
         str,
         default_value="max_execution_time=240, max_bytes_before_external_group_by=21474836480, distributed_aggregation_memory_efficient=1",
@@ -63,12 +58,9 @@ def ensure_tables_exist(
     config: dict,
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ):
-    """Creates the web analytics tables if they don't exist."""
-    target_suffix = config["target_suffix"]
-
     # Determine the table names with optional suffix
-    overview_table = f"web_overview_daily{target_suffix}"
-    stats_table = f"web_stats_daily{target_suffix}"
+    overview_table = f"web_overview_daily"
+    stats_table = f"web_stats_daily"
 
     # Create base tables - map to all hosts
     def create_tables(client: Client) -> None:
@@ -86,24 +78,20 @@ def ensure_tables_exist(
     # Execute on all hosts
     cluster.map_all_hosts(create_tables).result()
 
-    return {
-        "overview_table": overview_table,
-        "stats_table": stats_table,
-    }
+    # Just return a simple value
+    return True
 
 
-@dagster.asset(
-    # partitions_def=WEB_ANALYTICS_DAILY_PARTITION_DEFINITION,
-    group_name="web_analytics",
-    config_schema=WEB_ANALYTICS_CONFIG_SCHEMA,
-)
+@dagster.op(config_schema=WEB_ANALYTICS_CONFIG_SCHEMA)
 def web_overview_metrics_daily(
-    context: dagster.AssetExecutionContext, cluster: dagster.ResourceParam[ClickhouseCluster]
+    context: dagster.OpExecutionContext, 
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    tables_ready: bool = False # Just a dependency marker to ensure we wait for ensure_tables_exist to finish
 ):
     """Aggregates web overview metrics daily."""
     config = context.op_config
-    partition_date = context.partition_key
-    target_suffix = config["target_suffix"]
+    # Get partition date from input or use yesterday if not available
+    partition_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
 
     team_id_list = ", ".join(str(team_id) for team_id in config["team_ids"])
 
@@ -121,36 +109,27 @@ def web_overview_metrics_daily(
         team_ids=team_id_list,
         timezone=config["timezone"],
         settings=config["clickhouse_settings"],
-        target_suffix=target_suffix,
     )
 
     def execute_query(client: Client) -> None:
         client.execute(query)
 
     cluster.any_host(execute_query).result()
-    context.log.info(f"Inserted data into web_overview_daily{target_suffix} for {partition_date}")
+    context.log.info(f"Inserted data into web_overview_daily for {partition_date}")
 
     return partition_date
 
 
-@dagster.asset(
-    # partitions_def=dagster.TimeWindowPartitionsDefinition(
-    #     start="2023-01-01",
-    #     end_offset=timedelta(days=-1),
-    #     fmt="%Y-%m-%d",
-    #     timezone="UTC",
-    # ),
-    group_name="web_analytics",
-    deps=["ensure_tables_exist"],
-    config_schema=WEB_ANALYTICS_CONFIG_SCHEMA,
-)
+@dagster.op(config_schema=WEB_ANALYTICS_CONFIG_SCHEMA)
 def web_stats_daily(
-    context: dagster.AssetExecutionContext,
-    cluster: dagster.ResourceParam[ClickhouseCluster]
+    context: dagster.OpExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    tables_ready: bool = False # Just a dependency marker to ensure we wait for ensure_tables_exist to finish
 ):
     """Aggregates detailed web stats daily."""
     config = context.op_config
-    partition_date = context.partition_key
+    # Get partition date from input or use yesterday if not available
+    partition_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
 
     team_id_list = ", ".join(str(team_id) for team_id in config["team_ids"])
 
@@ -168,7 +147,6 @@ def web_stats_daily(
         team_ids=team_id_list,
         timezone=config["timezone"],
         settings=config["clickhouse_settings"],
-        target_suffix=config["target_suffix"],
     )
 
     def execute_query(client: Client) -> None:
@@ -184,28 +162,22 @@ def web_stats_daily(
 def backfill_web_analytics_for_period(
     context: dagster.OpExecutionContext, 
     start_date: str, 
-    end_date: str
+    end_date: str,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    tables_ready: bool = False # Just a dependency marker to ensure we wait for ensure_tables_exist to finish
 ):
     """Backfills web analytics data for a custom time period."""
     config = context.op_config
     team_id_list = ", ".join(str(team_id) for team_id in config["team_ids"])
 
     context.log.info(f"Backfilling from {start_date} to {end_date} for teams: {team_id_list}")
-
-    # Import ClickhouseCluster here since we're not using resource in this context
-    from posthog.clickhouse.cluster import ClickhouseCluster
-    cluster = ClickhouseCluster()
     
-    # Call with the required parameters
-    tables = ensure_tables_exist(context, config, cluster)
-
     overview_query = WEB_OVERVIEW_INSERT_SQL(
         date_start=start_date,
         date_end=end_date,
         team_ids=team_id_list,
         timezone=config["timezone"],
         settings=config["clickhouse_settings"],
-        target_suffix=config["target_suffix"],
     )
 
     def execute_overview_query(client: Client) -> None:
@@ -220,7 +192,6 @@ def backfill_web_analytics_for_period(
         team_ids=team_id_list,
         timezone=config["timezone"],
         settings=config["clickhouse_settings"],
-        target_suffix=config["target_suffix"],
     )
 
     def execute_stats_query(client: Client) -> None:
@@ -232,18 +203,21 @@ def backfill_web_analytics_for_period(
     return {"start_date": start_date, "end_date": end_date}
 
 
-@dagster.job()
+@dagster.job(tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value})
 def web_analytics_daily_job():
     """Job to update web analytics aggregated tables for yesterday."""
-    ensure_tables_exist()
-    web_overview_metrics_daily()
-    web_stats_daily()
+    # Use sequential execution to ensure order
+    result = ensure_tables_exist()
+    web_overview_metrics_daily(tables_ready=result)
+    web_stats_daily(tables_ready=result)
 
 
-@dagster.job()
+@dagster.job(tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value})
 def web_analytics_backfill_job(start_date: str, end_date: str):
     """Job to backfill web analytics data for a custom time period."""
-    backfill_web_analytics_for_period(start_date, end_date)
+    # Use sequential execution to ensure order
+    result =    ensure_tables_exist()
+    backfill_web_analytics_for_period(start_date, end_date, tables_ready=result)
 
 
 # Schedule definition - run daily at 2 AM UTC
@@ -253,17 +227,10 @@ def web_analytics_daily_schedule(context):
     return {}
 
 
-# Define resources
-@dagster.resource
-def clickhouse_cluster_resource():
-    """ClickHouse cluster resource for Dagster."""
-    return ClickhouseCluster()
-
-
 # Configuration for all jobs
 defs = dagster.Definitions(
-    assets=[web_overview_metrics_daily, web_stats_daily],
+    assets=[],  # Removed assets since we now use ops
     jobs=[web_analytics_daily_job, web_analytics_backfill_job],
     schedules=[web_analytics_daily_schedule],
-    resources={"cluster": clickhouse_cluster_resource},
+    resources={"cluster": ClickhouseClusterResource()}
 )
