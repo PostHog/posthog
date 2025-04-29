@@ -12,6 +12,7 @@ pub struct Program {
 }
 
 // A referenceable module, exporting a set of functions. Top level programs can jump into module code
+#[derive(Debug, Clone, Default)]
 pub struct Module {
     functions: HashMap<String, ExportedFunction>,
 }

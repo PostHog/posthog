@@ -165,7 +165,7 @@ impl ExecutionContext {
             None => self.program.get(ip),
         };
 
-        res.ok_or_else(|| VmError::EndOfProgram(ip))
+        res.ok_or(VmError::EndOfProgram(ip))
     }
 
     pub fn version(&self) -> u64 {
