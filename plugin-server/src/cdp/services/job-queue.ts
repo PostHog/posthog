@@ -123,7 +123,7 @@ export class CyclotronJobQueue {
             },
             queueName: this.queue,
             // For the fetch queue we never need the state
-            includeVmState: this.queue === 'fetch' ? false : true,
+            includeVmState: this.queue !== 'fetch',
             batchMaxSize: this.hub.CDP_CYCLOTRON_BATCH_SIZE,
             pollDelayMs: this.hub.CDP_CYCLOTRON_BATCH_DELAY_MS,
             includeEmptyBatches: true,

@@ -83,25 +83,6 @@ export class KafkaProducerObserver {
         return result
     }
 
-    public getProducedKafkaMessagesWithHeaders(): DecodedKafkaMessage[] {
-        const queuedMessages = this.getParsedQueuedMessages()
-
-        const result: DecodedKafkaMessage[] = []
-
-        for (const topicMessage of queuedMessages) {
-            for (const message of topicMessage.messages) {
-                result.push({
-                    topic: topicMessage.topic,
-                    key: message.key,
-                    value: message.value ?? {},
-                    headers: message.headers,
-                })
-            }
-        }
-
-        return result
-    }
-
     public getProducedKafkaMessagesForTopic(topic: string): DecodedKafkaMessage[] {
         return this.getProducedKafkaMessages().filter((x) => x.topic === topic)
     }
