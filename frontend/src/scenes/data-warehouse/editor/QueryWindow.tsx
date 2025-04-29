@@ -25,8 +25,16 @@ interface QueryWindowProps {
 export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Element {
     const codeEditorKey = `hogQLQueryEditor/${router.values.location.pathname}`
 
-    const { allTabs, activeModelUri, queryInput, editingView, editingInsight, sourceQuery, suggestedQueryInput } =
-        useValues(multitabEditorLogic)
+    const {
+        allTabs,
+        activeModelUri,
+        queryInput,
+        editingView,
+        editingInsight,
+        sourceQuery,
+        suggestedQueryInput,
+        metadata,
+    } = useValues(multitabEditorLogic)
     const {
         renameTab,
         selectTab,
@@ -38,9 +46,10 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
         setMetadata,
         setMetadataLoading,
         saveAsView,
+        fixErrors: fixHogQLErrors,
     } = useActions(multitabEditorLogic)
 
-    const { response } = useValues(dataNodeLogic)
+    const { response, responseError } = useValues(dataNodeLogic)
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
     const { updateDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
     const { sidebarWidth } = useValues(editorSizingLogic)
@@ -160,6 +169,18 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                         {AddSQLVariablesButton}
                     </>
                 )}
+                <LemonButton
+                    type="tertiary"
+                    size="xsmall"
+                    onClick={() =>
+                        fixHogQLErrors(
+                            queryInput,
+                            responseError || metadata?.errors?.map((n) => n.message)?.join('. ') || undefined
+                        )
+                    }
+                >
+                    Fix Errors!
+                </LemonButton>
             </div>
             <QueryPane
                 originalValue={suggestedQueryInput && suggestedQueryInput != queryInput ? queryInput ?? ' ' : undefined}

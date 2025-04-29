@@ -31,6 +31,7 @@ import {
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { DATAWAREHOUSE_EDITOR_ITEM_ID, sizeOfInBytes } from '../utils'
 import { editorSceneLogic } from './editorSceneLogic'
+import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
 import type { multitabEditorLogicType } from './multitabEditorLogicType'
 import { outputPaneLogic, OutputTab } from './outputPaneLogic'
 import { ViewEmptyState } from './ViewLoadingState'
@@ -98,6 +99,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             ['setActiveTab'],
             editorSceneLogic,
             ['reportAIQueryPrompted', 'reportAIQueryAccepted', 'reportAIQueryRejected', 'reportAIQueryPromptOpen'],
+            fixSQLErrorsLogic,
+            ['fixErrors', 'fixErrorsSuccess'],
         ],
     })),
     actions(({ values }) => ({
@@ -289,6 +292,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         ],
     })),
     listeners(({ values, props, actions, asyncActions }) => ({
+        fixErrorsSuccess: ({ response }) => {
+            actions.setSuggestedQueryInput(response.query)
+        },
         shareTab: () => {
             const currentTab = values.activeModelUri
             if (!currentTab) {
