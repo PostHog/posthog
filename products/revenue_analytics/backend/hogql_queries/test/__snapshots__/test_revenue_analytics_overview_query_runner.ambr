@@ -83,16 +83,63 @@
        (SELECT events.uuid AS id,
                toTimeZone(events.created_at, 'UTC') AS timestamp,
                events.distinct_id AS customer_id,
-               nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id,
+               toString(events.`$session_id`) AS session_id,
                events.event AS event_name,
                multiIf(equals(events.event, 'purchase'), upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), NULL) AS original_currency,
                multiIf(equals(events.event, 'purchase'), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Decimal64(10)'), NULL) AS original_amount,
-               in(original_currency,
-                  ['BIF', 'CLP', 'DJF', 'GNF', 'JPY', 'KMF', 'KRW', 'MGA', 'PYG', 'RWF', 'UGX', 'VND', 'VUV', 'XAF', 'XOF', 'XPF']) AS currency_is_zero_decimal,
-                 if(currency_is_zero_decimal, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS amount_decimal_divider,
-                 divideDecimal(original_amount, amount_decimal_divider) AS adjusted_original_amount,
-                 'GBP' AS currency,
-                 multiIf(equals(events.event, 'purchase'), if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(adjusted_original_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(adjusted_original_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(adjusted_original_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))), NULL) AS amount
+               1 AS currency_is_zero_decimal,
+               if(currency_is_zero_decimal, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS amount_decimal_divider,
+               divideDecimal(original_amount, amount_decimal_divider) AS adjusted_original_amount,
+               'GBP' AS currency,
+               multiIf(equals(events.event, 'purchase'), if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(adjusted_original_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(adjusted_original_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(adjusted_original_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))), NULL) AS amount
+        FROM events
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))
+        ORDER BY timestamp DESC) AS events_revenue_view
+     WHERE in(events_revenue_view.event_name,
+              ['purchase']))
+  WHERE and(ifNull(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2023-11-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59', 'UTC'))), 0))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
+  '''
+# ---
+# name: TestRevenueAnalyticsOverviewQueryRunner.test_with_events_data_and_currency_division
+  '''
+  SELECT accurateCastOrNull(sum(amount), 'Decimal64(10)') AS revenue,
+         count(DISTINCT customer_id) AS paying_customer_count,
+         ifNull(divideDecimal(revenue, accurateCastOrNull(paying_customer_count, 'Decimal64(10)')), 0) AS avg_revenue_per_customer
+  FROM
+    (SELECT events_revenue_view.id AS id,
+            events_revenue_view.timestamp AS timestamp,
+            events_revenue_view.customer_id AS customer_id,
+            events_revenue_view.session_id AS session_id,
+            events_revenue_view.event_name AS event_name,
+            events_revenue_view.original_currency AS original_currency,
+            events_revenue_view.original_amount AS original_amount,
+            events_revenue_view.currency_is_zero_decimal AS currency_is_zero_decimal,
+            events_revenue_view.amount_decimal_divider AS amount_decimal_divider,
+            events_revenue_view.adjusted_original_amount AS adjusted_original_amount,
+            events_revenue_view.currency AS currency,
+            events_revenue_view.amount AS amount
+     FROM
+       (SELECT events.uuid AS id,
+               toTimeZone(events.created_at, 'UTC') AS timestamp,
+               events.distinct_id AS customer_id,
+               toString(events.`$session_id`) AS session_id,
+               events.event AS event_name,
+               multiIf(equals(events.event, 'purchase'), upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), NULL) AS original_currency,
+               multiIf(equals(events.event, 'purchase'), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Decimal64(10)'), NULL) AS original_amount,
+               if(in(event_name, ['purchase']), in(original_currency, ['BIF', 'CLP', 'DJF', 'GNF', 'JPY', 'KMF', 'KRW', 'MGA', 'PYG', 'RWF', 'UGX', 'VND', 'VUV', 'XAF', 'XOF', 'XPF']), 1) AS currency_is_zero_decimal,
+               if(currency_is_zero_decimal, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS amount_decimal_divider,
+               divideDecimal(original_amount, amount_decimal_divider) AS adjusted_original_amount,
+               'GBP' AS currency,
+               multiIf(equals(events.event, 'purchase'), if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(adjusted_original_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(adjusted_original_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(adjusted_original_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))), NULL) AS amount
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))
         ORDER BY timestamp DESC) AS events_revenue_view
