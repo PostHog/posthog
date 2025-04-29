@@ -19,7 +19,7 @@ export function MoveFilesModal({ items, handleMove, closeModal }: MoveFilesLogic
             onClose={closeModal}
             isOpen={true}
             title="Select a folder to move to"
-            description={`You are moving ${items?.length} item${items?.length === 1 ? '' : 's'} to ${
+            description={`You are moving ${items.length} item${items.length === 1 ? '' : 's'} to ${
                 folderDestination || 'Project root'
             }`}
             footer={
