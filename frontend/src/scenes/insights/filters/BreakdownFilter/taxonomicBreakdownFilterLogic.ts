@@ -26,6 +26,7 @@ export type TaxonomicBreakdownFilterLogicProps = {
     breakdownFilter: BreakdownFilter
     display?: ChartDisplayType | null
     isTrends: boolean
+    isFunnels: boolean
     updateBreakdownFilter: ((breakdownFilter: BreakdownFilter) => void) | null
     updateDisplay: ((display: ChartDisplayType | undefined) => void) | null
 }
@@ -138,7 +139,10 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             (flags, isTrends) => isTrends && multipleBreakdownsEnabled(flags),
         ],
         breakdownFilter: [(_, p) => [p.breakdownFilter], (breakdownFilter) => breakdownFilter],
-        includeSessions: [(_, p) => [p.isTrends], (isTrends) => isTrends],
+        includeSessions: [
+            (_, p) => [p.isTrends, p.isFunnels],
+            (isTrends: boolean, isFunnels: boolean) => isTrends || isFunnels,
+        ],
         isAddBreakdownDisabled: [
             (s) => [s.breakdownFilter, s.isMultipleBreakdownsEnabled, s.isDataWarehouseSeries],
             ({ breakdown, breakdowns, breakdown_type }, isMultipleBreakdownsEnabled, isDataWarehouseSeries) => {

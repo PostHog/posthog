@@ -249,6 +249,9 @@ class FunnelBase(ABC):
             )
         elif breakdownType == "data_warehouse_person_property" and isinstance(breakdown, str):
             return ast.Field(chain=["person", *breakdown.split(".")])
+        elif breakdownType == "session":
+            properties_column = "session"
+            return get_breakdown_expr(breakdown, properties_column)
         else:
             raise ValidationError(detail=f"Unsupported breakdown type: {breakdownType}")
 
