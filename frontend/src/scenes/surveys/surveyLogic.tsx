@@ -184,6 +184,35 @@ function getSurveyEndDateForQuery(survey: Survey): string {
         : dayjs().utc().endOf('day').format(DATE_FORMAT)
 }
 
+function getUniqueSurveySubmissionsFilter(surveyId: string, startDate: string, endDate: string): string {
+    return `
+        uuid IN (
+            (
+                -- Select events without a submission ID (older format)
+                SELECT uuid
+                FROM events
+                WHERE event = '${SurveyEventName.SENT}'
+                  AND properties.$survey_id = '${surveyId}'
+                  AND timestamp >= '${startDate}'
+                  AND timestamp <= '${endDate}'
+                  AND properties.$survey_submission_id IS NULL
+            )
+            UNION ALL
+            (
+                -- Select the latest event for each submission ID
+                SELECT argMax(uuid, timestamp) -- ClickHouse function to get the arg (uuid) for the max value (timestamp)
+                FROM events
+                WHERE event = '${SurveyEventName.SENT}'
+                  AND properties.$survey_id = '${surveyId}'
+                  AND timestamp >= '${startDate}'
+                  AND timestamp <= '${endDate}'
+                  AND properties.$survey_submission_id IS NOT NULL
+                GROUP BY properties.$survey_submission_id -- Find the latest event per submission
+            )
+        )
+    `
+}
+
 export const surveyLogic = kea<surveyLogicType>([
     props({} as SurveyLogicProps),
     key(({ id }) => id),
@@ -367,26 +396,10 @@ export const surveyLogic = kea<surveyLogicType>([
                     ? values.answerFilterHogQLExpression.slice(4)
                     : '1=1' // Use '1=1' for SQL TRUE
 
-                // Define the CTE to find the latest relevant event UUID for each submission ID
-                const latestSurveySentEventsCTE = `
-                    WITH LatestSurveySentEvents AS (
-                        SELECT argMax(uuid, timestamp) as latest_uuid
-                        FROM events
-                        WHERE event = '${SurveyEventName.SENT}'
-                          AND properties.$survey_id = '${props.id}'
-                          AND timestamp >= '${startDate}'
-                          AND timestamp <= '${endDate}'
-                          ${values.answerFilterHogQLExpression} -- Apply answer filter within CTE
-                          AND {filters} -- Apply property filter within CTE
-                        GROUP BY properties.$survey_submission_id
-                    )
-                `
-
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
-                    // Combine CTE definition with the main query
+                    // Query now uses a direct subquery in the WHERE clause
                     query: `
-                        ${latestSurveySentEventsCTE}
                         -- QUERYING BASE STATS
                         SELECT
                             event as event_name,
@@ -396,27 +409,24 @@ export const surveyLogic = kea<surveyLogicType>([
                             if(count() > 0, max(timestamp), null) as last_seen
                         FROM events
                         WHERE team_id = ${teamLogic.values.currentTeamId}
-                            AND event IN ('${SurveyEventName.SHOWN}', '${SurveyEventName.DISMISSED}', '${SurveyEventName.SENT}')
+                            AND event IN ('${SurveyEventName.SHOWN}', '${SurveyEventName.DISMISSED}', '${
+                        SurveyEventName.SENT
+                    }')
                             AND properties.$survey_id = '${props.id}'
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
-                            AND {filters} -- Apply property filters here
+                            AND {filters} -- Apply property filters here to the main query
                             -- Main condition for handling partial responses and answer filters:
                             AND (
                                 -- Include non-'sent' events directly
                                 event != '${SurveyEventName.SENT}'
                                 OR
-                                -- Include 'sent' events only if they meet answer filter AND (are old OR are the latest in their submission chain identified by the CTE)
+                                -- Include 'sent' events only if they meet the outer query's answer filter AND are in the unique list (old or latest partial/complete)
                                 (
-                                    (${answerFilterCondition}) -- Apply answer filters ONLY to 'sent' events
+                                    (${answerFilterCondition}) -- Apply answer filters ONLY to 'sent' events in the outer query
                                     AND
-                                    (
-                                        -- Include old events without submission ID
-                                        properties.$survey_submission_id IS NULL
-                                        OR
-                                        -- Include the latest event from each submission ID chain found by the CTE
-                                        uuid IN (SELECT latest_uuid FROM LatestSurveySentEvents)
-                                    )
+                                    -- Check if the event's UUID is in the list generated by the subquery
+                                    ${getUniqueSurveySubmissionsFilter(props.id, startDate, endDate)}
                                 )
                             )
                         GROUP BY event
@@ -458,6 +468,7 @@ export const surveyLogic = kea<surveyLogicType>([
                               AND properties.$survey_id = '${props.id}'
                               AND timestamp >= '${startDate}'
                               AND timestamp <= '${endDate}'
+
                               AND {filters} -- Apply property filters here to reduce initial events
                             GROUP BY person_id
                             HAVING sum(if(event = '${SurveyEventName.DISMISSED}', 1, 0)) > 0 -- Has at least one dismissed event (matching property filters)
@@ -502,6 +513,7 @@ export const surveyLogic = kea<surveyLogicType>([
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
                             ${values.answerFilterHogQLExpression}
+                            AND ${getUniqueSurveySubmissionsFilter(survey.id, startDate, endDate)}
                             AND {filters}
                         GROUP BY survey_response
                     `,
@@ -557,6 +569,7 @@ export const surveyLogic = kea<surveyLogicType>([
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
                             ${values.answerFilterHogQLExpression}
+                            AND ${getUniqueSurveySubmissionsFilter(survey.id, startDate, endDate)}
                             AND {filters}
                         GROUP BY survey_response, survey_iteration
                     `,
@@ -641,6 +654,7 @@ export const surveyLogic = kea<surveyLogicType>([
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
                             ${values.answerFilterHogQLExpression}
+                            AND ${getUniqueSurveySubmissionsFilter(survey.id, startDate, endDate)}
                             AND survey_response != null
                             AND {filters}
                         GROUP BY survey_response
@@ -691,6 +705,7 @@ export const surveyLogic = kea<surveyLogicType>([
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
                             ${values.answerFilterHogQLExpression}
+                            AND ${getUniqueSurveySubmissionsFilter(survey.id, startDate, endDate)}
                             AND {filters}
                         GROUP BY choice
                         ORDER BY count() DESC
@@ -760,6 +775,7 @@ export const surveyLogic = kea<surveyLogicType>([
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
                             ${values.answerFilterHogQLExpression}
+                            AND ${getUniqueSurveySubmissionsFilter(survey.id, startDate, endDate)}
                             AND {filters}
                         LIMIT 20
                     `,
@@ -1343,9 +1359,13 @@ export const surveyLogic = kea<surveyLogicType>([
                 if (survey.id === 'new') {
                     return null
                 }
-                const surveyWithResults = survey
+                const startDate = getSurveyStartDateForQuery(survey)
+                const endDate = getSurveyEndDateForQuery(survey)
 
-                const where = [`event == 'survey sent'`]
+                const where = [
+                    `event == 'survey sent'`,
+                    getUniqueSurveySubmissionsFilter(survey.id, startDate, endDate),
+                ]
 
                 if (answerFilterHogQLExpression !== '') {
                     // skip the 'AND ' prefix
@@ -1373,7 +1393,8 @@ export const surveyLogic = kea<surveyLogicType>([
                         ],
                         orderBy: ['timestamp DESC'],
                         where,
-                        after: getSurveyStartDateForQuery(surveyWithResults),
+                        after: startDate,
+                        before: endDate,
                         properties: [
                             {
                                 type: PropertyFilterType.Event,
