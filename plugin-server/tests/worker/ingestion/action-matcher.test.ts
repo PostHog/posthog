@@ -727,7 +727,7 @@ describe('ActionMatcher', () => {
                 },
             ])
 
-            const nonCohortPerson = await hub.db.createPerson(
+            const [nonCohortPerson, kafkaMessagesNonCohort] = await hub.db.createPerson(
                 DateTime.local(),
                 {},
                 {},
@@ -738,8 +738,9 @@ describe('ActionMatcher', () => {
                 new UUIDT().toString(),
                 [{ distinctId: 'random' }]
             )
+            await hub.db.kafkaProducer.queueMessages(kafkaMessagesNonCohort)
 
-            const cohortPerson = await hub.db.createPerson(
+            const [cohortPerson, kafkaMessagesCohort] = await hub.db.createPerson(
                 DateTime.local(),
                 {},
                 {},
@@ -750,6 +751,7 @@ describe('ActionMatcher', () => {
                 new UUIDT().toString(),
                 [{ distinctId: 'cohort' }]
             )
+            await hub.db.kafkaProducer.queueMessages(kafkaMessagesCohort)
             await hub.db.addPersonToCohort(testCohort.id, cohortPerson.id, testCohort.version)
 
             const eventExamplePersonBad = createTestEvent({
@@ -1292,8 +1294,20 @@ describe('ActionMatcher', () => {
                 version: 10,
             })
 
-            person = await hub.db.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, false, new UUIDT().toString(), [])
+            const [personLocal, kafkaMessages] = await hub.db.createPerson(
+                TIMESTAMP,
+                {},
+                {},
+                {},
+                team.id,
+                null,
+                false,
+                new UUIDT().toString(),
+                []
+            )
+            await hub.db.kafkaProducer.queueMessages(kafkaMessages)
 
+            person = personLocal
             personId = person.id
         })
 

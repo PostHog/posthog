@@ -83,9 +83,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY: false,
         PLUGINS_DEFAULT_LOG_LEVEL: isTestEnv() ? PluginLogLevel.Full : PluginLogLevel.Log,
         LOG_LEVEL: isTestEnv() ? LogLevel.Warn : LogLevel.Info,
-        SENTRY_DSN: null,
-        SENTRY_PLUGIN_SERVER_TRACING_SAMPLE_RATE: 0,
-        SENTRY_PLUGIN_SERVER_PROFILING_SAMPLE_RATE: 0,
         HTTP_SERVER_PORT: DEFAULT_HTTP_SERVER_PORT,
         SCHEDULE_LOCK_TTL: 60,
         REDIS_POOL_MIN_SIZE: 1,
@@ -223,6 +220,9 @@ export function getDefaultConfig(): PluginsServerConfig {
         PROPERTY_DEFS_CONSUMER_ENABLED_TEAMS: isDevEnv() ? '*' : '',
         PROPERTY_DEFS_WRITE_DISABLED: isProdEnv() ? true : false, // For now we don't want to do writes on prod - only count them
 
+        // temporary: enable, rate limit expensive measurement in persons processing; value in [0,1]
+        PERSON_JSONB_SIZE_ESTIMATE_ENABLE: 0, // defaults to off
+
         // Session recording V2
         SESSION_RECORDING_MAX_BATCH_SIZE_KB: 100 * 1024, // 100MB
         SESSION_RECORDING_MAX_BATCH_AGE_MS: 10 * 1000, // 10 seconds
@@ -250,6 +250,9 @@ export function getDefaultConfig(): PluginsServerConfig {
                 24) * // amount of time salt is valid in one timezone
             60 *
             60,
+
+        PERSON_CACHE_ENABLED_FOR_UPDATES: true,
+        PERSON_CACHE_ENABLED_FOR_CHECKS: true,
     }
 }
 

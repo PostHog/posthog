@@ -77,6 +77,17 @@ def test_real_run_sets_ttl(mock_get_client, fake_redis):
 
 
 @patch("posthog.management.commands.fix_stale_group_cache.get_client")
+def test_real_run_sets_ttl_when_idle_threshold_is_0(mock_get_client, fake_redis):
+    mock_get_client.return_value = fake_redis
+    call_command(
+        "fix_stale_group_cache", "--idle-threshold-days=0", "--min-ttl-days=0", "--max-ttl-days=1", "--no-dry-run"
+    )
+    # Only keys with idletime > threshold and ttl == -1 get expired
+    assert "group_data_cache_v2:1" in fake_redis.expired
+    # group_data_cache_v2:2 is not idle enough, group_data_cache_v2:3 already has TTL
+
+
+@patch("posthog.management.commands.fix_stale_group_cache.get_client")
 def test_min_ttl_greater_than_max_raises(mock_get_client, fake_redis):
     mock_get_client.return_value = fake_redis
     with pytest.raises(CommandError):
@@ -86,12 +97,18 @@ def test_min_ttl_greater_than_max_raises(mock_get_client, fake_redis):
 @patch("posthog.management.commands.fix_stale_group_cache.get_client")
 def test_idle_threshold_respected(mock_get_client, fake_redis):
     mock_get_client.return_value = fake_redis
-    call_command("fix_stale_group_cache", "--idle-threshold-days=100000", "--no-dry-run")
+    call_command("fix_stale_group_cache", "--idle-threshold-days=100000", "--no-dry-run", "--no-skip-idle-check")
     # No keys should be expired, as none are idle enough
     assert fake_redis.expired == {}
 
 
-# ... existing code ...
+@patch("posthog.management.commands.fix_stale_group_cache.get_client")
+def test_idle_threshold_respected_default_skips_idle_check(mock_get_client, fake_redis):
+    mock_get_client.return_value = fake_redis
+    call_command("fix_stale_group_cache", "--idle-threshold-days=100000", "--no-dry-run")
+    # All keys should be expired, as we are ignoring the idle check
+    assert "group_data_cache_v2:1" in fake_redis.expired
+    assert "group_data_cache_v2:2" in fake_redis.expired
 
 
 @patch("posthog.management.commands.fix_stale_group_cache.get_client")
