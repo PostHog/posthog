@@ -203,15 +203,21 @@ interface SessionSummaryLoadingStateProps {
     operation: string
     counter?: number
     name?: string
+    outOf?: number
 }
 
-function SessionSummaryLoadingState({ operation, counter, name }: SessionSummaryLoadingStateProps): JSX.Element {
+function SessionSummaryLoadingState({ operation, counter, name, outOf }: SessionSummaryLoadingStateProps): JSX.Element {
     return (
         <div className="mb-4 grid grid-cols-[auto_1fr] gap-x-2">
             <Spinner className="text-2xl row-span-2 self-center" />
             <span className="text-muted">
                 {operation}
-                {counter !== undefined && <span className="font-semibold"> ({counter})</span>}
+                {counter !== undefined && (
+                    <span className="font-semibold">
+                        ({counter}
+                        {outOf ? ` of ${outOf}` : ''})
+                    </span>
+                )}
                 {name ? ':' : ''}
             </span>
             {name ? (
@@ -285,6 +291,7 @@ function SessionSummary(): JSX.Element {
                 operation: 'Researching key actions for the segment',
                 counter: currentSegment?.meta?.key_action_count ?? undefined,
                 name: currentSegment?.name ?? undefined,
+                outOf: segments.length,
             }
         }
         // If no segments have key actions or outcomes, it means we are researching the segments for the session
