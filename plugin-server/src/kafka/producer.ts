@@ -186,9 +186,10 @@ export class KafkaProducerWrapper {
     }
 
     public async disconnect(): Promise<void> {
+        logger.info('🔌', 'Disconnecting producer. Flushing...')
         await this.flush()
 
-        logger.info('🔌', 'Disconnecting producer')
+        logger.info('🔌', 'Disconnecting producer. Disconnecting...')
         await new Promise<ClientMetrics>((resolve, reject) =>
             this.producer.disconnect((error: any, data: ClientMetrics) => {
                 logger.info('🔌', 'Disconnected producer')

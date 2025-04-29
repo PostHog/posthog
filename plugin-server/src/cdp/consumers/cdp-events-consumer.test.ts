@@ -273,7 +273,7 @@ describe.each([
                 const invocations = await processor.processBatch([globals])
 
                 expect(invocations).toHaveLength(0)
-                expect(mockProducerObserver.queueMessagesSpy).toHaveBeenCalledTimes(1)
+                expect(mockProducerObserver.produceSpy).toHaveBeenCalledTimes(2)
 
                 expect(mockProducerObserver.getProducedKafkaMessages()).toMatchObject([
                     {

@@ -57,7 +57,7 @@ export class KafkaProducerObserver {
         return allMessages.map((topicMessage) => ({
             topic: topicMessage.topic,
             messages: topicMessage.messages.map((message) => ({
-                key: typeof message.key === 'string' ? message.key : null,
+                key: message.key?.toString() ?? null,
                 value: message.value ? parseJSON(message.value.toString()) : null,
                 headers: message.headers,
             })),

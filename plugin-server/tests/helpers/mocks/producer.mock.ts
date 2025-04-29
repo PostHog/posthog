@@ -13,10 +13,10 @@ const ActualKafkaProducerWrapper = jest.requireActual('../../../src/kafka/produc
 
 jest.mock('../../../src/kafka/producer', () => {
     const mockHighLevelProducer: jest.Mocked<HighLevelProducer> = {
-        produce: jest.fn(),
-        flush: jest.fn(),
-        disconnect: jest.fn(),
-        connect: jest.fn(),
+        produce: jest.fn((...args) => args[args.length - 1]?.()),
+        flush: jest.fn((...args) => args[args.length - 1]?.()),
+        disconnect: jest.fn((...args) => args[args.length - 1]?.()),
+        connect: jest.fn((...args) => args[args.length - 1]?.()),
     } as any
 
     // Rather than calling create we just create a new instance with the underlying node-rdkafka producer mocked.
