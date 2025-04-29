@@ -149,7 +149,7 @@ class RevenueAnalyticsRevenueView(SavedQuery):
                 ast.Alias(alias="id", expr=ast.Field(chain=["uuid"])),
                 ast.Alias(alias="timestamp", expr=ast.Field(chain=["created_at"])),
                 ast.Alias(alias="customer_id", expr=ast.Field(chain=["distinct_id"])),
-                ast.Alias(alias="session_id", expr=ast.Field(chain=["$session_id"])),
+                ast.Alias(alias="session_id", expr=ast.Call(name="toString", args=[ast.Field(chain=["$session_id"])])),
                 ast.Alias(alias="event_name", expr=ast.Field(chain=["event"])),
                 ast.Alias(alias="original_currency", expr=currency_expression_for_all_events(revenue_config)),
                 ast.Alias(
