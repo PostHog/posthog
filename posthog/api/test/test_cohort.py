@@ -1625,6 +1625,163 @@ email@example.org,
 
         self.assertEqual(len(AsyncDeletion.objects.all()), 0)
 
+    @patch("posthog.api.cohort.report_user_action")
+    def test_cohort_property_validation_missing_operator(self, patch_capture):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "cohort missing operator",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "key": "some_prop",
+                                "value": "some_value",
+                                "type": "person",
+                                # Missing operator
+                            }
+                        ],
+                    }
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], "Missing required keys for person filter: operator")
+
+    @patch("posthog.api.cohort.report_user_action")
+    def test_cohort_property_validation_missing_value(self, patch_capture):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "cohort missing value",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "key": "some_prop",
+                                "type": "person",
+                                "operator": "exact",
+                                # Missing value
+                            }
+                        ],
+                    }
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], "Missing required keys for person filter: value")
+
+    @patch("posthog.api.cohort.report_user_action")
+    def test_cohort_property_validation_behavioral_filter(self, patch_capture):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "cohort behavioral",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "key": "$pageview",
+                                "type": "behavioral",
+                                "value": "performed_event",
+                                # Missing event_type
+                            }
+                        ],
+                    }
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], "Missing required keys for behavioral filter: event_type")
+
+    @patch("posthog.api.cohort.report_user_action")
+    def test_cohort_property_validation_nested_groups(self, patch_capture):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "cohort nested groups",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {"key": "some_prop", "value": "some_value", "type": "person", "operator": "exact"},
+                                    {
+                                        "key": "another_prop",
+                                        "type": "person",
+                                        # Missing value and operator
+                                    },
+                                ],
+                            }
+                        ],
+                    }
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], "Missing required keys for person filter: value, operator")
+
+    @patch("posthog.api.cohort.report_user_action")
+    def test_cohort_property_validation_is_set_operator(self, patch_capture):
+        # Test that is_set operator doesn't require a value
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "cohort is_set",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [{"key": "some_prop", "type": "person", "operator": "is_set"}],
+                    }
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertNotEqual(response.json()["id"], None)
+
+    @patch("posthog.api.cohort.report_user_action")
+    def test_cohort_property_validation_cohort_filter(self, patch_capture):
+        # First create a cohort to reference
+        self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "first cohort",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [{"key": "some_prop", "value": "some_value", "type": "person", "operator": "exact"}],
+                    }
+                },
+            },
+        ).json()
+
+        # Test cohort filter validation
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "cohort with cohort filter",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "key": "id",
+                                "type": "cohort",
+                                # Missing value (cohort id)
+                            }
+                        ],
+                    }
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], "Missing required keys for cohort filter: value")
+
 
 def create_cohort(client: Client, team_id: int, name: str, groups: list[dict[str, Any]]):
     return client.post(f"/api/projects/{team_id}/cohorts", {"name": name, "groups": json.dumps(groups)})
