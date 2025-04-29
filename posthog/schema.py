@@ -2981,11 +2981,6 @@ class RevenueAnalyticsEventItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    eventName: str
-    revenueCurrencyProperty: Optional[RevenueCurrencyPropertyConfig] = Field(
-        default_factory=lambda: RevenueCurrencyPropertyConfig.model_validate({"static": "USD"})
-    )
-    revenueProperty: str
     currencyAwareDecimal: Optional[bool] = Field(
         default=False,
         description=(
@@ -2994,6 +2989,11 @@ class RevenueAnalyticsEventItem(BaseModel):
             " currency is JPY, the revenue will be ¥1089."
         ),
     )
+    eventName: str
+    revenueCurrencyProperty: Optional[RevenueCurrencyPropertyConfig] = Field(
+        default_factory=lambda: RevenueCurrencyPropertyConfig.model_validate({"static": "USD"})
+    )
+    revenueProperty: str
 
 
 class RevenueAnalyticsGrowthRateQueryResponse(BaseModel):
