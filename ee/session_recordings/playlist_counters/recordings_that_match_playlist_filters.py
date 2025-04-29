@@ -498,9 +498,9 @@ def enqueue_recordings_that_match_playlist_filters() -> None:
 
     total_playlists_count = base_query.count()
 
-    all_playlists: list[int] = base_query.order_by(F("last_counted_at").asc(nulls_first=True)).values_list(
-        "id", flat=True
-    )[: settings.PLAYLIST_COUNTER_PROCESSING_PLAYLISTS_LIMIT]
+    all_playlists = base_query.order_by(F("last_counted_at").asc(nulls_first=True)).values_list("id", flat=True)[
+        : settings.PLAYLIST_COUNTER_PROCESSING_PLAYLISTS_LIMIT
+    ]
 
     cached_counted_playlists_count = count_playlists_in_redis()
 
