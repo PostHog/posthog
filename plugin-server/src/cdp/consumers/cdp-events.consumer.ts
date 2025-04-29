@@ -2,7 +2,7 @@ import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
 import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
-import { KafkaConsumer } from '../../kafka/batch-consumer-v2'
+import { KafkaConsumer } from '../../kafka/consumer'
 import { runInstrumentedFunction } from '../../main/utils'
 import { Hub, RawClickHouseEvent } from '../../types'
 import { parseJSON } from '../../utils/json-parse'

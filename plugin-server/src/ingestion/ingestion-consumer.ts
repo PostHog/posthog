@@ -3,7 +3,7 @@ import { Counter } from 'prom-client'
 import { z } from 'zod'
 
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
-import { KafkaConsumer, parseKafkaHeaders } from '../kafka/batch-consumer-v2'
+import { KafkaConsumer, parseKafkaHeaders } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { ingestionOverflowingMessagesTotal } from '../main/ingestion-queues/batch-processing/metrics'
 import {
@@ -27,9 +27,9 @@ import { captureException } from '../utils/posthog'
 import { retryIfRetriable } from '../utils/retries'
 import { UUIDT } from '../utils/utils'
 import { EventPipelineResult, EventPipelineRunner } from '../worker/ingestion/event-pipeline/runner'
+import { MeasuringPersonsStore } from '../worker/ingestion/persons/measuring-person-store'
+import { PersonsStoreForDistinctIdBatch } from '../worker/ingestion/persons/persons-store-for-distinct-id-batch'
 import { MemoryRateLimiter } from './utils/overflow-detector'
-// Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
-require('@sentry/tracing')
 
 const ingestionEventOverflowed = new Counter({
     name: 'ingestion_event_overflowed',
@@ -89,6 +89,9 @@ export class IngestionConsumer {
     private tokenDistinctIdsToDrop: string[] = []
     private tokenDistinctIdsToSkipPersons: string[] = []
     private tokenDistinctIdsToForceOverflow: string[] = []
+
+    private personStore: MeasuringPersonsStore
+
     constructor(
         private hub: Hub,
         overrides: Partial<
@@ -124,6 +127,11 @@ export class IngestionConsumer {
 
         this.ingestionWarningLimiter = new MemoryRateLimiter(1, 1.0 / 3600)
         this.hogTransformer = new HogTransformerService(hub)
+
+        this.personStore = new MeasuringPersonsStore(this.hub.db, {
+            personCacheEnabledForUpdates: this.hub.PERSON_CACHE_ENABLED_FOR_UPDATES,
+            personCacheEnabledForChecks: this.hub.PERSON_CACHE_ENABLED_FOR_CHECKS,
+        })
         this.kafkaConsumer = new KafkaConsumer({ groupId: this.groupId, topic: this.topic })
     }
 
@@ -152,7 +160,7 @@ export class IngestionConsumer {
         await this.kafkaConsumer.connect(async (messages) => {
             return await runInstrumentedFunction({
                 statsKey: `ingestionConsumer.handleEachBatch`,
-                sendTimeoutGuardToSentry: false,
+                sendException: false,
                 func: async () => await this.handleKafkaBatch(messages),
             })
         })
@@ -247,13 +255,20 @@ export class IngestionConsumer {
             await this.fetchAndCacheHogFunctionStates(parsedMessages)
         }
 
+        const personsStoreForBatch = this.personStore.forBatch()
+
         await this.runInstrumented('processBatch', async () => {
             await Promise.all(
                 Object.values(parsedMessages).map(async (events) => {
                     const eventsToProcess = this.redirectEvents(events)
 
+                    const personsStoreForDistinctId = personsStoreForBatch.forDistinctID(
+                        events.token,
+                        events.distinctId
+                    )
+
                     return await this.runInstrumented('processEventsForDistinctId', () =>
-                        this.processEventsForDistinctId(eventsToProcess)
+                        this.processEventsForDistinctId(eventsToProcess, personsStoreForDistinctId)
                     )
                 })
             )
@@ -262,6 +277,8 @@ export class IngestionConsumer {
         logger.debug('🔁', `Waiting for promises`, { promises: this.promises.size })
         await this.runInstrumented('awaitScheduledWork', () => Promise.all(this.promises))
         logger.debug('🔁', `Processed batch`)
+
+        personsStoreForBatch.reportBatch()
 
         for (const message of messages) {
             if (message.timestamp) {
@@ -372,16 +389,22 @@ export class IngestionConsumer {
         })
     }
 
-    private async processEventsForDistinctId(eventsForDistinctId: EventsForDistinctId): Promise<void> {
+    private async processEventsForDistinctId(
+        eventsForDistinctId: EventsForDistinctId,
+        personsStoreForDistinctId: PersonsStoreForDistinctIdBatch
+    ): Promise<void> {
         // Process every message sequentially, stash promises to await on later
         for (const incomingEvent of eventsForDistinctId.events) {
             // Track $set usage in events that aren't known to use it, before ingestion adds anything there
             trackIfNonPersonEventUpdatesPersons(incomingEvent.event)
-            await this.runEventRunnerV1(incomingEvent)
+            await this.runEventRunnerV1(incomingEvent, personsStoreForDistinctId)
         }
     }
 
-    private async runEventRunnerV1(incomingEvent: IncomingEvent): Promise<EventPipelineResult | undefined> {
+    private async runEventRunnerV1(
+        incomingEvent: IncomingEvent,
+        personsStoreForDistinctId: PersonsStoreForDistinctIdBatch
+    ): Promise<EventPipelineResult | undefined> {
         const { event, message } = incomingEvent
 
         const existingBreadcrumbs = this.getExistingBreadcrumbsFromHeaders(message)
@@ -391,7 +414,7 @@ export class IngestionConsumer {
         try {
             const result = await this.runInstrumented('runEventPipeline', () =>
                 retryIfRetriable(async () => {
-                    const runner = this.getEventPipelineRunnerV1(event, allBreadcrumbs)
+                    const runner = this.getEventPipelineRunnerV1(event, allBreadcrumbs, personsStoreForDistinctId)
                     return await runner.runEventPipeline(event)
                 })
             )
@@ -423,20 +446,19 @@ export class IngestionConsumer {
         // NOTE: there is behavior to push to a DLQ at the moment within EventPipelineRunner. This
         // doesn't work so well with e.g. messages that when sent to the DLQ is it's self too large.
         // Here we explicitly do _not_ add any additional metadata to the message. We might want to add
-        // some metadata to the message e.g. in the header or reference e.g. the sentry event id.
+        // some metadata to the message e.g. in the header or reference e.g. the event id.
         //
         // TODO: properly abstract out this `isRetriable` error logic. This is currently relying on the
         // fact that node-rdkafka adheres to the `isRetriable` interface.
 
         if (error?.isRetriable === false) {
-            const sentryEventId = captureException(error)
+            captureException(error)
             try {
                 await this.kafkaProducer!.produce({
                     topic: this.dlqTopic,
                     value: message.value,
                     key: message.key ?? null, // avoid undefined, just to be safe
                     headers: {
-                        'sentry-event-id': sentryEventId,
                         'event-id': event.uuid,
                     },
                 })
@@ -461,9 +483,10 @@ export class IngestionConsumer {
 
     private getEventPipelineRunnerV1(
         event: PipelineEvent,
-        breadcrumbs: KafkaConsumerBreadcrumb[] = []
+        breadcrumbs: KafkaConsumerBreadcrumb[] = [],
+        personsStoreForDistinctId: PersonsStoreForDistinctIdBatch
     ): EventPipelineRunner {
-        return new EventPipelineRunner(this.hub, event, this.hogTransformer, breadcrumbs)
+        return new EventPipelineRunner(this.hub, event, this.hogTransformer, breadcrumbs, personsStoreForDistinctId)
     }
 
     private parseKafkaBatch(messages: Message[]): Promise<IncomingEventsByDistinctId> {

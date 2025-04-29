@@ -13,6 +13,7 @@ import {
     DataWarehouseNode,
     DateRange,
     ErrorTrackingQuery,
+    EventsHeatMapQuery,
     EventsNode,
     EventsQuery,
     FunnelsQuery,
@@ -49,7 +50,6 @@ import {
     TracesQuery,
     TrendsFormulaNode,
     TrendsQuery,
-    WebActiveHoursHeatMapQuery,
     WebGoalsQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
@@ -213,8 +213,8 @@ export function isErrorTrackingQuery(node?: Record<string, any> | null): node is
     return node?.kind === NodeKind.ErrorTrackingQuery
 }
 
-export function isWebActiveHoursHeatMapQuery(node?: Record<string, any> | null): node is WebActiveHoursHeatMapQuery {
-    return node?.kind === NodeKind.WebActiveHoursHeatMapQuery
+export function isEventsHeatMapQuery(node?: Record<string, any> | null): node is EventsHeatMapQuery {
+    return node?.kind === NodeKind.EventsHeatMapQuery
 }
 
 export function containsHogQLQuery(node?: Record<string, any> | null): boolean {
