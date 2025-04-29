@@ -2,14 +2,14 @@ package main
 
 import (
 	"encoding/json"
-	"github.com/posthog/posthog/livestream/auth"
-	"github.com/posthog/posthog/livestream/events"
 	"net/http"
 	"strings"
 	"sync/atomic"
 
 	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/labstack/echo/v4"
+	"github.com/posthog/posthog/livestream/auth"
+	"github.com/posthog/posthog/livestream/events"
 )
 
 type Counter struct {
