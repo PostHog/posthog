@@ -41,7 +41,8 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     event_count Int64,
     message_count Int64,
     snapshot_source LowCardinality(Nullable(String)),
-    snapshot_library Nullable(String)
+    snapshot_library Nullable(String),
+    version Nullable(Int64)
 ) ENGINE = {engine}
 """
 
@@ -85,6 +86,8 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
     -- knowing something is mobile isn't enough, we need to know if e.g. RN or flutter
     snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+    -- version of the session recording, used to handle different formats
+    version Nullable(Int64),
     _timestamp SimpleAggregateFunction(max, DateTime)
 ) ENGINE = {engine}
 """
@@ -107,9 +110,8 @@ def SESSION_REPLAY_EVENTS_TABLE_SQL(on_cluster=True):
     -- we want the fewest rows possible but also the fastest queries
     -- since we query by date and not by time
     -- and order by must be in order of increasing cardinality
-    -- so we order by date first, then team_id, then session_id
-    -- hopefully, this is a good balance between the two
-    ORDER BY (toDate(min_first_timestamp), team_id, session_id)
+    -- so we order by date first, then team_id, then session_id, then version
+    ORDER BY (toDate(min_first_timestamp), team_id, session_id, version)
 SETTINGS index_granularity=512
 """
     ).format(
@@ -134,6 +136,7 @@ TO {database}.{target_table} {explictly_specify_columns}
 AS SELECT
 session_id,
 team_id,
+version,
 any(distinct_id) as distinct_id,
 min(first_timestamp) AS min_first_timestamp,
 max(last_timestamp) AS max_last_timestamp,
@@ -166,7 +169,7 @@ argMinState(snapshot_source, first_timestamp) as snapshot_source,
 argMinState(snapshot_library, first_timestamp) as snapshot_library,
 max(_timestamp) as _timestamp
 FROM {database}.kafka_session_replay_events
-group by session_id, team_id
+group by session_id, team_id, version
 """.format(
         target_table="writable_session_replay_events",
         on_cluster_clause=ON_CLUSTER_CLAUSE(),
@@ -190,6 +193,7 @@ group by session_id, team_id
 `event_count` Int64,
 `snapshot_source` AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
 `snapshot_library` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+`version` Nullable(Int64),
 `_timestamp` Nullable(DateTime)
 )""",
     )

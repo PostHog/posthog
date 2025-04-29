@@ -188,3 +188,38 @@ ADD_BLOCK_COLUMNS_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SE
     table_name="session_replay_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
 )
+
+# =========================
+# MIGRATION: Add version column and modify order by to support versioned session recordings
+# This migration adds version column to all tables and modifies the order by clause to include version
+# The version column allows us to handle different session recording formats
+# =========================
+
+# 1. Sharded table (physical storage) - add column and modify order by in one statement
+ALTER_SESSION_REPLAY_ADD_VERSION_AND_MODIFY_ORDER = """
+    ALTER TABLE {table_name} on CLUSTER '{cluster}'
+        ADD COLUMN IF NOT EXISTS version Nullable(Int64),
+        MODIFY ORDER BY (toDate(min_first_timestamp), team_id, session_id, version)
+"""
+ADD_VERSION_AND_MODIFY_ORDER_SESSION_REPLAY_EVENTS_TABLE_SQL = (
+    lambda: ALTER_SESSION_REPLAY_ADD_VERSION_AND_MODIFY_ORDER.format(
+        table_name=SESSION_REPLAY_EVENTS_DATA_TABLE(),
+        cluster=settings.CLICKHOUSE_CLUSTER,
+    )
+)
+
+# 2. Other tables - just add the version column
+ALTER_SESSION_REPLAY_ADD_VERSION = """
+    ALTER TABLE {table_name} on CLUSTER '{cluster}'
+        ADD COLUMN IF NOT EXISTS version Nullable(Int64)
+"""
+
+ADD_VERSION_WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_VERSION.format(
+    table_name="writable_session_replay_events",
+    cluster=settings.CLICKHOUSE_CLUSTER,
+)
+
+ADD_VERSION_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_VERSION.format(
+    table_name="session_replay_events",
+    cluster=settings.CLICKHOUSE_CLUSTER,
+)
