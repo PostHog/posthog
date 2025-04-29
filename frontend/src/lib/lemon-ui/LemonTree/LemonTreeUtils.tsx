@@ -1,5 +1,5 @@
 import { useDraggable, useDroppable } from '@dnd-kit/core'
-import { IconChevronRight, IconDocument, IconFolder, IconFolderOpenFilled } from '@posthog/icons'
+import { IconArchive, IconChevronRight, IconDocument, IconFolder, IconFolderOpenFilled } from '@posthog/icons'
 import { buttonVariants } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
 import { CSSProperties, useEffect, useRef } from 'react'
@@ -160,6 +160,10 @@ export const TreeNodeDisplayIcon = ({
 
     if (isFolder) {
         iconElement = isOpen ? <IconFolderOpenFilled /> : <IconFolder />
+
+        if (item.name === 'Archived') {
+            iconElement = <IconArchive />
+        }
     }
 
     if (isFile) {

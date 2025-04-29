@@ -31,6 +31,7 @@ import {
 const PAGINATION_LIMIT = 100
 const MOVE_ALERT_LIMIT = 50
 const DELETE_ALERT_LIMIT = 0
+export const PROJECT_TREE_ARCHIVE_NAME = 'Archived'
 
 export const projectTreeLogic = kea<projectTreeLogicType>([
     path(['layout', 'navigation-3000', 'components', 'projectTreeLogic']),
@@ -49,6 +50,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
     })),
     actions({
         loadUnfiledItems: true,
+        loadArchivedFolder: true,
         addFolder: (folder: string) => ({ folder }),
         deleteItem: (item: FileSystemEntry) => ({ item }),
         moveItem: (item: FileSystemEntry, newPath: string, force = false) => ({ item, newPath, force }),
@@ -107,6 +109,32 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                                 actions.loadFolder(folder)
                             }
                         }
+                    }
+                    return true
+                },
+            },
+        ],
+        archivedFolder: [
+            false as boolean,
+            {
+                loadArchivedFolder: async () => {
+                    try {
+                        const response = await api.fileSystem.list({ path: 'Archived' })
+                        if (response.results.length === 0) {
+                            await api.fileSystem.create({
+                                id: PROJECT_TREE_ARCHIVE_NAME,
+                                path: PROJECT_TREE_ARCHIVE_NAME,
+                                type: 'folder',
+                            })
+                        }
+                        actions.loadFolder(PROJECT_TREE_ARCHIVE_NAME)
+                        for (const folder of Object.keys(values.folders)) {
+                            if (folder.startsWith(PROJECT_TREE_ARCHIVE_NAME + '/')) {
+                                actions.loadFolder(folder)
+                            }
+                        }
+                    } catch (error) {
+                        console.error('Error creating or loading Archived folder:', error)
                     }
                     return true
                 },
@@ -1285,6 +1313,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
     afterMount(({ actions, values }) => {
         actions.loadFolder('')
         actions.loadUnfiledItems()
+        actions.loadArchivedFolder()
         if (values.projectTreeRef) {
             actions.assureVisibility(values.projectTreeRef)
         }

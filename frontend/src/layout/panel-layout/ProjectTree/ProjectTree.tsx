@@ -29,7 +29,7 @@ import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import { PanelLayoutPanel } from '../PanelLayoutPanel'
-import { projectTreeLogic } from './projectTreeLogic'
+import { PROJECT_TREE_ARCHIVE_NAME, projectTreeLogic } from './projectTreeLogic'
 import { calculateMovePath } from './utils'
 
 export function ProjectTree(): JSX.Element {
@@ -315,6 +315,27 @@ export function ProjectTree(): JSX.Element {
                     }}
                 >
                     <ButtonPrimitive menuItem>Move to...</ButtonPrimitive>
+                </MenuItem>
+
+                <MenuItem
+                    asChild
+                    onClick={(e: any) => {
+                        e.stopPropagation()
+
+                        if (checkedItemCountNumeric > 0) {
+                            moveCheckedItems(PROJECT_TREE_ARCHIVE_NAME)
+                        } else {
+                            const { newPath, isValidMove } = calculateMovePath(
+                                item.record as unknown as FileSystemEntry,
+                                PROJECT_TREE_ARCHIVE_NAME
+                            )
+                            if (isValidMove) {
+                                moveItem(item.record as unknown as FileSystemEntry, newPath)
+                            }
+                        }
+                    }}
+                >
+                    <ButtonPrimitive menuItem>Archive</ButtonPrimitive>
                 </MenuItem>
             </>
         )
