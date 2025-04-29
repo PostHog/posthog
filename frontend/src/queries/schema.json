@@ -615,7 +615,7 @@
             "type": "object"
         },
         "AssistantContextualTool": {
-            "enum": ["search_session_recordings", "generate_hogql_query"],
+            "enum": ["search_session_recordings", "generate_hogql_query", "fix_hogql_query"],
             "type": "string"
         },
         "AssistantDateRange": {
