@@ -95,12 +95,20 @@ await buildInParallel(
                             }
                         })
 
-                        build.onLoad({ filter: /.*/, namespace: 'empty-module' }, () => {
+                        build.onLoad({ filter: /.*/, namespace: 'empty-module' }, (args) => {
                             return {
                                 contents: `
                                 module.exports = new Proxy({}, {
                                     get: function(target, name) {
-                                        return function() { return {} }
+                                        console.warn('[TOOLBAR] Attempted to use denied module:', ${JSON.stringify(
+                                            args.path
+                                        )}, 'function:', name);
+                                        return function() { 
+                                            console.warn('[TOOLBAR] Called denied module:', ${JSON.stringify(
+                                                args.path
+                                            )}, 'function:', name);
+                                            return {} 
+                                        }
                                     }
                                 });
                             `,
