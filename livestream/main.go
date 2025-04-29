@@ -1,6 +1,9 @@
 package main
 
 import (
+	"github.com/posthog/posthog/livestream/auth"
+	"github.com/posthog/posthog/livestream/events"
+	"github.com/posthog/posthog/livestream/geo"
 	"log"
 	"net/http"
 	"time"
@@ -42,26 +45,26 @@ func main() {
 		parallelism = 1
 	}
 
-	geolocator, err := NewMaxMindGeoLocator(mmdb)
+	geolocator, err := geo.NewMaxMindGeoLocator(mmdb)
 	if err != nil {
 		// TODO capture error to PostHog
 		log.Fatalf("Failed to open MMDB: %v", err)
 	}
 
-	stats := newStatsKeeper()
+	stats := events.NewStatsKeeper()
 
-	phEventChan := make(chan PostHogEvent, 10000)
-	statsChan := make(chan CountEvent, 10000)
-	subChan := make(chan Subscription, 10000)
-	unSubChan := make(chan Subscription, 10000)
+	phEventChan := make(chan events.PostHogEvent, 10000)
+	statsChan := make(chan events.CountEvent, 10000)
+	subChan := make(chan events.Subscription, 10000)
+	unSubChan := make(chan events.Subscription, 10000)
 
-	go stats.keepStats(statsChan)
+	go stats.KeepStats(statsChan)
 
 	kafkaSecurityProtocol := "SSL"
 	if isDebug {
 		kafkaSecurityProtocol = "PLAINTEXT"
 	}
-	consumer, err := NewPostHogKafkaConsumer(brokers, kafkaSecurityProtocol, groupID, topic, geolocator, phEventChan,
+	consumer, err := events.NewPostHogKafkaConsumer(brokers, kafkaSecurityProtocol, groupID, topic, geolocator, phEventChan,
 		statsChan, parallelism)
 	if err != nil {
 		// TODO capture error to PostHog
@@ -70,7 +73,7 @@ func main() {
 	defer consumer.Close()
 	go consumer.Consume()
 
-	filter := NewFilter(subChan, unSubChan, phEventChan)
+	filter := events.NewFilter(subChan, unSubChan, phEventChan)
 	go filter.Run()
 
 	// Echo instance
@@ -108,7 +111,7 @@ func main() {
 
 	if isDebug {
 		e.GET("/jwt", func(c echo.Context) error {
-			claims, err := getAuth(c.Request().Header)
+			claims, err := auth.GetAuth(c.Request().Header)
 			if err != nil {
 				return err
 			}

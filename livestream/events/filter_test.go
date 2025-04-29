@@ -1,4 +1,4 @@
-package main
+package events
 
 import (
 	"testing"
@@ -18,8 +18,8 @@ func TestNewFilter(t *testing.T) {
 	filter := NewFilter(subChan, unSubChan, inboundChan)
 
 	assert.NotNil(t, filter)
-	assert.Equal(t, subChan, filter.subChan)
-	assert.Equal(t, unSubChan, filter.unSubChan)
+	assert.Equal(t, subChan, filter.SubChan)
+	assert.Equal(t, unSubChan, filter.UnSubChan)
 	assert.Equal(t, inboundChan, filter.inboundChan)
 	assert.Empty(t, filter.subs)
 }
