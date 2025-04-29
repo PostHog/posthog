@@ -1,65 +1,67 @@
-from django.conf import settings
+from posthog.models.raw_sessions.sql import SHARDED_RAW_SESSIONS_DATA_TABLE, TABLE_BASE_NAME
 
-from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
-from posthog.models.raw_sessions.sql import RAW_SESSIONS_DATA_TABLE, TABLE_BASE_NAME
+# If in doubt how to use these, check out the README at https://github.com/PostHog/posthog/tree/master/posthog/clickhouse/migrations#readme
 
 # perf
 ADD_PAGEVIEW_AUTOCAPTURE_SCREEN_UP_TO_2_COLUMN_SQL = """
-ALTER TABLE {table_name} on CLUSTER '{cluster}'
+ALTER TABLE {table_name}
+
 ADD COLUMN IF NOT EXISTS
 page_screen_autocapture_uniq_up_to
 AggregateFunction(uniqUpTo(1), Nullable(UUID))
 AFTER maybe_has_session_replay
 """
 
-BASE_RAW_SESSIONS_ADD_PAGEVIEW_AUTOCAPTURE_SCREEN_UP_TO_2_COLUMN_SQL = (
+DISTRIBUTED_RAW_SESSIONS_ADD_PAGEVIEW_AUTOCAPTURE_SCREEN_UP_TO_2_COLUMN_SQL = (
     lambda: ADD_PAGEVIEW_AUTOCAPTURE_SCREEN_UP_TO_2_COLUMN_SQL.format(
         table_name=TABLE_BASE_NAME,
-        cluster=settings.CLICKHOUSE_CLUSTER,
     )
 )
 
 WRITABLE_RAW_SESSIONS_ADD_PAGEVIEW_AUTOCAPTURE_SCREEN_UP_TO_2_COLUMN_SQL = (
     lambda: ADD_PAGEVIEW_AUTOCAPTURE_SCREEN_UP_TO_2_COLUMN_SQL.format(
         table_name="writable_raw_sessions",
-        cluster=settings.CLICKHOUSE_CLUSTER,
     )
 )
 
-DISTRIBUTED_RAW_SESSIONS_ADD_EVENT_COUNT_SESSION_REPLAY_EVENTS_TABLE_SQL = (
+SHARDED_RAW_SESSIONS_ADD_PAGEVIEW_AUTOCAPTURE_SCREEN_UP_TO_2_COLUMN_SQL = (
     lambda: ADD_PAGEVIEW_AUTOCAPTURE_SCREEN_UP_TO_2_COLUMN_SQL.format(
-        table_name=RAW_SESSIONS_DATA_TABLE(),
-        cluster=settings.CLICKHOUSE_CLUSTER,
+        table_name=SHARDED_RAW_SESSIONS_DATA_TABLE(),
     )
 )
 
 # vitals
 ADD_VITALS_LCP_COLUMN_SQL = """
-ALTER TABLE {table_name} on CLUSTER '{cluster}'
+ALTER TABLE {table_name}
+
 ADD COLUMN IF NOT EXISTS
 vitals_lcp
 AggregateFunction(argMin, Nullable(Float64), DateTime64(6, 'UTC'))
 AFTER page_screen_autocapture_uniq_up_to
 """
 
-BASE_RAW_SESSIONS_ADD_VITALS_LCP_COLUMN_SQL = lambda: ADD_VITALS_LCP_COLUMN_SQL.format(
-    table_name=TABLE_BASE_NAME,
-    cluster=settings.CLICKHOUSE_CLUSTER,
-)
 
-WRITABLE_RAW_SESSIONS_ADD_VITALS_LCP_COLUMN_SQL = lambda: ADD_VITALS_LCP_COLUMN_SQL.format(
-    table_name="writable_raw_sessions",
-    cluster=settings.CLICKHOUSE_CLUSTER,
-)
+def DISTRIBUTED_RAW_SESSIONS_ADD_VITALS_LCP_COLUMN_SQL():
+    return ADD_VITALS_LCP_COLUMN_SQL.format(
+        table_name=TABLE_BASE_NAME,
+    )
 
-DISTRIBUTED_RAW_SESSIONS_ADD_VITALS_LCP_COLUMN_SQL = lambda: ADD_VITALS_LCP_COLUMN_SQL.format(
-    table_name=RAW_SESSIONS_DATA_TABLE(),
-    cluster=settings.CLICKHOUSE_CLUSTER,
-)
+
+def WRITABLE_RAW_SESSIONS_ADD_VITALS_LCP_COLUMN_SQL():
+    return ADD_VITALS_LCP_COLUMN_SQL.format(
+        table_name="writable_raw_sessions",
+    )
+
+
+def SHARDED_RAW_SESSIONS_ADD_VITALS_LCP_COLUMN_SQL():
+    return ADD_VITALS_LCP_COLUMN_SQL.format(
+        table_name=SHARDED_RAW_SESSIONS_DATA_TABLE(),
+    )
+
 
 # irclid and _kx
 ADD_IRCLID_KX_COLUMNS_SQL = """
-ALTER TABLE {table_name} {on_cluster_clause}
+ALTER TABLE {table_name}
 
 ADD COLUMN IF NOT EXISTS
 initial__kx
@@ -73,30 +75,27 @@ AFTER initial_ttclid
 """
 
 
-def BASE_RAW_SESSIONS_ADD_IRCLID_KX_COLUMNS_SQL(on_cluster=True):
+def DISTRIBUTED_RAW_SESSIONS_ADD_IRCLID_KX_COLUMNS_SQL():
     return ADD_IRCLID_KX_COLUMNS_SQL.format(
         table_name=TABLE_BASE_NAME,
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
     )
 
 
-def WRITABLE_RAW_SESSIONS_ADD_IRCLID_KX_COLUMNS_SQL(on_cluster=True):
+def WRITABLE_RAW_SESSIONS_ADD_IRCLID_KX_COLUMNS_SQL():
     return ADD_IRCLID_KX_COLUMNS_SQL.format(
         table_name="writable_raw_sessions",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
     )
 
 
-def DISTRIBUTED_RAW_SESSIONS_ADD_IRCLID_KX_COLUMNS_SQL(on_cluster=True):
+def SHARDED_RAW_SESSIONS_ADD_IRCLID_KX_COLUMNS_SQL():
     return ADD_IRCLID_KX_COLUMNS_SQL.format(
-        table_name=RAW_SESSIONS_DATA_TABLE(),
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+        table_name=SHARDED_RAW_SESSIONS_DATA_TABLE(),
     )
 
 
 # epik, qclid, sccid
 ADD_EPIK_QCLID_SCCID_COLUMNS_SQL = """
-ALTER TABLE {table_name} {on_cluster_clause}
+ALTER TABLE {table_name}
 
 ADD COLUMN IF NOT EXISTS
 initial_epik
@@ -115,22 +114,19 @@ AFTER initial_qclid
 """
 
 
-def BASE_RAW_SESSIONS_ADD_EPIK_QCLID_SCCID_COLUMNS_SQL(on_cluster=True):
+def DISTRIBUTED_RAW_SESSIONS_ADD_EPIK_QCLID_SCCID_COLUMNS_SQL():
     return ADD_EPIK_QCLID_SCCID_COLUMNS_SQL.format(
         table_name=TABLE_BASE_NAME,
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
     )
 
 
-def WRITABLE_RAW_SESSIONS_ADD_EPIK_QCLID_SCCID_COLUMNS_SQL(on_cluster=True):
+def WRITABLE_RAW_SESSIONS_ADD_EPIK_QCLID_SCCID_COLUMNS_SQL():
     return ADD_EPIK_QCLID_SCCID_COLUMNS_SQL.format(
         table_name="writable_raw_sessions",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
     )
 
 
-def DISTRIBUTED_RAW_SESSIONS_ADD_EPIK_QCLID_SCCID_COLUMNS_SQL(on_cluster=True):
+def SHARDED_RAW_SESSIONS_ADD_EPIK_QCLID_SCCID_COLUMNS_SQL():
     return ADD_EPIK_QCLID_SCCID_COLUMNS_SQL.format(
-        table_name=RAW_SESSIONS_DATA_TABLE(),
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+        table_name=SHARDED_RAW_SESSIONS_DATA_TABLE(),
     )
