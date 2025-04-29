@@ -30,8 +30,7 @@ import {
     PropertyOperator,
 } from '~/types'
 
-import { getNiceTickValues } from './MetricsView/MetricsView'
-import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
+import { getNiceTickValues } from './MetricsView/utils'
 import {
     exposureConfigToFilter,
     featureFlagEligibleForExperiment,
@@ -40,7 +39,6 @@ import {
     getViewRecordingFilters,
     isLegacyExperiment,
     isLegacyExperimentQuery,
-    isLegacySharedMetric,
     metricToFilter,
     metricToQuery,
     percentageDistribution,
@@ -199,19 +197,19 @@ describe('utils', () => {
 describe('getNiceTickValues', () => {
     it('generates appropriate tick values for different ranges', () => {
         // Small values (< 0.1)
-        expect(getNiceTickValues(0.08)).toEqual([-0.1, -0.08, -0.06, -0.04, -0.02, 0, 0.02, 0.04, 0.06, 0.08, 0.1])
+        expect(getNiceTickValues(0.08)).toEqual([-0.08, -0.06, -0.04, -0.02, 0, 0.02, 0.04, 0.06, 0.08])
 
         // Medium small values (0.1 - 1)
-        expect(getNiceTickValues(0.45)).toEqual([-0.5, -0.4, -0.3, -0.2, -0.1, 0, 0.1, 0.2, 0.3, 0.4, 0.5])
+        expect(getNiceTickValues(0.45)).toEqual([-0.4, -0.3, -0.2, -0.1, 0, 0.1, 0.2, 0.3, 0.4])
 
         // Values around 1
-        expect(getNiceTickValues(1.2)).toEqual([-1.5, -1.0, -0.5, 0, 0.5, 1.0, 1.5])
+        expect(getNiceTickValues(1.2)).toEqual([-1, -0.5, 0, 0.5, 1])
 
         // Values around 5
-        expect(getNiceTickValues(4.7)).toEqual([-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5])
+        expect(getNiceTickValues(4.7)).toEqual([-4, -3, -2, -1, 0, 1, 2, 3, 4])
 
         // Larger values
-        expect(getNiceTickValues(8.5)).toEqual([-10, -8, -6, -4, -2, 0, 2, 4, 6, 8, 10])
+        expect(getNiceTickValues(8.5)).toEqual([-6, -4, -2, 0, 2, 4, 6])
     })
 })
 
@@ -955,8 +953,10 @@ describe('hasLegacyMetrics', () => {
             metrics_secondary: [],
             saved_metrics: [
                 {
-                    kind: NodeKind.ExperimentTrendsQuery,
-                    count_query: { kind: NodeKind.TrendsQuery, series: [] },
+                    query: {
+                        kind: NodeKind.ExperimentTrendsQuery,
+                        count_query: { kind: NodeKind.TrendsQuery, series: [] },
+                    },
                 },
             ],
         } as unknown as Experiment
@@ -991,33 +991,23 @@ describe('hasLegacyMetrics', () => {
 
         expect(isLegacyExperiment(experiment)).toBe(false)
     })
-})
-
-describe('hasLegacySharedMetrics', () => {
-    it('returns true if shared metrics contain legacy query', () => {
-        const sharedMetric = {
-            query: {
-                kind: NodeKind.ExperimentTrendsQuery,
-                count_query: { kind: NodeKind.TrendsQuery, series: [] },
-            },
-        } as unknown as SharedMetric
-
-        expect(isLegacySharedMetric(sharedMetric)).toBe(true)
-    })
 
     it('returns false if shared metrics contain no legacy queries', () => {
-        const sharedMetric = {
-            query: {
-                kind: NodeKind.ExperimentMetric,
-                metric_type: ExperimentMetricType.MEAN,
-                source: { kind: NodeKind.EventsNode, event: 'test' },
-            },
-        } as unknown as SharedMetric
+        const experiment = {
+            ...experimentJson,
+            metrics: [],
+            metrics_secondary: [],
+            saved_metrics: [
+                {
+                    query: {
+                        kind: NodeKind.ExperimentMetric,
+                        metric_type: ExperimentMetricType.MEAN,
+                        source: { kind: NodeKind.EventsNode, event: 'test' },
+                    },
+                },
+            ],
+        } as unknown as Experiment
 
-        expect(isLegacySharedMetric(sharedMetric)).toBe(false)
-    })
-
-    it('returns false for empty shared metrics array', () => {
-        expect(isLegacySharedMetric({} as SharedMetric)).toBe(false)
+        expect(isLegacyExperiment(experiment)).toBe(false)
     })
 })

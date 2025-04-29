@@ -950,7 +950,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 allVariables: Variable[],
                 temporaryVariables: Record<string, HogQLVariable>
             ): { variable: Variable; insights: string[] }[] => {
-                const dataVizNodes = dashboard.tiles
+                const dataVizNodes = (dashboard?.tiles ?? [])
                     .map((n) => ({ query: n.insight?.query, title: n.insight?.name }))
                     .filter((n) => n.query?.kind === NodeKind.DataVisualizationNode)
                     .filter(
@@ -1223,7 +1223,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         projectTreeRef: [
             () => [(_, props: DashboardLogicProps) => props.id],
-            (id): ProjectTreeRef => ({ type: 'dashboard', ref: String(id) }),
+            (id): ProjectTreeRef => {
+                return { type: 'dashboard', ref: String(id) }
+            },
         ],
         [SIDE_PANEL_CONTEXT_KEY]: [
             (s) => [s.dashboard],

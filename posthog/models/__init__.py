@@ -37,6 +37,7 @@ from .error_tracking import (
     ErrorTrackingStackFrame,
     ErrorTrackingSymbolSet,
     ErrorTrackingIssueAssignment,
+    ErrorTrackingAssignmentRule,
 )
 from .event.event import Event
 from .event_buffer import EventBuffer
@@ -83,7 +84,8 @@ from .sharing_configuration import SharingConfiguration
 from .subscription import Subscription
 from .tag import Tag
 from .tagged_item import TaggedItem
-from .team import Team
+from .team import Team, TeamRevenueAnalyticsConfig
+from .event_ingestion_restriction_config import EventIngestionRestrictionConfig
 from .uploaded_media import UploadedMedia
 from .user import User, UserManager
 from .user_group import UserGroup, UserGroupMembership
@@ -121,11 +123,13 @@ __all__ = [
     "ErrorTrackingStackFrame",
     "ErrorTrackingSymbolSet",
     "ErrorTrackingIssueAssignment",
+    "ErrorTrackingAssignmentRule",
     "Event",
     "EventBuffer",
     "EventDefinition",
     "EventProperty",
     "Experiment",
+    "ExperimentHoldout",
     "ExperimentSavedMetric",
     "ExportedAsset",
     "FeatureFlag",
@@ -177,7 +181,9 @@ __all__ = [
     "Tag",
     "TaggedItem",
     "Team",
+    "TeamRevenueAnalyticsConfig",
     "Text",
+    "EventIngestionRestrictionConfig",
     "UploadedMedia",
     "User",
     "UserScenePersonalisation",

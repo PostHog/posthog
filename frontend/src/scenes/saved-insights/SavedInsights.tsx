@@ -432,7 +432,7 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconHogQL,
         inMenu: false,
     },
-    [NodeKind.WebActiveHoursHeatMapQuery]: {
+    [NodeKind.EventsHeatMapQuery]: {
         name: 'Active Hours Heat Map',
         icon: IconHogQL,
         inMenu: false,

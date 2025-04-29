@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from posthog.test.base import APIBaseTest
 from posthog.warehouse.models import DataWarehouseModelPath, DataWarehouseSavedQuery
+from posthog.models import ActivityLog
 
 
 class TestSavedQuery(APIBaseTest):
@@ -635,3 +636,66 @@ class TestSavedQuery(APIBaseTest):
 
             # Verify get_columns was called
             mock_get_columns.assert_called_once()
+
+    def test_create_with_activity_log(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        saved_query = response.json()
+        self.assertEqual(saved_query["name"], "event_view")
+        self.assertEqual(saved_query["query"]["kind"], "HogQLQuery")
+        self.assertEqual(saved_query["query"]["query"], "select event as event from events LIMIT 100")
+
+        with patch.object(DataWarehouseSavedQuery, "get_columns") as mock_get_columns:
+            mock_get_columns.return_value = {}
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+                {
+                    "query": {
+                        "kind": "HogQLQuery",
+                        "query": "select event as event from events LIMIT 10",
+                    },
+                    "current_query": saved_query["query"]["query"],
+                },
+            )
+
+            self.assertEqual(response.status_code, 200, response.content)
+
+            activity_logs = ActivityLog.objects.filter(
+                item_id=saved_query["id"], scope="DataWarehouseSavedQuery"
+            ).order_by("-created_at")
+            self.assertEqual(activity_logs.count(), 2)
+            self.assertEqual(activity_logs[0].activity, "updated")
+            query_change = next(change for change in activity_logs[0].detail["changes"] if change["field"] == "query")
+            self.assertEqual(
+                query_change["after"],
+                {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 10",
+                },
+            )
+            self.assertEqual(
+                query_change["before"],
+                {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            )
+            self.assertEqual(activity_logs[1].activity, "created")
+            query_change = next(change for change in activity_logs[1].detail["changes"] if change["field"] == "query")
+            self.assertEqual(
+                query_change["after"],
+                {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            )
+            self.assertEqual(query_change["before"], None)

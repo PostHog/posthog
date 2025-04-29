@@ -32,6 +32,11 @@ const Broadcast = ({ broadcastId }: { broadcastId: string }): JSX.Element => {
                 <HogFunctionConfiguration
                     id={broadcastId === 'new' ? null : broadcastId}
                     templateId={broadcastId === 'new' ? 'template-new-broadcast' : ''}
+                    displayOptions={{
+                        showStatus: false,
+                        showEnabled: false,
+                        canEditSource: false,
+                    }}
                 />
             )}
             {currentTab === 'logs' && <HogFunctionLogs hogFunctionId={broadcastId} />}

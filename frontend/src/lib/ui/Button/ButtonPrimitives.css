@@ -10,16 +10,32 @@
     --button-height-lg: 40px;
 }
 
+.button-primitive {
+    width: fit-content;
+}
+
 .button-primitive-height-sm {
     height: var(--button-height-sm);
+
+    &.icon-only {
+        width: var(--button-height-sm);
+    }
 }
 
 .button-primitive-height-base {
     height: var(--button-height-base);
+
+    &.icon-only {
+        width: var(--button-height-base);
+    }
 }
 
 .button-primitive-height-lg {
     height: var(--button-height-lg);
+
+    &.icon-only {
+        width: var(--button-height-lg);
+    }
 }
 
 .button-primitive-size-sm {

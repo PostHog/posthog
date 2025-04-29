@@ -1515,7 +1515,7 @@ mod tests {
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "email".to_string(),
-                        value: json!("override@example.com"),
+                        value: Some(json!("override@example.com")),
                         operator: None,
                         prop_type: "person".to_string(),
                         group_type_index: None,
@@ -1577,7 +1577,7 @@ mod tests {
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "industry".to_string(),
-                        value: json!("tech"),
+                        value: Some(json!("tech")),
                         operator: None,
                         prop_type: "group".to_string(),
                         group_type_index: Some(1),
@@ -1808,7 +1808,7 @@ mod tests {
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "email".to_string(),
-                        value: json!("test@example.com"),
+                        value: Some(json!("test@example.com")),
                         operator: Some(OperatorType::Exact),
                         prop_type: "person".to_string(),
                         group_type_index: None,
@@ -1941,7 +1941,7 @@ mod tests {
                     properties: Some(vec![
                         PropertyFilter {
                             key: "age".to_string(),
-                            value: json!(25),
+                            value: Some(json!(25)),
                             operator: Some(OperatorType::Gte),
                             prop_type: "person".to_string(),
                             group_type_index: None,
@@ -1949,7 +1949,7 @@ mod tests {
                         },
                         PropertyFilter {
                             key: "email".to_string(),
-                            value: json!("example@domain.com"),
+                            value: Some(json!("example@domain.com")),
                             operator: Some(OperatorType::Icontains),
                             prop_type: "person".to_string(),
                             group_type_index: None,
@@ -2177,7 +2177,7 @@ mod tests {
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "email".to_string(),
-                        value: json!("test@example.com"),
+                        value: Some(json!("test@example.com")),
                         operator: None,
                         prop_type: "person".to_string(),
                         group_type_index: None,
@@ -2239,7 +2239,7 @@ mod tests {
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "age".to_string(),
-                        value: json!(25),
+                        value: Some(json!(25)),
                         operator: Some(OperatorType::Gte),
                         prop_type: "person".to_string(),
                         group_type_index: None,
@@ -2339,7 +2339,7 @@ mod tests {
                     FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
                             key: "email".to_string(),
-                            value: json!("user1@example.com"),
+                            value: Some(json!("user1@example.com")),
                             operator: None,
                             prop_type: "person".to_string(),
                             group_type_index: None,
@@ -2351,7 +2351,7 @@ mod tests {
                     FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
                             key: "age".to_string(),
-                            value: json!(30),
+                            value: Some(json!(30)),
                             operator: Some(OperatorType::Gte),
                             prop_type: "person".to_string(),
                             group_type_index: None,
@@ -2582,7 +2582,7 @@ mod tests {
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "id".to_string(),
-                        value: json!(cohort_row.id),
+                        value: Some(json!(cohort_row.id)),
                         operator: Some(OperatorType::In),
                         prop_type: "cohort".to_string(),
                         group_type_index: None,
@@ -2655,7 +2655,7 @@ mod tests {
                     FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
                             key: "email".to_string(),
-                            value: json!("fake@posthog.com"),
+                            value: Some(json!("fake@posthog.com")),
                             operator: Some(OperatorType::Exact),
                             prop_type: "person".to_string(),
                             group_type_index: None,
@@ -2667,7 +2667,7 @@ mod tests {
                     FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
                             key: "email".to_string(),
-                            value: json!("test@posthog.com"),
+                            value: Some(json!("test@posthog.com")),
                             operator: Some(OperatorType::Exact),
                             prop_type: "person".to_string(),
                             group_type_index: None,
@@ -2688,7 +2688,7 @@ mod tests {
                 super_groups: Some(vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "is_enabled".to_string(),
-                        value: json!(["true"]),
+                        value: Some(json!(["true"])),
                         operator: Some(OperatorType::Exact),
                         prop_type: "person".to_string(),
                         group_type_index: None,
@@ -2807,7 +2807,7 @@ mod tests {
                     FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
                             key: "email".to_string(),
-                            value: json!("fake@posthog.com"),
+                            value: Some(json!("fake@posthog.com")),
                             operator: Some(OperatorType::Exact),
                             prop_type: "person".to_string(),
                             group_type_index: None,
@@ -2819,7 +2819,7 @@ mod tests {
                     FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
                             key: "email".to_string(),
-                            value: json!("test@posthog.com"),
+                            value: Some(json!("test@posthog.com")),
                             operator: Some(OperatorType::Exact),
                             prop_type: "person".to_string(),
                             group_type_index: None,
@@ -2840,7 +2840,7 @@ mod tests {
                 super_groups: Some(vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "is_enabled".to_string(),
-                        value: json!("true"),
+                        value: Some(json!("true")),
                         operator: Some(OperatorType::Exact),
                         prop_type: "person".to_string(),
                         group_type_index: None,
@@ -2913,7 +2913,7 @@ mod tests {
                     FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
                             key: "email".to_string(),
-                            value: json!("fake@posthog.com"),
+                            value: Some(json!("fake@posthog.com")),
                             operator: Some(OperatorType::Exact),
                             prop_type: "person".to_string(),
                             group_type_index: None,
@@ -2925,7 +2925,7 @@ mod tests {
                     FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
                             key: "email".to_string(),
-                            value: json!("test@posthog.com"),
+                            value: Some(json!("test@posthog.com")),
                             operator: Some(OperatorType::Exact),
                             prop_type: "person".to_string(),
                             group_type_index: None,
@@ -2946,7 +2946,7 @@ mod tests {
                 super_groups: Some(vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "is_enabled".to_string(),
-                        value: json!(false),
+                        value: Some(json!(false)),
                         operator: Some(OperatorType::Exact),
                         prop_type: "person".to_string(),
                         group_type_index: None,
@@ -3088,7 +3088,7 @@ mod tests {
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "id".to_string(),
-                        value: json!(cohort_row.id),
+                        value: Some(json!(cohort_row.id)),
                         operator: Some(OperatorType::In),
                         prop_type: "cohort".to_string(),
                         group_type_index: None,
@@ -3181,7 +3181,7 @@ mod tests {
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "id".to_string(),
-                        value: json!(cohort_row.id),
+                        value: Some(json!(cohort_row.id)),
                         operator: Some(OperatorType::NotIn),
                         prop_type: "cohort".to_string(),
                         group_type_index: None,
@@ -3274,7 +3274,7 @@ mod tests {
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "id".to_string(),
-                        value: json!(cohort_row.id),
+                        value: Some(json!(cohort_row.id)),
                         operator: Some(OperatorType::NotIn),
                         prop_type: "cohort".to_string(),
                         group_type_index: None,
@@ -3388,7 +3388,7 @@ mod tests {
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "id".to_string(),
-                        value: json!(dependent_cohort_row.id),
+                        value: Some(json!(dependent_cohort_row.id)),
                         operator: Some(OperatorType::In),
                         prop_type: "cohort".to_string(),
                         group_type_index: None,
@@ -3481,7 +3481,7 @@ mod tests {
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "id".to_string(),
-                        value: json!(cohort_row.id),
+                        value: Some(json!(cohort_row.id)),
                         operator: Some(OperatorType::In),
                         prop_type: "cohort".to_string(),
                         group_type_index: None,
@@ -3567,7 +3567,7 @@ mod tests {
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "id".to_string(),
-                        value: json!(cohort.id),
+                        value: Some(json!(cohort.id)),
                         operator: Some(OperatorType::In),
                         prop_type: "cohort".to_string(),
                         group_type_index: None,
@@ -3652,7 +3652,7 @@ mod tests {
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "id".to_string(),
-                        value: json!(cohort.id),
+                        value: Some(json!(cohort.id)),
                         operator: Some(OperatorType::In),
                         prop_type: "cohort".to_string(),
                         group_type_index: None,
@@ -3732,7 +3732,7 @@ mod tests {
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "id".to_string(),
-                        value: json!(cohort.id),
+                        value: Some(json!(cohort.id)),
                         operator: Some(OperatorType::NotIn),
                         prop_type: "cohort".to_string(),
                         group_type_index: None,
@@ -3825,7 +3825,7 @@ mod tests {
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "id".to_string(),
-                        value: json!(cohort.id),
+                        value: Some(json!(cohort.id)),
                         operator: Some(OperatorType::NotIn),
                         prop_type: "cohort".to_string(),
                         group_type_index: None,
@@ -3895,7 +3895,7 @@ mod tests {
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "email".to_string(),
-                        value: json!("user3@example.com"),
+                        value: Some(json!("user3@example.com")),
                         operator: None,
                         prop_type: "person".to_string(),
                         group_type_index: None,
@@ -3991,7 +3991,7 @@ mod tests {
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "email".to_string(),
-                        value: json!("user4@example.com"),
+                        value: Some(json!("user4@example.com")),
                         operator: None,
                         prop_type: "person".to_string(),
                         group_type_index: None,
@@ -4072,7 +4072,7 @@ mod tests {
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "email".to_string(),
-                        value: json!("user5@example.com"),
+                        value: Some(json!("user5@example.com")),
                         operator: None,
                         prop_type: "person".to_string(),
                         group_type_index: None,
@@ -4102,7 +4102,7 @@ mod tests {
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "age".to_string(),
-                        value: json!(30),
+                        value: Some(json!(30)),
                         operator: Some(OperatorType::Gt),
                         prop_type: "person".to_string(),
                         group_type_index: None,
@@ -4201,7 +4201,7 @@ mod tests {
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "email".to_string(),
-                        value: json!("test@example.com"),
+                        value: Some(json!("test@example.com")),
                         operator: None,
                         prop_type: "person".to_string(),
                         group_type_index: None,
@@ -4272,7 +4272,7 @@ mod tests {
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "email".to_string(),
-                        value: json!("test@example.com"),
+                        value: Some(json!("test@example.com")),
                         operator: None,
                         prop_type: "person".to_string(),
                         group_type_index: None,
@@ -4376,7 +4376,7 @@ mod tests {
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "$some_prop".to_string(),
-                        value: json!(4),
+                        value: Some(json!(4)),
                         operator: Some(OperatorType::Gt),
                         prop_type: "person".to_string(),
                         group_type_index: None,
@@ -4409,7 +4409,7 @@ mod tests {
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "$some_prop".to_string(),
-                        value: json!(4),
+                        value: Some(json!(4)),
                         operator: Some(OperatorType::Gt),
                         prop_type: "person".to_string(),
                         group_type_index: None,
@@ -4442,7 +4442,7 @@ mod tests {
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "$some_prop".to_string(),
-                        value: json!(4),
+                        value: Some(json!(4)),
                         operator: Some(OperatorType::Gt),
                         prop_type: "person".to_string(),
                         group_type_index: None,
@@ -4713,7 +4713,7 @@ mod tests {
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "id".to_string(),
-                        value: json!(cohort.id),
+                        value: Some(json!(cohort.id)),
                         operator: Some(OperatorType::In),
                         prop_type: "cohort".to_string(),
                         group_type_index: None,
@@ -4773,7 +4773,7 @@ mod tests {
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "email".to_string(),
-                        value: json!("test@example.com"),
+                        value: Some(json!("test@example.com")),
                         operator: Some(OperatorType::Exact),
                         prop_type: "person".to_string(),
                         group_type_index: None,
@@ -4842,7 +4842,7 @@ mod tests {
                     FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
                             key: "email".to_string(),
-                            value: json!("@storytell.ai"),
+                            value: Some(json!("@storytell.ai")),
                             operator: Some(OperatorType::Icontains),
                             prop_type: "person".to_string(),
                             group_type_index: None,
@@ -4854,12 +4854,12 @@ mod tests {
                     FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
                             key: "email".to_string(),
-                            value: json!([
+                            value: Some(json!([
                                 "simone.demarchi@outlook.com",
                                 "djokovic.dav@gmail.com",
                                 "dario.passarello@gmail.com",
                                 "matt.amick@purplewave.com"
-                            ]),
+                            ])),
                             operator: Some(OperatorType::Exact),
                             prop_type: "person".to_string(),
                             group_type_index: None,
@@ -4871,7 +4871,7 @@ mod tests {
                     FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
                             key: "email".to_string(),
-                            value: json!("@posthog.com"),
+                            value: Some(json!("@posthog.com")),
                             operator: Some(OperatorType::Icontains),
                             prop_type: "person".to_string(),
                             group_type_index: None,
@@ -4887,7 +4887,7 @@ mod tests {
                 super_groups: Some(vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "$feature_enrollment/artificial-hog".to_string(),
-                        value: json!(["true"]),
+                        value: Some(json!(["true"])),
                         operator: Some(OperatorType::Exact),
                         prop_type: "person".to_string(),
                         group_type_index: None,

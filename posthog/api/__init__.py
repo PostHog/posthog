@@ -1,6 +1,7 @@
 from rest_framework import decorators, exceptions, viewsets
 from rest_framework_extensions.routers import NestedRegistryItem
 
+import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 import products.early_access_features.backend.api as early_access_feature
 from products.editor.backend.api import LLMProxyViewSet, MaxToolsViewSet
 from posthog.api import data_color_theme, metalytics, project, wizard
@@ -328,6 +329,12 @@ register_grandfathered_environment_nested_viewset(
     "environment_external_data_schemas",
     ["team_id"],
 )
+environments_router.register(
+    r"fix_hogql",
+    fix_hogql.FixHogQLViewSet,
+    "project_fix_hogql",
+    ["team_id"],
+)
 
 # Organizations nested endpoints
 organizations_router = router.register(r"organizations", organization.OrganizationViewSet, "organizations")
@@ -551,6 +558,13 @@ environments_router.register(
     r"error_tracking/symbol_sets",
     error_tracking.ErrorTrackingSymbolSetViewSet,
     "project_error_tracking_symbol_set",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"error_tracking/assignment_rules",
+    error_tracking.ErrorTrackingAssignmentRuleViewSet,
+    "project_error_tracking_assignment_rule",
     ["team_id"],
 )
 

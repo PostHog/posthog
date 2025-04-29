@@ -62,6 +62,7 @@ pub struct RawErrProps {
     pub other: HashMap<String, Value>,
 }
 
+#[derive(Debug, Clone)]
 pub struct FingerprintedErrProps {
     pub exception_list: Vec<Exception>,
     pub fingerprint: String,

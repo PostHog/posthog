@@ -95,13 +95,11 @@ export function BulkActions(): JSX.Element {
                 }}
             />
             <AssigneeSelect assignee={null} onChange={(assignee) => assignIssues(selectedIssueIds, assignee)}>
-                {(displayAssignee) => {
-                    return (
-                        <LemonButton type="secondary" size="small">
-                            <AssigneeLabelDisplay assignee={displayAssignee} placeholder="Assign" />
-                        </LemonButton>
-                    )
-                }}
+                {(displayAssignee) => (
+                    <LemonButton type="secondary" size="small">
+                        <AssigneeLabelDisplay assignee={displayAssignee} placeholder="Assign" />
+                    </LemonButton>
+                )}
             </AssigneeSelect>
         </>
     ) : (

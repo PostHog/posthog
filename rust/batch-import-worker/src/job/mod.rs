@@ -48,10 +48,12 @@ struct Checkpoint {
 
 impl Job {
     pub async fn new(mut model: JobModel, context: Arc<AppContext>) -> Result<Self, Error> {
+        let is_restarting = model.state.is_some();
+
         let source = model
             .import_config
             .source
-            .construct(&model.secrets, context.clone())
+            .construct(&model.secrets, context.clone(), is_restarting)
             .await?;
 
         let transform = Box::new(
