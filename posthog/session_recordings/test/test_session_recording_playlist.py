@@ -70,8 +70,8 @@ class TestSessionRecordingPlaylist(APIBaseTest):
         }
 
     def test_list_playlists_when_there_are_some_playlists(self):
-        playlist_one = self._create_playlist({"name": "test"})
-        playlist_two = self._create_playlist({"name": "test2"})
+        playlist_one = self._create_playlist({"name": "test", "type": "collection"})
+        playlist_two = self._create_playlist({"name": "test2", "type": "collection"})
 
         # set some saved filter counts up
         SessionRecordingViewed.objects.create(
@@ -138,6 +138,7 @@ class TestSessionRecordingPlaylist(APIBaseTest):
                         },
                     },
                     "short_id": playlist_two.json()["short_id"],
+                    "type": "collection",
                 },
                 {
                     "created_at": mock.ANY,
@@ -185,6 +186,7 @@ class TestSessionRecordingPlaylist(APIBaseTest):
                         },
                     },
                     "short_id": playlist_one.json()["short_id"],
+                    "type": "collection",
                 },
             ],
         }
@@ -244,6 +246,7 @@ class TestSessionRecordingPlaylist(APIBaseTest):
                     "last_refreshed_at": None,
                 },
             },
+            "type": None,
         }
 
     def test_can_create_many_playlists(self):
@@ -425,7 +428,9 @@ class TestSessionRecordingPlaylist(APIBaseTest):
 
     def test_filters_saved_filters_type(self):
         # Create a playlist with pinned recordings and no filters
-        playlist1 = SessionRecordingPlaylist.objects.create(team=self.team, name="pinned only", created_by=self.user)
+        playlist1 = SessionRecordingPlaylist.objects.create(
+            team=self.team, name="pinned only", created_by=self.user, type="collection"
+        )
         recording1 = SessionRecording.objects.create(team=self.team, session_id=str(uuid4()))
         SessionRecordingPlaylistItem.objects.create(playlist=playlist1, recording=recording1)
 
@@ -435,6 +440,7 @@ class TestSessionRecordingPlaylist(APIBaseTest):
             name="pinned and filters",
             created_by=self.user,
             filters={"events": [{"id": "test"}]},
+            type="collection",
         )
         recording2 = SessionRecording.objects.create(team=self.team, session_id=str(uuid4()))
         SessionRecordingPlaylistItem.objects.create(playlist=playlist2, recording=recording2)
@@ -445,6 +451,7 @@ class TestSessionRecordingPlaylist(APIBaseTest):
             name="filters only",
             created_by=self.user,
             filters={"events": [{"id": "test"}]},
+            type="filters",
         )
 
         # Create a playlist with only deleted pinned items
@@ -452,13 +459,14 @@ class TestSessionRecordingPlaylist(APIBaseTest):
             team=self.team,
             name="deleted pinned only",
             created_by=self.user,
+            type="collection",
         )
         recording4 = SessionRecording.objects.create(team=self.team, session_id=str(uuid4()))
         SessionRecordingPlaylistItem.objects.create(playlist=playlist4, recording=recording4)
         SessionRecordingPlaylistItem.objects.filter(playlist=playlist4, recording=recording4).update(deleted=True)
 
         response = self.client.get(
-            f"/api/projects/{self.team.id}/session_recording_playlists?type=saved_filters",
+            f"/api/projects/{self.team.id}/session_recording_playlists?type=filters",
         )
         assert response.status_code == status.HTTP_200_OK
         results = response.json()["results"]
