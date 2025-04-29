@@ -114,7 +114,22 @@ export function Products(): JSX.Element {
                             ))}
                         </div>
 
-                        <div className={clsx('flex gap-6 items-center justify-center', hasIngestedEvent && 'flex-col')}>
+                        <div
+                            className={clsx(
+                                'flex flex-col-reverse sm:flex-row gap-4 items-center justify-center w-full',
+                                hasIngestedEvent && 'sm:justify-between sm:px-4'
+                            )}
+                        >
+                            {hasIngestedEvent && (
+                                <LemonButton
+                                    status="alt"
+                                    onClick={() => {
+                                        skipOnboarding()
+                                    }}
+                                >
+                                    Skip onboarding
+                                </LemonButton>
+                            )}
                             {selectedProducts.length > 1 ? (
                                 <div className="flex gap-2 items-center justify-center">
                                     <LemonLabel>Start first with</LemonLabel>
@@ -150,17 +165,6 @@ export function Products(): JSX.Element {
                                     }
                                 >
                                     Get started
-                                </LemonButton>
-                            )}
-                            {hasIngestedEvent && (
-                                <LemonButton
-                                    sideIcon={<IconArrowRight />}
-                                    status="alt"
-                                    onClick={() => {
-                                        skipOnboarding()
-                                    }}
-                                >
-                                    Skip onboarding
                                 </LemonButton>
                             )}
                         </div>
