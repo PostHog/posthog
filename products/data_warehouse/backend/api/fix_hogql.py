@@ -1,5 +1,9 @@
 from typing import cast
 import uuid
+
+import posthoganalytics
+from posthoganalytics.ai.langchain.callbacks import CallbackHandler
+
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from rest_framework import status, viewsets
 from rest_framework.request import Request
@@ -24,7 +28,7 @@ class FixHogQLViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 data={"message": "No query provided"},
             )
 
-        trace_id = str(uuid.uuid4())
+        trace_id = f"fix_hogql_query_{uuid.uuid4()}"
         user = cast(User, request.user)
 
         config: RunnableConfig = {
@@ -38,7 +42,12 @@ class FixHogQLViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "team_id": self.team_id,
                 "trace_id": trace_id,
                 "distinct_id": user.distinct_id,
-            }
+            },
+            "callbacks": (
+                [CallbackHandler(posthoganalytics.default_client, distinct_id=user.distinct_id, trace_id=trace_id)]
+                if posthoganalytics.default_client
+                else None
+            ),
         }
 
         result = HogQLQueryFixerTool(_team_id=self.team_id, _context={}).invoke({}, config)
