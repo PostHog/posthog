@@ -1,16 +1,19 @@
-package main
+package events
 
 import (
 	"encoding/json"
 	"errors"
-	"github.com/prometheus/client_golang/prometheus"
 	"log"
 	"strconv"
 	"time"
 
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
+	"github.com/posthog/posthog/livestream/geo"
+	"github.com/posthog/posthog/livestream/metrics"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
+//easyjson:json
 type PostHogEventWrapper struct {
 	Uuid       string `json:"uuid"`
 	DistinctId string `json:"distinct_id"`
@@ -19,6 +22,7 @@ type PostHogEventWrapper struct {
 	Token      string `json:"token"`
 }
 
+//easyjson:json
 type PostHogEvent struct {
 	Token      string                 `json:"api_key,omitempty"`
 	Event      string                 `json:"event"`
@@ -40,14 +44,16 @@ type KafkaConsumerInterface interface {
 type PostHogKafkaConsumer struct {
 	consumer     KafkaConsumerInterface
 	topic        string
-	geolocator   GeoLocator
+	geolocator   geo.GeoLocator
+	incoming     chan []byte
 	outgoingChan chan PostHogEvent
 	statsChan    chan CountEvent
+	parallel     int
 }
 
 func NewPostHogKafkaConsumer(
-	brokers string, securityProtocol string, groupID string, topic string, geolocator GeoLocator,
-	outgoingChan chan PostHogEvent, statsChan chan CountEvent) (*PostHogKafkaConsumer, error) {
+	brokers string, securityProtocol string, groupID string, topic string, geolocator geo.GeoLocator,
+	outgoingChan chan PostHogEvent, statsChan chan CountEvent, parallel int) (*PostHogKafkaConsumer, error) {
 
 	config := &kafka.ConfigMap{
 		"bootstrap.servers":          brokers,
@@ -69,8 +75,10 @@ func NewPostHogKafkaConsumer(
 		consumer:     consumer,
 		topic:        topic,
 		geolocator:   geolocator,
+		incoming:     make(chan []byte, (1+parallel)*10),
 		outgoingChan: outgoingChan,
 		statsChan:    statsChan,
+		parallel:     parallel,
 	}, nil
 }
 
@@ -80,15 +88,19 @@ func (c *PostHogKafkaConsumer) Consume() {
 		log.Fatalf("Failed to subscribe to topic: %v", err)
 	}
 
+	for i := 0; i < c.parallel; i++ {
+		go c.runParsing()
+	}
+
 	for {
 		msg, err := c.consumer.ReadMessage(15 * time.Second)
 		if err != nil {
 			var inErr kafka.Error
 			if errors.As(err, &inErr) {
 				if inErr.Code() == kafka.ErrTransport {
-					connectFailure.Inc()
+					metrics.ConnectFailure.Inc()
 				} else if inErr.IsTimeout() {
-					timeoutConsume.Inc()
+					metrics.TimeoutConsume.Inc()
 					continue
 				}
 			}
@@ -97,15 +109,24 @@ func (c *PostHogKafkaConsumer) Consume() {
 			continue
 		}
 
-		msgConsumed.With(prometheus.Labels{"partition": strconv.Itoa(int(msg.TopicPartition.Partition))}).Inc()
-		phEvent := parse(c.geolocator, msg.Value)
+		metrics.MsgConsumed.With(prometheus.Labels{"partition": strconv.Itoa(int(msg.TopicPartition.Partition))}).Inc()
+		c.incoming <- msg.Value
+	}
+}
 
+func (c *PostHogKafkaConsumer) runParsing() {
+	for {
+		value, ok := <-c.incoming
+		if !ok {
+			return
+		}
+		phEvent := parse(c.geolocator, value)
 		c.outgoingChan <- phEvent
 		c.statsChan <- CountEvent{Token: phEvent.Token, DistinctID: phEvent.DistinctId}
 	}
 }
 
-func parse(geolocator GeoLocator, kafkaMessage []byte) PostHogEvent {
+func parse(geolocator geo.GeoLocator, kafkaMessage []byte) PostHogEvent {
 	var wrapperMessage PostHogEventWrapper
 	if err := json.Unmarshal(kafkaMessage, &wrapperMessage); err != nil {
 		log.Printf("Error decoding JSON %s: %v", err, string(kafkaMessage))
@@ -158,5 +179,9 @@ func parse(geolocator GeoLocator, kafkaMessage []byte) PostHogEvent {
 }
 
 func (c *PostHogKafkaConsumer) Close() {
-	c.consumer.Close()
+	if err := c.consumer.Close(); err != nil {
+		// TODO capture error to PostHog
+		log.Printf("Failed to close consumer: %v", err)
+	}
+	close(c.incoming)
 }
