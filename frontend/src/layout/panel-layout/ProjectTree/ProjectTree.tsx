@@ -1,5 +1,6 @@
 import { IconChevronRight, IconFolderPlus } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+import { MoveFilesModal } from 'lib/components/FileSystem/MoveFilesModal'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
@@ -46,6 +47,8 @@ export function ProjectTree(): JSX.Element {
         checkedItemCountNumeric,
         scrollTargetId,
         editingItemId,
+        checkedItemsArray,
+        movingItems,
     } = useValues(projectTreeLogic)
 
     const {
@@ -62,11 +65,11 @@ export function ProjectTree(): JSX.Element {
         onItemChecked,
         moveCheckedItems,
         linkCheckedItems,
-        deleteCheckedItems,
         setCheckedItems,
         assureVisibility,
         clearScrollTarget,
         setEditingItemId,
+        setMovingItems,
     } = useActions(projectTreeLogic)
 
     const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier, setProjectTreeMode } =
@@ -115,6 +118,7 @@ export function ProjectTree(): JSX.Element {
                         <ButtonPrimitive menuItem>{checkedItems[item.id] ? 'Deselect' : 'Select'}</ButtonPrimitive>
                     </MenuItem>
                 ) : null}
+
                 {item.record?.path && item.record?.type !== 'folder' && item.record?.href ? (
                     <>
                         <MenuItem
@@ -246,10 +250,9 @@ export function ProjectTree(): JSX.Element {
                                 })}
                             </MenuSubContent>
                         </MenuSub>
+                        <MenuSeparator />
                     </>
                 ) : null}
-
-                <MenuSeparator />
 
                 {item.record?.path ? (
                     <MenuItem
@@ -262,6 +265,7 @@ export function ProjectTree(): JSX.Element {
                         <ButtonPrimitive menuItem>Copy path</ButtonPrimitive>
                     </MenuItem>
                 ) : null}
+
                 {item.record?.path && item.record?.shortcut ? (
                     <MenuItem
                         asChild
@@ -273,6 +277,7 @@ export function ProjectTree(): JSX.Element {
                         <ButtonPrimitive menuItem>Show original</ButtonPrimitive>
                     </MenuItem>
                 ) : null}
+
                 {item.record?.path && item.record?.type === 'folder' ? (
                     <MenuItem
                         asChild
@@ -285,26 +290,7 @@ export function ProjectTree(): JSX.Element {
                     </MenuItem>
                 ) : null}
 
-                {checkedItemCountNumeric > 1 && checkedItems[item.id] ? (
-                    <>
-                        <MenuItem asChild>
-                            <ButtonPrimitive menuItem disabled>
-                                Delete {checkedItemsCount} item{checkedItemCountNumeric === 1 ? '' : 's'}
-                            </ButtonPrimitive>
-                        </MenuItem>
-                        <MenuItem
-                            asChild
-                            onClick={(e: any) => {
-                                e.stopPropagation()
-                                deleteCheckedItems()
-                            }}
-                        >
-                            <ButtonPrimitive menuItem>
-                                Move {checkedItemsCount} item{checkedItemCountNumeric === 1 ? '' : 's'} to 'Unfiled'
-                            </ButtonPrimitive>
-                        </MenuItem>
-                    </>
-                ) : item.record?.shortcut ? (
+                {item.record?.shortcut && (
                     <MenuItem
                         asChild
                         onClick={(e) => {
@@ -314,28 +300,22 @@ export function ProjectTree(): JSX.Element {
                     >
                         <ButtonPrimitive menuItem>Delete shortcut</ButtonPrimitive>
                     </MenuItem>
-                ) : (
-                    <>
-                        <MenuItem asChild disabled>
-                            <ButtonPrimitive menuItem disabled={!item.record?.shortcut}>
-                                {item.record?.type === 'folder' ? 'Delete folder' : 'Delete'}
-                            </ButtonPrimitive>
-                        </MenuItem>
-                        {item.record?.type === 'folder' || !item.record?.path.startsWith('Unfiled/') ? (
-                            <MenuItem
-                                asChild
-                                onClick={(e: any) => {
-                                    e.stopPropagation()
-                                    deleteItem(item.record as unknown as FileSystemEntry)
-                                }}
-                            >
-                                <ButtonPrimitive menuItem>
-                                    {item.record?.type === 'folder' ? "Move folder to 'Unfiled'" : "Move to 'Unfiled'"}
-                                </ButtonPrimitive>
-                            </MenuItem>
-                        ) : null}
-                    </>
                 )}
+
+                <MenuItem
+                    asChild
+                    onClick={(e: any) => {
+                        e.stopPropagation()
+
+                        if (checkedItemsArray.length > 0) {
+                            setMovingItems(checkedItemsArray)
+                        } else {
+                            setMovingItems([item.record as unknown as FileSystemEntry])
+                        }
+                    }}
+                >
+                    <ButtonPrimitive menuItem>Move to...</ButtonPrimitive>
+                </MenuItem>
             </>
         )
     }
@@ -510,6 +490,36 @@ export function ProjectTree(): JSX.Element {
                     )
                 }}
             />
+
+            {movingItems.length > 0 && (
+                <MoveFilesModal
+                    items={movingItems}
+                    handleMove={(destinationFolder) => {
+                        if (checkedItemCountNumeric > 0) {
+                            moveCheckedItems(destinationFolder)
+                        } else if (destinationFolder === '') {
+                            const oldSplit = splitPath(movingItems[0].path)
+                            const oldFile = oldSplit.pop()
+                            if (oldFile && oldSplit.length > 0) {
+                                moveItem(movingItems[0] as unknown as FileSystemEntry, joinPath([oldFile]))
+                            }
+                        } else if (destinationFolder) {
+                            const oldPath = movingItems[0].path
+                            const oldSplit = splitPath(oldPath)
+                            const oldFile = oldSplit.pop()
+                            if (oldFile) {
+                                const newFile = joinPath([...splitPath(String(destinationFolder)), oldFile])
+                                if (movingItems[0] && newFile !== oldPath) {
+                                    moveItem(movingItems[0] as unknown as FileSystemEntry, newFile)
+                                }
+                            }
+                        }
+                        // Clear the moving items and close the modal
+                        setMovingItems([])
+                    }}
+                    closeModal={() => setMovingItems([])}
+                />
+            )}
         </PanelLayoutPanel>
     )
 }
