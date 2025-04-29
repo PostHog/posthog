@@ -11,6 +11,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
+//easyjson:json
 type PostHogEventWrapper struct {
 	Uuid       string `json:"uuid"`
 	DistinctId string `json:"distinct_id"`
@@ -19,6 +20,7 @@ type PostHogEventWrapper struct {
 	Token      string `json:"token"`
 }
 
+//easyjson:json
 type PostHogEvent struct {
 	Token      string                 `json:"api_key,omitempty"`
 	Event      string                 `json:"event"`
@@ -40,16 +42,16 @@ type KafkaConsumerInterface interface {
 type PostHogKafkaConsumer struct {
 	consumer     KafkaConsumerInterface
 	topic        string
-	geolocator   GeoLocator
+	geolocator   main.GeoLocator
 	incoming     chan []byte
 	outgoingChan chan PostHogEvent
-	statsChan    chan CountEvent
+	statsChan    chan main.CountEvent
 	parallel     int
 }
 
 func NewPostHogKafkaConsumer(
-	brokers string, securityProtocol string, groupID string, topic string, geolocator GeoLocator,
-	outgoingChan chan PostHogEvent, statsChan chan CountEvent, parallel int) (*PostHogKafkaConsumer, error) {
+	brokers string, securityProtocol string, groupID string, topic string, geolocator main.GeoLocator,
+	outgoingChan chan PostHogEvent, statsChan chan main.CountEvent, parallel int) (*PostHogKafkaConsumer, error) {
 
 	config := &kafka.ConfigMap{
 		"bootstrap.servers":          brokers,
@@ -118,11 +120,11 @@ func (c *PostHogKafkaConsumer) runParsing() {
 		}
 		phEvent := parse(c.geolocator, value)
 		c.outgoingChan <- phEvent
-		c.statsChan <- CountEvent{Token: phEvent.Token, DistinctID: phEvent.DistinctId}
+		c.statsChan <- main.CountEvent{Token: phEvent.Token, DistinctID: phEvent.DistinctId}
 	}
 }
 
-func parse(geolocator GeoLocator, kafkaMessage []byte) PostHogEvent {
+func parse(geolocator main.GeoLocator, kafkaMessage []byte) PostHogEvent {
 	var wrapperMessage PostHogEventWrapper
 	if err := json.Unmarshal(kafkaMessage, &wrapperMessage); err != nil {
 		log.Printf("Error decoding JSON %s: %v", err, string(kafkaMessage))
