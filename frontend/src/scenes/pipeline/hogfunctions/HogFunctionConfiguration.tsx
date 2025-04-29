@@ -2,8 +2,8 @@ import { IconPlus } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
+    LemonDialog,
     LemonDivider,
-    LemonDropdown,
     LemonInput,
     LemonLabel,
     LemonSwitch,
@@ -85,15 +85,16 @@ export function HogFunctionConfiguration({
         personsCountLoading,
         personsListQuery,
         template,
-        templateHasChanged,
         type,
         usesGroups,
         hasGroupsAddon,
+        expertMode,
     } = useValues(logic)
 
     // State for debounced mightDropEvents check
     const [mightDrop, setMightDrop] = useState(false)
     const [debouncedCode, setDebouncedCode] = useState('')
+    const [showDisableConfirm, setShowDisableConfirm] = useState(false)
 
     // Debounce the code check
     useEffect(() => {
@@ -120,9 +121,9 @@ export function HogFunctionConfiguration({
         setShowSource,
         duplicate,
         resetToTemplate,
-        duplicateFromTemplate,
         setConfigurationValue,
         deleteHogFunction,
+        setExpertMode,
     } = useActions(logic)
     const canEditTransformationHogCode = useFeatureFlag('HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED')
     const sourceCodeRef = useRef<HTMLDivElement>(null)
@@ -293,7 +294,10 @@ export function HogFunctionConfiguration({
 
                                         <div className="flex flex-col items-start justify-start flex-1 py-1">
                                             <span className="font-semibold">{configuration.name}</span>
-                                            {template && <DestinationTag status={template.status} />}
+                                            <div className="flex gap-2">
+                                                {template && <DestinationTag status={template.status} />}
+                                                {expertMode && <LemonTag type="warning">Expert mode</LemonTag>}
+                                            </div>
                                         </div>
 
                                         {showStatus && <HogFunctionStatusIndicator hogFunction={hogFunction} />}
@@ -311,6 +315,7 @@ export function HogFunctionConfiguration({
                                             </LemonField>
                                         )}
                                     </div>
+
                                     <LemonField name="name" label="Name">
                                         <LemonInput type="text" disabled={loading} />
                                     </LemonField>
@@ -321,54 +326,41 @@ export function HogFunctionConfiguration({
                                     >
                                         <LemonTextArea disabled={loading} />
                                     </LemonField>
-
                                     {isLegacyPlugin ? null : hogFunction?.template &&
                                       !hogFunction.template.id.startsWith('template-blank-') ? (
-                                        <LemonDropdown
-                                            showArrow
-                                            overlay={
-                                                <div className="p-1 max-w-120">
-                                                    <p>
-                                                        This function was built from the template{' '}
-                                                        <b>{hogFunction.template.name}</b>. If the template is updated,
-                                                        this function is not affected unless you choose to update it.
-                                                    </p>
-
-                                                    <div className="flex items-center flex-1 gap-2 pt-2 border-t">
-                                                        <div className="flex-1">
-                                                            <LemonButton>Close</LemonButton>
+                                        <>
+                                            {showDisableConfirm && (
+                                                <LemonDialog
+                                                    title="Disable advanced mode?"
+                                                    content={
+                                                        <div>
+                                                            This will reset everything to the latest version of the
+                                                            template.
+                                                            <br />
+                                                            <b>All your custom code and input schema will be lost.</b>
+                                                            <br />
+                                                            Are you sure you want to continue?
                                                         </div>
-
-                                                        <LemonButton
-                                                            type="secondary"
-                                                            onClick={() => duplicateFromTemplate()}
-                                                        >
-                                                            New function from template
-                                                        </LemonButton>
-
-                                                        {templateHasChanged ? (
-                                                            <LemonButton
-                                                                type="primary"
-                                                                onClick={() => resetToTemplate()}
-                                                            >
-                                                                Update
-                                                            </LemonButton>
-                                                        ) : null}
-                                                    </div>
-                                                </div>
-                                            }
-                                        >
-                                            <div className="text-xs border border-dashed rounded text-secondary">
-                                                <Link subtle className="flex flex-wrap items-center gap-1 p-2">
-                                                    Built from template:
-                                                    <span className="font-semibold">{hogFunction?.template.name}</span>
-                                                    <DestinationTag status={hogFunction.template.status} />
-                                                    {templateHasChanged ? (
-                                                        <LemonTag type="success">Update available!</LemonTag>
-                                                    ) : null}
-                                                </Link>
-                                            </div>
-                                        </LemonDropdown>
+                                                    }
+                                                    primaryButton={{
+                                                        children: 'Revert to template',
+                                                        type: 'primary',
+                                                        onClick: () => {
+                                                            resetToTemplate()
+                                                            setShowSource(false)
+                                                            setExpertMode(false)
+                                                            setShowDisableConfirm(false)
+                                                        },
+                                                    }}
+                                                    secondaryButton={{
+                                                        children: 'Cancel',
+                                                        type: 'secondary',
+                                                        onClick: () => setShowDisableConfirm(false),
+                                                    }}
+                                                    onClose={() => setShowDisableConfirm(false)}
+                                                />
+                                            )}
+                                        </>
                                     ) : null}
                                 </div>
 
@@ -481,82 +473,82 @@ export function HogFunctionConfiguration({
                                     <div className="flex items-center justify-end gap-2">
                                         <div className="flex-1 deprecated-space-y-2">
                                             <h2 className="mb-0">Edit source</h2>
-                                            {!showSource ? <p>Click here to edit the function's source code</p> : null}
                                         </div>
-
-                                        {!showSource ? (
+                                        {!expertMode ? (
                                             <LemonButton
                                                 type="secondary"
                                                 onClick={() => {
+                                                    setExpertMode(true)
                                                     setShowSource(true)
-                                                    setTimeout(() => {
-                                                        sourceCodeRef.current?.scrollIntoView({
-                                                            behavior: 'smooth',
-                                                            block: 'start',
-                                                        })
-                                                    }, 100)
                                                 }}
+                                                size="small"
                                                 disabledReason={
                                                     !hasAddon
                                                         ? 'Editing the source code requires the Data Pipelines addon'
                                                         : undefined
                                                 }
                                             >
-                                                Edit source code
+                                                Enter advanced mode
                                             </LemonButton>
                                         ) : (
                                             <LemonButton
                                                 size="xsmall"
                                                 type="secondary"
-                                                onClick={() => setShowSource(false)}
+                                                onClick={() => setShowDisableConfirm(true)}
                                             >
-                                                Hide source code
+                                                Disable advanced mode
                                             </LemonButton>
                                         )}
                                     </div>
 
-                                    {showSource ? (
-                                        <LemonField name="hog">
-                                            {({ value, onChange }) => (
-                                                <>
-                                                    {!type.startsWith('site_') ? (
-                                                        <span className="text-xs text-secondary">
-                                                            This is the underlying Hog code that will run whenever the
-                                                            filters match.{' '}
-                                                            <Link to="https://posthog.com/docs/hog">See the docs</Link>{' '}
-                                                            for more info
-                                                        </span>
-                                                    ) : null}
-                                                    {type === 'transformation' && mightDrop && (
-                                                        <LemonBanner type="warning" className="mt-2">
-                                                            <b>Warning:</b> Returning null or undefined will drop the
-                                                            event. If this is unintentional, return the event object
-                                                            instead.
-                                                        </LemonBanner>
+                                    {!expertMode ? (
+                                        <p>
+                                            Enter advanced mode to customize using your own code. <br />
+                                            <b>You will no longer receive updates from the template</b>.
+                                        </p>
+                                    ) : (
+                                        <>
+                                            {showSource && (
+                                                <LemonField name="hog">
+                                                    {({ value, onChange }) => (
+                                                        <>
+                                                            {!type.startsWith('site_') ? (
+                                                                <span className="text-xs text-secondary">
+                                                                    This is the underlying Hog code that will run
+                                                                    whenever the filters match.{' '}
+                                                                    <Link to="https://posthog.com/docs/hog">
+                                                                        See the docs
+                                                                    </Link>{' '}
+                                                                    for more info
+                                                                </span>
+                                                            ) : null}
+                                                            <CodeEditorResizeable
+                                                                language={
+                                                                    type.startsWith('site_') ? 'typescript' : 'hog'
+                                                                }
+                                                                value={value ?? ''}
+                                                                onChange={(v) => onChange(v ?? '')}
+                                                                globals={globalsWithInputs}
+                                                                options={{
+                                                                    minimap: {
+                                                                        enabled: false,
+                                                                    },
+                                                                    wordWrap: 'on',
+                                                                    scrollBeyondLastLine: false,
+                                                                    automaticLayout: true,
+                                                                    fixedOverflowWidgets: true,
+                                                                    suggest: {
+                                                                        showInlineDetails: true,
+                                                                    },
+                                                                    quickSuggestionsDelay: 300,
+                                                                }}
+                                                            />
+                                                        </>
                                                     )}
-                                                    <CodeEditorResizeable
-                                                        language={type.startsWith('site_') ? 'typescript' : 'hog'}
-                                                        value={value ?? ''}
-                                                        onChange={(v) => onChange(v ?? '')}
-                                                        globals={globalsWithInputs}
-                                                        options={{
-                                                            minimap: {
-                                                                enabled: false,
-                                                            },
-                                                            wordWrap: 'on',
-                                                            scrollBeyondLastLine: false,
-                                                            automaticLayout: true,
-                                                            fixedOverflowWidgets: true,
-                                                            suggest: {
-                                                                showInlineDetails: true,
-                                                            },
-                                                            quickSuggestionsDelay: 300,
-                                                        }}
-                                                    />
-                                                </>
+                                                </LemonField>
                                             )}
-                                        </LemonField>
-                                    ) : null}
+                                        </>
+                                    )}
                                 </div>
                             )}
                             {showTesting ? (

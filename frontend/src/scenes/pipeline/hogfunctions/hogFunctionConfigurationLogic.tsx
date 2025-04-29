@@ -305,6 +305,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         setSampleGlobals: (sampleGlobals: HogFunctionInvocationGlobals | null) => ({ sampleGlobals }),
         setShowEventsList: (showEventsList: boolean) => ({ showEventsList }),
         sendBroadcast: true,
+        setExpertMode: (enabled: boolean) => ({ enabled }),
     }),
     reducers(({ props }) => ({
         sampleGlobals: [
@@ -320,14 +321,18 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 setShowSource: (_, { showSource }) => showSource,
             },
         ],
-
+        expertMode: [
+            false,
+            {
+                setExpertMode: (_, { enabled }) => enabled,
+            },
+        ],
         hasHadSubmissionErrors: [
             false,
             {
                 upsertHogFunctionFailure: () => true,
             },
         ],
-
         unsavedConfiguration: [
             null as { timestamp: number; configuration: HogFunctionConfigurationType } | null,
             { persist: true },
@@ -336,7 +341,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     configuration ? { timestamp: Date.now(), configuration } : null,
             },
         ],
-
         sampleGlobalsError: [
             null as null | string,
             {
@@ -1050,6 +1054,16 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 const configStr = JSON.stringify(configuration)
                 return configStr.includes('groups.') || configStr.includes('{groups}')
             },
+        ],
+        canEditSource: [
+            (s) => [s.expertMode, s.hasAddon, s.isLegacyPlugin],
+            (expertMode, hasAddon, isLegacyPlugin) => {
+                return expertMode && hasAddon && !isLegacyPlugin
+            },
+        ],
+        isLegacyPlugin: [
+            (s) => [s.template, s.hogFunction],
+            (template, hogFunction) => (template?.id || hogFunction?.template?.id)?.startsWith('plugin-'),
         ],
     })),
 
