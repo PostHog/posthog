@@ -57,6 +57,7 @@ export function TaxonomicBreakdownFilter({
                 key={breakdown.property}
                 breakdown={breakdown.property}
                 breakdownType={breakdown.type ?? 'event'}
+                isFunnels={isFunnels}
                 isTrends={isTrends}
                 size={size}
             />
@@ -65,6 +66,7 @@ export function TaxonomicBreakdownFilter({
                 key={breakdown}
                 breakdown={breakdown}
                 breakdownType={breakdownFilter?.breakdown_type ?? 'event'}
+                isFunnels={isFunnels}
                 isTrends={isTrends}
                 size={size}
             />

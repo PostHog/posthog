@@ -21,6 +21,7 @@ type EditableBreakdownTagProps = {
     breakdown: string | number
     breakdownType: BreakdownType
     isTrends: boolean
+    isFunnels: boolean
     size?: 'small' | 'medium'
 }
 
@@ -28,13 +29,14 @@ export function EditableBreakdownTag({
     breakdown,
     breakdownType,
     isTrends,
+    isFunnels,
     size = 'medium',
 }: EditableBreakdownTagProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const [filterOpen, setFilterOpen] = useState(false)
     const [menuOpen, setMenuOpen] = useState(false)
 
-    const logicProps = { insightProps, breakdown, breakdownType, isTrends }
+    const logicProps = { insightProps, breakdown, breakdownType, isTrends, isFunnels }
     const { removeBreakdown } = useActions(breakdownTagLogic(logicProps))
     const { isMultipleBreakdownsEnabled, isHistogramable, isNormalizeable, taxonomicBreakdownType } = useValues(
         breakdownTagLogic(logicProps)
