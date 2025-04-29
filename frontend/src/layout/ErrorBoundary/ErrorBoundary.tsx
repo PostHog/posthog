@@ -15,7 +15,7 @@ export function ErrorBoundary({ children, exceptionProps = {} }: ErrorBoundaryPr
     const { currentTeamId } = useValues(teamLogic)
     const { openSupportForm } = useActions(supportLogic)
 
-    const additionalProperties = exceptionProps
+    const additionalProperties = { ...exceptionProps }
 
     if (currentTeamId !== undefined) {
         additionalProperties.team_id = currentTeamId
