@@ -143,7 +143,7 @@ def RAW_SESSIONS_DATA_TABLE_ENGINE():
 # 1M / 24 / 60 / 8192 = ~0.08. This is <1, so we wouldn't benefit much from sampling.
 
 
-def RAW_SESSIONS_TABLE_SQL():
+def RAW_SESSIONS_TABLE_SQL(on_cluster=True):
     return (
         RAW_SESSIONS_TABLE_BASE_SQL
         + """
@@ -158,6 +158,7 @@ SAMPLE BY cityHash64(session_id_v7)
 """
     ).format(
         table_name=SHARDED_RAW_SESSIONS_DATA_TABLE(),
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=RAW_SESSIONS_DATA_TABLE_ENGINE(),
     )
 
