@@ -496,16 +496,17 @@ def enqueue_recordings_that_match_playlist_filters() -> None:
     ).filter(Q(last_counted_at__isnull=True) | Q(last_counted_at__lt=timezone.now() - timedelta(hours=2)))
 
     total_playlists_count = base_query.count()
-    all_playlists = base_query.order_by(F("last_counted_at").asc(nulls_first=True))[
-        : settings.PLAYLIST_COUNTER_PROCESSING_PLAYLISTS_LIMIT
-    ]
 
-    # Count how many playlists we're tracking in Redis
+    all_playlists: list[int] = base_query.order_by(F("last_counted_at").asc(nulls_first=True)).values_list(
+        "id", flat=True
+    )[: settings.PLAYLIST_COUNTER_PROCESSING_PLAYLISTS_LIMIT]
+
     cached_counted_playlists_count = count_playlists_in_redis()
 
+    # these two gauges let us see how "full" the cache is
     REPLAY_TOTAL_PLAYLISTS_GAUGE.set(total_playlists_count)
     REPLAY_PLAYLISTS_IN_REDIS_GAUGE.set(cached_counted_playlists_count)
 
-    for playlist in all_playlists:
-        count_recordings_that_match_playlist_filters.delay(playlist.id)
+    for playlist_id in all_playlists:
+        count_recordings_that_match_playlist_filters.delay(playlist_id)
         REPLAY_TEAM_PLAYLISTS_IN_TEAM_COUNT.inc()
