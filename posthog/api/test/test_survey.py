@@ -3355,8 +3355,9 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/surveys/{survey.id}/stats/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        data = response.json()
-        stats = data["stats"]
+        data: dict[str, Any] = response.json()
+        stats: dict[str, dict[str, Any]] = data["stats"]
+        rates: dict[str, float] = data["rates"]
 
         # Check counts based on unique events/persons
         self.assertEqual(stats["survey shown"]["total_count"], 2)
