@@ -112,7 +112,7 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         "kafka": is_cloud() or is_kafka_connected() or settings.TEST,
         "db": is_cloud() or is_postgres_alive(),
         "initiated": is_cloud() or Organization.objects.exists(),
-        "cloud": is_cloud() or True,
+        "cloud": is_cloud(),
         "demo": settings.DEMO,
         "realm": get_instance_realm(),
         "region": get_instance_region(),
