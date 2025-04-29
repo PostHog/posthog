@@ -2,29 +2,28 @@
 // To make this easier this class is designed to abstract the queue as much as possible from
 // the underlying implementation.
 
-import { CyclotronJob, CyclotronManager, CyclotronWorker } from '@posthog/cyclotron'
+import { CyclotronJob, CyclotronJobUpdate, CyclotronManager, CyclotronWorker } from '@posthog/cyclotron'
 import { chunk } from 'lodash'
+import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 import { Counter, Gauge, Histogram } from 'prom-client'
 
-import { KafkaConsumer, parseKafkaHeaders } from '../../kafka/batch-consumer-v2'
+import { KafkaConsumer, parseKafkaHeaders } from '../../kafka/consumer'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { Hub } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
+import { captureException } from '../../utils/posthog'
 import {
     HogFunctionInvocation,
+    HogFunctionInvocationGlobalsWithInputs,
     HogFunctionInvocationJobQueue,
+    HogFunctionInvocationQueueParameters,
     HogFunctionInvocationResult,
     HogFunctionInvocationSerialized,
+    HogFunctionType,
 } from '../types'
-import {
-    cyclotronJobToInvocation,
-    invocationToCyclotronJobUpdate,
-    isLegacyPluginHogFunction,
-    serializeHogFunctionInvocation,
-    serializeHogFunctionInvocationForCyclotron,
-} from '../utils'
+import { isLegacyPluginHogFunction } from '../utils'
 import { HogFunctionManagerService } from './hog-function-manager.service'
 
 const cyclotronBatchUtilizationGauge = new Gauge({
@@ -380,7 +379,6 @@ export class CyclotronJobQueue {
 
             // NOTE: We might crash out here and thats fine as it would indicate that the schema changed
             // which we have full control over so shouldn't be possible
-
             const hogFunction = hogFunctions[invocationSerialized.hogFunctionId]
 
             if (!hogFunction) {
@@ -401,5 +399,83 @@ export class CyclotronJobQueue {
         await this.consumeBatch!(invocations)
 
         counterJobsProcessed.inc({ queue: this.queue }, invocations.length)
+    }
+}
+
+function serializeHogFunctionInvocation(invocation: HogFunctionInvocation): HogFunctionInvocationSerialized {
+    const serializedInvocation: HogFunctionInvocationSerialized = {
+        ...invocation,
+        hogFunctionId: invocation.hogFunction.id,
+    }
+
+    delete (serializedInvocation as any).hogFunction
+
+    return serializedInvocation
+}
+
+function serializeHogFunctionInvocationForCyclotron(
+    invocation: HogFunctionInvocation
+): HogFunctionInvocationSerialized {
+    const serializedInvocation = serializeHogFunctionInvocation(invocation)
+
+    // Ensure we don't include this as it is set elsewhere
+    delete serializedInvocation.queueParameters
+
+    return serializedInvocation
+}
+
+function invocationToCyclotronJobUpdate(invocation: HogFunctionInvocation): CyclotronJobUpdate {
+    const queueParameters: HogFunctionInvocation['queueParameters'] = invocation.queueParameters
+    let blob: CyclotronJobUpdate['blob'] = null
+    let parameters: CyclotronJobUpdate['parameters'] = undefined
+
+    if (queueParameters) {
+        const { body, ...rest } = queueParameters
+        parameters = rest
+        blob = body ? Buffer.from(body) : null
+    }
+
+    const updates: CyclotronJobUpdate = {
+        vmState: serializeHogFunctionInvocationForCyclotron(invocation),
+        priority: invocation.queuePriority,
+        queueName: invocation.queue,
+        parameters,
+        blob,
+        metadata: invocation.queueMetadata,
+        scheduled: invocation.queueScheduledAt?.toISO(),
+    }
+    return updates
+}
+
+function cyclotronJobToInvocation(job: CyclotronJob, hogFunction: HogFunctionType): HogFunctionInvocation {
+    const parsedState = job.vmState as HogFunctionInvocationSerialized | null
+    const params = job.parameters as HogFunctionInvocationQueueParameters | undefined
+
+    if (job.blob && params) {
+        // Deserialize the blob into the params
+        try {
+            params.body = job.blob ? Buffer.from(job.blob).toString('utf-8') : undefined
+        } catch (e) {
+            logger.error('Error parsing blob', e, job.blob)
+            captureException(e)
+        }
+    }
+
+    // TRICKY: If this is being converted for the fetch service we don't deserialize the vmstate as it isn't necessary
+    // We cast it to the right type as we would rather things crash if they try to use it
+    // This will be fixed in an upcoming PR
+
+    return {
+        id: job.id,
+        globals: parsedState?.globals ?? ({} as unknown as HogFunctionInvocationGlobalsWithInputs),
+        teamId: hogFunction.team_id,
+        hogFunction,
+        queue: (job.queueName as any) ?? 'hog',
+        queuePriority: job.priority,
+        queueScheduledAt: job.scheduled ? DateTime.fromISO(job.scheduled) : undefined,
+        queueMetadata: job.metadata ?? undefined,
+        queueParameters: params,
+        vmState: parsedState?.vmState,
+        timings: parsedState?.timings ?? [],
     }
 }

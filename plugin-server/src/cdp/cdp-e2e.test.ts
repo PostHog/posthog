@@ -265,7 +265,7 @@ describe.each([['cyclotron' as const], ['kafka' as const]])('CDP Consumer loop: 
                 'Fetch failure of kind timeout with status (none) and message FetchError: Test error',
                 'Fetch failure of kind timeout with status (none) and message FetchError: Test error',
                 'Resuming function',
-                'Fetch response:, {"status":503,"body":{"event":{"uuid":"<REPLACED-UUID-0>","event":"$pageview","elements_chain":"","distinct_id":"distinct_id","url":"http://localhost:8000/events/1","properties":{"$current_url":"https://posthog.com","$lib_version":"1.0.0"},"timestamp":"2024-09-03T09:00:00Z"},"groups":{},"nested":{"foo":"http://localhost:8000/events/1"},"person":{"id":"uuid","name":"test","url":"http://localhost:8000/persons/1","properties":{"email":"test@posthog.com","first_name":"Pumpkin"}},"event_url":"http://localhost:8000/events/1-test"}}',
+                'Fetch response:, {"status":503}',
             ])
         })
     })
