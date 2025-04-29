@@ -450,8 +450,8 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
                 "replay_playlist_saved_filters_counted",
                 properties={
                     "team_id": playlist.team.pk,
-                    "playlist_short_id": playlist.short_id,
-                    "playlist_name": playlist.name or playlist.derived_name,
+                    "saved_filters_short_id": playlist.short_id,
+                    "saved_filters_name": playlist.name or playlist.derived_name,
                     "count": len(new_session_ids),
                     "previous_count": len(existing_value.get("session_ids", [])),
                 },
