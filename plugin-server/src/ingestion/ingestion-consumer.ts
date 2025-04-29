@@ -532,7 +532,6 @@ export class IngestionConsumer {
             const eventKey = `${event.token}:${event.distinct_id}`
 
             if (this.shouldSkipPerson(event.token, event.distinct_id)) {
-                // If we are skipping person processing, then we can parallelize processing of this event for dramatic performance gains
                 event.properties = {
                     ...(event.properties ?? {}),
                     $process_person_profile: false,
