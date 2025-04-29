@@ -398,7 +398,6 @@ export const surveyLogic = kea<surveyLogicType>([
 
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
-                    // Query now uses a direct subquery in the WHERE clause
                     query: `
                         -- QUERYING BASE STATS
                         SELECT
