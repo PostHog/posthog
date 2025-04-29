@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { FolderSelect } from 'lib/components/FolderSelect/FolderSelect'
-import { saveUnderLogic, SaveUnderLogicProps } from 'lib/components/SaveUnder/saveUnderLogic'
+import { saveToLogic, SaveToLogicProps } from 'lib/components/SaveTo/saveToLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -10,9 +10,9 @@ import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 
 const defaultPath = 'Unfiled'
 
-export function SaveUnderModal(): JSX.Element {
-    const { isOpen, form } = useValues(saveUnderLogic)
-    const { closeModal, submitForm } = useActions(saveUnderLogic)
+export function SaveToModal(): JSX.Element {
+    const { isOpen, form } = useValues(saveToLogic)
+    const { closeModal, submitForm } = useActions(saveToLogic)
 
     const allFolders = splitPath(form.folder || defaultPath)
 
@@ -44,7 +44,7 @@ export function SaveUnderModal(): JSX.Element {
             }
         >
             <div className="w-192 max-w-full">
-                <Form logic={saveUnderLogic} formKey="form">
+                <Form logic={saveToLogic} formKey="form">
                     <LemonField name="folder">
                         <FolderSelect className="h-[60vh] min-h-[200px]" />
                     </LemonField>
@@ -54,22 +54,22 @@ export function SaveUnderModal(): JSX.Element {
     )
 }
 
-export interface UseSaveUnderResponse {
+export interface UseSaveToResponse {
     openModal: () => void
     closeModal: () => void
-    SaveUnderModal: () => JSX.Element
+    SaveToModal: () => JSX.Element
     selectedFolder: string | undefined
 }
 
-export function useSaveUnder(props: SaveUnderLogicProps): UseSaveUnderResponse {
-    const { openModal, closeModal } = useActions(saveUnderLogic(props))
-    const { lastNewOperation } = useValues(saveUnderLogic(props))
+export function useSaveTo(props: SaveToLogicProps): UseSaveToResponse {
+    const { openModal, closeModal } = useActions(saveToLogic(props))
+    const { lastNewOperation } = useValues(saveToLogic(props))
     return {
         openModal,
         closeModal,
-        SaveUnderModal: () => (
-            <BindLogic logic={saveUnderLogic} props={props}>
-                <SaveUnderModal />
+        SaveToModal: () => (
+            <BindLogic logic={saveToLogic} props={props}>
+                <SaveToModal />
             </BindLogic>
         ),
         selectedFolder: lastNewOperation?.objectType === props.type ? lastNewOperation?.folder : undefined,

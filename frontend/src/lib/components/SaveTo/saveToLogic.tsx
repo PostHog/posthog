@@ -3,18 +3,18 @@ import { forms } from 'kea-forms'
 
 import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 
-import type { saveUnderLogicType } from './saveUnderLogicType'
+import type { saveToLogicType } from './saveToLogicType'
 
-export interface SaveUnderLogicProps {
+export interface SaveToLogicProps {
     type: string
     defaultFolder?: string
     objectRef?: string | null
     onSave?: (folder: string) => void
 }
 
-export const saveUnderLogic = kea<saveUnderLogicType>([
-    path(['lib', 'components', 'SaveUnder', 'saveUnderLogic']),
-    props({} as SaveUnderLogicProps),
+export const saveToLogic = kea<saveToLogicType>([
+    path(['lib', 'components', 'SaveTo', 'saveToLogic']),
+    props({} as SaveToLogicProps),
     key((props) => props.type),
     connect(() => ({
         values: [projectTreeLogic, ['lastNewOperation']],

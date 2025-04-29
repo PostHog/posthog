@@ -12,8 +12,8 @@ import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
-import { useSaveUnder } from 'lib/components/SaveUnder/SaveUnder'
-import { SaveUnderLogicProps } from 'lib/components/SaveUnder/saveUnderLogic'
+import { useSaveTo } from 'lib/components/SaveTo/SaveTo'
+import { SaveToLogicProps } from 'lib/components/SaveTo/saveToLogic'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
@@ -100,17 +100,17 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const showCohortButton =
         isDataTableNode(query) || isDataVisualizationNode(query) || isHogQLQuery(query) || isEventsQuery(query)
 
-    const saveUnderProps: SaveUnderLogicProps = {
+    const saveToProps: SaveToLogicProps = {
         defaultFolder: 'Unfiled/Insights',
         type: 'insight',
         onSave: saveInsight,
     }
-    const { selectedFolder, openModal, SaveUnderModal } = useSaveUnder(saveUnderProps)
+    const { selectedFolder, openModal, SaveToModal } = useSaveTo(saveToProps)
     const canSaveUnder = !selectedFolder && featureFlags[FEATURE_FLAGS.TREE_VIEW] && !insight.short_id
 
     return (
         <>
-            {canSaveUnder ? <SaveUnderModal /> : null}
+            {canSaveUnder ? <SaveToModal /> : null}
             {hasDashboardItemId && (
                 <>
                     <SubscriptionsModal
