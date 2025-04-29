@@ -87,6 +87,10 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                             onMaxOpen={() => {
                                 reportAIQueryPromptOpen()
                             }}
+                            introOverride={{
+                                headline: 'What data do you want to analyze?',
+                                description: 'On this page, I can help you write and tweak SQL queries.',
+                            }}
                         >
                             <div className="relative" />
                         </MaxTool>

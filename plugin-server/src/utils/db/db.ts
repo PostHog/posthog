@@ -503,7 +503,7 @@ export class DB {
     public async personPropertiesSize(teamId: number, distinctId: string): Promise<number> {
         const values = [teamId, distinctId]
         const queryString = `
-            SELECT COALESCE(octet_length(properties::text)::bigint, 0::bigint) AS total_props_bytes
+            SELECT COALESCE(pg_column_size(properties)::bigint, 0::bigint) AS total_props_bytes
             FROM posthog_person
             JOIN posthog_persondistinctid ON (posthog_persondistinctid.person_id = posthog_person.id)
             WHERE

@@ -1,4 +1,4 @@
-package main
+package auth
 
 import (
 	"errors"
@@ -13,7 +13,7 @@ import (
 
 const ExpectedScope = "posthog:livestream"
 
-func getAuth(header http.Header) (jwt.MapClaims, error) {
+func GetAuth(header http.Header) (jwt.MapClaims, error) {
 	authHeader := header.Get("Authorization")
 	if authHeader == "" {
 		return nil, echo.NewHTTPError(http.StatusUnauthorized, "authorization header is required")
@@ -39,8 +39,8 @@ func getDataFromClaims(claims jwt.MapClaims) (teamID int, token string, err erro
 	return teamID, token, nil
 }
 
-func getAuthClaims(header http.Header) (teamID int, token string, err error) {
-	claims, err := getAuth(header)
+func GetAuthClaims(header http.Header) (teamID int, token string, err error) {
+	claims, err := GetAuth(header)
 	if err != nil {
 		return 0, "", err
 	}

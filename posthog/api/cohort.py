@@ -95,6 +95,7 @@ logger = structlog.get_logger(__name__)
 class CohortSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     earliest_timestamp_func = get_earliest_timestamp
+    _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     # If this cohort is an exposure cohort for an experiment
     experiment_set: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
@@ -117,6 +118,7 @@ class CohortSerializer(serializers.ModelSerializer):
             "count",
             "is_static",
             "experiment_set",
+            "_create_in_folder",
         ]
         read_only_fields = [
             "id",

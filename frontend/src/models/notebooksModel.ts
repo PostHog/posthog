@@ -12,6 +12,7 @@ import { LOCAL_NOTEBOOK_TEMPLATES } from 'scenes/notebooks/NotebookTemplates/not
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
+import { getLastNewFolder } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { InsightVizNode, Node } from '~/queries/schema/schema-general'
 import { DashboardType, NotebookListItemType, NotebookNodeType, NotebookTarget, QueryBasedInsightModel } from '~/types'
 
@@ -90,6 +91,7 @@ export const notebooksModel = kea<notebooksModelType>([
                     const notebook = await api.notebooks.create({
                         title,
                         content: defaultNotebookContent(title, content),
+                        _create_in_folder: getLastNewFolder(),
                     })
 
                     await openNotebook(notebook.short_id, location, 'end', (logic) => {

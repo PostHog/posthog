@@ -656,6 +656,7 @@ export interface ActionType {
     bytecode?: any[]
     bytecode_error?: string
     pinned_at: string | null
+    _create_in_folder?: string | null
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -842,6 +843,7 @@ export enum PropertyFilterType {
     DataWarehouse = 'data_warehouse',
     DataWarehousePersonProperty = 'data_warehouse_person_property',
     ErrorTrackingIssue = 'error_tracking_issue',
+    ErrorTrackingIssueProperty = 'error_tracking_issue_property',
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -882,6 +884,11 @@ export interface DataWarehousePersonPropertyFilter extends BasePropertyFilter {
 
 export interface ErrorTrackingIssueFilter extends BasePropertyFilter {
     type: PropertyFilterType.ErrorTrackingIssue
+    operator: PropertyOperator
+}
+
+export interface ErrorTrackingIssuePropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.ErrorTrackingIssueProperty
     operator: PropertyOperator
 }
 
@@ -948,6 +955,7 @@ export type AnyPropertyFilter =
     | DataWarehousePropertyFilter
     | DataWarehousePersonPropertyFilter
     | ErrorTrackingIssueFilter
+    | ErrorTrackingIssuePropertyFilter
 
 /** Any filter type supported by `property_to_expr(scope="person", ...)`. */
 export type AnyPersonScopeFilter =
@@ -1407,6 +1415,7 @@ export interface CohortType {
         properties: CohortCriteriaGroupFilter
     }
     experiment_set?: number[]
+    _create_in_folder?: string | null
 }
 
 export interface InsightHistory {
@@ -1980,6 +1989,8 @@ export interface InsightModel extends Cacheable, WithAccessControl {
     filters: Partial<FilterType>
     query?: Node | null
     query_status?: QueryStatus
+    /** Only used when creating objects */
+    _create_in_folder?: string | null
 }
 
 export interface QueryBasedInsightModel extends Omit<InsightModel, 'filters'> {
@@ -3456,6 +3467,7 @@ export enum PropertyType {
     Selector = 'Selector',
     Cohort = 'Cohort',
     Assignee = 'Assignee',
+    StringArray = 'StringArray',
 }
 
 export enum PropertyDefinitionType {
@@ -4280,6 +4292,7 @@ export type NotebookListItemType = {
     created_by: UserBasicType | null
     last_modified_at?: string
     last_modified_by?: UserBasicType | null
+    _create_in_folder?: string
 }
 
 export type NotebookType = NotebookListItemType &
