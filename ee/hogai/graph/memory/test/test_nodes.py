@@ -459,12 +459,17 @@ class TestMemoryOnboardingEnquiryNode(ClickhouseTestMixin, BaseTest):
             interrupt_message = e.exception.args[0][0].value
             self.assertIsInstance(interrupt_message, AssistantMessage)
             self.assertEqual(interrupt_message.content, "What is your target market?")
+            self.core_memory.refresh_from_db()
+            self.assertEqual(self.core_memory.initial_text, "Question: What is your target market?")
 
             # Second run - should complete since we have enough answers
+            self.core_memory.append_initial_memory("Answer: Example answer")
             self.core_memory.append_initial_memory(
                 "Question: What is your pricing model?\nAnswer: We use a subscription model"
             )
-            self.core_memory.append_initial_memory("Question: What is your target market?")
+            self.core_memory.append_initial_memory(
+                "Question: What is your target market? \nAnswer: We target enterprise customers"
+            )
             state = AssistantState(
                 messages=[HumanMessage(content="We target enterprise customers")],
             )
