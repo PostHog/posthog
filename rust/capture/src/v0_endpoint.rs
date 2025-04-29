@@ -69,18 +69,17 @@ async fn handle_common(
         "application/x-www-form-urlencoded" => {
             tracing::Span::current().record("content_type", "application/x-www-form-urlencoded");
 
-            let mut input: EventFormData =
-                serde_urlencoded::from_bytes(body.deref()).map_err(|e| {
-                    error!("failed to decode body: {}", e);
-                    CaptureError::RequestDecodingError(String::from("invalid form data"))
-                })?;
+            let input: EventFormData = serde_urlencoded::from_bytes(body.deref()).map_err(|e| {
+                error!("failed to decode body: {}", e);
+                CaptureError::RequestDecodingError(String::from("invalid form data"))
+            })?;
             let payload = base64::engine::general_purpose::STANDARD
                 .decode(&input.data)
                 .map_err(|e| {
                     if state.is_mirror_deploy {
                         // lets see if this is base64 encoded at all, and what info we may be missing here
                         error!("failed to decode mirrored form data: {} w/ headers << {:?} >> and data: {:?}...",
-                            e, &headers, input.data.truncate(255));
+                            e, &headers, &input.data[0..input.data.len().min(255)]);
                     } else {
                         error!("failed to decode form data: {}", e);
                     }
