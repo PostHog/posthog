@@ -166,12 +166,12 @@ class SessionReplayEvents:
         # Avoid events adding little context, like feature flag calls
         if events_to_ignore:
             q += " AND event NOT IN {events_to_ignore}"
+        q += " ORDER BY timestamp ASC"
         # Pagination to allow consuming more than default 100 rows per call
         if limit is not None:
             q += " LIMIT {limit}"
             if page > 0:
                 q += " OFFSET {offset}"
-        q += " ORDER BY timestamp ASC"
         hq = HogQLQuery(
             query=q,
             values={
