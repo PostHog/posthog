@@ -33,7 +33,7 @@ def DROP_RAW_SESSION_VIEW_SQL():
 # if updating these column definitions
 # you'll need to update the explicit column definitions in the materialized view creation statement below
 RAW_SESSIONS_TABLE_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name} {ON_CLUSTER_CLAUSE}
+CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 (
     team_id Int64,
     session_id_v7 UInt128, -- integer representation of a uuidv7
