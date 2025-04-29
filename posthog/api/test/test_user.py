@@ -881,14 +881,33 @@ class TestUserAPI(APIBaseTest):
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not User.objects.filter(uuid=user.uuid).exists()
 
-    def test_cannot_delete_another_user(self):
+    def test_cannot_delete_another_user_with_no_org_memberships(self):
         user = self._create_user("deleteanotheruser@posthog.com", password="test")
+
+        user_with_no_org_memberships = self._create_user("userwithnoorgmemberships@posthog.com", password="test")
+
+        OrganizationMembership.objects.filter(user=user_with_no_org_memberships).delete()
+
+        assert not OrganizationMembership.objects.filter(user=user_with_no_org_memberships).exists()
 
         self.client.force_login(user)
 
-        response = self.client.delete(f"/api/users/{self.user.uuid}/")
+        response = self.client.delete(f"/api/users/{user_with_no_org_memberships.uuid}/")
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert User.objects.filter(uuid=self.user.uuid).exists()
+        assert User.objects.filter(uuid=user_with_no_org_memberships.uuid).exists()
+
+    def test_forbidden_to_delete_another_user_with_org_memberships(self):
+        user = self._create_user("deleteanotheruser@posthog.com", password="test")
+
+        user_with_org_memberships = self._create_user("userwithorgmemberships@posthog.com", password="test")
+
+        assert OrganizationMembership.objects.filter(user=user_with_org_memberships).exists()
+
+        self.client.force_login(user)
+
+        response = self.client.delete(f"/api/users/{user_with_org_memberships.uuid}/")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert User.objects.filter(uuid=user_with_org_memberships.uuid).exists()
 
     @patch("posthog.api.user.secrets.token_urlsafe")
     def test_redirect_user_to_site_with_toolbar(self, patched_token):
