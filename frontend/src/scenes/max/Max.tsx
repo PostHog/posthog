@@ -140,7 +140,7 @@ export function MaxInstance({ sidePanel }: MaxInstanceProps): JSX.Element {
             ) : (
                 <>
                     <Thread />
-                    <QuestionInput />
+                    <QuestionInput isFloating />
                 </>
             )}
         </>
