@@ -173,7 +173,7 @@ class HogFunctionTemplate(UUIDModel):
                 mapping_templates_list.append(HogFunctionMappingTemplate(**mapping_template_dict))
 
         # hog is only set if source is hog, otherwise None
-        hog_value = self.code if self.source == "hog" else None
+        hog_value = self.code if self.source == "hog" else ""
 
         # Create the dataclass
         return HogFunctionTemplateDTO(
