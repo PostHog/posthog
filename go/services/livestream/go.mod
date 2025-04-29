@@ -1,6 +1,8 @@
-module github.com/posthog/posthog/livestream
+module github.com/PostHog/posthog/go/services/livestream
 
 go 1.24
+
+toolchain go1.24.1
 
 require (
 	github.com/confluentinc/confluent-kafka-go/v2 v2.8.0
@@ -62,8 +64,4 @@ require (
 	golang.org/x/time v0.11.0 // indirect
 	google.golang.org/protobuf v1.36.5 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	k8s.io/klog/v2 v2.120.1 // indirect
-	k8s.io/kube-openapi v0.0.0-20240117194847-208609032b15 // indirect
-	k8s.io/utils v0.0.0-20240102154912-e7106e64919e // indirect
-	sigs.k8s.io/yaml v1.4.0 // indirect
 )

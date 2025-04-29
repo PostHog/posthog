@@ -1,0 +1,119 @@
+name: Go Services CI
+
+on:
+    pull_request:
+    push:
+        branches:
+            - master
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    cancel-in-progress: true
+
+jobs:
+    changes:
+        runs-on: depot-ubuntu-24.04-4
+        timeout-minutes: 5
+        name: Determine need to run Go checks
+        outputs:
+            go-services: ${{ steps.filter.outputs.go-services }}
+        steps:
+            - uses: actions/checkout@v3
+
+            - uses: dorny/paths-filter@v2
+              id: filter
+              with:
+                  filters: |
+                      go-services:
+                        - '.github/workflows/ci-go.yml'
+                        - 'go/**'
+                        - 'docker*.yml'
+                        - '*Dockerfile*'
+
+    lint:
+        name: Lint ${{ matrix.service }}
+        needs: changes
+        if: needs.changes.outputs.go-services == 'true'
+        runs-on: depot-ubuntu-24.04-4
+        strategy:
+            matrix:
+                service: [capture, livestream]
+            fail-fast: false
+        steps:
+            - uses: actions/checkout@v3
+
+            - name: Set up Go
+              uses: actions/setup-go@v5
+              with:
+                  go-version: '1.24'
+                  cache: true
+
+            - name: Install golangci-lint
+              run: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.56.2
+
+            - name: Download dependencies
+              working-directory: go
+              run: make download-${{ matrix.service }}
+
+            - name: Run linter
+              working-directory: go
+              run: make lint-${{ matrix.service }}
+
+    test:
+        name: Test ${{ matrix.service }}
+        needs: changes
+        if: needs.changes.outputs.go-services == 'true'
+        runs-on: depot-ubuntu-24.04-4
+        strategy:
+            matrix:
+                service: [capture, livestream]
+            fail-fast: false
+        steps:
+            - uses: actions/checkout@v3
+
+            - name: Set up Go
+              uses: actions/setup-go@v5
+              with:
+                  go-version: '1.24'
+                  cache: false
+
+            - name: Download dependencies
+              working-directory: go
+              run: make download-${{ matrix.service }}
+
+            - name: Run tests
+              working-directory: go
+              run: make test-${{ matrix.service }}
+
+    build:
+        name: Build ${{ matrix.service }}
+        needs: changes
+        if: needs.changes.outputs.go-services == 'true'
+        runs-on: depot-ubuntu-24.04-4
+        strategy:
+            matrix:
+                service: [capture, livestream]
+            fail-fast: false
+        steps:
+            - uses: actions/checkout@v3
+
+            - name: Set up Go
+              uses: actions/setup-go@v5
+              with:
+                  go-version: '1.24'
+                  cache: true
+
+            - name: Download dependencies
+              working-directory: go
+              run: make download-${{ matrix.service }}
+
+            - name: Build service
+              working-directory: go
+              run: make build-${{ matrix.service }}
+
+            - name: Upload build artifacts
+              uses: actions/upload-artifact@v4
+              with:
+                  name: go-${{ matrix.service }}-binary
+                  path: go/bin/${{ matrix.service }}
+                  if-no-files-found: error
