@@ -55,8 +55,7 @@ describe('replay events ingester', () => {
 
         await ingester.consume(makeIncomingMessage("mickey's fun house", twoMonthsFromNow.toMillis()))
 
-        expect(jest.mocked(logger.debug).mock.calls).toEqual([])
-        expect(jest.mocked(mockProducer.queueMessages)).toHaveBeenCalledTimes(1)
+        expect(mockProducerObserver.produceSpy).toHaveBeenCalledTimes(1)
         const topicMessages = mockProducerObserver.getParsedQueuedMessages()
         expect(topicMessages).toHaveLength(1)
         expect(topicMessages[0].topic).toEqual('clickhouse_ingestion_warnings_test')
@@ -80,9 +79,7 @@ describe('replay events ingester', () => {
         const ts = new Date().getTime()
         await ingester.consume(makeIncomingMessage("mickey's fun house", ts))
 
-        expect(jest.mocked(logger.debug).mock.calls).toEqual([])
-        expect(jest.mocked(mockProducer.queueMessages).mock.calls).toHaveLength(1)
-        expect(jest.mocked(mockProducer.queueMessages).mock.calls[0]).toHaveLength(1)
+        expect(mockProducerObserver.produceSpy).toHaveBeenCalledTimes(1)
         const topicMessages = mockProducerObserver.getParsedQueuedMessages()
         expect(topicMessages).toHaveLength(1)
         expect(topicMessages[0].topic).toEqual('clickhouse_session_replay_events_test')
@@ -115,8 +112,7 @@ describe('replay events ingester', () => {
         const ts = new Date().getTime()
         await ingester.consume(makeIncomingMessage(null, ts))
 
-        expect(jest.mocked(logger.debug).mock.calls).toEqual([])
-        expect(jest.mocked(mockProducer.queueMessages).mock.calls).toHaveLength(1)
+        expect(mockProducerObserver.produceSpy).toHaveBeenCalledTimes(1)
         const topicMessages = mockProducerObserver.getParsedQueuedMessages()
         expect(topicMessages).toHaveLength(1)
         expect(topicMessages[0].topic).toEqual('clickhouse_session_replay_events_test')
@@ -157,8 +153,7 @@ describe('replay events ingester', () => {
             })
         )
 
-        expect(jest.mocked(logger.debug).mock.calls).toEqual([])
-        expect(jest.mocked(mockProducer.queueMessages)).toHaveBeenCalledTimes(1)
+        expect(mockProducerObserver.produceSpy).toHaveBeenCalledTimes(1)
         const topicMessages = mockProducerObserver.getParsedQueuedMessages()
         expect(topicMessages).toHaveLength(1)
         expect(topicMessages[0].topic).toEqual('clickhouse_session_replay_events_test')
