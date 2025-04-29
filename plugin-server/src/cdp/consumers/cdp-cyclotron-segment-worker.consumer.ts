@@ -15,7 +15,7 @@ export class CdpCyclotronWorkerSegment extends CdpCyclotronWorker {
 
     constructor(hub: Hub) {
         super(hub)
-        this.segmentPluginExecutor = new SegmentPluginExecutorService(hub)
+        this.segmentPluginExecutor = new SegmentPluginExecutorService()
     }
 
     public async processInvocations(invocations: HogFunctionInvocation[]): Promise<HogFunctionInvocationResult[]> {
