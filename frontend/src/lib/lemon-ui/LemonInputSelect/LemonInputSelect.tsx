@@ -376,7 +376,7 @@ export function LemonInputSelect({
         const totalCount = options.length
 
         if (selectedCount === 0) {
-            return `None selected` // Empty array now means none
+            return `None selected`
         } else if (selectedCount === totalCount) {
             return `All ${totalCount} selected`
         }
