@@ -1,10 +1,12 @@
+// eslint-disable-next-line simple-import-sort/imports
+import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
+
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
 import { insertHogFunction as _insertHogFunction } from '~/src/cdp/_tests/fixtures'
 import { template as geoipTemplate } from '~/src/cdp/templates/_transformations/geoip/geoip.template'
 import { compileHog } from '~/src/cdp/templates/compiler'
-import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { DecodedKafkaMessage } from '~/tests/helpers/mocks/producer.spy'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
