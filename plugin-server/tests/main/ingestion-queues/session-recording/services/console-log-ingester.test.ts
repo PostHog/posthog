@@ -3,7 +3,6 @@ import { mockProducer, mockProducerObserver } from '~/tests/helpers/mocks/produc
 import { ConsoleLogsIngester } from '../../../../../src/main/ingestion-queues/session-recording/services/console-logs-ingester'
 import { OffsetHighWaterMarker } from '../../../../../src/main/ingestion-queues/session-recording/services/offset-high-water-marker'
 import { IncomingRecordingMessage } from '../../../../../src/main/ingestion-queues/session-recording/types'
-import { logger } from '../../../../../src/utils/logger'
 
 jest.mock('../../../../../src/utils/logger')
 

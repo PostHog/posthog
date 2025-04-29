@@ -5,7 +5,6 @@ import { ReplayEventsIngester } from '../../../../../src/main/ingestion-queues/s
 import { IncomingRecordingMessage } from '../../../../../src/main/ingestion-queues/session-recording/types'
 import { TimestampFormat } from '../../../../../src/types'
 import { parseJSON } from '../../../../../src/utils/json-parse'
-import { logger } from '../../../../../src/utils/logger'
 import { castTimestampOrNow } from '../../../../../src/utils/utils'
 
 jest.mock('../../../../../src/utils/logger')
