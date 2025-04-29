@@ -1,6 +1,6 @@
 import pytest
-from braintrust import Eval, EvalCase
-from .conftest import BRAINTRUST_PROJECT_NAME
+from braintrust import EvalCase
+from .conftest import MaxEval
 from .scorers import ToolRelevance
 from ee.hogai.utils.types import AssistantState, AssistantNodeName
 from ee.hogai.graph import AssistantGraph
@@ -38,8 +38,7 @@ def call_node(demo_org_team_user):
 
 @pytest.mark.django_db
 def eval_root(call_node):
-    Eval(
-        BRAINTRUST_PROJECT_NAME,
+    MaxEval(
         experiment_name="root",
         data=[
             EvalCase(

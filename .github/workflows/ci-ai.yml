@@ -57,3 +57,82 @@ jobs:
                   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
                   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
                   GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+            - name: Post eval summary to PR
+              # Don't run on forks
+              if: github.event.pull_request.head.repo.full_name == github.repository
+              uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
+              with:
+                  github-token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
+                  script: |
+                      const fs = require('fs');
+
+                      // Read the eval results
+                      let evalResults = [];
+                      try {
+                          const resultsContent = fs.readFileSync('eval_results.jsonl', 'utf8');
+                          evalResults = resultsContent.trim().split('\n').map(line => JSON.parse(line));
+                      } catch (error) {
+                          console.log('Error reading eval results:', error);
+                          return;
+                      }
+
+                      if (evalResults.length === 0) {
+                          console.log('No eval results found');
+                          return;
+                      }
+
+                      // Generate summary table for each experiment
+                      const experimentSummaries = evalResults.map(result => {
+                          const experimentName = result.experiment_name;
+                          const experimentUrl = result.experiment_url;
+                          const comparedTo = result.comparison_experiment_name || 'None';
+                          
+                          // Format scores section
+                          const scores = Object.entries(result.scores || {}).map(([key, value]) => {
+                              const score = typeof value.score === 'number' ? value.score.toFixed(3) : value.score;
+                              const diffText = value.diff ? `(${value.diff > 0 ? '+' : ''}${value.diff.toFixed(3)})` : '';
+                              const improvements = value.improvements > 0 ? `✅ +${value.improvements}` : '';
+                              const regressions = value.regressions > 0 ? `❌ -${value.regressions}` : '';
+                              const changeText = [diffText, improvements, regressions].filter(Boolean).join(' ');
+                              
+                              return `| ${key} | ${score} ${changeText} |`;
+                          }).join('\n');
+                          
+                          // Format key metrics
+                          const metrics = result.metrics || {};
+                          const duration = metrics.duration?.metric ? `${metrics.duration.metric.toFixed(2)}s` : 'N/A';
+                          const totalTokens = metrics.total_tokens?.metric ? metrics.total_tokens.metric.toLocaleString() : 'N/A';
+                          const cost = metrics.estimated_cost?.metric ? `$${metrics.estimated_cost.metric.toFixed(4)}` : 'N/A';
+                          
+                          let summaryText = `### ${experimentName}`;
+                          if (comparedTo !== 'None') {
+                              summaryText += ` – compared to ${comparedTo}`;
+                          }
+                          summaryText += `\n\n[View details on Braintrust](${experimentUrl})\n\n`;
+                          summaryText += `**Scores:**\n| Metric | Score |\n| ------ | ----- |\n${scores}\n\n`;
+                          summaryText += `**Performance metrics:**\n- Duration: ${duration}\n- Total tokens: ${totalTokens}\n- Estimated cost: ${cost}`;
+                          
+                          return summaryText;
+                      }).join('\n\n---\n\n');
+
+                      const totalExperiments = evalResults.length;
+                      const totalMetrics = evalResults.reduce((acc, result) => acc + Object.keys(result.scores || {}).length, 0);
+
+                      let body = `## 🧠 AI eval results summary\n\n`;
+                      body += `**${totalExperiments}** experiments with **${totalMetrics}** metrics evaluated.\n\n`;
+                      body += `${experimentSummaries}\n\n`;
+                      body += `Triggered by [this commit](https://github.com/${context.repo.owner}/${context.repo.repo}/pull/${context.payload.pull_request?.number || 'master'}/commits/${context.sha})`;
+
+                      // Post comment on PR if this is a PR
+                      if (context.payload.pull_request) {
+                          github.rest.issues.createComment({
+                              issue_number: context.issue.number,
+                              owner: context.repo.owner,
+                              repo: context.repo.repo,
+                              body: body
+                          });
+                      } else {
+                          // Just log the summary if this is a push to master
+                          console.log(body);
+                      }

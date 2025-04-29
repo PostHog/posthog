@@ -1,8 +1,11 @@
 import datetime
 from collections.abc import Generator
+import os
 from pathlib import Path
+from collections.abc import Sequence
 from braintrust_langchain import BraintrustCallbackHandler, set_global_handler
-from braintrust import init_logger
+from braintrust import Eval, init_logger
+from braintrust.framework import EvalData, EvalTask, EvalScorer, Input, Output
 from django.conf import settings
 import pytest
 from django.test import override_settings
@@ -20,6 +23,34 @@ BRAINTRUST_PROJECT_NAME = "Max AI"
 handler = BraintrustCallbackHandler()
 init_logger(BRAINTRUST_PROJECT_NAME)
 set_global_handler(handler)
+
+
+def MaxEval(
+    experiment_name: str,
+    data: EvalData[Input, Output],
+    task: EvalTask[Input, Output],
+    scores: Sequence[EvalScorer[Input, Output]],
+):
+    base_experiment_name = f"{experiment_name}-master"  # Always compare against master
+    if os.getenv("GITHUB_REF_NAME") == "master":
+        experiment_name += "-master"
+        trial_count = 3
+    else:
+        experiment_name += "-wip"
+        trial_count = 1
+    result = Eval(
+        BRAINTRUST_PROJECT_NAME,
+        experiment_name=experiment_name,
+        data=data,
+        task=task,
+        scores=scores,
+        base_experiment_name=base_experiment_name,
+        trial_count=trial_count,
+    )
+    if True or os.getenv("GITHUB_EVENT_NAME") == "pull_request":
+        with open("eval_results.jsonl", "a") as f:
+            f.write(result.summary.as_json() + "\n")
+    return result
 
 
 @pytest.fixture(scope="package")

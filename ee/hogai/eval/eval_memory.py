@@ -1,8 +1,8 @@
 from typing import Optional
 import pytest
-from braintrust import Eval, EvalCase, Score
+from braintrust import EvalCase, Score
 from autoevals.llm import LLMClassifier
-from .conftest import BRAINTRUST_PROJECT_NAME
+from .conftest import MaxEval
 from .scorers import ToolRelevance
 from ee.hogai.utils.types import AssistantState, AssistantNodeName
 from ee.hogai.graph import AssistantGraph
@@ -86,8 +86,7 @@ def call_node(demo_org_team_user, core_memory):
 
 @pytest.mark.django_db
 def eval_memory(call_node):
-    Eval(
-        BRAINTRUST_PROJECT_NAME,
+    MaxEval(
         experiment_name="memory",
         task=call_node,
         scores=[ToolRelevance(semantic_similarity_args={"memory_content", "new_fragment"}), MemoryContentRelevance()],
