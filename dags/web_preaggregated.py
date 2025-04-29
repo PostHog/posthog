@@ -1,9 +1,8 @@
 from datetime import datetime, timedelta
 import os
-from typing import List
 
 import dagster
-from dagster import Field, StringSource, IntSource, Array
+from dagster import Field, Array
 
 from clickhouse_driver import Client
 from dags.common import JobOwners, ClickhouseClusterResource
@@ -15,7 +14,6 @@ from posthog.models.web_preaggregated.sql import (
     WEB_OVERVIEW_INSERT_SQL,
     WEB_STATS_INSERT_SQL,
 )
-from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.cluster import ClickhouseCluster
 
 # WEB_ANALYTICS_DAILY_PARTITION_DEFINITION = dagster.TimeWindowPartitionsDefinition(
@@ -25,29 +23,21 @@ from posthog.clickhouse.cluster import ClickhouseCluster
 # )
 
 # Pre-compute the default team IDs
-DEFAULT_TEAM_IDS = [int(id) for id in os.getenv("WEB_ANALYTICS_TEAM_IDS", "2").split(",")]
+DEFAULT_TEAM_IDS = [int(id) for id in os.getenv("WEB_ANALYTICS_TEAM_IDS", "").split(",") if id]
 
 # Define config schema using Dagster's native config system instead of Pydantic
 WEB_ANALYTICS_CONFIG_SCHEMA = {
     "team_ids": Field(
         Array(int),
         default_value=DEFAULT_TEAM_IDS,
-        description="List of team IDs to process",
+        description="List of team IDs to process - leave empty to process all teams :fire:",
     ),
-    "days_to_backfill": Field(
-        int,
-        default_value=30,
-        description="Number of days to backfill for each run"
-    ),
-    "timezone": Field(
-        str,
-        default_value="UTC",
-        description="Timezone to use for date calculations"
-    ),
+    "days_to_backfill": Field(int, default_value=30, description="Number of days to backfill for each run"),
+    "timezone": Field(str, default_value="UTC", description="Timezone to use for date calculations"),
     "clickhouse_settings": Field(
         str,
         default_value="max_execution_time=240, max_bytes_before_external_group_by=21474836480, distributed_aggregation_memory_efficient=1",
-        description="ClickHouse execution settings"
+        description="ClickHouse execution settings",
     ),
 }
 
@@ -84,24 +74,24 @@ def ensure_tables_exist(
 
 @dagster.op(config_schema=WEB_ANALYTICS_CONFIG_SCHEMA)
 def web_overview_metrics_daily(
-    context: dagster.OpExecutionContext, 
+    context: dagster.OpExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
-    tables_ready: bool = False # Just a dependency marker to ensure we wait for ensure_tables_exist to finish
+    tables_ready: bool = False,  # Just a dependency marker to ensure we wait for ensure_tables_exist to finish
 ):
     """Aggregates web overview metrics daily."""
     config = context.op_config
     # Get partition date from input or use yesterday if not available
-    partition_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+    partition_date = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
 
-    team_id_list = ", ".join(str(team_id) for team_id in config["team_ids"])
+    team_id_list = ", ".join(str(team_id) for team_id in config["team_ids"]) if config["team_ids"] else ""
 
     start_date = datetime.strptime(partition_date, "%Y-%m-%d")
-    end_date = start_date + timedelta(days=1)
+    end_date = datetime.now() + timedelta(days=1)
 
     start_date_str = start_date.strftime("%Y-%m-%d 00:00:00")
     end_date_str = end_date.strftime("%Y-%m-%d 00:00:00")
 
-    context.log.info(f"Processing overview metrics for {partition_date}, teams: {team_id_list}")
+    context.log.info(f"Processing overview metrics for {partition_date}, teams: {team_id_list or 'ALL TEAMS'}")
 
     query = WEB_OVERVIEW_INSERT_SQL(
         date_start=start_date_str,
@@ -111,11 +101,26 @@ def web_overview_metrics_daily(
         settings=config["clickhouse_settings"],
     )
 
-    def execute_query(client: Client) -> None:
-        client.execute(query)
+    # context.log.info query for debugging
+    context.log.info("\n\n============= WEB_OVERVIEW_INSERT_SQL =============")
+    context.log.info(query)
+    context.log.info("====================================================\n\n")
 
-    cluster.any_host(execute_query).result()
-    context.log.info(f"Inserted data into web_overview_daily for {partition_date}")
+    def execute_query(client: Client) -> None:
+        try:
+            client.execute(query)
+        except Exception as e:
+            context.log.info(f"\n\nERROR EXECUTING OVERVIEW QUERY: {str(e)}\n\n")
+            context.log.exception(f"Error executing query: {str(e)}")
+            raise
+
+    try:
+        cluster.any_host(execute_query).result()
+        context.log.info(f"Inserted data into web_overview_daily for {partition_date}")
+    except Exception as e:
+        context.log.info(f"\n\nERROR IN OVERVIEW: {str(e)}\n\n")
+        context.log.exception(f"Error in web_overview_metrics_daily: {str(e)}")
+        raise
 
     return partition_date
 
@@ -124,22 +129,22 @@ def web_overview_metrics_daily(
 def web_stats_daily(
     context: dagster.OpExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
-    tables_ready: bool = False # Just a dependency marker to ensure we wait for ensure_tables_exist to finish
+    tables_ready: bool = False,  # Just a dependency marker to ensure we wait for ensure_tables_exist to finish
 ):
     """Aggregates detailed web stats daily."""
     config = context.op_config
     # Get partition date from input or use yesterday if not available
-    partition_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+    partition_date = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
 
-    team_id_list = ", ".join(str(team_id) for team_id in config["team_ids"])
+    team_id_list = ", ".join(str(team_id) for team_id in config["team_ids"]) if config["team_ids"] else ""
 
     start_date = datetime.strptime(partition_date, "%Y-%m-%d")
-    end_date = start_date + timedelta(days=1)
+    end_date = datetime.now()
 
     start_date_str = start_date.strftime("%Y-%m-%d 00:00:00")
     end_date_str = end_date.strftime("%Y-%m-%d 00:00:00")
 
-    context.log.info(f"Processing data for {partition_date}, teams: {team_id_list}")
+    context.log.info(f"Processing data for {partition_date}, teams: {team_id_list or 'ALL TEAMS'}")
 
     query = WEB_STATS_INSERT_SQL(
         date_start=start_date_str,
@@ -149,29 +154,44 @@ def web_stats_daily(
         settings=config["clickhouse_settings"],
     )
 
-    def execute_query(client: Client) -> None:
-        client.execute(query)
+    # context.log.info query for debugging
+    context.log.info("\n\n============= WEB_STATS_INSERT_SQL =============")
+    context.log.info(query)
+    context.log.info("====================================================\n\n")
 
-    cluster.any_host(execute_query).result()
-    context.log.info(f"Inserted data into web_stats_daily for {partition_date}")
+    def execute_query(client: Client) -> None:
+        try:
+            client.execute(query)
+        except Exception as e:
+            context.log.info(f"\n\nERROR EXECUTING STATS QUERY: {str(e)}\n\n")
+            context.log.exception(f"Error executing query: {str(e)}")
+            raise
+
+    try:
+        cluster.any_host(execute_query).result()
+        context.log.info(f"Inserted data into web_stats_daily for {partition_date}")
+    except Exception as e:
+        context.log.info(f"\n\nERROR IN STATS: {str(e)}\n\n")
+        context.log.exception("Error in web_stats_daily: {str(e)}")
+        raise
 
     return partition_date
 
 
 @dagster.op(config_schema=WEB_ANALYTICS_CONFIG_SCHEMA)
 def backfill_web_analytics_for_period(
-    context: dagster.OpExecutionContext, 
-    start_date: str, 
+    context: dagster.OpExecutionContext,
+    start_date: str,
     end_date: str,
     cluster: dagster.ResourceParam[ClickhouseCluster],
-    tables_ready: bool = False # Just a dependency marker to ensure we wait for ensure_tables_exist to finish
+    tables_ready: bool = False,  # Just a dependency marker to ensure we wait for ensure_tables_exist to finish
 ):
     """Backfills web analytics data for a custom time period."""
     config = context.op_config
-    team_id_list = ", ".join(str(team_id) for team_id in config["team_ids"])
+    team_id_list = ", ".join(str(team_id) for team_id in config["team_ids"]) if config["team_ids"] else ""
 
-    context.log.info(f"Backfilling from {start_date} to {end_date} for teams: {team_id_list}")
-    
+    context.log.info(f"Backfilling from {start_date} to {end_date} for teams: {team_id_list or 'ALL TEAMS'}")
+
     overview_query = WEB_OVERVIEW_INSERT_SQL(
         date_start=start_date,
         date_end=end_date,
@@ -216,7 +236,7 @@ def web_analytics_daily_job():
 def web_analytics_backfill_job(start_date: str, end_date: str):
     """Job to backfill web analytics data for a custom time period."""
     # Use sequential execution to ensure order
-    result =    ensure_tables_exist()
+    result = ensure_tables_exist()
     backfill_web_analytics_for_period(start_date, end_date, tables_ready=result)
 
 
@@ -227,10 +247,9 @@ def web_analytics_daily_schedule(context):
     return {}
 
 
-# Configuration for all jobs
 defs = dagster.Definitions(
     assets=[],  # Removed assets since we now use ops
     jobs=[web_analytics_daily_job, web_analytics_backfill_job],
     schedules=[web_analytics_daily_schedule],
-    resources={"cluster": ClickhouseClusterResource()}
+    resources={"cluster": ClickhouseClusterResource()},
 )
