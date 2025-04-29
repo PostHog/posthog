@@ -4,7 +4,13 @@
  * the underlying implementation.
  */
 
-import { CyclotronJob, CyclotronJobUpdate, CyclotronManager, CyclotronWorker } from '@posthog/cyclotron'
+import {
+    CyclotronJob,
+    CyclotronJobInit,
+    CyclotronJobUpdate,
+    CyclotronManager,
+    CyclotronWorker,
+} from '@posthog/cyclotron'
 import { chunk } from 'lodash'
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
@@ -154,7 +160,8 @@ export class CyclotronJobQueue {
         // TODO: Routing based on queue name is slightly tricky here as postgres jobs need to be acked no matter what...
         // We need to know if the job came from postgres and if so we need to ack, regardless of the target...
 
-        const postgresInvocations: HogFunctionInvocationResult[] = []
+        const postgresInvocationsToCreate: HogFunctionInvocationResult[] = []
+        const postgresInvocationsToUpdate: HogFunctionInvocationResult[] = []
         const kafkaInvocations: HogFunctionInvocationResult[] = []
 
         for (const invocationResult of invocationResults) {
@@ -168,15 +175,36 @@ export class CyclotronJobQueue {
             }
 
             if (target === 'postgres') {
-                postgresInvocations.push(invocationResult)
+                if (invocationResult.invocation.queueSource === 'postgres') {
+                    postgresInvocationsToUpdate.push(invocationResult)
+                } else {
+                    postgresInvocationsToCreate.push(invocationResult)
+                }
             } else {
                 kafkaInvocations.push(invocationResult)
             }
         }
 
-        if (postgresInvocations.length > 0) {
-            await this.updateCyclotronJobs(postgresInvocations)
+        logger.debug('🔄', 'Queueing postgres invocations', {
+            kafka: kafkaInvocations.map(
+                (x) => `${x.invocation.id} (queue:${x.invocation.queue},source:${x.invocation.queueSource})`
+            ),
+            postgres_update: postgresInvocationsToUpdate.map(
+                (x) => `${x.invocation.id} (queue:${x.invocation.queue},source:${x.invocation.queueSource})`
+            ),
+            postgres_create: postgresInvocationsToCreate.map(
+                (x) => `${x.invocation.id} (queue:${x.invocation.queue},source:${x.invocation.queueSource})`
+            ),
+        })
+
+        if (postgresInvocationsToUpdate.length > 0) {
+            await this.updateCyclotronJobs(postgresInvocationsToUpdate)
         }
+
+        if (postgresInvocationsToCreate.length > 0) {
+            await this.createCyclotronJobs(postgresInvocationsToCreate.map((x) => x.invocation))
+        }
+
         if (kafkaInvocations.length > 0) {
             await this.updateKafkaJobs(kafkaInvocations)
 
@@ -198,8 +226,7 @@ export class CyclotronJobQueue {
                 dbUrl: this.config.CYCLOTRON_DATABASE_URL,
             },
             queueName: this.queue,
-            // For the fetch queue we never need the state
-            includeVmState: this.queue !== 'fetch',
+            includeVmState: true, // NOTE: We used to omit the vmstate but given we can requeue to kafka we need it
             batchMaxSize: this.config.CDP_CYCLOTRON_BATCH_SIZE,
             pollDelayMs: this.config.CDP_CYCLOTRON_BATCH_DELAY_MS,
             includeEmptyBatches: true,
@@ -244,15 +271,7 @@ export class CyclotronJobQueue {
         const cyclotronManager = this.getCyclotronManager()
 
         // For the cyclotron ones we simply create the jobs
-        const cyclotronJobs = invocations.map((item) => {
-            return {
-                teamId: item.globals.project.id,
-                functionId: item.hogFunction.id,
-                queueName: isLegacyPluginHogFunction(item.hogFunction) ? 'plugin' : 'hog',
-                priority: item.queuePriority,
-                vmState: serializeHogFunctionInvocationForCyclotron(item),
-            }
-        })
+        const cyclotronJobs = invocations.map((item) => invocationToCyclotronJobInitial(item))
 
         try {
             histogramCyclotronJobsCreated.observe(cyclotronJobs.length)
@@ -515,10 +534,10 @@ function serializeHogFunctionInvocationForCyclotron(
     return serializedInvocation
 }
 
-function invocationToCyclotronJobUpdate(invocation: HogFunctionInvocation): CyclotronJobUpdate {
+function invocationToCyclotronJobInitial(invocation: HogFunctionInvocation): CyclotronJobInit {
     const queueParameters: HogFunctionInvocation['queueParameters'] = invocation.queueParameters
-    let blob: CyclotronJobUpdate['blob'] = null
-    let parameters: CyclotronJobUpdate['parameters'] = undefined
+    let blob: CyclotronJobInit['blob'] = null
+    let parameters: CyclotronJobInit['parameters'] = null
 
     if (queueParameters) {
         const { body, ...rest } = queueParameters
@@ -526,16 +545,24 @@ function invocationToCyclotronJobUpdate(invocation: HogFunctionInvocation): Cycl
         blob = body ? Buffer.from(body) : null
     }
 
-    const updates: CyclotronJobUpdate = {
-        vmState: serializeHogFunctionInvocationForCyclotron(invocation),
-        priority: invocation.queuePriority,
+    const job: CyclotronJobInit = {
+        teamId: invocation.globals.project.id,
+        functionId: invocation.hogFunction.id,
         queueName: invocation.queue,
+        priority: invocation.queuePriority,
+        vmState: serializeHogFunctionInvocationForCyclotron(invocation),
         parameters,
         blob,
-        metadata: invocation.queueMetadata,
-        scheduled: invocation.queueScheduledAt?.toISO(),
+        metadata: invocation.queueMetadata ?? null,
+        scheduled: invocation.queueScheduledAt?.toISO() ?? null,
     }
-    return updates
+    return job
+}
+
+function invocationToCyclotronJobUpdate(invocation: HogFunctionInvocation): CyclotronJobUpdate {
+    const job = invocationToCyclotronJobInitial(invocation)
+    // Currently the job updates are identical to the initial job
+    return job
 }
 
 function cyclotronJobToInvocation(job: CyclotronJob, hogFunction: HogFunctionType): HogFunctionInvocation {
