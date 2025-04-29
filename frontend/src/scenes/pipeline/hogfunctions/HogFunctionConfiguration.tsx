@@ -297,7 +297,7 @@ export function HogFunctionConfiguration({
                                             <span className="font-semibold">{configuration.name}</span>
                                             <div className="flex gap-2">
                                                 {template && <DestinationTag status={template.status} />}
-                                                {expertMode && <LemonTag type="warning">Advanced mode</LemonTag>}
+                                                {expertMode && <LemonTag type="warning">Custom</LemonTag>}
                                             </div>
                                         </div>
 
@@ -333,12 +333,12 @@ export function HogFunctionConfiguration({
                                         <>
                                             {showDisableConfirm && (
                                                 <LemonDialog
-                                                    title="Disable advanced mode?"
+                                                    title="Reset Customizations?"
                                                     onAfterClose={() => setShowDisableConfirm(false)}
                                                     content={
                                                         <div>
-                                                            This will reset everything to the latest version of the
-                                                            template.
+                                                            This will revert your customization to the original,
+                                                            allowing you to receive automatic updates again
                                                             <br />
                                                             <b>All your custom code and input schema will be lost.</b>
                                                             <br />
@@ -346,7 +346,7 @@ export function HogFunctionConfiguration({
                                                         </div>
                                                     }
                                                     primaryButton={{
-                                                        children: 'Revert to template',
+                                                        children: 'Reset customizations',
                                                         type: 'primary',
                                                         onClick: () => {
                                                             resetToTemplate()
@@ -487,7 +487,7 @@ export function HogFunctionConfiguration({
                                                         : undefined
                                                 }
                                             >
-                                                Enter advanced mode
+                                                Customize
                                             </LemonButton>
                                         ) : (
                                             <>
@@ -496,7 +496,7 @@ export function HogFunctionConfiguration({
                                                     type="secondary"
                                                     onClick={() => setShowDisableConfirm(true)}
                                                 >
-                                                    Disable advanced mode
+                                                    Reset Customizations
                                                 </LemonButton>
                                                 {showSource ? (
                                                     <LemonButton
@@ -523,17 +523,18 @@ export function HogFunctionConfiguration({
                                         <>
                                             {showEnableConfirm && (
                                                 <LemonDialog
-                                                    title="Enable advanced mode?"
+                                                    title="Customize using your own code?"
                                                     onAfterClose={() => setShowEnableConfirm(false)}
                                                     content={
                                                         <div>
                                                             <p>
-                                                                Advanced mode lets you customize using your own code,
-                                                                but comes with risks:
+                                                                Using your own code and deviating from the original
+                                                                source comes with risks:
                                                             </p>
                                                             <ul className="list-disc pl-4">
                                                                 <li>
-                                                                    You will no longer receive updates from the template
+                                                                    You will no longer receive automatic updates for
+                                                                    this integration
                                                                 </li>
                                                                 <li>
                                                                     Custom code requires careful testing and maintenance
@@ -544,7 +545,7 @@ export function HogFunctionConfiguration({
                                                         </div>
                                                     }
                                                     primaryButton={{
-                                                        children: 'Enable advanced mode',
+                                                        children: 'Customize',
                                                         type: 'primary',
                                                         onClick: () => {
                                                             setExpertMode(true)
@@ -559,10 +560,7 @@ export function HogFunctionConfiguration({
                                                     }}
                                                 />
                                             )}
-                                            <p>
-                                                Enter advanced mode to customize using your own code. <br />
-                                                <b>You will no longer receive updates from the template</b>.
-                                            </p>
+                                            <p>Customize using your own code</p>
                                         </>
                                     ) : (
                                         <>
