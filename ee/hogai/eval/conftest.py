@@ -12,6 +12,8 @@ from posthog.demo.matrix.manager import MatrixManager
 from posthog.models import Team
 from posthog.tasks.demo_create_data import HedgeboxMatrix
 
+# We want the PostHog django_db_setup fixture here
+from posthog.conftest import django_db_setup  # noqa: F401
 
 BRAINTRUST_PROJECT_NAME = "Max AI"
 
@@ -21,7 +23,7 @@ set_global_handler(handler)
 
 
 @pytest.fixture(scope="package")
-def demo_org_team_user(django_db_setup, django_db_blocker):
+def demo_org_team_user(django_db_setup, django_db_blocker):  # noqa: F811
     with django_db_blocker.unblock():
         should_create_new_team = True
         team = Team.objects.order_by("-created_at").first()

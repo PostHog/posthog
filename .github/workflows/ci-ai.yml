@@ -15,11 +15,6 @@ on:
             # These scripts are used in the CI
             - bin/check_kafka_clickhouse_up
 
-env:
-    DEBUG: 1
-    TEST: 1
-    IN_EVAL_TESTING: 1
-
 jobs:
     eval:
         timeout-minutes: 30
