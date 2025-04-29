@@ -9,10 +9,10 @@ use crate::{
     HogLiteral, HogValue,
 };
 
-/// The read-only context for the virtual machine. Defines
+/// The read-only context for the virtual machine.
 pub struct ExecutionContext {
     program: Program,
-    // TODO - this could and should be borrowed, it's read-only anyway
+    // TODO - this could and should be borrowed, it's read-only anyway and often the most expensive bit of the context
     pub globals: JsonValue, // Generally an object, but can be anything really
 
     pub max_stack_depth: usize,
