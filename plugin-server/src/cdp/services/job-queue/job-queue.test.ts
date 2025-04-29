@@ -15,8 +15,6 @@ describe('CyclotronJobQueue', () => {
         mockConsumeBatch = jest.fn()
     })
 
-    afterEach(async () => {})
-
     describe('cyclotron', () => {
         beforeEach(() => {
             config.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE = 'postgres'
