@@ -3,12 +3,12 @@ package main
 import (
 	"encoding/json"
 	"errors"
-	"github.com/prometheus/client_golang/prometheus"
 	"log"
 	"strconv"
 	"time"
 
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 type PostHogEventWrapper struct {
@@ -41,13 +41,15 @@ type PostHogKafkaConsumer struct {
 	consumer     KafkaConsumerInterface
 	topic        string
 	geolocator   GeoLocator
+	incoming     chan []byte
 	outgoingChan chan PostHogEvent
 	statsChan    chan CountEvent
+	parallel     int
 }
 
 func NewPostHogKafkaConsumer(
 	brokers string, securityProtocol string, groupID string, topic string, geolocator GeoLocator,
-	outgoingChan chan PostHogEvent, statsChan chan CountEvent) (*PostHogKafkaConsumer, error) {
+	outgoingChan chan PostHogEvent, statsChan chan CountEvent, parallel int) (*PostHogKafkaConsumer, error) {
 
 	config := &kafka.ConfigMap{
 		"bootstrap.servers":          brokers,
@@ -69,8 +71,10 @@ func NewPostHogKafkaConsumer(
 		consumer:     consumer,
 		topic:        topic,
 		geolocator:   geolocator,
+		incoming:     make(chan []byte, (1+parallel)*10),
 		outgoingChan: outgoingChan,
 		statsChan:    statsChan,
+		parallel:     parallel,
 	}, nil
 }
 
@@ -78,6 +82,10 @@ func (c *PostHogKafkaConsumer) Consume() {
 	if err := c.consumer.SubscribeTopics([]string{c.topic}, nil); err != nil {
 		// TODO capture error to PostHog
 		log.Fatalf("Failed to subscribe to topic: %v", err)
+	}
+
+	for i := 0; i < c.parallel; i++ {
+		go c.runParsing()
 	}
 
 	for {
@@ -98,8 +106,17 @@ func (c *PostHogKafkaConsumer) Consume() {
 		}
 
 		msgConsumed.With(prometheus.Labels{"partition": strconv.Itoa(int(msg.TopicPartition.Partition))}).Inc()
-		phEvent := parse(c.geolocator, msg.Value)
+		c.incoming <- msg.Value
+	}
+}
 
+func (c *PostHogKafkaConsumer) runParsing() {
+	for {
+		value, ok := <-c.incoming
+		if !ok {
+			return
+		}
+		phEvent := parse(c.geolocator, value)
 		c.outgoingChan <- phEvent
 		c.statsChan <- CountEvent{Token: phEvent.Token, DistinctID: phEvent.DistinctId}
 	}
@@ -158,5 +175,9 @@ func parse(geolocator GeoLocator, kafkaMessage []byte) PostHogEvent {
 }
 
 func (c *PostHogKafkaConsumer) Close() {
-	c.consumer.Close()
+	if err := c.consumer.Close(); err != nil {
+		// TODO capture error to PostHog
+		log.Printf("Failed to close consumer: %v", err)
+	}
+	close(c.incoming)
 }
