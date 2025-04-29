@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/posthog/posthog/livestream/auth"
 	"log"
 	"net/http"
 	"time"
@@ -108,7 +109,7 @@ func main() {
 
 	if isDebug {
 		e.GET("/jwt", func(c echo.Context) error {
-			claims, err := getAuth(c.Request().Header)
+			claims, err := auth.GetAuth(c.Request().Header)
 			if err != nil {
 				return err
 			}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"github.com/posthog/posthog/livestream/auth"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -35,7 +36,7 @@ func statsHandler(stats *Stats) func(c echo.Context) error {
 			Error          string `json:"error,omitempty"`
 		}
 
-		_, token, err := getAuthClaims(c.Request().Header)
+		_, token, err := auth.GetAuthClaims(c.Request().Header)
 		if err != nil {
 			return c.JSON(http.StatusUnauthorized, resp{Error: "wrong token claims"})
 		}
@@ -73,7 +74,7 @@ func streamEventsHandler(log echo.Logger, subChan chan Subscription, filter *Fil
 			err     error
 		)
 
-		teamID, token, err = getAuthClaims(c.Request().Header)
+		teamID, token, err = auth.GetAuthClaims(c.Request().Header)
 		if err != nil {
 			return echo.NewHTTPError(http.StatusUnauthorized, "wrong token")
 		}
