@@ -34,7 +34,7 @@ function RemoveMemberModal({ member }: { member: OrganizationMemberType }): JSX.
     return (
         <div className="max-w-xl">
             <p>
-                {member.user.uuid == user?.uuid
+                {member.user.uuid === user?.uuid
                     ? 'Are you sure you want to leave this organization? This cannot be undone. If you leave, you will no longer have access to this organization.'
                     : 'Are you sure you want to remove this member? This cannot be undone. They will no longer have access to this organization.'}
             </p>
