@@ -59,6 +59,44 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
 
     def update(self, instance: EarlyAccessFeature, validated_data: Any) -> EarlyAccessFeature:
         stage = validated_data.get("stage", None)
+        old_stage = instance.stage
+
+        # Track stage change from concept to beta for all users in the feature group
+        if old_stage == "concept" and stage == "beta":
+            from posthog.models.feature_flag.feature_flag import FeatureFlag
+            from posthog.models.person.person import Person
+            from posthog.models.person.util import get_persons_by_distinct_ids
+            from posthog.models.feature_flag.feature_flag import get_feature_flag_hash_key_overrides
+
+            # Get all users who have the feature flag enabled
+            feature_flag = instance.feature_flag
+            if feature_flag:
+                # Get all users who have manually enrolled in the feature
+                enrolled_distinct_ids = Person.objects.filter(**{
+                    f"properties__$feature_enrollment/{feature_flag.key}": "true",
+                    "team_id": instance.team_id
+                }).values_list("distinct_ids", flat=True)
+
+                # Get all persons by their distinct IDs
+                enrolled_persons = get_persons_by_distinct_ids(enrolled_distinct_ids, instance.team_id)
+
+                # Fire event for each enrolled user
+                from posthog.models.event.util import create_event
+                for person in enrolled_persons:
+                    create_event(
+                        event="user moved feature preview stage",
+                        distinct_id=person.distinct_ids[0],  # Use first distinct ID
+                        team_id=instance.team_id,
+                        properties={
+                            "from": "concept",
+                            "to": "beta",
+                            "feature_flag_key": feature_flag.key,
+                            "feature_id": instance.id,
+                            "$set": {  # Update person properties
+                                f"$feature_enrollment/{feature_flag.key}": "true"
+                            }
+                        }
+                    )
 
         if instance.stage not in EarlyAccessFeature.ReleaseStage and stage in EarlyAccessFeature.ReleaseStage:
             super_conditions = lambda feature_flag_key: [
