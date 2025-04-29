@@ -22,6 +22,7 @@ from posthog.cache_utils import cache_for
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.user import User
+from products.messaging.backend.providers.mailjet import MailjetProvider
 import structlog
 
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
@@ -792,10 +793,12 @@ class LinkedInAdsIntegration:
         return response.json()
 
 
-class MailIntegration:
+class EmailIntegration:
     integration: Integration
 
     def __init__(self, integration: Integration) -> None:
+        if integration.kind != "email":
+            raise Exception("EmailIntegration init called with Integration with wrong 'kind'")
         self.integration = integration
 
     @classmethod
@@ -807,7 +810,8 @@ class MailIntegration:
             defaults={
                 "config": {
                     "domain": domain,
-                    "verified": False,
+                    "mailjet_verified": False,
+                    "aws_ses_verified": False,
                 },
                 "created_by": created_by,
             },
@@ -818,6 +822,25 @@ class MailIntegration:
             integration.save()
 
         return integration
+
+    def setup_email_domain(self, domain: str, team_id: int, created_by=None):
+        mailjet = MailjetProvider()
+        return mailjet.setup_email_domain(domain, team_id=team_id, created_by=created_by)
+
+    def verify_email_domain(self, domain: str, team_id: int):
+        mailjet = MailjetProvider()
+        verification_result = mailjet.verify_email_domain(domain, team_id=team_id)
+
+        if verification_result.get("status") == "success":
+            updated_config = {"mailjet_verified": True}
+
+            integration = Integration.objects.get(kind="email", integration_id=domain, team_id=team_id)
+            # Merge the new config with existing config
+            updated_config = {**integration.config, **updated_config}
+            integration.config = updated_config
+            integration.save()
+
+        return verification_result
 
 
 class LinearIntegration:

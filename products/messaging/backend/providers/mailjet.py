@@ -3,7 +3,6 @@ import requests
 import logging
 from django.conf import settings
 from rest_framework import exceptions
-from .messaging_provider import MessagingProvider
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +33,7 @@ class MailjetConfig:
     }
 
 
-class MailjetProvider(MessagingProvider):
+class MailjetProvider:
     def __init__(self):
         self.api_key = self.get_api_key()
         self.api_secret = self.get_api_secret()
@@ -151,32 +150,13 @@ class MailjetProvider(MessagingProvider):
 
     def setup_email_domain(self, domain: str, team_id: int, created_by=None):
         """
-        Complete setup for a new email domain:
-        1. Create a sender domain
-        2. Create integration
-        3. Get DNS records for the domain
-
-        Returns all necessary information for domain verification.
+        Create the sender domain and return the DNS records for verifying the domain
         """
-        sender_response = self._create_sender_domain(domain, team_id)
-
-        integration = self.create_integration(
-            kind="email",
-            integration_id=domain,
-            config={
-                "domain": domain,
-                "mailjet_id": sender_response.get("ID"),
-                "mailjet_verified": False,
-            },
-            team_id=team_id,
-            created_by=created_by,
-        )
-
+        self._create_sender_domain(domain, team_id)
         dns_response = self._get_domain_dns_records(domain)
         overall_status, formatted_dns_records = self._format_dns_records(dns_response)
 
         return {
-            "integration": integration,
             "status": overall_status,
             "dnsRecords": formatted_dns_records,
         }
@@ -187,14 +167,4 @@ class MailjetProvider(MessagingProvider):
         """
         dns_response = self._check_domain_dns_records(domain)
         overall_status, formatted_dns_records = self._format_dns_records(dns_response)
-
-        if overall_status == "success":
-            # Mark the integration as verified if not already
-            self.update_integration(
-                kind="email",
-                integration_id=domain,
-                team_id=team_id,
-                updated_config={"mailjet_verified": True},
-            )
-
         return {"status": overall_status, "dnsRecords": formatted_dns_records}

@@ -5,7 +5,7 @@ from typing import Any
 
 from django.http import HttpResponse
 from django.shortcuts import redirect
-from rest_framework import mixins, serializers, viewsets
+from rest_framework import mixins, serializers, status, viewsets
 from posthog.api.utils import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -22,7 +22,7 @@ from posthog.models.integration import (
     GoogleCloudIntegration,
     GoogleAdsIntegration,
     LinkedInAdsIntegration,
-    MailIntegration,
+    EmailIntegration,
 )
 
 
@@ -54,7 +54,7 @@ class IntegrationSerializer(serializers.ModelSerializer):
             config = validated_data.get("config", {})
             if not (config.get("domain")):
                 raise ValidationError("Domain is required for Mail integration")
-            instance = MailIntegration.integration_from_domain(
+            instance = EmailIntegration.integration_from_domain(
                 config["domain"],
                 team_id,
                 request.user,
@@ -222,3 +222,13 @@ class IntegrationViewSet(
     def linear_teams(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         linear = LinearIntegration(self.get_object())
         return Response({"teams": linear.list_teams()})
+
+    @action(methods=["POST"], detail=True, url_path="email/verify")
+    def email_verify(self, request, **kwargs):
+        domain = request.data.get("domain")
+        if not domain:
+            return Response({"error": "Domain parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        email = EmailIntegration(self.get_object())
+        verification_result = email.verify_email_domain(domain, team_id=self.team.id)
+        return Response(verification_result)
