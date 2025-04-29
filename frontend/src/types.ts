@@ -4282,6 +4282,7 @@ export type NotebookListItemType = {
     created_by: UserBasicType | null
     last_modified_at?: string
     last_modified_by?: UserBasicType | null
+    _fs_folder?: string
 }
 
 export type NotebookType = NotebookListItemType &

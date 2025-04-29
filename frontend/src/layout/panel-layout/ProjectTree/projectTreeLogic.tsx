@@ -1208,25 +1208,25 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     )
                     breakpoint() // bail if we opened some other item in the meanwhile
                     if (resp.results && resp.results.length > 0) {
-                        const { lastNewFolder } = values
+                        // const { lastNewFolder } = values
                         const result = resp.results[0]
                         path = result.path
-
-                        // TODO: REMOVE THIS! ... in favor of directly passing _fs_folder to the API calls
-
-                        // Check if a "new" action was recently initiated for this object type.
-                        // If so, move the item to the new path.
-                        if (result.path.startsWith('Unfiled/') && typeof lastNewFolder === 'string') {
-                            const newPath = joinPath([...splitPath(lastNewFolder), ...splitPath(result.path).slice(-1)])
-                            actions.createSavedItem({ ...result, path: newPath })
-                            path = newPath
-                            await api.fileSystem.move(result.id, newPath)
-                        } else {
-                            actions.createSavedItem(result)
-                        }
-                        if (lastNewFolder) {
-                            actions.setLastNewFolder(null)
-                        }
+                        //
+                        //         // TODO: REMOVE THIS! ... in favor of directly passing _fs_folder to the API calls
+                        //
+                        //         // Check if a "new" action was recently initiated for this object type.
+                        //         // If so, move the item to the new path.
+                        //         if (result.path.startsWith('Unfiled/') && typeof lastNewFolder === 'string') {
+                        //             const newPath = joinPath([...splitPath(lastNewFolder), ...splitPath(result.path).slice(-1)])
+                        //             actions.createSavedItem({ ...result, path: newPath })
+                        //             path = newPath
+                        //             await api.fileSystem.move(result.id, newPath)
+                        //         } else {
+                        actions.createSavedItem(result)
+                        //         }
+                        //         if (lastNewFolder) {
+                        //             actions.setLastNewFolder(null)
+                        //         }
                     }
                 }
 
@@ -1276,6 +1276,6 @@ export function refreshTreeItem(type: string, ref: string): void {
     projectTreeLogic.findMounted()?.actions.syncTypeAndRef(type, ref)
 }
 
-export function getLastNewFolder(): string | null {
-    return projectTreeLogic.findMounted()?.values.lastNewFolder ?? null
+export function getLastNewFolder(): string | undefined {
+    return projectTreeLogic.findMounted()?.values.lastNewFolder ?? undefined
 }
