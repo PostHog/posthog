@@ -22,7 +22,7 @@ def test_table_get_item():
     table = Table(name="test", columns=[column])
 
     assert table[0] == column
-    assert table["test"] == column
+    assert table[column_name] == column
 
 
 def test_table_contains():
