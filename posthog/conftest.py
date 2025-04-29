@@ -162,7 +162,11 @@ def django_db_setup(django_db_setup, django_db_keepdb):
 
     yield
 
-    if not django_db_keepdb:
+    if django_db_keepdb:
+        # Reset ClickHouse data, unless we're running AI evals, where we want to keep the DB between runs
+        if not settings.IN_EVAL_TESTING:
+            reset_clickhouse_tables()
+    else:
         database.drop_database()
 
 
