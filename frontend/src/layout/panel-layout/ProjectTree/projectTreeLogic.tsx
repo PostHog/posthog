@@ -32,6 +32,13 @@ const PAGINATION_LIMIT = 100
 const MOVE_ALERT_LIMIT = 50
 const DELETE_ALERT_LIMIT = 0
 
+export interface SearchResults {
+    searchTerm: string
+    results: FileSystemEntry[]
+    hasMore: boolean
+    lastCount: number
+}
+
 export const projectTreeLogic = kea<projectTreeLogicType>([
     path(['layout', 'navigation-3000', 'components', 'projectTreeLogic']),
     connect(() => ({
@@ -113,12 +120,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             },
         ],
         searchResults: [
-            { searchTerm: '', results: [], hasMore: false, lastCount: 0 } as {
-                searchTerm: string
-                results: FileSystemEntry[]
-                hasMore: boolean
-                lastCount: number
-            },
+            { searchTerm: '', results: [], hasMore: false, lastCount: 0 } as SearchResults,
             {
                 loadSearchResults: async ({ searchTerm, offset }, breakpoint) => {
                     await breakpoint(250)
@@ -376,6 +378,42 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     [folder]: hasMore ? 'has-more' : 'loaded',
                 }),
                 loadFolderFailure: (state, { folder }) => ({ ...state, [folder]: 'error' }),
+            },
+        ],
+        searchResults: [
+            { searchTerm: '', results: [], hasMore: false, lastCount: 0 } as SearchResults,
+            {
+                movedItem: (state, { newPath, item }) => {
+                    if (state.searchTerm && state.results.length > 0) {
+                        const newResults = state.results.map((result) => {
+                            if (result.id === item.id) {
+                                return { ...item, path: newPath }
+                            }
+                            return result
+                        })
+                        return { ...state, results: newResults }
+                    }
+                    return state
+                },
+                deleteSavedItem: (state, { savedItem }) => {
+                    if (state.searchTerm && state.results.length > 0) {
+                        const newResults = state.results.filter((result) => result.id !== savedItem.id)
+                        return { ...state, results: newResults }
+                    }
+                    return state
+                },
+                updateSavedItem: (state, { savedItem, oldPath }) => {
+                    if (state.searchTerm && state.results.length > 0) {
+                        const newResults = state.results.map((result) => {
+                            if (result.id === savedItem.id) {
+                                return { ...savedItem, path: oldPath }
+                            }
+                            return result
+                        })
+                        return { ...state, results: newResults }
+                    }
+                    return state
+                },
             },
         ],
         lastNewOperation: [
