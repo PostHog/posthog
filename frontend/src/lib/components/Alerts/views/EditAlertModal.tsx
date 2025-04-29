@@ -2,6 +2,7 @@ import { IconInfo } from '@posthog/icons'
 import {
     LemonBanner,
     LemonCheckbox,
+    LemonCollapse,
     LemonInput,
     LemonSegmentedButton,
     LemonSelect,
@@ -35,6 +36,7 @@ import { alertFormLogic, canCheckOngoingInterval } from '../alertFormLogic'
 import { alertLogic } from '../alertLogic'
 import { SnoozeButton } from '../SnoozeButton'
 import { AlertType } from '../types'
+import { AlertDestinationSelector } from './AlertDestinationSelector'
 
 export function AlertStateTable({ alert }: { alert: AlertType }): JSX.Element | null {
     if (!alert.checks || alert.checks.length === 0) {
@@ -338,63 +340,89 @@ export function EditAlertModal({
                                                 }))}
                                             />
                                         </LemonField>
-                                        <div>and notify</div>
-                                        <div className="flex-auto">
-                                            <MemberSelectMultiple
-                                                value={alertForm.subscribed_users?.map((u) => u.id) ?? []}
-                                                idKey="id"
-                                                onChange={(value) => setAlertFormValue('subscribed_users', value)}
-                                            />
-                                        </div>
                                     </div>
                                 </div>
                             </div>
 
                             <div className="deprecated-space-y-2">
-                                <h3 className="text-secondary">Advanced</h3>
-                                <Group name={['config']}>
-                                    <div className="flex gap-1">
-                                        <LemonField name="check_ongoing_interval">
-                                            <LemonCheckbox
-                                                checked={
-                                                    can_check_ongoing_interval &&
-                                                    alertForm?.config.check_ongoing_interval
-                                                }
-                                                data-attr="alertForm-check-ongoing-interval"
-                                                fullWidth
-                                                label="Check ongoing period"
-                                                disabledReason={
-                                                    !can_check_ongoing_interval &&
-                                                    'Can only alert for ongoing period when checking for absolute value/increase above threshold'
-                                                }
-                                            />
-                                        </LemonField>
-                                        <Tooltip
-                                            title={`Checks the insight value for the on going period (current week/month) that hasn't yet completed. Use this if you want to be alerted right away when the insight value rises/increases above threshold`}
-                                            placement="right"
-                                            delayMs={0}
-                                        >
-                                            <IconInfo />
-                                        </Tooltip>
+                                <h3>Notification</h3>
+                                <div className="flex gap-4 items-center">
+                                    <div>E-mail</div>
+                                    <div className="flex-auto">
+                                        <MemberSelectMultiple
+                                            value={alertForm.subscribed_users?.map((u) => u.id) ?? []}
+                                            idKey="id"
+                                            onChange={(value) => setAlertFormValue('subscribed_users', value)}
+                                        />
                                     </div>
-                                </Group>
-                                <LemonField name="skip_weekend">
-                                    <LemonCheckbox
-                                        checked={
-                                            (alertForm?.calculation_interval === AlertCalculationInterval.DAILY ||
-                                                alertForm?.calculation_interval === AlertCalculationInterval.HOURLY) &&
-                                            alertForm?.skip_weekend
-                                        }
-                                        data-attr="alertForm-skip-weekend"
-                                        fullWidth
-                                        label="Skip checking on weekends"
-                                        disabledReason={
-                                            alertForm?.calculation_interval !== AlertCalculationInterval.DAILY &&
-                                            alertForm?.calculation_interval !== AlertCalculationInterval.HOURLY &&
-                                            'Can only skip weekend checking for hourly/daily alerts'
-                                        }
-                                    />
-                                </LemonField>
+                                </div>
+                                <div className="deprecated-space-y-5">
+                                    <div className="flex flex-col">
+                                        <AlertDestinationSelector alertId={alertId} />
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="deprecated-space-y-2">
+                                <LemonCollapse
+                                    panels={[
+                                        {
+                                            key: 'advanced',
+                                            header: 'Advanced options',
+                                            content: (
+                                                <div className="space-y-2">
+                                                    <Group name={['config']}>
+                                                        <div className="flex gap-1">
+                                                            <LemonField name="check_ongoing_interval">
+                                                                <LemonCheckbox
+                                                                    checked={
+                                                                        can_check_ongoing_interval &&
+                                                                        alertForm?.config.check_ongoing_interval
+                                                                    }
+                                                                    data-attr="alertForm-check-ongoing-interval"
+                                                                    fullWidth
+                                                                    label="Check ongoing period"
+                                                                    disabledReason={
+                                                                        !can_check_ongoing_interval &&
+                                                                        'Can only alert for ongoing period when checking for absolute value/increase above threshold'
+                                                                    }
+                                                                />
+                                                            </LemonField>
+                                                            <Tooltip
+                                                                title={`Checks the insight value for the ongoing period (current week/month) that hasn't yet completed. Use this if you want to be alerted right away when the insight value rises/increases above threshold`}
+                                                                placement="right"
+                                                                delayMs={0}
+                                                            >
+                                                                <IconInfo />
+                                                            </Tooltip>
+                                                        </div>
+                                                    </Group>
+                                                    <LemonField name="skip_weekend">
+                                                        <LemonCheckbox
+                                                            checked={
+                                                                (alertForm?.calculation_interval ===
+                                                                    AlertCalculationInterval.DAILY ||
+                                                                    alertForm?.calculation_interval ===
+                                                                        AlertCalculationInterval.HOURLY) &&
+                                                                alertForm?.skip_weekend
+                                                            }
+                                                            data-attr="alertForm-skip-weekend"
+                                                            fullWidth
+                                                            label="Skip checking on weekends"
+                                                            disabledReason={
+                                                                alertForm?.calculation_interval !==
+                                                                    AlertCalculationInterval.DAILY &&
+                                                                alertForm?.calculation_interval !==
+                                                                    AlertCalculationInterval.HOURLY &&
+                                                                'Can only skip weekend checking for hourly/daily alerts'
+                                                            }
+                                                        />
+                                                    </LemonField>
+                                                </div>
+                                            ),
+                                        },
+                                    ]}
+                                />
                             </div>
                         </div>
 

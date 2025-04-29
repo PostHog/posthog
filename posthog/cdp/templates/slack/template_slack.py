@@ -285,5 +285,54 @@ if (res.status != 200 or res.body.ok == false) {
                 },
             },
         ),
+        HogFunctionSubTemplate(
+            name="Post to Slack on insight alert firing",
+            description="Post to a Slack channel when this insight alert fires",
+            id=SUB_TEMPLATE_COMMON["insight-alert-firing"].id,
+            type=SUB_TEMPLATE_COMMON["insight-alert-firing"].type,
+            filters=SUB_TEMPLATE_COMMON["insight-alert-firing"].filters,
+            input_schema_overrides={
+                "blocks": {
+                    "default": [
+                        {
+                            "type": "header",
+                            "text": {
+                                "type": "plain_text",
+                                "text": "Alert threshold breached for insight '{event.properties.insight_name}'",
+                            },
+                        },
+                        {
+                            "type": "section",
+                            "text": {
+                                "type": "plain_text",
+                                "text": "{event.properties.breaches}",
+                            },
+                        },
+                        {
+                            "type": "context",
+                            "elements": [
+                                {"type": "mrkdwn", "text": "Project: <{project.url}|{project.name}>"},
+                                {"type": "mrkdwn", "text": "Alert: <{source.url}|{source.name}>"},
+                            ],
+                        },
+                        {"type": "divider"},
+                        {
+                            "type": "actions",
+                            "elements": [
+                                {
+                                    "url": "{project.url}/insights/{event.properties.insight_id}",
+                                    "text": {"text": "View Insight", "type": "plain_text"},
+                                    "type": "button",
+                                }
+                            ],
+                        },
+                    ],
+                },
+                "text": {
+                    "default": "Alert triggered: {event.properties.insight_name}",
+                    "hidden": True,
+                },
+            },
+        ),
     ],
 )

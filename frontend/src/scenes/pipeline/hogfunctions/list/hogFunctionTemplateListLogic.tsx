@@ -42,6 +42,9 @@ export const shouldShowHogFunctionTemplate = (
     return true
 }
 
+/**
+ * Auto select the 'Trigger' on the new destination page
+ */
 const getFunctionFilters = (
     filters: HogFunctionTemplateListFilters,
     template: HogFunctionTemplateType['id']

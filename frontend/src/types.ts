@@ -5064,6 +5064,7 @@ export type HogFunctionSubTemplateIdType =
     | 'survey-response'
     | 'activity-log'
     | 'error-tracking'
+    | 'insight-alert-firing'
 
 export type HogFunctionConfigurationType = Omit<
     HogFunctionType,
