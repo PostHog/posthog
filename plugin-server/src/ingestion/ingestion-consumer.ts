@@ -21,6 +21,7 @@ import {
     PluginsServerConfig,
 } from '../types'
 import { normalizeEvent } from '../utils/event'
+import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restriction-manager'
 import { parseJSON } from '../utils/json-parse'
 import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
@@ -89,8 +90,8 @@ export class IngestionConsumer {
     private tokenDistinctIdsToDrop: string[] = []
     private tokenDistinctIdsToSkipPersons: string[] = []
     private tokenDistinctIdsToForceOverflow: string[] = []
-
     private personStore: MeasuringPersonsStore
+    private eventIngestionRestrictionManager: EventIngestionRestrictionManager
 
     constructor(
         private hub: Hub,
@@ -117,6 +118,11 @@ export class IngestionConsumer {
         this.tokenDistinctIdsToForceOverflow = hub.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID.split(',').filter(
             (x) => !!x
         )
+        this.eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
+            staticDropEventTokens: this.tokenDistinctIdsToDrop,
+            staticSkipPersonTokens: this.tokenDistinctIdsToSkipPersons,
+            staticForceOverflowTokens: this.tokenDistinctIdsToForceOverflow,
+        })
         this.testingTopic = overrides.INGESTION_CONSUMER_TESTING_TOPIC ?? hub.INGESTION_CONSUMER_TESTING_TOPIC
 
         this.name = `ingestion-consumer-${this.topic}`
@@ -312,7 +318,7 @@ export class IngestionConsumer {
         const kafkaTimestamp = eventsForDistinctId.events[0].message.timestamp
         const eventKey = `${token}:${distinctId}`
 
-        // Check if this token is in the force overflow list
+        // Check if this token is in the force overflow static/dynamic config list
         const shouldForceOverflow = this.shouldForceOverflow(token, distinctId)
 
         // Check the rate limiter and emit to overflow if necessary
@@ -565,24 +571,24 @@ export class IngestionConsumer {
     }
 
     private shouldDropEvent(token?: string, distinctId?: string) {
-        return (
-            (token && this.tokenDistinctIdsToDrop.includes(token)) ||
-            (token && distinctId && this.tokenDistinctIdsToDrop.includes(`${token}:${distinctId}`))
-        )
+        if (!token) {
+            return false
+        }
+        return this.eventIngestionRestrictionManager.shouldDropEvent(token, distinctId)
     }
 
     private shouldSkipPerson(token?: string, distinctId?: string) {
-        return (
-            (token && this.tokenDistinctIdsToSkipPersons.includes(token)) ||
-            (token && distinctId && this.tokenDistinctIdsToSkipPersons.includes(`${token}:${distinctId}`))
-        )
+        if (!token) {
+            return false
+        }
+        return this.eventIngestionRestrictionManager.shouldSkipPerson(token, distinctId)
     }
 
     private shouldForceOverflow(token?: string, distinctId?: string) {
-        return (
-            (token && this.tokenDistinctIdsToForceOverflow.includes(token)) ||
-            (token && distinctId && this.tokenDistinctIdsToForceOverflow.includes(`${token}:${distinctId}`))
-        )
+        if (!token) {
+            return false
+        }
+        return this.eventIngestionRestrictionManager.shouldForceOverflow(token, distinctId)
     }
 
     private overflowEnabled() {
