@@ -95,6 +95,7 @@ export function HogFunctionConfiguration({
     const [mightDrop, setMightDrop] = useState(false)
     const [debouncedCode, setDebouncedCode] = useState('')
     const [showDisableConfirm, setShowDisableConfirm] = useState(false)
+    const [showEnableConfirm, setShowEnableConfirm] = useState(false)
 
     // Debounce the code check
     useEffect(() => {
@@ -478,10 +479,7 @@ export function HogFunctionConfiguration({
                                         {!expertMode ? (
                                             <LemonButton
                                                 type="secondary"
-                                                onClick={() => {
-                                                    setExpertMode(true)
-                                                    setShowSource(true)
-                                                }}
+                                                onClick={() => setShowEnableConfirm(true)}
                                                 size="small"
                                                 disabledReason={
                                                     !hasAddon
@@ -497,7 +495,6 @@ export function HogFunctionConfiguration({
                                                     size="xsmall"
                                                     type="secondary"
                                                     onClick={() => setShowDisableConfirm(true)}
-                                                    status="default"
                                                 >
                                                     Disable advanced mode
                                                 </LemonButton>
@@ -523,10 +520,50 @@ export function HogFunctionConfiguration({
                                     </div>
 
                                     {!expertMode ? (
-                                        <p>
-                                            Enter advanced mode to customize using your own code. <br />
-                                            <b>You will no longer receive updates from the template</b>.
-                                        </p>
+                                        <>
+                                            {showEnableConfirm && (
+                                                <LemonDialog
+                                                    title="Enable advanced mode?"
+                                                    onAfterClose={() => setShowEnableConfirm(false)}
+                                                    content={
+                                                        <div>
+                                                            <p>
+                                                                Advanced mode lets you customize using your own code,
+                                                                but comes with risks:
+                                                            </p>
+                                                            <ul className="list-disc pl-4">
+                                                                <li>
+                                                                    You will no longer receive updates from the template
+                                                                </li>
+                                                                <li>
+                                                                    Custom code requires careful testing and maintenance
+                                                                </li>
+                                                                <li>Errors could impact your data pipeline</li>
+                                                            </ul>
+                                                            <p>Are you sure you want to continue?</p>
+                                                        </div>
+                                                    }
+                                                    primaryButton={{
+                                                        children: 'Enable advanced mode',
+                                                        type: 'primary',
+                                                        onClick: () => {
+                                                            setExpertMode(true)
+                                                            setShowSource(true)
+                                                            setShowEnableConfirm(false)
+                                                        },
+                                                    }}
+                                                    secondaryButton={{
+                                                        children: 'Cancel',
+                                                        type: 'secondary',
+                                                        onClick: () => setShowEnableConfirm(false),
+                                                    }}
+                                                />
+                                            )}
+                                            <p>
+                                                Enter advanced mode to customize using your own code. <br />
+                                                <b>You will no longer receive updates from the template</b>.
+                                            </p>
+                                        </>
                                     ) : (
                                         <>
                                             {showSource && (
