@@ -211,6 +211,15 @@ export const stringOperatorMap: Record<string, string> = {
     is_not_set: '✕ is not set',
 }
 
+export const stringArrayOperatorMap: Record<string, string> = {
+    exact: '= equals',
+    is_not: "≠ doesn't equal",
+    icontains: '∋ contains',
+    not_icontains: "∌ doesn't contain",
+    regex: '∼ matches regex',
+    not_regex: "≁ doesn't match regex",
+}
+
 export const numericOperatorMap: Record<string, string> = {
     exact: '= equals',
     is_not: "≠ doesn't equal",
@@ -273,6 +282,7 @@ export const allOperatorsMapping: Record<string, string> = {
     ...stickinessOperatorMap,
     ...dateTimeOperatorMap,
     ...stringOperatorMap,
+    ...stringArrayOperatorMap,
     ...numericOperatorMap,
     ...genericOperatorMap,
     ...booleanOperatorMap,
@@ -293,6 +303,7 @@ const operatorMappingChoice: Record<keyof typeof PropertyType, Record<string, st
     Selector: selectorOperatorMap,
     Cohort: cohortOperatorMap,
     Assignee: assigneeOperatorMap,
+    StringArray: stringArrayOperatorMap,
 }
 
 export function chooseOperatorMap(propertyType: PropertyType | undefined): Record<string, string> {
