@@ -503,9 +503,7 @@ function cyclotronJobToInvocation(job: CyclotronJob, hogFunction: HogFunctionTyp
  * So for example `*:kafka:10,fetch:postgres` would result in all fetch jobs being routed to postgres and 10% of all other jobs being routed to kafka and the rest to postgres
  */
 export function getProducerMapping(stringMapping: string): CyclotronJobQueueRouting {
-    // Default fallback
     const routing: CyclotronJobQueueRouting = {}
-    // First validate that it is a good mapping
     const parts = stringMapping.split(',')
 
     const validQueues = ['*', ...HOG_FUNCTION_INVOCATION_JOB_QUEUES]
@@ -544,6 +542,10 @@ export function getProducerMapping(stringMapping: string): CyclotronJobQueueRout
             target: target as CyclotronJobQueueTarget,
             percentage,
         }
+    }
+
+    if (!routing['*']) {
+        throw new Error('No mapping for the default queue for example: *:postgres')
     }
 
     return routing

@@ -206,9 +206,8 @@ export type HogFunctionInvocationQueueParameters =
     | HogFunctionQueueParametersFetchRequest
     | HogFunctionQueueParametersFetchResponse
 
-
 export const HOG_FUNCTION_INVOCATION_JOB_QUEUES = ['hog', 'fetch', 'plugin'] as const
-export type HogFunctionInvocationJobQueue = typeof HOG_FUNCTION_INVOCATION_JOB_QUEUES[number]
+export type HogFunctionInvocationJobQueue = (typeof HOG_FUNCTION_INVOCATION_JOB_QUEUES)[number]
 
 export type HogFunctionInvocation = {
     id: string
