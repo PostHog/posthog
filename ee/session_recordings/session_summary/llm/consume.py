@@ -65,7 +65,7 @@ def _get_raw_content(llm_response: ChatCompletion | ChatCompletionChunk, session
         content = llm_response.choices[0].delta.content
     else:
         raise ValueError(f"Unexpected LLM response type for session_id {session_id}: {type(llm_response)}")
-    return content
+    return content if content else ""
 
 
 def _serialize_to_sse_event(event_label: str, event_data: str) -> str:
