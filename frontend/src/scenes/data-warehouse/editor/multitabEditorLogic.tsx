@@ -93,6 +93,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 'runDataWarehouseSavedQuery',
                 'resetDataModelingJobs',
                 'loadDataModelingJobs',
+                'updateDataWarehouseSavedQuerySuccess',
             ],
             outputPaneLogic,
             ['setActiveTab'],
@@ -228,12 +229,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             null as QueryTab | null,
             {
                 selectTab: (_, { tab }) => tab,
-            },
-        ],
-        editingView: [
-            null as DataWarehouseSavedQuery | null,
-            {
-                selectTab: (_, { tab }) => tab.view ?? null,
             },
         ],
         editingInsight: [
@@ -715,11 +710,15 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             actions.setCacheLoading(false)
         },
         setQueryInput: ({ queryInput }) => {
+            // if editing a view, track latest history id changes are based on
             if (values.activeModelUri?.view) {
                 if (queryInput === values.activeModelUri.view?.query.query) {
                     actions.deleteInProgressViewEdit(values.activeModelUri.view.id)
                 } else if (!values.inProgressViewEdits[values.activeModelUri.view.id]) {
-                    actions.setInProgressViewEdit(values.activeModelUri.view.id, 'test history id')
+                    actions.setInProgressViewEdit(
+                        values.activeModelUri.view.id,
+                        values.activeModelUri.view.latest_history_id
+                    )
                 }
             }
             actions.updateState()
@@ -935,7 +934,15 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 actions.updateState()
             }
         },
-        updateDataWarehouseSavedQuerySuccess: () => {
+        updateDataWarehouseSavedQuerySuccess: ({ dataWarehouseSavedQueries }) => {
+            // // check if the active tab is a view and if so, update the view
+            const activeTab = dataWarehouseSavedQueries.find((tab) => tab.id === values.activeModelUri?.view?.id)
+            if (activeTab && values.activeModelUri) {
+                actions.selectTab({
+                    ...values.activeModelUri,
+                    view: activeTab,
+                })
+            }
             lemonToast.success('View updated')
         },
         updateQueryTabState: async ({ skipBreakpoint }, breakpoint) => {
@@ -1034,6 +1041,18 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         },
     })),
     selectors({
+        editingView: [
+            (s) => [s.activeModelUri],
+            (activeModelUri) => {
+                return activeModelUri?.view
+            },
+        ],
+        changesToSave: [
+            (s) => [s.editingView, s.queryInput],
+            (editingView, queryInput) => {
+                return editingView?.query.query !== queryInput
+            },
+        ],
         exportContext: [
             (s) => [s.sourceQuery],
             (sourceQuery) => {

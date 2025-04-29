@@ -26,8 +26,17 @@ interface QueryWindowProps {
 export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Element {
     const codeEditorKey = `hogQLQueryEditor/${router.values.location.pathname}`
 
-    const { allTabs, activeModelUri, queryInput, editingView, editingInsight, sourceQuery, suggestedQueryInput } =
-        useValues(multitabEditorLogic)
+    const {
+        allTabs,
+        activeModelUri,
+        queryInput,
+        editingView,
+        editingInsight,
+        sourceQuery,
+        suggestedQueryInput,
+        inProgressViewEdits,
+        changesToSave,
+    } = useValues(multitabEditorLogic)
     const {
         renameTab,
         selectTab,
@@ -128,9 +137,16 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                                     },
                                     types: response?.types ?? [],
                                     shouldRematerialize: isMaterializedView,
+                                    edited_history_id: inProgressViewEdits[editingView.id],
                                 })
                             }
-                            disabledReason={updatingDataWarehouseSavedQuery ? 'Saving...' : ''}
+                            disabledReason={
+                                updatingDataWarehouseSavedQuery
+                                    ? 'Saving...'
+                                    : !changesToSave
+                                    ? 'No changes to save'
+                                    : ''
+                            }
                             icon={<IconDownload />}
                             type="tertiary"
                             size="xsmall"
