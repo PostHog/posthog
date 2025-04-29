@@ -1035,7 +1035,7 @@ class FeatureFlagViewSet(
                     continue
 
             # Add request for analytics
-            if len(feature_flags) > 0 and not all(
+            if len(parsed_flags) > 0 and not all(
                 flag.key.startswith(SURVEY_TARGETING_FLAG_PREFIX) for flag in parsed_flags
             ):
                 increment_request_count(self.team.pk, 1, FlagRequestType.LOCAL_EVALUATION)
