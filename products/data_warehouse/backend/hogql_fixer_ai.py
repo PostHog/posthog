@@ -156,7 +156,7 @@ class HogQLQueryFixerTool(MaxTool):
             include_raw=False,
         )
 
-    def _parse_output(self, output, hogql_context: HogQLContext):  # type: ignore
+    def _parse_output(self, output, hogql_context: HogQLContext):
         result = parse_pydantic_structured_output(SchemaGeneratorOutput[str])(output)  # type: ignore
         # We also ensure the generated SQL is valid
         assert result.query is not None
