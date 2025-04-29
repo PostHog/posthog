@@ -232,7 +232,7 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
 
     return (
         <div className="deprecated-space-y-4">
-            <LemonBanner type="info">
+            <LemonBanner type="info" dismissKey="session-recordings-playlists-banner">
                 We've made some updates!
                 <br />
                 <p className="font-normal">
