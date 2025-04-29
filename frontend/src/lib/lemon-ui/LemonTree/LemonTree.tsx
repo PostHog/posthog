@@ -141,6 +141,9 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     setFocusToElementFromId?: (id: string) => void
     /** Set the focus to the last focused element. */
     setFocusToLastFocusedElement?: () => void
+
+    /** Whether to enable folder select mode. */
+    folderSelectMode?: boolean
 }
 
 export type LemonTreeProps = LemonTreeBaseProps & {
@@ -215,6 +218,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
             checkedItemCount,
             setFocusToElementFromId,
             setFocusToLastFocusedElement,
+            folderSelectMode = false,
             ...props
         },
         ref
@@ -354,6 +358,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                             multiSelectionOffset={iconWrapperOffsetMultiSelection}
                                                             checkedItemCount={checkedItemCount}
                                                             onItemChecked={onItemChecked}
+                                                            folderSelectMode={folderSelectMode}
                                                         />
                                                     )}
 
@@ -393,6 +398,8 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                                         getItemActiveState(item),
                                                                     'group-hover/lemon-tree-button-group:bg-fill-button-tertiary-hover cursor-pointer':
                                                                         !isEmptyFolder,
+                                                                    'opacity-50 cursor-default':
+                                                                        folderSelectMode && !isFolder,
                                                                 }
                                                             )}
                                                             role="treeitem"
@@ -664,6 +671,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                 disableKeyboardInput={disableKeyboardInput}
                                                 setFocusToElementFromId={setFocusToElementFromId}
                                                 onItemNameChange={onItemNameChange}
+                                                folderSelectMode={folderSelectMode}
                                                 {...props}
                                             />
                                         </AccordionPrimitive.Content>
@@ -755,6 +763,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             checkedItemCount,
             tableViewKeys,
             emptySpaceContextMenu,
+            folderSelectMode = false,
             ...props
         },
         ref: ForwardedRef<LemonTreeRef>
@@ -854,7 +863,10 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                 const nodeArray = nodes instanceof Array ? nodes : [nodes]
 
                 nodeArray.forEach((node) => {
-                    items.push(node)
+                    // if folderSelectMode we don't return folder items
+                    if (!folderSelectMode || (folderSelectMode && node.children)) {
+                        items.push(node)
+                    }
                     if (node.children && expandedItemIdsState?.includes(node.id)) {
                         traverse(node.children)
                     }
@@ -863,7 +875,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
 
             traverse(data)
             return items
-        }, [data, expandedItemIdsState])
+        }, [data, expandedItemIdsState, folderSelectMode])
 
         // Focus on provided content ref
         const focusContent = useCallback(() => {
@@ -1003,6 +1015,8 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                     const willBeOpen = item?.children ? !expandedItemIdsState.includes(item.id) : undefined
                     item.onClick(willBeOpen)
                 }
+
+                setSelectedId(item?.id)
             },
             [expandedItemIdsState, onFolderClick, onNodeClick, focusContent]
         )
@@ -1435,6 +1449,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                             isDragging={isDragging}
                             checkedItemCount={checkedItemCount}
                             setFocusToElementFromId={focusElementFromId}
+                            folderSelectMode={folderSelectMode}
                             {...props}
                         />
                     </TreeNodeDroppable>

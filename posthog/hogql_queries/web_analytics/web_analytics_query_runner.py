@@ -23,6 +23,7 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
     ActionConversionGoal,
     CustomEventConversionGoal,
+    EventsHeatMapQuery,
     EventPropertyFilter,
     WebOverviewQuery,
     WebPageURLSearchQuery,
@@ -33,7 +34,6 @@ from posthog.schema import (
     WebGoalsQuery,
     WebExternalClicksTableQuery,
     WebVitalsPathBreakdownQuery,
-    WebActiveHoursHeatMapQuery,
 )
 from posthog.utils import generate_cache_key, get_safe_cache
 
@@ -44,7 +44,7 @@ WebQueryNode = Union[
     WebExternalClicksTableQuery,
     WebVitalsPathBreakdownQuery,
     WebPageURLSearchQuery,
-    WebActiveHoursHeatMapQuery,
+    EventsHeatMapQuery,
 ]
 
 

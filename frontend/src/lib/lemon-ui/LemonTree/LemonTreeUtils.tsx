@@ -19,6 +19,7 @@ type TreeNodeDisplayIconWrapperProps = {
     multiSelectionOffset: number
     checkedItemCount?: number
     onItemChecked?: (id: string, checked: boolean, shift: boolean) => void
+    folderSelectMode: boolean
 }
 
 export const TreeNodeDisplayIconWrapper = ({
@@ -31,6 +32,7 @@ export const TreeNodeDisplayIconWrapper = ({
     onItemChecked,
     defaultOffset,
     multiSelectionOffset,
+    folderSelectMode,
 }: TreeNodeDisplayIconWrapperProps): JSX.Element => {
     return (
         <>
@@ -44,7 +46,7 @@ export const TreeNodeDisplayIconWrapper = ({
                     'absolute flex items-center justify-center bg-transparent flex-shrink-0 h-[var(--button-height-base)] z-3',
                     {
                         // Apply group class only when there are no checked items
-                        'group/lemon-tree-icon-wrapper': checkedItemCount === 0,
+                        'group/lemon-tree-icon-wrapper': checkedItemCount === 0 && !folderSelectMode,
                     }
                 )}
             >
@@ -56,7 +58,7 @@ export const TreeNodeDisplayIconWrapper = ({
                     className={cn('absolute z-2', {
                         // Apply hidden class only when hovering the (conditional)group and there are no checked items
                         'hidden group-hover/lemon-tree-icon-wrapper:block transition-all duration-50':
-                            checkedItemCount === 0,
+                            checkedItemCount === 0 || folderSelectMode,
                     })}
                     style={{
                         left: `${defaultOffset}px`,
