@@ -90,10 +90,11 @@ export const actionEditLogic = kea<actionEditLogicType>([
                     if (updatedAction.id) {
                         action = await api.actions.update(updatedAction.id, { ...updatedAction, steps: updatedSteps })
                     } else {
+                        const folder = updatedAction._create_in_folder ?? getLastNewFolder()
                         action = await api.actions.create({
                             ...updatedAction,
                             steps: updatedSteps,
-                            _create_in_folder: updatedAction._create_in_folder ?? getLastNewFolder(),
+                            ...(typeof folder === 'string' ? { _create_in_folder: folder } : {}),
                         })
                     }
                     breakpoint()
