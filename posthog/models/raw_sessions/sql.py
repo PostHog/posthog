@@ -1,5 +1,6 @@
 from django.conf import settings
 
+from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import (
     AggregatingMergeTree,
     Distributed,
@@ -32,7 +33,7 @@ def DROP_RAW_SESSION_VIEW_SQL():
 # if updating these column definitions
 # you'll need to update the explicit column definitions in the materialized view creation statement below
 RAW_SESSIONS_TABLE_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name}
+CREATE TABLE IF NOT EXISTS {table_name} {ON_CLUSTER_CLAUSE}
 (
     team_id Int64,
     session_id_v7 UInt128, -- integer representation of a uuidv7
@@ -464,9 +465,10 @@ MODIFY QUERY
 # This table is responsible for writing to sharded_sessions based on a sharding key.
 
 
-def WRITABLE_RAW_SESSIONS_TABLE_SQL():
+def WRITABLE_RAW_SESSIONS_TABLE_SQL(on_cluster=True):
     return RAW_SESSIONS_TABLE_BASE_SQL.format(
         table_name=f"writable_{TABLE_BASE_NAME}",
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=Distributed(
             data_table=SHARDED_RAW_SESSIONS_DATA_TABLE(),
             # shard via session_id so that all events for a session are on the same shard
@@ -478,12 +480,14 @@ def WRITABLE_RAW_SESSIONS_TABLE_SQL():
 # This table is responsible for reading from sessions on a cluster setting
 
 
-def DISTRIBUTED_RAW_SESSIONS_TABLE_SQL():
+def DISTRIBUTED_RAW_SESSIONS_TABLE_SQL(on_cluster=True):
     return RAW_SESSIONS_TABLE_BASE_SQL.format(
         table_name=TABLE_BASE_NAME,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=Distributed(
             data_table=SHARDED_RAW_SESSIONS_DATA_TABLE(),
             sharding_key="cityHash64(session_id_v7)",
+            cluster=ON_CLUSTER_CLAUSE(on_cluster),
         ),
     )
 
