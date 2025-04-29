@@ -29,13 +29,16 @@ class ToolRelevance(ScorerWithPartial):
             # 0.5 point for getting the tool right
             if tool_call.name == expected.name:
                 score += 0.5
-                score_per_arg = 0.5 / len(expected.args)
-                for arg_name, expected_arg_value in expected.args.items():
-                    if arg_name in self.semantic_similarity_args:
-                        arg_similarity = AnswerSimilarity(model="text-embedding-3-small").eval(
-                            output=tool_call.args.get(arg_name), expected=expected_arg_value
-                        )
-                        score += arg_similarity.score * score_per_arg
-                    elif tool_call.args.get(arg_name) == expected_arg_value:
-                        score += score_per_arg
+                if not expected.args:
+                    score += 0.5 if not tool_call.args else 0  # If no args expected, only score for lack of args
+                else:
+                    score_per_arg = 0.5 / len(expected.args)
+                    for arg_name, expected_arg_value in expected.args.items():
+                        if arg_name in self.semantic_similarity_args:
+                            arg_similarity = AnswerSimilarity(model="text-embedding-3-small").eval(
+                                output=tool_call.args.get(arg_name), expected=expected_arg_value
+                            )
+                            score += arg_similarity.score * score_per_arg
+                        elif tool_call.args.get(arg_name) == expected_arg_value:
+                            score += score_per_arg
         return Score(name=self._name(), score=score)
