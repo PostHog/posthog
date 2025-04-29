@@ -145,7 +145,7 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
                                 status="danger"
                                 data-attr="delete-org-membership"
                                 onClick={() => {
-                                    if (!user || !allowDeletion) {
+                                    if (!user) {
                                         throw Error
                                     }
                                     loadMemberScopedApiKeys(member)
