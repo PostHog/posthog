@@ -73,6 +73,11 @@ export class CyclotronJobQueue {
     ) {
         this.consumerMode = this.config.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE
         this.producerMapping = getProducerMapping(this.config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING)
+
+        logger.info('🔄', 'CyclotronJobQueue initialized', {
+            consumerMode: this.consumerMode,
+            producerMapping: this.producerMapping,
+        })
     }
 
     /**
@@ -118,18 +123,64 @@ export class CyclotronJobQueue {
     }
 
     public async queueInvocations(invocations: HogFunctionInvocation[]) {
-        if (this.consumerMode === 'postgres') {
-            await this.createCyclotronJobs(invocations)
-        } else {
-            await this.createKafkaJobs(invocations)
+        const postgresInvocations: HogFunctionInvocation[] = []
+        const kafkaInvocations: HogFunctionInvocation[] = []
+
+        for (const invocation of invocations) {
+            const producerConfig = this.producerMapping[invocation.queue] ?? this.producerMapping['*']
+
+            let target = producerConfig.target
+
+            if (producerConfig.percentage < 1) {
+                const otherTarget = target === 'postgres' ? 'kafka' : 'postgres'
+                target = Math.random() < producerConfig.percentage ? target : otherTarget
+            }
+
+            if (target === 'postgres') {
+                postgresInvocations.push(invocation)
+            } else {
+                kafkaInvocations.push(invocation)
+            }
+        }
+
+        if (postgresInvocations.length > 0) {
+            await this.createCyclotronJobs(postgresInvocations)
+        }
+        if (kafkaInvocations.length > 0) {
+            await this.createKafkaJobs(kafkaInvocations)
         }
     }
 
     public async queueInvocationResults(invocationResults: HogFunctionInvocationResult[]) {
-        if (this.consumerMode === 'postgres') {
-            await this.updateCyclotronJobs(invocationResults)
-        } else {
-            await this.updateKafkaJobs(invocationResults)
+        // TODO: Routing based on queue name is slightly tricky here as postgres jobs need to be acked no matter what...
+        // We need to know if the job came from postgres and if so we need to ack, regardless of the target...
+
+        const postgresInvocations: HogFunctionInvocationResult[] = []
+        const kafkaInvocations: HogFunctionInvocationResult[] = []
+
+        for (const invocationResult of invocationResults) {
+            const producerConfig = this.producerMapping[invocationResult.invocation.queue] ?? this.producerMapping['*']
+
+            let target = producerConfig.target
+
+            if (producerConfig.percentage < 1) {
+                const otherTarget = target === 'postgres' ? 'kafka' : 'postgres'
+                target = Math.random() < producerConfig.percentage ? target : otherTarget
+            }
+
+            if (target === 'postgres') {
+                postgresInvocations.push(invocationResult)
+            } else {
+                kafkaInvocations.push(invocationResult)
+            }
+        }
+
+        if (postgresInvocations.length > 0) {
+            await this.updateCyclotronJobs(postgresInvocations)
+        }
+        if (kafkaInvocations.length > 0) {
+            // TODO: We need to find all invocations that came from cyclotron and ack them there
+            await this.updateKafkaJobs(kafkaInvocations)
         }
     }
 
