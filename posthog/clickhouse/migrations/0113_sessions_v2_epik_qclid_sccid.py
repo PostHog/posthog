@@ -16,7 +16,7 @@ operations = [
     run_sql_with_exceptions(DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL()),
     # now we can alter the target tables
     run_sql_with_exceptions(BASE_RAW_SESSIONS_ADD_EPIK_QCLID_SCCID_COLUMNS_SQL()),
-    run_sql_with_exceptions(DISTRIBUTED_RAW_SESSIONS_ADD_EPIK_QCLID_SCCID_COLUMNS_SQL()),
+    run_sql_with_exceptions(DISTRIBUTED_RAW_SESSIONS_ADD_EPIK_QCLID_SCCID_COLUMNS_SQL(), sharded=True),
     run_sql_with_exceptions(
         BASE_RAW_SESSIONS_ADD_EPIK_QCLID_SCCID_COLUMNS_SQL(on_cluster=False), node_role=NodeRole.COORDINATOR
     ),
