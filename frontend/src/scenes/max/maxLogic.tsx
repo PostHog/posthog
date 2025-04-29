@@ -466,15 +466,10 @@ export const maxLogic = kea<maxLogicType>([
         ],
         description: [
             (s) => [s.toolDescriptions],
-            (toolDescriptions): JSX.Element => {
-                return (
-                    <>
-                        I'm Max, here to help you build a&nbsp;successful&nbsp;product.{' '}
-                        {toolDescriptions.length > 0
-                            ? toolDescriptions[0]
-                            : 'Ask me about your product and your users.'}
-                    </>
-                )
+            (toolDescriptions): string => {
+                return `I'm Max, here to help you build a successful product. ${
+                    toolDescriptions.length > 0 ? toolDescriptions[0] : 'Ask me about your product and your users.'
+                }`
             },
             // It's important we use a deep equality check for inputs, because we want to avoid needless re-renders
             { equalityCheck: objectsEqual },
