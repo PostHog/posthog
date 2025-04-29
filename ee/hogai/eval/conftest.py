@@ -47,7 +47,7 @@ def MaxEval(
         base_experiment_name=base_experiment_name,
         trial_count=trial_count,
     )
-    if True or os.getenv("GITHUB_EVENT_NAME") == "pull_request":
+    if os.getenv("GITHUB_EVENT_NAME") == "pull_request":
         with open("eval_results.jsonl", "a") as f:
             f.write(result.summary.as_json() + "\n")
     return result
