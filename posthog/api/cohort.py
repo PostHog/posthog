@@ -186,43 +186,115 @@ class CohortSerializer(serializers.ModelSerializer):
         return query
 
     def validate_filters(self, request_filters: dict):
-        if isinstance(request_filters, dict) and "properties" in request_filters:
-            if self.context["request"].method == "PATCH":
-                parsed_filter = Filter(data=request_filters)
-                instance = cast(Cohort, self.instance)
-                cohort_id = instance.pk
-                flags: QuerySet[FeatureFlag] = FeatureFlag.objects.filter(
-                    team__project_id=self.context["project_id"], active=True, deleted=False
-                )
-                cohort_used_in_flags = len([flag for flag in flags if cohort_id in flag.get_cohort_ids()]) > 0
+        """Validate the filters object matches our expected schema for cohort filters"""
+        if not isinstance(request_filters, dict):
+            raise ValidationError(
+                {"detail": "Must contain a 'properties' key with type and values", "type": "validation_error"}
+            )
 
-                for prop in parsed_filter.property_groups.flat:
-                    if prop.type == "behavioral":
-                        if cohort_used_in_flags:
+        if "properties" not in request_filters:
+            raise ValidationError(
+                {"detail": "Must contain a 'properties' key with type and values", "type": "validation_error"}
+            )
+
+        properties = request_filters["properties"]
+        if not isinstance(properties, dict) or "type" not in properties or "values" not in properties:
+            raise ValidationError(
+                {"properties": "Must be an object with 'type' and 'values' keys", "received": properties}
+            )
+
+        if properties["type"] not in ["AND", "OR"]:
+            raise ValidationError({"properties.type": f"Must be 'AND' or 'OR', received '{properties['type']}'"})
+
+        if not isinstance(properties["values"], list):
+            raise ValidationError({"properties.values": "Must be a list of property groups"})
+
+        # Validate each property group
+        for group in properties["values"]:
+            if not isinstance(group, dict):
+                raise ValidationError({"property_group": "Each property group must be an object", "received": group})
+
+            # Handle both direct property filters and nested property groups
+            if "type" in group and group["type"] in ["behavioral", "cohort", "person", "event"]:
+                # This is a direct property filter
+                self.validate_property_filter(group)
+            else:
+                # This is a property group
+                if "type" not in group or "values" not in group:
+                    raise ValidationError(
+                        {"property_group": "Each property group must have 'type' and 'values' keys", "received": group}
+                    )
+
+                if group["type"] not in ["AND", "OR"]:
+                    raise ValidationError({"property_group.type": f"Must be 'AND' or 'OR', received '{group['type']}'"})
+
+                if not isinstance(group["values"], list):
+                    raise ValidationError({"property_group.values": "Must be a list of property filters"})
+
+                # Validate nested property filters
+                for prop in group["values"]:
+                    self.validate_property_filter(prop)
+
+        # Only run these validations on PATCH - they check for behavioral filters in feature flags
+        if self.context["request"].method == "PATCH":
+            parsed_filter = Filter(data=request_filters)
+            instance = cast(Cohort, self.instance)
+            cohort_id = instance.pk
+            flags: QuerySet[FeatureFlag] = FeatureFlag.objects.filter(
+                team__project_id=self.context["project_id"], active=True, deleted=False
+            )
+            cohort_used_in_flags = len([flag for flag in flags if cohort_id in flag.get_cohort_ids()]) > 0
+
+            for prop in parsed_filter.property_groups.flat:
+                if prop.type == "behavioral":
+                    if cohort_used_in_flags:
+                        raise serializers.ValidationError(
+                            detail=f"Behavioral filters cannot be added to cohorts used in feature flags.",
+                            code="behavioral_cohort_found",
+                        )
+
+                if prop.type == "cohort":
+                    nested_cohort = Cohort.objects.get(pk=prop.value, team__project_id=self.context["project_id"])
+                    dependent_cohorts = get_dependent_cohorts(nested_cohort)
+                    for dependent_cohort in [nested_cohort, *dependent_cohorts]:
+                        if (
+                            cohort_used_in_flags
+                            and len([prop for prop in dependent_cohort.properties.flat if prop.type == "behavioral"])
+                            > 0
+                        ):
                             raise serializers.ValidationError(
-                                detail=f"Behavioral filters cannot be added to cohorts used in feature flags.",
+                                detail=f"A dependent cohort ({dependent_cohort.name}) has filters based on events. These cohorts can't be used in feature flags.",
                                 code="behavioral_cohort_found",
                             )
 
-                    if prop.type == "cohort":
-                        nested_cohort = Cohort.objects.get(pk=prop.value, team__project_id=self.context["project_id"])
-                        dependent_cohorts = get_dependent_cohorts(nested_cohort)
-                        for dependent_cohort in [nested_cohort, *dependent_cohorts]:
-                            if (
-                                cohort_used_in_flags
-                                and len(
-                                    [prop for prop in dependent_cohort.properties.flat if prop.type == "behavioral"]
-                                )
-                                > 0
-                            ):
-                                raise serializers.ValidationError(
-                                    detail=f"A dependent cohort ({dependent_cohort.name}) has filters based on events. These cohorts can't be used in feature flags.",
-                                    code="behavioral_cohort_found",
-                                )
+        return request_filters
 
-            return request_filters
-        else:
-            raise ValidationError("Filters must be a dictionary with a 'properties' key.")
+    def validate_property_filter(self, prop: dict):
+        if not isinstance(prop, dict):
+            raise ValidationError({"property_filter": "Each property filter must be an object", "received": prop})
+
+        if "type" not in prop:
+            raise ValidationError({"property_filter": "Property filter must have a 'type' field", "received": prop})
+
+        # Different validation rules based on property type and operator
+        if prop["type"] == "behavioral":
+            required_keys = ["key", "type", "value", "event_type"]
+        elif prop["type"] == "cohort":
+            required_keys = ["key", "type", "value"]
+        else:  # standard property filter
+            if prop.get("operator") in ["is_set", "is_not_set"]:
+                required_keys = ["key", "type", "operator"]
+            else:
+                required_keys = ["key", "type", "value", "operator"]
+
+        missing_keys = [key for key in required_keys if key not in prop]
+        if missing_keys:
+            raise ValidationError(
+                {
+                    "property_filter": f"Missing required keys for {prop['type']} filter: {', '.join(missing_keys)}",
+                    "received": prop,
+                }
+            )
 
     def update(self, cohort: Cohort, validated_data: dict, *args: Any, **kwargs: Any) -> Cohort:  # type: ignore
         request = self.context["request"]
