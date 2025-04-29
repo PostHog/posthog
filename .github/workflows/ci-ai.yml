@@ -16,10 +16,9 @@ on:
             - bin/check_kafka_clickhouse_up
 
 env:
-    BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
-    OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-    GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+    DEBUG: 1
+    TEST: 1
+    IN_EVAL_TESTING: 1
 
 jobs:
     eval:
@@ -58,3 +57,8 @@ jobs:
 
             - name: Run LLM evals
               run: pytest ee/hogai/eval
+              env:
+                  BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
+                  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+                  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+                  GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
