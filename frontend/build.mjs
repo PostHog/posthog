@@ -99,14 +99,14 @@ await buildInParallel(
                             return {
                                 contents: `
                                 module.exports = new Proxy({}, {
-                                    get: function(target, name) {
+                                    get: function() {
                                         console.warn('[TOOLBAR] Attempted to use denied module:', ${JSON.stringify(
                                             args.path
-                                        )}, 'function:', name);
+                                        )});
                                         return function() { 
                                             console.warn('[TOOLBAR] Called denied module:', ${JSON.stringify(
                                                 args.path
-                                            )}, 'function:', name);
+                                            )});
                                             return {} 
                                         }
                                     }
