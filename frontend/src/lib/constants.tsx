@@ -211,7 +211,6 @@ export const FEATURE_FLAGS = {
     SITE_DESTINATIONS: 'site-destinations', // owner: @mariusandra #team-cdp
     SITE_APP_FUNCTIONS: 'site-app-functions', // owner: @mariusandra #team-cdp
     HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED: 'hog-transformation-custom-hog-code', // owner: #team-cdp
-    HOG_TRANSFORMATIONS_WITH_FILTERS: 'hog-transformations-with-filters', // owner: #team-cdp
     REPLAY_HOGQL_FILTERS: 'replay-hogql-filters', // owner: @pauldambra #team-replay
     SUPPORT_MESSAGE_OVERRIDE: 'support-message-override', // owner: @abigail
     BILLING_SKIP_FORECASTING: 'billing-skip-forecasting', // owner: @zach
@@ -257,6 +256,8 @@ export const FEATURE_FLAGS = {
     ACTIVE_HOURS_HEATMAP: 'active-hours-heatmap', // owner: @jabahamondes #team-web-analytics
     BILLING_FORECASTING_ISSUES: 'billing-forecasting-issues', // owner: @pato
     STARTUP_PROGRAM_INTENT: 'startup-program-intent', // owner: @pawel-cebula #team-billing
+    SHOW_NEW_EXPERIMENTATION_ENGINE_BANNER: 'show-new-experimentation-engine-banner', // owner: @andehen #team-experiments
+    WEB_ANALYTICS_FRUSTRATING_PAGES_TILE: 'web-analytics-frustrating-pages-tile', // owner: @lricoy #team-web-analytics
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

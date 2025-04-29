@@ -4,10 +4,11 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"strconv"
 	"time"
 
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
-	"github.com/getsentry/sentry-go"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 type PostHogEventWrapper struct {
@@ -40,20 +41,25 @@ type PostHogKafkaConsumer struct {
 	consumer     KafkaConsumerInterface
 	topic        string
 	geolocator   GeoLocator
+	incoming     chan []byte
 	outgoingChan chan PostHogEvent
 	statsChan    chan CountEvent
+	parallel     int
 }
 
 func NewPostHogKafkaConsumer(
 	brokers string, securityProtocol string, groupID string, topic string, geolocator GeoLocator,
-	outgoingChan chan PostHogEvent, statsChan chan CountEvent) (*PostHogKafkaConsumer, error) {
+	outgoingChan chan PostHogEvent, statsChan chan CountEvent, parallel int) (*PostHogKafkaConsumer, error) {
 
 	config := &kafka.ConfigMap{
-		"bootstrap.servers":  brokers,
-		"group.id":           groupID,
-		"auto.offset.reset":  "latest",
-		"enable.auto.commit": false,
-		"security.protocol":  securityProtocol,
+		"bootstrap.servers":          brokers,
+		"group.id":                   groupID,
+		"auto.offset.reset":          "latest",
+		"enable.auto.commit":         false,
+		"security.protocol":          securityProtocol,
+		"fetch.message.max.bytes":    1_000_000_000,
+		"fetch.max.bytes":            1_000_000_000,
+		"queued.max.messages.kbytes": 1_000_000,
 	}
 
 	consumer, err := kafka.NewConsumer(config)
@@ -65,15 +71,21 @@ func NewPostHogKafkaConsumer(
 		consumer:     consumer,
 		topic:        topic,
 		geolocator:   geolocator,
+		incoming:     make(chan []byte, (1+parallel)*10),
 		outgoingChan: outgoingChan,
 		statsChan:    statsChan,
+		parallel:     parallel,
 	}, nil
 }
 
 func (c *PostHogKafkaConsumer) Consume() {
 	if err := c.consumer.SubscribeTopics([]string{c.topic}, nil); err != nil {
-		sentry.CaptureException(err)
+		// TODO capture error to PostHog
 		log.Fatalf("Failed to subscribe to topic: %v", err)
+	}
+
+	for i := 0; i < c.parallel; i++ {
+		go c.runParsing()
 	}
 
 	for {
@@ -89,13 +101,22 @@ func (c *PostHogKafkaConsumer) Consume() {
 				}
 			}
 			log.Printf("Error consuming message: %v", err)
-			sentry.CaptureException(err)
+			// TODO capture error to PostHog
 			continue
 		}
 
-		msgConsumed.Inc()
-		phEvent := parse(c.geolocator, msg.Value)
+		msgConsumed.With(prometheus.Labels{"partition": strconv.Itoa(int(msg.TopicPartition.Partition))}).Inc()
+		c.incoming <- msg.Value
+	}
+}
 
+func (c *PostHogKafkaConsumer) runParsing() {
+	for {
+		value, ok := <-c.incoming
+		if !ok {
+			return
+		}
+		phEvent := parse(c.geolocator, value)
 		c.outgoingChan <- phEvent
 		c.statsChan <- CountEvent{Token: phEvent.Token, DistinctID: phEvent.DistinctId}
 	}
@@ -145,7 +166,8 @@ func parse(geolocator GeoLocator, kafkaMessage []byte) PostHogEvent {
 		var err error
 		phEvent.Lat, phEvent.Lng, err = geolocator.Lookup(ipStr)
 		if err != nil && err.Error() != "invalid IP address" { // An invalid IP address is not an error on our side
-			sentry.CaptureException(err)
+			// TODO capture error to PostHog
+			_ = err
 		}
 	}
 
@@ -153,5 +175,9 @@ func parse(geolocator GeoLocator, kafkaMessage []byte) PostHogEvent {
 }
 
 func (c *PostHogKafkaConsumer) Close() {
-	c.consumer.Close()
+	if err := c.consumer.Close(); err != nil {
+		// TODO capture error to PostHog
+		log.Printf("Failed to close consumer: %v", err)
+	}
+	close(c.incoming)
 }

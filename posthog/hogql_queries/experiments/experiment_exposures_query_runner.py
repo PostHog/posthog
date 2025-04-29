@@ -5,6 +5,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -193,6 +194,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             team=self.team,
             timings=self.timings,
             modifiers=create_default_modifiers_for_team(self.team),
+            settings=HogQLGlobalSettings(max_execution_time=180),
         )
 
         response.results = self._fill_date_gaps(response.results)
