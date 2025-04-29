@@ -1228,10 +1228,19 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         const result = resp.results[0]
                         path = result.path
 
-                        if (result.type === 'insight' || result.type === 'notebook') {
-                            actions.createSavedItem(result)
-                        } else {
-                            // TODO: REMOVE THIS OLD LOGIC! ... in favor of directly passing _create_in_folder to the API calls
+                        // TODO: REMOVE THIS OLD LOGIC! ... in favor of directly passing _create_in_folder to the API calls
+                        if (
+                            result.type &&
+                            ([
+                                'dashboard',
+                                'early_access_feature',
+                                'experiment',
+                                'feature_flag',
+                                'session_recording_playlist',
+                                'survey',
+                            ].includes(result.type) ||
+                                result.type.startsWith('hog_function/'))
+                        ) {
                             // Check if a "new" action was recently initiated for this object type.
                             // If so, move the item to the new path.
                             const { lastNewFolder } = values
@@ -1249,6 +1258,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                             if (lastNewFolder) {
                                 actions.setLastNewFolder(null)
                             }
+                            // </TODO>
+                        } else {
+                            actions.createSavedItem(result)
                         }
                     }
                 }

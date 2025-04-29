@@ -12,7 +12,7 @@ import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
-import { saveToLogic } from 'lib/components/SaveTo/saveToLogic'
+import { openSaveToModal } from 'lib/components/SaveTo/saveToLogic'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
@@ -95,8 +95,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
     const showCohortButton =
         isDataTableNode(query) || isDataVisualizationNode(query) || isHogQLQuery(query) || isEventsQuery(query)
-
-    const { openSaveTo } = useActions(saveToLogic)
 
     return (
         <>
@@ -208,7 +206,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         ) : (
                             <InsightSaveButton
                                 saveAs={() =>
-                                    openSaveTo({
+                                    openSaveToModal({
                                         callback: (folder) => saveAs(undefined, undefined, folder),
                                         defaultFolder: 'Unfiled/Insights',
                                     })
@@ -216,7 +214,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 saveInsight={(redirectToViewMode) =>
                                     insight.short_id
                                         ? saveInsight(redirectToViewMode)
-                                        : openSaveTo({
+                                        : openSaveToModal({
                                               callback: (folder) => saveInsight(redirectToViewMode, folder),
                                               defaultFolder: 'Unfiled/Insights',
                                           })

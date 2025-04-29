@@ -283,6 +283,7 @@ export const fileSystemTypes = {
 
 /** This const is auto-generated, as is the whole file */
 export const treeItemsNew = [
+    { type: 'action', path: 'Action', icon: <IconRocket />, href: () => urls.createAction() },
     {
         path: `Broadcast`,
         type: 'hog_function/broadcast',
@@ -309,7 +310,6 @@ export const treeItemsNew = [
 
 /** This const is auto-generated, as is the whole file */
 export const treeItemsExplore = [
-    { path: 'Data management/Actions', icon: <IconRocket />, href: () => urls.actions() },
     { path: 'Early access features', icon: <IconRocket />, href: () => urls.earlyAccessFeatures() },
     { path: 'Explore/Revenue analytics', icon: <IconPiggyBank />, href: () => urls.revenueAnalytics() },
     { path: 'People and groups/People', icon: <IconPerson />, href: () => urls.persons() },
