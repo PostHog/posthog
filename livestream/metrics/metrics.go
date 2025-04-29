@@ -23,6 +23,6 @@ var (
 	})
 	HandledEvents = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "livestream_ph_events_total",
-		Help: "The total number of handled PostHog events, less or equal than consumed",
+		Help: "The total number of handled PostHog events, less than or equal to consumed",
 	})
 )
