@@ -22,7 +22,6 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { isObject } from 'lib/utils'
 import { chainToElements } from 'lib/utils/elements-chain'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -48,6 +47,7 @@ import {
 
 import { PostHogEE } from '../../../../@posthog/ee/types'
 import { ExportedSessionRecordingFileV2 } from '../file-playback/types'
+import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicType'
 import { stripChromeExtensionData } from './snapshot-processing/chrome-extension-stripping'
 import { chunkMutationSnapshot } from './snapshot-processing/chunk-large-mutations'
@@ -61,7 +61,6 @@ import {
 import { patchMetaEventIntoMobileData } from './snapshot-processing/patch-meta-event'
 import { throttleCapture } from './snapshot-processing/throttle-capturing'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
-
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const TWENTY_FOUR_HOURS_IN_MS = 24 * 60 * 60 * 1000 // +- before and after start and end of a recording to query for session linked events.
 const FIVE_MINUTES_IN_MS = 5 * 60 * 1000 // +- before and after start and end of a recording to query for events related by person.
@@ -233,7 +232,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     props({} as SessionRecordingDataLogicProps),
     key(({ sessionRecordingId }) => sessionRecordingId || 'no-session-recording-id'),
     connect(() => ({
-        logic: [eventUsageLogic],
+        actions: [sessionRecordingEventUsageLogic, ['reportRecording']],
         values: [featureFlagLogic, ['featureFlags'], teamLogic, ['currentTeam']],
     })),
     defaults({
@@ -703,7 +702,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         reportUsageIfFullyLoaded: (_, breakpoint) => {
             breakpoint()
             if (values.fullyLoaded) {
-                eventUsageLogic.actions.reportRecording(
+                actions.reportRecording(
                     values.sessionPlayerData,
                     generateRecordingReportDurations(cache),
                     SessionRecordingUsageType.LOADED,
