@@ -22,6 +22,7 @@ from posthog.schema import (
     InsightActorsQuery,
     TrendsQuery,
 )
+from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 
 
 class ActorsQueryRunner(QueryRunner):
@@ -152,6 +153,17 @@ class ActorsQueryRunner(QueryRunner):
                 person_uuid_to_event_distinct_ids,
             )
 
+        for column_index, col in enumerate(self.query.select):
+            # convert tuple that gets returned into a dict
+            if col.split("--")[0].strip() == "person_display_name":
+                for index, result in enumerate(self.paginator.results):
+                    row = list(self.paginator.results[index])
+                    row[column_index] = {
+                        "display_name": result[column_index][0],
+                        "id": str(result[column_index][1]),
+                    }
+                    self.paginator.results[index] = row
+
         return ActorsQueryResponse(
             results=results,
             timings=response.timings,
@@ -182,6 +194,18 @@ class ActorsQueryRunner(QueryRunner):
             return self.query.select
 
         return self.strategy.input_columns()
+
+    def select_cols(self) -> tuple[list[str], list[ast.Expr]]:
+        select_input: list[str] = []
+        for col in self.input_columns():
+            if col.split("--")[0].strip() == "person_display_name":
+                property_keys = self.team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
+                props = [f"properties.{key}" for key in property_keys]
+                expr = f"coalesce({', '.join([*props, 'distinct_id'])})"
+                select_input.append(expr)
+            else:
+                select_input.append(col)
+        return select_input, [parse_expr(column) for column in select_input]
 
     # TODO: Figure out a more sure way of getting the actor id than using the alias or chain name
     def source_id_column(self, source_query: ast.SelectQuery | ast.SelectSetQuery) -> list[int | str]:
@@ -243,8 +267,15 @@ class ActorsQueryRunner(QueryRunner):
             columns = []
             group_by = []
             aggregations = []
-            for expr in self.input_columns():
-                column: ast.Expr = parse_expr(expr)
+            person_display_name_indices = []
+            for idx, expr in enumerate(self.input_columns()):
+                if expr.split("--")[0].strip() == "person_display_name":
+                    property_keys = self.team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
+                    props = [f"properties.{key}" for key in property_keys]
+                    column = parse_expr(f"(coalesce({', '.join([*props, 'toString(id)'])}), toString(id))")
+                    person_display_name_indices.append(idx)
+                else:
+                    column = parse_expr(expr)
 
                 if expr == "person.$delete":
                     column = ast.Constant(value=1)
