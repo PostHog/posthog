@@ -777,6 +777,13 @@ impl<'a> HogVM<'a> {
         // See CallLocal for details on how this works, but effectively, a cross-module call is just a
         // local call plus a current "module/function" change
         let to_call = self.context.get_symbol(&symbol)?;
+        if to_call.arg_count() <= arg_count {
+            return Err(VmError::InvalidCall(format!(
+                "Too many args - expected {}, got {}",
+                to_call.arg_count(),
+                arg_count
+            )));
+        }
         let null_args = to_call.arg_count().saturating_sub(arg_count);
         for _ in 0..null_args {
             self.push_stack(HogLiteral::Null)?;
