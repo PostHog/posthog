@@ -233,9 +233,9 @@ class TestRevenueAnalyticsGrowthRateQueryRunner(ClickhouseTestMixin, APIBaseTest
             ],
         )
 
-    def test_with_events_data_and_currency_division(self):
+    def test_with_events_data_and_currency_aware_divider(self):
         self.team.revenue_analytics_config.events = [
-            REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT.model_copy(update={"useSmallestUnitDivider": True})
+            REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT.model_copy(update={"currencyAwareDecimal": True})
         ]
         self.team.revenue_analytics_config.save()
 

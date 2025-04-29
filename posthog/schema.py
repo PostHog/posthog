@@ -2986,7 +2986,7 @@ class RevenueAnalyticsEventItem(BaseModel):
         default_factory=lambda: RevenueCurrencyPropertyConfig.model_validate({"static": "USD"})
     )
     revenueProperty: str
-    useSmallestUnitDivider: Optional[bool] = Field(
+    currencyAwareDecimal: Optional[bool] = Field(
         default=False,
         description=(
             "If true, the revenue will be divided by the smallest unit of the currency.\n\nFor example, in case this is"

@@ -52,9 +52,9 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
             eventName,
             revenueCurrencyProperty,
         }),
-        updateEventUseSmallestUnitDivider: (eventName: string, useSmallestUnitDivider: boolean) => ({
+        updateEventCurrencyAwareDecimalProperty: (eventName: string, currencyAwareDecimal: boolean) => ({
             eventName,
-            useSmallestUnitDivider,
+            currencyAwareDecimal,
         }),
 
         resetConfig: true,
@@ -96,7 +96,7 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
                                 eventName,
                                 revenueProperty: 'revenue',
                                 revenueCurrencyProperty: { static: state.base_currency },
-                                useSmallestUnitDivider: false,
+                                currencyAwareDecimal: false,
                             },
                         ],
                     }
@@ -139,9 +139,9 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
                         }),
                     }
                 },
-                updateEventUseSmallestUnitDivider: (
+                updateEventCurrencyAwareDecimalProperty: (
                     state: RevenueAnalyticsConfig | null,
-                    { eventName, useSmallestUnitDivider }
+                    { eventName, currencyAwareDecimal }
                 ) => {
                     if (!state) {
                         return state
@@ -150,7 +150,7 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
                         ...state,
                         events: state.events.map((item) => {
                             if (item.eventName === eventName) {
-                                return { ...item, useSmallestUnitDivider }
+                                return { ...item, currencyAwareDecimal }
                             }
                             return item
                         }),

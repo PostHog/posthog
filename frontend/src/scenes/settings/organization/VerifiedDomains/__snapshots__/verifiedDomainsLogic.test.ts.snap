@@ -132,7 +132,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
                 "static": "ZAR",
               },
               "revenueProperty": "value",
-              "useSmallestUnitDivider": false,
+              "currencyAwareDecimal": false,
             },
             {
               "eventName": "subscription_created",
@@ -140,7 +140,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
                 "property": "currency",
               },
               "revenueProperty": "subscription_value",
-              "useSmallestUnitDivider": true,
+              "currencyAwareDecimal": true,
             },
           ],
         },

@@ -19,7 +19,7 @@ export function EventConfiguration({ buttonRef }: { buttonRef: React.RefObject<H
         deleteEvent,
         updateEventRevenueProperty,
         updateEventRevenueCurrencyProperty,
-        updateEventUseSmallestUnitDivider,
+        updateEventCurrencyAwareDecimalProperty,
         save,
     } = useActions(revenueEventsSettingsLogic)
 
@@ -99,21 +99,23 @@ export function EventConfiguration({ buttonRef }: { buttonRef: React.RefObject<H
                         },
                     },
                     {
-                        key: 'useSmallestUnitDivider',
+                        key: 'currencyAwareDecimal',
                         title: (
                             <span>
-                                In smallest unit?
-                                <Tooltip title="Whether you are sending revenue in the smallest unit of currency (e.g. cents for USD). If you are, we will divide the revenue by the smallest unit of currency (e.g. 100 for USD) when parsing the revenue.">
+                                In currency's smallest unit?
+                                <Tooltip title="Whether you are sending revenue in the smallest unit of currency (e.g. cents for USD, yen for JPY). If you are, we will divide the revenue by the smallest unit of currency (e.g. 100 for USD, 1 for JPY) when parsing the revenue.">
                                     <IconInfo className="ml-1" />
                                 </Tooltip>
                             </span>
                         ),
-                        dataIndex: 'useSmallestUnitDivider',
+                        dataIndex: 'currencyAwareDecimal',
                         render: (_, item: RevenueAnalyticsEventItem) => {
                             return (
                                 <LemonSwitch
-                                    checked={item.useSmallestUnitDivider}
-                                    onChange={(checked) => updateEventUseSmallestUnitDivider(item.eventName, checked)}
+                                    checked={item.currencyAwareDecimal}
+                                    onChange={(checked) =>
+                                        updateEventCurrencyAwareDecimalProperty(item.eventName, checked)
+                                    }
                                 />
                             )
                         },

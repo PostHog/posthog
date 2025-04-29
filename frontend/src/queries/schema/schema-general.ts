@@ -2895,7 +2895,7 @@ export interface RevenueAnalyticsEventItem {
      *
      * @default false
      */
-    useSmallestUnitDivider: boolean
+    currencyAwareDecimal: boolean
 }
 
 export interface RevenueAnalyticsConfig {

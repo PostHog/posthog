@@ -13,7 +13,7 @@ const queryContext: QueryContext = {
         original_amount: {
             title: 'Ingested amount',
         },
-        adjusted_original_amount: {
+        currency_aware_amount: {
             title: 'Parsed amount',
             render: ({ value, record }) => {
                 const adjustedCurrency = (record as any[])[4]

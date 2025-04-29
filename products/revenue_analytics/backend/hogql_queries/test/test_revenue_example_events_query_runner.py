@@ -147,7 +147,7 @@ class TestRevenueExampleEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.team.revenue_analytics_config.events = [
-            REVENUE_ANALYTICS_CONFIG_EVENT_PURCHASE.model_copy(update={"useSmallestUnitDivider": True}).model_dump()
+            REVENUE_ANALYTICS_CONFIG_EVENT_PURCHASE.model_copy(update={"currencyAwareDecimal": True}).model_dump()
         ]
         self.team.revenue_analytics_config.save()
 
@@ -216,7 +216,7 @@ class TestRevenueExampleEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.team.revenue_analytics_config.base_currency = CurrencyCode.EUR.value
         self.team.revenue_analytics_config.events = [
-            event.model_copy(update={"useSmallestUnitDivider": True}).model_dump()
+            event.model_copy(update={"currencyAwareDecimal": True}).model_dump()
             for event in REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT_REVENUE_CURRENCY_PROPERTY
         ]
         self.team.revenue_analytics_config.save()
@@ -333,7 +333,7 @@ class TestRevenueExampleEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.team.revenue_analytics_config.base_currency = CurrencyCode.EUR.value
         self.team.revenue_analytics_config.events = [
-            event.model_copy(update={"useSmallestUnitDivider": True}).model_dump()
+            event.model_copy(update={"currencyAwareDecimal": True}).model_dump()
             for event in REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT_REVENUE_CURRENCY_PROPERTY
         ]
         self.team.revenue_analytics_config.save()
