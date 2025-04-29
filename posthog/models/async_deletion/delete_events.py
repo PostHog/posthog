@@ -91,7 +91,7 @@ class AsyncEventDeletion(AsyncDeletionProcess):
         sync_execute(
             query,
             args,
-            settings={},
+            settings={"lightweight_deletes_sync": 0},
         )
 
         # Team data needs to be deleted from other models as well, groups/persons handles deletions on a schema level
@@ -114,7 +114,7 @@ class AsyncEventDeletion(AsyncDeletionProcess):
             sync_execute(
                 query,
                 args,
-                settings={},
+                settings={"lightweight_deletes_sync": 0},
             )
 
     def _verify_by_group(self, deletion_type: int, async_deletions: list[AsyncDeletion]) -> list[AsyncDeletion]:
