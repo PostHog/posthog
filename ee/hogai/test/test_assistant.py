@@ -1261,3 +1261,52 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             updated_content,
             "The merged message should have the content of the last message",
         )
+
+    def test_assistant_filters_messages_correctly(self):
+        """Test that the Assistant class correctly filters messages based on should_output_assistant_message."""
+
+        output_messages = [
+            # Should be output (has content)
+            (AssistantMessage(content="This message has content", id="1"), True),
+            # Should be filtered out (empty content)
+            (AssistantMessage(content="", id="2"), False),
+            # Should be output (has UI payload)
+            (
+                AssistantToolCallMessage(
+                    content="Tool result", tool_call_id="123", id="3", ui_payload={"some": "data"}
+                ),
+                True,
+            ),
+            # Should be filtered out (no UI payload)
+            (AssistantToolCallMessage(content="Tool result", tool_call_id="456", id="4", ui_payload=None), False),
+        ]
+
+        for test_message, expected_in_output in output_messages:
+            # Create a simple graph that produces different message types to test filtering
+            class MessageFilteringNode:
+                def __init__(self, message_to_return):
+                    self.message_to_return = message_to_return
+
+                def __call__(self, *args, **kwargs):
+                    # Return a set of messages that should be filtered differently
+                    return PartialAssistantState(messages=[self.message_to_return])
+
+            # Create a graph with our test node
+            graph = (
+                AssistantGraph(self.team)
+                .add_node(AssistantNodeName.ROOT, MessageFilteringNode(test_message))
+                .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
+                .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
+                .compile()
+            )
+
+            # Run the assistant and capture output
+            output = self._run_assistant_graph(graph, conversation=self.conversation)
+            expected_output = [
+                ("message", HumanMessage(content="Hello")),
+            ]
+
+            if expected_in_output:
+                expected_output.append(("message", test_message))
+
+            self.assertConversationEqual(output, expected_output)
