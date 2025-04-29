@@ -5,7 +5,7 @@ import { useState } from 'react'
 
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
-interface MoveFilesLogicProps {
+interface MoveFilesModalProps {
     items: FileSystemEntry[]
     handleMove: (path: string) => void
     closeModal: () => void
