@@ -1,7 +1,6 @@
 import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { destinations } from '@segment/action-destinations/dist/destinations'
 
-import { HogFunctionMappingTemplate } from '~/src/cdp/templates/types'
 import { HogFunctionFilterEvent, HogFunctionInputSchemaType } from '~/src/cdp/types'
 
 import { SegmentDestinationPlugin, SegmentDestinationPluginMeta } from '../services/segment-plugin-executor.service'
@@ -403,12 +402,15 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations)
                 inputs_schema: translateInputsSchema(destination.authentication?.fields),
                 hog: 'return event',
                 mapping_templates: (destination.presets ?? [])
-                    .filter((preset) => preset.type === 'automatic')
+                    .filter((preset) => preset.type === 'automatic' && preset.subscribe)
                     .filter((preset) => preset.partnerAction in destination.actions)
                     .map((preset) => ({
                         name: preset.name,
                         include_by_default: true,
-                        filters: translateFilters(preset.subscribe),
+                        filters:
+                            preset.type === 'automatic' && preset.subscribe
+                                ? translateFilters(preset.subscribe)
+                                : { events: [] },
                         inputs_schema: [
                             ...(preset.partnerAction in destination.actions
                                 ? translateInputsSchema(
@@ -427,7 +429,7 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations)
                                 secret: false,
                             },
                         ],
-                    })) as HogFunctionMappingTemplate[],
+                    })),
             },
         } as SegmentDestinationPlugin
     })
