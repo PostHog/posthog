@@ -425,7 +425,7 @@ function LoadingTimer(): JSX.Element {
         return () => clearInterval(interval)
     }, [])
 
-    return <span>({elapsedSeconds}s)</span>
+    return <span>{elapsedSeconds}s</span>
 }
 
 export function PlayerSidebarSessionSummary(): JSX.Element | null {
@@ -436,7 +436,14 @@ export function PlayerSidebarSessionSummary(): JSX.Element | null {
         <div className="rounded border bg-surface-primary px-2 py-1">
             {sessionSummaryLoading ? (
                 <>
-                    Researching the session... <Spinner /> <LoadingTimer />
+                    <div className="flex items-center justify-between">
+                        <div>
+                            Researching the session... <Spinner />
+                        </div>
+                        <div className="flex items-center gap-1 ml-auto font-mono text-xs">
+                            <LoadingTimer />
+                        </div>
+                    </div>
                 </>
             ) : sessionSummary ? (
                 <SessionSummary />
