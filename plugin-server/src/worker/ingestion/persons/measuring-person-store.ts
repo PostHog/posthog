@@ -104,7 +104,7 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
 export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForDistinctIdBatch {
     private methodCounts: Map<MethodName, number>
     private cacheMetrics: CacheMetrics
-    private databaseOperationCounts: Map<string, number>
+    private databaseOperationCounts: Map<MethodName, number>
     /**
      * We maintain two separate person caches for different read patterns:
      *
@@ -366,7 +366,7 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
         this.methodCounts.set(method, (this.methodCounts.get(method) || 0) + 1)
     }
 
-    private incrementDatabaseOperation(operation: string): void {
+    private incrementDatabaseOperation(operation: MethodName): void {
         this.databaseOperationCounts.set(operation, (this.databaseOperationCounts.get(operation) || 0) + 1)
     }
 }
