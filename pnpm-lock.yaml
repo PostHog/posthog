@@ -829,6 +829,9 @@ importers:
       maplibre-gl:
         specifier: ^3.5.1
         version: 3.5.1
+      marked:
+        specifier: ^15.0.11
+        version: 15.0.11
       md5:
         specifier: ^2.3.0
         version: 2.3.0
@@ -11803,6 +11806,11 @@ packages:
     engines: {node: '>= 10'}
     peerDependencies:
       react: '>= 0.14.0'
+
+  marked@15.0.11:
+    resolution: {integrity: sha512-1BEXAU2euRCG3xwgLVT1y0xbJEld1XOrmRJpUwRCcy7rxhSCwMrmEu9LXoPhHSCJG41V7YcQ2mjKRr5BA3ITIA==}
+    engines: {node: '>= 18'}
+    hasBin: true
 
   marked@4.3.0:
     resolution: {integrity: sha512-PRsaiG84bK+AMvxziE/lCFss8juXjNaWzVbN5tXAm4XjeaS9NAHhop+PjQxz2A9h8Q4M/xGmzP8vqNwy6JeK0A==}
@@ -29010,6 +29018,8 @@ snapshots:
   markdown-to-jsx@7.3.2(react@18.2.0):
     dependencies:
       react: 18.2.0
+
+  marked@15.0.11: {}
 
   marked@4.3.0: {}
 
