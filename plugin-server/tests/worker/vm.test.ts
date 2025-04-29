@@ -1,5 +1,5 @@
 // eslint-disable-next-line simple-import-sort/imports
-import { mockProducerObserver, mockProducer } from '../helpers/mocks/producer.mock'
+import { mockProducerObserver } from '../helpers/mocks/producer.mock'
 
 import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import fetch from 'node-fetch'
@@ -687,7 +687,7 @@ describe('vm tests', () => {
 
         await vm.methods.processEvent!(event)
 
-        expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
+        expect(mockProducerObserver.produceSpy).toHaveBeenCalledTimes(1)
         expect(mockProducerObserver.getParsedQueuedMessages()[0]).toEqual({
             topic: KAFKA_PLUGIN_LOG_ENTRIES,
             messages: [

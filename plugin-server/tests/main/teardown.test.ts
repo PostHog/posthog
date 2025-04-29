@@ -1,10 +1,12 @@
+// eslint-disable-next-line simple-import-sort/imports
+import { mockProducerObserver } from '../../tests/helpers/mocks/producer.mock'
+
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { PluginServer } from '../../src/server'
 import { Hub, LogLevel, PluginLogEntrySource, PluginLogEntryType, PluginServerMode } from '../../src/types'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
 import { MeasuringPersonsStoreForDistinctIdBatch } from '../../src/worker/ingestion/persons/measuring-person-store'
-import { mockProducerObserver } from '../../tests/helpers/mocks/producer.mock'
 import { resetTestDatabase } from '../helpers/sql'
 
 jest.setTimeout(10000)
