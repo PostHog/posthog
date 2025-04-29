@@ -22,9 +22,9 @@ class FileSystemSyncMixin(Model):
     class Meta:
         abstract = True
 
-    def __init__(self, *args, _fs_folder: Optional[str] = None, **kwargs):
+    def __init__(self, *args, _create_in_folder: Optional[str] = None, **kwargs):
         super().__init__(*args, **kwargs)
-        self._fs_folder = _fs_folder
+        self._create_in_folder = _create_in_folder
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team") -> QuerySet[Any]:

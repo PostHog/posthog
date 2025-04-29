@@ -317,7 +317,7 @@ class InsightSerializer(InsightBasicSerializer):
     query_status = serializers.SerializerMethodField()
     hogql = serializers.SerializerMethodField()
     types = serializers.SerializerMethodField()
-    _fs_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
         model = Insight
@@ -356,7 +356,7 @@ class InsightSerializer(InsightBasicSerializer):
             "query_status",
             "hogql",
             "types",
-            "_fs_folder",
+            "_create_in_folder",
         ]
         read_only_fields = (
             "created_at",

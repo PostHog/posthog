@@ -404,7 +404,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     ? await insightsApi.update(insightNumericId, insightRequest)
                     : await insightsApi.create({
                           ...insightRequest,
-                          _fs_folder: folder ?? getLastNewFolder(),
+                          _create_in_folder: folder ?? getLastNewFolder(),
                       })
                 savedInsightsLogic.findMounted()?.actions.loadInsights() // Load insights afresh
                 // remove draft query from local storage
@@ -483,7 +483,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 name,
                 query: values.query,
                 saved: true,
-                _fs_folder: folder ?? getLastNewFolder(),
+                _create_in_folder: folder ?? getLastNewFolder(),
             })
 
             if (router.values.location.pathname.includes(urls.sqlEditor())) {

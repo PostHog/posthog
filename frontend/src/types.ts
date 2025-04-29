@@ -1981,7 +1981,7 @@ export interface InsightModel extends Cacheable, WithAccessControl {
     query?: Node | null
     query_status?: QueryStatus
     /** Only used when creating objects */
-    _fs_folder?: string | null
+    _create_in_folder?: string | null
 }
 
 export interface QueryBasedInsightModel extends Omit<InsightModel, 'filters'> {
@@ -4282,7 +4282,7 @@ export type NotebookListItemType = {
     created_by: UserBasicType | null
     last_modified_at?: string
     last_modified_by?: UserBasicType | null
-    _fs_folder?: string
+    _create_in_folder?: string
 }
 
 export type NotebookType = NotebookListItemType &

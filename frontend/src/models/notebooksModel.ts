@@ -91,7 +91,7 @@ export const notebooksModel = kea<notebooksModelType>([
                     const notebook = await api.notebooks.create({
                         title,
                         content: defaultNotebookContent(title, content),
-                        _fs_folder: getLastNewFolder(),
+                        _create_in_folder: getLastNewFolder(),
                     })
 
                     await openNotebook(notebook.short_id, location, 'end', (logic) => {
