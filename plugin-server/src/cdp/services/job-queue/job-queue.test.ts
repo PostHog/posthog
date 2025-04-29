@@ -1,7 +1,7 @@
 import { defaultConfig } from '~/src/config/config'
 import { PluginsServerConfig } from '~/src/types'
 
-import { HogFunctionManagerService } from './hog-function-manager.service'
+import { HogFunctionManagerService } from '../hog-function-manager.service'
 import { CyclotronJobQueue, getProducerMapping } from './job-queue'
 
 describe('CyclotronJobQueue', () => {

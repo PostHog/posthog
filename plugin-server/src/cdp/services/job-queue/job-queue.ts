@@ -16,12 +16,12 @@ import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 import { Counter, Gauge, Histogram } from 'prom-client'
 
-import { KafkaConsumer, parseKafkaHeaders } from '../../kafka/consumer'
-import { KafkaProducerWrapper } from '../../kafka/producer'
-import { PluginsServerConfig } from '../../types'
-import { parseJSON } from '../../utils/json-parse'
-import { logger } from '../../utils/logger'
-import { captureException } from '../../utils/posthog'
+import { KafkaConsumer, parseKafkaHeaders } from '../../../kafka/consumer'
+import { KafkaProducerWrapper } from '../../../kafka/producer'
+import { PluginsServerConfig } from '../../../types'
+import { parseJSON } from '../../../utils/json-parse'
+import { logger } from '../../../utils/logger'
+import { captureException } from '../../../utils/posthog'
 import {
     CYCLOTRON_JOB_QUEUE_KINDS,
     CyclotronJobQueueKind,
@@ -33,8 +33,8 @@ import {
     HogFunctionInvocationResult,
     HogFunctionInvocationSerialized,
     HogFunctionType,
-} from '../types'
-import { HogFunctionManagerService } from './hog-function-manager.service'
+} from '../../types'
+import { HogFunctionManagerService } from '../hog-function-manager.service'
 
 const cyclotronBatchUtilizationGauge = new Gauge({
     name: 'cdp_cyclotron_batch_utilization',

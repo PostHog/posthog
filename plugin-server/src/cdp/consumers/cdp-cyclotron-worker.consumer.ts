@@ -1,6 +1,6 @@
 import { Hub } from '../../types'
 import { logger } from '../../utils/logger'
-import { CyclotronJobQueue } from '../services/job-queue'
+import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import {
     HogFunctionInvocation,
     HogFunctionInvocationJobQueue,

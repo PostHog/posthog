@@ -16,7 +16,7 @@ import {
 } from '../_tests/fixtures'
 import { CdpEventsConsumer } from './cdp-events.consumer'
 import { CdpInternalEventsConsumer } from './cdp-internal-event.consumer'
-import { CyclotronJobQueue } from '../services/job-queue'
+import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 
 jest.mock('../../../src/utils/fetch', () => {
     return {
