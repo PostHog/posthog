@@ -105,7 +105,7 @@ export enum NodeKind {
     WebVitalsQuery = 'WebVitalsQuery',
     WebVitalsPathBreakdownQuery = 'WebVitalsPathBreakdownQuery',
     WebPageURLSearchQuery = 'WebPageURLSearchQuery',
-    WebActiveHoursHeatMapQuery = 'WebActiveHoursHeatMapQuery',
+    EventsHeatMapQuery = 'EventsHeatMapQuery',
 
     // Revenue analytics queries
     RevenueAnalyticsOverviewQuery = 'RevenueAnalyticsOverviewQuery',
@@ -166,7 +166,7 @@ export type AnyDataNode =
     | RecordingsQuery
     | TracesQuery
     | VectorSearchQuery
-    | WebActiveHoursHeatMapQuery
+    | EventsHeatMapQuery
 
 /**
  * @discriminator kind
@@ -204,7 +204,7 @@ export type QuerySchema =
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
     | WebPageURLSearchQuery
-    | WebActiveHoursHeatMapQuery
+    | EventsHeatMapQuery
 
     // Revenue analytics
     | RevenueAnalyticsOverviewQuery
@@ -707,7 +707,7 @@ export interface DataTableNode
                     | WebGoalsQuery
                     | WebVitalsQuery
                     | WebVitalsPathBreakdownQuery
-                    | WebActiveHoursHeatMapQuery
+                    | EventsHeatMapQuery
                     | SessionAttributionExplorerQuery
                     | RevenueAnalyticsOverviewQuery
                     | RevenueAnalyticsGrowthRateQuery
@@ -737,7 +737,7 @@ export interface DataTableNode
         | WebGoalsQuery
         | WebVitalsQuery
         | WebVitalsPathBreakdownQuery
-        | WebActiveHoursHeatMapQuery
+        | EventsHeatMapQuery
         | SessionAttributionExplorerQuery
         | RevenueAnalyticsOverviewQuery
         | RevenueAnalyticsGrowthRateQuery
@@ -1601,6 +1601,9 @@ export enum WebAnalyticsOrderByFields {
     UniqueConversions = 'UniqueConversions',
     ConversionRate = 'ConversionRate',
     ConvertingUsers = 'ConvertingUsers',
+    RageClicks = 'RageClicks',
+    DeadClicks = 'DeadClicks',
+    Errors = 'Errors',
 }
 export type WebAnalyticsOrderBy = [WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]
 interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<R> {
@@ -1670,6 +1673,7 @@ export enum WebStatsBreakdown {
     City = 'City',
     Timezone = 'Timezone',
     Language = 'Language',
+    FrustrationMetrics = 'FrustrationMetrics',
 }
 export interface WebStatsTableQuery extends WebAnalyticsQueryBase<WebStatsTableQueryResponse> {
     kind: NodeKind.WebStatsTableQuery
@@ -1895,7 +1899,7 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
 }
 
 export interface ErrorTrackingIssueAssignee {
-    type: 'user_group' | 'user'
+    type: 'user_group' | 'user' | 'role'
     id: integer | string
 }
 
@@ -2873,7 +2877,7 @@ export type RevenueCurrencyPropertyConfig = {
     static?: CurrencyCode
 }
 
-export interface RevenueTrackingEventItem {
+export interface RevenueAnalyticsEventItem {
     eventName: string
     revenueProperty: string
 
@@ -2883,20 +2887,16 @@ export interface RevenueTrackingEventItem {
     revenueCurrencyProperty: RevenueCurrencyPropertyConfig
 }
 
-// TODO: Remove the above once we've migrated all the revenue tracking config
-// to the new schema and promote this type to the interface
-export type RevenueAnalyticsEventItem = RevenueTrackingEventItem
-
-export interface RevenueTrackingConfig {
+export interface RevenueAnalyticsConfig {
     /**
      * @default 'USD'
      */
-    baseCurrency: CurrencyCode
+    base_currency: CurrencyCode
 
     /**
      * @default []
      */
-    events: RevenueTrackingEventItem[]
+    events: RevenueAnalyticsEventItem[]
 }
 
 export interface PageURL {
@@ -2918,37 +2918,39 @@ export interface WebPageURLSearchQueryResponse extends AnalyticsQueryResponseBas
 
 export type CachedWebPageURLSearchQueryResponse = CachedQueryResponse<WebPageURLSearchQueryResponse>
 
-export interface WebActiveHoursHeatMapQuery extends WebAnalyticsQueryBase<WebActiveHoursHeatMapQueryResponse> {
-    kind: NodeKind.WebActiveHoursHeatMapQuery
+export type HeatMapQuerySource = EventsNode
+
+export interface EventsHeatMapQuery extends WebAnalyticsQueryBase<EventsHeatMapQueryResponse> {
+    kind: NodeKind.EventsHeatMapQuery
+    source: HeatMapQuerySource
 }
 
-export interface WebActiveHoursHeatMapQueryResponse
-    extends AnalyticsQueryResponseBase<WebActiveHoursHeatMapStructuredResult> {
+export interface EventsHeatMapQueryResponse extends AnalyticsQueryResponseBase<EventsHeatMapStructuredResult> {
     hasMore?: boolean
     limit?: integer
 }
 
-export interface WebActiveHoursHeatMapDayAndHourResult {
-    day: integer
-    hour: integer
-    total: integer
+export interface EventsHeatMapDataResult {
+    row: integer
+    column: integer
+    value: integer
 }
 
-export interface WebActiveHoursHeatMapDayResult {
-    day: integer
-    total: integer
+export interface EventsHeatMapRowAggregationResult {
+    row: integer
+    value: integer
 }
 
-export interface WebActiveHoursHeatMapHourResult {
-    hour: integer
-    total: integer
+export interface EventsHeatMapColumnAggregationResult {
+    column: integer
+    value: integer
 }
 
-export interface WebActiveHoursHeatMapStructuredResult {
-    dayAndHours: WebActiveHoursHeatMapDayAndHourResult[]
-    days: WebActiveHoursHeatMapDayResult[]
-    hours: WebActiveHoursHeatMapHourResult[]
-    total: integer
+export interface EventsHeatMapStructuredResult {
+    data: EventsHeatMapDataResult[]
+    rowAggregations: EventsHeatMapRowAggregationResult[]
+    columnAggregations: EventsHeatMapColumnAggregationResult[]
+    allAggregations: integer
 }
 
-export type CachedWebActiveHoursHeatMapQueryResponse = CachedQueryResponse<WebActiveHoursHeatMapQueryResponse>
+export type CachedEventsHeatMapQueryResponse = CachedQueryResponse<EventsHeatMapQueryResponse>

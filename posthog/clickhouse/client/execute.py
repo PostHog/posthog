@@ -14,7 +14,12 @@ from clickhouse_driver import Client as SyncClient
 from django.conf import settings as app_settings
 from prometheus_client import Counter
 
-from posthog.clickhouse.client.connection import Workload, get_client_from_pool, get_default_clickhouse_workload_type
+from posthog.clickhouse.client.connection import (
+    Workload,
+    get_client_from_pool,
+    get_default_clickhouse_workload_type,
+    ClickHouseUser,
+)
 from posthog.clickhouse.client.escape import substitute_params
 from posthog.clickhouse.query_tagging import tag_queries, get_query_tag_value, get_query_tags
 from posthog.cloud_utils import is_cloud
@@ -158,6 +163,12 @@ def sync_execute(
     core_settings = {**default_settings(), **(settings or {})}
     tags["query_settings"] = core_settings
     query_type = tags.get("query_type", "Other")
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT
+    if is_personal_api_key:
+        ch_user = ClickHouseUser.API
+    elif tags.get("kind", "") == "request":
+        ch_user = ClickHouseUser.APP
+
     while True:
         settings = {
             **core_settings,
@@ -177,7 +188,7 @@ def sync_execute(
                 access_method=tags.get("access_method", "other"),
                 chargeable=str(tags.get("chargeable", "0")),
             ).inc()
-            with sync_client or get_client_from_pool(workload, team_id, readonly) as client:
+            with sync_client or get_client_from_pool(workload, team_id, readonly, ch_user) as client:
                 result = client.execute(
                     prepared_sql,
                     params=prepared_args,

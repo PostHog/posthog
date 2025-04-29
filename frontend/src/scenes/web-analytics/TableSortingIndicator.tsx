@@ -18,6 +18,9 @@ const SORT_BY_TO_LABEL: Record<WebAnalyticsOrderByFields, string> = {
     [WebAnalyticsOrderByFields.UniqueConversions]: 'Unique conversions',
     [WebAnalyticsOrderByFields.ConversionRate]: 'Conversion rate',
     [WebAnalyticsOrderByFields.ConvertingUsers]: 'Converting users',
+    [WebAnalyticsOrderByFields.RageClicks]: 'Rage clicks',
+    [WebAnalyticsOrderByFields.DeadClicks]: 'Dead clicks',
+    [WebAnalyticsOrderByFields.Errors]: 'Errors',
 }
 
 export const TableSortingIndicator = (): JSX.Element | null => {

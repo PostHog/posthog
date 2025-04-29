@@ -6,9 +6,9 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/getsentry/sentry-go"
-	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/labstack/echo/v4"
+	"github.com/posthog/posthog/livestream/auth"
+	"github.com/posthog/posthog/livestream/events"
 )
 
 type Counter struct {
@@ -16,7 +16,7 @@ type Counter struct {
 	UserCount  int
 }
 
-func servedHandler(stats *Stats) func(c echo.Context) error {
+func servedHandler(stats *events.Stats) func(c echo.Context) error {
 	return func(c echo.Context) error {
 		userCount := stats.GlobalStore.Len()
 		count := stats.Counter.Count()
@@ -28,7 +28,7 @@ func servedHandler(stats *Stats) func(c echo.Context) error {
 	}
 }
 
-func statsHandler(stats *Stats) func(c echo.Context) error {
+func statsHandler(stats *events.Stats) func(c echo.Context) error {
 	return func(c echo.Context) error {
 
 		type resp struct {
@@ -36,22 +36,20 @@ func statsHandler(stats *Stats) func(c echo.Context) error {
 			Error          string `json:"error,omitempty"`
 		}
 
-		_, token, err := getAuthClaims(c.Request().Header)
+		_, token, err := auth.GetAuthClaims(c.Request().Header)
 		if err != nil {
 			return c.JSON(http.StatusUnauthorized, resp{Error: "wrong token claims"})
 		}
 
-		var hash *expirable.LRU[string, noSpaceType]
-		var ok bool
-		if hash, ok = stats.Store[token]; !ok {
+		store := stats.GetExistingStoreForToken(token)
+		if store == nil {
 			resp := resp{
 				Error: "no stats",
 			}
 			return c.JSON(http.StatusOK, resp)
 		}
-
 		siteStats := resp{
-			UsersOnProduct: hash.Len(),
+			UsersOnProduct: store.Len(),
 		}
 		return c.JSON(http.StatusOK, siteStats)
 	}
@@ -59,7 +57,7 @@ func statsHandler(stats *Stats) func(c echo.Context) error {
 
 var subID uint64 = 1
 
-func streamEventsHandler(log echo.Logger, subChan chan Subscription, filter *Filter) func(c echo.Context) error {
+func streamEventsHandler(log echo.Logger, subChan chan events.Subscription, filter *events.Filter) func(c echo.Context) error {
 	return func(c echo.Context) error {
 		log.Debugf("SSE client connected, ip: %v", c.RealIP())
 
@@ -74,7 +72,7 @@ func streamEventsHandler(log echo.Logger, subChan chan Subscription, filter *Fil
 			err     error
 		)
 
-		teamID, token, err = getAuthClaims(c.Request().Header)
+		teamID, token, err = auth.GetAuthClaims(c.Request().Header)
 		if err != nil {
 			return echo.NewHTTPError(http.StatusUnauthorized, "wrong token")
 		}
@@ -87,7 +85,7 @@ func streamEventsHandler(log echo.Logger, subChan chan Subscription, filter *Fil
 			eventTypes = strings.Split(eventType, ",")
 		}
 
-		subscription := Subscription{
+		subscription := events.Subscription{
 			SubID:       atomic.AddUint64(&subID, 1),
 			TeamId:      teamID,
 			Token:       token,
@@ -101,7 +99,7 @@ func streamEventsHandler(log echo.Logger, subChan chan Subscription, filter *Fil
 		subChan <- subscription
 		defer func() {
 			subscription.ShouldClose.Store(true)
-			filter.unSubChan <- subscription
+			filter.UnSubChan <- subscription
 		}()
 
 		w := c.Response()
@@ -117,7 +115,7 @@ func streamEventsHandler(log echo.Logger, subChan chan Subscription, filter *Fil
 			case payload := <-subscription.EventChan:
 				jsonData, err := json.Marshal(payload)
 				if err != nil {
-					sentry.CaptureException(err)
+					// TODO capture error to PostHog
 					log.Errorf("Error marshalling payload: %w", err)
 					continue
 				}

@@ -298,7 +298,7 @@ export const treeItemsNew = [
     { path: `Dashboard`, type: 'dashboard', href: () => urls.dashboards() + '#newDashboard=modal' },
     { path: `Experiment`, type: 'experiment', href: () => urls.experiment('new') },
     { path: `Feature flag`, type: 'feature_flag', href: () => urls.featureFlag('new') },
-    { path: `Insight/Funnels`, type: 'insight', href: () => urls.insightNew({ type: InsightType.FUNNELS }) },
+    { path: `Insight/Funnel`, type: 'insight', href: () => urls.insightNew({ type: InsightType.FUNNELS }) },
     { path: `Insight/Lifecycle`, type: 'insight', href: () => urls.insightNew({ type: InsightType.LIFECYCLE }) },
     { path: `Insight/Retention`, type: 'insight', href: () => urls.insightNew({ type: InsightType.RETENTION }) },
     { path: `Insight/Stickiness`, type: 'insight', href: () => urls.insightNew({ type: InsightType.STICKINESS }) },

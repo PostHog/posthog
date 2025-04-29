@@ -54,6 +54,9 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
             if self.query.includeBounceRate:
                 return self.to_entry_bounce_query()
 
+        if self.query.breakdownBy == WebStatsBreakdown.FRUSTRATION_METRICS:
+            return self.to_frustration_metrics_query()
+
         return self.to_main_query(self._counts_breakdown_value())
 
     def to_main_query(self, breakdown) -> ast.SelectQuery:
@@ -310,6 +313,63 @@ ON counts.breakdown_value = bounce.breakdown_value
 
         return query
 
+    def to_frustration_metrics_query(self) -> ast.SelectQuery:
+        with self.timings.measure("frustration_metrics_query"):
+            # Base selects, always returns the breakdown value, and the total number of visitors
+            selects = [
+                ast.Alias(alias="context.columns.breakdown_value", expr=self._processed_breakdown_value()),
+                self._period_comparison_tuple("rage_clicks_count", "context.columns.rage_clicks", "sum"),
+                self._period_comparison_tuple("dead_clicks_count", "context.columns.dead_clicks", "sum"),
+                self._period_comparison_tuple("errors_count", "context.columns.errors", "sum"),
+            ]
+
+            query = ast.SelectQuery(
+                select=selects,
+                select_from=ast.JoinExpr(table=self._frustration_metrics_inner_query()),
+                group_by=[ast.Field(chain=["context.columns.breakdown_value"])],
+                order_by=self._frustration_metrics_order_by(),
+            )
+
+        return query
+
+    def _frustration_metrics_inner_query(self):
+        query = parse_select(
+            """
+            SELECT
+                any(person_id) AS filtered_person_id,
+                countIf(events.event = '$pageview' OR events.event = '$screen') AS filtered_pageview_count,
+                {breakdown_value} AS breakdown_value,
+                countIf(events.event = '$exception') AS errors_count,
+                countIf(events.event = '$rageclick') AS rage_clicks_count,
+                countIf(events.event = '$dead_click') AS dead_clicks_count,
+                session.session_id AS session_id,
+                min(session.$start_timestamp) as start_timestamp
+            FROM events
+            WHERE and({inside_periods}, {event_where}, {all_properties}, {where_breakdown})
+            GROUP BY session_id, breakdown_value
+            """,
+            timings=self.timings,
+            placeholders={
+                "breakdown_value": self._counts_breakdown_value(),
+                "event_where": parse_expr(
+                    "events.event IN ('$pageview', '$screen', '$rageclick', '$dead_click', '$exception')"
+                ),
+                "all_properties": self._all_properties(),
+                "where_breakdown": self.where_breakdown(),
+                "inside_periods": self._periods_expression(),
+            },
+        )
+
+        assert isinstance(query, ast.SelectQuery)
+        return query
+
+    def _frustration_metrics_order_by(self) -> list[ast.OrderExpr] | None:
+        return [
+            ast.OrderExpr(expr=ast.Field(chain=["context.columns.errors"]), order="DESC"),
+            ast.OrderExpr(expr=ast.Field(chain=["context.columns.rage_clicks"]), order="DESC"),
+            ast.OrderExpr(expr=ast.Field(chain=["context.columns.dead_clicks"]), order="DESC"),
+        ]
+
     def _main_inner_query(self, breakdown):
         query = parse_select(
             """
@@ -367,6 +427,12 @@ GROUP BY session_id, breakdown_value
                 column = "context.columns.unique_conversions"
             elif field == WebAnalyticsOrderByFields.CONVERSION_RATE:
                 column = "context.columns.conversion_rate"
+            elif field == WebAnalyticsOrderByFields.RAGE_CLICKS:
+                column = "context.columns.rage_clicks"
+            elif field == WebAnalyticsOrderByFields.DEAD_CLICKS:
+                column = "context.columns.dead_clicks"
+            elif field == WebAnalyticsOrderByFields.ERRORS:
+                column = "context.columns.errors"
 
         return [
             expr
@@ -597,6 +663,8 @@ GROUP BY session_id, breakdown_value
             case WebStatsBreakdown.TIMEZONE:
                 # Value is in minutes, turn it to hours, works even for fractional timezone offsets (I'm looking at you, Australia)
                 return parse_expr("toFloat(properties.$timezone_offset) / 60")
+            case WebStatsBreakdown.FRUSTRATION_METRICS:
+                return self._apply_path_cleaning(ast.Field(chain=["events", "properties", "$pathname"]))
             case _:
                 raise NotImplementedError("Breakdown not implemented")
 

@@ -258,8 +258,8 @@ export const surveyLogic = kea<surveyLogicType>([
     }),
     loaders(({ props, actions, values }) => ({
         responseSummary: {
-            summarize: async ({ questionIndex }: { questionIndex?: number }) => {
-                return api.surveys.summarize_responses(props.id, questionIndex)
+            summarize: async ({ questionIndex, questionId }: { questionIndex?: number; questionId?: string }) => {
+                return api.surveys.summarize_responses(props.id, questionIndex, questionId)
             },
         },
         survey: {
@@ -1290,7 +1290,9 @@ export const surveyLogic = kea<surveyLogicType>([
         ],
         projectTreeRef: [
             () => [(_, props: SurveyLogicProps) => props.id],
-            (id): ProjectTreeRef => ({ type: 'survey', ref: String(id) }),
+            (id): ProjectTreeRef => {
+                return { type: 'survey', ref: id === 'new' ? null : String(id) }
+            },
         ],
         answerFilterHogQLExpression: [
             (s) => [s.survey, s.answerFilters],
