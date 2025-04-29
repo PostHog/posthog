@@ -1232,7 +1232,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         if (
                             result.type &&
                             ([
-                                'cohort',
                                 'dashboard',
                                 'early_access_feature',
                                 'experiment',
