@@ -2134,7 +2134,7 @@
       -- this was accidentally added at the end in prod, it lives here now
       initial__kx AggregateFunction(argMin, String, DateTime64(6, 'UTC'))
   
-  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_raw_sessions', cityHash64(session_id_v7))
+  ) ENGINE = Distributed('ON CLUSTER 'posthog'', 'posthog_test', 'sharded_raw_sessions', cityHash64(session_id_v7))
   
   '''
 # ---
