@@ -159,6 +159,7 @@ export function OnboardingInstallStep({
                                 type="primary"
                                 onClick={() => void copyToClipboard(currentTeam?.api_token || '', 'Project API key')}
                                 icon={<IconCopy />}
+                                data-attr="copy-api-key"
                             >
                                 Copy API key
                             </LemonButton>
