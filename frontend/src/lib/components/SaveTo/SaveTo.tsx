@@ -63,7 +63,7 @@ export interface UseSaveToResponse {
 
 export function useSaveTo(props: SaveToLogicProps): UseSaveToResponse {
     const { openModal, closeModal } = useActions(saveToLogic(props))
-    const { lastNewOperation } = useValues(saveToLogic(props))
+    const { lastNewFolder } = useValues(saveToLogic(props))
     return {
         openModal,
         closeModal,
@@ -72,6 +72,6 @@ export function useSaveTo(props: SaveToLogicProps): UseSaveToResponse {
                 <SaveToModal />
             </BindLogic>
         ),
-        selectedFolder: lastNewOperation?.objectType === props.type ? lastNewOperation?.folder : undefined,
+        selectedFolder: lastNewFolder ?? undefined,
     }
 }

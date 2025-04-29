@@ -21,7 +21,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
-import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { getLastNewFolder, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupsModel } from '~/models/groupsModel'
@@ -394,8 +394,9 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     dashboards,
                     tags,
                 }
-                if (folder) {
-                    insightRequest.folder = folder
+                const fsFolder = folder ?? getLastNewFolder()
+                if (fsFolder) {
+                    insightRequest._fs_folder = fsFolder
                 }
 
                 savedInsight = insightNumericId

@@ -58,7 +58,7 @@ export function ProjectTree(): JSX.Element {
         setExpandedFolders,
         setExpandedSearchFolders,
         loadFolder,
-        setLastNewOperation,
+        setLastNewFolder,
         onItemChecked,
         moveCheckedItems,
         linkCheckedItems,
@@ -208,11 +208,9 @@ export function ProjectTree(): JSX.Element {
                                                             asChild
                                                             onClick={(e) => {
                                                                 e.stopPropagation()
-                                                                const objectType: string | undefined =
-                                                                    child.record?.type
                                                                 const folder = item.record?.path
-                                                                if (objectType && folder) {
-                                                                    setLastNewOperation(objectType, folder)
+                                                                if (folder) {
+                                                                    setLastNewFolder(folder)
                                                                 }
                                                                 child.onClick?.()
                                                             }}
@@ -232,10 +230,9 @@ export function ProjectTree(): JSX.Element {
                                             asChild
                                             onClick={(e) => {
                                                 e.stopPropagation()
-                                                const objectType: string | undefined = treeItem.record?.type
                                                 const folder = item.record?.path
-                                                if (objectType && folder) {
-                                                    setLastNewOperation(objectType, folder)
+                                                if (folder) {
+                                                    setLastNewFolder(folder)
                                                 }
                                                 treeItem.onClick?.()
                                             }}

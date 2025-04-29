@@ -17,8 +17,8 @@ export const saveToLogic = kea<saveToLogicType>([
     props({} as SaveToLogicProps),
     key((props) => props.type),
     connect(() => ({
-        values: [projectTreeLogic, ['lastNewOperation']],
-        actions: [projectTreeLogic, ['setLastNewOperation']],
+        values: [projectTreeLogic, ['lastNewFolder']],
+        actions: [projectTreeLogic, ['setLastNewFolder']],
     })),
     actions({
         openModal: true,
@@ -34,30 +34,30 @@ export const saveToLogic = kea<saveToLogicType>([
         ],
     }),
     listeners(({ actions, props }) => ({
-        setLastNewOperation: ({ folder }) => {
+        setLastNewFolder: ({ folder }) => {
             actions.setFormValue('folder', folder || props.defaultFolder || null)
         },
     })),
-    forms(({ actions, values, props }) => ({
+    forms(({ actions, props }) => ({
         form: {
             defaults: {
-                folder: props.defaultFolder || null,
+                folder: props.defaultFolder ?? null,
             },
             errors: ({ folder }) => ({
                 folder: !folder ? 'You need to specify a folder.' : null,
             }),
             submit: (formValues) => {
                 if (props.onSave) {
-                    actions.setLastNewOperation(values.lastNewOperation?.objectType || props.type, formValues.folder)
-                    props.onSave(formValues.folder || props.defaultFolder || null)
+                    actions.setLastNewFolder(formValues.folder)
+                    props.onSave(formValues.folder ?? props.defaultFolder ?? null)
                     actions.closeModal()
                 }
             },
         },
     })),
     afterMount(({ actions, values }) => {
-        if (values.lastNewOperation?.folder) {
-            actions.setFormValue('folder', values.lastNewOperation.folder)
+        if (values.lastNewFolder !== null) {
+            actions.setFormValue('folder', values.lastNewFolder)
         }
     }),
 ])

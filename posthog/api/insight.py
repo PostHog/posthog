@@ -317,6 +317,7 @@ class InsightSerializer(InsightBasicSerializer):
     query_status = serializers.SerializerMethodField()
     hogql = serializers.SerializerMethodField()
     types = serializers.SerializerMethodField()
+    _fs_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
         model = Insight
@@ -355,7 +356,7 @@ class InsightSerializer(InsightBasicSerializer):
             "query_status",
             "hogql",
             "types",
-            "folder",
+            "_fs_folder",
         ]
         read_only_fields = (
             "created_at",
@@ -376,6 +377,7 @@ class InsightSerializer(InsightBasicSerializer):
     @monitor(feature=Feature.INSIGHT, endpoint="insight", method="POST")
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Insight:
         request = self.context["request"]
+        # _fs_folder = validated_data.pop("_fs_folder", None)
         tags = validated_data.pop("tags", None)  # tags are created separately as global tag relationships
         team_id = self.context["team_id"]
         current_url = request.headers.get("Referer")
@@ -400,6 +402,10 @@ class InsightSerializer(InsightBasicSerializer):
 
         # Manual tag creation since this create method doesn't call super()
         self._attempt_set_tags(tags, insight)
+        #
+        # if _fs_folder is not None:
+        #     insight.set_fs_folder(_fs_folder)
+        #     insight.save()
 
         properties = {}
         properties["$current_url"] = current_url
@@ -454,9 +460,15 @@ class InsightSerializer(InsightBasicSerializer):
             if dashboards is not None:
                 self._update_insight_dashboards(dashboards, instance)
 
+        _fs_folder = validated_data.pop("_fs_folder", None)
+
         updated_insight = super().update(instance, validated_data)
         if not are_alerts_supported_for_insight(updated_insight):
             instance.alertconfiguration_set.all().delete()
+
+        if _fs_folder is not None:
+            updated_insight.set_fs_folder(_fs_folder)
+            updated_insight.save()
 
         self._log_insight_update(before_update, dashboards_before_change, updated_insight, current_url, session_id)
 
@@ -1114,7 +1126,7 @@ When set, the specified dashboard's filters and date range override will be appl
     # Creates or updates an InsightViewed object for the user/insight combo
     # ******************************************
     @action(methods=["POST"], detail=True, required_scopes=["insight:read"])
-    def viewed(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+    def viewed(self, request: request.Request, *args, **kwargs) -> Response:
         InsightViewed.objects.update_or_create(
             team=self.team,
             user=request.user,
