@@ -1,5 +1,5 @@
 import { Monaco } from '@monaco-editor/react'
-import { IconBolt, IconDownload, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
+import { IconBolt, IconBook, IconBrackets, IconDownload, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -14,6 +14,7 @@ import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogi
 import { editorSizingLogic } from './editorSizingLogic'
 import { multitabEditorLogic } from './multitabEditorLogic'
 import { OutputPane } from './OutputPane'
+import { QueryHistoryModal } from './QueryHistoryModal'
 import { QueryPane } from './QueryPane'
 import { QueryTabs } from './QueryTabs'
 import { editorSidebarLogic, EditorSidebarTab } from './sidebar/editorSidebarLogic'
@@ -39,6 +40,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
         setMetadataLoading,
         saveAsView,
     } = useActions(multitabEditorLogic)
+    const { openHistoryModal } = useActions(multitabEditorLogic)
 
     const { response } = useValues(dataNodeLogic)
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
@@ -47,7 +49,36 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
     const { resetDefaultSidebarWidth } = useActions(editorSizingLogic)
     const { setActiveTab } = useActions(editorSidebarLogic)
 
-    const isMaterializedView = !!editingView?.status
+    const isMaterializedView =
+        !!editingView?.status &&
+        (editingView.status === 'Completed' ||
+            editingView.status === 'Failed' ||
+            editingView.status === 'Cancelled' ||
+            editingView.status === 'Running')
+
+    const renderAddSQLVariablesButton = (): JSX.Element => (
+        <LemonButton
+            onClick={() => setActiveTab(EditorSidebarTab.QueryVariables)}
+            icon={<IconBrackets />}
+            type="tertiary"
+            size="xsmall"
+            id="sql-editor-query-window-add-variables"
+        >
+            Add SQL variables
+        </LemonButton>
+    )
+
+    const renderMaterializeButton = (): JSX.Element => (
+        <LemonButton
+            onClick={() => setActiveTab(EditorSidebarTab.QueryInfo)}
+            icon={<IconBolt />}
+            type="tertiary"
+            size="xsmall"
+            id="sql-editor-query-window-materialize"
+        >
+            Materialize
+        </LemonButton>
+    )
 
     return (
         <div className="flex flex-1 flex-col h-full overflow-hidden">
@@ -82,31 +113,45 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                     </span>
                 </div>
             )}
-            <div className="flex flex-row justify-start align-center w-full ml-2 mr-2">
+            <div className="flex flex-row justify-start align-center w-full pl-2 pr-2 bg-white dark:bg-black border-b">
                 <RunButton />
                 <LemonDivider vertical />
-                {editingView ? (
-                    <LemonButton
-                        onClick={() =>
-                            updateDataWarehouseSavedQuery({
-                                id: editingView.id,
-                                query: {
-                                    ...sourceQuery.source,
-                                    query: queryInput,
-                                },
-                                types: response?.types ?? [],
-                                shouldRematerialize: isMaterializedView,
-                            })
-                        }
-                        disabledReason={updatingDataWarehouseSavedQuery ? 'Saving...' : ''}
-                        icon={<IconDownload />}
-                        type="tertiary"
-                        size="xsmall"
-                        id={`sql-editor-query-window-update-${isMaterializedView ? 'materialize' : 'view'}`}
-                    >
-                        {isMaterializedView ? 'Update and re-materialize view' : 'Update view'}
-                    </LemonButton>
-                ) : (
+                {editingView && (
+                    <>
+                        <LemonButton
+                            onClick={() =>
+                                updateDataWarehouseSavedQuery({
+                                    id: editingView.id,
+                                    query: {
+                                        ...sourceQuery.source,
+                                        query: queryInput,
+                                    },
+                                    types: response?.types ?? [],
+                                    shouldRematerialize: isMaterializedView,
+                                })
+                            }
+                            disabledReason={updatingDataWarehouseSavedQuery ? 'Saving...' : ''}
+                            icon={<IconDownload />}
+                            type="tertiary"
+                            size="xsmall"
+                            id={`sql-editor-query-window-update-${isMaterializedView ? 'materialize' : 'view'}`}
+                        >
+                            {isMaterializedView ? 'Update and re-materialize view' : 'Update view'}
+                        </LemonButton>
+                        {!isMaterializedView && renderMaterializeButton()}
+                        <LemonButton
+                            onClick={() => openHistoryModal()}
+                            icon={<IconBook />}
+                            type="tertiary"
+                            size="xsmall"
+                            id="sql-editor-query-window-history"
+                        >
+                            History
+                        </LemonButton>
+                    </>
+                )}
+                {editingInsight && renderAddSQLVariablesButton()}
+                {!editingInsight && !editingView && (
                     <>
                         <LemonButton
                             onClick={() => saveAsView()}
@@ -117,15 +162,8 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                         >
                             Save as view
                         </LemonButton>
-                        <LemonButton
-                            onClick={() => setActiveTab(EditorSidebarTab.QueryInfo)}
-                            icon={<IconBolt />}
-                            type="tertiary"
-                            size="xsmall"
-                            id="sql-editor-query-window-materialize"
-                        >
-                            Materialize
-                        </LemonButton>
+                        {renderMaterializeButton()}
+                        {renderAddSQLVariablesButton()}
                     </>
                 )}
             </div>
@@ -162,6 +200,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                 }}
             />
             <InternalQueryWindow />
+            <QueryHistoryModal />
         </div>
     )
 }

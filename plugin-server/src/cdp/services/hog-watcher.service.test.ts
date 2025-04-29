@@ -142,6 +142,32 @@ describe('HogWatcher', () => {
             expect(result.state).toEqual(expectedScore.state)
         })
 
+        it('should calculate costs per individual timing not based on total duration', async () => {
+            // Create a result with multiple timings that would have different costs
+            // if calculated individually vs. summed together
+            const result = createResult({ id: 'id1', finished: true }) as HogFunctionInvocationResult
+
+            // Replace the default timing with multiple timings
+            result.invocation.timings = [
+                { kind: 'hog', duration_ms: 100 }, // Below threshold, should have minimal cost
+                { kind: 'async_function', duration_ms: 100 }, // Below threshold, should have minimal cost
+                { kind: 'hog', duration_ms: 100 }, // Below threshold, should have minimal cost
+            ]
+
+            // If using individual timings (correct): each timing has a small cost
+            // If using total duration (incorrect): 300ms total would have a higher cost
+
+            await watcher.observeResults([result])
+            const state = await watcher.getState('id1')
+
+            // Expected: each 100ms timing has minimal cost since it's below the lower threshold
+            // This is checking that we're not summing them into a 300ms duration
+            const expectedIndividualCost = 0 // Three 100ms timings each have minimal/zero cost
+            const totalCost = hub.CDP_WATCHER_BUCKET_SIZE - state.tokens
+
+            expect(totalCost).toEqual(expectedIndividualCost)
+        })
+
         it('should max out scores', async () => {
             let lotsOfResults = Array(10000).fill(createResult({ id: 'id1', error: 'error!' }))
 

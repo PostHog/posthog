@@ -35,6 +35,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     address: SocketAddr::from_str("127.0.0.1:0").unwrap(),
     redis_url: "redis://localhost:6379/".to_string(),
     overflow_enabled: false,
+    overflow_preserve_partition_locality: false,
     overflow_burst_limit: NonZeroU32::new(5).unwrap(),
     overflow_per_second_limit: NonZeroU32::new(10).unwrap(),
     ingestion_force_overflow_by_token_distinct_id: None,

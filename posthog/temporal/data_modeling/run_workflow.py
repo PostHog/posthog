@@ -492,6 +492,7 @@ def hogql_table(query: str, team: Team, table_name: str, table_columns: dlt_typi
             max_execution_time=60 * 20, max_memory_usage=180 * 1000 * 1000 * 1000
         )  # 20 mins, 180gb, 2x execution_time, 4x max_memory_usage as the /query endpoint async workers
 
+        # Pass the query_type parameter to influence tags in a thread safe way
         response = await asyncio.to_thread(
             execute_hogql_query,
             query,
@@ -499,6 +500,7 @@ def hogql_table(query: str, team: Team, table_name: str, table_columns: dlt_typi
             settings=settings,
             limit_context=LimitContext.SAVED_QUERY,
             workload=Workload.OFFLINE,
+            query_type="materialization",
         )
 
         if not response.columns:

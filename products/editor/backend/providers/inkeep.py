@@ -3,8 +3,10 @@ import json
 from collections.abc import Generator
 from django.conf import settings
 import openai
-from typing import Any
+from anthropic.types import MessageParam
 import logging
+
+from products.editor.backend.providers.formatters.openai_formatter import convert_to_openai_messages
 
 logger = logging.getLogger(__name__)
 
@@ -20,13 +22,6 @@ class InkeepProvider:
             raise ValueError(f"Model {model_id} is not supported")
         self.model_id = model_id
 
-    def validate_messages(self, messages: list[dict[str, Any]]) -> None:
-        if not messages:
-            raise ValueError("Messages list cannot be empty")
-        for msg in messages:
-            if "role" not in msg or "content" not in msg:
-                raise ValueError("Each message must contain 'role' and 'content' fields")
-
     @classmethod
     def get_api_key(cls) -> str:
         api_key = os.environ.get("INKEEP_API_KEY") or settings.INKEEP_API_KEY
@@ -34,15 +29,19 @@ class InkeepProvider:
             raise ValueError("INKEEP_API_KEY is not set in environment or settings")
         return api_key
 
-    def stream_response(self, system: str, messages: list, thinking: bool = False) -> Generator[str, None, None]:
+    def stream_response(
+        self, system: str, messages: list[MessageParam], thinking: bool = False
+    ) -> Generator[str, None, None]:
         """
         Generator function that yields SSE formatted data
         """
-        self.validate_messages(messages)
 
         try:
             stream = self.client.chat.completions.create(
-                model=self.model_id, stream=True, messages=messages, stream_options={"include_usage": True}
+                model=self.model_id,
+                stream=True,
+                messages=convert_to_openai_messages(messages),
+                stream_options={"include_usage": True},
             )
         except openai.APIError as e:
             logger.exception(f"Inkeep API error: {e}")

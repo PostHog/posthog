@@ -1,6 +1,7 @@
 import { FunnelLayout, ShownAsValue } from 'lib/constants'
 
 import {
+    AccessControlLevel,
     ChartDisplayType,
     DashboardTile,
     DashboardType,
@@ -222,7 +223,7 @@ export const dashboard: DashboardType = {
                 effective_privilege_level: 37,
                 timezone: null,
                 tags: [],
-                user_access_level: 'editor',
+                user_access_level: AccessControlLevel.Editor,
             },
         } as DashboardTile,
         {
@@ -370,7 +371,7 @@ export const dashboard: DashboardType = {
                 effective_privilege_level: 37,
                 timezone: null,
                 tags: [],
-                user_access_level: 'editor',
+                user_access_level: AccessControlLevel.Editor,
             },
         } as DashboardTile,
         {
@@ -549,7 +550,7 @@ export const dashboard: DashboardType = {
                 effective_privilege_level: 37,
                 timezone: null,
                 tags: [],
-                user_access_level: 'editor',
+                user_access_level: AccessControlLevel.Editor,
             },
         } as DashboardTile,
         {
@@ -691,7 +692,7 @@ export const dashboard: DashboardType = {
                 effective_privilege_level: 37,
                 timezone: null,
                 tags: [],
-                user_access_level: 'editor',
+                user_access_level: AccessControlLevel.Editor,
             },
         } as DashboardTile,
         {
@@ -1111,7 +1112,7 @@ export const dashboard: DashboardType = {
                 effective_privilege_level: 37,
                 timezone: null,
                 tags: [],
-                user_access_level: 'editor',
+                user_access_level: AccessControlLevel.Editor,
             },
         } as DashboardTile,
         {
@@ -1250,7 +1251,7 @@ export const dashboard: DashboardType = {
                 effective_privilege_level: 37,
                 timezone: null,
                 tags: [],
-                user_access_level: 'editor',
+                user_access_level: AccessControlLevel.Editor,
             },
         } as DashboardTile,
     ],
@@ -1263,7 +1264,7 @@ export const dashboard: DashboardType = {
     restriction_level: 37,
     effective_restriction_level: 37,
     effective_privilege_level: 37,
-    user_access_level: 'editor',
+    user_access_level: AccessControlLevel.Editor,
     access_control_version: 'v1',
     tags: [],
 }

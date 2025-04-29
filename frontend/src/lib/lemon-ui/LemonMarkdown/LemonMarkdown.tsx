@@ -2,6 +2,7 @@ import './LemonMarkdown.scss'
 
 import clsx from 'clsx'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import React from 'react'
 import ReactMarkdown from 'react-markdown'
 
 import { Link } from '../Link'
@@ -16,7 +17,7 @@ export interface LemonMarkdownProps {
 }
 
 /** Beautifully rendered Markdown. */
-export function LemonMarkdown({
+export const LemonMarkdown = React.memo(function LemonMarkdown({
     children,
     lowKeyHeadings = false,
     disableDocsRedirect = false,
@@ -49,4 +50,4 @@ export function LemonMarkdown({
             </ReactMarkdown>
         </div>
     )
-}
+})

@@ -139,7 +139,7 @@ services:
             - redis
             - kafka
 
-    # vector replay capture
+    # replay capture-rs
     replay-capture:
         extends:
             file: docker-compose.base.yml
