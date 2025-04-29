@@ -447,7 +447,8 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
 
             REPLAY_TEAM_PLAYLIST_COUNT_SUCCEEDED.inc()
             posthoganalytics.capture(
-                "replay_playlist_saved_filters_counted",
+                distinct_id=f"playlist_counting_for_team_{playlist.team.pk}",
+                event="replay_playlist_saved_filters_counted",
                 properties={
                     "team_id": playlist.team.pk,
                     "saved_filters_short_id": playlist.short_id,
