@@ -1,22 +1,13 @@
-import { PluginEvent, ProcessedPluginEvent, RetryError, StorageExtension } from '@posthog/plugin-scaffold'
+import { ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import { Histogram } from 'prom-client'
 
-import { Hub } from '../../types'
-import { PostgresUse } from '../../utils/db/postgres'
 import { Response, trackedFetch } from '../../utils/fetch'
-import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { DESTINATION_PLUGINS_BY_ID, TRANSFORMATION_PLUGINS_BY_ID } from '../legacy-plugins'
-import { firstTimeEventTrackerPluginProcessEventAsync } from '../legacy-plugins/_transformations/first-time-event-tracker'
-import { firstTimeEventTrackerPlugin } from '../legacy-plugins/_transformations/first-time-event-tracker/template'
-import {
-    LegacyDestinationPlugin,
-    LegacyPluginLogger,
-    LegacyTransformationPlugin,
-    LegacyTransformationPluginMeta,
-} from '../legacy-plugins/types'
+import { LegacyPluginLogger, LegacyTransformationPlugin } from '../legacy-plugins/types'
 import { sanitizeLogMessage } from '../services/hog-executor.service'
+import { HogFunctionTemplate } from '../templates/types'
 import { HogFunctionInvocation, HogFunctionInvocationResult } from '../types'
 import { CDP_TEST_ID, isSegmentPluginHogFunction } from '../utils'
 
@@ -27,89 +18,40 @@ const pluginExecutionDuration = new Histogram({
     buckets: [0, 10, 20, 50, 100, 200],
 })
 
+export type SegmentPluginMeta = {
+    config: Record<string, any>
+    global: Record<string, any>
+    logger: LegacyPluginLogger
+}
+
+export type SegmentDestinationPluginMeta = SegmentPluginMeta & {
+    fetch: (...args: Parameters<typeof trackedFetch>) => Promise<Response>
+}
+
+export type SegmentDestinationPlugin = {
+    template: HogFunctionTemplate
+    onEvent(event: ProcessedPluginEvent, meta: SegmentDestinationPluginMeta): Promise<void>
+}
+
 export type PluginState = {
     setupPromise: Promise<any>
     errored: boolean
-    meta: LegacyTransformationPluginMeta
+    meta: SegmentDestinationPluginMeta
 }
 
 /**
  * NOTE: This is a consumer to take care of legacy plugins.
  */
 
-const pluginConfigCheckCache: Record<string, boolean> = {}
-
 export type SegmentPluginExecutorOptions = {
     fetch?: (...args: Parameters<typeof trackedFetch>) => Promise<Response>
 }
 
 export class SegmentPluginExecutorService {
-    constructor(private hub: Hub) {}
     private pluginState: Record<string, PluginState> = {}
 
     public async fetch(...args: Parameters<typeof trackedFetch>): Promise<Response> {
         return trackedFetch(...args)
-    }
-
-    private legacyStorage(teamId: number, pluginConfigId?: number | string): Pick<StorageExtension, 'get' | 'set'> {
-        if (!pluginConfigId) {
-            return {
-                get: () => Promise.resolve(null),
-                set: () => Promise.resolve(),
-            }
-        }
-
-        const get = async (key: string, defaultValue: unknown): Promise<unknown> => {
-            const result = await this.hub.db.postgres.query(
-                PostgresUse.PLUGIN_STORAGE_RW,
-                `SELECT * FROM posthog_pluginstorage as ps 
-                   JOIN posthog_pluginconfig as pc ON ps."plugin_config_id" = pc."id" 
-                   WHERE pc."team_id" = $1 AND pc."id" = $2 AND ps."key" = $3
-                   LIMIT 1`,
-                [teamId, pluginConfigId, key],
-                'storageGet'
-            )
-
-            return result?.rows.length === 1 ? parseJSON(result.rows[0].value) : defaultValue
-        }
-        const set = async (key: string, value: unknown): Promise<void> => {
-            const cacheKey = `${teamId}-${pluginConfigId}`
-
-            if (typeof pluginConfigCheckCache[cacheKey] === 'undefined') {
-                // Check if the plugin config for that team exists
-                const result = await this.hub.db.postgres.query(
-                    PostgresUse.COMMON_READ,
-                    `SELECT * FROM posthog_pluginconfig as pc 
-                   WHERE pc."team_id" = $1 AND pc."id" = $2
-                   LIMIT 1`,
-                    [teamId, pluginConfigId],
-                    'storageGet'
-                )
-
-                pluginConfigCheckCache[cacheKey] = result?.rows.length === 1
-            }
-
-            if (!pluginConfigCheckCache[cacheKey]) {
-                throw new Error(`Plugin config ${pluginConfigId} for team ${teamId} not found`)
-            }
-
-            await this.hub.db.postgres.query(
-                PostgresUse.PLUGIN_STORAGE_RW,
-                `
-                    INSERT INTO posthog_pluginstorage ("plugin_config_id", "key", "value")
-                    VALUES ($1, $2, $3)
-                    ON CONFLICT ("plugin_config_id", "key")
-                    DO UPDATE SET value = $3
-                `,
-                [pluginConfigId, key, JSON.stringify(value)],
-                `storageSet`
-            )
-        }
-
-        return {
-            get,
-            set,
-        }
     }
 
     public async execute(
@@ -145,7 +87,7 @@ export class SegmentPluginExecutorService {
             const plugin = pluginId
                 ? ((DESTINATION_PLUGINS_BY_ID[pluginId] || TRANSFORMATION_PLUGINS_BY_ID[pluginId]) as
                       | LegacyTransformationPlugin
-                      | LegacyDestinationPlugin)
+                      | SegmentDestinationPlugin)
                 : null
 
             if (!pluginId || !plugin) {
@@ -154,61 +96,6 @@ export class SegmentPluginExecutorService {
 
             if (invocation.hogFunction.type === 'destination' && 'processEvent' in plugin) {
                 throw new Error(`Plugin ${pluginId} is not a destination`)
-            } else if (invocation.hogFunction.type === 'transformation' && 'onEvent' in plugin) {
-                throw new Error(`Plugin ${pluginId} is not a transformation`)
-            }
-
-            let state = this.pluginState[invocation.hogFunction.id]
-
-            // NOTE: If this is set then we can add in the legacy storage
-            const legacyPluginConfigId = invocation.globals.inputs?.legacy_plugin_config_id
-
-            if (!state || true) {
-                const geoip = await this.hub.geoipService.get()
-
-                const meta: LegacyTransformationPluginMeta = {
-                    config: invocation.globals.inputs,
-                    global: {},
-                    logger: pluginLogger,
-                    geoip: {
-                        locate: (ipAddress: string): Record<string, any> | null => {
-                            try {
-                                return geoip.city(ipAddress)
-                            } catch {
-                                return null
-                            }
-                        },
-                    },
-                }
-
-                let setupPromise = Promise.resolve()
-
-                if (plugin.setupPlugin) {
-                    if ('processEvent' in plugin) {
-                        // Transformation plugin takes basic meta and isn't async
-                        setupPromise = Promise.resolve(plugin.setupPlugin(meta))
-                    } else {
-                        // Destination plugin can use fetch and is async
-                        setupPromise = plugin.setupPlugin({
-                            ...meta,
-                            // Setup receives the real fetch always
-                            fetch: this.fetch,
-                            storage: this.legacyStorage(invocation.hogFunction.team_id, legacyPluginConfigId),
-                        })
-                    }
-                }
-
-                state = this.pluginState[invocation.hogFunction.id] = {
-                    setupPromise,
-                    meta,
-                    errored: false,
-                }
-            }
-
-            try {
-                await state.setupPromise
-            } catch (e) {
-                throw new Error(`Plugin ${pluginId} setup failed: ${e.message}`)
             }
 
             const isTestFunction = invocation.hogFunction.name.includes(CDP_TEST_ID)
@@ -275,34 +162,14 @@ export class SegmentPluginExecutorService {
                 const start = performance.now()
 
                 await plugin.onEvent?.(processedEvent, {
-                    ...state.meta,
+                    config: invocation.globals.inputs,
+                    global: {},
                     // NOTE: We override logger and fetch here so we can track the calls
                     logger: pluginLogger,
                     fetch,
-                    storage: this.legacyStorage(invocation.hogFunction.team_id, legacyPluginConfigId),
                 })
 
                 addLog('info', `Function completed in ${performance.now() - start}ms.`)
-            } else {
-                if (plugin === firstTimeEventTrackerPlugin) {
-                    // Special fallback case until this is fully removed
-                    const transformedEvent = await firstTimeEventTrackerPluginProcessEventAsync(
-                        event as PluginEvent,
-                        {
-                            ...state.meta,
-                            logger: pluginLogger,
-                        },
-                        this.legacyStorage(invocation.hogFunction.team_id, legacyPluginConfigId)
-                    )
-                    result.execResult = transformedEvent
-                } else {
-                    // Transformation style
-                    const transformedEvent = plugin.processEvent(event as PluginEvent, {
-                        ...state.meta,
-                        logger: pluginLogger,
-                    })
-                    result.execResult = transformedEvent
-                }
             }
 
             pluginExecutionDuration.observe(performance.now() - start)

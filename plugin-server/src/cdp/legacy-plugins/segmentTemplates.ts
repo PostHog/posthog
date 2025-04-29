@@ -4,7 +4,7 @@ import { destinations } from '@segment/action-destinations/dist/destinations'
 import { HogFunctionMappingTemplate } from '~/src/cdp/templates/types'
 import { HogFunctionFilterEvent, HogFunctionInputSchemaType } from '~/src/cdp/types'
 
-import { LegacyDestinationPlugin, LegacyDestinationPluginMeta } from './types'
+import { SegmentDestinationPlugin, SegmentDestinationPluginMeta } from '../services/segment-plugin-executor.service'
 
 const translateFilters = (subscribe: string): { events: HogFunctionFilterEvent[] } => {
     const mapped = subscribe
@@ -349,7 +349,7 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations)
             /* eslint-disable-next-line @typescript-eslint/require-await */
             onEvent: async (
                 _event: ProcessedPluginEvent,
-                { config, fetch, logger }: LegacyDestinationPluginMeta
+                { config, fetch, logger }: SegmentDestinationPluginMeta
             ): Promise<void> => {
                 logger.warn('config', config)
                 try {
@@ -433,5 +433,5 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations)
                         ],
                     })) as HogFunctionMappingTemplate[],
             },
-        } as LegacyDestinationPlugin
+        } as SegmentDestinationPlugin
     })
