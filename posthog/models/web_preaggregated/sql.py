@@ -43,19 +43,19 @@ WEB_OVERVIEW_METRICS_COLUMNS = """
 """
 
 WEB_STATS_COLUMNS = """
-    persons_uniq_state AggregateFunction(uniq, UUID),
-    sessions_uniq_state AggregateFunction(uniq, String),
-    pageviews_count_state AggregateFunction(sum, UInt64),
-    browser String, 
+    browser String,
     os String,
     viewport String,
     referring_domain String,
     utm_source String,
-    utm_campaign String,
     utm_medium String,
+    utm_campaign String,
     utm_term String,
     utm_content String,
-    country String
+    country String,
+    persons_uniq_state AggregateFunction(uniq, UUID),
+    sessions_uniq_state AggregateFunction(uniq, String),
+    pageviews_count_state AggregateFunction(sum, UInt64),
 """
 
 # Table definitions with ordering
@@ -76,7 +76,9 @@ def WEB_OVERVIEW_METRICS_DAILY_SQL(table_name="web_overview_metrics_daily", on_c
 
 
 def DISTRIBUTED_WEB_OVERVIEW_METRICS_DAILY_SQL():
-    return DISTRIBUTED_TABLE_TEMPLATE("web_overview_metrics_daily_distributed", "web_overview_metrics_daily", WEB_OVERVIEW_METRICS_COLUMNS)
+    return DISTRIBUTED_TABLE_TEMPLATE(
+        "web_overview_metrics_daily_distributed", "web_overview_metrics_daily", WEB_OVERVIEW_METRICS_COLUMNS
+    )
 
 
 # Web stats table
@@ -87,8 +89,13 @@ def WEB_STATS_DAILY_SQL(table_name="web_stats_daily", on_cluster=True):
 def DISTRIBUTED_WEB_STATS_DAILY_SQL():
     return DISTRIBUTED_TABLE_TEMPLATE("web_stats_daily_distributed", "web_stats_daily", WEB_STATS_COLUMNS)
 
+
 # SQL for inserting into web overview metrics table
-def WEB_OVERVIEW_INSERT_SQL(date_start, date_end, team_ids, timezone="UTC", settings=""):
+def WEB_OVERVIEW_INSERT_SQL(date_start, date_end, team_ids=None, timezone="UTC", settings=""):
+    team_filter = f"raw_sessions.team_id IN({team_ids})" if team_ids else "1=1"
+    person_team_filter = f"person_distinct_id_overrides.team_id IN({team_ids})" if team_ids else "1=1"
+    events_team_filter = f"e.team_id IN({team_ids})" if team_ids else "1=1"
+
     return f"""
     INSERT INTO web_overview_daily
     SELECT
@@ -96,11 +103,11 @@ def WEB_OVERVIEW_INSERT_SQL(date_start, date_end, team_ids, timezone="UTC", sett
       team_id,
       host,
       device_type,
-      uniqState(session_person_id) AS persons_uniq_state,
-      uniqState(session_id) AS sessions_uniq_state,
+      uniqState(assumeNotNull(session_person_id)) AS persons_uniq_state,
+      uniqState(assumeNotNull(session_id)) AS sessions_uniq_state,
+      sumState(pageview_count) AS pageviews_count_state,
       sumState(session_duration) AS total_session_duration_state,
-      sumState(toUInt64(ifNull(is_bounce, 0))) AS total_bounces_state,
-      sumState(pageview_count) AS pageviews_count_state
+      sumState(toUInt64(ifNull(is_bounce, 0))) AS total_bounces_state
     FROM
       (
         SELECT
@@ -124,14 +131,14 @@ def WEB_OVERVIEW_INSERT_SQL(date_start, date_end, team_ids, timezone="UTC", sett
             if(ifNull(equals(uniqUpToMerge(1)(raw_sessions.page_screen_autocapture_uniq_up_to), 0), 0), NULL,
               NOT(or(
                 ifNull(greater(uniqUpToMerge(1)(raw_sessions.page_screen_autocapture_uniq_up_to), 1), 0),
-                greaterOrEquals(dateDiff('second', 
-                  min(toTimeZone(raw_sessions.min_timestamp, '{timezone}')), 
+                greaterOrEquals(dateDiff('second',
+                  min(toTimeZone(raw_sessions.min_timestamp, '{timezone}')),
                   max(toTimeZone(raw_sessions.max_timestamp, '{timezone}'))), 10)
               ))
             ) AS `$is_bounce`,
             raw_sessions.session_id_v7 AS session_id_v7
           FROM raw_sessions
-          WHERE raw_sessions.team_id IN({team_ids})
+          WHERE {team_filter}
             AND toTimeZone(raw_sessions.min_timestamp, '{timezone}') >= toDateTime('{date_start}', '{timezone}')
             AND toTimeZone(raw_sessions.min_timestamp, '{timezone}') < toDateTime('{date_end}', '{timezone}')
           GROUP BY raw_sessions.session_id_v7
@@ -143,12 +150,12 @@ def WEB_OVERVIEW_INSERT_SQL(date_start, date_end, team_ids, timezone="UTC", sett
             argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
             person_distinct_id_overrides.distinct_id AS distinct_id
           FROM person_distinct_id_overrides
-          WHERE person_distinct_id_overrides.team_id IN({team_ids})
+          WHERE {person_team_filter}
           GROUP BY person_distinct_id_overrides.distinct_id
           HAVING ifNull(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version) = 0, 0)
           SETTINGS {settings}
         ) AS events__override ON e.distinct_id = events__override.distinct_id
-        WHERE e.team_id IN({team_ids})
+        WHERE {events_team_filter}
           AND (e.event = '$pageview' OR e.event = '$screen')
           AND isNotNull(e.`$session_id`)
           AND toTimeZone(e.timestamp, '{timezone}') >= toDateTime('{date_start}', '{timezone}')
@@ -160,8 +167,13 @@ def WEB_OVERVIEW_INSERT_SQL(date_start, date_end, team_ids, timezone="UTC", sett
     SETTINGS {settings}
     """
 
+
 # SQL for inserting into web stats table
-def WEB_STATS_INSERT_SQL(date_start, date_end, team_ids, timezone="UTC", settings=""):
+def WEB_STATS_INSERT_SQL(date_start, date_end, team_ids=None, timezone="UTC", settings=""):
+    team_filter = f"raw_sessions.team_id IN({team_ids})" if team_ids else "1=1"
+    person_team_filter = f"person_distinct_id_overrides.team_id IN({team_ids})" if team_ids else "1=1"
+    events_team_filter = f"e.team_id IN({team_ids})" if team_ids else "1=1"
+
     return f"""
     INSERT INTO web_stats_daily
     SELECT
@@ -178,9 +190,9 @@ def WEB_STATS_INSERT_SQL(date_start, date_end, team_ids, timezone="UTC", setting
         utm_campaign,
         utm_term,
         utm_content,
-        country AS country,
-        uniqState(session_person_id) AS persons_uniq_state,
-        uniqState(session_id) AS sessions_uniq_state,
+        country,
+        uniqState(assumeNotNull(session_person_id)) AS persons_uniq_state,
+        uniqState(assumeNotNull(session_id)) AS sessions_uniq_state,
         sumState(pageview_count) AS pageviews_count_state
     FROM
     (
@@ -215,7 +227,7 @@ def WEB_STATS_INSERT_SQL(date_start, date_end, team_ids, timezone="UTC", setting
                 argMinMerge(raw_sessions.initial_utm_content) AS entry_utm_content,
                 raw_sessions.session_id_v7 AS session_id_v7
             FROM raw_sessions
-            WHERE (raw_sessions.team_id IN ({team_ids})) 
+            WHERE {team_filter}
                 AND toTimeZone(raw_sessions.min_timestamp, '{timezone}') >= toDateTime('{date_start}', '{timezone}')
                 AND toTimeZone(raw_sessions.min_timestamp, '{timezone}') <= toDateTime('{date_end}', '{timezone}')
             GROUP BY
@@ -228,14 +240,14 @@ def WEB_STATS_INSERT_SQL(date_start, date_end, team_ids, timezone="UTC", setting
                 argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                 person_distinct_id_overrides.distinct_id AS distinct_id
             FROM person_distinct_id_overrides
-            WHERE person_distinct_id_overrides.team_id IN ({team_ids})
+            WHERE {person_team_filter}
             GROUP BY person_distinct_id_overrides.distinct_id
             HAVING ifNull(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version) = 0, 0)
             SETTINGS {settings}
         ) AS events__override ON e.distinct_id = events__override.distinct_id
-        WHERE (e.team_id IN ({team_ids})) 
-            AND ((e.event = '$pageview') OR (e.event = '$screen')) 
-            AND (e.`$session_id` IS NOT NULL) 
+        WHERE {events_team_filter}
+            AND ((e.event = '$pageview') OR (e.event = '$screen'))
+            AND (e.`$session_id` IS NOT NULL)
             AND toTimeZone(e.timestamp, '{timezone}') >= toDateTime('{date_start}', '{timezone}')
             AND toTimeZone(e.timestamp, '{timezone}') < toDateTime('{date_end}', '{timezone}')
         GROUP BY
