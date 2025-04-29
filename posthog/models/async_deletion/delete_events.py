@@ -32,7 +32,7 @@ TABLES_TO_DELETE_TEAM_DATA_FROM = [
 
 
 class AsyncEventDeletion(AsyncDeletionProcess):
-    DELETION_TYPES = [DeletionType.Team, DeletionType.Group, DeletionType.Person]
+    DELETION_TYPES = [DeletionType.Team, DeletionType.Group]
 
     def process(self, deletions: list[AsyncDeletion]):
         deletions_counter.labels(deletion_type="event").inc(len(deletions))

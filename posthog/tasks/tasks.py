@@ -506,7 +506,22 @@ def clickhouse_mutation_count() -> None:
 @shared_task(ignore_result=True)
 def clickhouse_clear_removed_data() -> None:
     from posthog.models.async_deletion.delete_cohorts import AsyncCohortDeletion
+    from posthog.models.async_deletion.delete_events import AsyncEventDeletion
     from posthog.pagerduty.pd import create_incident
+
+    runner = AsyncEventDeletion()
+
+    try:
+        runner.mark_deletions_done()
+    except Exception as e:
+        logger.error("Failed to mark deletions done", error=e, exc_info=True)
+        create_incident("Failed to mark deletions done", "clickhouse_clear_removed_data", severity="error")
+
+    try:
+        runner.run()
+    except Exception as e:
+        logger.error("Failed to run deletions", error=e, exc_info=True)
+        create_incident("Failed to run deletions", "clickhouse_clear_removed_data", severity="error")
 
     cohort_runner = AsyncCohortDeletion()
 
