@@ -286,7 +286,15 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
     })),
     reducers({
         folders: [
-            {} as Record<string, FileSystemEntry[]>,
+            {
+                '': [
+                    {
+                        id: `project-folder/${PROJECT_TREE_ARCHIVE_NAME}`,
+                        path: PROJECT_TREE_ARCHIVE_NAME,
+                        type: 'folder',
+                    },
+                ],
+            } as Record<string, FileSystemEntry[]>,
             {
                 loadFolderSuccess: (state, { folder, entries }) => ({ ...state, [folder]: entries }),
                 createSavedItem: (state, { savedItem }) => {
