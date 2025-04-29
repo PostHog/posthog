@@ -34,7 +34,6 @@ import {
     HogFunctionInvocationSerialized,
     HogFunctionType,
 } from '../types'
-import { isLegacyPluginHogFunction } from '../utils'
 import { HogFunctionManagerService } from './hog-function-manager.service'
 
 const cyclotronBatchUtilizationGauge = new Gauge({
