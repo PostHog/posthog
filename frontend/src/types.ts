@@ -269,6 +269,7 @@ export enum AccessControlResourceType {
     Insight = 'insight',
     Dashboard = 'dashboard',
     Notebook = 'notebook',
+    Action = 'action',
 }
 
 interface UserBaseType {

@@ -109,6 +109,9 @@ export const actionEditLogic = kea<actionEditLogicType>([
                         )
 
                         return { ...updatedAction }
+                    } else if (response.code === 'permission_denied') {
+                        lemonToast.error(response.detail)
+                        return { ...updatedAction }
                     }
                     throw response
                 }

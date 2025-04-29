@@ -1,14 +1,16 @@
 import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { getAppContext } from 'lib/utils/getAppContext'
 import { actionLogic, ActionLogicProps } from 'scenes/actions/actionLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { ActionType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ActionType } from '~/types'
 
 import { ActionEdit } from './ActionEdit'
 
@@ -39,6 +41,10 @@ export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
 
     if (id && !action) {
         return <NotFound object="action" />
+    }
+
+    if (getAppContext()?.resource_access_control?.[AccessControlResourceType.Action] !== AccessControlLevel.Editor) {
+        return <AccessDenied />
     }
 
     return (

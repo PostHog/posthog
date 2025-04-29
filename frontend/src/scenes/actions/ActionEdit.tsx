@@ -2,6 +2,7 @@ import { IconInfo, IconPlus } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
+import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -9,13 +10,21 @@ import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
+import { getAppContext } from 'lib/utils/getAppContext'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { ActionHogFunctions } from 'scenes/actions/ActionHogFunctions'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { tagsModel } from '~/models/tagsModel'
-import { ActionStepType, FilterLogicalOperator, ProductKey, ReplayTabs } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    ActionStepType,
+    FilterLogicalOperator,
+    ProductKey,
+    ReplayTabs,
+} from '~/types'
 
 import { actionEditLogic, ActionEditLogicProps, DEFAULT_ACTION_STEP } from './actionEditLogic'
 import { ActionStep } from './ActionStep'
@@ -32,16 +41,19 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
     const { addProductIntentForCrossSell } = useActions(teamLogic)
 
     const deleteButton = (): JSX.Element => (
-        <LemonButton
+        <AccessControlledLemonButton
             data-attr="delete-action-bottom"
             status="danger"
             type="secondary"
             onClick={() => {
                 deleteAction()
             }}
+            minAccessLevel={AccessControlLevel.Editor}
+            resourceType={AccessControlResourceType.Action}
+            userAccessLevel={getAppContext()?.resource_access_control?.[AccessControlResourceType.Action]}
         >
             Delete
-        </LemonButton>
+        </AccessControlledLemonButton>
     )
 
     const cancelButton = (): JSX.Element => (

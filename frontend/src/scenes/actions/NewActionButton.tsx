@@ -1,11 +1,15 @@
 import { IconPencil, IconSearch } from '@posthog/icons'
 import { LemonModal } from '@posthog/lemon-ui'
 import { router } from 'kea-router'
+import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { getAppContext } from 'lib/utils/getAppContext'
 import { useState } from 'react'
 import { urls } from 'scenes/urls'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 export function NewActionButton({ onSelectOption }: { onSelectOption?: () => void }): JSX.Element {
     const [visible, setVisible] = useState(false)
@@ -13,9 +17,16 @@ export function NewActionButton({ onSelectOption }: { onSelectOption?: () => voi
 
     return (
         <>
-            <LemonButton type="primary" onClick={() => setVisible(true)} data-attr="create-action">
+            <AccessControlledLemonButton
+                type="primary"
+                onClick={() => setVisible(true)}
+                data-attr="create-action"
+                resourceType={AccessControlResourceType.Action}
+                minAccessLevel={AccessControlLevel.Editor}
+                userAccessLevel={getAppContext()?.resource_access_control?.[AccessControlResourceType.Action]}
+            >
                 New action
-            </LemonButton>
+            </AccessControlledLemonButton>
             <LemonModal
                 isOpen={visible}
                 onClose={() => {
