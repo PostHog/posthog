@@ -3268,6 +3268,116 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(rates["response_rate"], 100.0)  # 1 sent / 1 shown
         self.assertEqual(rates["dismissal_rate"], 0.0)  # 0 dismissed / 1 shown
 
+    @freeze_time("2024-06-10 10:00:00")
+    def test_survey_stats_partial_responses(self):
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Partial Response Survey",
+            type="popover",
+            questions=[{"type": "open", "question": "How are you?"}],
+            enable_partial_responses=True,  # Enable partial responses
+        )
+        survey_id = str(survey.id)
+        sub_id_1 = "submission_abc"
+        sub_id_2 = "submission_xyz"
+        user_1 = "user_p1"
+        user_2 = "user_p2"
+
+        # Events:
+        # user_1: shown -> sent (legacy) -> sent (partial 1, ts1) -> sent (partial 1, ts2)
+        # user_2: shown -> dismissed -> sent (partial 2)
+        events_data = [
+            {
+                "event": "survey shown",
+                "distinct_id": user_1,
+                "timestamp": "2024-06-10 09:00:00",
+                "properties": {"$survey_id": survey_id},
+            },
+            {
+                "event": "survey shown",
+                "distinct_id": user_2,
+                "timestamp": "2024-06-10 09:01:00",
+                "properties": {"$survey_id": survey_id},
+            },
+            {
+                "event": "survey dismissed",
+                "distinct_id": user_2,
+                "timestamp": "2024-06-10 09:02:00",
+                "properties": {"$survey_id": survey_id},
+            },
+            # Legacy submission (no submission_id)
+            {
+                "event": "survey sent",
+                "distinct_id": user_1,
+                "timestamp": "2024-06-10 09:05:00",
+                "properties": {"$survey_id": survey_id, "$survey_response": "ok"},
+            },
+            # Partial submission 1, first event
+            {
+                "event": "survey sent",
+                "distinct_id": user_1,
+                "timestamp": "2024-06-10 09:10:00",
+                "properties": {
+                    "$survey_id": survey_id,
+                    "$survey_submission_id": sub_id_1,
+                    "$survey_response_question_id": "good",
+                },
+            },
+            # Partial submission 1, second (later) event - should be the one counted for sub_id_1
+            {
+                "event": "survey sent",
+                "distinct_id": user_1,
+                "timestamp": "2024-06-10 09:11:00",
+                "properties": {
+                    "$survey_id": survey_id,
+                    "$survey_submission_id": sub_id_1,
+                    "$survey_response_question_id": "great",
+                },
+            },
+            # Partial submission 2
+            {
+                "event": "survey sent",
+                "distinct_id": user_2,
+                "timestamp": "2024-06-10 09:15:00",
+                "properties": {"$survey_id": survey_id, "$survey_submission_id": sub_id_2, "$survey_response": "fine"},
+            },
+        ]
+
+        for data in events_data:
+            _create_event(
+                team=self.team,
+                event=data["event"],
+                distinct_id=data["distinct_id"],
+                timestamp=data["timestamp"],
+                properties=data["properties"],
+            )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/{survey.id}/stats/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        stats = data["stats"]
+
+        # Check counts based on unique events/persons
+        self.assertEqual(stats["survey shown"]["total_count"], 2)
+        self.assertEqual(stats["survey shown"]["unique_persons"], 2)
+
+        self.assertEqual(stats["survey dismissed"]["total_count"], 1)
+        self.assertEqual(stats["survey dismissed"]["unique_persons"], 1)
+
+        # Check 'survey sent' stats - should count unique submissions
+        # 1 legacy + 1 for sub_id_1 (latest) + 1 for sub_id_2 = 3 unique submissions
+        self.assertEqual(stats["survey sent"]["total_count"], 3)
+        # user_1 submitted legacy and sub_id_1, user_2 submitted sub_id_2
+        self.assertEqual(stats["survey sent"]["unique_persons"], 2)
+
+        # Check rates (based on unique persons)
+        rates = data["rates"]
+        # (Unique persons sent / Unique persons shown) * 100 = (2 / 2) * 100 = 100.0
+        self.assertEqual(rates["response_rate"], 100.0)
+        # (Unique persons dismissed / Unique persons shown) * 100 = (1 / 2) * 100 = 50.0
+        self.assertEqual(rates["dismissal_rate"], 50.0)
+
 
 @pytest.mark.parametrize(
     "test_input,expected",

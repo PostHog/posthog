@@ -973,6 +973,30 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             AND event IN (%(shown)s, %(dismissed)s, %(sent)s)
             {survey_filter}
             {date_filter}
+            AND (
+                event != %(sent)s
+                OR
+                uuid IN (
+                    (
+                        -- Select events without a submission ID (older format)
+                        SELECT uuid
+                        FROM events
+                        WHERE event = 'survey sent'
+                        AND JSONExtractString(properties, '$survey_id') {'= %(survey_id)s' if survey_id else 'IN %(survey_ids)s'}
+                        AND COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') = ''
+                    )
+                    UNION ALL
+                    (
+                        -- Select the latest event for each submission ID
+                        SELECT argMax(uuid, timestamp) -- ClickHouse function to get the arg (uuid) for the max value (timestamp)
+                        FROM events
+                        WHERE event = 'survey sent'
+                        AND JSONExtractString(properties, '$survey_id') {'= %(survey_id)s' if survey_id else 'IN %(survey_ids)s'}
+                        AND COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') != ''
+                        GROUP BY JSONExtractString(properties, '$survey_submission_id') -- Find the latest event per submission
+                    )
+                )
+            )
             GROUP BY event
         """
         query_params = {
