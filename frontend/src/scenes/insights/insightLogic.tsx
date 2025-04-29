@@ -92,7 +92,10 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             redirectToViewMode,
             persist,
         }),
-        saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
+        saveInsight: (redirectToViewMode: boolean = true, folder: string | null = null) => ({
+            redirectToViewMode,
+            folder,
+        }),
         saveInsightSuccess: true,
         saveInsightFailure: true,
         loadInsight: (
@@ -371,7 +374,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         isUsingPathsV2: [(s) => [s.featureFlags], (featureFlags) => featureFlags[FEATURE_FLAGS.PATHS_V2]],
     }),
     listeners(({ actions, values }) => ({
-        saveInsight: async ({ redirectToViewMode }) => {
+        saveInsight: async ({ redirectToViewMode, folder }) => {
             const insightNumericId =
                 values.insight.id || (values.insight.short_id ? await getInsightId(values.insight.short_id) : undefined)
             const { name, description, favorited, deleted, dashboards, tags } = values.insight
@@ -390,6 +393,9 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     saved: true,
                     dashboards,
                     tags,
+                }
+                if (folder) {
+                    insightRequest.folder = folder
                 }
 
                 savedInsight = insightNumericId

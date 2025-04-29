@@ -355,6 +355,7 @@ class InsightSerializer(InsightBasicSerializer):
             "query_status",
             "hogql",
             "types",
+            "folder",
         ]
         read_only_fields = (
             "created_at",

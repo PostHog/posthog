@@ -2,7 +2,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 export function InsightSaveButton({
     saveAs,
-    saveUnder,
+    saveTo,
     saveInsight,
     isSaved,
     insightSaving,
@@ -10,8 +10,8 @@ export function InsightSaveButton({
     addingToDashboard,
 }: {
     saveAs: () => void
-    saveUnder?: () => void
-    saveInsight: (redirectToViewMode?: boolean) => void
+    saveTo?: () => void
+    saveInsight: (redirectToViewMode?: boolean, folder?: string) => void
     isSaved: boolean | undefined
     insightSaving: boolean
     insightChanged: boolean
@@ -20,10 +20,10 @@ export function InsightSaveButton({
     const disabled = isSaved && !insightChanged
     const saveAsAvailable = isSaved && !addingToDashboard
 
-    return saveUnder ? (
+    return saveTo ? (
         <LemonButton
             type="primary"
-            onClick={() => saveUnder()}
+            onClick={() => saveTo()}
             data-attr="insight-save-under-button"
             disabled={disabled}
             loading={!disabled && insightSaving}

@@ -7,9 +7,9 @@ import type { saveToLogicType } from './saveToLogicType'
 
 export interface SaveToLogicProps {
     type: string
-    defaultFolder?: string
+    defaultFolder?: string | null
     objectRef?: string | null
-    onSave?: (folder: string) => void
+    onSave?: (folder: string | null) => void
 }
 
 export const saveToLogic = kea<saveToLogicType>([
@@ -35,13 +35,13 @@ export const saveToLogic = kea<saveToLogicType>([
     }),
     listeners(({ actions, props }) => ({
         setLastNewOperation: ({ folder }) => {
-            actions.setFormValue('folder', folder || props.defaultFolder || 'Unfiled')
+            actions.setFormValue('folder', folder || props.defaultFolder || null)
         },
     })),
     forms(({ actions, values, props }) => ({
         form: {
             defaults: {
-                folder: props.defaultFolder || 'Unfiled',
+                folder: props.defaultFolder || null,
             },
             errors: ({ folder }) => ({
                 folder: !folder ? 'You need to specify a folder.' : null,
@@ -49,7 +49,7 @@ export const saveToLogic = kea<saveToLogicType>([
             submit: (formValues) => {
                 if (props.onSave) {
                     actions.setLastNewOperation(values.lastNewOperation?.objectType || props.type, formValues.folder)
-                    props.onSave(formValues.folder || props.defaultFolder || 'Unfiled')
+                    props.onSave(formValues.folder || props.defaultFolder || null)
                     actions.closeModal()
                 }
             },
