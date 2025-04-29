@@ -528,15 +528,16 @@ export const maxLogic = kea<maxLogicType>([
                 }
                 if (threadLoading) {
                     const finalMessageSoFar = threadGrouped.at(-1)?.at(-1)
+                    const thinkingMessage: ReasoningMessage & ThreadMessage = {
+                        type: AssistantMessageType.Reasoning,
+                        content: 'Thinking',
+                        status: 'completed',
+                        id: 'loader',
+                    }
+
                     if (finalMessageSoFar?.type === AssistantMessageType.Human || finalMessageSoFar?.id) {
                         // If now waiting for the current node to start streaming, add "Thinking" message
                         // so that there's _some_ indication of processing
-                        const thinkingMessage: ReasoningMessage & ThreadMessage = {
-                            type: AssistantMessageType.Reasoning,
-                            content: 'Thinking',
-                            status: 'completed',
-                            id: 'loader',
-                        }
                         if (finalMessageSoFar.type === AssistantMessageType.Human) {
                             // If the last message was human, we need to add a new "ephemeral" AI group
                             threadGrouped.push([thinkingMessage])
@@ -544,6 +545,11 @@ export const maxLogic = kea<maxLogicType>([
                             // Otherwise, add to the last group
                             threadGrouped[threadGrouped.length - 1].push(thinkingMessage)
                         }
+                    }
+
+                    // Special case for the thread in progress
+                    if (threadGrouped.length === 0) {
+                        threadGrouped.push([thinkingMessage])
                     }
                 }
                 return threadGrouped
@@ -622,7 +628,13 @@ export const maxLogic = kea<maxLogicType>([
         ],
 
         conversationLoading: [
-            (s) => [s.conversationHistory, s.conversationHistoryLoading, s.conversationId, s.conversation],
+            (s) => [
+                s.conversationHistory,
+                s.conversationHistoryLoading,
+                s.conversationId,
+                s.conversation,
+                s.threadLoading,
+            ],
             (conversationHistory, conversationHistoryLoading, conversationId, conversation) => {
                 return !conversationHistory.length && conversationHistoryLoading && conversationId && !conversation
             },

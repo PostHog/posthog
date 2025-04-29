@@ -22,6 +22,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { BreakdownSummary, PropertiesSummary, SeriesSummary } from 'lib/components/Cards/InsightCard/InsightDetails'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import posthog from 'posthog-js'
 import React, { useMemo, useState } from 'react'
@@ -39,6 +40,7 @@ import {
 } from '~/queries/schema/schema-assistant-messages'
 import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isHogQLQuery } from '~/queries/utils'
+import { ProductKey } from '~/types'
 
 import { MarkdownMessage } from './MarkdownMessage'
 import { maxLogic, MessageStatus, ThreadMessage } from './maxLogic'
@@ -53,7 +55,7 @@ import {
 } from './utils'
 
 export function Thread(): JSX.Element | null {
-    const { threadGrouped, conversationLoading } = useValues(maxLogic)
+    const { threadGrouped, conversationLoading, conversationId } = useValues(maxLogic)
 
     return (
         <div className="@container/thread flex flex-col items-stretch w-full max-w-200 self-center gap-2 grow p-3">
@@ -67,7 +69,7 @@ export function Thread(): JSX.Element | null {
                     <MessageGroupSkeleton groupType="ai" className="opacity-10" />
                     <MessageGroupSkeleton groupType="human" className="opacity-5" />
                 </>
-            ) : (
+            ) : threadGrouped.length > 0 ? (
                 threadGrouped.map((group, index) => (
                     <MessageGroup
                         key={index}
@@ -76,6 +78,20 @@ export function Thread(): JSX.Element | null {
                         isFinal={index === threadGrouped.length - 1}
                     />
                 ))
+            ) : (
+                conversationId && (
+                    <div className="flex flex-1 items-center justify-center">
+                        <ProductIntroduction
+                            isEmpty
+                            productName="Max"
+                            productKey={ProductKey.MAX}
+                            thingName="message"
+                            titleOverride="Start chatting with Max"
+                            description="Max is an AI product analyst in PostHog that answers data questions, gets things done in UI, and provides insights from PostHog’s documentation."
+                            docsURL="https://posthog.com/docs/data/max-ai"
+                        />
+                    </div>
+                )
             )}
         </div>
     )
