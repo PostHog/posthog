@@ -88,9 +88,9 @@ def DISTRIBUTED_WEB_STATS_DAILY_SQL():
     return DISTRIBUTED_TABLE_TEMPLATE("web_stats_daily_distributed", "web_stats_daily", WEB_STATS_COLUMNS)
 
 # SQL for inserting into web overview metrics table
-def WEB_OVERVIEW_INSERT_SQL(date_start, date_end, team_ids, timezone="UTC", settings="", target_suffix=""):
+def WEB_OVERVIEW_INSERT_SQL(date_start, date_end, team_ids, timezone="UTC", settings=""):
     return f"""
-    INSERT INTO web_overview_daily{target_suffix}
+    INSERT INTO web_overview_daily
     SELECT
       toStartOfDay(start_timestamp) AS day_bucket,
       team_id,
@@ -161,9 +161,9 @@ def WEB_OVERVIEW_INSERT_SQL(date_start, date_end, team_ids, timezone="UTC", sett
     """
 
 # SQL for inserting into web stats table
-def WEB_STATS_INSERT_SQL(date_start, date_end, team_ids, timezone="UTC", settings="", target_suffix=""):
+def WEB_STATS_INSERT_SQL(date_start, date_end, team_ids, timezone="UTC", settings=""):
     return f"""
-    INSERT INTO web_stats_daily{target_suffix}
+    INSERT INTO web_stats_daily
     SELECT
         toStartOfDay(start_timestamp) AS day_bucket,
         team_id,
