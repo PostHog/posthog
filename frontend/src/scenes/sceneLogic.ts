@@ -284,7 +284,11 @@ export const sceneLogic = kea<sceneLogicType>([
                             !allProductUrls.some((path) => removeProjectIdIfPresent(location.pathname).startsWith(path))
                         ) {
                             console.warn('No onboarding completed, redirecting to /products')
-                            router.actions.replace(urls.products())
+                            router.actions.replace(
+                                urls.products(),
+                                router.values.searchParams,
+                                router.values.hashParams
+                            )
                             return
                         }
 

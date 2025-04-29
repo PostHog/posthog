@@ -41,8 +41,9 @@ logger = structlog.get_logger(__name__)
 
 def verify_email_or_login(request: Request, user: User) -> None:
     if is_email_available() and not user.is_email_verified and not is_email_verification_disabled(user):
-        next_url = request.query_params.get("next")
+        next_url = request.data.get("next_url")
 
+        # We only want to redirect to a relative url so that we don't redirect away from the current domain
         if is_relative_url(next_url):
             EmailVerifier.create_token_and_send_email_verification(user, next_url)
         else:
@@ -53,16 +54,23 @@ def verify_email_or_login(request: Request, user: User) -> None:
 
 def get_redirect_url(uuid: str, is_email_verified: bool, next_url: str | None = None) -> str:
     user = User.objects.get(uuid=uuid)
-    return (
-        "/verify_email/" + uuid + "?next=" + next_url
-        if next_url
-        else "/verify_email/" + uuid
-        if is_email_available()
+
+    require_email_verification = (
+        is_email_available()
         and not is_email_verified
         and not is_email_verification_disabled(user)
         and not settings.DEMO
-        else next_url or "/"
     )
+
+    if require_email_verification:
+        email_verification_url = "/verify_email/" + uuid
+
+        if next_url:
+            email_verification_url += "?next=" + next_url
+
+        return email_verification_url
+
+    return next_url or "/"
 
 
 class SignupSerializer(serializers.Serializer):
@@ -176,8 +184,10 @@ class SignupSerializer(serializers.Serializer):
         request = self.context.get("request")
         next_url = request and request.query_params.get("next")
 
+        # We only want to redirect to a relative url so that we don't redirect away from the current domain
         if next_url and not is_relative_url(next_url):
             next_url = None
+
         data = UserBasicSerializer(instance=instance).data
         data["redirect_url"] = get_redirect_url(data["uuid"], data["is_email_verified"], next_url)
         return data

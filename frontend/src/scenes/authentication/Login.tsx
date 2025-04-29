@@ -51,8 +51,8 @@ export const scene: SceneExport = {
 
 export function Login(): JSX.Element {
     const { precheck } = useActions(loginLogic)
-    const { signupUrl } = useValues(loginLogic)
-    const { precheckResponse, precheckResponseLoading, login, isLoginSubmitting, generalError } = useValues(loginLogic)
+    const { precheckResponse, precheckResponseLoading, login, isLoginSubmitting, generalError, signupUrl } =
+        useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
 
     const passwordInputRef = useRef<HTMLInputElement>(null)
