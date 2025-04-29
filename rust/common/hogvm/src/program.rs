@@ -75,13 +75,6 @@ impl Program {
         self.bytecode.get(idx + self.program_start_offset)
     }
 
-    pub fn splice(&mut self, idx: usize, new_bytecode: Vec<JsonValue>) {
-        self.bytecode.splice(
-            idx + self.program_start_offset..idx + self.program_start_offset,
-            new_bytecode,
-        );
-    }
-
     pub fn version(&self) -> u64 {
         self.version
     }
