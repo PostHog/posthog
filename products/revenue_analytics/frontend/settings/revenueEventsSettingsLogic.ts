@@ -52,6 +52,10 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
             eventName,
             revenueCurrencyProperty,
         }),
+        updateEventUseSmallestUnitDivider: (eventName: string, useSmallestUnitDivider: boolean) => ({
+            eventName,
+            useSmallestUnitDivider,
+        }),
 
         resetConfig: true,
     }),
@@ -92,6 +96,7 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
                                 eventName,
                                 revenueProperty: 'revenue',
                                 revenueCurrencyProperty: { static: state.base_currency },
+                                useSmallestUnitDivider: false,
                             },
                         ],
                     }
@@ -129,6 +134,23 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
                         events: state.events.map((item) => {
                             if (item.eventName === eventName) {
                                 return { ...item, revenueCurrencyProperty }
+                            }
+                            return item
+                        }),
+                    }
+                },
+                updateEventUseSmallestUnitDivider: (
+                    state: RevenueAnalyticsConfig | null,
+                    { eventName, useSmallestUnitDivider }
+                ) => {
+                    if (!state) {
+                        return state
+                    }
+                    return {
+                        ...state,
+                        events: state.events.map((item) => {
+                            if (item.eventName === eventName) {
+                                return { ...item, useSmallestUnitDivider }
                             }
                             return item
                         }),

@@ -25,6 +25,7 @@ export function ExternalDataSourceConfiguration({
                 sources. You can enable/disable each source to stop it from being used for revenue data.
             </p>
             <LemonTable
+                loading={dataWarehouseSources === null}
                 columns={[
                     {
                         key: 'source',

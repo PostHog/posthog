@@ -1,4 +1,5 @@
 import { IconInfo, IconTrash } from '@posthog/icons'
+import { LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
@@ -13,8 +14,14 @@ import { revenueEventsSettingsLogic } from './revenueEventsSettingsLogic'
 
 export function EventConfiguration({ buttonRef }: { buttonRef: React.RefObject<HTMLButtonElement> }): JSX.Element {
     const { events, saveEventsDisabledReason, changesMadeToEvents } = useValues(revenueEventsSettingsLogic)
-    const { addEvent, deleteEvent, updateEventRevenueProperty, updateEventRevenueCurrencyProperty, save } =
-        useActions(revenueEventsSettingsLogic)
+    const {
+        addEvent,
+        deleteEvent,
+        updateEventRevenueProperty,
+        updateEventRevenueCurrencyProperty,
+        updateEventUseSmallestUnitDivider,
+        save,
+    } = useActions(revenueEventsSettingsLogic)
 
     return (
         <div>
@@ -88,6 +95,26 @@ export function EventConfiguration({ buttonRef }: { buttonRef: React.RefObject<H
                                         />
                                     </div>
                                 </div>
+                            )
+                        },
+                    },
+                    {
+                        key: 'useSmallestUnitDivider',
+                        title: (
+                            <span>
+                                In smallest unit?
+                                <Tooltip title="Whether you are sending revenue in the smallest unit of currency (e.g. cents for USD). If you are, we will divide the revenue by the smallest unit of currency (e.g. 100 for USD) when parsing the revenue.">
+                                    <IconInfo className="ml-1" />
+                                </Tooltip>
+                            </span>
+                        ),
+                        dataIndex: 'useSmallestUnitDivider',
+                        render: (_, item: RevenueAnalyticsEventItem) => {
+                            return (
+                                <LemonSwitch
+                                    checked={item.useSmallestUnitDivider}
+                                    onChange={(checked) => updateEventUseSmallestUnitDivider(item.eventName, checked)}
+                                />
                             )
                         },
                     },
