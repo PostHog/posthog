@@ -57,7 +57,7 @@ export class CyclotronJobQueueKafka {
     }
 
     public async stop() {
-        await this.kafkaConsumer?.disconnect()
+        await Promise.all([this.kafkaConsumer?.disconnect(), this.kafkaProducer?.disconnect()])
     }
 
     public isHealthy() {
