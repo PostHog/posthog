@@ -332,5 +332,5 @@ def test_get_paginated_session_events(
         assert result_columns == mock_columns
         # Verify pagination parameters were passed correctly
         for i, call in enumerate(mock_instance.get_events.call_args_list):
-            assert call.kwargs["limit"] == 2
+            assert call.kwargs["limit"] == items_per_page
             assert call.kwargs["page"] == i

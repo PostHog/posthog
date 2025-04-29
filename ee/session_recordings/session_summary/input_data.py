@@ -40,8 +40,9 @@ def _get_paginated_session_events(
     """
     all_events = []
     columns = None
+    events_obj = SessionReplayEvents()
     for page in range(max_pages):
-        page_columns, page_events = SessionReplayEvents().get_events(
+        page_columns, page_events = events_obj.get_events(
             session_id=str(session_id),
             team=team,
             metadata=session_metadata,
@@ -50,6 +51,7 @@ def _get_paginated_session_events(
             limit=items_per_page,
             page=page,
         )
+        # Expect columns to be exact for all the page as we don't change the query
         if page_columns and not columns:
             columns = page_columns
         # Avoid the next page if no events are returned

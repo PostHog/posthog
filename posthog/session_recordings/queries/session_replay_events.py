@@ -168,8 +168,10 @@ class SessionReplayEvents:
             q += " AND event NOT IN {events_to_ignore}"
         q += " ORDER BY timestamp ASC"
         # Pagination to allow consuming more than default 100 rows per call
-        if limit is not None:
+        if limit is not None and limit > 0:
             q += " LIMIT {limit}"
+            # Offset makes sense only if limit is defined,
+            # to avoid mixing default HogQL limit and the expected one
             if page > 0:
                 q += " OFFSET {offset}"
         hq = HogQLQuery(
@@ -182,7 +184,7 @@ class SessionReplayEvents:
                 "session_id": session_id,
                 "events_to_ignore": events_to_ignore,
                 "limit": limit,
-                "offset": page * limit if limit else 0,
+                "offset": page * limit if limit is not None else 0,
             },
         )
         result: HogQLQueryResponse = HogQLQueryRunner(
