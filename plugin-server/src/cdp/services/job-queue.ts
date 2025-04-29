@@ -291,7 +291,6 @@ export class CyclotronJobQueue {
 
         logger.info('🔄', 'Connecting kafka consumer', { groupId, topic })
         await this.kafkaConsumer.connect(async (messages) => {
-            logger.info('🔄', 'Consuming kafka batch', { count: messages.length })
             await this.consumeKafkaBatch(messages)
         })
     }
@@ -354,6 +353,10 @@ export class CyclotronJobQueue {
 
         if (messages.length === 0) {
             return
+        }
+
+        if (messages.length > 0) {
+            logger.info('🔄', 'Consuming kafka batch', { count: messages.length })
         }
 
         const invocations: HogFunctionInvocation[] = []
