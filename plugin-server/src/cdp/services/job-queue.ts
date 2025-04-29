@@ -1,6 +1,8 @@
-// NOTE: We are often experimenting with different job queue implementations.
-// To make this easier this class is designed to abstract the queue as much as possible from
-// the underlying implementation.
+/**
+ * NOTE: We are often experimenting with different job queue implementations.
+ * To make this easier this class is designed to abstract the queue as much as possible from
+ * the underlying implementation.
+ */
 
 import { CyclotronJob, CyclotronJobUpdate, CyclotronManager, CyclotronWorker } from '@posthog/cyclotron'
 import { chunk } from 'lodash'
@@ -10,11 +12,12 @@ import { Counter, Gauge, Histogram } from 'prom-client'
 
 import { KafkaConsumer, parseKafkaHeaders } from '../../kafka/consumer'
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { Hub } from '../../types'
+import { PluginsServerConfig } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import {
+    HOG_FUNCTION_INVOCATION_JOB_QUEUES,
     HogFunctionInvocation,
     HogFunctionInvocationGlobalsWithInputs,
     HogFunctionInvocationJobQueue,
@@ -44,27 +47,39 @@ const histogramCyclotronJobsCreated = new Histogram({
     buckets: [0, 50, 100, 250, 500, 750, 1000, 1500, 2000, 3000, Infinity],
 })
 
+export const CYCLOTRON_JOB_QUEUE_TARGETS = ['postgres', 'kafka'] as const
+export type CyclotronJobQueueTarget = (typeof CYCLOTRON_JOB_QUEUE_TARGETS)[number]
+
+export type CyclotronJobQueueRouting = {
+    [key: string]: {
+        target: CyclotronJobQueueTarget
+        percentage: number
+    }
+}
+
 export class CyclotronJobQueue {
-    private implementation: 'cyclotron' | 'kafka' = 'cyclotron'
+    private consumerMode: CyclotronJobQueueTarget
+    private producerMapping: CyclotronJobQueueRouting
     private cyclotronWorker?: CyclotronWorker
     private cyclotronManager?: CyclotronManager
     private kafkaConsumer?: KafkaConsumer
     private kafkaProducer?: KafkaProducerWrapper
 
     constructor(
-        private hub: Hub,
+        private config: PluginsServerConfig,
         private queue: HogFunctionInvocationJobQueue,
         private hogFunctionManager: HogFunctionManagerService,
         private consumeBatch?: (invocations: HogFunctionInvocation[]) => Promise<any>
     ) {
-        this.implementation = this.hub.CDP_CYCLOTRON_DELIVERY_MODE
+        this.consumerMode = this.config.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE
+        this.producerMapping = getProducerMapping(this.config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING)
     }
 
     /**
      * Helper to only start the producer related code (e.g. when not a consumer)
      */
     public async startAsProducer() {
-        if (this.implementation === 'cyclotron') {
+        if (this.consumerMode === 'postgres') {
             await this.startCyclotronManager()
         } else {
             await this.startKafkaProducer()
@@ -75,7 +90,7 @@ export class CyclotronJobQueue {
         if (!this.consumeBatch) {
             throw new Error('consumeBatch is required to start the job queue')
         }
-        if (this.implementation === 'cyclotron') {
+        if (this.consumerMode === 'postgres') {
             await this.startCyclotronWorker()
         } else {
             await this.startKafkaProducer()
@@ -88,7 +103,7 @@ export class CyclotronJobQueue {
     }
 
     public isHealthy() {
-        if (this.implementation === 'cyclotron') {
+        if (this.consumerMode === 'postgres') {
             return this.getCyclotronWorker().isHealthy()
         } else {
             return this.kafkaConsumer!.isHealthy()
@@ -96,7 +111,7 @@ export class CyclotronJobQueue {
     }
 
     public async queueInvocations(invocations: HogFunctionInvocation[]) {
-        if (this.implementation === 'cyclotron') {
+        if (this.consumerMode === 'postgres') {
             await this.createCyclotronJobs(invocations)
         } else {
             await this.createKafkaJobs(invocations)
@@ -104,7 +119,7 @@ export class CyclotronJobQueue {
     }
 
     public async queueInvocationResults(invocationResults: HogFunctionInvocationResult[]) {
-        if (this.implementation === 'cyclotron') {
+        if (this.consumerMode === 'postgres') {
             await this.updateCyclotronJobs(invocationResults)
         } else {
             await this.updateKafkaJobs(invocationResults)
@@ -114,37 +129,37 @@ export class CyclotronJobQueue {
     // CYCLOTRON
 
     private async startCyclotronWorker() {
-        if (!this.hub.CYCLOTRON_DATABASE_URL) {
+        if (!this.config.CYCLOTRON_DATABASE_URL) {
             throw new Error('Cyclotron database URL not set! This is required for the CDP services to work.')
         }
         this.cyclotronWorker = new CyclotronWorker({
             pool: {
-                dbUrl: this.hub.CYCLOTRON_DATABASE_URL,
+                dbUrl: this.config.CYCLOTRON_DATABASE_URL,
             },
             queueName: this.queue,
             // For the fetch queue we never need the state
             includeVmState: this.queue !== 'fetch',
-            batchMaxSize: this.hub.CDP_CYCLOTRON_BATCH_SIZE,
-            pollDelayMs: this.hub.CDP_CYCLOTRON_BATCH_DELAY_MS,
+            batchMaxSize: this.config.CDP_CYCLOTRON_BATCH_SIZE,
+            pollDelayMs: this.config.CDP_CYCLOTRON_BATCH_DELAY_MS,
             includeEmptyBatches: true,
-            shouldCompressVmState: this.hub.CDP_CYCLOTRON_COMPRESS_VM_STATE,
+            shouldCompressVmState: this.config.CDP_CYCLOTRON_COMPRESS_VM_STATE,
         })
         await this.cyclotronWorker.connect((jobs) => this.consumeCyclotronJobs(jobs))
     }
 
     private async startCyclotronManager() {
-        if (!this.hub.CYCLOTRON_DATABASE_URL) {
+        if (!this.config.CYCLOTRON_DATABASE_URL) {
             throw new Error('Cyclotron database URL not set! This is required for the CDP services to work.')
         }
         this.cyclotronManager = new CyclotronManager({
             shards: [
                 {
-                    dbUrl: this.hub.CYCLOTRON_DATABASE_URL,
+                    dbUrl: this.config.CYCLOTRON_DATABASE_URL,
                 },
             ],
-            shardDepthLimit: this.hub.CYCLOTRON_SHARD_DEPTH_LIMIT ?? 1000000,
-            shouldCompressVmState: this.hub.CDP_CYCLOTRON_COMPRESS_VM_STATE,
-            shouldUseBulkJobCopy: this.hub.CDP_CYCLOTRON_USE_BULK_COPY_JOB,
+            shardDepthLimit: this.config.CYCLOTRON_SHARD_DEPTH_LIMIT ?? 1000000,
+            shouldCompressVmState: this.config.CDP_CYCLOTRON_COMPRESS_VM_STATE,
+            shouldUseBulkJobCopy: this.config.CDP_CYCLOTRON_USE_BULK_COPY_JOB,
         })
 
         await this.cyclotronManager.connect()
@@ -182,9 +197,9 @@ export class CyclotronJobQueue {
             histogramCyclotronJobsCreated.observe(cyclotronJobs.length)
             // Cyclotron batches inserts into one big INSERT which can lead to contention writing WAL information hence we chunk into batches
 
-            const chunkedCyclotronJobs = chunk(cyclotronJobs, this.hub.CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE)
+            const chunkedCyclotronJobs = chunk(cyclotronJobs, this.config.CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE)
 
-            if (this.hub.CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES) {
+            if (this.config.CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES) {
                 // NOTE: It's not super clear the perf tradeoffs of doing this in parallel hence the config option
                 await Promise.all(chunkedCyclotronJobs.map((jobs) => cyclotronManager.bulkCreateJobs(jobs)))
             } else {
@@ -203,7 +218,7 @@ export class CyclotronJobQueue {
         const worker = this.getCyclotronWorker()
         cyclotronBatchUtilizationGauge
             .labels({ queue: this.queue })
-            .set(jobs.length / this.hub.CDP_CYCLOTRON_BATCH_SIZE)
+            .set(jobs.length / this.config.CDP_CYCLOTRON_BATCH_SIZE)
 
         const invocations: HogFunctionInvocation[] = []
         // A list of all the promises related to job releasing that we need to await
@@ -299,7 +314,7 @@ export class CyclotronJobQueue {
         // NOTE: For producing we use different values dedicated for Cyclotron as this is typically using its own Kafka cluster
         this.kafkaProducer = await KafkaProducerWrapper.create(
             {
-                ...this.hub,
+                ...this.config,
             },
             'cdp_producer'
         )
@@ -351,7 +366,7 @@ export class CyclotronJobQueue {
     private async consumeKafkaBatch(messages: Message[]) {
         cyclotronBatchUtilizationGauge
             .labels({ queue: this.queue })
-            .set(messages.length / this.hub.CDP_CYCLOTRON_BATCH_SIZE)
+            .set(messages.length / this.config.CDP_CYCLOTRON_BATCH_SIZE)
 
         if (messages.length === 0) {
             return
@@ -479,4 +494,57 @@ function cyclotronJobToInvocation(job: CyclotronJob, hogFunction: HogFunctionTyp
         vmState: parsedState?.vmState,
         timings: parsedState?.timings ?? [],
     }
+}
+
+/**
+ * Parses a mapping config from a string into a routing object.
+ * Format is like `QUEUE:TARGET:PERCENTAGE with percentage being optional and defaulting to 100
+ *
+ * So for example `*:kafka:10,fetch:postgres` would result in all fetch jobs being routed to postgres and 10% of all other jobs being routed to kafka and the rest to postgres
+ */
+export function getProducerMapping(stringMapping: string): CyclotronJobQueueRouting {
+    // Default fallback
+    const routing: CyclotronJobQueueRouting = {}
+    // First validate that it is a good mapping
+    const parts = stringMapping.split(',')
+
+    const validQueues = ['*', ...HOG_FUNCTION_INVOCATION_JOB_QUEUES]
+
+    for (const part of parts) {
+        const [queue, target, percentageString] = part.split(':')
+
+        if (!validQueues.includes(queue)) {
+            throw new Error(`Invalid mapping: ${part} - queue ${queue} must be one of ${validQueues.join(', ')}`)
+        }
+
+        // change the type to the correct one once validated
+        if (!CYCLOTRON_JOB_QUEUE_TARGETS.includes(target as CyclotronJobQueueTarget)) {
+            throw new Error(
+                `Invalid mapping: ${part} - target ${target} must be one of ${CYCLOTRON_JOB_QUEUE_TARGETS.join(', ')}`
+            )
+        }
+
+        let percentage = 1
+
+        if (percentageString) {
+            const parsedPercentage = parseFloat(percentageString)
+            if (isNaN(parsedPercentage) || parsedPercentage < 0 || parsedPercentage > 1) {
+                throw new Error(
+                    `Invalid mapping: ${part} - percentage ${percentageString} must be a number between 0 and 1`
+                )
+            }
+            percentage = parsedPercentage
+        }
+
+        if (routing[queue]) {
+            throw new Error(`Duplicate mapping: ${part}`)
+        }
+
+        routing[queue] = {
+            target: target as CyclotronJobQueueTarget,
+            percentage,
+        }
+    }
+
+    return routing
 }
