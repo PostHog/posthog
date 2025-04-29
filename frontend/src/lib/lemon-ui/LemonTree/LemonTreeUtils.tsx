@@ -19,6 +19,7 @@ type TreeNodeDisplayIconWrapperProps = {
     multiSelectionOffset: number
     checkedItemCount?: number
     onItemChecked?: (id: string, checked: boolean, shift: boolean) => void
+    folderSelectMode: boolean
 }
 
 export const TreeNodeDisplayIconWrapper = ({
@@ -31,6 +32,7 @@ export const TreeNodeDisplayIconWrapper = ({
     onItemChecked,
     defaultOffset,
     multiSelectionOffset,
+    folderSelectMode,
 }: TreeNodeDisplayIconWrapperProps): JSX.Element => {
     return (
         <>
@@ -44,7 +46,7 @@ export const TreeNodeDisplayIconWrapper = ({
                     'absolute flex items-center justify-center bg-transparent flex-shrink-0 h-[var(--button-height-base)] z-3',
                     {
                         // Apply group class only when there are no checked items
-                        'group/lemon-tree-icon-wrapper': checkedItemCount === 0,
+                        'group/lemon-tree-icon-wrapper': checkedItemCount === 0 && !folderSelectMode,
                     }
                 )}
             >
@@ -56,7 +58,7 @@ export const TreeNodeDisplayIconWrapper = ({
                     className={cn('absolute z-2', {
                         // Apply hidden class only when hovering the (conditional)group and there are no checked items
                         'hidden group-hover/lemon-tree-icon-wrapper:block transition-all duration-50':
-                            checkedItemCount === 0,
+                            checkedItemCount === 0 || folderSelectMode,
                     })}
                     style={{
                         left: `${defaultOffset}px`,
@@ -253,6 +255,8 @@ export const TreeNodeDraggable = (props: DraggableProps): JSX.Element => {
 type DroppableProps = DragAndDropProps & {
     isDroppable: boolean
     className?: string
+    isDragging?: boolean
+    isRoot?: boolean
 }
 
 export const TreeNodeDroppable = (props: DroppableProps): JSX.Element => {
@@ -262,9 +266,11 @@ export const TreeNodeDroppable = (props: DroppableProps): JSX.Element => {
         <div
             ref={setNodeRef}
             className={cn(
-                'flex flex-col transition-all duration-150 rounded',
+                'flex flex-col transition-all duration-150 rounded relative z-2 ',
                 props.className,
-                props.isDroppable && isOver && 'ring-2 ring-inset ring-accent bg-accent-highlight-secondary'
+                props.isDroppable && isOver && 'ring-2 ring-inset ring-accent bg-accent-highlight-secondary',
+                // If the item is a root item and it's dragging, make it take up the full height
+                props.isRoot && props.isDragging && 'h-full'
             )}
         >
             {props.children}
@@ -307,7 +313,11 @@ export const InlineEditField = ({
     return (
         <form
             onSubmit={onSubmit}
-            className={cn(buttonVariants({ menuItem: true, size: 'base', sideActionLeft: true }), className)}
+            className={cn(
+                buttonVariants({ menuItem: true, size: 'base', sideActionLeft: true }),
+                className,
+                'bg-fill-button-tertiary-active'
+            )}
         >
             {/* Spacer to offset button padding */}
             <div
