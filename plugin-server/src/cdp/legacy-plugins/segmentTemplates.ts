@@ -351,7 +351,6 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations)
                 _event: ProcessedPluginEvent,
                 { config, fetch, logger }: SegmentDestinationPluginMeta
             ): Promise<void> => {
-                logger.warn('config', config)
                 try {
                     destination.actions[config.internal_partner_action as keyof typeof destination.actions].perform(
                         async (endpoint, options) => {
@@ -360,9 +359,6 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations)
                                 auth: config as any,
                                 payload: config as any,
                             })
-                            logger.warn('requestExtension', requestExtension)
-                            logger.warn('endpoint', endpoint)
-                            logger.warn('options', options)
                             const headers: Record<string, string> = {
                                 endpoint: endpoint,
                                 ...options?.headers,
@@ -379,7 +375,7 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations)
                                 headers['Content-Type'] = 'application/x-www-form-urlencoded'
                             }
 
-                            await fetch('http://localhost:2080/e352fab0-49d7-456f-90e7-9678245bd507', {
+                            await fetch(endpoint, {
                                 method: options?.method ?? 'POST',
                                 headers,
                                 body,
