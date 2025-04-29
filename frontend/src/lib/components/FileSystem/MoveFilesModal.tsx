@@ -11,7 +11,7 @@ interface MoveFilesModalProps {
     closeModal: () => void
 }
 
-export function MoveFilesModal({ items, handleMove, closeModal }: MoveFilesLogicProps): JSX.Element {
+export function MoveFilesModal({ items, handleMove, closeModal }: MoveFilesModalProps): JSX.Element {
     const [folderDestination, setFolderDestination] = useState<string>('')
 
     return (
