@@ -226,7 +226,7 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
     ): Promise<[InternalPerson, TopicMessage[]]> {
         this.incrementCount('updatePersonDeprecated')
         this.clearCache()
-        this.incrementDatabaseOperation('updatePerson')
+        this.incrementDatabaseOperation('updatePersonDeprecated')
         return await this.db.updatePersonDeprecated(person, update, tx)
     }
 
