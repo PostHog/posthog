@@ -3,6 +3,7 @@ package main
 
 import (
 	"encoding/json"
+	"github.com/posthog/posthog/livestream/events"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -36,11 +37,11 @@ func TestStatsHandler(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer mock_token")
 
 	// Create a mock TeamStats
-	stats := &Stats{
-		Store: make(map[string]*expirable.LRU[string, noSpaceType]),
+	stats := &events.Stats{
+		Store: make(map[string]*expirable.LRU[string, events.noSpaceType]),
 	}
-	stats.Store["mock_token"] = expirable.NewLRU[string, noSpaceType](100, nil, time.Minute)
-	stats.Store["mock_token"].Add("user1", noSpaceType{})
+	stats.Store["mock_token"] = expirable.NewLRU[string, events.noSpaceType](100, nil, time.Minute)
+	stats.Store["mock_token"].Add("user1", events.noSpaceType{})
 
 	// Add the teamStats to the context
 	c.Set("teamStats", stats)

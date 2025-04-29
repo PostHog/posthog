@@ -1,4 +1,4 @@
-package main
+package events
 
 import (
 	"fmt"
@@ -42,13 +42,13 @@ type ResponseGeoEvent struct {
 
 type Filter struct {
 	inboundChan chan PostHogEvent
-	subChan     chan Subscription
-	unSubChan   chan Subscription
+	SubChan     chan Subscription
+	UnSubChan   chan Subscription
 	subs        []Subscription
 }
 
 func NewFilter(subChan chan Subscription, unSubChan chan Subscription, inboundChan chan PostHogEvent) *Filter {
-	return &Filter{subChan: subChan, unSubChan: unSubChan, inboundChan: inboundChan, subs: make([]Subscription, 0)}
+	return &Filter{SubChan: subChan, UnSubChan: unSubChan, inboundChan: inboundChan, subs: make([]Subscription, 0)}
 }
 
 func convertToResponseGeoEvent(event PostHogEvent) *ResponseGeoEvent {
@@ -93,9 +93,9 @@ func removeSubscription(subID uint64, subs []Subscription) []Subscription {
 func (c *Filter) Run() {
 	for {
 		select {
-		case newSub := <-c.subChan:
+		case newSub := <-c.SubChan:
 			c.subs = append(c.subs, newSub)
-		case unSub := <-c.unSubChan:
+		case unSub := <-c.UnSubChan:
 			c.subs = removeSubscription(unSub.SubID, c.subs)
 		case event := <-c.inboundChan:
 			var responseEvent *ResponsePostHogEvent

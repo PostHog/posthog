@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"github.com/posthog/posthog/livestream/auth"
+	"github.com/posthog/posthog/livestream/events"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -16,7 +17,7 @@ type Counter struct {
 	UserCount  int
 }
 
-func servedHandler(stats *Stats) func(c echo.Context) error {
+func servedHandler(stats *events.Stats) func(c echo.Context) error {
 	return func(c echo.Context) error {
 		userCount := stats.GlobalStore.Len()
 		count := stats.Counter.Count()
@@ -28,7 +29,7 @@ func servedHandler(stats *Stats) func(c echo.Context) error {
 	}
 }
 
-func statsHandler(stats *Stats) func(c echo.Context) error {
+func statsHandler(stats *events.Stats) func(c echo.Context) error {
 	return func(c echo.Context) error {
 
 		type resp struct {
@@ -41,7 +42,7 @@ func statsHandler(stats *Stats) func(c echo.Context) error {
 			return c.JSON(http.StatusUnauthorized, resp{Error: "wrong token claims"})
 		}
 
-		var hash *expirable.LRU[string, noSpaceType]
+		var hash *expirable.LRU[string, events.NoSpaceType]
 		var ok bool
 		if hash, ok = stats.Store[token]; !ok {
 			resp := resp{
@@ -59,7 +60,7 @@ func statsHandler(stats *Stats) func(c echo.Context) error {
 
 var subID uint64 = 1
 
-func streamEventsHandler(log echo.Logger, subChan chan Subscription, filter *Filter) func(c echo.Context) error {
+func streamEventsHandler(log echo.Logger, subChan chan events.Subscription, filter *events.Filter) func(c echo.Context) error {
 	return func(c echo.Context) error {
 		log.Debugf("SSE client connected, ip: %v", c.RealIP())
 
@@ -87,7 +88,7 @@ func streamEventsHandler(log echo.Logger, subChan chan Subscription, filter *Fil
 			eventTypes = strings.Split(eventType, ",")
 		}
 
-		subscription := Subscription{
+		subscription := events.Subscription{
 			SubID:       atomic.AddUint64(&subID, 1),
 			TeamId:      teamID,
 			Token:       token,
@@ -101,7 +102,7 @@ func streamEventsHandler(log echo.Logger, subChan chan Subscription, filter *Fil
 		subChan <- subscription
 		defer func() {
 			subscription.ShouldClose.Store(true)
-			filter.unSubChan <- subscription
+			filter.UnSubChan <- subscription
 		}()
 
 		w := c.Response()
