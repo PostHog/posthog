@@ -326,12 +326,14 @@ export function HogFunctionConfiguration({
                                     >
                                         <LemonTextArea disabled={loading} />
                                     </LemonField>
-                                    {isLegacyPlugin ? null : hogFunction?.template &&
-                                      !hogFunction.template.id.startsWith('template-blank-') ? (
+                                    {isLegacyPlugin ? null : !hogFunction?.template?.id?.startsWith(
+                                          'template-blank-'
+                                      ) ? (
                                         <>
                                             {showDisableConfirm && (
                                                 <LemonDialog
                                                     title="Disable advanced mode?"
+                                                    onAfterClose={() => setShowDisableConfirm(false)}
                                                     content={
                                                         <div>
                                                             This will reset everything to the latest version of the
@@ -357,7 +359,6 @@ export function HogFunctionConfiguration({
                                                         type: 'secondary',
                                                         onClick: () => setShowDisableConfirm(false),
                                                     }}
-                                                    onClose={() => setShowDisableConfirm(false)}
                                                 />
                                             )}
                                         </>
