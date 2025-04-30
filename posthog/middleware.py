@@ -40,6 +40,9 @@ from posthog.settings import SITE_URL, DEBUG, PROJECT_SWITCHING_TOKEN_ALLOWLIST
 from posthog.user_permissions import UserPermissions
 from .auth import PersonalAPIKeyAuthentication
 from .utils_cors import cors_response
+from contextlib import ExitStack
+from django.db import connections
+from posthog.clickhouse.query_tagging import get_query_tags
 
 ALWAYS_ALLOWED_ENDPOINTS = [
     "decide",
@@ -702,3 +705,69 @@ class AutoLogoutImpersonateMiddleware:
                 return redirect("/admin/")
 
         return self.get_response(request)
+
+
+KEY_VALUE_DELIMITER = ","
+
+
+def safe_sql_comment_value(val: str) -> str:
+    # Replace only the problematic chars
+    return (
+        str(val)
+        .replace("%", "_")
+        .replace("{", "_")
+        .replace("}", "_")
+        .replace("$", "_")
+        .replace("/*", "_")
+        .replace("*/", "_")
+    )
+
+
+def generate_sql_comment(**meta):
+    if not meta:
+        return ""
+    return (
+        " /*"
+        + KEY_VALUE_DELIMITER.join(
+            f"{safe_sql_comment_value(key)}={safe_sql_comment_value(value)}"
+            for key, value in sorted(meta.items())
+            if value is not None
+        )
+        + "*/"
+    )
+
+
+def add_sql_comment(sql, **meta):
+    comment = generate_sql_comment(**meta)
+    sql = sql.rstrip()
+    if sql[-1] == ";":
+        sql = sql[:-1] + comment + ";"
+    else:
+        sql = sql + comment
+    return sql
+
+
+class AddSQLCommentMiddleware:
+    """
+    Middleware to append a comment to each database query with details about
+    the framework and the execution context.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        with ExitStack() as stack:
+            for db_alias in connections:
+                stack.enter_context(connections[db_alias].execute_wrapper(QueryWrapper(request)))
+            return self.get_response(request)
+
+
+class QueryWrapper:
+    def __init__(self, request):
+        self.request = request
+
+    def __call__(self, execute, sql, params, many, context):
+        sql = add_sql_comment(sql, **get_query_tags())
+
+        return execute(sql, params, many, context)
