@@ -56,7 +56,11 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
     })),
     actions({
         loadUnfiledItems: true,
-        addFolder: (folder: string) => ({ folder }),
+        addFolder: (folder: string, editAfter = true, callback?: (folder: string) => void) => ({
+            folder,
+            editAfter,
+            callback,
+        }),
         deleteItem: (item: FileSystemEntry) => ({ item }),
         moveItem: (item: FileSystemEntry, newPath: string, force = false) => ({ item, newPath, force }),
         movedItem: (item: FileSystemEntry, oldPath: string, newPath: string) => ({ item, oldPath, newPath }),
@@ -81,7 +85,11 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         }),
         loadFolderFailure: (folder: string, error: string) => ({ folder, error }),
         rename: (value: string, item: FileSystemEntry) => ({ value, item }),
-        createFolder: (parentPath: string) => ({ parentPath }),
+        createFolder: (parentPath: string, editAfter = true, callback?: (folder: string) => void) => ({
+            parentPath,
+            editAfter,
+            callback,
+        }),
         loadSearchResults: (searchTerm: string, offset = 0) => ({ searchTerm, offset }),
         assureVisibility: (projectTreeRef: ProjectTreeRef) => ({ projectTreeRef }),
         setLastNewFolder: (folder: string | null) => ({ folder }),
@@ -633,14 +641,21 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
         projectTreeOnlyFolders: [
             (s) => [s.viableItems, s.folderStates, s.checkedItems],
-            (viableItems, folderStates, checkedItems): TreeDataItem[] =>
-                convertFileSystemEntryToTreeDataItem({
-                    imports: viableItems,
-                    folderStates,
-                    checkedItems,
-                    root: 'project',
-                    disabledReason: (item) => (item.type !== 'folder' ? 'Only folders can be selected' : undefined),
-                }),
+            (viableItems, folderStates, checkedItems): TreeDataItem[] => [
+                {
+                    id: '/',
+                    name: '/',
+                    displayName: <>Project root</>,
+                    record: { type: 'folder', path: '' },
+                    children: convertFileSystemEntryToTreeDataItem({
+                        imports: viableItems,
+                        folderStates,
+                        checkedItems,
+                        root: 'project',
+                        disabledReason: (item) => (item.type !== 'folder' ? 'Only folders can be selected' : undefined),
+                    }),
+                },
+            ],
         ],
         groupNodes: [
             (s) => [s.groupTypes, s.groupsAccessStatus, s.aggregationLabel],
@@ -1143,7 +1158,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             }
             actions.queueAction({ type: item.type === 'folder' ? 'prepare-delete' : 'delete', item, path: item.path })
         },
-        addFolder: ({ folder }) => {
+        addFolder: ({ folder, editAfter, callback }) => {
             // Like Mac, we don't allow duplicate folder names
             // So we need to increment the folder name until we find a unique one
             let folderName = folder
@@ -1161,9 +1176,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             })
 
             // Always set the editing item ID after a short delay to ensure the folder is in the DOM
-            setTimeout(() => {
-                actions.setEditingItemId(`project-folder/${folderName}`)
-            }, 50)
+            if (editAfter) {
+                setTimeout(() => {
+                    actions.setEditingItemId(`project-folder/${folderName}`)
+                }, 50)
+            }
+            callback?.(folderName)
         },
         toggleFolderOpen: ({ folderId }) => {
             if (values.searchTerm) {
@@ -1196,14 +1214,14 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             if (splits.length > 0) {
                 if (value) {
                     actions.moveItem(item, joinPath([...splits.slice(0, -1), value]))
-                    actions.setEditingItemId(item.id)
+                    actions.setEditingItemId('')
                 }
             }
         },
-        createFolder: ({ parentPath }) => {
+        createFolder: ({ parentPath, editAfter, callback }) => {
             const parentSplits = parentPath ? splitPath(parentPath) : []
             const newPath = joinPath([...parentSplits, 'Untitled folder'])
-            actions.addFolder(newPath)
+            actions.addFolder(newPath, editAfter, callback)
         },
         setSearchTerm: ({ searchTerm }) => {
             actions.loadSearchResults(searchTerm)
