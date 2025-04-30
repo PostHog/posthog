@@ -14,6 +14,7 @@ from rest_framework import status
 from ee.models.explicit_team_membership import ExplicitTeamMembership
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.constants import AvailableFeature
+from posthog.email import is_email_available
 from posthog.models import Dashboard, Organization, Team, User
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import OrganizationMembership
@@ -940,13 +941,14 @@ class TestSignupAPI(APIBaseTest):
 
     def test_api_sign_up_preserves_next_param(self):
         response = self.client.post(
-            "/api/signup/?next=/next_path",
+            "/api/signup/",
             {
                 "first_name": "John",
                 "email": "hedgehog@posthog.com",
                 "password": VALID_TEST_PASSWORD,
                 "organization_name": "Hedgehogs United, LLC",
                 "role_at_organization": "product",
+                "next_url": "/next_path",
             },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -954,7 +956,7 @@ class TestSignupAPI(APIBaseTest):
         user = cast(User, User.objects.order_by("-pk")[0])
         response_data = response.json()
 
-        if not user.is_email_verified:
+        if not user.is_email_verified and is_email_available():
             self.assertEqual(
                 response_data["redirect_url"],
                 f"/verify_email/{user.uuid}?next=/next_path",

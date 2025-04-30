@@ -92,7 +92,7 @@ export const signupLogic = kea<signupLogicType>([
                 try {
                     const nextUrl = router.values.searchParams['next']
 
-                    const res = await api.create(`api/signup`, {
+                    const res = await api.create('api/signup/', {
                         ...values.signupPanel1,
                         ...payload,
                         first_name: payload.name.split(' ')[0],
@@ -100,6 +100,7 @@ export const signupLogic = kea<signupLogicType>([
                         organization_name: payload.organization_name || undefined,
                         next_url: nextUrl,
                     })
+
                     if (!payload.organization_name) {
                         posthog.capture('sign up organization name not provided')
                     }

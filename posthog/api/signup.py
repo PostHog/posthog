@@ -63,12 +63,10 @@ def get_redirect_url(uuid: str, is_email_verified: bool, next_url: str | None = 
     )
 
     if require_email_verification:
-        email_verification_url = "/verify_email/" + uuid
+        base_url = "/verify_email/" + uuid
 
         if next_url:
-            email_verification_url += "?next=" + next_url
-
-        return email_verification_url
+            base_url += "?next=" + next_url
 
     return next_url or "/"
 
@@ -182,8 +180,7 @@ class SignupSerializer(serializers.Serializer):
 
     def to_representation(self, instance) -> dict:
         request = self.context.get("request")
-        next_url = request and request.query_params.get("next")
-
+        next_url = request.data.get("next_url") if request else None
         # We only want to redirect to a relative url so that we don't redirect away from the current domain
         if next_url and not is_relative_url(next_url):
             next_url = None
