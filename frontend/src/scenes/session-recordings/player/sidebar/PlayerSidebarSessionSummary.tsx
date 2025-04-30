@@ -99,8 +99,13 @@ function SegmentMetaTable({ meta }: SegmentMetaProps): JSX.Element | null {
                 <span className="text-muted">Duration:</span>
                 {isValidMetaNumber(meta.duration) && isValidMetaNumber(meta.duration_percentage) && (
                     <span>
-                        {formatMsIntoTime(meta.duration * 1000 || 0)} (
-                        {((meta.duration_percentage || 0) * 100).toFixed(2)}%)
+                        {meta.duration === 0 ? (
+                            <span className="text-muted">...</span>
+                        ) : (
+                            `${formatMsIntoTime(meta.duration * 1000)} (${(
+                                (meta.duration_percentage || 0) * 100
+                            ).toFixed(2)}%)`
+                        )}
                     </span>
                 )}
             </div>
@@ -109,7 +114,11 @@ function SegmentMetaTable({ meta }: SegmentMetaProps): JSX.Element | null {
                 <span className="text-muted">Events:</span>
                 {isValidMetaNumber(meta.events_count) && isValidMetaNumber(meta.events_percentage) && (
                     <span>
-                        {meta.events_count} ({((meta.events_percentage || 0) * 100).toFixed(2)}%)
+                        {meta.events_count === 0 ? (
+                            <span className="text-muted">...</span>
+                        ) : (
+                            `${meta.events_count} (${((meta.events_percentage || 0) * 100).toFixed(2)}%)`
+                        )}
                     </span>
                 )}
             </div>
