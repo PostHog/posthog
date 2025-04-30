@@ -22,6 +22,7 @@ export function SaveToModal(): JSX.Element {
             onClose={closeSaveToModal}
             isOpen={isOpen}
             title="Select a folder to save to"
+            zIndex="1169"
             footer={
                 <>
                     <div className="flex-1" />
