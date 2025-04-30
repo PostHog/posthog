@@ -477,6 +477,35 @@ class TestSessionRecordingPlaylist(APIBaseTest):
         # but it also has no filters, so it should not be included
         assert [r["name"] for r in results] == [playlist3.name]
 
+    def test_cannot_pin_items_to_filters_type_playlist(self):
+        """
+        Playlists with type=filters are dynamic and based only on the filter criteria.
+        Pinning specific items is only allowed for type=collection playlists.
+        """
+        # Create a playlist explicitly marked as filters type
+        response = self._create_playlist({"name": "test filters only", "type": "filters"})
+        playlist_id = response.json()["id"]
+        playlist = SessionRecordingPlaylist.objects.get(id=playlist_id)
+        assert playlist.type == SessionRecordingPlaylist.PlaylistType.FILTERS
+
+        recording_session_id = "test_session_id"
+        # Attempt to add (pin) a recording to this filters-type playlist
+        add_item_response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings/{recording_session_id}",
+        )
+
+        # Assert that the attempt fails with a 400 Bad Request
+        assert add_item_response.status_code == status.HTTP_400_BAD_REQUEST
+        assert add_item_response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "detail": "Cannot add recordings to a playlist that is type 'filters'.",
+            "attr": None,
+        }
+
+        # Verify no item was actually added
+        assert SessionRecordingPlaylistItem.objects.filter(playlist=playlist).count() == 0
+
     @patch("ee.session_recordings.session_recording_extensions.object_storage.copy_objects")
     def test_get_pinned_recordings_for_playlist(self, mock_copy_objects: MagicMock) -> None:
         mock_copy_objects.return_value = 2
