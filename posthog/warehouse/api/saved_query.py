@@ -339,7 +339,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         # Only annotate with latest activity ID for list operations, not for single object retrieves
         # This avoids the annotation when we're getting a single object for update/create/etc.
         action = self.action if hasattr(self, "action") else None
-        if action == "list":
+        if action == "list" or action == "retrieve":
             # Add latest activity id annotation to avoid N+1 queries
             latest_activity = (
                 ActivityLog.objects.filter(

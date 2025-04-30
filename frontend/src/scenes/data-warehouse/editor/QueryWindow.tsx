@@ -45,9 +45,10 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
         editingView,
         editingInsight,
         sourceQuery,
-        suggestedQueryInput,
         inProgressViewEdits,
         changesToSave,
+        originalQueryInput,
+        suggestedQueryInput,
     } = useValues(multitabEditorLogic)
     const {
         renameTab,
@@ -60,12 +61,12 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
         setMetadata,
         setMetadataLoading,
         saveAsView,
+        updateView,
     } = useActions(multitabEditorLogic)
     const { openHistoryModal } = useActions(multitabEditorLogic)
 
     const { response } = useValues(dataNodeLogic)
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
-    const { updateDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
     const { sidebarWidth } = useValues(editorSizingLogic)
     const { resetDefaultSidebarWidth } = useActions(editorSizingLogic)
     const { setActiveTab } = useActions(editorSidebarLogic)
@@ -142,7 +143,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                     <>
                         <LemonButton
                             onClick={() =>
-                                updateDataWarehouseSavedQuery({
+                                updateView({
                                     id: editingView.id,
                                     query: {
                                         ...sourceQuery.source,
@@ -198,8 +199,8 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                 {featureFlags[FEATURE_FLAGS.SQL_EDITOR_AI_ERROR_FIXER] && <FixErrorButton />}
             </div>
             <QueryPane
-                originalValue={suggestedQueryInput && suggestedQueryInput != queryInput ? queryInput ?? ' ' : undefined}
-                queryInput={suggestedQueryInput && suggestedQueryInput != queryInput ? suggestedQueryInput : queryInput}
+                originalValue={originalQueryInput}
+                queryInput={suggestedQueryInput}
                 sourceQuery={sourceQuery.source}
                 promptError={null}
                 onRun={runQuery}
