@@ -37,7 +37,7 @@ const ExperimentFormFields = (): JSX.Element => {
         addVariant,
         removeExperimentGroup,
         setExperiment,
-        createExperiment,
+        submitExperiment,
         setExperimentType,
         validateFeatureFlag,
     } = useActions(experimentLogic)
@@ -309,12 +309,7 @@ const ExperimentFormFields = (): JSX.Element => {
                     </>
                 )}
             </div>
-            <LemonButton
-                className="mt-2"
-                type="primary"
-                data-attr="save-experiment"
-                onClick={() => createExperiment(true)}
-            >
+            <LemonButton className="mt-2" type="primary" data-attr="save-experiment" onClick={() => submitExperiment()}>
                 Save as draft
             </LemonButton>
         </div>

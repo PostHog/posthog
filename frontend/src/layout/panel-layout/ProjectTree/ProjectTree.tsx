@@ -41,6 +41,7 @@ export function ProjectTree(): JSX.Element {
         expandedFolders,
         expandedSearchFolders,
         searchTerm,
+        searchResults,
         treeItemsNew,
         checkedItems,
         checkedItemsCount,
@@ -61,7 +62,7 @@ export function ProjectTree(): JSX.Element {
         setExpandedFolders,
         setExpandedSearchFolders,
         loadFolder,
-        setLastNewOperation,
+        setLastNewFolder,
         onItemChecked,
         moveCheckedItems,
         linkCheckedItems,
@@ -212,11 +213,9 @@ export function ProjectTree(): JSX.Element {
                                                             asChild
                                                             onClick={(e) => {
                                                                 e.stopPropagation()
-                                                                const objectType: string | undefined =
-                                                                    child.record?.type
                                                                 const folder = item.record?.path
-                                                                if (objectType && folder) {
-                                                                    setLastNewOperation(objectType, folder)
+                                                                if (folder) {
+                                                                    setLastNewFolder(folder)
                                                                 }
                                                                 child.onClick?.()
                                                             }}
@@ -236,10 +235,9 @@ export function ProjectTree(): JSX.Element {
                                             asChild
                                             onClick={(e) => {
                                                 e.stopPropagation()
-                                                const objectType: string | undefined = treeItem.record?.type
                                                 const folder = item.record?.path
-                                                if (objectType && folder) {
-                                                    setLastNewOperation(objectType, folder)
+                                                if (folder) {
+                                                    setLastNewFolder(folder)
                                                 }
                                                 treeItem.onClick?.()
                                             }}
@@ -410,14 +408,19 @@ export function ProjectTree(): JSX.Element {
                     if (oldId === newId) {
                         return false
                     }
-                    const oldItem = viableItems.find((i) => itemToId(i) === oldId)
-                    const newItem = viableItems.find((i) => itemToId(i) === newId)
+
+                    const items = searchTerm && searchResults.results ? searchResults.results : viableItems
+                    const oldItem = items.find((i) => itemToId(i) === oldId)
+                    const newItem = items.find((i) => itemToId(i) === newId)
                     if (oldItem === newItem || !oldItem) {
                         return false
                     }
 
-                    // if no path, that means it's a root item
-                    const folder = newItem?.path || ''
+                    const folder = newItem
+                        ? newItem.path || ''
+                        : newId && String(newId).startsWith('project-folder/')
+                        ? String(newId).substring(15)
+                        : ''
 
                     if (checkedItems[oldId]) {
                         moveCheckedItems(folder)

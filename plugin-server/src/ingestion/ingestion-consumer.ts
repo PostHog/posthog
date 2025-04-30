@@ -26,7 +26,6 @@ import { parseJSON } from '../utils/json-parse'
 import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
 import { retryIfRetriable } from '../utils/retries'
-import { UUIDT } from '../utils/utils'
 import { EventPipelineResult, EventPipelineRunner } from '../worker/ingestion/event-pipeline/runner'
 import { MeasuringPersonsStore } from '../worker/ingestion/persons/measuring-person-store'
 import { PersonsStoreForDistinctIdBatch } from '../worker/ingestion/persons/persons-store-for-distinct-id-batch'
@@ -154,12 +153,10 @@ export class IngestionConsumer {
             this.hogTransformer.start(),
             KafkaProducerWrapper.create(this.hub).then((producer) => {
                 this.kafkaProducer = producer
-                this.kafkaProducer.producer.connect()
             }),
             // TRICKY: When we produce overflow events they are back to the kafka we are consuming from
             KafkaProducerWrapper.create(this.hub, 'consumer').then((producer) => {
                 this.kafkaOverflowProducer = producer
-                this.kafkaOverflowProducer.producer.connect()
             }),
         ])
 
@@ -530,11 +527,9 @@ export class IngestionConsumer {
                 continue
             }
 
-            let eventKey = `${event.token}:${event.distinct_id}`
+            const eventKey = `${event.token}:${event.distinct_id}`
 
             if (this.shouldSkipPerson(event.token, event.distinct_id)) {
-                // If we are skipping person processing, then we can parallelize processing of this event for dramatic performance gains
-                eventKey = new UUIDT().toString()
                 event.properties = {
                     ...(event.properties ?? {}),
                     $process_person_profile: false,
