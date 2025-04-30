@@ -337,8 +337,14 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 }
                 const decoder = new TextDecoder()
                 const parser = createParser({
-                    onEvent: ({ data }) => {
+                    onEvent: ({ event, data }) => {
                         try {
+                            // Stop loading and show error if encountered an error event
+                            if (event === 'session-summary-error') {
+                                lemonToast.error(data)
+                                actions.setSessionSummaryLoading(false)
+                                return
+                            }
                             const parsedData = JSON.parse(data)
                             if (parsedData) {
                                 actions.setSessionSummaryContent(parsedData)
