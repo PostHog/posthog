@@ -173,7 +173,10 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                 name: !name ? 'Please give your dashboard a name.' : null,
                 restrictionLevel: !restrictionLevel ? 'Restriction level needs to be specified.' : null,
             }),
-            submit: async ({ name, description, useTemplate, restrictionLevel, show }, breakpoint) => {
+            submit: async (
+                { name, description, useTemplate, restrictionLevel, show, _create_in_folder },
+                breakpoint
+            ) => {
                 actions.setIsLoading(true)
                 try {
                     const result: DashboardType = await api.create(
@@ -183,6 +186,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                             description: description,
                             use_template: useTemplate,
                             restriction_level: restrictionLevel,
+                            ...(typeof _create_in_folder === 'string' ? { _create_in_folder } : {}),
                         } as Partial<DashboardType>
                     )
                     actions.hideNewDashboardModal()

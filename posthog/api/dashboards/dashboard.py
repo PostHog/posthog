@@ -609,6 +609,7 @@ class DashboardsViewSet(
         dashboard = Dashboard.objects.create(
             team_id=self.team_id,
             created_by=cast(User, request.user),
+            _create_in_folder=request.data.get("_create_in_folder"),
         )
 
         try:
