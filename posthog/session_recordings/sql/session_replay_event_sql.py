@@ -137,8 +137,8 @@ team_id,
 any(distinct_id) as distinct_id,
 min(first_timestamp) AS min_first_timestamp,
 max(last_timestamp) AS max_last_timestamp,
-groupArray(first_timestamp) AS block_first_timestamps,
-groupArray(last_timestamp) AS block_last_timestamps,
+groupArray(if(block_url != '', first_timestamp, NULL)) AS block_first_timestamps,
+groupArray(if(block_url != '', last_timestamp, NULL)) AS block_last_timestamps,
 groupArray(block_url) AS block_urls,
 -- TRICKY: ClickHouse will pick a relatively random first_url
 -- when it collapses the aggregating merge tree
