@@ -121,7 +121,7 @@ export function MaxInstance({ sidePanel }: MaxInstanceProps): JSX.Element {
                         to={urls.max()}
                         onClick={() => closeSidePanel()}
                         tooltip="Open as main focus"
-                        tooltipPlacement="bottom"
+                        tooltipPlacement="bottom-end"
                     />
                 </SidePanelPaneHeader>
             )}
