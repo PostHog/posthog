@@ -89,8 +89,13 @@ def to_temporal_schedule(
     )
 
     # Determine spec based on frequency
-    if sync_frequency <= timedelta(hours=1):
-        spec = ScheduleSpec(intervals=[ScheduleIntervalSpec(every=sync_frequency)], jitter=jitter)
+    if sync_frequency <= timedelta(hours=1) or sync_frequency > timedelta(days=1):
+        spec = ScheduleSpec(
+            intervals=[
+                ScheduleIntervalSpec(every=sync_frequency, offset=timedelta(hours=hour_of_day, minutes=minute_of_hour))
+            ],
+            jitter=jitter,
+        )
     else:
         spec = ScheduleSpec(
             calendars=[get_calendar_spec(hour_of_day, minute_of_hour, sync_frequency)],
