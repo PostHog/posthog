@@ -114,14 +114,14 @@ jobs:
                                   .join("\n")
 
                               // Format key metrics concisely
-                              const avgCaseMetrics = result.metrics || {}
-                              const duration = `⏱️ ${avgCaseMetrics.duration.metric.toFixed(2)} s`
-                              const totalTokens = `🔢 ${Math.floor(avgCaseMetrics.total_tokens.metric)} tokens`
-                              const cost = `💵 $${avgCaseMetrics.estimated_cost.metric.toFixed(4)} in tokens`
-                              const avgCaseMetricsText = [duration, totalTokens, cost].join(", ")
+                              const metrics = result.metrics || {}
+                              const duration = metrics.duration ? `⏱️ ${metrics.duration.metric.toFixed(2)} s` : null
+                              const totalTokens = metrics.total_tokens ? `🔢 ${Math.floor(metrics.total_tokens.metric)} tokens` : null
+                              const cost = metrics.estimated_cost ? `💵 $${metrics.estimated_cost.metric.toFixed(4)} in tokens` : null
+                              const metricsText = [duration, totalTokens, cost].filter(Boolean).join(", ")
 
                               // Create concise experiment summary with header only showing experiment name
-                              return `### [${experimentName}](${experimentUrl})\n\n${scoresList}\n\nAvg. case performance: ${avgCaseMetricsText}_`
+                              return `### [${experimentName}](${experimentUrl})\n\n${scoresList}\n\nAvg. case performance: ${metricsText}_`
                           })
                           .join("\n\n")
 
