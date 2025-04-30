@@ -77,9 +77,10 @@ async fn handle_common(
                 .decode(&input.data)
                 .map_err(|e| {
                     if state.is_mirror_deploy {
-                        // lets see if this is base64 encoded at all, and what info we may be missing here
+                        // get a peek at the headers and a short snip of the payload in mirror
+                        // see which capture.py "kludge warning" these may map to, if any
                         error!("failed to decode mirrored form data: {} w/ headers << {:?} >> and data: {:?}...",
-                            e, &headers, &input.data[0..input.data.len().min(255)]);
+                            e, &headers, &input.data[0..input.data.len().min(40)]);
                     } else {
                         error!("failed to decode form data: {}", e);
                     }
