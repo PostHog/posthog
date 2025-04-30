@@ -50,8 +50,7 @@ export type LemonInputSelectProps = Pick<
     size?: 'xsmall' | 'small' | 'medium' | 'large'
     transparentBackground?: boolean
     displayMode?: 'snacks' | 'count'
-    showSelectAll?: boolean
-    showClearAll?: boolean
+    bulkActions?: 'clear-all' | 'select-and-clear-all'
 }
 
 export function LemonInputSelect({
@@ -78,8 +77,7 @@ export function LemonInputSelect({
     autoWidth = true,
     fullWidth = false,
     displayMode = 'snacks',
-    showSelectAll,
-    showClearAll,
+    bulkActions,
 }: LemonInputSelectProps): JSX.Element {
     const [showPopover, setShowPopover] = useState(false)
     const [inputValue, _setInputValue] = useState('')
@@ -405,20 +403,21 @@ export function LemonInputSelect({
                 <div className="deprecated-space-y-px overflow-y-auto">
                     {title && <h5 className="mx-2 my-1">{title}</h5>}
 
-                    {(showSelectAll || showClearAll) && mode === 'multiple' && (
-                        <div className="flex items-center mb-0.5" onMouseEnter={() => setSelectedIndex(-1)}>
-                            {showSelectAll && (
+                    {bulkActions && mode === 'multiple' && (
+                        <div
+                            className="flex justify-between items-center mb-0.5"
+                            onMouseEnter={() => setSelectedIndex(-1)}
+                        >
+                            {bulkActions === 'select-and-clear-all' && (
                                 <LemonButton
                                     size="small"
-                                    className="flex-1"
                                     disabledReason={
                                         values.length === allOptionsMap.size
                                             ? 'All options are already selected'
                                             : undefined
                                     }
-                                    onClick={() => {
-                                        onChange?.(Array.from(allOptionsMap.keys()))
-                                    }}
+                                    tooltipPlacement="top-start"
+                                    onClick={() => onChange?.(Array.from(allOptionsMap.keys()))}
                                     icon={
                                         <LemonCheckbox
                                             checked={values.length === allOptionsMap.size}
@@ -429,18 +428,14 @@ export function LemonInputSelect({
                                     Select all
                                 </LemonButton>
                             )}
-                            {showClearAll && (
-                                <LemonButton
-                                    size="small"
-                                    className="flex-1"
-                                    disabledReason={values.length === 0 ? 'No options are selected' : undefined}
-                                    onClick={() => {
-                                        onChange?.([])
-                                    }}
-                                >
-                                    {showSelectAll ? <div className="w-full text-right">Clear all</div> : 'Clear all'}
-                                </LemonButton>
-                            )}
+                            <LemonButton
+                                size="small"
+                                tooltipPlacement={bulkActions === 'select-and-clear-all' ? 'top-end' : 'top-start'}
+                                disabledReason={values.length === 0 ? 'No options are selected' : undefined}
+                                onClick={() => onChange?.([])}
+                            >
+                                Clear all
+                            </LemonButton>
                         </div>
                     )}
 

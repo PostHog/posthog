@@ -148,20 +148,13 @@ PrefilledManyValues.args = {
 export const WithSelectAllAndClear: Story = Template.bind({})
 WithSelectAllAndClear.args = {
     mode: 'multiple',
-    showSelectAll: true,
-    showClearAll: true,
-}
-
-export const WithSelectAllOnly: Story = Template.bind({})
-WithSelectAllOnly.args = {
-    mode: 'multiple',
-    showSelectAll: true,
+    bulkActions: 'select-and-clear-all',
 }
 
 export const WithClearOnly: Story = Template.bind({})
 WithClearOnly.args = {
     mode: 'multiple',
-    showClearAll: true,
+    bulkActions: 'clear-all',
 }
 
 export const CountModeAllSelected: Story = Template.bind({})
@@ -189,7 +182,6 @@ export const CountModeWithSelectClear: Story = Template.bind({})
 CountModeWithSelectClear.args = {
     mode: 'multiple',
     displayMode: 'count',
-    showSelectAll: true,
-    showClearAll: true,
+    bulkActions: 'select-and-clear-all',
     value: names.slice(0, 5).map((_, i) => `user-${i}`),
 }
