@@ -82,46 +82,54 @@ jobs:
                           return;
                       }
 
-                      // Generate summary table for each experiment
+                      // Generate concise experiment summaries
                       const experimentSummaries = evalResults.map(result => {
                           const experimentName = result.experiment_name;
                           const experimentUrl = result.experiment_url;
-                          const comparedTo = result.comparison_experiment_name || 'None';
+                          const comparedTo = result.comparison_experiment_name;
                           
-                          // Format scores section
-                          const scores = Object.entries(result.scores || {}).map(([key, value]) => {
+                          // Format scores as bullet points with improvements/regressions
+                          const scoresList = Object.entries(result.scores || {}).map(([key, value]) => {
                               const score = typeof value.score === 'number' ? value.score.toFixed(3) : value.score;
                               const diffText = value.diff ? `(${value.diff > 0 ? '+' : ''}${value.diff.toFixed(3)})` : '';
-                              const improvements = value.improvements > 0 ? `✅ +${value.improvements}` : '';
-                              const regressions = value.regressions > 0 ? `❌ -${value.regressions}` : '';
+                              const improvements = value.improvements > 0 ? `+${value.improvements}✅` : '';
+                              const regressions = value.regressions > 0 ? `-${value.regressions}❌` : '';
                               const changeText = [diffText, improvements, regressions].filter(Boolean).join(' ');
                               
-                              return `| ${key} | ${score} ${changeText} |`;
+                              return `- **${key}**: ${score} ${changeText}`;
                           }).join('\n');
                           
-                          // Format key metrics
+                          // Format key metrics concisely
                           const metrics = result.metrics || {};
                           const duration = metrics.duration?.metric ? `${metrics.duration.metric.toFixed(2)}s` : 'N/A';
-                          const totalTokens = metrics.total_tokens?.metric ? metrics.total_tokens.metric.toLocaleString() : 'N/A';
-                          const cost = metrics.estimated_cost?.metric ? `$${metrics.estimated_cost.metric.toFixed(4)}` : 'N/A';
+                          const totalTokens = metrics.total_tokens?.metric ? `${metrics.total_tokens.metric.toLocaleString()} tokens` : '';
+                          const cost = metrics.estimated_cost?.metric ? `$${metrics.estimated_cost.metric.toFixed(4)}` : '';
+                          const metricsText = [duration, totalTokens, cost].filter(Boolean).join(', ');
                           
-                          let summaryText = `### ${experimentName}`;
-                          if (comparedTo !== 'None') {
-                              summaryText += ` – compared to ${comparedTo}`;
+                          // Create concise experiment summary
+                          let header = `### ${experimentName}`;
+                          if (comparedTo) {
+                              header += ` vs ${comparedTo}`;
                           }
-                          summaryText += `\n\n[View details on Braintrust](${experimentUrl})\n\n`;
-                          summaryText += `**Scores:**\n| Metric | Score |\n| ------ | ----- |\n${scores}\n\n`;
-                          summaryText += `**Performance metrics:**\n- Duration: ${duration}\n- Total tokens: ${totalTokens}\n- Estimated cost: ${cost}`;
                           
-                          return summaryText;
-                      }).join('\n\n---\n\n');
+                          return `${header}\n${scoresList}\n\n⏱️ ${metricsText} | [Full details](${experimentUrl})`;
+                      }).join('\n\n');
 
                       const totalExperiments = evalResults.length;
                       const totalMetrics = evalResults.reduce((acc, result) => acc + Object.keys(result.scores || {}).length, 0);
+                      const totalImprovements = evalResults.reduce((acc, result) => {
+                          return acc + Object.values(result.scores || {}).reduce((sum, value) => sum + (value.improvements || 0), 0);
+                      }, 0);
+                      const totalRegressions = evalResults.reduce((acc, result) => {
+                          return acc + Object.values(result.scores || {}).reduce((sum, value) => sum + (value.regressions || 0), 0);
+                      }, 0);
 
-                      let body = `## 🧠 AI eval results summary\n\n`;
-                      body += `**${totalExperiments}** experiments with **${totalMetrics}** metrics evaluated.\n\n`;
-                      body += `${experimentSummaries}\n\n`;
+                      let body = `## 🧠 AI eval results\n\n`;
+                      body += `**${totalExperiments}** experiments, **${totalMetrics}** metrics`;
+                      if (totalImprovements > 0 || totalRegressions > 0) {
+                          body += `: **${totalImprovements}** improvements✅, **${totalRegressions}** regressions❌`;
+                      }
+                      body += `\n\n${experimentSummaries}\n\n`;
                       body += `Triggered by [this commit](https://github.com/${context.repo.owner}/${context.repo.repo}/pull/${context.payload.pull_request?.number || 'master'}/commits/${context.sha})`;
 
                       // Post comment on PR if this is a PR
