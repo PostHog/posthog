@@ -1243,11 +1243,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         path = result.path
 
                         // TODO: REMOVE THIS OLD LOGIC! ... in favor of directly passing _create_in_folder to the API calls
-                        if (
-                            result.type &&
-                            (['dashboard', 'session_recording_playlist'].includes(result.type) ||
-                                result.type.startsWith('hog_function/'))
-                        ) {
+                        if (result.type && (result.type === 'dashboard' || result.type.startsWith('hog_function/'))) {
                             // Check if a "new" action was recently initiated for this object type.
                             // If so, move the item to the new path.
                             const { lastNewFolder } = values

@@ -2,11 +2,13 @@ import { lemonToast } from '@posthog/lemon-ui'
 import equal from 'fast-deep-equal'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { beforeUnload, router } from 'kea-router'
+import { beforeUnload, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import {
+    createPlaylist,
     deletePlaylist,
     duplicatePlaylist,
     getPlaylist,
@@ -15,6 +17,7 @@ import {
 } from 'scenes/session-recordings/playlist/playlistUtils'
 import { urls } from 'scenes/urls'
 
+import { getLastNewFolder } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import {
     Breadcrumb,
@@ -41,6 +44,7 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
     key((props) => props.shortId),
     connect(() => ({
         values: [cohortsModel, ['cohortsById'], sceneLogic, ['activeScene']],
+        actions: [eventUsageLogic, ['reportRecordingPlaylistCreated']],
     })),
     actions({
         updatePlaylist: (properties?: Partial<SessionRecordingPlaylistType>, silent = false) => ({
@@ -57,6 +61,13 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
             null as SessionRecordingPlaylistType | null,
             {
                 getPlaylist: async () => {
+                    if (props.shortId === 'new') {
+                        const folder = getLastNewFolder() ?? 'Unfiled/Replay playlists'
+                        const playlist = await createPlaylist({ _create_in_folder: folder }, true)
+                        actions.reportRecordingPlaylistCreated('new')
+                        return playlist
+                    }
+
                     return getPlaylist(props.shortId)
                 },
                 updatePlaylist: async ({ properties, silent }) => {
@@ -87,7 +98,7 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
             null as SessionRecordingType[] | null,
             {
                 loadPinnedRecordings: async (_, breakpoint) => {
-                    if (!props.shortId) {
+                    if (!props.shortId || props.shortId === 'new') {
                         return null
                     }
 
@@ -134,7 +145,7 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
                 actions.updatePlaylist({ derived_name: values.derivedName }, true)
             }
 
-            if (playlist.filters) {
+            if (playlist?.filters) {
                 actions.markPlaylistViewed()
             }
         },
@@ -215,8 +226,14 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
         ],
     })),
 
-    afterMount(({ actions }) => {
-        actions.getPlaylist()
+    afterMount(({ actions, props }) => {
+        if (props.shortId !== 'new') {
+            actions.getPlaylist()
+        }
         actions.loadPinnedRecordings()
     }),
+
+    urlToAction(({ actions }) => ({
+        '/replay/playlists/new': () => actions.getPlaylist(),
+    })),
 ])
