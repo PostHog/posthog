@@ -203,7 +203,6 @@ export function ProjectTree(): JSX.Element {
                                             <MenuSub key={treeItem.id}>
                                                 <MenuSubTrigger asChild inset>
                                                     <ButtonPrimitive menuItem>
-                                                        {treeItem.icon}
                                                         {treeItem.name ||
                                                             treeItem.id.charAt(0).toUpperCase() + treeItem.id.slice(1)}
                                                         ...
