@@ -5342,6 +5342,29 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
         )
 
+    def test_create_feature_flag_in_specific_folder(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={
+                "key": "my-test-flag-in-folder",
+                "name": "Test Flag in Folder",
+                "filters": {"groups": [{"properties": [], "rollout_percentage": 50}]},
+                "_create_in_folder": "Special Folder/Flags",
+            },
+            format="json",
+        )
+        assert response.status_code == 201, response.json()
+        flag_id = response.json()["id"]
+        assert flag_id is not None
+
+        from posthog.models.file_system.file_system import FileSystem
+
+        fs_entry = FileSystem.objects.filter(team=self.team, ref=str(flag_id), type="feature_flag").first()
+        assert fs_entry, "No FileSystem entry found for this feature flag."
+        assert (
+            "Special Folder/Flags" in fs_entry.path
+        ), f"Expected 'Special Folder/Flags' in path, got: '{fs_entry.path}'"
+
 
 class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_creating_static_cohort_with_deleted_flag(self):

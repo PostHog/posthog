@@ -3199,6 +3199,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     is_remote_configuration: boolean
     has_encrypted_payloads: boolean
     status: 'ACTIVE' | 'INACTIVE' | 'STALE' | 'DELETED' | 'UNKNOWN'
+    _create_in_folder?: string | null
 }
 
 export interface OrganizationFeatureFlag {

@@ -1235,13 +1235,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         // TODO: REMOVE THIS OLD LOGIC! ... in favor of directly passing _create_in_folder to the API calls
                         if (
                             result.type &&
-                            ([
-                                'dashboard',
-                                'early_access_feature',
-                                'experiment',
-                                'feature_flag',
-                                'session_recording_playlist',
-                            ].includes(result.type) ||
+                            (['dashboard', 'early_access_feature', 'experiment', 'session_recording_playlist'].includes(
+                                result.type
+                            ) ||
                                 result.type.startsWith('hog_function/'))
                         ) {
                             // Check if a "new" action was recently initiated for this object type.
