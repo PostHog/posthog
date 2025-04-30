@@ -647,10 +647,10 @@ class TestSessionRecordingPlaylist(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
         playlist_id = response.json()["short_id"]
 
-        self.assertTrue(playlist_id)
+        assert playlist_id is not None
 
         fs_entry = FileSystem.objects.filter(
             team=self.team, ref=str(playlist_id), type="session_recording_playlist"
         ).first()
-        self.assertIsNotNone(fs_entry)
-        self.assertIn("Special Folder/Session Recordings", fs_entry.path)
+        assert fs_entry is not None
+        assert "Special Folder/Session Recordings" in fs_entry.path
