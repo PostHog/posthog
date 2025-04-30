@@ -290,7 +290,9 @@ pub fn decode_request(
         .and_then(|v| v.to_str().ok())
         .unwrap_or("unknown");
 
-    // Special case: if content-type explicitly specifies base64 encoding, use that
+    // Special case: if the Content-Type header explicitly specifies base64 encoding,
+    // this takes precedence over the query parameter for compression. In this case,
+    // the body is decoded as base64, and the query parameter is disregarded.
     if content_type.starts_with("application/json; encoding=base64") {
         return FlagRequest::from_bytes(decode_base64(body)?);
     }
