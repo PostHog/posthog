@@ -103,6 +103,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
         sessionSummaryFeedback: (feedback: 'good' | 'bad') => ({ feedback }),
         setSessionSummaryContent: (content: SessionSummaryContent) => ({ content }),
         summarizeSession: () => ({}),
+        setSessionSummaryLoading: (isLoading: boolean) => ({ isLoading }),
     }),
     reducers(() => ({
         summaryHasHadFeedback: [
@@ -122,6 +123,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             {
                 summarizeSession: () => true,
                 setSessionSummaryContent: () => false,
+                setSessionSummaryLoading: (_, { isLoading }) => isLoading,
             },
         ],
     })),
@@ -343,7 +345,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                             }
                         } catch (e) {
                             // Don't handle errors as we can afford to fail some chunks silently.
-                            // Also, there should not be any unparseable chunks coming from the server as they are validated before being sent.
+                            // However, there should not be any unparseable chunks coming from the server as they are validated before being sent.
                         }
                     },
                 })
@@ -359,6 +361,8 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             } catch (err) {
                 lemonToast.error('Failed to load session summary. Please, try again.')
                 throw err
+            } finally {
+                actions.setSessionSummaryLoading(false)
             }
         },
     })),

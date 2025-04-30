@@ -253,6 +253,7 @@ export function getDefaultConfig(): PluginsServerConfig {
 
         PERSON_CACHE_ENABLED_FOR_UPDATES: true,
         PERSON_CACHE_ENABLED_FOR_CHECKS: true,
+        USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG: false,
     }
 }
 

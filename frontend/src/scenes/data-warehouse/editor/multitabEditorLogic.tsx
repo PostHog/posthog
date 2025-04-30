@@ -12,6 +12,7 @@ import { removeUndefinedAndNull } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import isEqual from 'lodash.isequal'
 import { editor, Uri } from 'monaco-editor'
+import posthog from 'posthog-js'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -31,6 +32,7 @@ import {
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { DATAWAREHOUSE_EDITOR_ITEM_ID, sizeOfInBytes } from '../utils'
 import { editorSceneLogic } from './editorSceneLogic'
+import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
 import type { multitabEditorLogicType } from './multitabEditorLogicType'
 import { outputPaneLogic, OutputTab } from './outputPaneLogic'
 import { ViewEmptyState } from './ViewLoadingState'
@@ -98,6 +100,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             ['setActiveTab'],
             editorSceneLogic,
             ['reportAIQueryPrompted', 'reportAIQueryAccepted', 'reportAIQueryRejected', 'reportAIQueryPromptOpen'],
+            fixSQLErrorsLogic,
+            ['fixErrors', 'fixErrorsSuccess', 'fixErrorsFailure'],
         ],
     })),
     actions(({ values }) => ({
@@ -296,8 +300,23 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 closeHistoryModal: () => false,
             },
         ],
+        fixErrorsError: [
+            null as string | null,
+            {
+                setQueryInput: () => null,
+                fixErrorsFailure: (_, { error }) => error,
+            },
+        ],
     })),
     listeners(({ values, props, actions, asyncActions }) => ({
+        fixErrorsSuccess: ({ response }) => {
+            actions.setSuggestedQueryInput(response.query)
+
+            posthog.capture('ai-error-fixer-success', { trace_id: response.trace_id })
+        },
+        fixErrorsFailure: () => {
+            posthog.capture('ai-error-fixer-failure')
+        },
         shareTab: () => {
             const currentTab = values.activeModelUri
             if (!currentTab) {

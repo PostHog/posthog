@@ -1620,6 +1620,29 @@ email@example.org,
 
         self.assertEqual(len(AsyncDeletion.objects.all()), 0)
 
+    def test_create_cohort_in_specific_folder(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "Test Cohort in folder",
+                "groups": [{"properties": {"prop": "5"}}],
+                "_create_in_folder": "Special Folder/Cohorts",
+            },
+            format="json",
+        )
+        assert response.status_code == 201, response.json()
+
+        cohort_id = response.json()["id"]
+        assert cohort_id is not None
+
+        from posthog.models.file_system.file_system import FileSystem
+
+        fs_entry = FileSystem.objects.filter(team=self.team, ref=str(cohort_id), type="cohort").first()
+        assert fs_entry is not None, "A FileSystem entry was not created for this Cohort."
+        assert (
+            "Special Folder/Cohorts" in fs_entry.path
+        ), f"Expected path to include 'Special Folder/Cohorts', got '{fs_entry.path}'."
+
 
 def create_cohort(client: Client, team_id: int, name: str, groups: list[dict[str, Any]]):
     return client.post(f"/api/projects/{team_id}/cohorts", {"name": name, "groups": json.dumps(groups)})

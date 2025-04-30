@@ -4,7 +4,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { loaders } from 'kea-loaders'
 import api, { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { uuid } from 'lib/utils'
+import { objectsEqual, uuid } from 'lib/utils'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import posthog from 'posthog-js'
 import { projectLogic } from 'scenes/projectLogic'
@@ -50,6 +50,13 @@ const FAILURE_MESSAGE: FailureMessage & ThreadMessage = {
     content: 'Oops! It looks like I’m having trouble answering this. Could you please try again?',
     status: 'completed',
 }
+
+const HEADLINES = [
+    'How can I help you build?',
+    'What are you curious about?',
+    'How can I help you understand users?',
+    'What do you want to know today?',
+]
 
 export const maxLogic = kea<maxLogicType>([
     path(['scenes', 'max', 'maxLogic']),
@@ -290,7 +297,7 @@ export const maxLogic = kea<maxLogicType>([
                     if (e instanceof ApiError && e.status === 429) {
                         relevantErrorMessage.content = "You've reached my usage limit for now. Please try again later."
                     } else {
-                        posthog.captureException(e) // Unhandled error, log to Sentry
+                        posthog.captureException(e)
                         console.error(e)
                     }
 
@@ -435,6 +442,37 @@ export const maxLogic = kea<maxLogicType>([
 
                 return undefined
             },
+        ],
+        toolHeadlines: [(s) => [s.tools], (tools) => tools.map((tool) => tool.introOverride?.headline).filter(Boolean)],
+        toolDescriptions: [
+            (s) => [s.tools],
+            (tools) => tools.map((tool) => tool.introOverride?.description).filter(Boolean),
+        ],
+        headline: [
+            (s) => [s.conversation, s.toolHeadlines],
+            (conversation, toolHeadlines) => {
+                if (process.env.STORYBOOK) {
+                    return HEADLINES[0] // Preventing UI snapshots from being different every time
+                }
+
+                return toolHeadlines.length > 0
+                    ? toolHeadlines[0]
+                    : HEADLINES[
+                          parseInt((conversation?.id || uuid()).split('-').at(-1) as string, 16) % HEADLINES.length
+                      ]
+            },
+            // It's important we use a deep equality check for inputs, because we want to avoid needless re-renders
+            { equalityCheck: objectsEqual },
+        ],
+        description: [
+            (s) => [s.toolDescriptions],
+            (toolDescriptions): string => {
+                return `I'm Max, here to help you build a successful product. ${
+                    toolDescriptions.length > 0 ? toolDescriptions[0] : 'Ask me about your product and your users.'
+                }`
+            },
+            // It's important we use a deep equality check for inputs, because we want to avoid needless re-renders
+            { equalityCheck: objectsEqual },
         ],
     }),
     afterMount(({ actions, values }) => {
