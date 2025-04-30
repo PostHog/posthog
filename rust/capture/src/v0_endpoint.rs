@@ -67,8 +67,6 @@ async fn handle_common(
         Some(Compression::Unsupported) => String::from("unsupported"),
     };
 
-    Span::current().record("user_agent", user_agent);
-    Span::current().record("content_encoding", content_encoding);
     Span::current().record("version", meta.lib_version.clone());
     Span::current().record("compression", comp.as_str());
     Span::current().record("method", method.as_str());
