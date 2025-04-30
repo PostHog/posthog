@@ -21,7 +21,7 @@ from ee.hogai.graph.memory import prompts as memory_prompts
 from ee.hogai.graph.retention.nodes import RetentionSchemaGeneratorOutput
 from ee.hogai.graph.root.nodes import search_documentation
 from ee.hogai.graph.trends.nodes import TrendsSchemaGeneratorOutput
-from ee.hogai.utils.test import FakeChatOpenAI, FakeRunnableLambdaWithTokenCounter
+from ee.hogai.utils.tests import FakeChatOpenAI, FakeRunnableLambdaWithTokenCounter
 from ee.hogai.utils.types import AssistantMode, AssistantNodeName, AssistantState, PartialAssistantState
 from ee.models.assistant import Conversation, CoreMemory
 from posthog.models import Action
