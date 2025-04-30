@@ -317,7 +317,7 @@ def load_pending_deletions(
     cluster: dagster.ResourceParam[ClickhouseCluster],
     cleanup_delete_assets: bool | None = None,
 ) -> PendingDeletesTable:
-    """Query postgres using django ORM to get pending person deletions and insert directly into ClickHouse."""
+    """Query postgres using django ORM to get pending deletions and insert directly into ClickHouse."""
 
     pending_deletions = AsyncDeletion.objects.all()
 
