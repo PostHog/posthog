@@ -259,8 +259,9 @@ class Team(UUIDClassicModel):
     person_processing_opt_out = models.BooleanField(null=True, default=False)
     secret_api_token = models.CharField(
         max_length=200,
-        null=True,
-        blank=True,
+        default=generate_random_token_secret,
+        unique=True,
+        validators=[MinLengthValidator(10, "Project's API token must be at least 10 characters long!")],
     )
     session_recording_opt_in = models.BooleanField(default=False)
     session_recording_sample_rate = models.DecimalField(
