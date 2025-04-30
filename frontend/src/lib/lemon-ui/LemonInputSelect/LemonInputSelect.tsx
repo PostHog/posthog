@@ -421,7 +421,13 @@ export function LemonInputSelect({
                                     onClick={() => onChange?.(Array.from(allOptionsMap.keys()))}
                                     icon={
                                         <LemonCheckbox
-                                            checked={values.length === allOptionsMap.size}
+                                            checked={
+                                                values.length === allOptionsMap.size
+                                                    ? true
+                                                    : values.length
+                                                    ? 'indeterminate'
+                                                    : false
+                                            }
                                             className="pointer-events-none"
                                         />
                                     }
