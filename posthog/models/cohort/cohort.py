@@ -88,7 +88,31 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     description = models.CharField(max_length=1000, blank=True)
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     deleted = models.BooleanField(default=False)
-    filters = models.JSONField(null=True, blank=True)
+    filters = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="""Filters for the cohort. Example:
+        {
+            "properties": {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "behavioral",
+                        "key": "completed_event",
+                        "value": "signed_up",
+                        "time_interval": "day",
+                        "time_value": 7
+                    },
+                    {
+                        "type": "person",
+                        "key": "id",
+                        "value": 123,
+                        "operator": "exact"
+                    }
+                ]
+            }
+        }""",
+    )
     query = models.JSONField(null=True, blank=True)
     people = models.ManyToManyField("Person", through="CohortPeople")
     version = models.IntegerField(blank=True, null=True)
