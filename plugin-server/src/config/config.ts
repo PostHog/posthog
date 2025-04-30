@@ -191,6 +191,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: true,
         CDP_CYCLOTRON_COMPRESS_VM_STATE: isProdEnv() ? false : true,
         CDP_CYCLOTRON_USE_BULK_COPY_JOB: isProdEnv() ? false : true,
+        CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: isProdEnv() ? false : true,
         CDP_HOG_WATCHER_SAMPLE_RATE: 0, // default is off
         CDP_FETCH_TIMEOUT_MS: 10 * 1000, // 10 seconds
         CDP_FETCH_RETRIES: 3,

@@ -7,6 +7,7 @@ import { chunk } from 'lodash'
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 import { Counter, Gauge, Histogram } from 'prom-client'
+import { compress, uncompress } from 'snappy'
 
 import { KafkaConsumer, parseKafkaHeaders } from '../../kafka/consumer'
 import { KafkaProducerWrapper } from '../../kafka/producer'
@@ -308,23 +309,27 @@ export class CyclotronJobQueue {
     private async createKafkaJobs(invocations: HogFunctionInvocation[]) {
         const producer = this.getKafkaProducer()
 
-        const messages = invocations.map((x) => {
-            const serialized = serializeHogFunctionInvocation(x)
-            return {
-                topic: `cdp_cyclotron_${x.queue}`,
-                messages: [
-                    {
-                        // NOTE: Should we compress this already?
-                        value: JSON.stringify(serialized),
-                        key: x.id,
-                        headers: {
-                            hogFunctionId: x.hogFunction.id,
-                            teamId: x.globals.project.id.toString(),
+        const messages = await Promise.all(
+            invocations.map(async (x) => {
+                const serialized = serializeHogFunctionInvocation(x)
+                return {
+                    topic: `cdp_cyclotron_${x.queue}`,
+                    messages: [
+                        {
+                            // NOTE: Should we compress this already?
+                            value: this.hub.CDP_CYCLOTRON_COMPRESS_KAFKA_DATA
+                                ? await compress(JSON.stringify(serialized))
+                                : JSON.stringify(serialized),
+                            key: x.id,
+                            headers: {
+                                hogFunctionId: x.hogFunction.id,
+                                teamId: x.globals.project.id.toString(),
+                            },
                         },
-                    },
-                ],
-            }
-        })
+                    ],
+                }
+            })
+        )
 
         logger.debug('🔄', 'Queueing kafka jobs', { messages })
 
@@ -372,11 +377,14 @@ export class CyclotronJobQueue {
 
         // Parse all the messages into invocations
         for (const message of messages) {
-            if (!message.value) {
+            const rawValue = message.value
+            if (!rawValue) {
                 throw new Error('Bad message: ' + JSON.stringify(message))
             }
 
-            const invocationSerialized: HogFunctionInvocationSerialized = parseJSON(message.value.toString() ?? '')
+            // Try to decompress, otherwise just use the value as is
+            const decompressedValue = await uncompress(rawValue).catch(() => rawValue)
+            const invocationSerialized: HogFunctionInvocationSerialized = parseJSON(decompressedValue.toString())
 
             // NOTE: We might crash out here and thats fine as it would indicate that the schema changed
             // which we have full control over so shouldn't be possible
