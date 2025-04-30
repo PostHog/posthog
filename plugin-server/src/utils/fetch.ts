@@ -111,11 +111,8 @@ export class SecureFetch {
                     this.options?.allowUnsafe ?? (process.env.NODE_ENV?.includes('functional-tests') || !isProdEnv())
 
                 if (allowUnsafe) {
-                    const start = performance.now()
                     // NOTE: Agent is false to disable keep alive, an increase parallelization
-                    const res = await fetch(url, { ...init, agent: false })
-                    logger.info('Fetch took', performance.now() - start, url, res.status)
-                    return res
+                    return await fetch(url, { ...init, agent: false })
                 }
 
                 validateUrl(request.url)
