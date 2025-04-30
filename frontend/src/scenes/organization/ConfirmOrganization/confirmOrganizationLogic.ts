@@ -56,6 +56,7 @@ export const confirmOrganizationLogic = kea<confirmOrganizationLogicType>([
                     const successUrl = response.success_url || '/'
 
                     const redirectUrl = new URL(successUrl, location.origin)
+
                     redirectUrl.searchParams.set('next', nextUrl || '')
 
                     location.href = redirectUrl.toString()

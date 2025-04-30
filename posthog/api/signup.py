@@ -41,7 +41,7 @@ logger = structlog.get_logger(__name__)
 
 def verify_email_or_login(request: Request, user: User) -> None:
     if is_email_available() and not user.is_email_verified and not is_email_verification_disabled(user):
-        next_url = request.data.get("next_url")
+        next_url = request.data.get("next_url") if request and request.data else None
 
         # We only want to redirect to a relative url so that we don't redirect away from the current domain
         if is_relative_url(next_url):
@@ -63,10 +63,12 @@ def get_redirect_url(uuid: str, is_email_verified: bool, next_url: str | None = 
     )
 
     if require_email_verification:
-        base_url = "/verify_email/" + uuid
+        redirect_url = "/verify_email/" + uuid
 
         if next_url:
-            base_url += "?next=" + next_url
+            redirect_url += "?next=" + next_url
+
+        return redirect_url
 
     return next_url or "/"
 
@@ -180,7 +182,7 @@ class SignupSerializer(serializers.Serializer):
 
     def to_representation(self, instance) -> dict:
         request = self.context.get("request")
-        next_url = request.data.get("next_url") if request else None
+        next_url = request.data.get("next_url") if request and request.data else None
         # We only want to redirect to a relative url so that we don't redirect away from the current domain
         if next_url and not is_relative_url(next_url):
             next_url = None
