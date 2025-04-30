@@ -90,7 +90,7 @@ export const maxLogic = kea<maxLogicType>([
         setVisibleSuggestions: (suggestions: string[]) => ({ suggestions }),
         shuffleVisibleSuggestions: true,
         retryLastMessage: true,
-        scrollThreadToBottom: (behavior: ScrollBehavior = 'smooth') => ({ behavior }),
+        scrollThreadToBottom: (behavior?: 'instant' | 'smooth') => ({ behavior }),
         setConversationId: (conversationId: string) => ({ conversationId }),
         setConversation: (conversation: Conversation) => ({ conversation }),
         setTraceId: (traceId: string) => ({ traceId }),
@@ -423,7 +423,7 @@ export const maxLogic = kea<maxLogicType>([
                 if (scrollableEl) {
                     scrollableEl.scrollTo({
                         top: threadEl.scrollHeight,
-                        behavior,
+                        behavior: (behavior ?? 'smooth') as ScrollBehavior,
                     })
                 }
             })
