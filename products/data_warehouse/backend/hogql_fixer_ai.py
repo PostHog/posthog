@@ -134,6 +134,7 @@ Below is the current HogQL query and the error message
 
 def _get_schema_description(ai_context: dict[Any, Any], hogql_context: HogQLContext, database: Database) -> str:
     serialized_database = serialize_database(hogql_context)
+    schema_description = ""
 
     try:
         query = ai_context.get("hogql_query", None)
