@@ -18,9 +18,8 @@ export class SessionMetadataStore {
     public async storeSessionBlocks(blocks: SessionBlockMetadata[]): Promise<void> {
         logger.info('🔍', 'session_metadata_store_storing_blocks', { count: blocks.length })
 
-        const uuid = randomUUID()
         const eventsV2 = blocks.map((metadata) => ({
-            uuid,
+            uuid: randomUUID(),
             session_id: metadata.sessionId,
             team_id: metadata.teamId,
             distinct_id: metadata.distinctId,
@@ -59,7 +58,7 @@ export class SessionMetadataStore {
         // 10. we stop reading from session_replay_events_v2_test
         // 11. we remove the session_replay_events_v2_test tables and topics
         const eventsV1 = blocks.map((metadata) => ({
-            uuid,
+            uuid: randomUUID(),
             session_id: metadata.sessionId,
             team_id: metadata.teamId,
             distinct_id: metadata.distinctId,
