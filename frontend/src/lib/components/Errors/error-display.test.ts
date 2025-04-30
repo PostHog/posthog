@@ -1,4 +1,5 @@
-import { ExceptionAttributes, getExceptionAttributes } from 'scenes/error-tracking/utils'
+import { ExceptionAttributes } from './types'
+import { getExceptionAttributes } from './utils'
 
 describe('Error Display', () => {
     it('can read sentry stack trace when $exception_list is not present', () => {

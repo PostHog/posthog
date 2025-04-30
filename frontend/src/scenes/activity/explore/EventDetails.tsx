@@ -138,7 +138,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
             label: 'Exception',
             content: (
                 <div className="mx-3">
-                    <ErrorDisplay eventProperties={event.properties} />
+                    <ErrorDisplay eventProperties={event.properties} eventId={event.uuid} />
                 </div>
             ),
         })

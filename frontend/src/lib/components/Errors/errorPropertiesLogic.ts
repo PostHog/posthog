@@ -1,0 +1,76 @@
+import { connect, kea, key, path, props, selectors } from 'kea'
+import { ErrorId, ErrorProperties, ErrorTrackingException, FingerprintRecordPart } from 'lib/components/Errors/types'
+import {
+    getAdditionalProperties,
+    getExceptionAttributes,
+    getExceptionList,
+    getFingerprintRecords,
+    getSessionId,
+    hasStacktrace,
+} from 'lib/components/Errors/utils'
+import { dayjs } from 'lib/dayjs'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+
+import type { errorPropertiesLogicType } from './errorPropertiesLogicType'
+
+export interface ErrorPropertiesLogicProps {
+    properties?: ErrorProperties
+    id: ErrorId
+}
+
+export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
+    path((key) => ['components', 'Errors', 'errorPropertiesLogic', key]),
+    props({} as ErrorPropertiesLogicProps),
+    key((props) => props.id || 'error'),
+
+    connect(() => ({
+        values: [preflightLogic, ['isCloudOrDev']],
+    })),
+
+    selectors({
+        properties: [
+            () => [(_, props) => props.properties as ErrorProperties],
+            (properties: ErrorProperties) => properties,
+        ],
+        exceptionAttributes: [
+            (s) => [s.properties],
+            (properties: ErrorProperties) => (properties ? getExceptionAttributes(properties) : null),
+        ],
+        exceptionList: [
+            (s) => [s.properties],
+            (properties: ErrorProperties) => {
+                return properties ? getExceptionList(properties) : null
+            },
+        ],
+        timestamp: [
+            (s) => [s.properties],
+            (properties: ErrorProperties) => {
+                return properties ? dayjs(properties.timestamp as string) : null
+            },
+        ],
+        additionalProperties: [
+            (s) => [s.properties, s.isCloudOrDev],
+            (properties: ErrorProperties, isCloudOrDev: boolean | undefined) =>
+                properties ? getAdditionalProperties(properties, isCloudOrDev) : {},
+        ],
+        fingerprintRecords: [
+            (s) => [s.properties],
+            (properties: ErrorProperties) => (properties ? getFingerprintRecords(properties) : []),
+        ],
+        hasStacktrace: [(s) => [s.exceptionList], (excList: ErrorTrackingException[]) => hasStacktrace(excList)],
+        sessionId: [
+            (s) => [s.properties],
+            (properties: ErrorProperties) => (properties ? getSessionId(properties) : undefined),
+        ],
+        getExceptionFingerprint: [
+            (s) => [s.fingerprintRecords],
+            (records: FingerprintRecordPart[]) => (excId: string) =>
+                records.find((record) => record.type === 'exception' && record.id === excId),
+        ],
+        getFrameFingerprint: [
+            (s) => [s.fingerprintRecords],
+            (records: FingerprintRecordPart[]) => (frameRawId: string) =>
+                records.find((record) => record.type === 'frame' && record.raw_id === frameRawId),
+        ],
+    }),
+])

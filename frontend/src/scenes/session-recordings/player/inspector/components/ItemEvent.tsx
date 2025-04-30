@@ -183,7 +183,7 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
 
                 {item.data.fullyLoaded ? (
                     item.data.event === '$exception' ? (
-                        <ErrorDisplay eventProperties={item.data.properties} />
+                        <ErrorDisplay eventProperties={item.data.properties} eventId={item.data.id} />
                     ) : (
                         <LemonTabs
                             size="small"
