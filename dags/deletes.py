@@ -496,8 +496,9 @@ def cleanup_delete_assets(
     # Mark deletions as verified in Django
     if not create_pending_deletions_table.team_id:
         AsyncDeletion.objects.filter(
-            Q(deletion_type=DeletionType.Person, created_at__lte=create_pending_deletions_table.timestamp)
-            | Q(deletion_type=DeletionType.Team),
+            Q(
+                deletion_type=DeletionType.Person, created_at__lte=create_pending_deletions_table.timestamp
+            ),  # TODO: Mark team deletion '| Q(deletion_type=DeletionType.Team)' once we setup deletion of all team data in other tables
             delete_verified_at__isnull=True,
         ).update(delete_verified_at=timezone.now())
     else:

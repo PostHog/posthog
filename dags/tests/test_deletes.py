@@ -163,16 +163,13 @@ def test_full_job_team_deletes(cluster: ClickhouseCluster):
         deletes = [(events[i][0], DeletionType.Team, events[i][0], None) for i in range(delete_count)]
 
         # insert the deletes into django
-        for i, delete in enumerate(deletes):
+        for delete in deletes:
             d = AsyncDeletion.objects.create(
                 team_id=delete[0],
                 deletion_type=delete[1],
                 key=delete[2],
                 delete_verified_at=delete[3],
-                created_at=events[i][3]
-                - timedelta(
-                    days=1
-                ),  # for team deletes, we don't care about the created_at. If a team deletion was requested, we need to delete all its data.
+                created_at=None,  # for team deletes, we don't care about the created_at. If a team deletion was requested, we need to delete all its data.
             )
             d.save()
 
@@ -199,10 +196,11 @@ def test_full_job_team_deletes(cluster: ClickhouseCluster):
     assert len(final_events) == event_count - delete_count
 
     # Verify that the deletions for the teams have been marked verified
-    marked_deletions = AsyncDeletion.objects.filter(
-        team_id__in=list(range(delete_count)), delete_verified_at__isnull=False
-    )
-    assert len(marked_deletions) == delete_count
+    # TODO: Uncomment next two lines once we setup deletion of all team data in other tables and we actually mark team deletions as processed
+    # marked_deletions = AsyncDeletion.objects.filter(
+    #     team_id__in=list(range(delete_count)), delete_verified_at__isnull=False
+    # )
+    # assert len(marked_deletions) == delete_count
 
     # Verify the temporary tables were cleaned up
     table = PendingDeletesTable(timestamp=timestamp)
