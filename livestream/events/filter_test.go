@@ -1,6 +1,7 @@
 package events
 
 import (
+	json "encoding/json"
 	"testing"
 	"time"
 
@@ -182,4 +183,19 @@ func TestFilterRunWithGeoEvent(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("Timed out waiting for geo event")
 	}
+}
+
+func TestResponsePostHogEvent_MarshalJSON(t *testing.T) {
+	event := ResponsePostHogEvent{
+		Uuid:       "123",
+		Timestamp:  "2023-01-01T00:00:00Z",
+		DistinctId: "user1",
+		PersonId:   "person1",
+		Event:      "pageview",
+		Properties: map[string]interface{}{"url": "https://example.com"},
+	}
+
+	json, err := json.Marshal(event)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"uuid":"123","timestamp":"2023-01-01T00:00:00Z","distinct_id":"user1","person_id":"person1","event":"pageview","properties":{"url":"https://example.com"}}`, string(json))
 }

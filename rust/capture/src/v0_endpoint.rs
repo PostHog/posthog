@@ -242,7 +242,7 @@ pub async fn recording(
                     CaptureError::MissingEventName => "missing_event_name",
                     CaptureError::RequestDecodingError(_) => "request_decoding_error",
                     CaptureError::RequestParsingError(_) => "request_parsing_error",
-                    CaptureError::EventTooBig => "event_too_big",
+                    CaptureError::EventTooBig(_) => "event_too_big",
                     CaptureError::NonRetryableSinkError => "sink_error",
                     CaptureError::InvalidSessionId => "invalid_session_id",
                     CaptureError::MissingSnapshotData => "missing_snapshot_data",
