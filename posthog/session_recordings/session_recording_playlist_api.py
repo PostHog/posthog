@@ -126,6 +126,7 @@ def log_playlist_activity(
 
 class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
     recordings_counts = serializers.SerializerMethodField()
+    _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
         model = SessionRecordingPlaylist
@@ -143,6 +144,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
             "last_modified_at",
             "last_modified_by",
             "recordings_counts",
+            "_create_in_folder",
         ]
         read_only_fields = [
             "id",
