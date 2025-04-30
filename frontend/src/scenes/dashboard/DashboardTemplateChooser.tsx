@@ -58,7 +58,7 @@ export function DashboardTemplateChooser({
                                     addDashboard({
                                         name: 'New Dashboard',
                                         show: true,
-                                        ...(folder ? { _create_in_folder: folder } : {}),
+                                        ...(typeof folder === 'string' ? { _create_in_folder: folder } : {}),
                                     }),
                                 cancelCallback: () => {
                                     setIsLoading(false)
