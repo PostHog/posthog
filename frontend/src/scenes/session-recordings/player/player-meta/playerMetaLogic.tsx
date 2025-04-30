@@ -365,7 +365,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                     parser.feed(decodedValue)
                 }
             } catch (err) {
-                lemonToast.error('Failed to load session summary. Please, try again.')
+                lemonToast.error('Failed to load session summary. Please, contact us, and try again in a few minutes.')
                 throw err
             } finally {
                 actions.setSessionSummaryLoading(false)
