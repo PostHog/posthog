@@ -267,7 +267,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         logic: dataWarehouseJoinsLogic,
                         value: 'columnsJoinedToPersons',
                         getName: (personProperty: PersonProperty) => personProperty.name,
-                        getValue: (personProperty: PersonProperty) => personProperty.name,
+                        getValue: (personProperty: PersonProperty) => personProperty.id,
                         getPopoverHeader: () => 'Extended Person Property',
                     },
                     {
