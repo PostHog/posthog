@@ -183,6 +183,7 @@ where
         config.enable_historical_rerouting,
         config.historical_rerouting_threshold_days,
         config.historical_tokens_keys,
+        config.is_mirror_deploy,
     );
 
     // run our app with hyper
