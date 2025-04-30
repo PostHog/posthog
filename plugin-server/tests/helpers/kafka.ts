@@ -28,6 +28,8 @@ export async function resetKafka(extraServerConfig?: Partial<PluginsServerConfig
         logLevel: logLevel.WARN,
     })
 
+    await deleteAllTopics(kafka)
+
     await createTopics(kafka, [
         KAFKA_EVENTS_JSON,
         KAFKA_EVENTS_PLUGIN_INGESTION,
@@ -41,8 +43,6 @@ export async function resetKafka(extraServerConfig?: Partial<PluginsServerConfig
         KAFKA_PLUGIN_LOG_ENTRIES,
         KAFKA_EVENTS_DEAD_LETTER_QUEUE,
     ])
-
-    await resetAllTopics(kafka)
 
     return kafka
 }
@@ -63,7 +63,7 @@ export async function createTopics(kafka: Kafka, topics: string[]) {
     await admin.disconnect()
 }
 
-export async function resetAllTopics(kafka: Kafka) {
+export async function deleteAllTopics(kafka: Kafka) {
     const admin = kafka.admin()
     try {
         await admin.connect()
