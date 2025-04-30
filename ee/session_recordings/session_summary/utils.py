@@ -173,8 +173,17 @@ def serialize_to_sse_event(event_label: str, event_data: str) -> str:
     Serialize data into a Server-Sent Events (SSE) message format.
     Args:
         event_label: The type of event (e.g. "session-summary-stream" or "error")
-        event_data: The data to be sent in the event
+        event_data: The data to be sent in the event (most likely JSON-serialized)
     Returns:
         A string formatted according to the SSE specification
     """
+    # Escape new lines in event label
+    event_label = event_label.replace("\n", "\\n")
+    # Check (cheap) if event data is JSON-serialized, no need to escape
+    if (event_data.startswith("{") and event_data.endswith("}")) or (
+        event_data.startswith("[") and event_data.endswith("]")
+    ):
+        return f"event: {event_label}\ndata: {event_data}\n\n"
+    # Otherwise, escape newlines also
+    event_data = event_data.replace("\n", "\\n")
     return f"event: {event_label}\ndata: {event_data}\n\n"
