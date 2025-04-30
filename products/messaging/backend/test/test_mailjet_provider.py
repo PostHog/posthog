@@ -4,7 +4,7 @@ from django.test import TestCase, override_settings
 from rest_framework import exceptions
 
 from products.messaging.backend.providers.mailjet import MailjetProvider
-from posthog.models import Integration, Team, Organization
+from posthog.models import Team, Organization
 
 
 class TestMailjetProvider(TestCase):
@@ -86,14 +86,14 @@ class TestMailjetProvider(TestCase):
 
     @patch("requests.post")
     @override_settings(MAILJET_API_KEY="test_api_key", MAILJET_SECRET_KEY="test_secret_key")
-    def test_create_sender_domain_success(self, mock_post):
+    def test_create_email_domain_success(self, mock_post):
         mock_response = MagicMock()
         mock_response.json.return_value = {"count": 1, "data": [{"Success": True}], "total": 1}
         mock_response.raise_for_status.return_value = None
         mock_post.return_value = mock_response
 
         provider = MailjetProvider()
-        result = provider._create_sender_domain(self.domain, self.team.id)
+        result = provider.create_email_domain(self.domain, self.team.id)
 
         self.assertEqual(result, {"Success": True})
         mock_post.assert_called_once()
@@ -106,25 +106,25 @@ class TestMailjetProvider(TestCase):
 
     @patch("requests.post")
     @override_settings(MAILJET_API_KEY="test_api_key", MAILJET_SECRET_KEY="test_secret_key")
-    def test_create_sender_domain_invalid_domain(self, mock_post):
+    def test_create_email_domain_invalid_domain(self, mock_post):
         provider = MailjetProvider()
         invalid_domains = ["", "invalid domain", "no-tld", "@example.com"]
 
         for domain in invalid_domains:
             with self.assertRaises(exceptions.ValidationError):
-                provider._create_sender_domain(domain, self.team.id)
+                provider.create_email_domain(domain, self.team.id)
 
         mock_post.assert_not_called()
 
     @patch("requests.post")
     @override_settings(MAILJET_API_KEY="test_api_key", MAILJET_SECRET_KEY="test_secret_key")
-    def test_create_sender_domain_request_exception(self, mock_post):
+    def test_create_email_domain_request_exception(self, mock_post):
         mock_post.side_effect = Exception("API Error")
 
         provider = MailjetProvider()
 
         with self.assertRaises(Exception):
-            provider._create_sender_domain(self.domain, self.team.id)
+            provider.create_email_domain(self.domain, self.team.id)
 
     @patch("requests.get")
     @override_settings(MAILJET_API_KEY="test_api_key", MAILJET_SECRET_KEY="test_secret_key")
@@ -182,77 +182,26 @@ class TestMailjetProvider(TestCase):
         with self.assertRaises(Exception):
             provider._check_domain_dns_records(self.domain)
 
-    @patch.object(MailjetProvider, "_create_sender_domain")
-    @patch.object(MailjetProvider, "_get_domain_dns_records")
-    @patch.object(MailjetProvider, "create_integration")
-    @override_settings(MAILJET_API_KEY="test_api_key", MAILJET_SECRET_KEY="test_secret_key")
-    def test_setup_email_domain(self, mock_create_integration, mock_get_dns, mock_create_sender):
-        mock_sender_response = {"ID": "123", "Success": True}
-        mock_create_sender.return_value = mock_sender_response
-        mock_get_dns.return_value = self.mock_dns_response
-
-        mock_integration = MagicMock()
-        mock_integration.id = 1
-        mock_create_integration.return_value = mock_integration
-
-        provider = MailjetProvider()
-        team_id = 1
-        created_by = None
-        result = provider.setup_email_domain(self.domain, team_id, created_by)
-
-        mock_create_sender.assert_called_once_with(self.domain, team_id)
-
-        mock_create_integration.assert_called_once_with(
-            kind="email",
-            integration_id=self.domain,
-            config={
-                "domain": self.domain,
-                "mailjet_id": "123",
-                "mailjet_verified": False,
-            },
-            team_id=team_id,
-            created_by=created_by,
-        )
-
-        mock_get_dns.assert_called_once_with(self.domain)
-
-        self.assertEqual(result["status"], "pending")
-        self.assertEqual(len(result["dnsRecords"]), 2)
-        self.assertEqual(result["integration"], mock_integration)
-
     @patch.object(MailjetProvider, "_check_domain_dns_records")
-    @patch.object(MailjetProvider, "update_integration")
     @override_settings(MAILJET_API_KEY="test_api_key", MAILJET_SECRET_KEY="test_secret_key")
-    def test_verify_email_domain(self, mock_update_integration, mock_check_dns):
+    def test_verify_email_domain(self, mock_check_dns):
         verified_dns_response = self.mock_dns_response.copy()
         verified_dns_response["DKIMStatus"] = "OK"
         verified_dns_response["SPFStatus"] = "OK"
         mock_check_dns.return_value = verified_dns_response
-
-        mock_updated_integration = MagicMock()
-        mock_update_integration.return_value = mock_updated_integration
 
         provider = MailjetProvider()
         result = provider.verify_email_domain(self.domain, self.team.id)
 
         mock_check_dns.assert_called_once_with(self.domain)
 
-        # Verify integration was updated when DNS records are verified
-        mock_update_integration.assert_called_once_with(
-            kind="email",
-            integration_id=self.domain,
-            updated_config={"mailjet_verified": True},
-            team_id=self.team.id,
-        )
-
         self.assertEqual(result["status"], "success")
         self.assertEqual(len(result["dnsRecords"]), 2)
         self.assertTrue(all(record["status"] == "success" for record in result["dnsRecords"]))
 
     @patch.object(MailjetProvider, "_check_domain_dns_records")
-    @patch.object(MailjetProvider, "update_integration")
     @override_settings(MAILJET_API_KEY="test_api_key", MAILJET_SECRET_KEY="test_secret_key")
-    def test_verify_email_domain_not_verified(self, mock_update_integration, mock_check_dns):
+    def test_verify_email_domain_not_verified(self, mock_check_dns):
         mock_check_dns.return_value = self.mock_dns_response
 
         provider = MailjetProvider()
@@ -260,38 +209,6 @@ class TestMailjetProvider(TestCase):
 
         mock_check_dns.assert_called_once_with(self.domain)
 
-        # Verify integration was NOT updated when DNS records are not verified
-        mock_update_integration.assert_not_called()
-
         self.assertEqual(result["status"], "pending")
         self.assertEqual(len(result["dnsRecords"]), 2)
         self.assertTrue(all(record["status"] == "pending" for record in result["dnsRecords"]))
-
-    @override_settings(MAILJET_API_KEY="test_api_key", MAILJET_SECRET_KEY="test_secret_key")
-    def test_update_integration_merges_config(self):
-        provider = MailjetProvider()
-
-        mock_integration = Integration.objects.create(
-            kind="email",
-            integration_id=self.domain,
-            team_id=self.team.id,
-            config={"domain": self.domain, "mailjet_id": "123", "mailjet_verified": False},
-        )
-
-        provider.update_integration(
-            kind="email",
-            integration_id=self.domain,
-            team_id=self.team.id,
-            updated_config={"mailjet_verified": True},
-        )
-
-        mock_integration.refresh_from_db()
-
-        self.assertEqual(
-            mock_integration.config,
-            {
-                "domain": self.domain,
-                "mailjet_id": "123",
-                "mailjet_verified": True,
-            },
-        )

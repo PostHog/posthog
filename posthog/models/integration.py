@@ -801,8 +801,15 @@ class EmailIntegration:
             raise Exception("EmailIntegration init called with Integration with wrong 'kind'")
         self.integration = integration
 
+    @property
+    def mailjet_provider(self) -> MailjetProvider:
+        return MailjetProvider()
+
     @classmethod
     def integration_from_domain(cls, domain: str, team_id: int, created_by: Optional[User] = None) -> Integration:
+        mailjet = MailjetProvider()
+        mailjet.create_email_domain(domain, team_id=team_id)
+
         integration, created = Integration.objects.update_or_create(
             team_id=team_id,
             kind="email",
@@ -823,22 +830,18 @@ class EmailIntegration:
 
         return integration
 
-    def setup_email_domain(self, domain: str, team_id: int, created_by=None):
-        mailjet = MailjetProvider()
-        return mailjet.setup_email_domain(domain, team_id=team_id, created_by=created_by)
+    def verify(self):
+        domain = self.integration.config.get("domain")
 
-    def verify_email_domain(self, domain: str, team_id: int):
-        mailjet = MailjetProvider()
-        verification_result = mailjet.verify_email_domain(domain, team_id=team_id)
+        verification_result = self.mailjet_provider.verify_email_domain(domain, team_id=self.integration.team_id)
 
         if verification_result.get("status") == "success":
             updated_config = {"mailjet_verified": True}
 
-            integration = Integration.objects.get(kind="email", integration_id=domain, team_id=team_id)
             # Merge the new config with existing config
-            updated_config = {**integration.config, **updated_config}
-            integration.config = updated_config
-            integration.save()
+            updated_config = {**self.integration.config, **updated_config}
+            self.integration.config = updated_config
+            self.integration.save()
 
         return verification_result
 

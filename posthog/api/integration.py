@@ -5,7 +5,7 @@ from typing import Any
 
 from django.http import HttpResponse
 from django.shortcuts import redirect
-from rest_framework import mixins, serializers, status, viewsets
+from rest_framework import mixins, serializers, viewsets
 from posthog.api.utils import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -53,7 +53,7 @@ class IntegrationSerializer(serializers.ModelSerializer):
         elif validated_data["kind"] == "email":
             config = validated_data.get("config", {})
             if not (config.get("domain")):
-                raise ValidationError("Domain is required for Mail integration")
+                raise ValidationError("Domain is required for email integration")
             instance = EmailIntegration.integration_from_domain(
                 config["domain"],
                 team_id,
@@ -225,10 +225,6 @@ class IntegrationViewSet(
 
     @action(methods=["POST"], detail=True, url_path="email/verify")
     def email_verify(self, request, **kwargs):
-        domain = request.data.get("domain")
-        if not domain:
-            return Response({"error": "Domain parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
-
         email = EmailIntegration(self.get_object())
-        verification_result = email.verify_email_domain(domain, team_id=self.team.id)
+        verification_result = email.verify_email_domain()
         return Response(verification_result)
