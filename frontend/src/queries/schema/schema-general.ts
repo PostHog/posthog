@@ -1601,6 +1601,9 @@ export enum WebAnalyticsOrderByFields {
     UniqueConversions = 'UniqueConversions',
     ConversionRate = 'ConversionRate',
     ConvertingUsers = 'ConvertingUsers',
+    RageClicks = 'RageClicks',
+    DeadClicks = 'DeadClicks',
+    Errors = 'Errors',
 }
 export type WebAnalyticsOrderBy = [WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]
 interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<R> {
@@ -1670,6 +1673,7 @@ export enum WebStatsBreakdown {
     City = 'City',
     Timezone = 'Timezone',
     Language = 'Language',
+    FrustrationMetrics = 'FrustrationMetrics',
 }
 export interface WebStatsTableQuery extends WebAnalyticsQueryBase<WebStatsTableQueryResponse> {
     kind: NodeKind.WebStatsTableQuery
@@ -2881,6 +2885,17 @@ export interface RevenueAnalyticsEventItem {
      * @default {"static": "USD"}
      */
     revenueCurrencyProperty: RevenueCurrencyPropertyConfig
+
+    /**
+     * If true, the revenue will be divided by the smallest unit of the currency.
+     *
+     * For example, in case this is set to true,
+     * if the revenue is 1089 and the currency is USD, the revenue will be $10.89,
+     * but if the currency is JPY, the revenue will be ¥1089.
+     *
+     * @default false
+     */
+    currencyAwareDecimal: boolean
 }
 
 export interface RevenueAnalyticsConfig {

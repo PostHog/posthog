@@ -65,12 +65,14 @@ const buildDataWarehouseSources = (
     allDataWarehouseSources: ExternalDataSource[],
     state: ParsedRecord
 ): ParsedRecord => {
-    return allDataWarehouseSources.reduce((acc, source) => {
-        if (!(source.id in acc)) {
-            acc[source.id] = true
-        }
-        return acc
-    }, state)
+    return allDataWarehouseSources
+        .filter((source) => source.revenue_analytics_enabled)
+        .reduce((acc, source) => {
+            if (!(source.id in acc)) {
+                acc[source.id] = true
+            }
+            return acc
+        }, state)
 }
 
 export const RevenueAnalyticsFilters = (): JSX.Element => {

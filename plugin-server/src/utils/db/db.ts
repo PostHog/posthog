@@ -503,9 +503,7 @@ export class DB {
     public async personPropertiesSize(teamId: number, distinctId: string): Promise<number> {
         const values = [teamId, distinctId]
         const queryString = `
-            SELECT (COALESCE(octet_length(properties::text)::bigint, 0::bigint) +
-                COALESCE(octet_length(properties_last_updated_at::text)::bigint, 0::bigint) +
-                COALESCE(octet_length(properties_last_operation::text)::bigint, 0::bigint)) AS total_props_bytes
+            SELECT COALESCE(pg_column_size(properties)::bigint, 0::bigint) AS total_props_bytes
             FROM posthog_person
             JOIN posthog_persondistinctid ON (posthog_persondistinctid.person_id = posthog_person.id)
             WHERE
@@ -584,7 +582,7 @@ export class DB {
         uuid: string,
         distinctIds?: { distinctId: string; version?: number }[],
         tx?: TransactionClient
-    ): Promise<InternalPerson> {
+    ): Promise<[InternalPerson, TopicMessage[]]> {
         distinctIds ||= []
 
         for (const distinctId of distinctIds) {
@@ -607,7 +605,7 @@ export class DB {
                 distinctIds
                     .map(
                         // NOTE: Keep this in sync with the posthog_persondistinctid INSERT in
-                        // `addDistinctIdPooled`
+                        // `addDistinctId`
                         (_, index) => `, distinct_id_${index} AS (
                         INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
                         VALUES (
@@ -667,8 +665,7 @@ export class DB {
             })
         }
 
-        await this.kafkaProducer.queueMessages(kafkaMessages)
-        return person
+        return [person, kafkaMessages]
     }
 
     // Currently in use, but there are various problems with this function
@@ -853,25 +850,13 @@ export class DB {
         distinctId: string,
         version: number,
         tx?: TransactionClient
-    ): Promise<void> {
-        const kafkaMessages = await this.addDistinctIdPooled(person, distinctId, version, tx)
-        if (kafkaMessages.length) {
-            await this.kafkaProducer.queueMessages(kafkaMessages)
-        }
-    }
-
-    public async addDistinctIdPooled(
-        person: InternalPerson,
-        distinctId: string,
-        version: number,
-        tx?: TransactionClient
     ): Promise<TopicMessage[]> {
         const insertResult = await this.postgres.query(
             tx ?? PostgresUse.COMMON_WRITE,
             // NOTE: Keep this in sync with the posthog_persondistinctid INSERT in `createPerson`
             'INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version) VALUES ($1, $2, $3, $4) RETURNING *',
             [distinctId, person.id, person.team_id, version],
-            'addDistinctIdPooled'
+            'addDistinctId'
         )
 
         const { id, ...personDistinctIdCreated } = insertResult.rows[0] as PersonDistinctId
