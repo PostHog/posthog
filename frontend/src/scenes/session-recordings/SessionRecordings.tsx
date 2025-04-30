@@ -1,7 +1,7 @@
 import { IconEllipsis, IconGear } from '@posthog/icons'
 import { IconOpenSidebar } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonMenu } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import {
     authorizedUrlListLogic,
@@ -11,12 +11,15 @@ import {
 import { FilmCameraHog, WarningHog } from 'lib/components/hedgehogs'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { asyncSaveToModal } from 'lib/components/SaveTo/saveToLogic'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { SceneExport } from 'scenes/sceneTypes'
 import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
@@ -26,6 +29,7 @@ import { urls } from 'scenes/urls'
 import { NotebookNodeType, ReplayTab, ReplayTabs } from '~/types'
 import { ProductKey } from '~/types'
 
+import { createPlaylist } from './playlist/playlistUtils'
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
 import { SavedSessionRecordingPlaylists } from './saved-playlists/SavedSessionRecordingPlaylists'
 import { sessionReplaySceneLogic } from './sessionReplaySceneLogic'
@@ -35,9 +39,20 @@ function Header(): JSX.Element {
     const { tab } = useValues(sessionReplaySceneLogic)
     const { currentTeam } = useValues(teamLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
+    const { reportRecordingPlaylistCreated } = useActions(eventUsageLogic)
 
     // NB this relies on `updateSearchParams` being the only prop needed to pick the correct "Recent" tab list logic
     const { filters } = useValues(sessionRecordingsPlaylistLogic({ updateSearchParams: true }))
+
+    const newPlaylistHandler = useAsyncHandler(async () => {
+        const folder = await asyncSaveToModal({ defaultFolder: 'Unfiled/Replay playlists' })
+        if (typeof folder === 'string') {
+            await createPlaylist({ _create_in_folder: folder, type: 'collection' }, true)
+        } else {
+            await createPlaylist({ type: 'collection' }, true)
+        }
+        reportRecordingPlaylistCreated('new')
+    })
 
     return (
         <PageHeader
@@ -63,6 +78,17 @@ function Header(): JSX.Element {
                                 type="secondary"
                             />
                         </>
+                    )}
+
+                    {tab === ReplayTabs.Playlists && (
+                        <LemonButton
+                            type="primary"
+                            onClick={(e) => newPlaylistHandler.onEvent?.(e)}
+                            data-attr="save-recordings-playlist-button"
+                            loading={newPlaylistHandler.loading}
+                        >
+                            New collection
+                        </LemonButton>
                     )}
                 </>
             }
