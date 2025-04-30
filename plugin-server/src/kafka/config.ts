@@ -22,21 +22,21 @@ export const createRdConnectionConfigFromEnvVars = (
         (target === 'producer'
             ? kafkaConfig.KAFKA_PRODUCER_HOSTS
             : target === 'cdp_producer'
-            ? kafkaConfig.KAFKA_CDP_HOSTS
+            ? kafkaConfig.KAFKA_CDP_PRODUCER_HOSTS
             : kafkaConfig.KAFKA_HOSTS) ?? kafkaConfig.KAFKA_HOSTS
 
     const kafkaSecurityProtocol =
         (target === 'producer'
             ? kafkaConfig.KAFKA_PRODUCER_SECURITY_PROTOCOL
             : target === 'cdp_producer'
-            ? kafkaConfig.KAFKA_CDP_SECURITY_PROTOCOL
+            ? kafkaConfig.KAFKA_CDP_PRODUCER_SECURITY_PROTOCOL
             : kafkaConfig.KAFKA_SECURITY_PROTOCOL) ?? kafkaConfig.KAFKA_SECURITY_PROTOCOL
 
     const kafkaClientId =
         (target === 'producer'
             ? kafkaConfig.KAFKA_PRODUCER_CLIENT_ID
             : target === 'cdp_producer'
-            ? kafkaConfig.KAFKA_CDP_CLIENT_ID
+            ? kafkaConfig.KAFKA_CDP_PRODUCER_CLIENT_ID
             : kafkaConfig.KAFKA_CLIENT_ID) ?? kafkaConfig.KAFKA_CLIENT_ID
 
     // We get the config from the environment variables. This method should
