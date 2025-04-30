@@ -12,6 +12,7 @@ from django.utils import timezone
 from posthog.batch_exports.models import BatchExportRun
 from posthog.cloud_utils import is_cloud
 from posthog.email import EMAIL_TASK_KWARGS, EmailMessage, is_email_available
+from posthog.warehouse.models import ExternalDataSource
 from posthog.models import (
     Organization,
     OrganizationInvite,
@@ -45,7 +46,7 @@ def send_message_to_all_staff_users(message: EmailMessage) -> None:
     message.send()
 
 
-def get_members_to_notify(team: Team, notification_setting: str) -> list[OrganizationMembership]:
+def get_members_to_notify(team: Team, notification_setting: NotificationSettingType) -> list[OrganizationMembership]:
     memberships_to_email = []
     memberships = OrganizationMembership.objects.prefetch_related("user", "organization").filter(
         organization_id=team.organization_id
@@ -96,11 +97,13 @@ def should_send_notification(
 
         return True
 
+    # Default to False (disabled) if not set
     elif notification_type == NotificationSetting.PLUGIN_DISABLED.value:
-        return not settings.get("plugin_disabled", True)  # Default to True (disabled) if not set
+        return not settings.get(notification_type, True)
 
+    # Default to True (enabled) if not set
     elif notification_type == NotificationSetting.ERROR_TRACKING_ISSUE_ASSIGNED.value:
-        return settings.get("error_tracking_issue_assigned", True)  # Default to True (enabled) if not set
+        return settings.get(notification_type, True)
 
     # The below typeerror is ignored because we're currently handling the notification
     # types above, so technically it's unreachable. However if another is added but
@@ -423,6 +426,22 @@ def send_two_factor_auth_backup_code_used_email(user_id: int) -> None:
     )
     message.add_recipient(user.email)
     message.send(send_async=False)
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+def send_revenue_analytics_sync_complete_email(team_id: int, source_id: str) -> None:
+    team: Team = Team.objects.get(pk=team_id)
+    source: ExternalDataSource = ExternalDataSource.objects.get(team=team, pk=source_id)
+
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"revenue_analytics_sync_complete_{team_id}_{source_id}",
+        template_name="revenue_analytics_sync_complete",
+        subject=f"Revenue analytics sync complete for {source.source_type}",
+        template_context={"source_type": source.source_type},
+    )
+
+    send_message_to_all_staff_users(message)
 
 
 def get_users_for_orgs_with_no_ingested_events(org_created_from: datetime, org_created_to: datetime) -> list[User]:

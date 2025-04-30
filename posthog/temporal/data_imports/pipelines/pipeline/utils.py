@@ -9,6 +9,7 @@ from ipaddress import IPv4Address, IPv6Address
 from typing import Any, Optional
 
 import deltalake as deltalake
+from django.conf import settings
 import numpy as np
 import orjson
 import pyarrow as pa
@@ -27,7 +28,9 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import (
     PartitionMode,
     SourceResponse,
 )
-from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema
+from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
+from products.revenue_analytics.backend.models import STRIPE_CHARGE_RESOURCE_NAME
+from posthog.tasks.email import send_revenue_analytics_sync_complete_email
 
 DLT_TO_PA_TYPE_MAP = {
     "text": pa.string(),
@@ -396,6 +399,29 @@ def _get_incremental_field_last_value(schema: ExternalDataSchema | None, table: 
 def _update_last_synced_at_sync(schema: ExternalDataSchema, job: ExternalDataJob) -> None:
     schema.last_synced_at = job.created_at
     schema.save()
+
+
+def _notify_revenue_analytics_that_sync_has_completed(schema: ExternalDataSchema, logger: FilteringBoundLogger) -> None:
+    try:
+        sync_took_more_than_5_minutes = schema.source.created_at < datetime.datetime.now() - datetime.timedelta(
+            minutes=5
+        )
+
+        if (
+            schema.name == STRIPE_CHARGE_RESOURCE_NAME
+            and schema.source.source_type == ExternalDataSource.Type.STRIPE
+            and schema.source.revenue_analytics_enabled
+            and sync_took_more_than_5_minutes
+            and not schema.team.revenue_analytics_config.notified_first_sync
+        ):
+            if not settings.TEST:
+                send_revenue_analytics_sync_complete_email.delay(schema.team.pk, schema.source.pk)
+            schema.team.revenue_analytics_config.notified_first_sync = True
+            schema.team.revenue_analytics_config.save()
+    except Exception as e:
+        # Silently fail, we don't want this to crash the pipeline
+        # Sending an email is not critical to the pipeline
+        logger.exception(f"Error notifying revenue analytics that sync has completed: {e}")
 
 
 def _update_job_row_count(job_id: str, count: int, logger: FilteringBoundLogger) -> None:

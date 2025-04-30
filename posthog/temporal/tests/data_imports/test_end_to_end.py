@@ -270,6 +270,8 @@ async def test_stripe_charges(team, stripe_charge):
         mock_data_response=stripe_charge["data"],
     )
 
+    assert team.revenue_analytics_config.notified_first_sync
+
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
