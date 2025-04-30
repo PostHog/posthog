@@ -14,7 +14,7 @@ use limiters::token_dropper::TokenDropper;
 use metrics::counter;
 use serde_json::json;
 use serde_json::Value;
-use tracing::{debug, error, instrument, warn};
+use tracing::{debug, error, instrument, warn, Span};
 
 use crate::prometheus::report_dropped_events;
 use crate::v0_request::{
@@ -49,29 +49,39 @@ async fn handle_common(
         .get("content-encoding")
         .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
 
+    if state.is_mirror_deploy {
+        // for mirror deploy, temporarily log all headers
+        for entry in headers {
+            let key = entry.0.as_str();
+            let value = entry.1.to_str().unwrap_or("UNKNOWN");
+            Span::current().record(key, value);
+        }
+    } else {
+        Span::current().record("user_agent", user_agent);
+        Span::current().record("content_encoding", content_encoding);
+    }
+
     let comp = match meta.compression {
         None => String::from("unknown"),
         Some(Compression::Gzip) => String::from("gzip"),
         Some(Compression::Unsupported) => String::from("unsupported"),
     };
 
-    tracing::Span::current().record("user_agent", user_agent);
-    tracing::Span::current().record("content_encoding", content_encoding);
-    tracing::Span::current().record("version", meta.lib_version.clone());
-    tracing::Span::current().record("compression", comp.as_str());
-    tracing::Span::current().record("method", method.as_str());
-    tracing::Span::current().record("path", path.as_str().trim_end_matches('/'));
+    Span::current().record("version", meta.lib_version.clone());
+    Span::current().record("compression", comp.as_str());
+    Span::current().record("method", method.as_str());
+    Span::current().record("path", path.as_str().trim_end_matches('/'));
 
     let request = match headers
         .get("content-type")
         .map_or("", |v| v.to_str().unwrap_or(""))
     {
         "application/x-www-form-urlencoded" => {
-            tracing::Span::current().record("content_type", "application/x-www-form-urlencoded");
+            Span::current().record("content_type", "application/x-www-form-urlencoded");
 
             let input: EventFormData = serde_urlencoded::from_bytes(body.deref()).map_err(|e| {
-                error!("failed to decode body: {}", e);
-                CaptureError::RequestDecodingError(String::from("invalid form data"))
+                error!("failed to decode urlencoded form body: {}", e);
+                CaptureError::RequestDecodingError(String::from("invalid urlencoded form data"))
             })?;
             let payload = base64::engine::general_purpose::STANDARD
                 .decode(&input.data)
@@ -79,17 +89,22 @@ async fn handle_common(
                     if state.is_mirror_deploy {
                         // get a peek at the headers and a short snip of the payload in mirror
                         // see which capture.py "kludge warning" these may map to, if any
-                        error!("failed to decode mirrored form data: {} w/ headers << {:?} >> and data: {:?}...",
-                            e, &headers, &input.data[0..input.data.len().min(40)]);
+                        error!(
+                            "failed to decode mirrored form w/error: {} and data: <<{:?}>>",
+                            e,
+                            &input.data[0..input.data.len().min(40)]
+                        );
                     } else {
-                        error!("failed to decode form data: {}", e);
+                        error!("failed to decode base64 form data: {}", e);
                     }
-                    CaptureError::RequestDecodingError(String::from("missing data field"))
+                    CaptureError::RequestDecodingError(String::from(
+                        "missing or invalid data field",
+                    ))
                 })?;
             RawRequest::from_bytes(payload.into(), state.event_size_limit)
         }
         ct => {
-            tracing::Span::current().record("content_type", ct);
+            Span::current().record("content_type", ct);
 
             RawRequest::from_bytes(body, state.event_size_limit)
         }
