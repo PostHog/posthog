@@ -80,7 +80,7 @@ export function Tooltip({
             offsetFunc(offset),
             flip({ fallbackAxisSideDirection: 'start' }),
             shift(),
-            arrow({ element: caretRef }),
+            arrow({ element: caretRef, padding: 4 }),
         ],
     })
 

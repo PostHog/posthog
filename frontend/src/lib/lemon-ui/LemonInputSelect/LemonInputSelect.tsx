@@ -431,6 +431,7 @@ export function LemonInputSelect({
                                             className="pointer-events-none"
                                         />
                                     }
+                                    className="flex-1"
                                 >
                                     Select all
                                 </LemonButton>
