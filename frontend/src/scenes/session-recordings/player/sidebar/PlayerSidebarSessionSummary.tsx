@@ -429,36 +429,37 @@ function LoadSessionSummaryButton(): JSX.Element {
     const { sessionSummaryLoading, overviewItems, loading } = useValues(playerMetaLogic(logicProps))
     const { summarizeSession } = useActions(playerMetaLogic(logicProps))
 
+    const hasEnoughEvents = overviewItems && overviewItems.length > 0
+
     return (
-        <>
+        <div className="space-y-2">
+            <LemonButton
+                size="small"
+                type="primary"
+                icon={<IconMagicWand />}
+                fullWidth={true}
+                data-attr="load-session-summary"
+                disabled={loading || !hasEnoughEvents}
+                disabledReason={sessionSummaryLoading ? 'Loading...' : undefined}
+                onClick={summarizeSession}
+            >
+                Use AI to summarise this session
+            </LemonButton>
+
             {loading ? (
-                <div>
+                <div className="text-sm">
                     Checking on session events... <Spinner />
                 </div>
             ) : (
-                <>
-                    {overviewItems && overviewItems.length > 100000 ? (
-                        <LemonButton
-                            size="small"
-                            type="primary"
-                            icon={<IconMagicWand />}
-                            fullWidth={true}
-                            data-attr="load-session-summary"
-                            disabledReason={sessionSummaryLoading ? 'Loading...' : undefined}
-                            onClick={summarizeSession}
-                        >
-                            Use AI to summarise this session
-                        </LemonButton>
-                    ) : (
-                        <div>
-                            The session can't be summarized as its events are not available yet.
-                            <br />
-                            Please, try again in a few minutes.
-                        </div>
-                    )}
-                </>
+                !hasEnoughEvents && (
+                    <div className="text-sm">
+                        Session events not available for summary yet.
+                        <br />
+                        Please, try again in a few minutes.
+                    </div>
+                )
             )}
-        </>
+        </div>
     )
 }
 
