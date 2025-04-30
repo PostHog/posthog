@@ -163,8 +163,8 @@ class TaxonomyAgentPlannerNode(AssistantNode):
             raise ValueError("Failed to generate events prompt.")
 
         events: list[str] = [
-            # Add "All Events" to the mapping
-            "All Events",
+            # Add "All events" to the mapping
+            "All events",
         ]
         for item in response.results:
             if len(response.results) > 25 and item.count <= 3:

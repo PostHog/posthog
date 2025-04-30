@@ -19,6 +19,8 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useEffect, useRef, useState } from 'react'
 import { urls } from 'scenes/urls'
 
+import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
+
 import { CodeSnippet, Language } from '../CodeSnippet'
 import type { debugCHQueriesLogicType } from './DebugCHQueriesType'
 
@@ -228,6 +230,27 @@ export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element 
     const { debugResponseLoading, filteredQueries, pathFilter, paths, debugResponse } = useValues(logic)
     const { setPathFilter, loadDebugResponse } = useActions(logic)
 
+    const errorTrackingLink = (key: string, value: string | number): string => {
+        return urls.errorTracking({
+            filterGroup: {
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                key,
+                                value: [value],
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.Event,
+                            },
+                        ],
+                    },
+                ],
+            },
+        })
+    }
+
     return (
         <>
             {!debugResponseLoading && !!debugResponse.hourly_stats ? (
@@ -333,7 +356,7 @@ export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element 
                                                 <span className="font-bold tracking-wide">Cache key:</span>{' '}
                                                 <span className="font-mono">{item.logComment.cache_key}</span>{' '}
                                                 <Link
-                                                    to={`https://sentry.io/issues/?query=is%3Aunresolved+cache_key%3A${item.logComment.cache_key}&statsPeriod=7d`}
+                                                    to={errorTrackingLink('cache_key', item.logComment.cache_key)}
                                                     className="inline-block"
                                                     target="_blank"
                                                     targetBlankIcon
@@ -345,7 +368,7 @@ export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element 
                                                 <span className="font-bold tracking-wide">Insight ID:</span>{' '}
                                                 <span className="font-mono">{item.logComment.insight_id}</span>{' '}
                                                 <Link
-                                                    to={`https://sentry.io/issues/?query=is%3Aunresolved+insight_id%3A${item.logComment.insight_id}&statsPeriod=7d`}
+                                                    to={errorTrackingLink('insight_id', item.logComment.insight_id)}
                                                     className="inline-block"
                                                     target="_blank"
                                                     targetBlankIcon
@@ -357,7 +380,7 @@ export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element 
                                                 <span className="font-bold tracking-wide">Dashboard ID:</span>{' '}
                                                 <span className="font-mono">{item.logComment.dashboard_id}</span>{' '}
                                                 <Link
-                                                    to={`https://sentry.io/issues/?query=is%3Aunresolved+dashboard_id%3A${item.logComment.dashboard_id}&statsPeriod=7d`}
+                                                    to={errorTrackingLink('dashboard_id', item.logComment.dashboard_id)}
                                                     className="inline-block"
                                                     target="_blank"
                                                     targetBlankIcon
@@ -369,7 +392,7 @@ export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element 
                                                 <span className="font-bold tracking-wide">User ID:</span>{' '}
                                                 <span className="font-mono">{item.logComment.user_id}</span>{' '}
                                                 <Link
-                                                    to={`https://sentry.io/issues/?query=is%3Aunresolved+user%3A%22id%3A${item.logComment.user_id}%22&statsPeriod=7d`}
+                                                    to={errorTrackingLink('user_id', item.logComment.user_id)}
                                                     className="inline-block"
                                                     target="_blank"
                                                     targetBlankIcon
@@ -380,19 +403,6 @@ export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element 
                                     {item.exception && (
                                         <LemonBanner type="error" className="text-xs font-mono">
                                             <div>{item.exception}</div>
-                                            {typeof item.logComment.sentry_trace === 'string' ? (
-                                                <LemonButton
-                                                    type="secondary"
-                                                    size="xsmall"
-                                                    to={`https://sentry.io/issues/?query=is%3Aunresolved+trace%3A${
-                                                        item.logComment.sentry_trace.split('-')[0]
-                                                    }&statsPeriod=7d`}
-                                                    targetBlank
-                                                    className="mt-4 mb-1"
-                                                >
-                                                    View in Sentry
-                                                </LemonButton>
-                                            ) : null}
                                         </LemonBanner>
                                     )}
                                     <CodeSnippet

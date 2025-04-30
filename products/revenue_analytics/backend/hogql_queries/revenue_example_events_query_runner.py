@@ -41,7 +41,8 @@ class RevenueExampleEventsQueryRunner(QueryRunnerWithHogQLContext):
                     ],
                 ),
                 ast.Field(chain=["view", "event_name"]),
-                ast.Field(chain=["view", "adjusted_original_amount"]),
+                ast.Field(chain=["view", "original_amount"]),
+                ast.Field(chain=["view", "currency_aware_amount"]),
                 ast.Field(chain=["view", "original_currency"]),
                 ast.Field(chain=["view", "amount"]),
                 ast.Field(chain=["view", "currency"]),
@@ -101,14 +102,15 @@ class RevenueExampleEventsQueryRunner(QueryRunnerWithHogQLContext):
                 row[3],
                 row[4],
                 row[5],
+                row[6],
                 {
-                    "id": row[6][0],
-                    "created_at": row[6][1],
-                    "distinct_id": row[6][2],
-                    "properties": json.loads(row[6][3]),
+                    "id": row[7][0],
+                    "created_at": row[7][1],
+                    "distinct_id": row[7][2],
+                    "properties": json.loads(row[7][3]),
                 },
-                row[7],
                 row[8],
+                row[9],
             )
             for row in response.results
         ]
@@ -118,6 +120,7 @@ class RevenueExampleEventsQueryRunner(QueryRunnerWithHogQLContext):
                 "*",
                 "event",
                 "original_amount",
+                "currency_aware_amount",
                 "original_currency",
                 "amount",
                 "currency",

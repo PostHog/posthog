@@ -28,7 +28,7 @@ jest.mock('../utils/posthog', () => {
     const original = jest.requireActual('../utils/posthog')
     return {
         ...original,
-        captureException: jest.fn().mockReturnValue('test-sentry-id-123'),
+        captureException: jest.fn(),
     }
 })
 

@@ -321,6 +321,10 @@ class TracesQueryRunner(QueryRunner):
                 ),
             )
 
+        if self.query.properties:
+            for prop in self.query.properties:
+                where_exprs.append(property_to_expr(prop, self.team))
+
         return ast.And(exprs=where_exprs)
 
     def _get_order_by_clause(self):

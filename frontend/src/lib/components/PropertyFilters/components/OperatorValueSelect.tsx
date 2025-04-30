@@ -115,6 +115,8 @@ export function OperatorValueSelect({
             propertyType = PropertyType.Cohort
         } else if (propertyKey === 'assignee' && type === PropertyFilterType.ErrorTrackingIssue) {
             propertyType = PropertyType.Assignee
+        } else if (type === PropertyFilterType.ErrorTrackingIssueProperty) {
+            propertyType = PropertyType.StringArray
         }
 
         const operatorMapping: Record<string, string> = chooseOperatorMap(propertyType)

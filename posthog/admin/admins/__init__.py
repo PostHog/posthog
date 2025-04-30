@@ -21,3 +21,4 @@ from .text_admin import TextAdmin
 from .user_admin import UserAdmin
 from .project_admin import ProjectAdmin
 from .hog_function_admin import HogFunctionAdmin
+from .event_ingestion_restriction_config import EventIngestionRestrictionConfigAdmin

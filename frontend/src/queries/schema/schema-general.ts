@@ -2885,6 +2885,17 @@ export interface RevenueAnalyticsEventItem {
      * @default {"static": "USD"}
      */
     revenueCurrencyProperty: RevenueCurrencyPropertyConfig
+
+    /**
+     * If true, the revenue will be divided by the smallest unit of the currency.
+     *
+     * For example, in case this is set to true,
+     * if the revenue is 1089 and the currency is USD, the revenue will be $10.89,
+     * but if the currency is JPY, the revenue will be ¥1089.
+     *
+     * @default false
+     */
+    currencyAwareDecimal: boolean
 }
 
 export interface RevenueAnalyticsConfig {
