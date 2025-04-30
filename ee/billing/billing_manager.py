@@ -469,7 +469,7 @@ class BillingManager:
         Get usage data from the billing service.
         """
         res = requests.get(
-            f"{BILLING_SERVICE_URL}/api/usage-v2/",
+            f"{BILLING_SERVICE_URL}/api/v2/usage/",
             headers=self.get_auth_headers(organization),
             params=params,
         )
@@ -483,7 +483,7 @@ class BillingManager:
         Get spend data from the billing service.
         """
         res = requests.get(
-            f"{BILLING_SERVICE_URL}/api/usage-v2/spend/",
+            f"{BILLING_SERVICE_URL}/api/v2/spend/",
             headers=self.get_auth_headers(organization),
             params=params,
         )

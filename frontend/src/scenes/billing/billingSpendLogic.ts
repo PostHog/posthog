@@ -15,6 +15,7 @@ export interface BillingSpendResponse {
     // Renamed interface
     status: 'ok'
     type: 'timeseries'
+    customer_id: string
     results: Array<{
         id: number
         label: string

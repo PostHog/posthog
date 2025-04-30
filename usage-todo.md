@@ -299,21 +299,81 @@ After exploring multiple approaches, we've decided to standardize on the impleme
 - [x] Add frontend route for `/billing/spend` pointing to `BillingSpendView`.
 - [x] Add "Spend" tab to billing sub-navigation UI.
 
-## Best Practices Implemented
+## Phase: Migrate to API v2 Structure
 
-1. **Function-based service pattern**: Clean separation of business logic from API views
-2. **Strongly typed interfaces**: Using type hints throughout for better code safety
-3. **Comprehensive input validation**: Detailed validation in serializers with clear error messages
-4. **Efficient SQL queries**: Direct use of PostgreSQL features like JSONB operations and arrays
-5. **Forward compatibility**: API design that allows adding new features without breaking changes
-6. **Consistent parameter naming**: Using only the `breakdowns` parameter for all breakdown needs
-7. **Thorough documentation**: Detailed docstrings and parameter descriptions
+This phase migrates the existing usage and spend endpoints into the `/billing/api/v2/` structure, following its style guide with specific caveats.
 
-## Notes
-- Following the HackSoft Django Styleguide service pattern
-- API views are as light as possible, delegating business logic to the service layer
-- Service functions are pure and focused on specific tasks
-- Most business logic lives in the service layer, not in API views or serializers
-- Services fetch from DB, perform transformations, and implement business rules
-- API views only validate inputs, call services, and return responses
-- PostHog only validates organization ownership, billing service handles all parameter validation
+### Step M1: Split and Prepare Service Files ✅
+- [x] Create `billing/services/usage.py`.
+- [x] Create `billing/services/spend.py`.
+- [x] Create `billing/services/utils.py` (for shared constants, helpers, enums, dataclasses).
+
+### Step M2: Refactor Services into Separate Files and Classes ✅
+- [x] In `billing/services/utils.py`:
+    - [x] Define shared Enums (`SupportedUsageType`, `IntervalEnum`, `StripeProductKey`, `BreakdownDimensionEnum`).
+    - [x] Define shared constants (`ALL_SUPPORTED_USAGE_TYPES`, `USAGE_TYPE_LABELS`, `REPORT_TO_STRIPE_KEY_MAPPING`, `STRIPE_TO_REPORT_KEY_MAPPING`).
+    - [x] Define shared helper functions (`_generate_all_period_starts`, `_apply_interval_aggregation`).
+    - [x] Define shared service dataclasses (`TimeSeriesDataPoint`, `TimeSeriesResult`).
+- [x] In `billing/services/usage.py`:
+    - [x] Create a `UsageService` class.
+    - [x] Implement the `get_usage_data` method using components from `utils.py`.
+    - [x] Ensure the method returns the defined `TimeSeriesResult` dataclass.
+    - [x] Move relevant helper functions into the class as private static methods.
+- [x] In `billing/services/spend.py`:
+    - [x] Create a `SpendService` class.
+    - [x] Implement the `get_spend_data` method using components from `utils.py`.
+    - [x] Ensure the method returns the defined `TimeSeriesResult` dataclass.
+    - [x] Move relevant helper functions into the class as private static methods.
+
+### Step M3: Move and Split Serializers ✅
+- [x] Create directories: `billing/api/v2/serializers/usage/` and `billing/api/v2/serializers/spend/`.
+- [x] Move `TimeSeriesDataPointSerializer` to `billing/api/v2/serializers/common.py`.
+    - [x] Update `TimeSeriesDataPointSerializer` to serialize the `TimeSeriesDataPoint` dataclass.
+- [x] Move `UsageRequestSerializer` and `UsageResponseSerializer` to `billing/api/v2/serializers/usage/usage.py`.
+- [x] Move `SpendRequestSerializer` and `SpendResponseSerializer` to `billing/api/v2/serializers/spend/spend.py`.
+- [x] Update `UsageResponseSerializer` and `SpendResponseSerializer`:
+    - [x] Add `customer_id = serializers.CharField(read_only=True)` (handled via context).
+    - [x] Ensure `status = serializers.CharField(read_only=True)` and `type = serializers.CharField(read_only=True)` are present.
+    - [x] Ensure the `results` field serializes the `TimeSeriesResult.results` list using the updated `TimeSeriesDataPointSerializer(many=True)`.
+- [x] Update `UsageRequestSerializer` and `SpendRequestSerializer`:
+    - [x] Change `interval` field to use the `IntervalEnum`.
+    - [x] Update validation logic for `usage_types` to use Enums (`SupportedUsageType`, `StripeProductKey`).
+- [x] Delete the original `billing/serializers/usage.py` file.
+
+### Step M4: Move and Refactor Views ✅
+- [x] Create `billing/api/v2/views/usage.py`.
+- [x] Create `billing/api/v2/views/spend.py`.
+- [x] In `billing/api/v2/views/usage.py`, create `usage(request)` function-based view:
+    - [x] Add decorators: `@api_view(['GET'])`, `@authentication_classes(...)`, `@permission_classes(...)` (placeholders added).
+    - [x] Extract `customer_id` (placeholder added).
+    - [x] Instantiate V2 `UsageRequestSerializer`.
+    - [x] Instantiate `UsageService` and call `get_usage_data`.
+    - [x] Implement standardized try/except block.
+    - [x] Instantiate V2 `UsageResponseSerializer` with result dataclass and `customer_id` context.
+    - [x] Return `Response(response_serializer.data)`.
+- [x] In `billing/api/v2/views/spend.py`, create `spend(request)` function-based view similarly.
+- [x] Delete the original `billing/api/usage_v2.py` file.
+
+### Step M5: Update URL Configuration ✅
+- [x] In `billing/api/v2/views/__init__.py`, import and expose `usage` and `spend` views.
+- [x] In `billing/api/v2/urls.py`, add paths for `usage` and `spend`.
+- [x] Include `billing.api.v2.urls` in main `billing/urls.py`.
+- [x] Remove old `/api/usage-v2/` routes from `billing/urls.py`.
+
+### Step M6: Verification & PostHog Adjustments ⏳
+- [x] **PostHog Proxy (`BillingManager`):**
+    - [x] Update `get_usage_data` method to call the **new** `/api/v2/usage/` endpoint in the billing service.
+    - [x] Update `get_spend_data` method to call the **new** `/api/v2/spend/` endpoint in the billing service.
+    - [x] Ensure correct parameters are passed.
+    - [x] Verify handling of the V2 response structure (`status`, `customer_id`, `type`, `results`).
+- [x] **Frontend (`billing*Logic.ts`):**
+    - [x] Verify loaders (`loadBillingUsage`, `loadBillingSpend`) correctly call the PostHog proxy endpoints.
+    - [x] Verify frontend logic correctly handles the V2 response format passed through the proxy.
+- [ ] **Manual Testing:**
+    - [ ] Manually test `/api/v2/usage/` and `/api/v2/spend/` via PostHog proxy.
+    - [ ] Verify response structure and data accuracy in the frontend UI.
+    - [ ] Verify standard error responses from the V2 endpoints.
+
+### Step M7: Update Tests (Future)
+- [ ] Adapt service tests for `UsageService` and `SpendService`. Move tests to `billing/services/tests/`.
+- [ ] Adapt API tests for new V2 views/serializers. Move tests to `billing/api/v2/views/tests/`.

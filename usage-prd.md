@@ -82,13 +82,14 @@ This document outlines the requirements and implementation approach for the Usag
 ```python
 # In posthog
 GET /api/billing/usage/
+GET /api/billing/spend/
 
-# In billing service
-GET /api/usage-v2/            # For usage volumes
-GET /api/usage-v2/spend/      # For calculated spend
+# In billing service (v2)
+GET /api/v2/usage/            # For usage volumes
+GET /api/v2/spend/            # For calculated spend
 ```
 
-#### Query Parameters (Usage Volume: `/api/usage-v2/`)
+#### Query Parameters (Usage Volume: `/api/v2/usage/`)
 - `organization_id`: string (required)
 - `start_date`: string (required, ISO format)
 - `end_date`: string (required, ISO format)
@@ -101,7 +102,7 @@ GET /api/usage-v2/spend/      # For calculated spend
 
 Note: Filters (`usage_types`, `team_ids`) apply regardless of the chosen breakdowns. You can, for instance, request a team breakdown limited to three specific teams (`team_ids=[1,2,3]`).
 
-#### Query Parameters (Spend: `/api/usage-v2/spend/`)
+#### Query Parameters (Spend: `/api/v2/spend/`)
 - `organization_id`: string (required)
 - `start_date`: string (required, ISO format YYYY-MM-DD)
 - `end_date`: string (required, ISO format YYYY-MM-DD)
@@ -113,17 +114,17 @@ Note: Filters (`usage_types`, `team_ids`) apply regardless of the chosen breakdo
 
 Note: Filters (`usage_types`, `team_ids`) apply regardless of the chosen breakdowns. You can, for instance, request a team breakdown limited to three specific teams (`team_ids=[1,2,3]`).
 
-#### Response Format (Usage Volume)
+#### Response Format (Usage Volume - V2)
 ```typescript
 interface UsageResponse {
     status: "ok";
+    customer_id: string;
     type: "timeseries";
     results: Array<{
         id: number;           // Unique identifier for the series
         label: string;        // Display name (e.g., "Events" or "Events::Team 123")
         data: number[];       // Array of values
         dates: string[];      // Array of dates in ISO 8601 format (YYYY-MM-DD)
-        // Updated breakdown types/values:
         breakdown_type: 'type' | 'multiple' | null; // 'type' if only type breakdown, 'multiple' if type+team breakdown.
         breakdown_value: string | string[] | null; // <usage_type> if breakdown_type is 'type', [<usage_type>, <team_id>] if breakdown_type is 'multiple'.
         compare_label?: string;            // For comparison periods
@@ -133,13 +134,14 @@ interface UsageResponse {
 }
 ```
 
-#### Response Format (Spend: `/api/usage-v2/spend/`)
+#### Response Format (Spend - V2: `/api/v2/spend/`)
 
 The spend endpoint returns data in the same time series format as the usage volume endpoint. The `results` array contains objects representing different series based on the requested breakdown.
 
 ```typescript
 interface SpendResponse {
     status: "ok";
+    customer_id: string;
     type: "timeseries";
     results: Array<{
         id: number;           // Unique identifier for the series
@@ -176,8 +178,8 @@ The spend API supports requests without any breakdowns (since aggregating totals
 
 1. Breakdown by type (default - all types, all teams):
 ```
-GET /api/usage-v2/?organization_id=123&start_date=2025-04-09&end_date=2025-04-16
-# Equivalent to: GET /api/usage-v2/?...&breakdowns=["type"]
+GET /api/v2/usage/?organization_id=123&start_date=2025-04-09&end_date=2025-04-16
+# Equivalent to: GET /api/v2/usage/?...&breakdowns=["type"]
 ```
 Response will contain series like:
 `{ ..., label: "Events", breakdown_type: "type", breakdown_value: "event_count_in_period" }`
@@ -186,7 +188,7 @@ Response will contain series like:
 
 2. Breakdown by type, filtered by specific types and teams:
 ```
-GET /api/usage-v2/?organization_id=123&start_date=2025-04-09&end_date=2025-04-16&usage_types=["event_count_in_period","recording_count_in_period"]&team_ids=[1,2]
+GET /api/v2/usage/?organization_id=123&start_date=2025-04-09&end_date=2025-04-16&usage_types=["event_count_in_period","recording_count_in_period"]&team_ids=[1,2]
 ```
 Response will contain series for Events and Recordings, but only including data from reports where team 1 or team 2 had *any* usage reported.
 `{ ..., label: "Events", breakdown_type: "type", breakdown_value: "event_count_in_period" }`
@@ -194,7 +196,7 @@ Response will contain series for Events and Recordings, but only including data 
 
 3. Breakdown by type and team (all types, all teams):
 ```
-GET /api/usage-v2/?organization_id=123&start_date=2025-04-09&end_date=2025-04-16&breakdowns=["type","team"]
+GET /api/v2/usage/?organization_id=123&start_date=2025-04-09&end_date=2025-04-16&breakdowns=["type","team"]
 ```
 Response will contain series like:
 `{ ..., label: "Events::Team 1", breakdown_type: "multiple", breakdown_value: ["event_count_in_period", "1"] }`
@@ -204,7 +206,7 @@ Response will contain series like:
 
 4. Breakdown by type and team, filtered by specific types and teams:
 ```
-GET /api/usage-v2/?organization_id=123&start_date=2025-04-09&end_date=2025-04-16&usage_types=["event_count_in_period"]&team_ids=[1,2]&breakdowns=["type","team"]
+GET /api/v2/usage/?organization_id=123&start_date=2025-04-09&end_date=2025-04-16&usage_types=["event_count_in_period"]&team_ids=[1,2]&breakdowns=["type","team"]
 ```
 Response will contain series only for Events and only for teams 1 and 2:
 `{ ..., label: "Events::Team 1", breakdown_type: "multiple", breakdown_value: ["event_count_in_period", "1"] }`
@@ -256,7 +258,7 @@ ORDER BY br.date, ut.type, team_id;
 
 #### Data Flow
 
-1. Database Query (in billing service):
+1. Database Query (in billing service - via `UsageService` or `SpendService`)
 ```sql
 -- Returns individual records
 SELECT 
@@ -269,7 +271,7 @@ AND date BETWEEN %s AND %s
 ORDER BY date, team_id
 ```
 
-2. Server Transformation (in billing service):
+2. Server Transformation (in billing service - via `UsageService` or `SpendService`)
 ```python
 # Example transformation from DB records to series format
 def transform_to_timeseries_format(
@@ -294,8 +296,8 @@ return {
 }
 ```
 
-3. PostHog API:
-- Proxies request to billing service
+3. PostHog API (`/api/billing/usage/`, `/api/billing/spend/`):
+   - Proxies request to billing service V2 endpoints (`/api/v2/usage/` or `/api/v2/spend/`)
 - Returns transformed data directly to frontend
 - No additional transformation needed
 
@@ -764,7 +766,7 @@ def apply_interval_aggregation(
 The usage data functionality will be split between two repositories:
 
 1. `posthog` repository:
-   - Contains the API endpoints (`/api/billing/usage/`)
+   - Contains the API endpoints (`/api/billing/usage/`, `/api/billing/spend/`)
    - Handles request validation and authentication
    - Uses `BillingManager` to proxy requests to billing service
    - Example:
@@ -779,7 +781,7 @@ The usage data functionality will be split between two repositories:
                    status=status.HTTP_403_FORBIDDEN
                )
            
-           # Pass raw params to billing service - parameter validation happens there
+           # Pass raw params to billing service V2 endpoint - parameter validation happens there
            billing_manager = BillingManager(...)
            return billing_manager.get_usage_data(
                organization=organization,
@@ -788,29 +790,52 @@ The usage data functionality will be split between two repositories:
    ```
 
 2. `billing` repository:
-   - Contains all billing-related business logic in services
+   - Contains all billing-related business logic in services (`UsageService`, `SpendService`)
    - Implements the actual database queries
-   - Provides REST API endpoints for PostHog to consume
-   - Includes parameter validation via serializers
-   - Example endpoint: `GET /api/usage-v2/?organization_id=...`
+   - Provides REST API V2 endpoints (`/api/v2/usage/`, `/api/v2/spend/`) for PostHog to consume
+   - Includes parameter validation via V2 serializers
+   - Example endpoint: `GET /api/v2/usage/?start_date=...`
    ```python
-   class UsageV2Viewset(viewsets.ViewSet):
-       def list(self, request):
-           # Validate request parameters
-           serializer = UsageRequestSerializer(data=request.GET)
-           serializer.is_valid(raise_exception=True)
-           
-           # Pass validated data to service
-           result = get_usage_data(**serializer.validated_data)
-           return Response(result)
+   @api_view(['GET'])
+   @authentication_classes([JwtAuthentication]) # Example
+   @permission_classes([]) # Example - Define actual permissions
+   def usage(request):
+       # Extract customer_id from auth/request (e.g., request.customer.id)
+       customer_id = 'extracted_customer_id' # Placeholder
+       
+       # Validate request parameters using new V2 serializer location
+       serializer = UsageRequestSerializer(data=request.query_params) # From billing.api.v2.serializers.usage
+       serializer.is_valid(raise_exception=True)
+       
+       # Pass validated data to service class method
+       try:
+           # Instantiate service class (if not using static methods)
+           usage_service = UsageService()
+           result_dataclass = usage_service.get_usage_data(**serializer.validated_data)
+       except Exception as e:
+           # V2: Implement standardized error handling
+           logger.error(f"Error fetching usage data for customer {customer_id}", exc_info=e)
+           # Example standardized error response (adjust as needed)
+           return Response(
+               {"status": "error", "code": "USAGE_DATA_FETCH_FAILED", "message": "Failed to retrieve usage data."}, 
+               status=status.HTTP_500_INTERNAL_SERVER_ERROR # Or appropriate status
+           )
+
+       # Instantiate V2 response serializer, passing the result dataclass and customer_id
+       response_serializer = UsageResponseSerializer(instance=result_dataclass, context={'customer_id': customer_id})
+       return Response(response_serializer.data)
    ```
 
 ### Communication Flow
-1. Client makes request to PostHog API (`/api/billing/usage/`)
+1. Client makes request to PostHog API (`/api/billing/usage/` or `/api/billing/spend/`)
 2. PostHog validates request and auth
-3. PostHog proxies to billing service (`/api/usage-v2/`) with auth token
-4. Billing service executes queries and returns data
-5. PostHog returns formatted response to client
+3. PostHog proxies to billing service V2 endpoints (`/api/v2/usage/` or `/api/v2/spend/`) with auth token
+4. Billing service V2 view validates parameters using V2 Request Serializer.
+5. Billing service V2 view calls corresponding Service Class (`UsageService` or `SpendService`).
+6. Service Class executes queries and returns dataclass result.
+7. Billing service V2 view constructs final response dictionary using V2 Response Serializer (adding `customer_id`, `status`, `type`).
+8. Billing service returns JSON response.
+9. PostHog returns formatted response to client.
 
 ### Rationale
 - Billing service remains single source of truth for all billing data
@@ -930,7 +955,7 @@ def handle_usage_errors(func):
 
 3. Spend API Endpoint
 
-- The endpoint `/api/usage-v2/spend` is implemented for querying monetary values, returning time-series data representing daily, weekly, or monthly spend.
+- The endpoint `/api/v2/spend/` is implemented for querying monetary values, returning time-series data representing daily, weekly, or monthly spend.
 - This endpoint provides insights into the monetary cost associated with product usage over time.
 - It uses the cumulative `usage_sent_to_stripe` field from `billing_usagereport`.
 - The calculation approach involves:
@@ -945,4 +970,23 @@ def handle_usage_errors(func):
     - By Type: Returns a separate series for the calculated spend of each billable product type.
     - By Team: Calculates spend per type, allocates it proportionally to teams based on their volume contribution *for that specific type* within the interval, and then sums the allocated amounts per team across all types.
     - By Type & Team: Calculates spend per type and allocates it proportionally to teams based on their volume contribution *for that specific type* within the interval. Returns a series for each type/team combination.
-- Parameters are `organization_id`, `start_date`, `end_date`, `breakdowns`, `interval`.
+- Parameters are `organization_id`, `start_date`, `end_date`, `usage_types`, `team_ids`, `breakdowns`, `interval`.
+
+-## Best Practices Implemented
+-
+-1. **Function-based service pattern**: Clean separation of business logic from API views
+-2. **Strongly typed interfaces**: Using type hints throughout for better code safety
+-3. **Comprehensive input validation**: Detailed validation in serializers with clear error messages
+-4. **Efficient SQL queries**: Direct use of PostgreSQL features like JSONB operations and arrays
+-5. **Forward compatibility**: API design that allows adding new features without breaking changes
+-6. **Consistent parameter naming**: Using only the `breakdowns` parameter for all breakdown needs
+-7. **Thorough documentation**: Detailed docstrings and parameter descriptions
+-
+-## Notes
+-- Following the HackSoft Django Styleguide service pattern
+-- API views are as light as possible, delegating business logic to the service layer
+-- Service functions are pure and focused on specific tasks
+-- Most business logic lives in the service layer, not in API views or serializers
+-- Services fetch from DB, perform transformations, and implement business rules
+-- API views only validate inputs, call services, and return responses
+-- PostHog only validates organization ownership, billing service handles all parameter validation

@@ -13,6 +13,7 @@ import type { billingUsageLogicType } from './billingUsageLogicType'
 export interface BillingUsageResponse {
     status: 'ok'
     type: 'timeseries'
+    customer_id: string
     results: Array<{
         id: number
         label: string
@@ -63,6 +64,7 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                     const params = {
                         ...(usage_types && usage_types.length > 0 ? { usage_types: JSON.stringify(usage_types) } : {}),
                         ...(team_ids && team_ids.length > 0 ? { team_ids: JSON.stringify(team_ids) } : {}),
+                        // team_ids: [30393, 33266],
                         ...(show_values_on_series ? { show_values_on_series } : {}),
                         ...(breakdowns && breakdowns.length > 0 ? { breakdowns: JSON.stringify(breakdowns) } : {}),
                         start_date: values.dateFrom || dayjs().subtract(30, 'day').format('YYYY-MM-DD'),
