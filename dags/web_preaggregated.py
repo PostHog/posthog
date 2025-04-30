@@ -65,7 +65,8 @@ def web_analytics_preaggregated_tables(
     return True
 
 
-def active_teams(
+# Not being used so far. Let's test the materialization of the assets first
+def get_active_teams(
     context: dagster.AssetExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> list[int]:
@@ -153,6 +154,17 @@ def _process_web_analytics_data(
     return team_id if team_id is not None else partition_date
 
 
+def _handle_partition_key(partition_key: str | dict) -> tuple[str, Optional[str]]:
+    if isinstance(partition_key, dict):
+        partition_date = partition_key["date"]
+        team_partition = partition_key.get("team")
+    else:
+        partition_date = partition_key
+        team_partition = None
+
+    return partition_date, team_partition
+
+
 @dagster.asset(
     partitions_def=WEB_ANALYTICS_DAILY_PARTITION_DEFINITION,
     config_schema=WEB_ANALYTICS_CONFIG_SCHEMA,
@@ -163,16 +175,8 @@ def web_overview_daily(
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ):
     """Aggregates the summarized metrics including pageviews, users, bounce rate, and session duration for the top overview tiles on Web Analytics. Used by the WebOverviewQueryRunner."""
-    partition_key = context.partition_key
 
-    # Handle partition_key being a string (date) or dict
-    if isinstance(partition_key, dict):
-        partition_date = partition_key["date"]
-        team_partition = partition_key.get("team")
-    else:
-        # If partition_key is a string, it's the date
-        partition_date = partition_key
-        team_partition = None
+    partition_date, team_partition = _handle_partition_key(context.partition_key)
 
     return _process_web_analytics_data(
         context=context,
@@ -194,15 +198,7 @@ def web_stats_daily(
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ):
     """Aggregates detailed dimensional data used by the WebStatsTableQueryRunner and are used for the web analytics breakdown tables."""
-    partition_key = context.partition_key
-
-    if isinstance(partition_key, dict):
-        partition_date = partition_key["date"]
-        team_partition = partition_key.get("team")
-    else:
-        # If partition_key is a string, it's the date
-        partition_date = partition_key
-        team_partition = None
+    partition_date, team_partition = _handle_partition_key(context.partition_key)
 
     return _process_web_analytics_data(
         context=context,
@@ -214,14 +210,11 @@ def web_stats_daily(
     )
 
 
-web_analytics_resources = {"cluster": ClickhouseClusterResource()}
-
-
 defs = Definitions(
     assets=[
         web_analytics_preaggregated_tables,
         web_overview_daily,
         web_stats_daily,
     ],
-    resources=web_analytics_resources,
+    resources={"cluster": ClickhouseClusterResource()},
 )
