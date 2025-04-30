@@ -187,7 +187,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_CYCLOTRON_BATCH_SIZE: 300,
         CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: '',
         CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'postgres',
-        CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING: '*:kafka',
+        CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING: '*:postgres',
         CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 100,
         CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: true,
         CDP_CYCLOTRON_COMPRESS_VM_STATE: isProdEnv() ? false : true,
