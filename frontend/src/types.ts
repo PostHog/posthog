@@ -2992,6 +2992,7 @@ export interface Survey {
     response_sampling_limit?: number | null
     response_sampling_daily_limits?: string[] | null
     enable_partial_responses?: boolean | null
+    _create_in_folder?: string | null
 }
 
 export enum SurveyMatchType {
@@ -3198,6 +3199,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     is_remote_configuration: boolean
     has_encrypted_payloads: boolean
     status: 'ACTIVE' | 'INACTIVE' | 'STALE' | 'DELETED' | 'UNKNOWN'
+    _create_in_folder?: string | null
 }
 
 export interface OrganizationFeatureFlag {
@@ -3277,6 +3279,7 @@ export interface EarlyAccessFeatureType {
     /** Documentation URL. Can be empty. */
     documentation_url: string
     created_at: string
+    _create_in_folder?: string | null
 }
 
 export interface NewEarlyAccessFeatureType extends Omit<EarlyAccessFeatureType, 'id' | 'created_at' | 'feature_flag'> {
@@ -3585,6 +3588,7 @@ export interface Experiment {
     stats_config?: {
         version?: number
     }
+    _create_in_folder?: string | null
 }
 
 export interface FunnelExperimentVariant {

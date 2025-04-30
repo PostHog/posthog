@@ -2266,6 +2266,48 @@ class TestExperimentCRUD(APILicensedTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_create_experiment_in_specific_folder(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Folder Test Experiment",
+                "description": "This experiment goes in a custom folder",
+                "feature_flag_key": "folder-experiment",
+                # ensure the experiment is in draft so it doesn't fail if user doesn't pass certain date fields
+                "start_date": None,
+                "filters": {"events": [], "properties": []},
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                },
+                "_create_in_folder": "Special Folder/Experiments",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        experiment_id = response.json()["id"]
+        self.assertTrue(Experiment.objects.filter(id=experiment_id).exists())
+
+        ff_key = response.json()["feature_flag_key"]
+        self.assertTrue(FeatureFlag.objects.filter(team=self.team, key=ff_key).exists())
+        ff_id = FeatureFlag.objects.filter(team=self.team, key=ff_key).first().id
+
+        from posthog.models.file_system.file_system import FileSystem
+
+        fs_entry = FileSystem.objects.filter(team=self.team, ref=str(experiment_id), type="experiment").first()
+        assert fs_entry is not None, "Expected a FileSystem entry for the newly created experiment."
+        assert (
+            "Special Folder/Experiments" in fs_entry.path
+        ), f"Expected path to contain 'Special Folder/Experiments', got {fs_entry.path}"
+
+        ff_entry = FileSystem.objects.filter(team=self.team, ref=str(ff_id), type="feature_flag").first()
+        assert ff_entry is not None, "Expected a FileSystem entry for the newly created feature flag."
+        assert (
+            "Special Folder/Experiments" in ff_entry.path
+        ), f"Expected path to contain 'Special Folder/Experiments', got {ff_entry.path}"
+
 
 class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
     def _generate_experiment(self, start_date="2024-01-01T10:23", extra_parameters=None):
