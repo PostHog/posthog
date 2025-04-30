@@ -124,6 +124,23 @@ def _process_web_analytics_data(
 
     context.log.info(f"Processing data for {table_name}, date: {partition_date}, teams: {log_teams}")
 
+    # First, delete existing data for this date/team combination to ensure idempotency
+    # TODO: Check this is ok with clickhouse team or if we should use a CollapsingMergeTree or other technique
+    delete_query = f"""
+    ALTER TABLE {table_name}
+    DELETE WHERE day = toDate('{partition_date}')
+    """
+
+    # Add team filter if team_ids are specified
+    if team_id_list:
+        if "," in team_id_list:
+            delete_query += f" AND team_id IN ({team_id_list})"
+        else:
+            delete_query += f" AND team_id = {team_id_list}"
+
+    context.log.info(f"Deleting existing data for {table_name}, date: {partition_date}, teams: {log_teams}")
+    context.log.debug(delete_query)
+
     query = sql_generator(
         date_start=start_date_str,
         date_end=end_date_str,
@@ -135,8 +152,11 @@ def _process_web_analytics_data(
     # Log the query for debugging
     context.log.debug(query)
 
-    def execute_query(client: Client) -> None:
+    def execute_queries(client: Client) -> None:
         try:
+            # First delete existing data
+            client.execute(delete_query)
+            # Then insert new data
             client.execute(query)
         except Exception as e:
             context.log.info(f"\n\nERROR EXECUTING {table_name.upper()} QUERY: {str(e)}\n\n")
@@ -144,8 +164,8 @@ def _process_web_analytics_data(
             raise
 
     try:
-        cluster.any_host(execute_query).result()
-        context.log.info(f"Inserted data into {table_name} for {partition_date}")
+        cluster.any_host(execute_queries).result()
+        context.log.info(f"Successfully processed data for {table_name} on {partition_date}")
     except Exception as e:
         context.log.info(f"\n\nERROR IN {table_name.upper()}: {str(e)}\n\n")
         context.log.exception(f"Error in {table_name}: {str(e)}")
