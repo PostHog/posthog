@@ -95,7 +95,7 @@ describe('SessionMetadataStore', () => {
 
         await store.storeSessionBlocks(blocks)
 
-        expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
+        expect(mockProducer.queueMessages).toHaveBeenCalledTimes(2)
         const queuedMessage = mockProducer.queueMessages.mock.calls[0][0] as TopicMessage
         expect(queuedMessage.topic).toBe('clickhouse_session_replay_events_v2_test_test')
         const queuedMessages = queuedMessage.messages
@@ -409,6 +409,111 @@ describe('SessionMetadataStore', () => {
 
         await expect(store.storeSessionBlocks(blocks)).rejects.toThrow(error)
         expect(mockProducer.queueMessages).toHaveBeenCalled()
+        expect(mockProducer.flush).toHaveBeenCalledTimes(1)
+    })
+
+    it('should publish empty events to v1 topic', async () => {
+        const blocks = [
+            {
+                sessionId: 'session123',
+                teamId: 1,
+                distinctId: 'user1',
+                batchId: 'batch123',
+                blockLength: 100,
+                eventCount: 25,
+                startDateTime: DateTime.fromISO('2025-01-01T10:00:00.000Z'),
+                endDateTime: DateTime.fromISO('2025-01-01T10:00:02.000Z'),
+                blockUrl: 's3://bucket/file1?range=bytes=0-99',
+                firstUrl: 'https://example.com',
+                urls: ['https://example.com', 'https://example.com/page2'],
+                clickCount: 5,
+                keypressCount: 10,
+                mouseActivityCount: 15,
+                activeMilliseconds: 2000,
+                consoleLogCount: 3,
+                consoleWarnCount: 2,
+                consoleErrorCount: 1,
+                size: 1024,
+                messageCount: 50,
+                snapshotSource: 'web',
+                snapshotLibrary: 'rrweb@1.0.0',
+            },
+        ]
+
+        await store.storeSessionBlocks(blocks)
+
+        // Check that both topics received messages
+        expect(mockProducer.queueMessages).toHaveBeenCalledTimes(2)
+
+        const calls = mockProducer.queueMessages.mock.calls
+        const v1Call = calls.find((call) => (call[0] as TopicMessage).topic === 'clickhouse_session_replay_events_test')
+        const v2Call = calls.find(
+            (call) => (call[0] as TopicMessage).topic === 'clickhouse_session_replay_events_v2_test_test'
+        )
+
+        expect(v1Call).toBeDefined()
+        expect(v2Call).toBeDefined()
+
+        // Check v1 message is empty except for required fields
+        const v1Message = v1Call?.[0] as TopicMessage
+        const v2Message = v2Call?.[0] as TopicMessage
+        const v1Event = parseJSON(v1Message.messages[0].value as string)
+        expect(v1Event).toMatchObject({
+            uuid: expect.any(String),
+            session_id: 'session123',
+            team_id: 1,
+            distinct_id: 'user1',
+            batch_id: 'batch123',
+            first_timestamp: '2025-01-01 10:00:00.000',
+            last_timestamp: '2025-01-01 10:00:02.000',
+            block_url: null,
+            first_url: null,
+            urls: [],
+            click_count: 0,
+            keypress_count: 0,
+            mouse_activity_count: 0,
+            active_milliseconds: 0,
+            console_log_count: 0,
+            console_warn_count: 0,
+            console_error_count: 0,
+            size: 0,
+            message_count: 0,
+            snapshot_source: null,
+            snapshot_library: null,
+            event_count: 0,
+        })
+
+        // Check v2 message has all the data
+        const v2Event = parseJSON(v2Message.messages[0].value as string)
+        expect(v2Event).toMatchObject({
+            uuid: expect.any(String),
+            session_id: 'session123',
+            team_id: 1,
+            distinct_id: 'user1',
+            batch_id: 'batch123',
+            first_timestamp: '2025-01-01 10:00:00.000',
+            last_timestamp: '2025-01-01 10:00:02.000',
+            block_url: 's3://bucket/file1?range=bytes=0-99',
+            first_url: 'https://example.com',
+            urls: ['https://example.com', 'https://example.com/page2'],
+            click_count: 5,
+            keypress_count: 10,
+            mouse_activity_count: 15,
+            active_milliseconds: 2000,
+            console_log_count: 3,
+            console_warn_count: 2,
+            console_error_count: 1,
+            size: 1024,
+            message_count: 50,
+            snapshot_source: 'web',
+            snapshot_library: 'rrweb@1.0.0',
+            event_count: 25,
+        })
+
+        // Verify keys are set to correct session IDs
+        expect(v1Message.messages[0].key).toEqual('session123')
+        expect(v2Message.messages[0].key).toEqual('session123')
+
         expect(mockProducer.flush).toHaveBeenCalledTimes(1)
     })
 })
