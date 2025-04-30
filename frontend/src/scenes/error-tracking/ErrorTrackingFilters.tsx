@@ -23,6 +23,7 @@ const taxonomicFilterLogicKey = 'error-tracking'
 const taxonomicGroupTypes = [
     TaxonomicFilterGroupType.EventProperties,
     TaxonomicFilterGroupType.PersonProperties,
+    TaxonomicFilterGroupType.ErrorTrackingIssues,
     TaxonomicFilterGroupType.Cohorts,
     TaxonomicFilterGroupType.HogQLExpression,
 ]
