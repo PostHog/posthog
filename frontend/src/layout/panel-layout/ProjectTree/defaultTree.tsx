@@ -62,6 +62,11 @@ export const getDefaultTreeNew = (): FileSystemImport[] =>
             href: () => urls.survey('new'),
         },
         {
+            path: `Cohort`,
+            type: 'cohort',
+            href: () => urls.cohort('new'),
+        },
+        {
             path: `Data/Source`,
             type: 'hog_function/source',
             href: () => urls.pipelineNodeNew(PipelineStage.Source),

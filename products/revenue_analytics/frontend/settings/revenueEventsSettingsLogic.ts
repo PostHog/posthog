@@ -52,6 +52,10 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
             eventName,
             revenueCurrencyProperty,
         }),
+        updateEventCurrencyAwareDecimalProperty: (eventName: string, currencyAwareDecimal: boolean) => ({
+            eventName,
+            currencyAwareDecimal,
+        }),
 
         resetConfig: true,
     }),
@@ -92,6 +96,7 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
                                 eventName,
                                 revenueProperty: 'revenue',
                                 revenueCurrencyProperty: { static: state.base_currency },
+                                currencyAwareDecimal: false,
                             },
                         ],
                     }
@@ -129,6 +134,23 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
                         events: state.events.map((item) => {
                             if (item.eventName === eventName) {
                                 return { ...item, revenueCurrencyProperty }
+                            }
+                            return item
+                        }),
+                    }
+                },
+                updateEventCurrencyAwareDecimalProperty: (
+                    state: RevenueAnalyticsConfig | null,
+                    { eventName, currencyAwareDecimal }
+                ) => {
+                    if (!state) {
+                        return state
+                    }
+                    return {
+                        ...state,
+                        events: state.events.map((item) => {
+                            if (item.eventName === eventName) {
+                                return { ...item, currencyAwareDecimal }
                             }
                             return item
                         }),

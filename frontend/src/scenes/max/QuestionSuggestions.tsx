@@ -8,10 +8,14 @@ import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panel
 import { maxLogic } from './maxLogic'
 
 export function QuestionSuggestions(): JSX.Element {
-    const { visibleSuggestions, allSuggestionsLoading, dataProcessingAccepted } = useValues(maxLogic)
+    const { visibleSuggestions, allSuggestionsLoading, dataProcessingAccepted, tools } = useValues(maxLogic)
     const { askMax, shuffleVisibleSuggestions } = useActions(maxLogic)
     const { coreMemory, coreMemoryLoading } = useValues(maxSettingsLogic)
     const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
+
+    if (tools.length > 0) {
+        return <></>
+    }
 
     if (!coreMemoryLoading && !coreMemory) {
         return (

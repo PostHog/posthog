@@ -15,7 +15,6 @@ import { useActions, useValues } from 'kea'
 import { BreakdownSummary, PropertiesSummary, SeriesSummary } from 'lib/components/Cards/InsightCard/InsightDetails'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import posthog from 'posthog-js'
 import React, { useMemo, useState } from 'react'
 import { urls } from 'scenes/urls'
@@ -33,6 +32,7 @@ import {
 import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isHogQLQuery } from '~/queries/utils'
 
+import { MarkdownMessage } from './MarkdownMessage'
 import { maxLogic, MessageStatus, ThreadMessage } from './maxLogic'
 import {
     castAssistantQuery,
@@ -101,7 +101,10 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                                 type="human"
                                 boxClassName={message.status === 'error' ? 'border-danger' : undefined}
                             >
-                                <LemonMarkdown>{message.content || '*No text.*'}</LemonMarkdown>
+                                <MarkdownMessage
+                                    content={message.content || '*No text.*'}
+                                    id={message.id || 'no-text'}
+                                />
                             </MessageTemplate>
                         )
                     } else if (
@@ -127,12 +130,12 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                                     <Spinner className="text-xl" />
                                 </div>
                                 {message.substeps?.map((substep, substepIndex) => (
-                                    <LemonMarkdown
+                                    <MarkdownMessage
                                         key={substepIndex}
+                                        id={message.id || messageIndex.toString()}
                                         className="mt-1.5 leading-6 px-1 text-[0.6875rem] font-semibold bg-surface-secondary rounded w-fit"
-                                    >
-                                        {substep}
-                                    </LemonMarkdown>
+                                        content={substep}
+                                    />
                                 ))}
                             </MessageTemplate>
                         )
@@ -233,9 +236,10 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
             ref={ref}
             action={action}
         >
-            <LemonMarkdown>
-                {message.content || '*Max has failed to generate an answer. Please try again.*'}
-            </LemonMarkdown>
+            <MarkdownMessage
+                content={message.content || '*Max has failed to generate an answer. Please try again.*'}
+                id={message.id || 'error'}
+            />
         </MessageTemplate>
     )
 })

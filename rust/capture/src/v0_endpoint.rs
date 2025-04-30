@@ -14,7 +14,7 @@ use limiters::token_dropper::TokenDropper;
 use metrics::counter;
 use serde_json::json;
 use serde_json::Value;
-use tracing::instrument;
+use tracing::{debug, error, instrument, warn};
 
 use crate::prometheus::report_dropped_events;
 use crate::v0_request::{
@@ -70,13 +70,20 @@ async fn handle_common(
             tracing::Span::current().record("content_type", "application/x-www-form-urlencoded");
 
             let input: EventFormData = serde_urlencoded::from_bytes(body.deref()).map_err(|e| {
-                tracing::error!("failed to decode body: {}", e);
+                error!("failed to decode body: {}", e);
                 CaptureError::RequestDecodingError(String::from("invalid form data"))
             })?;
             let payload = base64::engine::general_purpose::STANDARD
-                .decode(input.data)
+                .decode(&input.data)
                 .map_err(|e| {
-                    tracing::error!("failed to decode form data: {}", e);
+                    if state.is_mirror_deploy {
+                        // get a peek at the headers and a short snip of the payload in mirror
+                        // see which capture.py "kludge warning" these may map to, if any
+                        error!("failed to decode mirrored form data: {} w/ headers << {:?} >> and data: {:?}...",
+                            e, &headers, &input.data[0..input.data.len().min(40)]);
+                    } else {
+                        error!("failed to decode form data: {}", e);
+                    }
                     CaptureError::RequestDecodingError(String::from("missing data field"))
                 })?;
             RawRequest::from_bytes(payload.into(), state.event_size_limit)
@@ -104,7 +111,7 @@ async fn handle_common(
     tracing::Span::current().record("batch_size", events.len());
 
     if events.is_empty() {
-        tracing::log::warn!("rejected empty batch");
+        warn!("rejected empty batch");
         return Err(CaptureError::EmptyBatch);
     }
 
@@ -131,7 +138,7 @@ async fn handle_common(
         return Err(CaptureError::BillingLimit);
     }
 
-    tracing::debug!(context=?context, events=?events, "decoded request");
+    debug!(context=?context, events=?events, "decoded request");
 
     Ok((context, events))
 }
@@ -242,7 +249,7 @@ pub async fn recording(
                     CaptureError::MissingEventName => "missing_event_name",
                     CaptureError::RequestDecodingError(_) => "request_decoding_error",
                     CaptureError::RequestParsingError(_) => "request_parsing_error",
-                    CaptureError::EventTooBig => "event_too_big",
+                    CaptureError::EventTooBig(_) => "event_too_big",
                     CaptureError::NonRetryableSinkError => "sink_error",
                     CaptureError::InvalidSessionId => "invalid_session_id",
                     CaptureError::MissingSnapshotData => "missing_snapshot_data",

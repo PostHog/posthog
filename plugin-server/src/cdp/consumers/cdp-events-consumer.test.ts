@@ -21,31 +21,6 @@ import {
 import { CdpProcessedEventsConsumer } from './cdp-processed-events.consumer'
 import { CdpInternalEventsConsumer } from './cdp-internal-event.consumer'
 
-const mockConsumer = {
-    on: jest.fn(),
-    commitSync: jest.fn(),
-    commit: jest.fn(),
-    queryWatermarkOffsets: jest.fn(),
-    committed: jest.fn(),
-    assignments: jest.fn(),
-    isConnected: jest.fn(() => true),
-    getMetadata: jest.fn(),
-}
-
-jest.mock('../../../src/kafka/batch-consumer', () => {
-    return {
-        startBatchConsumer: jest.fn(() =>
-            Promise.resolve({
-                join: () => ({
-                    finally: jest.fn(),
-                }),
-                stop: jest.fn(),
-                consumer: mockConsumer,
-            })
-        ),
-    }
-})
-
 jest.mock('../../../src/utils/fetch', () => {
     return {
         trackedFetch: jest.fn(() =>
@@ -102,6 +77,14 @@ describe.each([
         team2 = (await getTeam(hub, team2Id))!
 
         processor = new Consumer(hub)
+
+        // NOTE: We don't want to actually connect to Kafka for these tests as it is slow and we are testing the core logic only
+        processor['kafkaConsumer'] = {
+            connect: jest.fn(),
+            disconnect: jest.fn(),
+            isHealthy: jest.fn(),
+        } as any
+
         await processor.start()
 
         mockFetch.mockClear()

@@ -9,7 +9,6 @@ import posthog from 'posthog-js'
 import { MessageTemplate } from 'products/messaging/frontend/library/messageTemplatesLogic'
 import { ErrorTrackingAssignmentRule } from 'scenes/error-tracking/configuration/auto-assignment/errorTrackingAutoAssignmentLogic'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
-import { SessionSummaryResponse } from 'scenes/session-recordings/player/player-meta/types'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 
@@ -843,6 +842,10 @@ class ApiRequest {
         return this.dataWarehouseSavedQueries(teamId).addPathComponent(id)
     }
 
+    public dataWarehouseSavedQueryActivity(id: DataWarehouseSavedQuery['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.dataWarehouseSavedQuery(id, teamId).addPathComponent('activity')
+    }
+
     // # Data Modeling Jobs (ie) materialized view runs
     public dataWarehouseDataModelingJobs(
         savedQueryId: DataWarehouseSavedQuery['id'],
@@ -1078,6 +1081,11 @@ class ApiRequest {
 
     public externalDataSourceSchema(schemaId: ExternalDataSourceSchema['id'], teamId?: TeamType['id']): ApiRequest {
         return this.externalDataSchemas(teamId).addPathComponent(schemaId)
+    }
+
+    // Fix HogQL errors
+    public fixHogQLErrors(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('fix_hogql')
     }
 
     // Insight Variables
@@ -1484,6 +1492,9 @@ const api = {
                 },
                 [ActivityScope.SURVEY]: () => {
                     return new ApiRequest().surveyActivity((props.id ?? null) as string, projectId)
+                },
+                [ActivityScope.DATA_WAREHOUSE_SAVED_QUERY]: () => {
+                    return new ApiRequest().dataWarehouseSavedQueryActivity((props.id ?? null) as string, projectId)
                 },
             }
 
@@ -2366,8 +2377,15 @@ const api = {
             return await new ApiRequest().recording(recordingId).withAction('persist').create()
         },
 
-        async summarize(recordingId: SessionRecordingType['id']): Promise<SessionSummaryResponse> {
-            return await new ApiRequest().recording(recordingId).withAction('summarize').create()
+        async summarizeStream(recordingId: SessionRecordingType['id']): Promise<Response> {
+            return await api.createResponse(
+                new ApiRequest().recording(recordingId).withAction('summarize').assembleFullUrl(),
+                // No data to provide except for the recording id.
+                // Could be extended later with the state of the filters to better understand the user's intent.
+                undefined,
+                // TODO: Understand if I need to provide any signal data here
+                {}
+            )
         },
 
         async similarRecordings(recordingId: SessionRecordingType['id']): Promise<[string, number][]> {
@@ -2489,7 +2507,7 @@ const api = {
         },
         async update(
             notebookId: NotebookType['short_id'],
-            data: Partial<Pick<NotebookType, 'version' | 'content' | 'text_content' | 'title'>>
+            data: Partial<Pick<NotebookType, 'version' | 'content' | 'text_content' | 'title' | '_create_in_folder'>>
         ): Promise<NotebookType> {
             return await new ApiRequest().notebook(notebookId).update({ data })
         },
@@ -2530,7 +2548,9 @@ const api = {
                 .withQueryString({ recording_id: recordingId })
                 .get()
         },
-        async create(data?: Pick<NotebookType, 'content' | 'text_content' | 'title'>): Promise<NotebookType> {
+        async create(
+            data?: Pick<NotebookType, 'content' | 'text_content' | 'title' | '_create_in_folder'>
+        ): Promise<NotebookType> {
             return await new ApiRequest().notebooks().create({ data })
         },
         async delete(notebookId: NotebookType['short_id']): Promise<NotebookType> {
@@ -2677,12 +2697,21 @@ const api = {
         async getResponsesCount(): Promise<{ [key: string]: number }> {
             return await new ApiRequest().surveysResponsesCount().get()
         },
-        async summarize_responses(surveyId: Survey['id'], questionIndex: number | undefined): Promise<any> {
-            let apiRequest = new ApiRequest().survey(surveyId).withAction('summarize_responses')
+        async summarize_responses(
+            surveyId: Survey['id'],
+            questionIndex: number | undefined,
+            questionId: string | undefined
+        ): Promise<any> {
+            const apiRequest = new ApiRequest().survey(surveyId).withAction('summarize_responses')
+            const queryParams: Record<string, string> = {}
+
             if (questionIndex !== undefined) {
-                apiRequest = apiRequest.withQueryString('questionIndex=' + questionIndex)
+                queryParams['question_index'] = questionIndex.toString()
             }
-            return await apiRequest.create()
+            if (questionId !== undefined) {
+                queryParams['question_id'] = questionId
+            }
+            return await apiRequest.withQueryString(queryParams).create()
         },
         async getSurveyStats({
             surveyId,
@@ -2774,7 +2803,7 @@ const api = {
         },
         async update(
             viewId: DataWarehouseSavedQuery['id'],
-            data: Partial<DataWarehouseSavedQuery> & { types: string[][] }
+            data: Partial<DataWarehouseSavedQuery> & { types: string[][]; current_query?: string }
         ): Promise<DataWarehouseSavedQuery> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).update({ data })
         },
@@ -2884,6 +2913,11 @@ const api = {
                 .withAction('logs')
                 .withQueryString(params)
                 .get()
+        },
+    },
+    fixHogQLErrors: {
+        async fix(query: string, error?: string): Promise<Record<string, any>> {
+            return await new ApiRequest().fixHogQLErrors().create({ data: { query, error } })
         },
     },
 

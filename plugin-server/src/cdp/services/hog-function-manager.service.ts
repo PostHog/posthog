@@ -74,6 +74,7 @@ export class HogFunctionManagerService {
                 const { integrationIds } = parseJSON(message) as {
                     integrationIds: IntegrationType['id'][]
                 }
+                logger.info('⚡', '[PubSub] Reloading integrations!', { integrationIds })
                 this.onIntegrationsReloaded(integrationIds)
             },
             'reload-hog-functions': (message) => {
@@ -81,11 +82,7 @@ export class HogFunctionManagerService {
                     teamId: Team['id']
                     hogFunctionIds: HogFunctionType['id'][]
                 }
-
-                logger.info('[HogFunctionManager]', 'Marking hog functions for refresh', {
-                    teamId,
-                    hogFunctionIds,
-                })
+                logger.info('⚡', '[PubSub] Reloading hog functions!', { teamId, hogFunctionIds })
                 this.onHogFunctionsReloaded(teamId, hogFunctionIds)
             },
         })
