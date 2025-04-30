@@ -3,9 +3,7 @@ import uuid
 import json
 import time
 import asyncio
-from contextlib import suppress
 
-import structlog
 from django.core.cache import cache
 from django.http import JsonResponse, StreamingHttpResponse
 from drf_spectacular.utils import OpenApiResponse
@@ -68,8 +66,6 @@ QUERY_EXECUTOR = ThreadPoolExecutor(
     max_workers=50,  # 50 should be enough to have 200 simultaneous queries across clickhouse
     thread_name_prefix="query_processor",
 )
-
-logger = structlog.get_logger(__name__)
 
 
 def _process_query_request(
@@ -139,11 +135,6 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     @monitor(feature=Feature.QUERY, endpoint="query", method="POST")
     def create(self, request: Request, *args, **kwargs) -> Response:
         data = self.get_model(request.data, QueryRequest)
-        with suppress(Exception):
-            request_id = structlog.get_context(logger).get("request_id")
-            if request_id:
-                uuid.UUID(request_id)  # just to verify it is a real UUID
-                tag_queries(http_request_id=request_id)
         try:
             query, client_query_id, execution_mode = _process_query_request(
                 data, self.team, data.client_query_id, request.user

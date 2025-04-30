@@ -1539,6 +1539,7 @@ export interface SessionRecordingPlaylistType {
      * marked as has more if the filters count onoy matched one page and there are more available
      */
     recordings_counts?: PlaylistRecordingsCounts
+    _create_in_folder?: string | null
 }
 
 export interface SessionRecordingSegmentType {
@@ -2932,6 +2933,11 @@ export enum SurveyEventName {
     SHOWN = 'survey shown',
     DISMISSED = 'survey dismissed',
     SENT = 'survey sent',
+}
+
+export enum SurveyEventProperties {
+    SURVEY_ID = '$survey_id',
+    SURVEY_RESPONSE = '$survey_response',
 }
 
 export interface SurveyEventStats {
