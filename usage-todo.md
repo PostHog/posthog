@@ -138,9 +138,6 @@ After exploring multiple approaches, we've decided to standardize on the impleme
 - [ ] Implement `compare` parameter for previous period comparison
 - [ ] Add `show_values_on_series` parameter
 
-### Label Enrichment
-- [ ] Enrich labels with actual Team names (currently shows only team ID). Needs decision on where to implement (billing service, PostHog server, or frontend). TBD.
-
 ### Performance optimizations
 - [ ] Add caching for frequently requested data
 - [ ] Optimize SQL queries for larger datasets

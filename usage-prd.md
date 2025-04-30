@@ -98,6 +98,7 @@ GET /api/v2/spend/            # For calculated spend
 - `breakdowns`: string (optional) - JSON array of breakdown dimensions. Valid values: `[]` (or omitted), `["type"]`, `["type", "team"]`. Default: `["type"]` (effectively always breaking down by type).
 - `interval`: string (optional, default='day')
   - Supported values: 'day', 'week', 'month'
+- `teams_map`: string (optional) - JSON object string mapping team IDs (string) to team names (string). e.g. `'{"123": "Team A", "456": "Team B"}'`. Used for generating labels in the response.
 - `compare`: string (optional) # Note: Not yet implemented
 
 Note: Filters (`usage_types`, `team_ids`) apply regardless of the chosen breakdowns. You can, for instance, request a team breakdown limited to three specific teams (`team_ids=[1,2,3]`).
@@ -111,6 +112,7 @@ Note: Filters (`usage_types`, `team_ids`) apply regardless of the chosen breakdo
 - `breakdowns`: string (optional) - JSON array of breakdown dimensions (e.g. '["type"]', '["team"]', or '["type","team"]'). Omitting returns total spend.
 - `interval`: string (optional, default='day')
   - Supported values: 'day', 'week', 'month'
+- `teams_map`: string (optional) - JSON object string mapping team IDs (string) to team names (string). e.g. `'{"123": "Team A", "456": "Team B"}'`. Used for generating labels in the response.
 
 Note: Filters (`usage_types`, `team_ids`) apply regardless of the chosen breakdowns. You can, for instance, request a team breakdown limited to three specific teams (`team_ids=[1,2,3]`).
 
@@ -122,7 +124,7 @@ interface UsageResponse {
     type: "timeseries";
     results: Array<{
         id: number;           // Unique identifier for the series
-        label: string;        // Display name (e.g., "Events" or "Events::Team 123")
+        label: string;        // Display name (e.g., "Events", "Team A (1)::Events", or "1::Events" if team name unknown)
         data: number[];       // Array of values
         dates: string[];      // Array of dates in ISO 8601 format (YYYY-MM-DD)
         breakdown_type: 'type' | 'multiple' | null; // 'type' if only type breakdown, 'multiple' if type+team breakdown.
@@ -154,11 +156,11 @@ interface SpendResponse {
 }
 ```
 
-**Label Examples for Spend:**
+**Label Examples for Spend (uses `teams_map` if provided):**
 - **No Breakdown:** `label: "Total Spend"`, `breakdown_type: null`, `breakdown_value: null`
-- **Breakdown by Type:** `label: "Spend: Events"`, `breakdown_type: "type"`, `breakdown_value: "product_analytics"`
-- **Breakdown by Team:** `label: "123"`, `breakdown_type: "team"`, `breakdown_value: "123"` (Label is just the team ID)
-- **Breakdown by Type & Team:** `label: "123::Spend: Events"`, `breakdown_type: "multiple"`, `breakdown_value: ["product_analytics", "123"]` (Label format: `team_id::type_label`)
+- **Breakdown by Type:** `label: "Events"`, `breakdown_type: "type"`, `breakdown_value: "product_analytics"` (Label uses `USAGE_TYPE_LABELS`)
+- **Breakdown by Team:** `label: "Team A (123)"` or `label: "123"` (if name unknown), `breakdown_type: "team"`, `breakdown_value: "123"`
+- **Breakdown by Type & Team:** `label: "Team A (123)::Events"` or `label: "123::Events"` (if name unknown), `breakdown_type: "multiple"`, `breakdown_value: ["product_analytics", "123"]`
 
 ### Multiple Breakdowns Support
 
@@ -194,23 +196,23 @@ Response will contain series for Events and Recordings, but only including data 
 `{ ..., label: "Events", breakdown_type: "type", breakdown_value: "event_count_in_period" }`
 `{ ..., label: "Recordings", breakdown_type: "type", breakdown_value: "recording_count_in_period" }`
 
-3. Breakdown by type and team (all types, all teams):
+3. Breakdown by type and team (all types, all teams, assumes `teams_map` provided):
 ```
-GET /api/v2/usage/?organization_id=123&start_date=2025-04-09&end_date=2025-04-16&breakdowns=["type","team"]
+GET /api/v2/usage/?organization_id=123&start_date=2025-04-09&end_date=2025-04-16&breakdowns=["type","team"]&teams_map='{"1": "Web", "2": "Mobile"}'
 ```
 Response will contain series like:
-`{ ..., label: "1::Events", breakdown_type: "multiple", breakdown_value: ["event_count_in_period", "1"] }`
-`{ ..., label: "1::Recordings", breakdown_type: "multiple", breakdown_value: ["recording_count_in_period", "1"] }`
-`{ ..., label: "2::Events", breakdown_type: "multiple", breakdown_value: ["event_count_in_period", "2"] }`
+`{ ..., label: "Web (1)::Events", breakdown_type: "multiple", breakdown_value: ["event_count_in_period", "1"] }`
+`{ ..., label: "Web (1)::Recordings", breakdown_type: "multiple", breakdown_value: ["recording_count_in_period", "1"] }`
+`{ ..., label: "Mobile (2)::Events", breakdown_type: "multiple", breakdown_value: ["event_count_in_period", "2"] }`
 ...
+(If `teams_map` was not provided or a team ID was missing, labels would fall back to `1::Events`, `1::Recordings`, etc.)
 
 4. Breakdown by type and team, filtered by specific types and teams:
 ```
-GET /api/v2/usage/?organization_id=123&start_date=2025-04-09&end_date=2025-04-16&usage_types=["event_count_in_period"]&team_ids=[1,2]&breakdowns=["type","team"]
+GET /api/v2/usage/?organization_id=123&start_date=2025-04-09&end_date=2025-04-16&usage_types=["event_count_in_period"]&team_ids=[1]&breakdowns=["type","team"]&teams_map='{"1": "Web"}'
 ```
-Response will contain series only for Events and only for teams 1 and 2:
-`{ ..., label: "1::Events", breakdown_type: "multiple", breakdown_value: ["event_count_in_period", "1"] }`
-`{ ..., label: "2::Events", breakdown_type: "multiple", breakdown_value: ["event_count_in_period", "2"] }`
+Response will contain series only for Events and only for team 1:
+`{ ..., label: "Web (1)::Events", breakdown_type: "multiple", breakdown_value: ["event_count_in_period", "1"] }`
 
 
 With multiple breakdowns, the `breakdown_value` field in the response will be an array containing values for each dimension, and labels will be formatted with a double-colon separator (e.g., "123::Events").
@@ -827,15 +829,17 @@ The usage data functionality will be split between two repositories:
    ```
 
 ### Communication Flow
-1. Client makes request to PostHog API (`/api/billing/usage/` or `/api/billing/spend/`)
-2. PostHog validates request and auth
-3. PostHog proxies to billing service V2 endpoints (`/api/v2/usage/` or `/api/v2/spend/`) with auth token
-4. Billing service V2 view validates parameters using V2 Request Serializer.
-5. Billing service V2 view calls corresponding Service Class (`UsageService` or `SpendService`).
-6. Service Class executes queries and returns dataclass result.
-7. Billing service V2 view constructs final response dictionary using V2 Response Serializer (adding `customer_id`, `status`, `type`).
-8. Billing service returns JSON response.
-9. PostHog returns formatted response to client.
+1. Client makes request to PostHog API (`/api/billing/usage/` or `/api/billing/spend/`), potentially including the `teams_map` parameter.
+2. PostHog validates request and auth.
+3. PostHog proxies to billing service V2 endpoints (`/api/v2/usage/` or `/api/v2/spend/`) with auth token and all query parameters (including `teams_map`).
+4. Billing service V2 view validates parameters using V2 Request Serializer (which validates `teams_map` into a dict).
+5. Billing service V2 view calls corresponding Service Class (`UsageService` or `SpendService`), passing validated data (including the `teams_map` dict) via `**serializer.validated_data`.
+6. Service Class executes queries and calls its transformation method, passing down the `teams_map`.
+7. The transformation method uses the `teams_map` (if provided) to generate user-friendly labels for team-related breakdowns.
+8. Service Class returns dataclass result.
+9. Billing service V2 view constructs final response dictionary using V2 Response Serializer (adding `customer_id`, `status`, `type`).
+10. Billing service returns JSON response.
+11. PostHog returns formatted response to client.
 
 ### Rationale
 - Billing service remains single source of truth for all billing data
