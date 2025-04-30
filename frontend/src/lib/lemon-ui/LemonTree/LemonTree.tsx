@@ -724,7 +724,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             isFinishedBuildingTreeData,
             enableMultiSelection = false,
             onItemChecked,
-            checkedItemCount,
+            checkedItemCount = 0,
             tableViewKeys,
             emptySpaceContextMenu,
             folderSelectMode = false,
