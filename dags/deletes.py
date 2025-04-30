@@ -282,7 +282,7 @@ def create_pending_deletions_table(
     """
     Create a merge tree table in ClickHouse to store pending deletes.
 
-    Important to note: we only get pending deletions for requests that happened before the oldest person override timestamp.
+    Important to note: we only get pending Person deletions for requests that happened before the oldest person override timestamp. The other type of deletions are not limited by this timestamp.
     """
 
     table = PendingDeletesTable(
@@ -295,7 +295,7 @@ def create_pending_deletions_table(
 
 
 @dagster.op
-def create_reporting_pending_person_deletions_table(
+def create_reporting_pending_deletions_table(
     config: DeleteConfig,
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> PendingDeletesTable:
@@ -378,7 +378,7 @@ def load_pending_deletions(
 
 @dagster.op
 def create_deletes_dict(
-    load_pending_person_deletions: PendingDeletesTable,
+    load_pending_deletions: PendingDeletesTable,
     config: DeleteConfig,
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> PendingDeletesDictionary:
@@ -386,12 +386,12 @@ def create_deletes_dict(
 
     # Wait for the table to be fully replicated
     def sync_replica(client: Client):
-        client.execute(f"SYSTEM SYNC REPLICA {load_pending_person_deletions.qualified_name} STRICT")
+        client.execute(f"SYSTEM SYNC REPLICA {load_pending_deletions.qualified_name} STRICT")
 
     cluster.map_hosts_by_role(sync_replica, NodeRole.DATA).result()
 
     del_dict = PendingDeletesDictionary(
-        source=load_pending_person_deletions,
+        source=load_pending_deletions,
     )
 
     cluster.any_host_by_role(
@@ -513,7 +513,7 @@ def cleanup_delete_assets(
 def deletes_job():
     """Job that handles deletion of events."""
     oldest_override_timestamp = get_oldest_person_override_timestamp()
-    report_person_table = create_reporting_pending_person_deletions_table()
+    report_deletions_table = create_reporting_pending_deletions_table()
     deletions_table = create_pending_deletions_table(oldest_override_timestamp)
     loaded_deletions_table = load_pending_deletions(deletions_table)
     create_deletes_dict_op = create_deletes_dict(loaded_deletions_table)
@@ -521,7 +521,7 @@ def deletes_job():
     delete_events_mutations = delete_events(load_dict)
     waited_mutation = wait_for_delete_mutations(delete_events_mutations)
     cleaned = cleanup_delete_assets(deletions_table, create_deletes_dict_op, waited_mutation)
-    load_pending_deletions(report_person_table, cleaned)
+    load_pending_deletions(report_deletions_table, cleaned)
 
 
 @dagster.run_status_sensor(
