@@ -15,6 +15,10 @@ on:
             # These scripts are used in the CI
             - bin/check_kafka_clickhouse_up
 
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }} # We only want one AI CI run per PR concurrently
+
 jobs:
     eval:
         timeout-minutes: 30
