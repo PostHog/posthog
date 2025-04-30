@@ -24,7 +24,7 @@ export function SidePanelPaneHeader({ children, title }: SidePanelPaneHeaderProp
             {title ? (
                 <h3
                     className={clsx('flex-1 flex items-center gap-1 font-semibold mb-0 truncate', {
-                        'text-base px-2': !modalMode,
+                        'text-sm px-2': !modalMode,
                     })}
                 >
                     {title}
