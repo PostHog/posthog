@@ -29,7 +29,7 @@ export function Persons(): JSX.Element {
                                 onClick: () =>
                                     LemonDialog.openForm({
                                         width: '30rem',
-                                        title: 'Resert deleted person',
+                                        title: 'Reset deleted person',
                                         description: `Once a person is deleted, the "distinct_id" associated with them can no longer be used. 
                                             You can use this tool to reset the "distinct_id" for a person so that new events associated with it will create a new Person profile.`,
                                         initialValues: {
