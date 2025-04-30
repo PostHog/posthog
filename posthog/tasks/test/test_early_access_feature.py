@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 from posthog.models.team import Team
 from posthog.models.person.person import Person
 from posthog.models.feature_flag.feature_flag import FeatureFlag
@@ -9,7 +9,7 @@ from posthog.test.base import APIBaseTest
 
 class TestSendEventsForEarlyAccessFeatureStageChange(APIBaseTest):
     @patch("posthoganalytics.capture")
-    def test_sends_event_for_enrolled_users(self, mock_capture):
+    def test_sends_event_for_enrolled_users(self, mock_capture: MagicMock) -> None:
         team = Team.objects.create(organization=self.organization)
         feature_flag = FeatureFlag.objects.create(team=team, key="my-flag", filters={})
         feature = EarlyAccessFeature.objects.create(
@@ -40,7 +40,7 @@ class TestSendEventsForEarlyAccessFeatureStageChange(APIBaseTest):
         )
 
     @patch("posthoganalytics.capture")
-    def test_no_event_for_enrolled_users_on_different_team(self, mock_capture):
+    def test_no_event_for_enrolled_users_on_different_team(self, mock_capture: MagicMock) -> None:
         team1 = Team.objects.create(organization=self.organization)
         team2 = Team.objects.create(organization=self.organization)
         feature_flag = FeatureFlag.objects.create(team=team1, key="my-flag", filters={})
