@@ -173,6 +173,22 @@ def _get_schema_description(ai_context: dict[Any, Any], hogql_context: HogQLCont
     return schema_description
 
 
+def _get_system_prompt(all_tables: list[str]) -> str:
+    return SYSTEM_PROMPT.replace("{{all_table_names}}", str(all_tables))
+
+
+def _get_user_prompt(schema_description: str) -> str:
+    return (
+        USER_PROMPT.replace("{{schema_description}}", schema_description)
+        + "\n\n<hogql_query>"
+        + "{{{hogql_query}}}"
+        + "</hogql_query>"
+        + "\n\n<error>"
+        + "{{{error_message}}}"
+        + "</error>"
+    )
+
+
 class HogQLQueryFixerTool(MaxTool):
     name: str = "fix_hogql_query"
     description: str = "Fixes any error in the current HogQL query"
@@ -189,17 +205,11 @@ class HogQLQueryFixerTool(MaxTool):
         base_messages = [
             (
                 "system",
-                SYSTEM_PROMPT.replace("{{all_table_names}}", str(all_tables)),
+                _get_system_prompt(all_tables),
             ),
             (
                 "user",
-                USER_PROMPT.replace("{{schema_description}}", schema_description)
-                + "\n\n<hogql_query>"
-                + "{{{hogql_query}}}"
-                + "</hogql_query>"
-                + "\n\n<error>"
-                + "{{{error_message}}}"
-                + "</error>",
+                _get_user_prompt(schema_description),
             ),
         ]
 
