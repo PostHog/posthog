@@ -13,7 +13,6 @@ import { DateTime } from 'luxon'
 import { captureTeamEvent } from '~/src/utils/posthog'
 import { MeasuringPersonsStoreForDistinctIdBatch } from '~/src/worker/ingestion/persons/measuring-person-store'
 
-import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../src/config/kafka-topics'
 import {
     ClickHouseEvent,
     Database,
