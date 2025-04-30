@@ -58,7 +58,6 @@ WEB_STATS_COLUMNS = """
     pageviews_count_state AggregateFunction(sum, UInt64),
 """
 
-# Table definitions with ordering
 WEB_OVERVIEW_ORDER_BY = "(team_id, day_bucket, host, device_type)"
 WEB_STATS_ORDER_BY = "(team_id, day_bucket, host, device_type, os, browser, viewport, referring_domain, utm_source, utm_campaign, utm_medium, country)"
 
@@ -70,7 +69,6 @@ def create_table_pair(base_table_name, columns, order_by, on_cluster=True):
     return base_sql, dist_sql
 
 
-# Overview metrics table
 def WEB_OVERVIEW_METRICS_DAILY_SQL(table_name="web_overview_metrics_daily", on_cluster=True):
     return TABLE_TEMPLATE(table_name, WEB_OVERVIEW_METRICS_COLUMNS, WEB_OVERVIEW_ORDER_BY, on_cluster)
 
@@ -81,7 +79,6 @@ def DISTRIBUTED_WEB_OVERVIEW_METRICS_DAILY_SQL():
     )
 
 
-# Web stats table
 def WEB_STATS_DAILY_SQL(table_name="web_stats_daily", on_cluster=True):
     return TABLE_TEMPLATE(table_name, WEB_STATS_COLUMNS, WEB_STATS_ORDER_BY, on_cluster)
 
@@ -90,14 +87,15 @@ def DISTRIBUTED_WEB_STATS_DAILY_SQL():
     return DISTRIBUTED_TABLE_TEMPLATE("web_stats_daily_distributed", "web_stats_daily", WEB_STATS_COLUMNS)
 
 
-# SQL for inserting into web overview metrics table
-def WEB_OVERVIEW_INSERT_SQL(date_start, date_end, team_ids=None, timezone="UTC", settings=""):
+def WEB_OVERVIEW_INSERT_SQL(
+    date_start, date_end, team_ids=None, timezone="UTC", settings="", table_name="web_overview_daily"
+):
     team_filter = f"raw_sessions.team_id IN({team_ids})" if team_ids else "1=1"
     person_team_filter = f"person_distinct_id_overrides.team_id IN({team_ids})" if team_ids else "1=1"
     events_team_filter = f"e.team_id IN({team_ids})" if team_ids else "1=1"
 
     return f"""
-    INSERT INTO web_overview_daily
+    INSERT INTO {table_name}
     SELECT
       toStartOfDay(start_timestamp) AS day_bucket,
       team_id,
@@ -168,14 +166,15 @@ def WEB_OVERVIEW_INSERT_SQL(date_start, date_end, team_ids=None, timezone="UTC",
     """
 
 
-# SQL for inserting into web stats table
-def WEB_STATS_INSERT_SQL(date_start, date_end, team_ids=None, timezone="UTC", settings=""):
+def WEB_STATS_INSERT_SQL(
+    date_start, date_end, team_ids=None, timezone="UTC", settings="", table_name="web_stats_daily"
+):
     team_filter = f"raw_sessions.team_id IN({team_ids})" if team_ids else "1=1"
     person_team_filter = f"person_distinct_id_overrides.team_id IN({team_ids})" if team_ids else "1=1"
     events_team_filter = f"e.team_id IN({team_ids})" if team_ids else "1=1"
 
     return f"""
-    INSERT INTO web_stats_daily
+    INSERT INTO {table_name}
     SELECT
         toStartOfDay(start_timestamp) AS day_bucket,
         team_id,
