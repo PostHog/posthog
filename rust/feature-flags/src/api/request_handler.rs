@@ -290,20 +290,20 @@ pub fn decode_request(
         .and_then(|v| v.to_str().ok())
         .unwrap_or("unknown");
 
-    if content_type.starts_with("application/json; encoding=base64")
-        && !matches!(query.compression, Some(Compression::Base64))
-    {
+    // Special case: if content-type explicitly specifies base64 encoding, use that
+    if content_type.starts_with("application/json; encoding=base64") {
         return FlagRequest::from_bytes(decode_base64(body)?);
     }
 
+    // For all other cases, use the query param compression if specified
     match content_type {
-        "application/json" => {
+        ct if ct.starts_with("application/json") => {
             let decoded_body = decode_body(body, query.compression)?;
             FlagRequest::from_bytes(decoded_body)
         }
         "application/x-www-form-urlencoded" => decode_form_data(body, query.compression),
-        ct => Err(FlagError::RequestDecodingError(format!(
-            "unsupported content type: {ct}"
+        _ => Err(FlagError::RequestDecodingError(format!(
+            "unsupported content type: {content_type}"
         ))),
     }
 }
@@ -1585,5 +1585,23 @@ mod tests {
         // Test case 4: Neither groups nor existing overrides
         let result = process_group_property_overrides(None, None);
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_decode_request_with_charset() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            CONTENT_TYPE,
+            "application/json; charset=utf-8".parse().unwrap(),
+        );
+        let body = Bytes::from(r#"{"token": "test_token", "distinct_id": "user123"}"#);
+        let meta = FlagsQueryParams::default();
+
+        let result = decode_request(&headers, body, &meta);
+        assert!(result.is_ok(), "Failed to decode request with charset");
+
+        let request = result.unwrap();
+        assert_eq!(request.token, Some("test_token".to_string()));
+        assert_eq!(request.distinct_id, Some("user123".to_string()));
     }
 }
