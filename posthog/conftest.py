@@ -41,12 +41,12 @@ def create_clickhouse_tables():
     if num_tables == num_expected_tables:
         return
 
+    table_queries = list(map(build_query, CREATE_MERGETREE_TABLE_QUERIES + CREATE_DISTRIBUTED_TABLE_QUERIES))
+    run_clickhouse_statement_in_parallel(table_queries)
+
     if settings.IN_EVAL_TESTING:
         kafka_table_queries = list(map(build_query, CREATE_KAFKA_TABLE_QUERIES))
         run_clickhouse_statement_in_parallel(kafka_table_queries)
-
-    table_queries = list(map(build_query, CREATE_MERGETREE_TABLE_QUERIES + CREATE_DISTRIBUTED_TABLE_QUERIES))
-    run_clickhouse_statement_in_parallel(table_queries)
 
     mv_queries = list(map(build_query, CREATE_MV_TABLE_QUERIES))
     run_clickhouse_statement_in_parallel(mv_queries)
@@ -163,12 +163,11 @@ def django_db_setup(django_db_setup, django_db_keepdb):
     yield
 
     if django_db_keepdb:
-        reset_clickhouse_tables()
+        # Reset ClickHouse data, unless we're running AI evals, where we want to keep the DB between runs
+        if not settings.IN_EVAL_TESTING:
+            reset_clickhouse_tables()
     else:
-        try:
-            database.drop_database()
-        except:
-            pass
+        database.drop_database()
 
 
 @pytest.fixture
