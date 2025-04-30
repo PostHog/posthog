@@ -1,8 +1,8 @@
-import { IconChevronRight, IconFolderPlus } from '@posthog/icons'
+import { IconChevronRight, IconFolderPlus, IconSort } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { MoveFilesModal } from 'lib/components/FileSystem/MoveFilesModal'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { FEATURE_FLAGS } from 'lib/constants'
+// import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+// import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { LemonTree, LemonTreeRef, TreeDataItem, TreeMode } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -15,12 +15,19 @@ import {
     ContextMenuSubTrigger,
 } from 'lib/ui/ContextMenu/ContextMenu'
 import {
+    DropdownMenu,
+    DropdownMenuContent,
     DropdownMenuGroup,
     DropdownMenuItem,
+    DropdownMenuItemIndicator,
+    DropdownMenuLabel,
+    DropdownMenuRadioGroup,
+    DropdownMenuRadioItem,
     DropdownMenuSeparator,
     DropdownMenuSub,
     DropdownMenuSubContent,
     DropdownMenuSubTrigger,
+    DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
 import { RefObject, useEffect, useRef } from 'react'
@@ -29,7 +36,7 @@ import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import { PanelLayoutPanel } from '../PanelLayoutPanel'
-import { projectTreeLogic } from './projectTreeLogic'
+import { projectTreeLogic, ProjectTreeSortMethod } from './projectTreeLogic'
 import { calculateMovePath } from './utils'
 
 export function ProjectTree(): JSX.Element {
@@ -50,6 +57,7 @@ export function ProjectTree(): JSX.Element {
         editingItemId,
         checkedItemsArray,
         movingItems,
+        sortMethod,
     } = useValues(projectTreeLogic)
 
     const {
@@ -71,6 +79,7 @@ export function ProjectTree(): JSX.Element {
         clearScrollTarget,
         setEditingItemId,
         setMovingItems,
+        setSortMethod,
     } = useActions(projectTreeLogic)
 
     const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier, setProjectTreeMode } =
@@ -333,21 +342,70 @@ export function ProjectTree(): JSX.Element {
                     ) : null}
                 </>
             }
+            panelFilters={
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <ButtonPrimitive
+                            className="max-w-[210px]"
+                            iconOnly
+                            tooltip={
+                                sortMethod === 'created_at'
+                                    ? 'Currently sorted by creation date'
+                                    : 'Currently sorted alphabetically'
+                            }
+                            aria-label={
+                                sortMethod === 'created_at'
+                                    ? 'Currently sorted by creation date'
+                                    : 'Currently sorted alphabetically'
+                            }
+                        >
+                            <IconSort className="text-tertiary" />
+                        </ButtonPrimitive>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent loop align="end" className="w-[180px]">
+                        <DropdownMenuLabel inset>Display</DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuRadioGroup
+                            value={sortMethod}
+                            onValueChange={(value) => setSortMethod(value as ProjectTreeSortMethod)}
+                        >
+                            <DropdownMenuRadioItem value="created_at" asChild>
+                                <ButtonPrimitive menuItem>
+                                    <DropdownMenuItemIndicator intent="radio" />
+                                    Recent first
+                                </ButtonPrimitive>
+                            </DropdownMenuRadioItem>
+
+                            <DropdownMenuRadioItem value="alphabetical" asChild>
+                                <ButtonPrimitive menuItem>
+                                    <DropdownMenuItemIndicator intent="radio" />
+                                    Structured
+                                </ButtonPrimitive>
+                            </DropdownMenuRadioItem>
+                        </DropdownMenuRadioGroup>
+                    </DropdownMenuContent>
+                </DropdownMenu>
+            }
         >
-            <FlaggedFeature flag={FEATURE_FLAGS.TREE_VIEW_TABLE_MODE}>
-                <ButtonPrimitive
-                    tooltip={projectTreeMode === 'tree' ? 'Switch to table view' : 'Switch to tree view'}
-                    onClick={() => setProjectTreeMode(projectTreeMode === 'tree' ? 'table' : 'tree')}
-                    className="absolute top-1/2 translate-y-1/2 right-0 translate-x-1/2 z-top w-fit bg-surface-primary border border-primary"
-                >
-                    <IconChevronRight
-                        className={cn('size-4', {
-                            'rotate-180': projectTreeMode === 'table',
-                            'rotate-0': projectTreeMode === 'tree',
-                        })}
-                    />
-                </ButtonPrimitive>
-            </FlaggedFeature>
+            {/* Does not work locally ??? */}
+            {/*<FlaggedFeature flag={FEATURE_FLAGS.TREE_VIEW_TABLE_MODE}>*/}
+            <ButtonPrimitive
+                tooltip={projectTreeMode === 'tree' ? 'Switch to table view' : 'Switch to tree view'}
+                onClick={() => setProjectTreeMode(projectTreeMode === 'tree' ? 'table' : 'tree')}
+                className="absolute top-1/2 translate-y-1/2 right-0 translate-x-1/2 z-top w-fit bg-surface-primary border border-primary"
+            >
+                <IconChevronRight
+                    className={cn('size-4', {
+                        'rotate-180': projectTreeMode === 'table',
+                        'rotate-0': projectTreeMode === 'tree',
+                    })}
+                />
+            </ButtonPrimitive>
+            {/*</FlaggedFeature>*/}
+
+            <div role="status" aria-live="polite" className="sr-only">
+                Sorted {sortMethod === 'created_at' ? 'by creation date' : 'alphabetically'}
+            </div>
 
             <LemonTree
                 ref={treeRef}

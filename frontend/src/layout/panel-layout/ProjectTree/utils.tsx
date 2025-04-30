@@ -18,6 +18,7 @@ export interface ConvertProps {
     searchTerm?: string
     disableFolderSelect?: boolean
     disabledReason?: (item: FileSystemImport | FileSystemEntry) => string | undefined
+    flat?: boolean
 }
 
 export function sortFilesAndFolders(a: FileSystemEntry, b: FileSystemEntry): number {
@@ -55,6 +56,7 @@ export function convertFileSystemEntryToTreeDataItem({
     searchTerm,
     disableFolderSelect,
     disabledReason,
+    flat,
 }: ConvertProps): TreeDataItem[] {
     // The top-level nodes for our project tree
     const rootNodes: TreeDataItem[] = []
@@ -106,42 +108,45 @@ export function convertFileSystemEntryToTreeDataItem({
     }
 
     // Iterate over each raw project item.
-    for (const item of imports) {
+    for (let item of imports) {
         const pathSplit = splitPath(item.path)
         const itemName = pathSplit.pop()!
         const folderPath = joinPath(pathSplit)
-
-        // Split the folder path by "/" (ignoring empty parts).
-        const folderParts = folderPath ? splitPath(folderPath) : []
 
         // Start at the root level.
         let currentLevel = rootNodes
         let folderNode: TreeDataItem | undefined = undefined
         const accumulatedPath: string[] = []
-
-        // Create (or find) nested folders as needed.
-        for (const part of folderParts) {
-            accumulatedPath.push(part)
-            folderNode = findOrCreateFolder(currentLevel, part, joinPath(accumulatedPath))
-            currentLevel = folderNode.children!
-        }
-
         let accumulatedChildren: TreeDataItem[] = []
-        if (item.type === 'folder') {
-            const folderMatch = (node: TreeDataItem): boolean =>
-                node.record?.path === item.path && node.record?.type === 'folder'
-            const existingFolder = currentLevel.find(folderMatch)
-            if (existingFolder) {
-                if (existingFolder.record?.id) {
-                    continue
-                } else {
-                    // We have a folder without an id, but the incoming one has an id. Remove the current one
-                    currentLevel = currentLevel.filter((node) => !folderMatch(node))
-                    if (folderNode) {
-                        folderNode.children = currentLevel
-                    }
-                    if (existingFolder.children) {
-                        accumulatedChildren = [...accumulatedChildren, ...existingFolder.children]
+
+        if (flat) {
+            item = { ...item, meta: { ...item.meta, path: item.path } }
+        } else {
+            const folderParts = folderPath ? splitPath(folderPath) : []
+
+            // Create (or find) nested folders as needed.
+            for (const part of folderParts) {
+                accumulatedPath.push(part)
+                folderNode = findOrCreateFolder(currentLevel, part, joinPath(accumulatedPath))
+                currentLevel = folderNode.children!
+            }
+
+            if (item.type === 'folder') {
+                const folderMatch = (node: TreeDataItem): boolean =>
+                    node.record?.path === item.path && node.record?.type === 'folder'
+                const existingFolder = currentLevel.find(folderMatch)
+                if (existingFolder) {
+                    if (existingFolder.record?.id) {
+                        continue
+                    } else {
+                        // We have a folder without an id, but the incoming one has an id. Remove the current one
+                        currentLevel = currentLevel.filter((node) => !folderMatch(node))
+                        if (folderNode) {
+                            folderNode.children = currentLevel
+                        }
+                        if (existingFolder.children) {
+                            accumulatedChildren = [...accumulatedChildren, ...existingFolder.children]
+                        }
                     }
                 }
             }
@@ -181,7 +186,7 @@ export function convertFileSystemEntryToTreeDataItem({
         // Place the item in the current (deepest) folder.
         currentLevel.push(node)
 
-        if (item.type === 'folder') {
+        if (!flat && item.type === 'folder') {
             if (!node.children) {
                 node.children = []
             }
@@ -207,44 +212,45 @@ export function convertFileSystemEntryToTreeDataItem({
         }
     }
 
-    // Helper function to sort nodes (and their children) alphabetically by name.
-    const sortNodes = (nodes: TreeDataItem[]): void => {
-        nodes.sort((a, b) => {
-            if (a.id.startsWith(`${root}-load-more/`) || a.id.startsWith(`${root}-loading/`)) {
-                return 1
-            }
-            if (b.id.startsWith(`${root}-load-more/`) || b.id.startsWith(`${root}-loading/`)) {
-                return -1
-            }
-            // folders before files
-            if (a.record?.type === 'folder' && b.record?.type !== 'folder') {
-                return -1
-            }
-            if (b.record?.type === 'folder' && a.record?.type !== 'folder') {
-                return 1
-            }
-            return String(a.name).localeCompare(String(b.name), undefined, { sensitivity: 'accent' })
-        })
-        for (const node of nodes) {
-            if (node.children) {
-                sortNodes(node.children)
-            }
-        }
-    }
-    sortNodes(rootNodes)
-
-    for (const folderNode of allFolderNodes) {
-        if (folderNode.children && folderNode.children.length === 0) {
-            folderNode.children.push({
-                id: `${root}-folder-empty/${folderNode.id}`,
-                name: 'Empty folder',
-                displayName: <>Empty folder</>,
-                disableSelect: true,
-                type: 'empty-folder',
+    if (!flat) {
+        // Helper function to sort nodes (and their children) alphabetically by name.
+        const sortNodes = (nodes: TreeDataItem[]): void => {
+            nodes.sort((a, b) => {
+                if (a.id.startsWith(`${root}-load-more/`) || a.id.startsWith(`${root}-loading/`)) {
+                    return 1
+                }
+                if (b.id.startsWith(`${root}-load-more/`) || b.id.startsWith(`${root}-loading/`)) {
+                    return -1
+                }
+                // folders before files
+                if (a.record?.type === 'folder' && b.record?.type !== 'folder') {
+                    return -1
+                }
+                if (b.record?.type === 'folder' && a.record?.type !== 'folder') {
+                    return 1
+                }
+                return String(a.name).localeCompare(String(b.name), undefined, { sensitivity: 'accent' })
             })
+            for (const node of nodes) {
+                if (node.children) {
+                    sortNodes(node.children)
+                }
+            }
         }
-        if (indeterminateFolders[folderNode.id] && !folderNode.checked) {
-            folderNode.checked = 'indeterminate'
+        sortNodes(rootNodes)
+        for (const folderNode of allFolderNodes) {
+            if (folderNode.children && folderNode.children.length === 0) {
+                folderNode.children.push({
+                    id: `${root}-folder-empty/${folderNode.id}`,
+                    name: 'Empty folder',
+                    displayName: <>Empty folder</>,
+                    disableSelect: true,
+                    type: 'empty-folder',
+                })
+            }
+            if (indeterminateFolders[folderNode.id] && !folderNode.checked) {
+                folderNode.checked = 'indeterminate'
+            }
         }
     }
 

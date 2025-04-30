@@ -33,6 +33,8 @@ const PAGINATION_LIMIT = 100
 const MOVE_ALERT_LIMIT = 50
 const DELETE_ALERT_LIMIT = 0
 
+export type ProjectTreeSortMethod = 'alphabetical' | 'created_at'
+
 export interface RecentResults {
     results: FileSystemEntry[]
     hasMore: boolean
@@ -104,6 +106,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         clearScrollTarget: true,
         setEditingItemId: (id: string) => ({ id }),
         setMovingItems: (items: FileSystemEntry[]) => ({ items }),
+        setSortMethod: (sortMethod: ProjectTreeSortMethod) => ({ sortMethod }),
     }),
     loaders(({ actions, values }) => ({
         unfiledItems: [
@@ -520,6 +523,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 setEditingItemId: (_, { id }) => id,
             },
         ],
+        sortMethod: [
+            'alphabetical' as ProjectTreeSortMethod,
+            {
+                setSortMethod: (_, { sortMethod }) => sortMethod,
+            },
+        ],
     }),
     selectors({
         savedItems: [
@@ -734,24 +743,23 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     checkedItems,
                     root: 'project',
                     disableFolderSelect: true,
+                    flat: true,
                 })
-                if (recentResults.hasMore) {
-                    if (recentResultsLoading) {
-                        results.push({
-                            id: `recent-loading/`,
-                            name: 'Loading...',
-                            icon: <Spinner />,
-                            disableSelect: true,
-                        })
-                    } else {
-                        results.push({
-                            id: `recent-load-more/`,
-                            name: 'Load more...',
-                            icon: <IconPlus />,
-                            disableSelect: true,
-                            onClick: () => projectTreeLogic.actions.loadRecentResults(recentResults.results.length),
-                        })
-                    }
+                if (recentResultsLoading) {
+                    results.push({
+                        id: `recent-loading/`,
+                        name: 'Loading...',
+                        icon: <Spinner />,
+                        disableSelect: true,
+                    })
+                } else if (recentResults.hasMore) {
+                    results.push({
+                        id: `recent-load-more/`,
+                        name: 'Load more...',
+                        icon: <IconPlus />,
+                        disableSelect: true,
+                        onClick: () => projectTreeLogic.actions.loadRecentResults(recentResults.results.length),
+                    })
                 }
                 return results
             },
@@ -767,45 +775,37 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     searchTerm: searchResults.searchTerm,
                     disableFolderSelect: true,
                 })
-                if (searchResults.hasMore) {
-                    if (searchResultsLoading) {
-                        results.push({
-                            id: `search-loading/`,
-                            name: 'Loading...',
-                            icon: <Spinner />,
-                            disableSelect: true,
-                        })
-                    } else {
-                        results.push({
-                            id: `search-load-more/${searchResults.searchTerm}`,
-                            name: 'Load more...',
-                            icon: <IconPlus />,
-                            disableSelect: true,
-                            onClick: () =>
-                                projectTreeLogic.actions.loadSearchResults(
-                                    searchResults.searchTerm,
-                                    searchResults.results.length
-                                ),
-                        })
-                    }
+                if (searchResultsLoading) {
+                    results.push({
+                        id: `search-loading/`,
+                        name: 'Loading...',
+                        icon: <Spinner />,
+                        disableSelect: true,
+                    })
+                } else if (searchResults.hasMore) {
+                    results.push({
+                        id: `search-load-more/${searchResults.searchTerm}`,
+                        name: 'Load more...',
+                        icon: <IconPlus />,
+                        disableSelect: true,
+                        onClick: () =>
+                            projectTreeLogic.actions.loadSearchResults(
+                                searchResults.searchTerm,
+                                searchResults.results.length
+                            ),
+                    })
                 }
                 return results
             },
         ],
         treeData: [
-            (s) => [s.searchTerm, s.searchedTreeItems, s.projectTree, s.loadingPaths, s.searchResultsLoading],
-            (searchTerm, searchedTreeItems, projectTree, loadingPaths, searchResultsLoading): TreeDataItem[] => {
+            (s) => [s.searchTerm, s.searchedTreeItems, s.projectTree, s.loadingPaths, s.recentTreeItems, s.sortMethod],
+            (searchTerm, searchedTreeItems, projectTree, loadingPaths, recentTreeItems, sortMethod): TreeDataItem[] => {
                 if (searchTerm) {
-                    if (searchResultsLoading && searchedTreeItems.length === 0) {
-                        return [
-                            {
-                                id: `search-loading/`,
-                                name: 'Loading...',
-                                icon: <Spinner />,
-                            },
-                        ]
-                    }
                     return searchedTreeItems
+                }
+                if (sortMethod === 'created_at') {
+                    return recentTreeItems
                 }
                 if (loadingPaths[''] && projectTree.length === 0) {
                     return [
@@ -821,8 +821,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
         // TODO: use treeData + some other logic to determine the keys
         treeTableKeys: [
-            () => [],
-            (): TreeTableViewKeys => ({
+            (s) => [s.sortMethod],
+            (sortMethod): TreeTableViewKeys => ({
                 headers: [
                     {
                         key: 'name',
@@ -837,6 +837,17 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         tooltip: (value: string) => dayjs(value).format('MMM D, YYYY HH:mm:ss'),
                         width: 200,
                     },
+                    ...(sortMethod === 'created_at'
+                        ? [
+                              {
+                                  key: 'record.path',
+                                  title: 'Path',
+                                  formatFunction: (value: string) => value,
+                                  tooltip: (value: string) => value,
+                                  width: 300,
+                              },
+                          ]
+                        : []),
                     {
                         key: 'record.created_by.first_name',
                         title: 'Created by',
@@ -1275,6 +1286,11 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         },
         setSearchTerm: ({ searchTerm }) => {
             actions.loadSearchResults(searchTerm)
+        },
+        setSortMethod: ({ sortMethod }) => {
+            if (sortMethod === 'created_at') {
+                actions.loadRecentResults()
+            }
         },
         assureVisibility: async ({ projectTreeRef }, breakpoint) => {
             if (projectTreeRef) {

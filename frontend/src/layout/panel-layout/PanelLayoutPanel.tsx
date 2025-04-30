@@ -14,6 +14,7 @@ import { ProjectDropdownMenu } from './ProjectDropdownMenu'
 interface PanelLayoutPanelProps {
     searchPlaceholder?: string
     panelActions?: React.ReactNode
+    panelFilters?: React.ReactNode
     children: React.ReactNode
 }
 
@@ -60,7 +61,12 @@ const panelLayoutPanelVariants = cva({
     ],
 })
 
-export function PanelLayoutPanel({ searchPlaceholder, panelActions, children }: PanelLayoutPanelProps): JSX.Element {
+export function PanelLayoutPanel({
+    searchPlaceholder,
+    panelActions,
+    panelFilters,
+    children,
+}: PanelLayoutPanelProps): JSX.Element {
     const { clearSearch, setSearchTerm, toggleLayoutPanelPinned } = useActions(panelLayoutLogic)
     const { isLayoutPanelPinned, searchTerm, panelTreeRef, projectTreeMode, isLayoutNavCollapsed } =
         useValues(panelLayoutLogic)
@@ -138,6 +144,7 @@ export function PanelLayoutPanel({ searchPlaceholder, panelActions, children }: 
                                 }
                             }}
                         />
+                        {panelFilters ?? null}
                     </div>
                     <div className="border-b border-primary h-px" />
                     {children}
