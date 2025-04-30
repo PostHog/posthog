@@ -85,38 +85,6 @@ class MailjetProvider:
 
         return overall_status, formatted_dns_records
 
-    def _create_sender_domain(self, domain: str):
-        """
-        Create a new sender domain
-
-        Reference: https://dev.mailjet.com/email/reference/sender-addresses-and-domains/sender/#v3_post_sender
-        """
-        # Validate the domain contains valid characters for a domain name
-        DOMAIN_REGEX = r"(?i)^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$"
-        if not re.match(DOMAIN_REGEX, domain):
-            raise exceptions.ValidationError("Please enter a valid domain or subdomain name.")
-
-        sender_domain = f"*@{domain}"
-
-        url = f"{MailjetConfig.API_BASE_URL_V3}{MailjetConfig.SENDER_ENDPOINT}"
-
-        # EmailType = "unknown" as both transactional and campaign emails may be sent from this domain
-        payload = {"EmailType": "unknown", "Email": sender_domain, "Name": domain}
-
-        try:
-            response = requests.post(
-                url, auth=(self.api_key, self.api_secret), headers=MailjetConfig.DEFAULT_HEADERS, json=payload
-            )
-
-            ALREADY_EXISTS_RESPONSE = "There is an already existing inactive sender with the same email."
-            if response.status_code == 400 and ALREADY_EXISTS_RESPONSE in str(response.json()):
-                return
-            else:
-                response.raise_for_status()
-        except requests.exceptions.RequestException as e:
-            logger.exception(f"Mailjet API error creating sender domain: {e}")
-            raise
-
     def _get_domain_dns_records(self, domain: str):
         """
         Get DNS records for a domain (DKIM and SPF verification status)
@@ -149,26 +117,41 @@ class MailjetProvider:
             logger.exception(f"Mailjet API error checking DNS records: {e}")
             raise
 
-    def setup_email_domain(self, domain: str):
+    def create_email_domain(self, domain: str, team_id: int):
         """
-        Complete setup for a new email domain:
-        1. Create a sender domain with Mailjet
-        2. Get DNS records for the domain
+        Create a new sender domain in Mailjet
 
-        Returns all necessary information for domain verification.
+        Reference: https://dev.mailjet.com/email/reference/sender-addresses-and-domains/sender/#v3_post_sender
         """
-        self._create_sender_domain(domain)
-        dns_response = self._get_domain_dns_records(domain)
+        # Validate the domain contains valid characters for a domain name
+        DOMAIN_REGEX = r"(?i)^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$"
+        if not re.match(DOMAIN_REGEX, domain):
+            raise exceptions.ValidationError("Please enter a valid domain or subdomain name.")
 
-        overall_status, formatted_dns_records = self._format_dns_records(dns_response)
+        sender_domain = f"*@{domain}"
 
-        return {"status": overall_status, "dnsRecords": formatted_dns_records}
+        url = f"{MailjetConfig.API_BASE_URL_V3}{MailjetConfig.SENDER_ENDPOINT}"
 
-    def verify_email_domain(self, domain: str):
+        # Use the team ID and domain to create a unique sender name on Mailjet side.
+        # This isn't used by PostHog, but can be helpful when looking at senders in the Mailjet console.
+        delimited_sender_name = f"{team_id}|{domain}"
+        # EmailType = "unknown" as both transactional and campaign emails may be sent from this domain
+        payload = {"EmailType": "unknown", "Email": sender_domain, "Name": delimited_sender_name}
+
+        try:
+            response = requests.post(
+                url, auth=(self.api_key, self.api_secret), headers=MailjetConfig.DEFAULT_HEADERS, json=payload
+            )
+            response.raise_for_status()
+            return MailjetResponse(**response.json()).get_first_item()
+        except requests.exceptions.RequestException as e:
+            logger.exception(f"Mailjet API error creating sender domain: {e}")
+            raise
+
+    def verify_email_domain(self, domain: str, team_id: int):
         """
         Verify the email domain by checking DNS records status.
         """
         dns_response = self._check_domain_dns_records(domain)
         overall_status, formatted_dns_records = self._format_dns_records(dns_response)
-
         return {"status": overall_status, "dnsRecords": formatted_dns_records}
