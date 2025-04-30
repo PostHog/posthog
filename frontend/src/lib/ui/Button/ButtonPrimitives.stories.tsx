@@ -55,13 +55,7 @@ export function Default(): JSX.Element {
                 >
                     Button1
                 </ButtonPrimitive>
-                <Link
-                    buttonProps={{
-                        tooltip: 'Tooltip',
-                    }}
-                    to="https://google.com"
-                    target="_blank"
-                >
+                <Link tooltip="Tooltip" to="https://google.com" target="_blank">
                     Link
                 </Link>
                 <ButtonPrimitive iconOnly tooltip="Tooltip">
@@ -76,8 +70,8 @@ export function Default(): JSX.Element {
                 <Link
                     buttonProps={{
                         hasSideActionRight: true,
-                        tooltip: 'Tooltip',
                     }}
+                    tooltip="Tooltip"
                     to="#"
                 >
                     Side action group
@@ -86,8 +80,8 @@ export function Default(): JSX.Element {
                     buttonProps={{
                         iconOnly: true,
                         isSideActionRight: true,
-                        tooltip: 'Tooltip',
                     }}
+                    tooltip="Tooltip"
                     to="#"
                 >
                     <IconSearch />
@@ -122,9 +116,9 @@ export function Default(): JSX.Element {
                                 buttonProps={{
                                     menuItem: true,
                                     hasSideActionRight: true,
-                                    tooltip: `go to google`,
-                                    tooltipPlacement: 'right',
                                 }}
+                                tooltip="go to google"
+                                tooltipPlacement="right"
                                 to="https://google.com"
                             >
                                 Name
@@ -134,9 +128,9 @@ export function Default(): JSX.Element {
                             buttonProps={{
                                 iconOnly: true,
                                 isSideActionRight: true,
-                                tooltip: `go to bing`,
-                                tooltipPlacement: 'right',
                             }}
+                            tooltip="go to bing"
+                            tooltipPlacement="right"
                             to="https://bing.com"
                         >
                             <IconGear />
