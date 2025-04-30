@@ -1,4 +1,3 @@
-import logging
 from typing import Optional
 
 import structlog
@@ -10,7 +9,6 @@ from posthog.models.person.util import create_person_distinct_id
 from rest_framework.exceptions import NotFound
 
 logger = structlog.get_logger(__name__)
-logger.setLevel(logging.INFO)
 
 
 def reset_all_deleted_person_distinct_ids(team_id: int, version: int = 2500):
@@ -23,6 +21,9 @@ def reset_all_deleted_person_distinct_ids(team_id: int, version: int = 2500):
 def reset_deleted_person_distinct_ids(team_id: int, distinct_id: str):
     existing_version = _get_version_for_distinct_id(team_id, distinct_id)
     distinct_ids_and_versions = [(distinct_id, existing_version + 100)]
+
+    print(f"Resetting distinct id {distinct_id} to version {existing_version + 100}")
+    logger.info(f"Resetting distinct id {distinct_id} to version {existing_version + 100}")
     _updated_distinct_ids(team_id, distinct_ids_and_versions)
 
 
