@@ -16,6 +16,9 @@ from posthog.models.user import User
 from posthog.models.utils import UUIDModel, RootTeamMixin
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.utils import get_instance_realm
+import structlog
+
+logger = structlog.get_logger(__name__)
 
 """
 How to use this model:
@@ -172,11 +175,14 @@ class ProductIntent(UUIDModel, RootTeamMixin):
     def check_and_update_activation(self, skip_reporting: bool = False) -> bool:
         # If the intent is already activated, we don't need to check again
         if self.activated_at:
+            logger.info(f"[PRODUCT INTENT LOG] Intent already activated for {self.team.id} - {self.product_type}")
             return True
 
         # Update the last activation check time
         self.activation_last_checked_at = datetime.now(tz=UTC)
         self.save()
+
+        logger.info(f"[PRODUCT INTENT LOG] Updated activation last checked at for {self.team.id} - {self.product_type}")
 
         activation_checks = {
             "data_warehouse": self.has_activated_data_warehouse,
@@ -189,9 +195,16 @@ class ProductIntent(UUIDModel, RootTeamMixin):
         }
 
         if self.product_type in activation_checks and activation_checks[self.product_type]():
+            logger.info(
+                f"[PRODUCT INTENT LOG] Activated. Saving activation for {self.team.id} - {self.product_type}. Skip reporting: {skip_reporting}"
+            )
             self.activated_at = datetime.now(tz=UTC)
             self.save()
+            logger.info(
+                f"[PRODUCT INTENT LOG] Updated activation for {self.team.id} - {self.product_type}. Skip reporting: {skip_reporting}"
+            )
             if not skip_reporting:
+                logger.info(f"[PRODUCT INTENT LOG] Reporting activation for {self.team.id} - {self.product_type}")
                 self.report_activation(self.product_type)
             return True
 
@@ -200,6 +213,7 @@ class ProductIntent(UUIDModel, RootTeamMixin):
     def report_activation(self, product_key: str) -> None:
         from posthog.event_usage import report_team_action
 
+        logger.info(f"[PRODUCT INTENT LOG] Calling report_team_action for {self.team.id} - {product_key}")
         report_team_action(
             self.team,
             "product intent marked activated",
@@ -210,6 +224,7 @@ class ProductIntent(UUIDModel, RootTeamMixin):
                 "realm": get_instance_realm(),
             },
         )
+        logger.info(f"[PRODUCT INTENT LOG] Reported activation for {self.team.id} - {product_key}")
 
     @staticmethod
     def register(
@@ -278,15 +293,26 @@ def calculate_product_activation(team_id: int, only_calc_if_days_since_last_chec
     Calculate product activation for a team.
     Only calculate if it's been more than `only_calc_if_days_since_last_checked` days since the last activation check.
     """
+    logger.info(f"[PRODUCT INTENT LOG] Calculate product activation for {team_id}")
     team = Team.objects.get(id=team_id)
     product_intents = ProductIntent.objects.filter(team=team)
+    logger.info(f"[PRODUCT INTENT LOG] Found {product_intents.count()} product intents for {team_id}")
     for product_intent in product_intents:
         if product_intent.activated_at:
+            logger.info(
+                f"[PRODUCT INTENT LOG] Skipping because already activated for {product_intent.team.id} - {product_intent.product_type}"
+            )
             continue
         if (
             product_intent.activation_last_checked_at
             and (datetime.now(tz=UTC) - product_intent.activation_last_checked_at).days
             <= only_calc_if_days_since_last_checked
         ):
+            logger.info(
+                f"[PRODUCT INTENT LOG] Skipping because it was checked recently for {product_intent.team.id} - {product_intent.product_type}"
+            )
             continue
+        logger.info(
+            f"[PRODUCT INTENT LOG] Running check_and_update_activation for {product_intent.team.id} - {product_intent.product_type}"
+        )
         product_intent.check_and_update_activation()
