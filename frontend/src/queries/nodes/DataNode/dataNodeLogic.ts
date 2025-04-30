@@ -73,6 +73,8 @@ export interface DataNodeLogicProps {
     refresh?: RefreshType
     /** Callback when data is successfully loader or provided from cache. */
     onData?: (data: Record<string, unknown> | null | undefined) => void
+    /** Callback when an error is returned */
+    onError?: (error: string | null) => void
     /** Load priority. Higher priority (smaller number) queries will be loaded first. */
     loadPriority?: number
     /** Override modifiers when making the request */
@@ -803,7 +805,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             }
         },
     })),
-    subscriptions(({ actions, cache, values }) => ({
+    subscriptions(({ props, actions, cache, values }) => ({
+        responseError: (error: string | null) => {
+            props.onError?.(error)
+        },
         autoLoadRunning: (autoLoadRunning) => {
             if (cache.autoLoadInterval) {
                 window.clearInterval(cache.autoLoadInterval)
