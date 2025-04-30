@@ -738,6 +738,8 @@ def generate_sql_comment(**meta):
 
 
 def add_sql_comment(sql, **meta):
+    if len(meta) == 0:
+        return sql
     comment = generate_sql_comment(**meta)
     sql = sql.rstrip()
     if sql[-1] == ";":
