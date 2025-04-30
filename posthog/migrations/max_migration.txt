@@ -1,1 +1,1 @@
-0718_eventingestionrestrictionconfig
+0719_teamrevenueanalyticsconfig_notified_first_sync
