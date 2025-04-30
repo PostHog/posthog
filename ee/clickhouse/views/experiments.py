@@ -29,6 +29,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
     )
     saved_metrics = ExperimentToSavedMetricSerializer(many=True, source="experimenttosavedmetric_set", read_only=True)
     saved_metrics_ids = serializers.ListField(child=serializers.JSONField(), required=False, allow_null=True)
+    _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
         model = Experiment
@@ -57,6 +58,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "metrics",
             "metrics_secondary",
             "stats_config",
+            "_create_in_folder",
         ]
         read_only_fields = [
             "id",
@@ -218,14 +220,17 @@ class ExperimentSerializer(serializers.ModelSerializer):
                 "holdout_groups": holdout_groups,
             }
 
+            feature_flag_data = {
+                "key": feature_flag_key,
+                "name": f"Feature Flag for Experiment {validated_data['name']}",
+                "filters": feature_flag_filters,
+                "active": not is_draft,
+                "creation_context": "experiments",
+            }
+            if validated_data.get("_create_in_folder") is not None:
+                feature_flag_data["_create_in_folder"] = validated_data["_create_in_folder"]
             feature_flag_serializer = FeatureFlagSerializer(
-                data={
-                    "key": feature_flag_key,
-                    "name": f"Feature Flag for Experiment {validated_data['name']}",
-                    "filters": feature_flag_filters,
-                    "active": not is_draft,
-                    "creation_context": "experiments",
-                },
+                data=feature_flag_data,
                 context=self.context,
             )
 

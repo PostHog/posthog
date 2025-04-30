@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use hogvm::{sync_execute, ExecutionContext, HogLiteral, NativeFunction};
+use hogvm::{sync_execute, ExecutionContext, HogLiteral, NativeFunction, Program};
 use serde_json::{json, Value};
 
 const fn stl_test_extensions() -> &'static [(&'static str, NativeFunction)] {
@@ -88,7 +88,8 @@ pub fn test_vm() {
         let (name, code) = program;
         println!("Running: {}", name);
         let parsed: Vec<Value> = serde_json::from_str(&code).unwrap();
-        let ctx = ExecutionContext::with_defaults(&parsed)
+        let program = Program::new(parsed).unwrap();
+        let ctx = ExecutionContext::with_defaults(program)
             .with_ext_fns(to_extension(stl_test_extensions()))
             .with_globals(test_globals());
         let res = sync_execute(&ctx, false);

@@ -130,7 +130,7 @@ class TestReplaySummarizer:
                 return_value=(None, None),
             ) as mock_get_db_events,
         ):
-            with pytest.raises(ValueError, match=f"no events found for session_id {summarizer.recording.session_id}"):
+            with pytest.raises(ValueError, match=f"No events found for session_id {summarizer.recording.session_id}"):
                 list(summarizer.summarize_recording())
                 mock_get_db_events.assert_called_once_with(
                     session_id="test_session_id",

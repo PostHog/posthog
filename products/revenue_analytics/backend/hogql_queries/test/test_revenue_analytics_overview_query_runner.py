@@ -158,6 +158,39 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         s3 = str(uuid7("2024-02-04"))
         self._create_purchase_events(
             [
+                ("p1", [("2023-12-02", s1, 42, "USD")]),
+                ("p2", [("2024-01-01", s2, 43, "BRL"), ("2024-01-02", s3, 87, "BRL")]),  # 2 events, 1 customer
+            ]
+        )
+
+        results = self._run_revenue_analytics_overview_query(
+            date_range=DateRange(date_from="2023-11-01", date_to="2024-01-31"),
+            revenue_sources=RevenueSources(events=["purchase"], dataWarehouseSources=[]),
+        ).results
+
+        self.assertEqual(
+            results,
+            [
+                RevenueAnalyticsOverviewItem(
+                    key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("54.2331251204")
+                ),
+                RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=2),
+                RevenueAnalyticsOverviewItem(
+                    key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("27.1165625602")
+                ),
+            ],
+        )
+
+    def test_with_events_data_and_currency_aware_divider(self):
+        self.team.revenue_analytics_config.events = [
+            REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT.model_copy(update={"currencyAwareDecimal": True})
+        ]
+
+        s1 = str(uuid7("2023-12-02"))
+        s2 = str(uuid7("2024-01-03"))
+        s3 = str(uuid7("2024-02-04"))
+        self._create_purchase_events(
+            [
                 ("p1", [("2023-12-02", s1, 4200, "USD")]),
                 ("p2", [("2024-01-01", s2, 4300, "BRL"), ("2024-01-02", s3, 8700, "BRL")]),  # 2 events, 1 customer
             ]

@@ -300,3 +300,37 @@ export function findInProjectTree(itemId: string, projectTree: TreeDataItem[]): 
     }
     return undefined
 }
+
+/**
+ * Calculates the new path for a file system entry when moving it to a new destination folder
+ * @param item The file system entry to move
+ * @param destinationFolder The destination folder path (empty string for root)
+ * @returns Object containing the new path and whether the move is valid
+ */
+export function calculateMovePath(
+    item: FileSystemEntry,
+    destinationFolder: string
+): { newPath: string; isValidMove: boolean } {
+    const oldPath = item.path
+    const oldSplit = splitPath(oldPath)
+    const fileName = oldSplit.pop()
+
+    if (!fileName) {
+        return { newPath: '', isValidMove: false }
+    }
+
+    let newPath = ''
+
+    if (destinationFolder === '') {
+        // Moving to root
+        newPath = joinPath([fileName])
+        // Only valid if item is not already at root
+        const isValidMove = oldSplit.length > 0
+        return { newPath, isValidMove }
+    }
+    // Moving to another folder
+    newPath = joinPath([...splitPath(destinationFolder), fileName])
+    // Only valid if destination is different from current location
+    const isValidMove = newPath !== oldPath
+    return { newPath, isValidMove }
+}

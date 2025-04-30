@@ -127,11 +127,20 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
           "base_currency": "USD",
           "events": [
             {
+              "currencyAwareDecimal": false,
               "eventName": "purchase",
               "revenueCurrencyProperty": {
                 "static": "ZAR",
               },
               "revenueProperty": "value",
+            },
+            {
+              "currencyAwareDecimal": true,
+              "eventName": "subscription_created",
+              "revenueCurrencyProperty": {
+                "property": "currency",
+              },
+              "revenueProperty": "subscription_value",
             },
           ],
         },

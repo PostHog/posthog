@@ -8,10 +8,11 @@ import {
     IconThumbsUp,
     IconWarning,
 } from '@posthog/icons'
-import { LemonBanner, LemonCollapse, LemonDivider, LemonSkeleton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCollapse, LemonDivider, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { useEffect, useState } from 'react'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
@@ -53,6 +54,26 @@ const isValidMetaNumber = (value: unknown): value is number => typeof value === 
 
 interface SegmentMetaProps {
     meta: SegmentMeta | null | undefined
+}
+
+function LoadingTimer({ operation }: { operation?: string }): JSX.Element {
+    const [elapsedSeconds, setElapsedSeconds] = useState(0)
+
+    useEffect(() => {
+        if (operation !== undefined) {
+            setElapsedSeconds(0) // Reset timer only when operation changes and is provided
+        }
+    }, [operation])
+
+    useEffect(() => {
+        const interval = setInterval(() => {
+            setElapsedSeconds((prev) => prev + 1)
+        }, 1000)
+
+        return () => clearInterval(interval)
+    }, []) // Keep this dependency array empty to avoid resetting interval
+
+    return <span className="font-mono text-xs text-muted">{elapsedSeconds}s</span>
 }
 
 function SegmentMetaTable({ meta }: SegmentMetaProps): JSX.Element | null {
@@ -200,20 +221,32 @@ function SessionSegmentView({
 }
 
 interface SessionSummaryLoadingStateProps {
-    operation: string
+    finished: boolean
+    operation?: string
     counter?: number
     name?: string
+    outOf?: number
 }
 
-function SessionSummaryLoadingState({ operation, counter, name }: SessionSummaryLoadingStateProps): JSX.Element {
+function SessionSummaryLoadingState({ operation, counter, name, outOf }: SessionSummaryLoadingStateProps): JSX.Element {
     return (
         <div className="mb-4 grid grid-cols-[auto_1fr] gap-x-2">
             <Spinner className="text-2xl row-span-2 self-center" />
-            <span className="text-muted">
-                {operation}
-                {counter !== undefined && <span className="font-semibold"> ({counter})</span>}
-                {name ? ':' : ''}
-            </span>
+            <div className="flex items-center justify-between">
+                <span className="text-muted">
+                    {operation}&nbsp;
+                    {counter !== undefined && (
+                        <span className="font-semibold">
+                            ({counter}
+                            {outOf ? ` out of ${outOf}` : ''})
+                        </span>
+                    )}
+                    {name ? ':' : ''}
+                </span>
+                <div className="flex items-center gap-1 ml-auto font-mono text-xs">
+                    <LoadingTimer operation={operation} />
+                </div>
+            </div>
             {name ? (
                 <div className="font-semibold">{name}</div>
             ) : (
@@ -230,10 +263,11 @@ function SessionSummary(): JSX.Element {
     const { sessionSummary, summaryHasHadFeedback } = useValues(playerMetaLogic(logicProps))
     const { sessionSummaryFeedback } = useActions(playerMetaLogic(logicProps))
 
-    const getSessionSummaryLoadingState = (): SessionSummaryLoadingStateProps | null => {
+    const getSessionSummaryLoadingState = (): SessionSummaryLoadingStateProps => {
         if (!sessionSummary) {
             return {
-                operation: 'Researching...',
+                finished: false,
+                operation: 'Researching the session...',
             }
         }
         const segments = sessionSummary.segments || []
@@ -253,12 +287,15 @@ function SessionSummary(): JSX.Element {
         )
         // If all segments have a success outcome, it means the data is fully loaded and loading state can be hidden
         if (allSegmentsHaveSuccess) {
-            return null
+            return {
+                finished: true,
+            }
         }
         // If some segments have outcomes already, it means we stream the success and summary of each segment
         if (hasSegmentsWithOutcomes) {
             return {
-                operation: 'Researching the success of the each segment',
+                finished: false,
+                operation: 'Analyzing the success of each segment',
             }
         }
         // If some segments have key actions already, it means we stream the key actions for each segment
@@ -282,13 +319,16 @@ function SessionSummary(): JSX.Element {
             }
             const currentSegment = segments[currentSegmentIndex]
             return {
-                operation: 'Researching key actions for the segment',
-                counter: currentSegment?.meta?.key_action_count ?? undefined,
+                finished: false,
+                operation: 'Researching key actions for segments',
+                counter: currentSegmentIndex,
                 name: currentSegment?.name ?? undefined,
+                outOf: segments.length,
             }
         }
         // If no segments have key actions or outcomes, it means we are researching the segments for the session
         return {
+            finished: false,
             operation: 'Researching segments for the session...',
             counter: segments.length || undefined,
         }
@@ -308,35 +348,33 @@ function SessionSummary(): JSX.Element {
                         </LemonTag>
                     </h3>
 
-                    {sessionSummary?.session_outcome ? (
-                        <div className="mb-2">
-                            {sessionSummary.session_outcome.success !== null &&
-                            sessionSummary.session_outcome.success !== undefined &&
-                            sessionSummary.session_outcome.description ? (
-                                <LemonBanner
-                                    type={sessionSummary.session_outcome.success ? 'success' : 'error'}
-                                    className="mb-4"
-                                >
-                                    <div className="text-sm font-normal">
-                                        <div>{sessionSummary.session_outcome.description}</div>
-                                    </div>
-                                </LemonBanner>
-                            ) : (
-                                <div className="mb-4">
-                                    <LemonSkeleton className="h-12" />
+                    <div className="mb-2">
+                        {sessionSummaryLoadingState.finished &&
+                        sessionSummary?.session_outcome &&
+                        sessionSummary.session_outcome.success !== null &&
+                        sessionSummary.session_outcome.success !== undefined &&
+                        sessionSummary.session_outcome.description ? (
+                            <LemonBanner
+                                type={sessionSummary.session_outcome.success ? 'success' : 'error'}
+                                className="mb-4"
+                            >
+                                <div className="text-sm font-normal">
+                                    <div>{sessionSummary.session_outcome.description}</div>
                                 </div>
-                            )}
-                            <LemonDivider />
-                        </div>
-                    ) : null}
-
-                    {sessionSummaryLoadingState && (
-                        <SessionSummaryLoadingState
-                            operation={sessionSummaryLoadingState.operation}
-                            counter={sessionSummaryLoadingState.counter}
-                            name={sessionSummaryLoadingState.name}
-                        />
-                    )}
+                            </LemonBanner>
+                        ) : (
+                            <div className="mb-4">
+                                <SessionSummaryLoadingState
+                                    finished={sessionSummaryLoadingState.finished}
+                                    operation={sessionSummaryLoadingState.operation}
+                                    counter={sessionSummaryLoadingState.counter}
+                                    name={sessionSummaryLoadingState.name}
+                                    outOf={sessionSummaryLoadingState.outOf}
+                                />
+                            </div>
+                        )}
+                        <LemonDivider />
+                    </div>
                     {sessionSummary?.segments?.map((segment) => {
                         const matchingSegmentOutcome = sessionSummary?.segment_outcomes?.find(
                             (outcome) => outcome.segment_index === segment.index
@@ -414,7 +452,14 @@ export function PlayerSidebarSessionSummary(): JSX.Element | null {
         <div className="rounded border bg-surface-primary px-2 py-1">
             {sessionSummaryLoading ? (
                 <>
-                    Thinking... <Spinner />{' '}
+                    <div className="flex items-center justify-between">
+                        <div>
+                            Researching the session... <Spinner />
+                        </div>
+                        <div className="flex items-center gap-1 ml-auto">
+                            <LoadingTimer />
+                        </div>
+                    </div>
                 </>
             ) : sessionSummary ? (
                 <SessionSummary />
