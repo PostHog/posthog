@@ -11,6 +11,7 @@ import {
 import { FilmCameraHog, WarningHog } from 'lib/components/hedgehogs'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { asyncSaveToModal } from 'lib/components/SaveTo/saveToLogic'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
@@ -44,7 +45,12 @@ function Header(): JSX.Element {
     const { filters } = useValues(sessionRecordingsPlaylistLogic({ updateSearchParams: true }))
 
     const newPlaylistHandler = useAsyncHandler(async () => {
-        await createPlaylist({}, true)
+        const folder = await asyncSaveToModal({ defaultFolder: 'Unfiled/Replay playlists' })
+        if (typeof folder === 'string') {
+            await createPlaylist({ _create_in_folder: folder }, true)
+        } else {
+            await createPlaylist({}, true)
+        }
         reportRecordingPlaylistCreated('new')
     })
 
