@@ -2254,3 +2254,30 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             assert names_in_order[0] == "Transform B", "B should be first (order 1, most recently updated)"
             assert names_in_order[1] == "Transform A", "A should be second (order 1, updated earlier)"
             assert names_in_order[2] == "Transform C", "C should be last (order 3)"
+
+    def test_create_in_folder(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "type": "destination",
+                "name": "Fetch URL With Folder",
+                "hog": "fetch(inputs.url);",
+                "inputs": {
+                    "url": {"value": "https://example.com"},
+                },
+                "_create_in_folder": "Special/Hog Destinations",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        hog_function_id = response.json()["id"]
+
+        from posthog.models.file_system.file_system import FileSystem
+
+        fs_entry = FileSystem.objects.filter(
+            team=self.team,
+            type="hog_function/destination",
+            ref=str(hog_function_id),
+        ).first()
+        assert fs_entry is not None, "No FileSystem entry was created for this HogFunction."
+        assert "Special/Hog Destinations" in fs_entry.path
