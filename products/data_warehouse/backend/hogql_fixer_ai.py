@@ -1,4 +1,5 @@
 import os
+from typing import Any
 from ee.hogai.tool import MaxTool
 from posthog.hogql.database.database import create_hogql_database, serialize_database
 from posthog.hogql.context import HogQLContext
@@ -10,12 +11,16 @@ from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserExceptio
 from ee.hogai.graph.schema_generator.utils import SchemaGeneratorOutput
 
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
+from posthog.hogql.functions.mapping import HOGQL_AGGREGATIONS, HOGQL_CLICKHOUSE_FUNCTIONS, HOGQL_POSTHOG_FUNCTIONS
+from posthog.hogql.metadata import get_table_names
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
+from posthog.warehouse.models import Database
 
 
 _parser_contents: str | None = None
 _lexer_contents: str | None = None
+_hogql_functions: str | None = None
 
 
 def get_parser_contents() -> str:
@@ -42,6 +47,35 @@ def get_lexer_contents() -> str:
     return _lexer_contents
 
 
+def get_hogql_functions() -> str:
+    global _hogql_functions
+
+    if _hogql_functions is not None:
+        return _hogql_functions
+
+    ch_functions = {name: meta.clickhouse_name for name, meta in HOGQL_CLICKHOUSE_FUNCTIONS.items()}
+    ch_aggregations = {name: meta.clickhouse_name for name, meta in HOGQL_AGGREGATIONS.items()}
+    ph_functions = list(HOGQL_POSTHOG_FUNCTIONS.keys())
+
+    _hogql_functions = f"""HogQL defines what functions are available with most (but not all) having a 1:1 mapping to ClickHouse functions.
+These are the non-aggregated HogQL functions and their ClickHouse function name mapping:
+```
+{str(ch_functions)}
+```
+
+These are the aggregated HogQL functions and their ClickHouse function name mapping:
+```
+{str(ch_aggregations)}
+```
+
+And lastly these are some HogQL specific functions that have no mapping to ClickHouse:
+```
+{str(ph_functions)}
+```"""
+
+    return _hogql_functions
+
+
 SQL_ASSISTANT_ROOT_SYSTEM_PROMPT = """
 The user has written a HogQL query which contains error. They expect your help with tweaking the HogQL to fix these errors.
 
@@ -64,14 +98,17 @@ Below is the antlr parser and lexer definitions - when writing HogQL, ensure you
 {get_lexer_contents()}
 </hogql_lexer>
 
+{get_hogql_functions()}
+
 You fix HogQL errors that may come from either HogQL resolver errors or clickhouse execution errors. You don't help with other knowledge.
 
 Important HogQL differences versus other SQL dialects:
 - JSON properties are accessed like `properties.foo.bar` instead of `properties->foo->bar`
 
-This is the schema of tables available in queries:
-
-{{schema_description}}
+This is a list of all the available tables in the database:
+```
+{{{{all_table_names}}}}
+```
 
 Person or event metadata unspecified above (emails, names, etc.) is stored in `properties` fields, accessed like: `properties.foo.bar`.
 Note: "persons" means "users" here - instead of a "users" table, we have a "persons" table.
@@ -86,10 +123,70 @@ Fix the errors in the HogQL query below and only return the new updated query in
 
 - Don't update any other part of the query if it's not relevant to the error, including rewriting shorthand clickhouse SQL to the full version.
 - Don't change the capitalisation of the query if it's not relevant to the error, such as rewriting `select` as `SELECT` or `from` as `FROM`
+- Don't convert syntax to an alternative if it's not relevant to the error, such as changing `toIntervalDay(1)` to `INTERVAL 1 DAY`
 - There may also be more than one error in the syntax.
+
+{{schema_description}}
 
 Below is the current HogQL query and the error message
 """
+
+
+def _get_schema_description(ai_context: dict[Any, Any], hogql_context: HogQLContext, database: Database) -> str:
+    serialized_database = serialize_database(hogql_context)
+
+    try:
+        query = ai_context.get("hogql_query", None)
+        if not query:
+            # Dummy exception to get into the except block
+            raise Exception()
+
+        select = parse_select(query)
+        tables_in_query = get_table_names(select)
+        table_fields_str = ""
+
+        for table_name in tables_in_query:
+            serialized_table = serialized_database.get(table_name, None)
+            if serialized_table:
+                table_fields_str = table_fields_str + f"Table `{table_name}` with fields:\n"
+                table_fields_str = table_fields_str + "\n".join(
+                    f"- {field.name} ({field.type})" for field in serialized_table.fields.values()
+                )
+
+        if len(table_fields_str) != 0:
+            schema_description = (
+                "This is the schema of tables currently used in the provided query:\n\n" + table_fields_str
+            )
+    except:
+        schema_description = "This is the schema of all tables available to the provided query:\n\n" + "\n\n".join(
+            (
+                f"Table `{table_name}` with fields:\n"
+                + "\n".join(f"- {field.name} ({field.type})" for field in table.fields.values())
+                for table_name, table in serialized_database.items()
+                # Only the most important core tables, plus all warehouse tables
+                if table_name in ["events", "groups", "persons"]
+                or table_name in database.get_warehouse_tables()
+                or table_name in database.get_views()
+            )
+        )
+
+    return schema_description
+
+
+def _get_system_prompt(all_tables: list[str]) -> str:
+    return SYSTEM_PROMPT.replace("{{all_table_names}}", str(all_tables))
+
+
+def _get_user_prompt(schema_description: str) -> str:
+    return (
+        USER_PROMPT.replace("{{schema_description}}", schema_description)
+        + "\n\n<hogql_query>"
+        + "{{{hogql_query}}}"
+        + "</hogql_query>"
+        + "\n\n<error>"
+        + "{{{error_message}}}"
+        + "</error>"
+    )
 
 
 class HogQLQueryFixerTool(MaxTool):
@@ -102,47 +199,45 @@ class HogQLQueryFixerTool(MaxTool):
         database = create_hogql_database(self._team_id)
         hogql_context = HogQLContext(team_id=self._team_id, enable_select_queries=True, database=database)
 
-        serialized_database = serialize_database(hogql_context)
-        schema_description = "\n\n".join(
+        all_tables = database.get_all_tables()
+        schema_description = _get_schema_description(self.context, hogql_context, database)
+
+        base_messages = [
             (
-                f"Table `{table_name}` with fields:\n"
-                + "\n".join(f"- {field.name} ({field.type})" for field in table.fields.values())
-                for table_name, table in serialized_database.items()
-                # Only the most important core tables, plus all warehouse tables
-                if table_name in ["events", "groups", "persons"]
-                or table_name in database.get_warehouse_tables()
-                or table_name in database.get_views()
-            )
-        )
+                "system",
+                _get_system_prompt(all_tables),
+            ),
+            (
+                "user",
+                _get_user_prompt(schema_description),
+            ),
+        ]
 
-        prompt = ChatPromptTemplate.from_messages(
-            [
-                (
-                    "system",
-                    SYSTEM_PROMPT.replace("{{schema_description}}", schema_description),
-                ),
-                (
-                    "user",
-                    USER_PROMPT
-                    + "\n\n<hogql_query>"
-                    + "{{{hogql_query}}}"
-                    + "</hogql_query>"
-                    + "\n\n<error>"
-                    + "{{{error_message}}}"
-                    + "</error>",
-                ),
-            ],
-            template_format="mustache",
-        )
-
-        for i in range(3):
+        for _ in range(3):
             try:
+                prompt = ChatPromptTemplate.from_messages(
+                    base_messages,
+                    template_format="mustache",
+                )
                 chain = prompt | self._model
                 result = chain.invoke(self.context)
                 parsed_result = self._parse_output(result, hogql_context)
                 break
             except PydanticOutputParserException as e:
-                prompt += f"\n\nWe've ran this prompt {i+1} time{'s' if i+1 > 1 else ''} now. The newly updated query gave us this error: {e.validation_message}"
+                base_messages.append(
+                    (
+                        "user",
+                        f"""We got another error after the previous message. Here is the updated query:
+<hogql_query>
+{e.llm_output}
+</hogql_query>
+
+The newly updated query gave us this error:
+<error>
+{e.validation_message}
+</error>""".strip(),
+                    )
+                )
         else:
             return "", None
 
@@ -166,7 +261,7 @@ class HogQLQueryFixerTool(MaxTool):
             err_msg = str(err)
             if err_msg.startswith("no viable alternative"):
                 # The "no viable alternative" ANTLR error is horribly unhelpful, both for humans and LLMs
-                err_msg = f'ANTLR parsing error: "no viable alternative at input". This means that the query isn\' valid HogQL. The last 5 characters where we tripped up were "{result.query[-5:]}".'
+                err_msg = f'ANTLR parsing error: "no viable alternative at input". This means that the query isnt valid HogQL. The last 5 characters where we tripped up were "{result.query[-5:]}".'
             raise PydanticOutputParserException(llm_output=result.query, validation_message=err_msg)
         except Exception as e:
             raise PydanticOutputParserException(llm_output=result.query, validation_message=str(e))
