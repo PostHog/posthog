@@ -7,6 +7,10 @@ from products.revenue_analytics.backend.models import (
     ZERO_DECIMAL_CURRENCIES_IN_STRIPE,
 )
 
+from posthog.temporal.data_imports.pipelines.stripe.constants import (
+    CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
+)
+
 
 class TestRevenueAnalyticsModels(BaseTest):
     def setUp(self):
@@ -34,7 +38,7 @@ class TestRevenueAnalyticsModels(BaseTest):
         )
         self.schema = ExternalDataSchema.objects.create(
             team=self.team,
-            name="Charge",
+            name=STRIPE_CHARGE_RESOURCE_NAME,
             source=self.source,
             table=self.table,
             should_sync=True,

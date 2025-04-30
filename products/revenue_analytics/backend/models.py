@@ -22,14 +22,16 @@ from posthog.hogql.database.schema.exchange_rate import (
     currency_expression_for_all_events,
 )
 
+from posthog.temporal.data_imports.pipelines.stripe.constants import (
+    CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
+    CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
+)
 
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     pass
 
-STRIPE_DATA_WAREHOUSE_CHARGE_IDENTIFIER = "Charge"
-STRIPE_DATA_WAREHOUSE_CUSTOMER_IDENTIFIER = "Customer"
 STRIPE_CHARGE_SUCCEEDED_STATUS = "succeeded"
 
 # Keep in sync with `revenueAnalyticsLogic.ts`
@@ -221,14 +223,14 @@ class RevenueAnalyticsRevenueView(SavedQuery):
         views: list[RevenueAnalyticsRevenueView] = []
         schema_dict = {schema.name: schema for schema in source.schemas.all()}
 
-        charge_schema = schema_dict.get(STRIPE_DATA_WAREHOUSE_CHARGE_IDENTIFIER)
+        charge_schema = schema_dict.get(STRIPE_CHARGE_RESOURCE_NAME)
         if charge_schema is not None:
             charge_schema = cast(ExternalDataSchema, charge_schema)
             if charge_schema.table is not None:
                 table = cast(DataWarehouseTable, charge_schema.table)
                 views.append(RevenueAnalyticsRevenueView.__for_charge_table(source, table))
 
-        customer_schema = schema_dict.get(STRIPE_DATA_WAREHOUSE_CUSTOMER_IDENTIFIER)
+        customer_schema = schema_dict.get(STRIPE_CUSTOMER_RESOURCE_NAME)
         if customer_schema is not None:
             customer_schema = cast(ExternalDataSchema, customer_schema)
             if customer_schema.table is not None:
