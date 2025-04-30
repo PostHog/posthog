@@ -61,13 +61,11 @@ func easyjson4d398eaaDecodeGithubComPosthogPosthogLivestreamEvents(in *jlexer.Le
 				for !in.IsDelim('}') {
 					key := string(in.String())
 					in.WantColon()
-					var v1 interface{}
+					v1 := in.Interface()
 					if m, ok := v1.(easyjson.Unmarshaler); ok {
 						m.UnmarshalEasyJSON(in)
 					} else if m, ok := v1.(json.Unmarshaler); ok {
 						_ = m.UnmarshalJSON(in.Raw())
-					} else {
-						v1 = in.Interface()
 					}
 					(out.Properties)[key] = v1
 					in.WantComma()
