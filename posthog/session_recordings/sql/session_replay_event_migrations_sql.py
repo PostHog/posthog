@@ -188,3 +188,47 @@ ADD_BLOCK_COLUMNS_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SE
     table_name="session_replay_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
 )
+
+# =========================
+# MIGRATION: Add secondary columns to support session recording v2 implementation
+# This migration adds _secondary columns to support dual-write during the v2 migration
+# =========================
+
+ALTER_SESSION_REPLAY_ADD_SECONDARY_COLUMNS = """
+    ALTER TABLE {table_name} on CLUSTER '{cluster}'
+        ADD COLUMN IF NOT EXISTS min_first_timestamp_secondary SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+        ADD COLUMN IF NOT EXISTS max_last_timestamp_secondary SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+        ADD COLUMN IF NOT EXISTS first_url_secondary AggregateFunction(argMin, Nullable(VARCHAR), DateTime64(6, 'UTC')),
+        ADD COLUMN IF NOT EXISTS all_urls_secondary SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+        ADD COLUMN IF NOT EXISTS click_count_secondary SimpleAggregateFunction(sum, Int64),
+        ADD COLUMN IF NOT EXISTS keypress_count_secondary SimpleAggregateFunction(sum, Int64),
+        ADD COLUMN IF NOT EXISTS mouse_activity_count_secondary SimpleAggregateFunction(sum, Int64),
+        ADD COLUMN IF NOT EXISTS active_milliseconds_secondary SimpleAggregateFunction(sum, Int64),
+        ADD COLUMN IF NOT EXISTS console_log_count_secondary SimpleAggregateFunction(sum, Int64),
+        ADD COLUMN IF NOT EXISTS console_warn_count_secondary SimpleAggregateFunction(sum, Int64),
+        ADD COLUMN IF NOT EXISTS console_error_count_secondary SimpleAggregateFunction(sum, Int64),
+        ADD COLUMN IF NOT EXISTS size_secondary SimpleAggregateFunction(sum, Int64),
+        ADD COLUMN IF NOT EXISTS message_count_secondary SimpleAggregateFunction(sum, Int64),
+        ADD COLUMN IF NOT EXISTS event_count_secondary SimpleAggregateFunction(sum, Int64),
+        ADD COLUMN IF NOT EXISTS snapshot_source_secondary AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+        ADD COLUMN IF NOT EXISTS snapshot_library_secondary AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))
+"""
+
+ADD_SECONDARY_COLUMNS_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_SECONDARY_COLUMNS.format(
+    table_name=SESSION_REPLAY_EVENTS_DATA_TABLE(),
+    cluster=settings.CLICKHOUSE_CLUSTER,
+)
+
+ADD_SECONDARY_COLUMNS_WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL = (
+    lambda: ALTER_SESSION_REPLAY_ADD_SECONDARY_COLUMNS.format(
+        table_name="writable_session_replay_events",
+        cluster=settings.CLICKHOUSE_CLUSTER,
+    )
+)
+
+ADD_SECONDARY_COLUMNS_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL = (
+    lambda: ALTER_SESSION_REPLAY_ADD_SECONDARY_COLUMNS.format(
+        table_name="session_replay_events",
+        cluster=settings.CLICKHOUSE_CLUSTER,
+    )
+)

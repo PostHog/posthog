@@ -1,0 +1,34 @@
+from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions, NodeRole
+from posthog.session_recordings.sql.session_replay_event_migrations_sql import (
+    DROP_SESSION_REPLAY_EVENTS_TABLE_MV_SQL,
+    DROP_KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL,
+    ADD_SECONDARY_COLUMNS_SESSION_REPLAY_EVENTS_TABLE_SQL,
+    ADD_SECONDARY_COLUMNS_WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL,
+    ADD_SECONDARY_COLUMNS_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL,
+)
+from posthog.session_recordings.sql.session_replay_event_sql import (
+    SESSION_REPLAY_EVENTS_TABLE_MV_SQL,
+    KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL,
+)
+
+operations = [
+    # 1. Drop the old materialized view so it's no longer pulling from Kafka
+    run_sql_with_exceptions(DROP_SESSION_REPLAY_EVENTS_TABLE_MV_SQL()),
+    # 2. Drop the Kafka table
+    run_sql_with_exceptions(DROP_KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL()),
+    # 3. Add secondary columns to sharded table (physical storage)
+    run_sql_with_exceptions(ADD_SECONDARY_COLUMNS_SESSION_REPLAY_EVENTS_TABLE_SQL()),
+    # 4. Add secondary columns to writable table (for writing to sharded table)
+    run_sql_with_exceptions(ADD_SECONDARY_COLUMNS_WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL()),
+    # 5. Add secondary columns to distributed table (for reading)
+    run_sql_with_exceptions(ADD_SECONDARY_COLUMNS_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL()),
+    # 6. Also run on coordinator node without the cluster clause
+    run_sql_with_exceptions(
+        ADD_SECONDARY_COLUMNS_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL().replace("on CLUSTER '{cluster}'", ""),
+        node_role=NodeRole.COORDINATOR,
+    ),
+    # 7. Recreate the Kafka table with the updated schema
+    run_sql_with_exceptions(KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL()),
+    # 8. Recreate the materialized view with the updated schema
+    run_sql_with_exceptions(SESSION_REPLAY_EVENTS_TABLE_MV_SQL()),
+]

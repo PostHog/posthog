@@ -41,7 +41,22 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     event_count Int64,
     message_count Int64,
     snapshot_source LowCardinality(Nullable(String)),
-    snapshot_library Nullable(String)
+    snapshot_library Nullable(String),
+    -- Secondary columns for v2 migration
+    first_url_secondary Nullable(VARCHAR),
+    urls_secondary Array(String),
+    click_count_secondary Int64,
+    keypress_count_secondary Int64,
+    mouse_activity_count_secondary Int64,
+    active_milliseconds_secondary Int64,
+    console_log_count_secondary Int64,
+    console_warn_count_secondary Int64,
+    console_error_count_secondary Int64,
+    size_secondary Int64,
+    event_count_secondary Int64,
+    message_count_secondary Int64,
+    snapshot_source_secondary LowCardinality(Nullable(String)),
+    snapshot_library_secondary Nullable(String)
 ) ENGINE = {engine}
 """
 
@@ -85,7 +100,28 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
     -- knowing something is mobile isn't enough, we need to know if e.g. RN or flutter
     snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-    _timestamp SimpleAggregateFunction(max, DateTime)
+    _timestamp SimpleAggregateFunction(max, DateTime),
+    -- Block columns for v2 migration
+    block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
+    block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
+    block_urls SimpleAggregateFunction(groupArrayArray, Array(String)),
+    -- Secondary columns for v2 migration
+    min_first_timestamp_secondary SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+    max_last_timestamp_secondary SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+    first_url_secondary AggregateFunction(argMin, Nullable(VARCHAR), DateTime64(6, 'UTC')),
+    all_urls_secondary SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+    click_count_secondary SimpleAggregateFunction(sum, Int64),
+    keypress_count_secondary SimpleAggregateFunction(sum, Int64),
+    mouse_activity_count_secondary SimpleAggregateFunction(sum, Int64),
+    active_milliseconds_secondary SimpleAggregateFunction(sum, Int64),
+    console_log_count_secondary SimpleAggregateFunction(sum, Int64),
+    console_warn_count_secondary SimpleAggregateFunction(sum, Int64),
+    console_error_count_secondary SimpleAggregateFunction(sum, Int64),
+    size_secondary SimpleAggregateFunction(sum, Int64),
+    message_count_secondary SimpleAggregateFunction(sum, Int64),
+    event_count_secondary SimpleAggregateFunction(sum, Int64),
+    snapshot_source_secondary AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+    snapshot_library_secondary AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))
 ) ENGINE = {engine}
 """
 
