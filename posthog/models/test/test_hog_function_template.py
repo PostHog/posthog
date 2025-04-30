@@ -19,7 +19,7 @@ class TestHogFunctionTemplate(TestCase):
         type: str = "destination",
         description: Optional[str] = None,
         code: str = "return event",
-        source: str = "hog",
+        code_language: str = "hog",
         inputs_schema: Optional[list[dict[str, Any]]] = None,
     ):
         """Helper method to create a template with common defaults"""
@@ -29,7 +29,7 @@ class TestHogFunctionTemplate(TestCase):
             name=name,
             description=description or f"Description for {name}",
             code=code,
-            source=source,
+            code_language=code_language,
             inputs_schema=inputs_schema or [{}],
             type=type,
             status=cast(Literal["alpha", "beta", "stable", "deprecated"], status),
@@ -77,7 +77,7 @@ class TestHogFunctionTemplate(TestCase):
             description="Template description",
             status="alpha",
             code="return event",
-            source="hog",
+            code_language="hog",
         )
 
         # Test getting by ID and sha
@@ -159,7 +159,7 @@ class TestHogFunctionTemplate(TestCase):
             name="Active Template",
             status="stable",
             code="return event",
-            source="hog",
+            code_language="hog",
         )
 
         self._create_template(
@@ -168,7 +168,7 @@ class TestHogFunctionTemplate(TestCase):
             name="Deprecated Template",
             status="deprecated",
             code="return event",
-            source="hog",
+            code_language="hog",
         )
 
         # Create templates with different types
@@ -178,7 +178,7 @@ class TestHogFunctionTemplate(TestCase):
             name="Template A",
             status="alpha",
             code="return event",
-            source="hog",
+            code_language="hog",
         )
 
         self._create_template(
@@ -187,7 +187,7 @@ class TestHogFunctionTemplate(TestCase):
             name="Template B",
             status="beta",
             code="return event",
-            source="hog",
+            code_language="hog",
         )
 
         # Create a different type template
@@ -198,7 +198,7 @@ class TestHogFunctionTemplate(TestCase):
             type="transformation",
             status="stable",
             code="return event",
-            source="hog",
+            code_language="hog",
         )
 
         # TEST 1: Excluding deprecated templates (default)
@@ -392,7 +392,7 @@ class TestHogFunctionTemplate(TestCase):
             name="Complex Template",
             description="Template with mappings",
             code="return event",
-            source="hog",
+            code_language="hog",
             inputs_schema=[{"key": "value"}],
             type="destination",
             status=cast(Literal["alpha", "beta", "stable", "deprecated"], "stable"),
