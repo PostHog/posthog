@@ -1871,6 +1871,15 @@ wheels = [
 ]
 
 [[package]]
+name = "google-cloud-sqlcommenter"
+version = "2.0.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/5f/be/04f8b2613707b9d458036c19a7fd7783fda4c855aeca8101404ba74ccd61/google-cloud-sqlcommenter-2.0.0.tar.gz", hash = "sha256:748618e8d666e536e41d0e09ec6b019a90c7ec045ca3974a581b7de012fa855b", size = 16394 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3b/dc/3c03cff1746e7bf02c35e4d05f3fd6466604024c8bf44f36de8ae81768e4/google_cloud_sqlcommenter-2.0.0-py3-none-any.whl", hash = "sha256:ce0d665c01dab489c349cd415c48c908353e051e13185790a2a6dfae07e5f9d6", size = 15459 },
+]
+
+[[package]]
 name = "google-crc32c"
 version = "1.5.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3721,6 +3730,7 @@ dependencies = [
     { name = "drf-spectacular" },
     { name = "geoip2" },
     { name = "google-cloud-bigquery" },
+    { name = "google-cloud-sqlcommenter" },
     { name = "google-genai" },
     { name = "gunicorn" },
     { name = "hogql-parser" },
@@ -3919,6 +3929,7 @@ requires-dist = [
     { name = "drf-spectacular", specifier = "==0.27.2" },
     { name = "geoip2", specifier = "==4.6.0" },
     { name = "google-cloud-bigquery", specifier = "==3.26" },
+    { name = "google-cloud-sqlcommenter", specifier = ">=2.0.0" },
     { name = "google-genai", specifier = "==1.10.0" },
     { name = "gunicorn", specifier = "==20.1.0" },
     { name = "hogql-parser", specifier = "==1.1.1" },
