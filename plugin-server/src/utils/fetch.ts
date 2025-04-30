@@ -10,7 +10,6 @@ import { URL } from 'url'
 import { defaultConfig } from '../config/config'
 import { runInstrumentedFunction } from '../main/utils'
 import { isProdEnv } from './env-utils'
-import { logger } from './logger'
 
 export type { Response }
 
