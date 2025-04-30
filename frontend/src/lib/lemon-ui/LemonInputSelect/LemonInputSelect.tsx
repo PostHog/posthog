@@ -366,20 +366,21 @@ export function LemonInputSelect({
         )
     }, [mode, values, allowCustomValues, itemBeingEditedIndex, inputValue])
 
+    // Positioned like a placeholder but rendered via the suffix since the actual placeholder has to be a string
     const countPlaceholder = useMemo(() => {
-        if (displayMode !== 'count' || mode !== 'multiple') {
-            return placeholder
+        if (displayMode !== 'count' || mode !== 'multiple' || inputValue) {
+            return null
         }
-        const selectedCount = values.length
-        const totalCount = options.length
-
-        if (selectedCount === 0) {
-            return `None selected`
-        } else if (selectedCount === totalCount) {
-            return `All ${totalCount} selected`
-        }
-        return `${selectedCount}/${totalCount} selected`
-    }, [displayMode, mode, values, options, placeholder])
+        return values.length === 0 ? (
+            <span className="-ml-2 text-muted">None selected</span>
+        ) : (
+            <LemonSnack className="-ml-2">
+                {values.length === options.length
+                    ? `All ${options.length} selected`
+                    : `${values.length}/${options.length} selected`}
+            </LemonSnack>
+        )
+    }, [displayMode, mode, inputValue, values.length, options.length])
 
     return (
         <LemonDropdown
@@ -518,7 +519,7 @@ export function LemonInputSelect({
                 inputRef={inputRef}
                 placeholder={
                     displayMode === 'count'
-                        ? countPlaceholder
+                        ? undefined
                         : values.length === 0
                         ? placeholder
                         : mode === 'single'
@@ -530,7 +531,12 @@ export function LemonInputSelect({
                 autoWidth={autoWidth}
                 fullWidth={fullWidth}
                 prefix={valuesPrefix}
-                suffix={valuesAndEditButtonSuffix}
+                suffix={
+                    <>
+                        {countPlaceholder}
+                        {valuesAndEditButtonSuffix}
+                    </>
+                }
                 onFocus={_onFocus}
                 onBlur={_onBlur}
                 value={inputValue}
