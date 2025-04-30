@@ -26,7 +26,7 @@ def reset_deleted_person_distinct_ids(team_id: int, distinct_id: str):
     _updated_distinct_ids(team_id, distinct_ids_and_versions)
 
 
-def _get_distinct_ids_tied_to_deleted_persons(team_id: int) -> list[tuple[str, int]]:
+def _get_distinct_ids_tied_to_deleted_persons(team_id: int) -> list[str]:
     # find distinct_ids where the person is set to be deleted
     rows = sync_execute(
         """
