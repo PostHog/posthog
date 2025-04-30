@@ -61,7 +61,11 @@ def _get_paginated_session_events(
         # Or we got less than the page size (reached the end)
         if len(page_events) < items_per_page:
             break
-    if not columns or not all_events:
+    if not columns:
+        raise ValueError(f"No columns found for session_id {session_id}")
+    if not all_events:
+        # Raise an error only if there were no events on all pages,
+        # to avoid false positives when the first page consumed all events precisely
         raise ValueError(f"No events found for session_id {session_id}")
     return columns, all_events
 
