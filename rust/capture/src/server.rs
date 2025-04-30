@@ -188,6 +188,7 @@ where
 
     // run our app with hyper
     tracing::info!("listening on {:?}", listener.local_addr().unwrap());
+    tracing::info!("config: is_mirror_deploy == {:?}", config.is_mirror_deploy);
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
