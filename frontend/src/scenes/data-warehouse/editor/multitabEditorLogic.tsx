@@ -134,6 +134,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         updateInsight: true,
         setCacheLoading: (loading: boolean) => ({ loading }),
         setError: (error: string | null) => ({ error }),
+        setDataError: (error: string | null) => ({ error }),
         setSourceQuery: (sourceQuery: DataVisualizationNode) => ({ sourceQuery }),
         setMetadata: (metadata: HogQLMetadataResponse | null) => ({ metadata }),
         setMetadataLoading: (loading: boolean) => ({ loading }),
@@ -309,6 +310,11 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         ],
     })),
     listeners(({ values, props, actions, asyncActions }) => ({
+        setDataError: ({ error }) => {
+            if (error) {
+                actions.fixErrors(values.queryInput, error)
+            }
+        },
         fixErrorsSuccess: ({ response }) => {
             actions.setSuggestedQueryInput(response.query)
 
