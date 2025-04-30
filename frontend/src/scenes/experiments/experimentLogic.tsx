@@ -880,6 +880,9 @@ export const experimentLogic = kea<experimentLogicType>([
                             product_type: ProductKey.EXPERIMENTS,
                             intent_context: ProductIntentContext.EXPERIMENT_CREATED,
                         })
+                        if (response.feature_flag?.id) {
+                            refreshTreeItem('feature_flag', String(response.feature_flag.id))
+                        }
                     }
                 }
             } catch (error: any) {
