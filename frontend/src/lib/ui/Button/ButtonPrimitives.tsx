@@ -112,11 +112,7 @@ ButtonGroupPrimitive.displayName = 'ButtonGroupPrimitive'
 export interface ButtonPrimitiveProps extends ButtonBaseProps, React.ButtonHTMLAttributes<HTMLButtonElement> {}
 
 export const buttonPrimitiveVariants = cva({
-    base: `
-        button-primitive
-        group/button-primitive
-
-    `,
+    base: 'button-primitive group/button-primitive',
     variants: {
         variant: {
             // Bordereless variant (aka posthog tertiary button)

@@ -194,8 +194,8 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             ? buttonPrimitiveVariants(buttonProps)
             : `Link ${subtle ? 'Link--subtle' : ''}`
 
-        // eslint-disable-next-line react/forbid-elements
         let element = (
+            // eslint-disable-next-line react/forbid-elements
             <a
                 ref={ref as any}
                 className={cn(elementClasses, className)}
@@ -218,7 +218,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             </a>
         )
 
-        if (tooltip) {
+        if (tooltip && to) {
             element = (
                 <Tooltip title={tooltip} docLink={tooltipDocLink} placement={tooltipPlacement}>
                     {element}

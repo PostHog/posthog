@@ -357,6 +357,8 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                 aria-roledescription="tree item"
                                 aria-rolemap={`item-${item.id}`}
                                 aria-label={ariaLabel}
+                                tooltip={displayName}
+                                tooltipPlacement="right"
                             >
                                 {/* Spacer to offset button padding */}
                                 <span
