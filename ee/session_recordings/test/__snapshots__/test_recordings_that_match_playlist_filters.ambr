@@ -16,9 +16,7 @@
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
-         AND "posthog_filesystem"."type" = 'session_recording_playlist'
-         AND NOT ("posthog_filesystem"."shortcut"
-                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
+         AND "posthog_filesystem"."type" = 'session_recording_playlist')
   '''
 # ---
 # name: TestRecordingsThatMatchPlaylistFilters.test_sorts_nulls_first_and_then_least_recently_counted.1
@@ -38,9 +36,7 @@
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
-         AND "posthog_filesystem"."type" = 'session_recording_playlist'
-         AND NOT ("posthog_filesystem"."shortcut"
-                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
+         AND "posthog_filesystem"."type" = 'session_recording_playlist')
   '''
 # ---
 # name: TestRecordingsThatMatchPlaylistFilters.test_sorts_nulls_first_and_then_least_recently_counted.2
@@ -60,9 +56,7 @@
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
-         AND "posthog_filesystem"."type" = 'session_recording_playlist'
-         AND NOT ("posthog_filesystem"."shortcut"
-                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
+         AND "posthog_filesystem"."type" = 'session_recording_playlist')
   '''
 # ---
 # name: TestRecordingsThatMatchPlaylistFilters.test_sorts_nulls_first_and_then_least_recently_counted.3
@@ -82,9 +76,7 @@
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
-         AND "posthog_filesystem"."type" = 'session_recording_playlist'
-         AND NOT ("posthog_filesystem"."shortcut"
-                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
+         AND "posthog_filesystem"."type" = 'session_recording_playlist')
   '''
 # ---
 # name: TestRecordingsThatMatchPlaylistFilters.test_sorts_nulls_first_and_then_least_recently_counted.4
