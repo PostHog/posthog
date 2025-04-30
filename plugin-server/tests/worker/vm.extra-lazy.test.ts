@@ -43,7 +43,7 @@ describe('VMs are extra lazy 💤', () => {
         await lazyVm.getPluginMethod('onEvent')
         expect(lazyVm.ready).toEqual(true)
         expect(lazyVm.setupPluginIfNeeded).toHaveBeenCalled()
-        expect(fetch).toHaveBeenCalledWith('https://onevent.com/', undefined)
+        expect(fetch).toHaveBeenCalledWith('https://onevent.com/', { agent: false, timeout: 10000 })
     })
 
     test('getting methods and tasks returns null if plugin is in errored state', async () => {

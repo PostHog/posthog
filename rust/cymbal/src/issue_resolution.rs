@@ -45,6 +45,18 @@ pub enum IssueStatus {
     Suppressed,
 }
 
+impl IssueStatus {
+    fn as_str(&self) -> &'static str {
+        match self {
+            IssueStatus::Archived => "Archived",
+            IssueStatus::Active => "Active",
+            IssueStatus::Resolved => "Resolved",
+            IssueStatus::PendingRelease => "Pending Release",
+            IssueStatus::Suppressed => "Suppressed",
+        }
+    }
+}
+
 impl Issue {
     pub async fn load_by_fingerprint<'c, E>(
         executor: E,
@@ -355,6 +367,7 @@ async fn send_internal_event(
     event
         .insert_prop("description", issue.description.clone())
         .expect("Strings are serializable");
+    event.insert_prop("status", issue.status.as_str())?;
 
     if let Some(assignment) = new_assignment {
         if let Some(user_id) = assignment.user_id {
