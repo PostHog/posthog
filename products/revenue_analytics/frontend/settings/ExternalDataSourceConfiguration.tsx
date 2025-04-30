@@ -9,6 +9,8 @@ import { ExternalDataSource, PipelineStage } from '~/types'
 
 import { revenueEventsSettingsLogic } from './revenueEventsSettingsLogic'
 
+const VALID_REVENUE_SOURCES: ExternalDataSource['source_type'][] = ['Stripe']
+
 export function ExternalDataSourceConfiguration({
     buttonRef,
 }: {
@@ -16,6 +18,9 @@ export function ExternalDataSourceConfiguration({
 }): JSX.Element {
     const { dataWarehouseSources } = useValues(revenueEventsSettingsLogic)
     const { updateSource } = useActions(revenueEventsSettingsLogic)
+
+    const revenueSources =
+        dataWarehouseSources?.results.filter((source) => VALID_REVENUE_SOURCES.includes(source.source_type)) ?? []
 
     return (
         <div>
@@ -25,6 +30,9 @@ export function ExternalDataSourceConfiguration({
                 sources. You can enable/disable each source to stop it from being used for revenue data.
             </p>
             <LemonTable
+                rowKey={(item) => item.id}
+                loading={dataWarehouseSources === null}
+                dataSource={revenueSources}
                 columns={[
                     {
                         key: 'source',
@@ -77,8 +85,6 @@ export function ExternalDataSourceConfiguration({
                         render: () => null,
                     },
                 ]}
-                dataSource={dataWarehouseSources?.results ?? []}
-                rowKey={(item) => item.id}
             />
         </div>
     )

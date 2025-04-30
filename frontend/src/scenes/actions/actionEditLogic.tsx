@@ -10,7 +10,7 @@ import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventD
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
-import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { getLastNewFolder, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { actionsModel } from '~/models/actionsModel'
 import { tagsModel } from '~/models/tagsModel'
 import { ActionStepType, ActionType } from '~/types'
@@ -72,8 +72,8 @@ export const actionEditLogic = kea<actionEditLogicType>([
                 ({
                     name: '',
                     steps: [DEFAULT_ACTION_STEP],
+                    _create_in_folder: null,
                 } as ActionType),
-
             submit: async (updatedAction, breakpoint) => {
                 let action: ActionType
                 // Remove URL from steps if it's not an autocapture or a pageview
@@ -90,7 +90,12 @@ export const actionEditLogic = kea<actionEditLogicType>([
                     if (updatedAction.id) {
                         action = await api.actions.update(updatedAction.id, { ...updatedAction, steps: updatedSteps })
                     } else {
-                        action = await api.actions.create({ ...updatedAction, steps: updatedSteps })
+                        const folder = updatedAction._create_in_folder ?? getLastNewFolder()
+                        action = await api.actions.create({
+                            ...updatedAction,
+                            steps: updatedSteps,
+                            ...(typeof folder === 'string' ? { _create_in_folder: folder } : {}),
+                        })
                     }
                     breakpoint()
                 } catch (response: any) {

@@ -3,7 +3,7 @@
   '''
   SELECT 'stripe.posthog_test.charge_revenue_view' AS view_name,
          `stripe.posthog_test.charge_revenue_view`.id AS distinct_id,
-         `stripe.posthog_test.charge_revenue_view`.adjusted_original_amount AS original_amount,
+         `stripe.posthog_test.charge_revenue_view`.currency_aware_amount AS original_amount,
          `stripe.posthog_test.charge_revenue_view`.original_currency AS original_currency,
          `stripe.posthog_test.charge_revenue_view`.amount AS amount,
          `stripe.posthog_test.charge_revenue_view`.currency AS currency
@@ -16,11 +16,11 @@
             upper(posthog_test_stripe_charge.currency) AS original_currency,
             accurateCastOrNull(posthog_test_stripe_charge.amount_captured, 'Decimal64(10)') AS original_amount,
             in(original_currency,
-               ['BIF', 'CLP', 'DJF', 'GNF', 'JPY', 'KMF', 'KRW', 'MGA', 'PYG', 'RWF', 'UGX', 'VND', 'VUV', 'XAF', 'XOF', 'XPF']) AS currency_is_zero_decimal,
-              if(currency_is_zero_decimal, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS amount_decimal_divider,
-              divideDecimal(original_amount, amount_decimal_divider) AS adjusted_original_amount,
+               ['BIF', 'CLP', 'DJF', 'GNF', 'JPY', 'KMF', 'KRW', 'MGA', 'PYG', 'RWF', 'UGX', 'VND', 'VUV', 'XAF', 'XOF', 'XPF']) AS enable_currency_aware_divider,
+              if(enable_currency_aware_divider, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS currency_aware_divider,
+              divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
               'GBP' AS currency,
-              if(equals(original_currency, currency), toDecimal64(adjusted_original_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(adjusted_original_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))) AS amount
+              if(equals(original_currency, currency), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))) AS amount
      FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue.stripe_charges/posthog_test_stripe_charge/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `paid` Int8, `amount` Int64, `object` String, `source` String, `status` String, `created` DateTime, `invoice` String, `outcome` String, `captured` Int8, `currency` String, `customer` String, `disputed` Int8, `livemode` Int8, `metadata` String, `refunded` Int8, `description` String, `receipt_url` String, `failure_code` String, `fraud_details` String, `radar_options` String, `receipt_email` String, `payment_intent` String, `payment_method` String, `amount_captured` Int64, `amount_refunded` Int64, `billing_details` String, `failure_message` String, `balance_transaction` String, `statement_descriptor` String, `payment_method_details` String, `calculated_statement_descriptor` String') AS posthog_test_stripe_charge
      WHERE equals(posthog_test_stripe_charge.status, 'succeeded')) AS `stripe.posthog_test.charge_revenue_view`
   ORDER BY `stripe.posthog_test.charge_revenue_view`.timestamp DESC
