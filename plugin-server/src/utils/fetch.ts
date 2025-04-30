@@ -110,7 +110,7 @@ export class SecureFetch {
                     this.options?.allowUnsafe ?? (process.env.NODE_ENV?.includes('functional-tests') || !isProdEnv())
 
                 if (allowUnsafe) {
-                    // NOTE: Agent is false to disable keep alive, an increase parallelization
+                    // NOTE: Agent is false to disable keep alive, and increase parallelization
                     return await fetch(url, { ...init, agent: false })
                 }
 
