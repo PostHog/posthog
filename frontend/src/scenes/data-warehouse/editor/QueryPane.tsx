@@ -30,6 +30,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
         onRejectSuggestedQueryInput,
         reportAIQueryPromptOpen,
     } = useActions(multitabEditorLogic)
+    const { acceptText, rejectText, diffShowRunButton } = useValues(multitabEditorLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -102,17 +103,19 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{ boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)' }}
                     >
-                        <LemonButton
-                            type="primary"
-                            icon={<IconCheck color="var(--success)" />}
-                            onClick={() => {
-                                onAcceptSuggestedQueryInput(true)
-                            }}
-                            tooltipPlacement="top"
-                            size="small"
-                        >
-                            Accept & run
-                        </LemonButton>
+                        {!!diffShowRunButton && (
+                            <LemonButton
+                                type="primary"
+                                icon={<IconCheck color="var(--success)" />}
+                                onClick={() => {
+                                    onAcceptSuggestedQueryInput(true)
+                                }}
+                                tooltipPlacement="top"
+                                size="small"
+                            >
+                                {acceptText} & run
+                            </LemonButton>
+                        )}
                         <LemonButton
                             type="tertiary"
                             icon={<IconCheck color="var(--success)" />}
@@ -122,7 +125,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                             tooltipPlacement="top"
                             size="small"
                         >
-                            Accept
+                            {acceptText}
                         </LemonButton>
                         <LemonButton
                             status="danger"
@@ -133,7 +136,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                             tooltipPlacement="top"
                             size="small"
                         >
-                            Reject
+                            {rejectText}
                         </LemonButton>
                     </div>
                 )}

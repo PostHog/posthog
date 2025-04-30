@@ -41,7 +41,12 @@ import { editorSceneLogic } from './editorSceneLogic'
 import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
 import type { multitabEditorLogicType } from './multitabEditorLogicType'
 import { outputPaneLogic, OutputTab } from './outputPaneLogic'
-import { aiSuggestionOnAccept, aiSuggestionOnReject } from './suggestions/aiSuggestion'
+import {
+    aiSuggestionOnAccept,
+    aiSuggestionOnAcceptText,
+    aiSuggestionOnReject,
+    aiSuggestionOnRejectText,
+} from './suggestions/aiSuggestion'
 import { ViewEmptyState } from './ViewLoadingState'
 
 export interface MultitabEditorLogicProps {
@@ -90,6 +95,9 @@ export interface QueryTab {
 export interface SuggestionPayload {
     suggestedValue?: string
     originalValue?: string
+    acceptText?: string
+    rejectText?: string
+    diffShowRunButton?: boolean
     onAccept: (
         shouldRunQuery: boolean,
         actions: multitabEditorLogicType['actions'],
@@ -417,8 +425,11 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             if (values.queryInput) {
                 actions._setSuggestionPayload({
                     suggestedValue: suggestedQueryInput,
+                    acceptText: aiSuggestionOnAcceptText,
+                    rejectText: aiSuggestionOnRejectText,
                     onAccept: aiSuggestionOnAccept,
                     onReject: aiSuggestionOnReject,
+                    diffShowRunButton: true,
                 })
             } else {
                 actions.setQueryInput(suggestedQueryInput)
@@ -1053,6 +1064,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             ) {
                 actions._setSuggestionPayload({
                     originalValue: latestView?.query.query,
+                    acceptText: 'Confirm changes',
+                    rejectText: 'Cancel',
+                    diffShowRunButton: false,
                     onAccept: () => {
                         actions.setQueryInput(view.query.query)
                         actions.updateDataWarehouseSavedQuery({
@@ -1128,6 +1142,25 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         },
     })),
     selectors({
+        diffShowRunButton: [
+            (s) => [s.suggestionPayload],
+            (suggestionPayload) => {
+                return suggestionPayload?.diffShowRunButton
+            },
+        ],
+        acceptText: [
+            (s) => [s.suggestionPayload],
+            (suggestionPayload) => {
+                return suggestionPayload?.acceptText ?? 'Accept'
+            },
+        ],
+        rejectText: [
+            (s) => [s.suggestionPayload],
+            (suggestionPayload) => {
+                return suggestionPayload?.rejectText ?? 'Reject'
+            },
+        ],
+
         suggestedQueryInput: [
             (s) => [s.suggestionPayload, s.queryInput],
             (suggestionPayload, queryInput) => {
