@@ -3588,6 +3588,7 @@ export interface Experiment {
     stats_config?: {
         version?: number
     }
+    _create_in_folder?: string | null
 }
 
 export interface FunnelExperimentVariant {
