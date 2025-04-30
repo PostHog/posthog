@@ -439,7 +439,7 @@ def log_activity(
             activity=activity,
             exception=ValueError("Cannot log impersonated activity without a user"),
         )
-        return
+        return None
     try:
         if activity == "updated" and (detail.changes is None or len(detail.changes) == 0) and not force_save:
             logger.warn(
@@ -449,7 +449,7 @@ def log_activity(
                 user_id=user.id if user else None,
                 scope=scope,
             )
-            return
+            return None
 
         activity_log = ActivityLog.objects.create(
             organization_id=organization_id,

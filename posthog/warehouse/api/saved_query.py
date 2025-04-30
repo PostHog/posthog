@@ -206,16 +206,18 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             locked_instance = DataWarehouseSavedQuery.objects.select_for_update().get(pk=instance.pk)
 
             # Get latest activity log for this model
-            edited_history_id = self.context["request"].data.get("edited_history_id", None)
-            latest_activity_id = (
-                ActivityLog.objects.filter(item_id=locked_instance.id, scope="DataWarehouseSavedQuery")
-                .order_by("-created_at")
-                .values_list("id", flat=True)
-                .first()
-            )
 
-            if edited_history_id != str(latest_activity_id):
-                raise serializers.ValidationError("The query was modified by someone else.")
+            if validated_data.get("query", None):
+                edited_history_id = self.context["request"].data.get("edited_history_id", None)
+                latest_activity_id = (
+                    ActivityLog.objects.filter(item_id=locked_instance.id, scope="DataWarehouseSavedQuery")
+                    .order_by("-created_at")
+                    .values_list("id", flat=True)
+                    .first()
+                )
+
+                if edited_history_id != str(latest_activity_id):
+                    raise serializers.ValidationError("The query was modified by someone else.")
 
             if sync_frequency == "never":
                 delete_saved_query_schedule(str(locked_instance.id))
