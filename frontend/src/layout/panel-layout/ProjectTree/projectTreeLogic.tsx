@@ -1241,7 +1241,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                                 'experiment',
                                 'feature_flag',
                                 'session_recording_playlist',
-                                'survey',
                             ].includes(result.type) ||
                                 result.type.startsWith('hog_function/'))
                         ) {
