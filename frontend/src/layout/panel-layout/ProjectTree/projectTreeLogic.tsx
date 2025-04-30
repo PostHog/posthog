@@ -264,7 +264,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 loadFolderSuccess: (state, { folder, entries }) => ({ ...state, [folder]: entries }),
                 createSavedItem: (state, { savedItem }) => {
                     const folder = joinPath(splitPath(savedItem.path).slice(0, -1))
-                    return { ...state, [folder]: [...(state[folder] || []), savedItem] }
+                    return {
+                        ...state,
+                        [folder]: (state[folder] || []).find((f) => f.id === savedItem.id)
+                            ? state[folder].map((item) => (item.id === savedItem.id ? savedItem : item))
+                            : [...(state[folder] || []), savedItem],
+                    }
                 },
                 loadSearchResultsSuccess: (state, { searchResults }) => {
                     // Append search results into the loaded state to persist data and help with multi-selection between panels
@@ -328,14 +333,19 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     return newState
                 },
                 updateSyncedFiles: (state, { files }) => {
-                    const filesById: Record<string, FileSystemEntry> = {}
-                    for (const file of files) {
-                        filesById[file.id] = file
-                    }
                     const newState = { ...state }
-                    for (const [folder, filesInFolder] of Object.entries(newState)) {
-                        if (filesInFolder.find((file) => filesById[file.id])) {
-                            newState[folder] = newState[folder].map((f) => filesById[f.id] ?? f)
+                    for (const file of files) {
+                        const folder = joinPath(splitPath(file.path).slice(0, -1))
+                        if (newState[folder]) {
+                            if (newState[folder].find((f) => f.id === file.id)) {
+                                newState[folder] = newState[folder].map((f) =>
+                                    f.id === file.id ? { ...f, ...file } : f
+                                )
+                            } else {
+                                newState[folder] = [...newState[folder], file]
+                            }
+                        } else {
+                            newState[folder] = [file]
                         }
                     }
                     return newState
@@ -1235,14 +1245,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         // TODO: REMOVE THIS OLD LOGIC! ... in favor of directly passing _create_in_folder to the API calls
                         if (
                             result.type &&
-                            ([
-                                'dashboard',
-                                'early_access_feature',
-                                'experiment',
-                                'feature_flag',
-                                'session_recording_playlist',
-                                'survey',
-                            ].includes(result.type) ||
+                            (['dashboard', 'session_recording_playlist'].includes(result.type) ||
                                 result.type.startsWith('hog_function/'))
                         ) {
                             // Check if a "new" action was recently initiated for this object type.
