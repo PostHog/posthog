@@ -442,8 +442,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                                         <Link
                                                                             buttonProps={{
                                                                                 isSideActionRight: true,
-                                                                                tooltip: item.sideAction.tooltip,
                                                                             }}
+                                                                            tooltip={item.sideAction.tooltip}
+                                                                            tooltipPlacement="right"
                                                                             to={urls.insightNew()}
                                                                         >
                                                                             {item.sideAction.icon}

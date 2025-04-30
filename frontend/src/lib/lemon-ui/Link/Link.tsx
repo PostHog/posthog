@@ -57,7 +57,7 @@ export type LinkProps = Pick<React.HTMLProps<HTMLAnchorElement>, 'target' | 'cla
      * Button props to pass to the button primitive.
      * If provided, the link will be rendered as the "new" button primitive.
      */
-    buttonProps?: ButtonPrimitiveProps
+    buttonProps?: Omit<ButtonPrimitiveProps, 'tooltip' | 'tooltipDocLink' | 'tooltipPlacement' | 'children'>
 
     tooltip?: TooltipProps['title']
     tooltipDocLink?: TooltipProps['docLink']

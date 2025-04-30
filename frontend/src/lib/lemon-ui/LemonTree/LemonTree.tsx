@@ -329,8 +329,6 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                     active: getItemActiveState(item),
                                     menuItem: true,
                                     hasSideActionRight: true,
-                                    tooltip: isDragging || isEmptyFolder || mode === 'table' ? undefined : displayName,
-                                    tooltipPlacement: 'right',
                                     disabled: isEmptyFolder,
                                     className: cn(
                                         'group/lemon-tree-button',
@@ -357,7 +355,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                 aria-roledescription="tree item"
                                 aria-rolemap={`item-${item.id}`}
                                 aria-label={ariaLabel}
-                                tooltip={displayName}
+                                tooltip={isDragging || isEmptyFolder || mode === 'table' ? undefined : displayName}
                                 tooltipPlacement="right"
                             >
                                 {/* Spacer to offset button padding */}

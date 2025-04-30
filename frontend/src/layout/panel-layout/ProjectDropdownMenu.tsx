@@ -59,9 +59,9 @@ function OtherProjectButton({ team }: { team: TeamBasicType }): JSX.Element {
                 buttonProps={{
                     iconOnly: true,
                     isSideActionRight: true,
-                    tooltip: `View settings for project: ${team.name}`,
-                    tooltipPlacement: 'right',
                 }}
+                tooltip={`View settings for project: ${team.name}`}
+                tooltipPlacement="right"
                 to={urls.project(team.id, urls.settings('project'))}
             >
                 <IconGear />
