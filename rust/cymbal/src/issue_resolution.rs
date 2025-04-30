@@ -51,7 +51,7 @@ impl IssueStatus {
             IssueStatus::Archived => "Archived",
             IssueStatus::Active => "Active",
             IssueStatus::Resolved => "Resolved",
-            IssueStatus::PendingRelease => "Pending pelease",
+            IssueStatus::PendingRelease => "Pending Release",
             IssueStatus::Suppressed => "Suppressed",
         }
     }
