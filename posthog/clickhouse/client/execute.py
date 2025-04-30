@@ -138,7 +138,7 @@ def sync_execute(
     if workload == Workload.DEFAULT and (is_personal_api_key or get_query_tag_value("kind") == "celery"):
         workload = Workload.OFFLINE
 
-    tag_id = get_query_tag_value("id")
+    tag_id: str = get_query_tag_value("id") or ""
     # Make sure we always have process_query_task on the online cluster
     if tag_id == "posthog.tasks.tasks.process_query_task":
         workload = Workload.ONLINE
