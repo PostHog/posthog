@@ -355,6 +355,9 @@ async fn send_internal_event(
     event
         .insert_prop("description", issue.description.clone())
         .expect("Strings are serializable");
+    event
+        .insert_prop("status", issue.status.clone())
+        .expect("Strings are serializable");
 
     if let Some(assignment) = new_assignment {
         if let Some(user_id) = assignment.user_id {
