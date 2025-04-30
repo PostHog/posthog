@@ -1,6 +1,5 @@
 import posthogEE from '@posthog/ee/exports'
 import { customEvent, EventType, eventWithTime } from '@posthog/rrweb-types'
-import { captureException } from '@sentry/react'
 import {
     actions,
     afterMount,
@@ -431,7 +430,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     }
 
                     const sessionEventsQuery = hogql`
-                            SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type, properties.$viewport_width, properties.$viewport_height
+                            SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type, properties.$viewport_width, properties.$viewport_height, properties.$screen_name
                             FROM events
                             WHERE timestamp > ${start.subtract(TWENTY_FOUR_HOURS_IN_MS, 'ms')}
                               AND timestamp < ${end.add(TWENTY_FOUR_HOURS_IN_MS, 'ms')}
@@ -507,6 +506,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                                     $pathname: pathname,
                                     $viewport_width: viewportWidth,
                                     $viewport_height: viewportHeight,
+                                    $screen_name: event.length > 9 ? event[9] : undefined,
                                 },
                                 playerTime: +dayjs(event[2]) - +start,
                                 fullyLoaded: false,
@@ -567,9 +567,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     } catch (e) {
                         // NOTE: This is not ideal but should happen so rarely that it is tolerable.
                         existingEvents.forEach((e) => (e.fullyLoaded = true))
-                        captureException(e, {
-                            tags: { feature: 'session-recording-load-full-event-data' },
-                        })
+                        posthog.captureException(e, { feature: 'session-recording-load-full-event-data' })
                     }
 
                     // here we map the events list because we want the result to be a new instance to trigger downstream recalculation

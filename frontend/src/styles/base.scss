@@ -335,15 +335,30 @@
     // Used for interactive elements and highlights, inputs, toggles, charts, etc.
     // //////////////////////////////////////////////////////////
     --accent: hsl(var(--brand-primary-hue), var(--brand-primary-saturation), var(--brand-primary-lightness));
+    --accent-inverted: hsl(
+        var(--primitive-posthog-brand-yellow-hue),
+        var(--primitive-posthog-brand-yellow-saturation),
+        var(--primitive-posthog-brand-yellow-lightness)
+    );
     --accent-hover: hsl(
         var(--brand-primary-hue),
         var(--brand-primary-saturation),
         calc(var(--brand-primary-lightness) + 10%)
     );
+    --accent-hover-inverted: hsl(
+        var(--primitive-posthog-brand-yellow-hue),
+        var(--primitive-posthog-brand-yellow-saturation),
+        calc(var(--primitive-posthog-brand-yellow-lightness) + 10%)
+    );
     --accent-active: hsl(
         var(--brand-primary-hue),
         var(--brand-primary-saturation),
         calc(var(--brand-primary-lightness) + 15%)
+    );
+    --accent-active-inverted: hsl(
+        var(--primitive-posthog-brand-yellow-hue),
+        var(--primitive-posthog-brand-yellow-saturation),
+        calc(var(--primitive-posthog-brand-yellow-lightness) + 15%)
     );
     --accent-highlight-primary: hsla(
         var(--brand-primary-hue),
@@ -578,10 +593,11 @@
     --z-annotation-popover: 100;
     --z-drawer: 900;
     --z-notifications-popover: 800; // below the TZ aware popover but over the main-nav
-    --z-layout-panel: 758;
-    --z-layout-panel-overlay: 757;
+    --z-layout-panel: 760;
+    --z-layout-panel-under: 759;
+    --z-layout-navbar-over: 757;
     --z-layout-navbar: 756;
-    --z-layout-navbar-overlay: 755;
+    --z-layout-navbar-under: 755;
     --z-resizer: 754;
     --z-main-nav: 750;
     --z-lemon-sidebar: 700;
@@ -592,10 +608,14 @@
     --z-raised: 5;
 
     // Elements
+    --side-panel-bar-width: 3rem;
     --project-navbar-width: 250px;
     --project-navbar-width-collapsed: 45px;
     --project-panel-width: 320px;
     --project-panel-inner-width: calc(var(--project-panel-width) - (var(--spacing) * 2));
+
+    // The space the panel is from the left edge of the screen on mobile
+    --panel-layout-mobile-offset: 40px;
 
     // Toasts
     // Update and override from react-toastify
@@ -779,15 +799,30 @@
     // Accent colors (dark mode)
     // //////////////////////////////////////////////////////////
     --accent: hsl(var(--brand-primary-hue), var(--brand-primary-saturation), var(--brand-primary-lightness));
+    --accent-inverted: hsl(
+        var(--primitive-posthog-brand-orange-hue),
+        var(--primitive-posthog-brand-orange-saturation),
+        var(--primitive-posthog-brand-orange-lightness)
+    );
     --accent-hover: hsl(
         var(--brand-primary-hue),
         var(--brand-primary-saturation),
         calc(var(--brand-primary-lightness) + 10%)
     );
+    --accent-hover-inverted: hsl(
+        var(--primitive-posthog-brand-orange-hue),
+        var(--primitive-posthog-brand-orange-saturation),
+        calc(var(--primitive-posthog-brand-orange-lightness) + 10%)
+    );
     --accent-active: hsl(
         var(--brand-primary-hue),
         var(--brand-primary-saturation),
         calc(var(--brand-primary-lightness) + 15%)
+    );
+    --accent-active-inverted: hsl(
+        var(--primitive-posthog-brand-orange-hue),
+        var(--primitive-posthog-brand-orange-saturation),
+        calc(var(--primitive-posthog-brand-orange-lightness) + 15%)
     );
 
     // Used for highlighting search results, and other subtle accent sitations

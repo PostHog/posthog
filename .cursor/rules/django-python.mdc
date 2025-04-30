@@ -91,6 +91,7 @@ Testing
   - All new packages and most new significant functionality should come with unit tests
   - Significant features should come with integration and/or end-to-end tests
   - Analytics-related queries should be covered by snapshot tests for ease of reviewing
+  - Always consider if you can simplify a test by using the `parameterized.expand` decorator
 
 Unit tests
   - A good unit test should:

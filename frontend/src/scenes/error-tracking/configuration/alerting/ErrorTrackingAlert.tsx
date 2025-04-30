@@ -19,6 +19,7 @@ const ERROR_TRACKING_TEMPLATE_IDS = [
     'template-microsoft-teams-error-tracking-issue-reopened',
     'template-webhook-error-tracking-issue-created',
     'template-webhook-error-tracking-issue-reopened',
+    'template-linear-error-tracking-issue-created',
 ]
 
 export const errorTrackingAlertSceneLogic = kea<errorTrackingAlertSceneLogicType>([
@@ -58,7 +59,7 @@ export function ErrorTrackingAlertScene({ id }: Partial<ErrorTrackingAlertSceneL
     return (
         <HogFunctionConfiguration
             {...props}
-            displayOptions={{ hideTestingConfiguration: true }}
+            displayOptions={{ hideTestingConfiguration: false }}
             logicKey={ERROR_TRACKING_LOGIC_KEY}
         />
     )

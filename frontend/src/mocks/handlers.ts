@@ -104,8 +104,8 @@ export const defaultMocks: Mocks = {
         '/api/projects/:team_id/feature_flags/:feature_flag_id/role_access': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/experiments/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/explicit_members/': [],
-        '/api/projects/:team_id/warehouse_view_link/': EMPTY_PAGINATED_RESPONSE,
-        '/api/projects/:team_id/warehouse_saved_queries/': EMPTY_PAGINATED_RESPONSE,
+        '/api/environments/:team_id/warehouse_view_link/': EMPTY_PAGINATED_RESPONSE,
+        '/api/environments/:team_id/warehouse_saved_queries/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/warehouse_tables/': EMPTY_PAGINATED_RESPONSE,
         '/api/organizations/@current/': (): MockSignature => [
             200,
@@ -192,6 +192,8 @@ export const defaultMocks: Mocks = {
         '/api/organizations/:organization_id/proxy_records/': [],
         '/api/projects/:team_id/dashboard_templates/json_schema/': EMPTY_PAGINATED_RESPONSE,
         '/api/organizations/:organization_id/domains/': EMPTY_PAGINATED_RESPONSE,
+        '/api/projects/:team_id/file_system/unfiled/': { count: 0 },
+        '/api/environments/:team_id/insight_variables/': EMPTY_PAGINATED_RESPONSE,
     },
     post: {
         'https://us.i.posthog.com/e/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),

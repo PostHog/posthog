@@ -17,6 +17,7 @@ from posthog.hogql.database.models import (
     FieldTraverser,
     StringDatabaseField,
     StringJSONDatabaseField,
+    TableGroup,
 )
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.errors import QueryError
@@ -719,11 +720,20 @@ class TestResolver(BaseTest):
             resolve_types(node, context, dialect="clickhouse")
 
     def test_nested_table_name(self):
-        self.database.__setattr__("nested.events", EventsTable())
+        table_group = TableGroup(tables={"events": EventsTable()})
+        self.database.__setattr__("nested", table_group)
         query = "SELECT * FROM nested.events"
         resolve_types(self._select(query), self.context, dialect="hogql")
 
     def test_deeply_nested_table_name(self):
-        self.database.__setattr__("nested.events.some.other.table", EventsTable())
+        table_group = TableGroup(
+            tables={
+                "events": TableGroup(
+                    tables={"some": TableGroup(tables={"other": TableGroup(tables={"table": EventsTable()})})}
+                )
+            }
+        )
+
+        self.database.__setattr__("nested", table_group)
         query = "SELECT * FROM nested.events.some.other.table"
         resolve_types(self._select(query), self.context, dialect="hogql")

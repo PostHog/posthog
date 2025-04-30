@@ -110,6 +110,7 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
 
 class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
     feature_flag_id = serializers.IntegerField(required=False, write_only=True)
+    _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
         model = EarlyAccessFeature
@@ -122,6 +123,7 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
             "created_at",
             "feature_flag_id",
             "feature_flag",
+            "_create_in_folder",
         ]
         read_only_fields = ["id", "feature_flag", "created_at"]
 

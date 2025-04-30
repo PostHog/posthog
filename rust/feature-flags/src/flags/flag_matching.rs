@@ -6,13 +6,14 @@ use crate::cohorts::cohort_models::{Cohort, CohortId};
 use crate::cohorts::cohort_operations::{apply_cohort_membership_logic, evaluate_dynamic_cohorts};
 use crate::flags::flag_group_type_mapping::{GroupTypeIndex, GroupTypeMappingCache};
 use crate::flags::flag_match_reason::FeatureFlagMatchReason;
-use crate::flags::flag_models::{FeatureFlag, FeatureFlagList, FlagGroupType};
+use crate::flags::flag_models::{FeatureFlag, FeatureFlagList, FlagPropertyGroup};
 use crate::metrics::consts::{
     DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER, FLAG_DB_PROPERTIES_FETCH_TIME,
     FLAG_EVALUATE_ALL_CONDITIONS_TIME, FLAG_EVALUATION_ERROR_COUNTER, FLAG_EVALUATION_TIME,
-    FLAG_GET_MATCH_TIME, FLAG_GROUP_FETCH_TIME, FLAG_HASH_KEY_PROCESSING_TIME,
-    FLAG_HASH_KEY_WRITES_COUNTER, FLAG_LOCAL_PROPERTY_OVERRIDE_MATCH_TIME,
-    PROPERTY_CACHE_HITS_COUNTER, PROPERTY_CACHE_MISSES_COUNTER,
+    FLAG_GET_MATCH_TIME, FLAG_GROUP_CACHE_FETCH_TIME, FLAG_GROUP_DB_FETCH_TIME,
+    FLAG_HASH_KEY_PROCESSING_TIME, FLAG_HASH_KEY_WRITES_COUNTER,
+    FLAG_LOCAL_PROPERTY_OVERRIDE_MATCH_TIME, PROPERTY_CACHE_HITS_COUNTER,
+    PROPERTY_CACHE_MISSES_COUNTER,
 };
 use crate::metrics::utils::parse_exception_for_prometheus_label;
 use crate::properties::property_models::PropertyFilter;
@@ -25,6 +26,7 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tracing::error;
+use uuid::Uuid;
 
 #[cfg(test)] // Only used in the tests
 use crate::api::types::{FlagValue, LegacyFlagsResponse};
@@ -200,19 +202,9 @@ impl FeatureFlagMatcher {
         person_property_overrides: Option<HashMap<String, Value>>,
         group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
         hash_key_override: Option<String>,
+        request_id: Uuid,
     ) -> FlagsResponse {
-        let mut errors_while_computing_flags = false;
-        if (self
-            .group_type_mapping_cache
-            .init(self.reader.clone())
-            .await)
-            .is_err()
-        {
-            errors_while_computing_flags = true;
-        }
-
         let eval_timer = common_metrics::timing_guard(FLAG_EVALUATION_TIME, &[]);
-
         let flags_have_experience_continuity_enabled = feature_flags
             .flags
             .iter()
@@ -263,16 +255,14 @@ impl FeatureFlagMatcher {
                 person_property_overrides,
                 group_property_overrides,
                 hash_key_overrides,
+                request_id,
             )
             .await;
 
         eval_timer
             .label(
                 "outcome",
-                if flags_response.errors_while_computing_flags
-                    || flag_hash_key_override_error
-                    || errors_while_computing_flags
-                {
+                if flags_response.errors_while_computing_flags || flag_hash_key_override_error {
                     "error"
                 } else {
                     "success"
@@ -281,11 +271,10 @@ impl FeatureFlagMatcher {
             .fin();
 
         FlagsResponse::new(
-            flag_hash_key_override_error
-                || flags_response.errors_while_computing_flags
-                || errors_while_computing_flags,
+            flag_hash_key_override_error || flags_response.errors_while_computing_flags,
             flags_response.flags,
             None,
+            request_id,
         )
     }
 
@@ -402,8 +391,7 @@ impl FeatureFlagMatcher {
         // Get cached static cohort results or evaluate them if not cached
         let static_cohort_matches = match self.flag_evaluation_state.get_static_cohort_matches() {
             Some(matches) => matches.clone(),
-            // TODO probably fine to return empty here, maybe just log but not error.
-            None => return Err(FlagError::StaticCohortMatchesNotCached),
+            None => HashMap::new(), // NB: this happens if a flag has static cohort filters but is targeting an anonymous user.  Shouldn't error, just return empty.
         };
 
         // Store all cohort match results, starting with static cohort results
@@ -438,10 +426,44 @@ impl FeatureFlagMatcher {
         person_property_overrides: Option<HashMap<String, Value>>,
         group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
         hash_key_overrides: Option<HashMap<String, String>>,
+        request_id: Uuid,
     ) -> FlagsResponse {
         let mut errors_while_computing_flags = false;
         let mut flag_details_map = HashMap::new();
         let mut flags_needing_db_properties = Vec::new();
+
+        // Check if we need to fetch group type mappings – we have flags that use group properties (have group type indices)
+        let type_indexes: HashSet<GroupTypeIndex> = feature_flags
+            .flags
+            .iter()
+            .filter(|flag| flag.active && !flag.deleted)
+            .filter_map(|flag| flag.get_group_type_index())
+            .collect();
+
+        if !type_indexes.is_empty() {
+            let group_type_mapping_timer =
+                common_metrics::timing_guard(FLAG_GROUP_DB_FETCH_TIME, &[]);
+
+            if self
+                .group_type_mapping_cache
+                .init(self.reader.clone())
+                .await
+                .is_err()
+            {
+                errors_while_computing_flags = true;
+            }
+
+            group_type_mapping_timer
+                .label(
+                    "outcome",
+                    if errors_while_computing_flags {
+                        "error"
+                    } else {
+                        "success"
+                    },
+                )
+                .fin();
+        }
 
         // Step 1: Evaluate flags with locally computable property overrides first
         for flag in &feature_flags.flags {
@@ -505,7 +527,18 @@ impl FeatureFlagMatcher {
                     flag_details_map
                         .insert(flag.key.clone(), FlagDetails::create_error(&flag, reason));
                 }
-                return FlagsResponse::new(errors_while_computing_flags, flag_details_map, None);
+                error!("Error preparing flag evaluation state: {:?}", e);
+                inc(
+                    FLAG_EVALUATION_ERROR_COUNTER,
+                    &[("reason".to_string(), reason.to_string())],
+                    1,
+                );
+                return FlagsResponse::new(
+                    errors_while_computing_flags,
+                    flag_details_map,
+                    None,
+                    request_id,
+                );
             }
 
             // Step 3: Evaluate remaining flags with cached properties
@@ -564,7 +597,12 @@ impl FeatureFlagMatcher {
                 .fin();
         }
 
-        FlagsResponse::new(errors_while_computing_flags, flag_details_map, None)
+        FlagsResponse::new(
+            errors_while_computing_flags,
+            flag_details_map,
+            None,
+            request_id,
+        )
     }
 
     /// Matches a feature flag with property overrides.
@@ -580,11 +618,21 @@ impl FeatureFlagMatcher {
         group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
         hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<Option<FeatureFlagMatch>, FlagError> {
-        let flag_property_filters: Vec<PropertyFilter> = flag
+        // Collect ALL property filters - both from regular conditions and super conditions
+        let mut flag_property_filters: Vec<PropertyFilter> = flag
             .get_conditions()
             .iter()
             .flat_map(|c| c.properties.clone().unwrap_or_default())
             .collect();
+
+        // Add super condition properties
+        if let Some(super_groups) = &flag.filters.super_groups {
+            flag_property_filters.extend(
+                super_groups
+                    .iter()
+                    .flat_map(|c| c.properties.clone().unwrap_or_default()),
+            );
+        }
 
         let overrides = match flag.get_group_type_index() {
             Some(group_type_index) => self.get_group_overrides(
@@ -737,7 +785,7 @@ impl FeatureFlagMatcher {
             }
         }
         // Sort conditions with variant overrides to the top so that we can evaluate them first
-        let mut sorted_conditions: Vec<(usize, &FlagGroupType)> =
+        let mut sorted_conditions: Vec<(usize, &FlagPropertyGroup)> =
             flag.get_conditions().iter().enumerate().collect();
 
         sorted_conditions
@@ -836,7 +884,7 @@ impl FeatureFlagMatcher {
     fn is_condition_match(
         &self,
         feature_flag: &FeatureFlag,
-        condition: &FlagGroupType,
+        condition: &FlagPropertyGroup,
         property_overrides: Option<HashMap<String, Value>>,
         hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<(bool, FeatureFlagMatchReason), FlagError> {
@@ -872,7 +920,6 @@ impl FeatureFlagMatcher {
                     Some(cohorts) => cohorts.clone(),
                     None => return Ok((false, FeatureFlagMatchReason::NoConditionMatch)),
                 };
-                // Get the person ID for the current distinct ID – this value should be cached at this point, and if we can't get it we return false.
                 if !self.evaluate_cohort_filters(
                     &cohort_filters,
                     &person_or_group_properties,
@@ -940,9 +987,7 @@ impl FeatureFlagMatcher {
         } else {
             match self.get_person_properties_from_cache() {
                 Ok(props) => Ok(props),
-                Err(FlagError::PersonNotFound) => Ok(HashMap::new()), // NB: If we can't find a person ID associated with the distinct ID, return an empty map
-                Err(FlagError::PropertiesNotInCache) => Ok(HashMap::new()), // NB: If we can't find a person ID associated with the distinct ID, return an empty map
-                Err(e) => Err(e),
+                Err(_e) => Ok(HashMap::new()), // NB: if we can't find the properties in the cache, we return an empty HashMap because we just treat this person as one with no properties, essentially an anonymous user
             }
         }
     }
@@ -1012,11 +1057,8 @@ impl FeatureFlagMatcher {
             .as_ref()
             .and_then(|sc| sc.first())
         {
-            // Need to fetch person properties to check super conditions.  If these properties are already locally computable,
-            // we don't need to fetch from the database, but if they aren't we need to fetch from the database and then we'll cache them.
-            // don't do that ^
             let person_properties = self.get_person_properties(
-                property_overrides,
+                property_overrides.clone(),
                 first_condition.properties.as_deref().unwrap_or(&[]),
             )?;
 
@@ -1183,8 +1225,6 @@ impl FeatureFlagMatcher {
         flags: &[FeatureFlag],
     ) -> Result<(), FlagError> {
         // Get cohorts first since we need the IDs
-        // NB: this is a blocking call, maybe could be factored out?  The idea here is that if there's no data in the application-level
-        // cache, we'll just fetch it from the DB when needed.  This is the only async method in flag matching.
         let cohorts = self.cohort_cache.get_cohorts(self.project_id).await?;
         self.flag_evaluation_state.set_cohorts(cohorts.clone());
 
@@ -1197,7 +1237,7 @@ impl FeatureFlagMatcher {
 
         // Then prepare group mappings and properties
         // This should be _wicked_ fast since it's async and is just pulling from a cache that's already in memory
-        let group_timer = common_metrics::timing_guard(FLAG_GROUP_FETCH_TIME, &[]);
+        let group_timer = common_metrics::timing_guard(FLAG_GROUP_CACHE_FETCH_TIME, &[]);
         let group_data = self.prepare_group_data(flags)?;
         group_timer.fin();
 
@@ -1210,7 +1250,7 @@ impl FeatureFlagMatcher {
             self.team_id,
             &group_data.type_indexes,
             &group_data.keys,
-            Some(static_cohort_ids),
+            static_cohort_ids,
         )
         .await
         {
@@ -1295,7 +1335,7 @@ impl FeatureFlagMatcher {
             // i just want to be able to differentiate between no properties because we fetched no properties,
             // and no properties because we failed to fetch
             // maybe I need a fetch indicator in the cache?
-            Ok(HashMap::new())
+            Err(FlagError::PersonNotFound)
         }
     }
 
@@ -1472,10 +1512,10 @@ mod tests {
             None,
             None,
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "email".to_string(),
-                        value: json!("override@example.com"),
+                        value: Some(json!("override@example.com")),
                         operator: None,
                         prop_type: "person".to_string(),
                         group_type_index: None,
@@ -1512,7 +1552,7 @@ mod tests {
             flags: vec![flag.clone()],
         };
         let result = matcher
-            .evaluate_all_feature_flags(flags, Some(overrides), None, None)
+            .evaluate_all_feature_flags(flags, Some(overrides), None, None, Uuid::new_v4())
             .await;
         assert!(!result.errors_while_computing_flags);
         assert_eq!(
@@ -1534,10 +1574,10 @@ mod tests {
             None,
             None,
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "industry".to_string(),
-                        value: json!("tech"),
+                        value: Some(json!("tech")),
                         operator: None,
                         prop_type: "group".to_string(),
                         group_type_index: Some(1),
@@ -1589,7 +1629,7 @@ mod tests {
             flags: vec![flag.clone()],
         };
         let result = matcher
-            .evaluate_all_feature_flags(flags, None, Some(group_overrides), None)
+            .evaluate_all_feature_flags(flags, None, Some(group_overrides), None, Uuid::new_v4())
             .await;
 
         let legacy_response = LegacyFlagsResponse::from_response(result);
@@ -1670,7 +1710,7 @@ mod tests {
             None,
             None,
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -1686,7 +1726,7 @@ mod tests {
             None,
         );
 
-        let condition = FlagGroupType {
+        let condition = FlagPropertyGroup {
             variant: None,
             properties: Some(vec![]),
             rollout_percentage: Some(100.0),
@@ -1716,7 +1756,7 @@ mod tests {
             name: Some("Test Flag".to_string()),
             key: "test_flag".to_string(),
             filters: FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: None,
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -1765,10 +1805,10 @@ mod tests {
             None,
             None,
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "email".to_string(),
-                        value: json!("test@example.com"),
+                        value: Some(json!("test@example.com")),
                         operator: Some(OperatorType::Exact),
                         prop_type: "person".to_string(),
                         group_type_index: None,
@@ -1810,6 +1850,7 @@ mod tests {
                 Some(person_property_overrides),
                 None,
                 None,
+                Uuid::new_v4(),
             )
             .await;
 
@@ -1836,7 +1877,7 @@ mod tests {
             None,
             None,
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -1896,11 +1937,11 @@ mod tests {
             None,
             None,
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![
                         PropertyFilter {
                             key: "age".to_string(),
-                            value: json!(25),
+                            value: Some(json!(25)),
                             operator: Some(OperatorType::Gte),
                             prop_type: "person".to_string(),
                             group_type_index: None,
@@ -1908,7 +1949,7 @@ mod tests {
                         },
                         PropertyFilter {
                             key: "email".to_string(),
-                            value: json!("example@domain.com"),
+                            value: Some(json!("example@domain.com")),
                             operator: Some(OperatorType::Icontains),
                             prop_type: "person".to_string(),
                             group_type_index: None,
@@ -1970,7 +2011,7 @@ mod tests {
             None,
             None,
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -2013,7 +2054,7 @@ mod tests {
             None,
             None,
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![]),
                     rollout_percentage: Some(0.0),
                     variant: None,
@@ -2133,10 +2174,10 @@ mod tests {
             None,
             None,
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "email".to_string(),
-                        value: json!("test@example.com"),
+                        value: Some(json!("test@example.com")),
                         operator: None,
                         prop_type: "person".to_string(),
                         group_type_index: None,
@@ -2195,10 +2236,10 @@ mod tests {
             None,
             None,
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "age".to_string(),
-                        value: json!(25),
+                        value: Some(json!(25)),
                         operator: Some(OperatorType::Gte),
                         prop_type: "person".to_string(),
                         group_type_index: None,
@@ -2246,7 +2287,7 @@ mod tests {
             None,
             None,
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -2295,10 +2336,10 @@ mod tests {
             Some("complex_flag".to_string()),
             Some(FlagFilters {
                 groups: vec![
-                    FlagGroupType {
+                    FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
                             key: "email".to_string(),
-                            value: json!("user1@example.com"),
+                            value: Some(json!("user1@example.com")),
                             operator: None,
                             prop_type: "person".to_string(),
                             group_type_index: None,
@@ -2307,10 +2348,10 @@ mod tests {
                         rollout_percentage: Some(100.0),
                         variant: None,
                     },
-                    FlagGroupType {
+                    FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
                             key: "age".to_string(),
-                            value: json!(30),
+                            value: Some(json!(30)),
                             operator: Some(OperatorType::Gte),
                             prop_type: "person".to_string(),
                             group_type_index: None,
@@ -2538,10 +2579,10 @@ mod tests {
             None,
             None,
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "id".to_string(),
-                        value: json!(cohort_row.id),
+                        value: Some(json!(cohort_row.id)),
                         operator: Some(OperatorType::In),
                         prop_type: "cohort".to_string(),
                         group_type_index: None,
@@ -2611,10 +2652,10 @@ mod tests {
             Some("super_condition_flag".to_string()),
             Some(FlagFilters {
                 groups: vec![
-                    FlagGroupType {
+                    FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
                             key: "email".to_string(),
-                            value: json!("fake@posthog.com"),
+                            value: Some(json!("fake@posthog.com")),
                             operator: Some(OperatorType::Exact),
                             prop_type: "person".to_string(),
                             group_type_index: None,
@@ -2623,10 +2664,10 @@ mod tests {
                         rollout_percentage: Some(0.0),
                         variant: None,
                     },
-                    FlagGroupType {
+                    FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
                             key: "email".to_string(),
-                            value: json!("test@posthog.com"),
+                            value: Some(json!("test@posthog.com")),
                             operator: Some(OperatorType::Exact),
                             prop_type: "person".to_string(),
                             group_type_index: None,
@@ -2635,7 +2676,7 @@ mod tests {
                         rollout_percentage: Some(100.0),
                         variant: None,
                     },
-                    FlagGroupType {
+                    FlagPropertyGroup {
                         properties: None,
                         rollout_percentage: Some(50.0),
                         variant: None,
@@ -2644,10 +2685,10 @@ mod tests {
                 multivariate: None,
                 aggregation_group_type_index: None,
                 payloads: None,
-                super_groups: Some(vec![FlagGroupType {
+                super_groups: Some(vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "is_enabled".to_string(),
-                        value: json!(["true"]),
+                        value: Some(json!(["true"])),
                         operator: Some(OperatorType::Exact),
                         prop_type: "person".to_string(),
                         group_type_index: None,
@@ -2763,10 +2804,10 @@ mod tests {
             Some("super_condition_flag".to_string()),
             Some(FlagFilters {
                 groups: vec![
-                    FlagGroupType {
+                    FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
                             key: "email".to_string(),
-                            value: json!("fake@posthog.com"),
+                            value: Some(json!("fake@posthog.com")),
                             operator: Some(OperatorType::Exact),
                             prop_type: "person".to_string(),
                             group_type_index: None,
@@ -2775,10 +2816,10 @@ mod tests {
                         rollout_percentage: Some(0.0),
                         variant: None,
                     },
-                    FlagGroupType {
+                    FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
                             key: "email".to_string(),
-                            value: json!("test@posthog.com"),
+                            value: Some(json!("test@posthog.com")),
                             operator: Some(OperatorType::Exact),
                             prop_type: "person".to_string(),
                             group_type_index: None,
@@ -2787,7 +2828,7 @@ mod tests {
                         rollout_percentage: Some(100.0),
                         variant: None,
                     },
-                    FlagGroupType {
+                    FlagPropertyGroup {
                         properties: None,
                         rollout_percentage: Some(50.0),
                         variant: None,
@@ -2796,10 +2837,10 @@ mod tests {
                 multivariate: None,
                 aggregation_group_type_index: None,
                 payloads: None,
-                super_groups: Some(vec![FlagGroupType {
+                super_groups: Some(vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "is_enabled".to_string(),
-                        value: json!("true"),
+                        value: Some(json!("true")),
                         operator: Some(OperatorType::Exact),
                         prop_type: "person".to_string(),
                         group_type_index: None,
@@ -2869,10 +2910,10 @@ mod tests {
             Some("super_condition_flag".to_string()),
             Some(FlagFilters {
                 groups: vec![
-                    FlagGroupType {
+                    FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
                             key: "email".to_string(),
-                            value: json!("fake@posthog.com"),
+                            value: Some(json!("fake@posthog.com")),
                             operator: Some(OperatorType::Exact),
                             prop_type: "person".to_string(),
                             group_type_index: None,
@@ -2881,10 +2922,10 @@ mod tests {
                         rollout_percentage: Some(0.0),
                         variant: None,
                     },
-                    FlagGroupType {
+                    FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
                             key: "email".to_string(),
-                            value: json!("test@posthog.com"),
+                            value: Some(json!("test@posthog.com")),
                             operator: Some(OperatorType::Exact),
                             prop_type: "person".to_string(),
                             group_type_index: None,
@@ -2893,7 +2934,7 @@ mod tests {
                         rollout_percentage: Some(100.0),
                         variant: None,
                     },
-                    FlagGroupType {
+                    FlagPropertyGroup {
                         properties: None,
                         rollout_percentage: Some(50.0),
                         variant: None,
@@ -2902,10 +2943,10 @@ mod tests {
                 multivariate: None,
                 aggregation_group_type_index: None,
                 payloads: None,
-                super_groups: Some(vec![FlagGroupType {
+                super_groups: Some(vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "is_enabled".to_string(),
-                        value: json!(false),
+                        value: Some(json!(false)),
                         operator: Some(OperatorType::Exact),
                         prop_type: "person".to_string(),
                         group_type_index: None,
@@ -3044,10 +3085,10 @@ mod tests {
             None,
             None,
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "id".to_string(),
-                        value: json!(cohort_row.id),
+                        value: Some(json!(cohort_row.id)),
                         operator: Some(OperatorType::In),
                         prop_type: "cohort".to_string(),
                         group_type_index: None,
@@ -3137,10 +3178,10 @@ mod tests {
             None,
             None,
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "id".to_string(),
-                        value: json!(cohort_row.id),
+                        value: Some(json!(cohort_row.id)),
                         operator: Some(OperatorType::NotIn),
                         prop_type: "cohort".to_string(),
                         group_type_index: None,
@@ -3230,10 +3271,10 @@ mod tests {
             None,
             None,
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "id".to_string(),
-                        value: json!(cohort_row.id),
+                        value: Some(json!(cohort_row.id)),
                         operator: Some(OperatorType::NotIn),
                         prop_type: "cohort".to_string(),
                         group_type_index: None,
@@ -3344,10 +3385,10 @@ mod tests {
             None,
             None,
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "id".to_string(),
-                        value: json!(dependent_cohort_row.id),
+                        value: Some(json!(dependent_cohort_row.id)),
                         operator: Some(OperatorType::In),
                         prop_type: "cohort".to_string(),
                         group_type_index: None,
@@ -3437,10 +3478,10 @@ mod tests {
             None,
             None,
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "id".to_string(),
-                        value: json!(cohort_row.id),
+                        value: Some(json!(cohort_row.id)),
                         operator: Some(OperatorType::In),
                         prop_type: "cohort".to_string(),
                         group_type_index: None,
@@ -3523,10 +3564,10 @@ mod tests {
             None,
             None,
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "id".to_string(),
-                        value: json!(cohort.id),
+                        value: Some(json!(cohort.id)),
                         operator: Some(OperatorType::In),
                         prop_type: "cohort".to_string(),
                         group_type_index: None,
@@ -3608,10 +3649,10 @@ mod tests {
             None,
             None,
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "id".to_string(),
-                        value: json!(cohort.id),
+                        value: Some(json!(cohort.id)),
                         operator: Some(OperatorType::In),
                         prop_type: "cohort".to_string(),
                         group_type_index: None,
@@ -3688,10 +3729,10 @@ mod tests {
             None,
             None,
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "id".to_string(),
-                        value: json!(cohort.id),
+                        value: Some(json!(cohort.id)),
                         operator: Some(OperatorType::NotIn),
                         prop_type: "cohort".to_string(),
                         group_type_index: None,
@@ -3781,10 +3822,10 @@ mod tests {
             None,
             None,
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "id".to_string(),
-                        value: json!(cohort.id),
+                        value: Some(json!(cohort.id)),
                         operator: Some(OperatorType::NotIn),
                         prop_type: "cohort".to_string(),
                         group_type_index: None,
@@ -3851,10 +3892,10 @@ mod tests {
             None,
             Some("flag_continuity".to_string()),
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "email".to_string(),
-                        value: json!("user3@example.com"),
+                        value: Some(json!("user3@example.com")),
                         operator: None,
                         prop_type: "person".to_string(),
                         group_type_index: None,
@@ -3899,7 +3940,13 @@ mod tests {
             Some(group_type_mapping_cache),
             None,
         )
-        .evaluate_all_feature_flags(flags, None, None, Some("hash_key_continuity".to_string()))
+        .evaluate_all_feature_flags(
+            flags,
+            None,
+            None,
+            Some("hash_key_continuity".to_string()),
+            Uuid::new_v4(),
+        )
         .await;
 
         let legacy_response = LegacyFlagsResponse::from_response(result);
@@ -3941,10 +3988,10 @@ mod tests {
             None,
             Some("flag_continuity_missing".to_string()),
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "email".to_string(),
-                        value: json!("user4@example.com"),
+                        value: Some(json!("user4@example.com")),
                         operator: None,
                         prop_type: "person".to_string(),
                         group_type_index: None,
@@ -3978,7 +4025,7 @@ mod tests {
             Some(group_type_mapping_cache),
             None,
         )
-        .evaluate_all_feature_flags(flags, None, None, None)
+        .evaluate_all_feature_flags(flags, None, None, None, Uuid::new_v4())
         .await;
 
         assert!(result.flags.get("flag_continuity_missing").unwrap().enabled);
@@ -4022,10 +4069,10 @@ mod tests {
             None,
             Some("flag_continuity_mix".to_string()),
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "email".to_string(),
-                        value: json!("user5@example.com"),
+                        value: Some(json!("user5@example.com")),
                         operator: None,
                         prop_type: "person".to_string(),
                         group_type_index: None,
@@ -4052,10 +4099,10 @@ mod tests {
             None,
             Some("flag_no_continuity_mix".to_string()),
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "age".to_string(),
-                        value: json!(30),
+                        value: Some(json!(30)),
                         operator: Some(OperatorType::Gt),
                         prop_type: "person".to_string(),
                         group_type_index: None,
@@ -4105,6 +4152,7 @@ mod tests {
             Some(HashMap::from([("age".to_string(), json!(35))])),
             None,
             Some("hash_key_mixed".to_string()),
+            Uuid::new_v4(),
         )
         .await;
 
@@ -4150,10 +4198,10 @@ mod tests {
             None,
             Some("test_flag".to_string()),
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "email".to_string(),
-                        value: json!("test@example.com"),
+                        value: Some(json!("test@example.com")),
                         operator: None,
                         prop_type: "person".to_string(),
                         group_type_index: None,
@@ -4221,10 +4269,10 @@ mod tests {
             None,
             Some("test_flag_invalid".to_string()),
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "email".to_string(),
-                        value: json!("test@example.com"),
+                        value: Some(json!("test@example.com")),
                         operator: None,
                         prop_type: "person".to_string(),
                         group_type_index: None,
@@ -4325,10 +4373,10 @@ mod tests {
             Some("Flag with holdout".to_string()),
             Some("flag-with-gt-filter".to_string()),
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "$some_prop".to_string(),
-                        value: json!(4),
+                        value: Some(json!(4)),
                         operator: Some(OperatorType::Gt),
                         prop_type: "person".to_string(),
                         group_type_index: None,
@@ -4337,7 +4385,7 @@ mod tests {
                     rollout_percentage: Some(100.0),
                     variant: None,
                 }],
-                holdout_groups: Some(vec![FlagGroupType {
+                holdout_groups: Some(vec![FlagPropertyGroup {
                     properties: Some(vec![]),
                     rollout_percentage: Some(70.0),
                     variant: Some("holdout".to_string()),
@@ -4358,10 +4406,10 @@ mod tests {
             Some("Other flag with holdout".to_string()),
             Some("other-flag-with-gt-filter".to_string()),
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "$some_prop".to_string(),
-                        value: json!(4),
+                        value: Some(json!(4)),
                         operator: Some(OperatorType::Gt),
                         prop_type: "person".to_string(),
                         group_type_index: None,
@@ -4370,7 +4418,7 @@ mod tests {
                     rollout_percentage: Some(100.0),
                     variant: None,
                 }],
-                holdout_groups: Some(vec![FlagGroupType {
+                holdout_groups: Some(vec![FlagPropertyGroup {
                     properties: Some(vec![]),
                     rollout_percentage: Some(70.0),
                     variant: Some("holdout".to_string()),
@@ -4391,10 +4439,10 @@ mod tests {
             Some("Flag".to_string()),
             Some("other-flag-without-holdout-with-gt-filter".to_string()),
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "$some_prop".to_string(),
-                        value: json!(4),
+                        value: Some(json!(4)),
                         operator: Some(OperatorType::Gt),
                         prop_type: "person".to_string(),
                         group_type_index: None,
@@ -4403,7 +4451,7 @@ mod tests {
                     rollout_percentage: Some(100.0),
                     variant: None,
                 }],
-                holdout_groups: Some(vec![FlagGroupType {
+                holdout_groups: Some(vec![FlagPropertyGroup {
                     properties: Some(vec![]),
                     rollout_percentage: Some(0.0),
                     variant: Some("holdout".to_string()),
@@ -4513,7 +4561,7 @@ mod tests {
             name: Some("Beta feature".to_string()),
             key: "beta-feature".to_string(),
             filters: FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: None,
                     rollout_percentage: None,
                     variant: None,
@@ -4662,10 +4710,10 @@ mod tests {
             None,
             None,
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "id".to_string(),
-                        value: json!(cohort.id),
+                        value: Some(json!(cohort.id)),
                         operator: Some(OperatorType::In),
                         prop_type: "cohort".to_string(),
                         group_type_index: None,
@@ -4707,5 +4755,265 @@ mod tests {
 
         let match_result = result.unwrap();
         assert!(match_result.matches, "User should match the static cohort");
+    }
+
+    #[tokio::test]
+    async fn test_no_person_id_with_overrides() {
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+
+        let flag = create_test_flag(
+            None,
+            Some(team.id),
+            None,
+            None,
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "email".to_string(),
+                        value: Some(json!("test@example.com")),
+                        operator: Some(OperatorType::Exact),
+                        prop_type: "person".to_string(),
+                        group_type_index: None,
+                        negation: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        let person_property_overrides =
+            HashMap::from([("email".to_string(), json!("test@example.com"))]);
+
+        let mut matcher = FeatureFlagMatcher::new(
+            "nonexistent_user".to_string(),
+            team.id,
+            team.project_id,
+            reader.clone(),
+            writer.clone(),
+            cohort_cache.clone(),
+            None,
+            None,
+        );
+
+        let result = matcher
+            .evaluate_all_feature_flags(
+                FeatureFlagList {
+                    flags: vec![flag.clone()],
+                },
+                Some(person_property_overrides),
+                None,
+                None,
+                Uuid::new_v4(),
+            )
+            .await;
+
+        // Should succeed because we have overrides
+        assert!(!result.errors_while_computing_flags);
+        let flag_details = result.flags.get("test_flag").unwrap();
+        assert!(flag_details.enabled);
+    }
+
+    #[tokio::test]
+    async fn test_complex_super_condition_matching() {
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+
+        let flag = create_test_flag(
+            None,
+            Some(team.id),
+            None,
+            Some("complex_flag".to_string()),
+            Some(FlagFilters {
+                groups: vec![
+                    FlagPropertyGroup {
+                        properties: Some(vec![PropertyFilter {
+                            key: "email".to_string(),
+                            value: Some(json!("@storytell.ai")),
+                            operator: Some(OperatorType::Icontains),
+                            prop_type: "person".to_string(),
+                            group_type_index: None,
+                            negation: None,
+                        }]),
+                        rollout_percentage: Some(100.0),
+                        variant: None,
+                    },
+                    FlagPropertyGroup {
+                        properties: Some(vec![PropertyFilter {
+                            key: "email".to_string(),
+                            value: Some(json!([
+                                "simone.demarchi@outlook.com",
+                                "djokovic.dav@gmail.com",
+                                "dario.passarello@gmail.com",
+                                "matt.amick@purplewave.com"
+                            ])),
+                            operator: Some(OperatorType::Exact),
+                            prop_type: "person".to_string(),
+                            group_type_index: None,
+                            negation: None,
+                        }]),
+                        rollout_percentage: Some(100.0),
+                        variant: None,
+                    },
+                    FlagPropertyGroup {
+                        properties: Some(vec![PropertyFilter {
+                            key: "email".to_string(),
+                            value: Some(json!("@posthog.com")),
+                            operator: Some(OperatorType::Icontains),
+                            prop_type: "person".to_string(),
+                            group_type_index: None,
+                            negation: None,
+                        }]),
+                        rollout_percentage: Some(100.0),
+                        variant: None,
+                    },
+                ],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: Some(vec![FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "$feature_enrollment/artificial-hog".to_string(),
+                        value: Some(json!(["true"])),
+                        operator: Some(OperatorType::Exact),
+                        prop_type: "person".to_string(),
+                        group_type_index: None,
+                        negation: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }]),
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        // Test case 1: User with super condition property set to true
+        insert_person_for_team_in_pg(
+            reader.clone(),
+            team.id,
+            "super_user".to_string(),
+            Some(json!({
+                "email": "random@example.com",
+                "$feature_enrollment/artificial-hog": true
+            })),
+        )
+        .await
+        .unwrap();
+
+        // Test case 2: User with matching email but no super condition
+        insert_person_for_team_in_pg(
+            reader.clone(),
+            team.id,
+            "posthog_user".to_string(),
+            Some(json!({
+                "email": "test@posthog.com",
+                "$feature_enrollment/artificial-hog": false
+            })),
+        )
+        .await
+        .unwrap();
+
+        // Test case 3: User with neither super condition nor matching email
+        insert_person_for_team_in_pg(
+            reader.clone(),
+            team.id,
+            "regular_user".to_string(),
+            Some(json!({
+                "email": "regular@example.com"
+            })),
+        )
+        .await
+        .unwrap();
+
+        // Test super condition user
+        let mut matcher = FeatureFlagMatcher::new(
+            "super_user".to_string(),
+            team.id,
+            team.project_id,
+            reader.clone(),
+            writer.clone(),
+            cohort_cache.clone(),
+            None,
+            None,
+        );
+
+        matcher
+            .prepare_flag_evaluation_state(&[flag.clone()])
+            .await
+            .unwrap();
+
+        let result = matcher.get_match(&flag, None, None).unwrap();
+        assert!(result.matches, "Super condition user should match");
+        assert_eq!(
+            result.reason,
+            FeatureFlagMatchReason::SuperConditionValue,
+            "Match reason should be SuperConditionValue"
+        );
+
+        // Test PostHog user
+        let mut matcher = FeatureFlagMatcher::new(
+            "posthog_user".to_string(),
+            team.id,
+            team.project_id,
+            reader.clone(),
+            writer.clone(),
+            cohort_cache.clone(),
+            None,
+            None,
+        );
+
+        matcher
+            .prepare_flag_evaluation_state(&[flag.clone()])
+            .await
+            .unwrap();
+
+        let result = matcher.get_match(&flag, None, None).unwrap();
+        assert!(!result.matches, "PostHog user should not match");
+        assert_eq!(
+            result.reason,
+            FeatureFlagMatchReason::SuperConditionValue,
+            "Match reason should be SuperConditionValue"
+        );
+
+        // Test regular user
+        let mut matcher = FeatureFlagMatcher::new(
+            "regular_user".to_string(),
+            team.id,
+            team.project_id,
+            reader.clone(),
+            writer.clone(),
+            cohort_cache.clone(),
+            None,
+            None,
+        );
+
+        matcher
+            .prepare_flag_evaluation_state(&[flag.clone()])
+            .await
+            .unwrap();
+
+        let result = matcher.get_match(&flag, None, None).unwrap();
+        assert!(!result.matches, "Regular user should not match");
+        assert_eq!(
+            result.reason,
+            FeatureFlagMatchReason::NoConditionMatch,
+            "Match reason should be NoConditionMatch"
+        );
     }
 }

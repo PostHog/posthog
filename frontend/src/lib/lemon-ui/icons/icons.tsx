@@ -1505,3 +1505,11 @@ export function IconFingerprint(props: LemonIconProps): JSX.Element {
         </LemonIconBase>
     )
 }
+
+export function IconSlash(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase viewBox="0 0 21 21" {...props}>
+            <path d="m12.5 3.5-4 14" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" />
+        </LemonIconBase>
+    )
+}

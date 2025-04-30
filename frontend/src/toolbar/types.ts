@@ -41,6 +41,9 @@ export interface CountedHTMLElement {
     position?: number
     actionStep?: ActionStepType
     type: '$autocapture' | '$rageclick' | '$dead_click'
+    // whether the browser reports this element as visible
+    visible?: boolean
+    rect?: ElementRect
 }
 
 export interface ElementRect {
@@ -63,6 +66,7 @@ export interface ElementWithMetadata {
     deadclickCount?: number
     position?: number
     apparentZIndex?: number
+    visible?: boolean
 }
 
 export interface ActionElementWithMetadata extends ElementWithMetadata {

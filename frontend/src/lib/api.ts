@@ -6,6 +6,8 @@ import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { objectClean, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
+import { MessageTemplate } from 'products/messaging/frontend/library/messageTemplatesLogic'
+import { ErrorTrackingAssignmentRule } from 'scenes/error-tracking/configuration/auto-assignment/errorTrackingAutoAssignmentLogic'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
@@ -81,6 +83,7 @@ import {
     HogFunctionTypeType,
     InsightModel,
     IntegrationType,
+    LinearTeamType,
     LinkedInAdsAccountType,
     LinkedInAdsConversionRuleType,
     ListOrganizationMembersParams,
@@ -126,7 +129,7 @@ import {
     SlackChannelType,
     SubscriptionType,
     Survey,
-    SurveyStats,
+    SurveyStatsResponse,
     TeamType,
     UserBasicType,
     UserGroup,
@@ -138,6 +141,7 @@ import {
     ErrorTrackingStackFrame,
     ErrorTrackingStackFrameRecord,
     ErrorTrackingSymbolSet,
+    SymbolSetStatusFilter,
 } from './components/Errors/types'
 import {
     ACTIVITY_PAGE_SIZE,
@@ -813,6 +817,14 @@ class ApiRequest {
         return this.errorTracking().addPathComponent('stack_frames/batch_get')
     }
 
+    public errorTrackingAssignmentRules(teamId?: TeamType['id']): ApiRequest {
+        return this.errorTracking(teamId).addPathComponent('assignment_rules')
+    }
+
+    public errorTrackingAssignmentRule(id: ErrorTrackingAssignmentRule['id']): ApiRequest {
+        return this.errorTrackingAssignmentRules().addPathComponent(id)
+    }
+
     // # Warehouse
     public dataWarehouseTables(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('warehouse_tables')
@@ -823,10 +835,14 @@ class ApiRequest {
 
     // # Warehouse view
     public dataWarehouseSavedQueries(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('warehouse_saved_queries')
+        return this.environmentsDetail(teamId).addPathComponent('warehouse_saved_queries')
     }
     public dataWarehouseSavedQuery(id: DataWarehouseSavedQuery['id'], teamId?: TeamType['id']): ApiRequest {
         return this.dataWarehouseSavedQueries(teamId).addPathComponent(id)
+    }
+
+    public dataWarehouseSavedQueryActivity(id: DataWarehouseSavedQuery['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.dataWarehouseSavedQuery(id, teamId).addPathComponent('activity')
     }
 
     // # Data Modeling Jobs (ie) materialized view runs
@@ -836,14 +852,14 @@ class ApiRequest {
         offset = 0,
         teamId?: TeamType['id']
     ): ApiRequest {
-        return this.projectsDetail(teamId)
+        return this.environmentsDetail(teamId)
             .addPathComponent('data_modeling_jobs')
             .withQueryString({ saved_query_id: savedQueryId, limit: pageSize, offset })
     }
 
     // # Warehouse view link
     public dataWarehouseViewLinks(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('warehouse_view_link')
+        return this.environmentsDetail(teamId).addPathComponent('warehouse_view_link')
     }
     public dataWarehouseViewLink(id: DataWarehouseViewLink['id'], teamId?: TeamType['id']): ApiRequest {
         return this.dataWarehouseViewLinks(teamId).addPathComponent(id)
@@ -891,6 +907,10 @@ class ApiRequest {
             .addPathComponent(id)
             .addPathComponent('channels')
             .withQueryString({ channel_id: channelId })
+    }
+
+    public integrationLinearTeams(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.integrations(teamId).addPathComponent(id).addPathComponent('linear_teams')
     }
 
     public integrationGoogleAdsAccounts(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1062,9 +1082,14 @@ class ApiRequest {
         return this.externalDataSchemas(teamId).addPathComponent(schemaId)
     }
 
+    // Fix HogQL errors
+    public fixHogQLErrors(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('fix_hogql')
+    }
+
     // Insight Variables
     public insightVariables(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('insight_variables')
+        return this.environmentsDetail(teamId).addPathComponent('insight_variables')
     }
     public insightVariable(variableId: string, teamId?: TeamType['id']): ApiRequest {
         return this.insightVariables(teamId).addPathComponent(variableId)
@@ -1133,6 +1158,14 @@ class ApiRequest {
 
     public authenticateWizard(): ApiRequest {
         return this.environments().current().addPathComponent('authenticate_wizard')
+    }
+
+    public messagingTemplates(): ApiRequest {
+        return this.environments().current().addPathComponent('messaging_templates')
+    }
+
+    public messagingTemplate(templateId: MessageTemplate['id']): ApiRequest {
+        return this.messagingTemplates().addPathComponent(templateId)
     }
 }
 
@@ -1446,6 +1479,9 @@ const api = {
                 },
                 [ActivityScope.SURVEY]: () => {
                     return new ApiRequest().surveyActivity((props.id ?? null) as string, projectId)
+                },
+                [ActivityScope.DATA_WAREHOUSE_SAVED_QUERY]: () => {
+                    return new ApiRequest().dataWarehouseSavedQueryActivity((props.id ?? null) as string, projectId)
                 },
             }
 
@@ -2227,16 +2263,27 @@ const api = {
                 .create({ data: { ids: mergingIssueIds } })
         },
 
-        async updateSymbolSet(id: ErrorTrackingSymbolSet['id'], data: FormData): Promise<void> {
-            return await new ApiRequest().errorTrackingSymbolSet(id).update({ data })
-        },
+        symbolSets: {
+            async list({
+                status,
+                offset = 0,
+                limit = 100,
+            }: {
+                status?: SymbolSetStatusFilter
+                offset: number
+                limit: number
+            }): Promise<CountedPaginatedResponse<ErrorTrackingSymbolSet>> {
+                const queryString = { order_by: '-created_at', status, offset, limit }
+                return await new ApiRequest().errorTrackingSymbolSets().withQueryString(toParams(queryString)).get()
+            },
 
-        async deleteSymbolSet(id: ErrorTrackingSymbolSet['id']): Promise<void> {
-            return await new ApiRequest().errorTrackingSymbolSet(id).delete()
-        },
+            async update(id: ErrorTrackingSymbolSet['id'], data: FormData): Promise<void> {
+                return await new ApiRequest().errorTrackingSymbolSet(id).update({ data })
+            },
 
-        async symbolSets(): Promise<{ results: ErrorTrackingSymbolSet[] }> {
-            return await new ApiRequest().errorTrackingSymbolSets().get()
+            async delete(id: ErrorTrackingSymbolSet['id']): Promise<void> {
+                return await new ApiRequest().errorTrackingSymbolSet(id).delete()
+            },
         },
 
         async symbolSetStackFrames(
@@ -2249,6 +2296,25 @@ const api = {
             raw_ids: ErrorTrackingStackFrame['raw_id'][]
         ): Promise<{ results: ErrorTrackingStackFrameRecord[] }> {
             return await new ApiRequest().errorTrackingStackFrames().create({ data: { raw_ids: raw_ids } })
+        },
+
+        async assignmentRules(): Promise<{ results: ErrorTrackingAssignmentRule[] }> {
+            return await new ApiRequest().errorTrackingAssignmentRules().get()
+        },
+
+        async createAssignmentRule({
+            id: _,
+            ...data
+        }: ErrorTrackingAssignmentRule): Promise<ErrorTrackingAssignmentRule> {
+            return await new ApiRequest().errorTrackingAssignmentRules().create({ data })
+        },
+
+        async updateAssignmentRule({ id, ...data }: ErrorTrackingAssignmentRule): Promise<void> {
+            return await new ApiRequest().errorTrackingAssignmentRule(id).update({ data })
+        },
+
+        async deleteAssignmentRule(id: ErrorTrackingAssignmentRule['id']): Promise<void> {
+            return await new ApiRequest().errorTrackingAssignmentRule(id).delete()
         },
     },
 
@@ -2298,8 +2364,15 @@ const api = {
             return await new ApiRequest().recording(recordingId).withAction('persist').create()
         },
 
-        async summarize(recordingId: SessionRecordingType['id']): Promise<{ content: string }> {
-            return await new ApiRequest().recording(recordingId).withAction('summarize').create()
+        async summarizeStream(recordingId: SessionRecordingType['id']): Promise<Response> {
+            return await api.createResponse(
+                new ApiRequest().recording(recordingId).withAction('summarize').assembleFullUrl(),
+                // No data to provide except for the recording id.
+                // Could be extended later with the state of the filters to better understand the user's intent.
+                undefined,
+                // TODO: Understand if I need to provide any signal data here
+                {}
+            )
         },
 
         async similarRecordings(recordingId: SessionRecordingType['id']): Promise<[string, number][]> {
@@ -2421,7 +2494,7 @@ const api = {
         },
         async update(
             notebookId: NotebookType['short_id'],
-            data: Partial<Pick<NotebookType, 'version' | 'content' | 'text_content' | 'title'>>
+            data: Partial<Pick<NotebookType, 'version' | 'content' | 'text_content' | 'title' | '_create_in_folder'>>
         ): Promise<NotebookType> {
             return await new ApiRequest().notebook(notebookId).update({ data })
         },
@@ -2462,7 +2535,9 @@ const api = {
                 .withQueryString({ recording_id: recordingId })
                 .get()
         },
-        async create(data?: Pick<NotebookType, 'content' | 'text_content' | 'title'>): Promise<NotebookType> {
+        async create(
+            data?: Pick<NotebookType, 'content' | 'text_content' | 'title' | '_create_in_folder'>
+        ): Promise<NotebookType> {
             return await new ApiRequest().notebooks().create({ data })
         },
         async delete(notebookId: NotebookType['short_id']): Promise<NotebookType> {
@@ -2609,12 +2684,21 @@ const api = {
         async getResponsesCount(): Promise<{ [key: string]: number }> {
             return await new ApiRequest().surveysResponsesCount().get()
         },
-        async summarize_responses(surveyId: Survey['id'], questionIndex: number | undefined): Promise<any> {
-            let apiRequest = new ApiRequest().survey(surveyId).withAction('summarize_responses')
+        async summarize_responses(
+            surveyId: Survey['id'],
+            questionIndex: number | undefined,
+            questionId: string | undefined
+        ): Promise<any> {
+            const apiRequest = new ApiRequest().survey(surveyId).withAction('summarize_responses')
+            const queryParams: Record<string, string> = {}
+
             if (questionIndex !== undefined) {
-                apiRequest = apiRequest.withQueryString('questionIndex=' + questionIndex)
+                queryParams['question_index'] = questionIndex.toString()
             }
-            return await apiRequest.create()
+            if (questionId !== undefined) {
+                queryParams['question_id'] = questionId
+            }
+            return await apiRequest.withQueryString(queryParams).create()
         },
         async getSurveyStats({
             surveyId,
@@ -2624,7 +2708,13 @@ const api = {
             surveyId: Survey['id']
             dateFrom?: string | null
             dateTo?: string | null
-        }): Promise<SurveyStats> {
+        }): Promise<
+            SurveyStatsResponse & {
+                survey_id: string
+                start_date: string
+                end_date?: string
+            }
+        > {
             const apiRequest = new ApiRequest().survey(surveyId).withAction('stats')
             const queryParams: Record<string, string> = {}
             if (dateFrom) {
@@ -2642,7 +2732,7 @@ const api = {
         }: {
             dateFrom?: string | null
             dateTo?: string | null
-        }): Promise<SurveyStats> {
+        }): Promise<SurveyStatsResponse> {
             const apiRequest = new ApiRequest().surveys().withAction('stats')
             const queryParams: Record<string, string> = {}
             if (dateFrom) {
@@ -2700,7 +2790,7 @@ const api = {
         },
         async update(
             viewId: DataWarehouseSavedQuery['id'],
-            data: Partial<DataWarehouseSavedQuery> & { types: string[][] }
+            data: Partial<DataWarehouseSavedQuery> & { types: string[][]; current_query?: string }
         ): Promise<DataWarehouseSavedQuery> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).update({ data })
         },
@@ -2810,6 +2900,11 @@ const api = {
                 .withAction('logs')
                 .withQueryString(params)
                 .get()
+        },
+    },
+    fixHogQLErrors: {
+        async fix(query: string, error?: string): Promise<Record<string, any>> {
+            return await new ApiRequest().fixHogQLErrors().create({ data: { query, error } })
         },
     },
 
@@ -2933,6 +3028,9 @@ const api = {
         ): Promise<{ channels: SlackChannelType[] }> {
             return await new ApiRequest().integrationSlackChannelsById(id, channelId).get()
         },
+        async linearTeams(id: IntegrationType['id']): Promise<{ teams: LinearTeamType[] }> {
+            return await new ApiRequest().integrationLinearTeams(id).get()
+        },
         async googleAdsAccounts(
             id: IntegrationType['id']
         ): Promise<{ accessibleAccounts: { id: string; name: string; level: string; parent_id: string }[] }> {
@@ -3051,6 +3149,23 @@ const api = {
     wizard: {
         async authenticateWizard(data: { hash: string }): Promise<{ success: boolean }> {
             return await new ApiRequest().authenticateWizard().create({ data })
+        },
+    },
+    messaging: {
+        async getTemplates(): Promise<PaginatedResponse<MessageTemplate>> {
+            return await new ApiRequest().messagingTemplates().get()
+        },
+        async getTemplate(templateId: MessageTemplate['id']): Promise<MessageTemplate> {
+            return await new ApiRequest().messagingTemplate(templateId).get()
+        },
+        async createTemplate(data: Partial<MessageTemplate>): Promise<MessageTemplate> {
+            return await new ApiRequest().messagingTemplates().create({ data })
+        },
+        async updateTemplate(
+            templateId: MessageTemplate['id'],
+            data: Partial<MessageTemplate>
+        ): Promise<MessageTemplate> {
+            return await new ApiRequest().messagingTemplate(templateId).update({ data })
         },
     },
 

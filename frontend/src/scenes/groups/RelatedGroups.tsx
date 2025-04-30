@@ -12,10 +12,12 @@ import { ActorType } from '~/types'
 interface Props {
     groupTypeIndex: number | null
     id: string
+    type?: 'person' | 'group'
+    limit?: number
 }
 
-export function RelatedGroups({ groupTypeIndex, id }: Props): JSX.Element {
-    const { relatedActors, relatedActorsLoading } = useValues(relatedGroupsLogic({ groupTypeIndex, id }))
+export function RelatedGroups({ groupTypeIndex, id, type, limit }: Props): JSX.Element {
+    const { relatedActors, relatedActorsLoading } = useValues(relatedGroupsLogic({ groupTypeIndex, id, type, limit }))
     const { aggregationLabel } = useValues(groupsModel)
 
     const columns: LemonTableColumns<ActorType> = [

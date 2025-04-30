@@ -4,16 +4,13 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { objectsEqual } from 'lib/utils'
 import { Params } from 'scenes/sceneTypes'
-import { match } from 'ts-pattern'
 
 import { DataTableNode, ErrorTrackingQuery } from '~/queries/schema/schema-general'
 
 import { errorTrackingLogic } from './errorTrackingLogic'
 import type { errorTrackingSceneLogicType } from './errorTrackingSceneLogicType'
 import { errorTrackingQuery } from './queries'
-import { defaultSearchParams, generateDateRangeLabel } from './utils'
-
-export type SparklineSelectedPeriod = 'custom' | 'day'
+import { defaultSearchParams } from './utils'
 
 export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
     path(['scenes', 'error-tracking', 'errorTrackingSceneLogic']),
@@ -28,7 +25,6 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
         setOrderDirection: (orderDirection: ErrorTrackingQuery['orderDirection']) => ({ orderDirection }),
         setStatus: (status: ErrorTrackingQuery['status']) => ({ status }),
         setSelectedIssueIds: (ids: string[]) => ({ ids }),
-        setSparklineSelectedPeriod: (period: SparklineSelectedPeriod) => ({ period }),
     }),
 
     reducers({
@@ -57,13 +53,6 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
             [] as string[],
             {
                 setSelectedIssueIds: (_, { ids }) => ids,
-            },
-        ],
-        sparklineSelectedPeriod: [
-            'custom' as SparklineSelectedPeriod,
-            { persist: true },
-            {
-                setSparklineSelectedPeriod: (_, { period }) => period,
             },
         ],
         volumeResolution: [20],
@@ -100,30 +89,9 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                     filterGroup,
                     volumeResolution: values.volumeResolution,
                     searchQuery,
-                    columns: ['error', 'volume', 'occurrences', 'sessions', 'users', 'assignee'],
+                    columns: ['error', 'volume', 'occurrences', 'sessions', 'users'],
                     orderDirection,
                 }),
-        ],
-        sparklineOptions: [
-            (state) => [state.dateRange],
-            (dateRange) => {
-                const customLabel = generateDateRangeLabel(dateRange)
-                return match(dateRange.date_from)
-                    .with('-24h', () => [])
-                    .otherwise(() => [
-                        {
-                            value: 'custom',
-                            label: customLabel,
-                        },
-                        {
-                            value: 'day',
-                            label: '24h',
-                        },
-                    ]) as {
-                    value: SparklineSelectedPeriod
-                    label: string
-                }[]
-            },
         ],
     })),
 

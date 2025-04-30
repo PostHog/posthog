@@ -333,6 +333,7 @@
 # ---
 # name: TestFOSSFunnel.test_funnel_with_precalculated_cohort_step_filter.2
   '''
+  /* cohort_calculation: */
   SELECT countIf(ifNull(equals(steps, 1), 0)) AS step_1,
          countIf(ifNull(equals(steps, 2), 0)) AS step_2,
          avg(step_1_average_conversion_time_inner) AS step_1_average_conversion_time,

@@ -340,7 +340,7 @@ export const surveysLogic = kea<surveysLogicType>([
         showSurveysDisabledBanner: [
             (s) => [s.currentTeam],
             (currentTeam) => {
-                return currentTeam?.surveys_opt_in === false
+                return !currentTeam?.surveys_opt_in
             },
         ],
     }),

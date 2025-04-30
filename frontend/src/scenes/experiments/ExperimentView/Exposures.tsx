@@ -51,9 +51,8 @@ export function Exposures(): JSX.Element {
                     data: series.exposure_counts,
                     borderColor: getSeriesColor(index),
                     backgroundColor: getSeriesBackgroundColor(index),
-                    fill: true,
+                    fill: false,
                     tension: 0,
-                    stack: 'stack1',
                     borderWidth: 2,
                     pointRadius: 0,
                 })),
@@ -68,7 +67,6 @@ export function Exposures(): JSX.Element {
                 },
                 scales: {
                     y: {
-                        stacked: true,
                         beginAtZero: true,
                         grid: {
                             display: true,

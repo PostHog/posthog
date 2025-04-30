@@ -24,6 +24,7 @@ members = [
     "cyclotron-fetch",
     "cymbal",
     "common/geoip",
+    "common/hogvm",
 ]
 
 [workspace.lints.rust]

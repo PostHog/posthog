@@ -1,11 +1,14 @@
+import csv
 from datetime import datetime
+from io import StringIO
 from typing import TYPE_CHECKING, Any, Optional, TypeAlias
 from uuid import UUID
-
+import chdb
 from django.db import models
 from django.db.models import Q
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries, wrap_query_error
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql import ast
@@ -23,6 +26,7 @@ from posthog.models.utils import (
     sane_repr,
 )
 from posthog.schema import DatabaseSerializedFieldType, HogQLQueryModifiers
+from posthog.settings import TEST
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.util import (
@@ -42,6 +46,7 @@ if TYPE_CHECKING:
 SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING: dict[DatabaseSerializedFieldType, str] = {
     DatabaseSerializedFieldType.INTEGER: "Int64",
     DatabaseSerializedFieldType.FLOAT: "Float64",
+    DatabaseSerializedFieldType.DECIMAL: "Decimal",
     DatabaseSerializedFieldType.STRING: "String",
     DatabaseSerializedFieldType.DATETIME: "DateTime64",
     DatabaseSerializedFieldType.DATE: "Date",
@@ -112,6 +117,10 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
 
     __repr__ = sane_repr("name")
 
+    @property
+    def name_chain(self) -> list[str]:
+        return self.name.split(".")
+
     def soft_delete(self):
         from posthog.warehouse.models.join import DataWarehouseJoin
 
@@ -152,30 +161,46 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
         self,
         safe_expose_ch_error: bool = True,
     ) -> DataWarehouseTableColumns:
+        placeholder_context = HogQLContext(team_id=self.team.pk)
+        s3_table_func = build_function_call(
+            url=self.url_pattern,
+            format=self.format,
+            access_key=self.credential.access_key,
+            access_secret=self.credential.access_secret,
+            context=placeholder_context,
+        )
         try:
-            placeholder_context = HogQLContext(team_id=self.team.pk)
-            s3_table_func = build_function_call(
-                url=self.url_pattern,
-                format=self.format,
-                access_key=self.credential.access_key,
-                access_secret=self.credential.access_secret,
-                context=placeholder_context,
-            )
+            # chdb hangs in CI during tests
+            if TEST:
+                raise Exception()
 
-            result = sync_execute(
-                f"""DESCRIBE TABLE (
-                    SELECT *
-                    FROM {s3_table_func}
-                    LIMIT 1
-                )""",
-                args=placeholder_context.values,
-            )
-        except Exception as err:
-            capture_exception(err)
-            if safe_expose_ch_error:
-                self._safe_expose_ch_error(err)
-            else:
-                raise
+            quoted_placeholders = {k: f"'{v}'" for k, v in placeholder_context.values.items()}
+            # chdb doesn't support parameterized queries
+            chdb_query = f"DESCRIBE TABLE (SELECT * FROM {s3_table_func} LIMIT 1)" % quoted_placeholders
+
+            chdb_result = chdb.query(chdb_query, output_format="CSV")
+            reader = csv.reader(StringIO(str(chdb_result)))
+            result = [tuple(row) for row in reader]
+        except Exception as chdb_error:
+            capture_exception(chdb_error)
+
+            try:
+                tag_queries(team_id=str(self.team.pk), table_id=str(self.id), warehouse_query=True)
+
+                result = sync_execute(
+                    f"""DESCRIBE TABLE (
+                        SELECT *
+                        FROM {s3_table_func}
+                        LIMIT 1
+                    )""",
+                    args=placeholder_context.values,
+                )
+            except Exception as err:
+                capture_exception(err)
+                if safe_expose_ch_error:
+                    self._safe_expose_ch_error(err)
+                else:
+                    raise
 
         if result is None or isinstance(result, int):
             raise Exception("No columns types provided by clickhouse in get_columns")
@@ -213,28 +238,44 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
             return None
 
     def get_count(self, safe_expose_ch_error=True) -> int:
+        placeholder_context = HogQLContext(team_id=self.team.pk)
+        s3_table_func = build_function_call(
+            url=self.url_pattern,
+            format=self.format,
+            access_key=self.credential.access_key,
+            access_secret=self.credential.access_secret,
+            context=placeholder_context,
+        )
         try:
-            placeholder_context = HogQLContext(team_id=self.team.pk)
-            s3_table_func = build_function_call(
-                url=self.url_pattern,
-                format=self.format,
-                access_key=self.credential.access_key,
-                access_secret=self.credential.access_secret,
-                context=placeholder_context,
-            )
+            # chdb hangs in CI during tests
+            if TEST:
+                raise Exception()
 
-            result = sync_execute(
-                f"SELECT count() FROM {s3_table_func}",
-                args=placeholder_context.values,
-            )
-        except Exception as err:
-            capture_exception(err)
-            if safe_expose_ch_error:
-                self._safe_expose_ch_error(err)
-            else:
-                raise
+            quoted_placeholders = {k: f"'{v}'" for k, v in placeholder_context.values.items()}
+            # chdb doesn't support parameterized queries
+            chdb_query = f"SELECT count() FROM {s3_table_func}" % quoted_placeholders
 
-        return result[0][0]
+            chdb_result = chdb.query(chdb_query, output_format="CSV")
+            reader = csv.reader(StringIO(str(chdb_result)))
+            result = [tuple(row) for row in reader]
+        except Exception as chdb_error:
+            capture_exception(chdb_error)
+
+            try:
+                tag_queries(team_id=str(self.team.pk), table_id=str(self.id), warehouse_query=True)
+
+                result = sync_execute(
+                    f"SELECT count() FROM {s3_table_func}",
+                    args=placeholder_context.values,
+                )
+            except Exception as err:
+                capture_exception(err)
+                if safe_expose_ch_error:
+                    self._safe_expose_ch_error(err)
+                else:
+                    raise
+
+        return int(result[0][0])
 
     def get_function_call(self) -> tuple[str, HogQLContext]:
         try:

@@ -110,7 +110,10 @@ impl RawRequest {
                 if buf.len() > limit {
                     tracing::error!("GZIP decompression limit reached");
                     report_dropped_events("event_too_big", 1);
-                    return Err(CaptureError::EventTooBig);
+                    return Err(CaptureError::EventTooBig(format!(
+                        "Event or batch exceeded {} during unzipping",
+                        limit
+                    )));
                 }
             }
             match String::from_utf8(buf) {
@@ -130,7 +133,10 @@ impl RawRequest {
             if s.len() > limit {
                 tracing::error!("Request size limit reached");
                 report_dropped_events("event_too_big", 1);
-                return Err(CaptureError::EventTooBig);
+                return Err(CaptureError::EventTooBig(format!(
+                    "Event or batch wasn't compressed, size exceeded {}",
+                    limit
+                )));
             }
             s
         };

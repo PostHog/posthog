@@ -7,26 +7,26 @@ import { MessageWithTeam } from '../teams/types'
 import { ConsoleLogEntry, SessionConsoleLogStore } from './session-console-log-store'
 
 const levelMapping: Record<string, ConsoleLogLevel> = {
-    info: ConsoleLogLevel.Log,
-    count: ConsoleLogLevel.Log,
-    timeEnd: ConsoleLogLevel.Log,
+    info: ConsoleLogLevel.Info,
+    count: ConsoleLogLevel.Info,
+    timeEnd: ConsoleLogLevel.Info,
     warn: ConsoleLogLevel.Warn,
     countReset: ConsoleLogLevel.Warn,
     error: ConsoleLogLevel.Error,
     assert: ConsoleLogLevel.Error,
-    // really these should be 'log' but we don't want users to have to think about this
-    log: ConsoleLogLevel.Log,
-    trace: ConsoleLogLevel.Log,
-    dir: ConsoleLogLevel.Log,
-    dirxml: ConsoleLogLevel.Log,
-    group: ConsoleLogLevel.Log,
-    groupCollapsed: ConsoleLogLevel.Log,
-    debug: ConsoleLogLevel.Log,
-    timeLog: ConsoleLogLevel.Log,
+    // really these should be 'info' but we don't want users to have to think about this
+    log: ConsoleLogLevel.Info,
+    trace: ConsoleLogLevel.Info,
+    dir: ConsoleLogLevel.Info,
+    dirxml: ConsoleLogLevel.Info,
+    group: ConsoleLogLevel.Info,
+    groupCollapsed: ConsoleLogLevel.Info,
+    debug: ConsoleLogLevel.Info,
+    timeLog: ConsoleLogLevel.Info,
 }
 
 function safeLevel(level: unknown): ConsoleLogLevel {
-    return levelMapping[typeof level === 'string' ? level : 'info'] || ConsoleLogLevel.Log
+    return levelMapping[typeof level === 'string' ? level : 'info'] || ConsoleLogLevel.Info
 }
 
 function sanitizeForUTF8(input: string): string {
@@ -119,7 +119,7 @@ export class SessionConsoleLogRecorder {
                     const payload: unknown[] = Array.isArray(maybePayload) ? maybePayload : []
                     const message = payloadToSafeString(payload)
 
-                    if (level === ConsoleLogLevel.Log) {
+                    if (level === ConsoleLogLevel.Info) {
                         this.consoleLogCount++
                     } else if (level === ConsoleLogLevel.Warn) {
                         this.consoleWarnCount++

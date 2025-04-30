@@ -19,6 +19,7 @@ type PersonPropType =
 
 export interface PersonDisplayProps {
     person?: PersonPropType | null
+    displayName?: string
     withIcon?: boolean | ProfilePictureProps['size']
     href?: string
     noLink?: boolean
@@ -32,9 +33,11 @@ export interface PersonDisplayProps {
 
 export function PersonIcon({
     person,
+    displayName,
     ...props
-}: Pick<PersonDisplayProps, 'person'> & Omit<ProfilePictureProps, 'user' | 'name' | 'email'>): JSX.Element {
-    const display = asDisplay(person)
+}: Pick<PersonDisplayProps, 'person'> &
+    Omit<ProfilePictureProps, 'user' | 'name' | 'email'> & { displayName?: string }): JSX.Element {
+    const display = displayName || asDisplay(person)
 
     const email: string | undefined = useMemo(() => {
         // The email property could be correct but it could also be set strangely such as an array or not even a string
@@ -57,6 +60,7 @@ export function PersonIcon({
 
 export function PersonDisplay({
     person,
+    displayName,
     withIcon,
     noEllipsis,
     noPopover,
@@ -67,7 +71,7 @@ export function PersonDisplay({
     withCopyButton,
     placement,
 }: PersonDisplayProps): JSX.Element {
-    const display = asDisplay(person)
+    const display = displayName || asDisplay(person)
     const [visible, setVisible] = useState(false)
 
     const notebookNode = useNotebookNode()
@@ -85,7 +89,13 @@ export function PersonDisplay({
 
     let content = children || (
         <span className={clsx('flex items-center', isCentered && 'justify-center')}>
-            {withIcon && <PersonIcon person={person} size={typeof withIcon === 'string' ? withIcon : 'md'} />}
+            {withIcon && (
+                <PersonIcon
+                    displayName={displayName}
+                    person={person}
+                    size={typeof withIcon === 'string' ? withIcon : 'md'}
+                />
+            )}
             <span className={clsx('ph-no-capture', !noEllipsis && 'truncate')}>{display}</span>
         </span>
     )

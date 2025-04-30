@@ -1,11 +1,14 @@
 from posthog.test.base import APIBaseTest
-from posthog.warehouse.models import DataWarehouseJoin
+from posthog.warehouse.models import DataWarehouseJoin, DataWarehouseTable
+from posthog.warehouse.models.credential import DataWarehouseCredential
+from posthog.warehouse.models.external_data_schema import ExternalDataSchema
+from posthog.warehouse.models.external_data_source import ExternalDataSource
 
 
 class TestViewLinkQuery(APIBaseTest):
     def test_create(self):
         response = self.client.post(
-            f"/api/projects/{self.team.id}/warehouse_view_links/",
+            f"/api/environments/{self.team.id}/warehouse_view_links/",
             {
                 "source_table_name": "events",
                 "joining_table_name": "persons",
@@ -33,9 +36,60 @@ class TestViewLinkQuery(APIBaseTest):
             },
         )
 
+    def test_reading_dot_notation(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSource.Type.STRIPE,
+        )
+        credentials = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
+        warehouse_table = DataWarehouseTable.objects.create(
+            name="stripe_table_1",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            external_data_source_id=source.id,
+            credential=credentials,
+            url_pattern="https://bucket.s3/data/*",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+        ExternalDataSchema.objects.create(
+            team=self.team,
+            name="table_1",
+            source=source,
+            table=warehouse_table,
+            should_sync=True,
+            last_synced_at="2024-01-01",
+        )
+
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="events",
+            source_table_key="distinct_id",
+            joining_table_name="stripe_table_1",
+            joining_table_key="id",
+            field_name="some_field",
+            configuration=None,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/warehouse_view_links/")
+        assert response.status_code == 200
+
+        view_links = response.json()
+        assert isinstance(view_links, dict)
+        assert isinstance(view_links["results"], list)
+        assert len(view_links["results"]) == 1
+
+        view_link = view_links["results"][0]
+
+        # Assert it gets returned with dot notation
+        assert view_link["joining_table_name"] == "stripe.table_1"
+
     def test_create_with_configuration(self):
         response = self.client.post(
-            f"/api/projects/{self.team.id}/warehouse_view_links/",
+            f"/api/environments/{self.team.id}/warehouse_view_links/",
             {
                 "source_table_name": "events",
                 "joining_table_name": "persons",
@@ -65,7 +119,7 @@ class TestViewLinkQuery(APIBaseTest):
 
     def test_create_key_error(self):
         response = self.client.post(
-            f"/api/projects/{self.team.id}/warehouse_view_links/",
+            f"/api/environments/{self.team.id}/warehouse_view_links/",
             {
                 "source_table_name": "eventssss",
                 "joining_table_name": "persons",
@@ -76,9 +130,23 @@ class TestViewLinkQuery(APIBaseTest):
         )
         self.assertEqual(response.status_code, 400, response.content)
 
+    def test_field_name_periods(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_view_links/",
+            {
+                "source_table_name": "events",
+                "joining_table_name": "persons",
+                "source_table_key": "uuid",
+                "joining_table_key": "id",
+                "field_name": "some_field.other.field",
+                "configuration": None,
+            },
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+
     def test_create_saved_query_key_error(self):
         response = self.client.post(
-            f"/api/projects/{self.team.id}/warehouse_view_links/",
+            f"/api/environments/{self.team.id}/warehouse_view_links/",
             {
                 "source_table_name": "eventssss",
                 "joining_table_name": "persons",
@@ -91,7 +159,7 @@ class TestViewLinkQuery(APIBaseTest):
 
     def test_create_saved_query_join_key_function(self):
         response = self.client.post(
-            f"/api/projects/{self.team.id}/warehouse_view_links/",
+            f"/api/environments/{self.team.id}/warehouse_view_links/",
             {
                 "source_table_name": "events",
                 "joining_table_name": "persons",
@@ -115,7 +183,7 @@ class TestViewLinkQuery(APIBaseTest):
         join.save()
 
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/warehouse_view_links/{join.id}/",
+            f"/api/environments/{self.team.id}/warehouse_view_links/{join.id}/",
             {"configuration": {"experiments_optimized": True, "experiments_timestamp_key": "timestamp"}},
         )
         self.assertEqual(response.status_code, 200, response.content)
@@ -140,7 +208,7 @@ class TestViewLinkQuery(APIBaseTest):
 
     def test_delete(self):
         response = self.client.post(
-            f"/api/projects/{self.team.id}/warehouse_view_links/",
+            f"/api/environments/{self.team.id}/warehouse_view_links/",
             {
                 "source_table_name": "events",
                 "joining_table_name": "persons",
@@ -152,7 +220,7 @@ class TestViewLinkQuery(APIBaseTest):
         self.assertEqual(response.status_code, 201, response.content)
         view_link = response.json()
 
-        response = self.client.delete(f"/api/projects/{self.team.id}/warehouse_view_links/{view_link['id']}")
+        response = self.client.delete(f"/api/environments/{self.team.id}/warehouse_view_links/{view_link['id']}")
         self.assertEqual(response.status_code, 204, response.content)
 
         self.assertEqual(DataWarehouseJoin.objects.all().count(), 0)

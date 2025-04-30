@@ -1,0 +1,433 @@
+import math
+from collections.abc import Iterator
+from dataclasses import dataclass
+from typing import Any
+
+import pyarrow as pa
+import pymssql
+from dlt.common.normalizers.naming.snake_case import NamingConvention
+from pymssql import Cursor
+
+from posthog.exceptions_capture import capture_exception
+from posthog.temporal.common.logger import FilteringBoundLogger
+from posthog.temporal.data_imports.pipelines.helpers import (
+    incremental_type_to_initial_value,
+)
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.temporal.data_imports.pipelines.pipeline.utils import (
+    DEFAULT_NUMERIC_PRECISION,
+    DEFAULT_NUMERIC_SCALE,
+    DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
+    build_pyarrow_decimal_type,
+    table_from_iterator,
+)
+from posthog.temporal.data_imports.pipelines.sql_database.settings import (
+    DEFAULT_CHUNK_SIZE,
+    DEFAULT_TABLE_SIZE_BYTES,
+)
+from posthog.warehouse.models import IncrementalFieldType
+from posthog.warehouse.types import PartitionSettings
+
+
+def _build_query(
+    schema: str,
+    table_name: str,
+    is_incremental: bool,
+    incremental_field: str | None,
+    incremental_field_type: IncrementalFieldType | None,
+    db_incremental_field_last_value: Any | None,
+    add_limit: bool = False,
+) -> tuple[str, dict[str, Any]]:
+    base_query = "SELECT {top} * FROM [{schema}].[{table_name}]"
+
+    if not is_incremental:
+        query = base_query.format(top="TOP 100" if add_limit else "", schema=schema, table_name=table_name)
+        return query, {}
+
+    if incremental_field is None or incremental_field_type is None:
+        raise ValueError("incremental_field and incremental_field_type can't be None")
+
+    if db_incremental_field_last_value is None:
+        db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
+
+    query = base_query.format(top="TOP 100" if add_limit else "", schema=schema, table_name=table_name)
+    query = f"{query} WHERE [{incremental_field}] > %(incremental_value)s ORDER BY [{incremental_field}] ASC"
+
+    return query, {
+        "incremental_value": db_incremental_field_last_value,
+    }
+
+
+def _get_primary_keys(cursor: Cursor, schema: str, table_name: str) -> list[str] | None:
+    query = """
+        SELECT c.name AS column_name
+        FROM sys.indexes i
+        JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id
+        JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
+        JOIN sys.tables t ON i.object_id = t.object_id
+        JOIN sys.schemas s ON t.schema_id = s.schema_id
+        WHERE i.is_primary_key = 1
+        AND s.name = %(schema)s
+        AND t.name = %(table_name)s
+        ORDER BY ic.key_ordinal"""
+
+    cursor.execute(
+        query,
+        {
+            "schema": schema,
+            "table_name": table_name,
+        },
+    )
+    rows = cursor.fetchall()
+    if not rows:
+        return None
+
+    return [row[0] for row in rows]
+
+
+@dataclass
+class TableStructureRow:
+    column_name: str
+    data_type: str
+    is_nullable: bool
+    numeric_precision: int | None
+    numeric_scale: int | None
+
+
+def _get_table_structure(cursor: Cursor, schema: str, table_name: str) -> list[TableStructureRow]:
+    query = """
+        SELECT
+            COLUMN_NAME,
+            DATA_TYPE,
+            CASE IS_NULLABLE WHEN 'YES' THEN 1 ELSE 0 END as IS_NULLABLE,
+            NUMERIC_PRECISION,
+            NUMERIC_SCALE
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = %(schema)s
+        AND TABLE_NAME = %(table_name)s
+        ORDER BY ORDINAL_POSITION"""
+
+    cursor.execute(
+        query,
+        {
+            "schema": schema,
+            "table_name": table_name,
+        },
+    )
+    rows = cursor.fetchall()
+    if not rows:
+        raise ValueError(f"Table {table_name} not found")
+    return [
+        TableStructureRow(
+            column_name=row[0],
+            data_type=row[1],
+            is_nullable=bool(row[2]),
+            numeric_precision=row[3],
+            numeric_scale=row[4],
+        )
+        for row in rows
+    ]
+
+
+def _get_arrow_schema(table_structure: list[TableStructureRow]) -> pa.Schema:
+    fields = []
+
+    for col in table_structure:
+        name = col.column_name
+        data_type = col.data_type.lower()
+
+        arrow_type: pa.DataType
+
+        # Map MS SQL type names to PyArrow types
+        # https://learn.microsoft.com/en-us/sql/t-sql/data-types/data-types-transact-sql?view=sql-server-ver16
+        match data_type:
+            case "bigint":
+                arrow_type = pa.int64()
+            case "int" | "integer":
+                arrow_type = pa.int32()
+            case "smallint":
+                arrow_type = pa.int16()
+            case "tinyint":
+                arrow_type = pa.int8()
+            case "decimal" | "numeric" | "money":
+                precision = col.numeric_precision if col.numeric_precision is not None else DEFAULT_NUMERIC_PRECISION
+                scale = col.numeric_scale if col.numeric_scale is not None else DEFAULT_NUMERIC_SCALE
+                arrow_type = build_pyarrow_decimal_type(precision, scale)
+            case "float" | "real":
+                arrow_type = pa.float64()
+            case "varchar" | "char" | "text" | "nchar" | "nvarchar" | "ntext":
+                arrow_type = pa.string()
+            case "date":
+                arrow_type = pa.date32()
+            case "datetime" | "datetime2" | "smalldatetime":
+                arrow_type = pa.timestamp("us")
+            case "time":
+                arrow_type = pa.time64("us")
+            case "bit" | "boolean" | "bool":
+                arrow_type = pa.bool_()
+            case "binary" | "varbinary" | "image":
+                arrow_type = pa.binary()
+            case "json":
+                arrow_type = pa.string()
+            case _:
+                arrow_type = pa.string()
+
+        fields.append(pa.field(name, arrow_type, nullable=col.is_nullable))
+
+    return pa.schema(fields)
+
+
+def _get_table_average_row_size(
+    cursor: Cursor,
+    schema: str,
+    table_name: str,
+    is_incremental: bool,
+    incremental_field: str | None,
+    incremental_field_type: IncrementalFieldType | None,
+    db_incremental_field_last_value: Any | None,
+    logger: FilteringBoundLogger,
+) -> int | None:
+    query, args = _build_query(
+        schema,
+        table_name,
+        is_incremental,
+        incremental_field,
+        incremental_field_type,
+        db_incremental_field_last_value,
+        add_limit=True,
+    )
+
+    # Get column names from the table
+    cursor.execute(
+        f"SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = %(schema)s AND TABLE_NAME = %(table)s ORDER BY ORDINAL_POSITION",
+        {"schema": schema, "table": table_name},
+    )
+    rows = cursor.fetchall()
+    if not rows:
+        logger.debug(f"_get_table_average_row_size: No columns found.")
+        return None
+
+    columns = [row[0] for row in rows]
+
+    # Build the DATALENGTH sum for each column
+    datalength_sum = " + ".join(f"DATALENGTH([{col}])" for col in columns)
+
+    size_query = f"""
+        SELECT AVG({datalength_sum}) as avg_row_size
+        FROM ({query}) as t
+    """
+
+    cursor.execute(size_query, args)
+    row = cursor.fetchone()
+
+    if row is None or row[0] is None:
+        logger.debug(f"_get_table_average_row_size: No results returned.")
+        return None
+
+    row_size_bytes = max(row[0] or 0, 1)
+    return row_size_bytes
+
+
+def _get_table_chunk_size(
+    cursor: Cursor,
+    schema: str,
+    table_name: str,
+    is_incremental: bool,
+    incremental_field: str | None,
+    incremental_field_type: IncrementalFieldType | None,
+    db_incremental_field_last_value: Any | None,
+    logger: FilteringBoundLogger,
+) -> int:
+    try:
+        row_size_bytes = _get_table_average_row_size(
+            cursor,
+            schema,
+            table_name,
+            is_incremental,
+            incremental_field,
+            incremental_field_type,
+            db_incremental_field_last_value,
+            logger,
+        )
+        if row_size_bytes is None:
+            logger.debug(
+                f"_get_table_chunk_size: Could not calculate row size. Using DEFAULT_CHUNK_SIZE={DEFAULT_CHUNK_SIZE}"
+            )
+            return DEFAULT_CHUNK_SIZE
+    except Exception as e:
+        logger.debug(f"_get_table_chunk_size: Error: {e}. Using DEFAULT_CHUNK_SIZE={DEFAULT_CHUNK_SIZE}", exc_info=e)
+        capture_exception(e)
+        return DEFAULT_CHUNK_SIZE
+
+    chunk_size = int(DEFAULT_TABLE_SIZE_BYTES / row_size_bytes)
+    min_chunk_size = min(chunk_size, DEFAULT_CHUNK_SIZE)
+    logger.debug(
+        f"_get_table_chunk_size: row_size_bytes={row_size_bytes}. DEFAULT_TABLE_SIZE_BYTES={DEFAULT_TABLE_SIZE_BYTES}. Using CHUNK_SIZE={min_chunk_size}"
+    )
+    return min_chunk_size
+
+
+def _get_table_stats(cursor: Cursor, schema: str, table_name: str) -> tuple[int, float]:
+    """Calculate the number of rows and size of a table.
+
+    Uses sp_spaceused stored procedure which is the official way to get accurate table size and row count.
+    Falls back to simpler version for SQL Server versions before 2012.
+    """
+    # Try modern version first (SQL Server 2012+)
+    query = "EXEC sp_spaceused %(full_table_name)s, @updateusage = 'TRUE'"
+
+    try:
+        cursor.execute(query, {"full_table_name": f"[{schema}].[{table_name}]"})
+    except Exception:
+        # If @updateusage parameter fails, try the older version
+        query = "EXEC sp_spaceused %(full_table_name)s"
+        cursor.execute(query, {"full_table_name": f"[{schema}].[{table_name}]"})
+
+    result = cursor.fetchone()
+    if result is None:
+        raise ValueError("_get_partition_settings: sp_spaceused returned no results")
+
+    # sp_spaceused returns: name, rows, reserved, data, index_size, unused
+    _, total_rows, _, data_size, _, _ = result
+
+    # Convert string values to numbers
+    total_rows = int(total_rows)
+
+    # Parse size with unit (e.g. "1024.45 MB" -> 1024.45, "MB")
+    size_parts = data_size.strip().split(" ")
+    if len(size_parts) != 2:
+        raise ValueError(
+            f"_get_partition_settings: Invalid sp_spaceused result: expected 2 parts, got {len(size_parts)}"
+        )
+
+    size_value = float(size_parts[0])
+    unit = size_parts[1].upper()
+
+    # Convert to bytes based on unit
+    multiplier = {"KB": 1024, "MB": 1024 * 1024, "GB": 1024 * 1024 * 1024, "TB": 1024 * 1024 * 1024 * 1024}.get(unit)
+    if multiplier is None:
+        raise ValueError(f"_get_partition_settings: Unexpected unit '{unit}' in sp_spaceused result")
+
+    total_bytes = size_value * multiplier
+    return total_rows, total_bytes
+
+
+def _get_partition_settings(
+    cursor: Cursor, schema: str, table_name: str, logger: FilteringBoundLogger
+) -> PartitionSettings | None:
+    """Calculate the partition size and count for a table."""
+
+    total_rows, total_bytes = _get_table_stats(cursor, schema, table_name)
+    if total_bytes == 0 or total_rows == 0:
+        return None
+
+    # Calculate partition size based on target bytes per partition
+    bytes_per_row = total_bytes / total_rows
+    partition_size = int(round(DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES / bytes_per_row))
+    partition_count = math.floor(total_rows / partition_size)
+    logger.debug(
+        f"_get_partition_settings: {total_rows=}, {total_bytes=}, {bytes_per_row=}, "
+        f"{partition_size=}, {partition_count=}"
+    )
+
+    if partition_count == 0:
+        return PartitionSettings(partition_count=1, partition_size=partition_size)
+
+    return PartitionSettings(partition_count=partition_count, partition_size=partition_size)
+
+
+def mssql_source(
+    host: str,
+    port: int,
+    user: str,
+    password: str,
+    database: str,
+    schema: str,
+    table_names: list[str],
+    is_incremental: bool,
+    logger: FilteringBoundLogger,
+    db_incremental_field_last_value: Any | None,
+    incremental_field: str | None = None,
+    incremental_field_type: IncrementalFieldType | None = None,
+) -> SourceResponse:
+    table_name = table_names[0]
+    if not table_name:
+        raise ValueError("Table name is missing")
+
+    with pymssql.connect(
+        server=host,
+        port=str(port),
+        database=database,
+        user=user,
+        password=password,
+        login_timeout=5,
+    ) as connection:
+        with connection.cursor() as cursor:
+            primary_keys = _get_primary_keys(cursor, schema, table_name)
+            table_structure = _get_table_structure(cursor, schema, table_name)
+            chunk_size = _get_table_chunk_size(
+                cursor,
+                schema,
+                table_name,
+                is_incremental,
+                incremental_field,
+                incremental_field_type,
+                db_incremental_field_last_value,
+                logger,
+            )
+            try:
+                partition_settings = (
+                    _get_partition_settings(cursor, schema, table_name, logger) if is_incremental else None
+                )
+            except Exception as e:
+                logger.debug(f"_get_partition_settings: Error: {e}. Skipping partitioning.")
+                capture_exception(e)
+                partition_settings = None
+
+            # Fallback on checking for an `id` field on the table
+            if primary_keys is None:
+                if any(ts.column_name == "id" for ts in table_structure):
+                    primary_keys = ["id"]
+
+    def get_rows() -> Iterator[Any]:
+        arrow_schema = _get_arrow_schema(table_structure)
+
+        with pymssql.connect(
+            server=host,
+            port=str(port),
+            database=database,
+            user=user,
+            password=password,
+            login_timeout=5,
+        ) as connection:
+            with connection.cursor() as cursor:
+                query, args = _build_query(
+                    schema,
+                    table_name,
+                    is_incremental,
+                    incremental_field,
+                    incremental_field_type,
+                    db_incremental_field_last_value,
+                )
+                logger.debug(f"MS SQL query: {query.format(args)}")
+
+                cursor.execute(query, args)
+
+                column_names = [column[0] for column in cursor.description or []]
+
+                while True:
+                    rows = cursor.fetchmany(chunk_size)
+                    if not rows:
+                        break
+
+                    yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
+
+    name = NamingConvention().normalize_identifier(table_name)
+
+    return SourceResponse(
+        name=name,
+        items=get_rows(),
+        primary_keys=primary_keys,
+        partition_count=partition_settings.partition_count if partition_settings else None,
+        partition_size=partition_settings.partition_size if partition_settings else None,
+    )

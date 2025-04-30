@@ -11,13 +11,13 @@ from django.db import transaction
 from django.template.loader import get_template
 from django.utils import timezone
 from django.utils.module_loading import import_string
-from sentry_sdk import capture_exception
 from decimal import Decimal
 import requests
 
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.messaging import MessagingRecord
 from posthog.tasks.utils import CeleryQueue
+from posthog.exceptions_capture import capture_exception
 
 
 def inline_css(value: str) -> str:
@@ -286,9 +286,7 @@ class EmailMessage:
 
         # Convert any Django models to strings for JSON serialization
         self.properties = {
-            k: str(v)
-            if hasattr(v, "_meta") and hasattr(v, "pk")  # Check if it's a Django model
-            else v
+            k: str(v) if hasattr(v, "_meta") and hasattr(v, "pk") else v  # Check if it's a Django model
             for k, v in template_context.items()
         }
 

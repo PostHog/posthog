@@ -98,7 +98,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
             '' as string,
             {
                 setFieldName: (_, { fieldName }) => fieldName,
-                selectJoiningTable: (_, { selectedTableName }) => selectedTableName,
+                selectJoiningTable: (_, { selectedTableName }) => selectedTableName.replaceAll('.', '_'),
                 toggleEditJoinModal: (_, { join }) => join.field_name ?? '',
                 clearModalFields: () => '',
             },

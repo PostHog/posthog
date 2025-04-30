@@ -16,7 +16,7 @@ import { maxGlobalLogic, ToolDefinition } from './maxGlobalLogic'
 interface MaxToolProps extends ToolDefinition {
     /** The child element(s) that will be wrapped by this component */
     children: React.ReactElement | (({ toolAvailable }: { toolAvailable: boolean }) => React.ReactElement)
-    initialMaxPrompt: string
+    initialMaxPrompt?: string
     onMaxOpen?: () => void
 }
 
@@ -47,6 +47,7 @@ export function MaxTool({
     name,
     displayName,
     context,
+    introOverride,
     callback,
     children: Children,
     initialMaxPrompt,
@@ -61,11 +62,11 @@ export function MaxTool({
     const isMaxOpen = isMaxAvailable && sidePanelOpen && selectedTab === SidePanelTab.Max
 
     useEffect(() => {
-        registerTool({ name, displayName, context, callback })
+        registerTool({ name, displayName, context, introOverride, callback })
         return () => {
             deregisterTool(name)
         }
-    }, [name, displayName, JSON.stringify(context), callback, registerTool, deregisterTool])
+    }, [name, displayName, JSON.stringify(context), introOverride, callback, registerTool, deregisterTool])
 
     let content: JSX.Element
     if (!isMaxAvailable) {

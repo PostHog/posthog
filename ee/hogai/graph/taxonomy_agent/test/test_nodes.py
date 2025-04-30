@@ -140,7 +140,7 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
         node = self._get_node()
         self.assertEqual(
             node._events_prompt,
-            "<defined_events><event><name>All Events</name><description>All events. This is a wildcard that matches all events.</description></event><event><name>distinctevent</name></event></defined_events>",
+            "<defined_events><event><name>All events</name><description>All events. This is a wildcard that matches all events.</description></event><event><name>distinctevent</name></event></defined_events>",
         )
 
     def test_agent_preserves_low_count_events_for_smaller_teams(self):
@@ -191,9 +191,9 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
 
     def test_node_outputs_all_events_prompt(self):
         node = self._get_node()
-        self.assertIn("All Events", node._events_prompt)
+        self.assertIn("All events", node._events_prompt)
         self.assertIn(
-            "<event><name>All Events</name><description>All events. This is a wildcard that matches all events.</description></event>",
+            "<event><name>All events</name><description>All events. This is a wildcard that matches all events.</description></event>",
             node._events_prompt,
         )
 
@@ -329,7 +329,7 @@ class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
                     messages=[AssistantToolCallMessage(content="help", tool_call_id="1")], root_tool_call_id="", plan=""
                 ),
             ),
-            "root",
+            "end",
         )
 
     def test_node_terminates_after_max_iterations(self):
