@@ -1,1 +1,1 @@
-0718_eventingestionrestrictionconfig
+0719_add_hog_function_template_model
