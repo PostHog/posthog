@@ -18,7 +18,7 @@ def replace_person_with_person_display_name(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    dependencies = [("posthog", "0717_errortrackingassignmentrule_role_and_more")]
+    dependencies = [("posthog", "0718_eventingestionrestrictionconfig")]
 
     operations = [
         migrations.RunPython(replace_person_with_person_display_name, reverse_code=migrations.RunPython.noop),

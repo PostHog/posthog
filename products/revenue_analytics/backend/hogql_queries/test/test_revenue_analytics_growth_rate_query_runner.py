@@ -209,6 +209,40 @@ class TestRevenueAnalyticsGrowthRateQueryRunner(ClickhouseTestMixin, APIBaseTest
         s2 = str(uuid7("2024-01-03"))
         self._create_purchase_events(
             [
+                ("p1", [("2023-12-02", s1, 42, "USD")]),
+                ("p2", [("2024-01-03", s2, 43, "BRL")]),
+            ]
+        )
+
+        results = self._run_revenue_analytics_growth_rate_query(
+            revenue_sources=RevenueSources(events=["purchase"], dataWarehouseSources=[]),
+        ).results
+
+        self.assertEqual(
+            results,
+            [
+                (date(2023, 12, 1), Decimal("33.2094"), None, None, None, None),
+                (
+                    date(2024, 1, 1),
+                    Decimal("6.9202333048"),
+                    Decimal("33.2094"),
+                    Decimal("-0.7916182374"),
+                    Decimal("-0.7916182374"),
+                    Decimal("-0.7916182374"),
+                ),
+            ],
+        )
+
+    def test_with_events_data_and_currency_aware_divider(self):
+        self.team.revenue_analytics_config.events = [
+            REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT.model_copy(update={"currencyAwareDecimal": True})
+        ]
+        self.team.revenue_analytics_config.save()
+
+        s1 = str(uuid7("2023-12-02"))
+        s2 = str(uuid7("2024-01-03"))
+        self._create_purchase_events(
+            [
                 ("p1", [("2023-12-02", s1, 4200, "USD")]),
                 ("p2", [("2024-01-03", s2, 4300, "BRL")]),
             ]

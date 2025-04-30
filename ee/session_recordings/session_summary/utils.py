@@ -12,7 +12,7 @@ from posthog.session_recordings.queries.session_replay_events import DEFAULT_EVE
 
 def load_session_recording_events_from_csv(
     file_path: str, extra_fields: list[str]
-) -> tuple[list[str], list[tuple[str | datetime | list[str], ...]]]:
+) -> tuple[list[str], list[tuple[str | datetime | list[str] | None, ...]]]:
     rows = []
     headers_indexes: dict[str, dict[str, Any]] = {
         "event": {"regex": r"event", "indexes": [], "multi_column": False},
@@ -49,7 +49,7 @@ def load_session_recording_events_from_csv(
         # Read rows
         timestamp_index = get_column_index(list(headers_indexes.keys()), "timestamp")
         for raw_row in reader:
-            row: list[str | datetime | list[str]] = []
+            row: list[str | datetime | list[str] | None] = []
             for header_metadata in headers_indexes.values():
                 if len(header_metadata["indexes"]) == 1:
                     raw_row_value = raw_row[header_metadata["indexes"][0]]
@@ -63,7 +63,7 @@ def load_session_recording_events_from_csv(
                         if header_metadata["multi_column"]:
                             row.append([])
                         else:
-                            row.append("")
+                            row.append(None)
                 # Ensure to combine all values for multi-column fields (like chain texts) into a single list
                 else:
                     # Store only non-empty values
@@ -73,7 +73,7 @@ def load_session_recording_events_from_csv(
             row = [*row[:timestamp_index], prepare_datetime(timestamp_str), *row[timestamp_index + 1 :]]
             rows.append(tuple(row))
         # Ensure chronological order of the events
-        rows.sort(key=lambda x: x[timestamp_index])
+        rows.sort(key=lambda x: x[timestamp_index])  # type: ignore
     return list(headers_indexes.keys()), rows
 
 
