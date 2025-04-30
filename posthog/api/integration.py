@@ -226,5 +226,5 @@ class IntegrationViewSet(
     @action(methods=["POST"], detail=True, url_path="email/verify")
     def email_verify(self, request, **kwargs):
         email = EmailIntegration(self.get_object())
-        verification_result = email.verify_email_domain()
+        verification_result = email.verify()
         return Response(verification_result)
