@@ -366,7 +366,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
                 limit_context=self.limit_context,
                 filters=HogQLFilters(
                     filterTestAccounts=self.query.filterTestAccounts,
-                    properties=self.properties,
+                    properties=self.hogql_properties,
                 ),
             )
 
@@ -429,10 +429,6 @@ class ErrorTrackingQueryRunner(QueryRunner):
             if self.query.orderBy
             else None
         )
-
-    @cached_property
-    def properties(self):
-        return self.query.filterGroup.values[0].values if self.query.filterGroup else None
 
     def error_tracking_issues(self, ids):
         status = self.query.status
@@ -529,6 +525,16 @@ class ErrorTrackingQueryRunner(QueryRunner):
             return []
 
         return [str(issue.id) for issue in queryset.only("id").iterator()]
+
+    def hogql_properties(self):
+        return [value for value in self.properties if "error_tracking_issue" != value["type"]]
+
+    def issue_properties(self):
+        return [value for value in self.properties if "error_tracking_issue" == value["type"]]
+
+    @cached_property
+    def properties(self):
+        return self.query.filterGroup.values[0].values if self.query.filterGroup else None
 
 
 def search_tokenizer(query: str) -> list[str]:

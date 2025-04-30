@@ -41,15 +41,15 @@
     "error_tracking_issues": {
         "assignee": {
             "description": "The current assignee of an issue.",
-            "label": "Assignee"
+            "label": "Issue assignee"
         },
         "issue_description": {
             "description": "The description of an issue.",
-            "label": "Description"
+            "label": "Issue description"
         },
         "issue_name": {
             "description": "The name of an issue.",
-            "label": "Name"
+            "label": "Issue name"
         }
     },
     "event_metadata": {

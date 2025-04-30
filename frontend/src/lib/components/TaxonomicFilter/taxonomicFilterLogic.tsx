@@ -385,11 +385,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             value: key,
                             name: label,
                         })),
-                        // value: 'issues',
-                        // endpoint: `api/projects/${projectId}/error_tracking/issues`,
-                        valuesEndpoint: (key) => `api/projects/${projectId}/error_tracking/issues?key=` + key,
                         getName: (option) => option.name,
                         getValue: (option) => option.value,
+                        valuesEndpoint: (key) =>
+                            `api/environments/${projectId}/error_tracking/issues/values?key=` + key,
                         getPopoverHeader: () => 'Issues',
                     },
                     {

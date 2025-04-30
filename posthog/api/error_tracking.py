@@ -123,9 +123,9 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
 
         if search_key and value:
             if search_key == "issue_name":
-                queryset.filter(name__search=value)
+                queryset.filter(name__icontains=value)
             elif search_key == "issue_descrpition":
-                queryset.filter(description__search=value)
+                queryset.filter(description__icontains=value)
 
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
@@ -166,11 +166,26 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
 
         return Response({"success": True})
 
+    @action(methods=["GET"], detail=False)
+    def values(self, request: request.Request, **kwargs):
+        queryset = self.get_queryset()
+        value = request.GET.get("value", None)
+        key = request.GET.get("key")
+
+        issue_values = []
+        if key and value:
+            if key == "issue_name":
+                issue_values = queryset.filter(name__icontains=value).values_list("name", flat=True)
+            elif key == "issue_description":
+                issue_values = queryset.filter(description__icontains=value).values_list("description", flat=True)
+
+        return Response([{"name": value for value in issue_values}])  # noqa: B035
+
     @action(methods=["POST"], detail=False)
     def bulk(self, request, **kwargs):
         action = request.data.get("action")
         status = request.data.get("status")
-        issues = self.queryset.filter(id__in=request.data.get("ids", []))
+        issues = self.get_queryset().filter(id__in=request.data.get("ids", []))
 
         with transaction.atomic():
             if action == "set_status":

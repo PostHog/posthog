@@ -569,7 +569,7 @@ environments_router.register(
 )
 
 environments_router.register(
-    r"error_tracking/issue",
+    r"error_tracking/issues",
     error_tracking.ErrorTrackingIssueViewSet,
     "project_error_tracking_issue",
     ["team_id"],
