@@ -70,11 +70,16 @@ class ReplaySummarizer:
         except ValueError as e:
             raw_error_message = str(e)
             if "No events found for session_id" in raw_error_message:
-                yield serialize_to_sse_event(
-                    event_label="session-summary-error",
-                    event_data="No events found for this replay yet. Please try again in a few minutes.",
+                # Returning a generator (instead of yielding) to keep the consistent behavior for later iter-to-async conversion
+                return (
+                    msg
+                    for msg in [
+                        serialize_to_sse_event(
+                            event_label="session-summary-error",
+                            event_data="No events found for this replay yet. Please try again in a few minutes.",
+                        )
+                    ]
                 )
-                return
             # Re-raise unexpected exceptions
             raise
         with timer("add_context_and_filter"):
