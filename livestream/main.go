@@ -1,9 +1,6 @@
 package main
 
 import (
-	"github.com/posthog/posthog/livestream/auth"
-	"github.com/posthog/posthog/livestream/events"
-	"github.com/posthog/posthog/livestream/geo"
 	"log"
 	"net/http"
 	"time"
@@ -11,6 +8,10 @@ import (
 	"github.com/labstack/echo-contrib/echoprometheus"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+	"github.com/posthog/posthog/livestream/auth"
+	"github.com/posthog/posthog/livestream/events"
+	"github.com/posthog/posthog/livestream/geo"
+	"github.com/posthog/posthog/livestream/handlers"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/viper"
@@ -95,7 +96,7 @@ func main() {
 	}))
 
 	// Routes
-	e.GET("/", index)
+	e.GET("/", handlers.Index)
 
 	// For details why promhttp.Handler won't work: https://github.com/prometheus/client_golang/issues/622
 	e.GET("/metrics", echo.WrapHandler(promhttp.InstrumentMetricHandler(
@@ -103,11 +104,11 @@ func main() {
 		promhttp.HandlerFor(prometheus.DefaultGatherer, promhttp.HandlerOpts{DisableCompression: true}),
 	)))
 
-	e.GET("/served", servedHandler(stats))
+	e.GET("/served", handlers.ServedHandler(stats))
 
-	e.GET("/stats", statsHandler(stats))
+	e.GET("/stats", handlers.StatsHandler(stats))
 
-	e.GET("/events", streamEventsHandler(e.Logger, subChan, filter))
+	e.GET("/events", handlers.StreamEventsHandler(e.Logger, subChan, filter))
 
 	if isDebug {
 		e.GET("/jwt", func(c echo.Context) error {
@@ -136,7 +137,7 @@ func main() {
 					e.Logger.Printf("SSE client disconnected, ip: %v", c.RealIP())
 					return nil
 				case <-ticker.C:
-					event := Event{
+					event := handlers.Event{
 						Data: []byte("ping: " + time.Now().Format(time.RFC3339Nano)),
 					}
 					if err := event.WriteTo(w); err != nil {
