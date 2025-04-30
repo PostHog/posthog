@@ -5,6 +5,7 @@ import { loaders } from 'kea-loaders'
 import { beforeUnload, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import {
@@ -56,7 +57,7 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
         onPinnedChange: (recording: SessionRecordingType, pinned: boolean) => ({ pinned, recording }),
         markPlaylistViewed: true,
     }),
-    loaders(({ values, props }) => ({
+    loaders(({ actions, values, props }) => ({
         playlist: [
             null as SessionRecordingPlaylistType | null,
             {
@@ -158,10 +159,16 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
     })),
 
     beforeUnload(({ values, actions }) => ({
-        enabled: (newLocation) =>
-            values.activeScene === Scene.ReplayPlaylist &&
-            values.hasChanges &&
-            newLocation?.pathname !== router.values.location.pathname,
+        enabled: (newLocation) => {
+            const response =
+                values.activeScene === Scene.ReplayPlaylist &&
+                values.hasChanges &&
+                removeProjectIdIfPresent(newLocation?.pathname ?? '') !==
+                    removeProjectIdIfPresent(router.values.location.pathname) &&
+                !newLocation?.pathname.includes('/replay/playlists/new') &&
+                !router.values.location.pathname.includes('/replay/playlists/new')
+            return response
+        },
         message: 'Leave playlist?\nChanges you made will be discarded.',
         onConfirm: () => {
             actions.setFilters(values.playlist?.filters || null)
