@@ -381,6 +381,7 @@ module.exports = {
             files: './common/eslint_rules/*',
             rules: {
                 '@typescript-eslint/no-var-requires': 'off',
+                'posthog/no-survey-string-constants': 'off',
             },
             env: {
                 node: true,
