@@ -234,10 +234,10 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
     })),
 
     afterMount(({ actions, props }) => {
-        if (props.shortId !== 'new') {
+        if (props.shortId && props.shortId !== 'new') {
             actions.getPlaylist()
+            actions.loadPinnedRecordings()
         }
-        actions.loadPinnedRecordings()
     }),
 
     urlToAction(({ actions }) => ({
