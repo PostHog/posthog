@@ -637,9 +637,6 @@ importers:
       '@react-hook/size':
         specifier: ^2.1.2
         version: 2.1.2(react@18.2.0)
-      '@sentry/react':
-        specifier: 7.112.1
-        version: 7.112.1(react@18.2.0)
       '@stripe/react-stripe-js':
         specifier: ^2.8.0
         version: 2.8.0(@stripe/stripe-js@4.5.0)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
@@ -829,6 +826,9 @@ importers:
       maplibre-gl:
         specifier: ^3.5.1
         version: 3.5.1
+      marked:
+        specifier: ^15.0.11
+        version: 15.0.11
       md5:
         specifier: ^2.3.0
         version: 2.3.0
@@ -848,8 +848,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.236.8-alpha.0
-        version: 1.236.8-alpha.0(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.237.0
+        version: 1.237.0(@rrweb/types@2.0.0-alpha.17)
       posthog-js-lite:
         specifier: 3.0.0
         version: 3.0.0
@@ -960,9 +960,6 @@ importers:
       '@parcel/transformer-typescript-types':
         specifier: 2.13.3
         version: 2.13.3(@parcel/core@2.13.3(@swc/helpers@0.5.15))(typescript@4.9.5)
-      '@sentry/types':
-        specifier: 7.112.1
-        version: 7.112.1
       '@storybook/addon-actions':
         specifier: ^7.6.4
         version: 7.6.4
@@ -11775,6 +11772,11 @@ packages:
     peerDependencies:
       react: '>= 0.14.0'
 
+  marked@15.0.11:
+    resolution: {integrity: sha512-1BEXAU2euRCG3xwgLVT1y0xbJEld1XOrmRJpUwRCcy7rxhSCwMrmEu9LXoPhHSCJG41V7YcQ2mjKRr5BA3ITIA==}
+    engines: {node: '>= 18'}
+    hasBin: true
+
   marked@4.3.0:
     resolution: {integrity: sha512-PRsaiG84bK+AMvxziE/lCFss8juXjNaWzVbN5tXAm4XjeaS9NAHhop+PjQxz2A9h8Q4M/xGmzP8vqNwy6JeK0A==}
     engines: {node: '>= 12'}
@@ -13228,8 +13230,8 @@ packages:
       rrweb-snapshot:
         optional: true
 
-  posthog-js@1.236.8-alpha.0:
-    resolution: {integrity: sha512-rhtRTogVt5Lu4l70SDqK3FFchD4F54T3NWCXySHQF+FsJOnG1gqKK61vRfjXArsUJWfMlfuFCDEBCEVxKyPY3w==}
+  posthog-js@1.237.0:
+    resolution: {integrity: sha512-DyZfwDRz405cKKskL22CXvc9EpkBmuM9lCOYsZO3L1/zXu7IGiP9nNlLaxlzy7K/8mHxQ3szoy/DBSw/zXL1pw==}
     peerDependencies:
       '@rrweb/types': 2.0.0-alpha.17
       rrweb-snapshot: 2.0.0-alpha.17
@@ -28876,6 +28878,8 @@ snapshots:
     dependencies:
       react: 18.2.0
 
+  marked@15.0.11: {}
+
   marked@4.3.0: {}
 
   math-intrinsics@1.1.0: {}
@@ -30726,7 +30730,7 @@ snapshots:
     optionalDependencies:
       '@rrweb/types': 2.0.0-alpha.17
 
-  posthog-js@1.236.8-alpha.0(@rrweb/types@2.0.0-alpha.17):
+  posthog-js@1.237.0(@rrweb/types@2.0.0-alpha.17):
     dependencies:
       core-js: 3.40.0
       fflate: 0.4.8

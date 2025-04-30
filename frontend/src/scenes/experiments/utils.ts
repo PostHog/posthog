@@ -679,15 +679,18 @@ export const isLegacyExperimentQuery = (query: unknown): query is ExperimentTren
     )
 }
 
+/**
+ * The legacy query runner uses ExperimentTrendsQuery and ExperimentFunnelsQuery
+ * to run experiments.
+ *
+ * We should remove these legacy metrics once we've migrated all experiments to the new query runner.
+ */
 export const isLegacyExperiment = ({ metrics, metrics_secondary, saved_metrics }: Experiment): boolean => {
-    const allMetrics = [...metrics, ...metrics_secondary, ...saved_metrics]
-    /**
-     * The legacy query runner uses ExperimentTrendsQuery and ExperimentFunnelsQuery
-     * to run experiments.
-     *
-     * We should remove these legacy metrics once we've migrated all experiments to the new query runner.
-     */
-    return allMetrics.some(isLegacyExperimentQuery)
+    // saved_metrics has a different structure and so we need to check for it separately
+    if (saved_metrics.some(isLegacySharedMetric)) {
+        return true
+    }
+    return [...metrics, ...metrics_secondary].some(isLegacyExperimentQuery)
 }
 
 export const isLegacySharedMetric = ({ query }: SharedMetric): boolean => isLegacyExperimentQuery(query)

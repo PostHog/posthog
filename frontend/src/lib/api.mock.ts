@@ -133,6 +133,13 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
                 eventName: 'purchase',
                 revenueProperty: 'value',
                 revenueCurrencyProperty: { static: CurrencyCode.ZAR },
+                currencyAwareDecimal: false,
+            },
+            {
+                eventName: 'subscription_created',
+                revenueProperty: 'subscription_value',
+                revenueCurrencyProperty: { property: 'currency' },
+                currencyAwareDecimal: true,
             },
         ],
     },
