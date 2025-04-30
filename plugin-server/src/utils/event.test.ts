@@ -1,8 +1,8 @@
 import { KafkaMessage } from 'kafkajs'
 import { DateTime } from 'luxon'
 
-import { ClickHouseTimestamp, ProjectId, RawKafkaEvent } from '../../src/types'
-import { formPipelineEvent, normalizeEvent, parseRawClickHouseEvent } from '../../src/utils/event'
+import { ClickHouseTimestamp, ProjectId, RawKafkaEvent } from '../types'
+import { formPipelineEvent, normalizeEvent, parseRawClickHouseEvent } from './event'
 
 describe('normalizeEvent()', () => {
     describe('distinctId', () => {
@@ -43,6 +43,12 @@ describe('normalizeEvent()', () => {
             key2_once: 'value2',
             key3_once: 'value4',
         })
+    })
+
+    it('sanitizes token', () => {
+        const event = { token: '\u0000' }
+        const sanitized = normalizeEvent(event as any)
+        expect(sanitized.token).toBe('\uFFFD')
     })
 })
 

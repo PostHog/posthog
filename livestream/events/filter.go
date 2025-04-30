@@ -25,6 +25,7 @@ type Subscription struct {
 	ShouldClose *atomic.Bool
 }
 
+//easyjson:json
 type ResponsePostHogEvent struct {
 	Uuid       string                 `json:"uuid"`
 	Timestamp  interface{}            `json:"timestamp"`
@@ -34,6 +35,7 @@ type ResponsePostHogEvent struct {
 	Properties map[string]interface{} `json:"properties"`
 }
 
+//easyjson:json
 type ResponseGeoEvent struct {
 	Lat   float64 `json:"lat"`
 	Lng   float64 `json:"lng"`
