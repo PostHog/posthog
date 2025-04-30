@@ -1,4 +1,5 @@
 import pytest
+from freezegun import freeze_time
 from rest_framework import status
 from posthog.test.base import APIBaseTest
 from posthog.models import User, FeatureFlag, Dashboard, Experiment, Insight, Notebook
@@ -652,6 +653,39 @@ class TestFileSystemAPI(APIBaseTest):
         paths = [item["path"] for item in resp.json()["results"]]
         # Pure case-insensitive alphabetical order, regardless of type
         self.assertEqual(paths, ["Afile.txt", "alpha", "beta", "bFile.txt"])
+
+    def test_list_order_by_created_at(self):
+        # Create items in chronological order
+        with freeze_time("2020-01-01 10:00:00"):
+            file_1 = FileSystem.objects.create(team=self.team, path="File_1", type="doc", created_by=self.user)
+        with freeze_time("2020-01-02 10:00:00"):
+            file_2 = FileSystem.objects.create(team=self.team, path="File_2", type="doc", created_by=self.user)
+        with freeze_time("2020-01-03 10:00:00"):
+            file_3 = FileSystem.objects.create(team=self.team, path="File_3", type="doc", created_by=self.user)
+
+        # Query with descending order
+        url = f"/api/projects/{self.team.id}/file_system/?order=-created_at"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        results = response.json()["results"]
+        # Expect the newest (file_3) first, then file_2, then file_1
+        self.assertEqual(len(results), 3)
+        self.assertEqual(results[0]["id"], str(file_3.id))
+        self.assertEqual(results[1]["id"], str(file_2.id))
+        self.assertEqual(results[2]["id"], str(file_1.id))
+
+        # Query with ascending order
+        url = f"/api/projects/{self.team.id}/file_system/?order=created_at"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        results = response.json()["results"]
+        # Expect the oldest (file_1) first, then file_2, then file_3
+        self.assertEqual(len(results), 3)
+        self.assertEqual(results[0]["id"], str(file_1.id))
+        self.assertEqual(results[1]["id"], str(file_2.id))
+        self.assertEqual(results[2]["id"], str(file_3.id))
 
 
 @pytest.mark.ee  # Mark these tests to run only if EE code is available (for AccessControl)

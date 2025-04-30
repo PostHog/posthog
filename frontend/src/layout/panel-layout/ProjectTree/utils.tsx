@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
+import { RecentResults } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
 
 import { iconForType } from './defaultTree'
@@ -333,4 +334,26 @@ export function calculateMovePath(
     // Only valid if destination is different from current location
     const isValidMove = newPath !== oldPath
     return { newPath, isValidMove }
+}
+
+export function appendResultsToFolders(
+    { results, lastCount }: RecentResults,
+    folders: Record<string, FileSystemEntry[]>
+): Record<string, FileSystemEntry[]> {
+    // Append search results into the loaded state to persist data and help with multi-selection between panels
+    const newState: Record<string, FileSystemEntry[]> = { ...folders }
+    for (const result of results.slice(-1 * lastCount)) {
+        const folder = joinPath(splitPath(result.path).slice(0, -1))
+        if (newState[folder]) {
+            const existingItem = newState[folder].find((item) => item.id === result.id)
+            if (existingItem) {
+                newState[folder] = newState[folder].map((file) => (file.id === result.id ? result : file))
+            } else {
+                newState[folder] = [...newState[folder], result]
+            }
+        } else {
+            newState[folder] = [result]
+        }
+    }
+    return newState
 }

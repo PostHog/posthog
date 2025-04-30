@@ -106,6 +106,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         type_param = self.request.query_params.get("type")
         type__startswith_param = self.request.query_params.get("type__startswith")
         ref_param = self.request.query_params.get("ref")
+        order_param = self.request.query_params.get("order")
 
         if depth_param is not None:
             try:
@@ -114,7 +115,25 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             except ValueError:
                 pass
 
-        if self.action == "list":
+        if path_param:
+            queryset = queryset.filter(path=path_param)
+        if parent_param:
+            queryset = queryset.filter(path__startswith=f"{parent_param}/")
+        if type_param:
+            queryset = queryset.filter(type=type_param)
+        if type__startswith_param:
+            queryset = queryset.filter(type__startswith=type__startswith_param)
+
+        if self.user_access_control:
+            queryset = self.user_access_control.filter_and_annotate_file_system_queryset(queryset)
+
+        if ref_param:
+            queryset = queryset.filter(ref=ref_param)
+            queryset = queryset.order_by("shortcut")  # override order
+        elif order_param:
+            if order_param in ["path", "-path", "created_at", "-created_at"]:
+                queryset = queryset.order_by(order_param)
+        elif self.action == "list":
             if depth_param is not None:
                 queryset = queryset.order_by(
                     Case(
@@ -126,20 +145,6 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
             else:
                 queryset = queryset.order_by(Lower("path"))
-        if path_param:
-            queryset = queryset.filter(path=path_param)
-        if parent_param:
-            queryset = queryset.filter(path__startswith=f"{parent_param}/")
-        if type_param:
-            queryset = queryset.filter(type=type_param)
-        if type__startswith_param:
-            queryset = queryset.filter(type__startswith=type__startswith_param)
-        if ref_param:
-            queryset = queryset.filter(ref=ref_param)
-            queryset = queryset.order_by("shortcut")  # override order
-
-        if self.user_access_control:
-            queryset = self.user_access_control.filter_and_annotate_file_system_queryset(queryset)
 
         return queryset
 
