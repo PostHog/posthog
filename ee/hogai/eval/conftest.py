@@ -35,9 +35,11 @@ def MaxEval(
     if os.getenv("GITHUB_REF_NAME") == "master":
         experiment_name += "-master"
         trial_count = 3
+        overwrite_existing_experiment = True
     else:
         experiment_name += "-wip"
         trial_count = 1
+        overwrite_existing_experiment = False
     result = Eval(
         BRAINTRUST_PROJECT_NAME,
         experiment_name=experiment_name,
@@ -46,6 +48,7 @@ def MaxEval(
         scores=scores,
         base_experiment_name=base_experiment_name,
         trial_count=trial_count,
+        update=overwrite_existing_experiment,
     )
     if os.getenv("GITHUB_EVENT_NAME") == "pull_request":
         with open("eval_results.jsonl", "a") as f:
