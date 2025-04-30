@@ -1540,6 +1540,7 @@ export interface SessionRecordingPlaylistType {
      */
     recordings_counts?: PlaylistRecordingsCounts
     type: 'filters' | 'collection'
+    _create_in_folder?: string | null
 }
 
 export interface SessionRecordingSegmentType {

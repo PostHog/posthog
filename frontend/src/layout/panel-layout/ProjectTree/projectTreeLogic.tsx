@@ -1241,34 +1241,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     if (resp.results && resp.results.length > 0) {
                         const result = resp.results[0]
                         path = result.path
-
-                        // TODO: REMOVE THIS OLD LOGIC! ... in favor of directly passing _create_in_folder to the API calls
-                        if (
-                            result.type &&
-                            (['dashboard', 'session_recording_playlist'].includes(result.type) ||
-                                result.type.startsWith('hog_function/'))
-                        ) {
-                            // Check if a "new" action was recently initiated for this object type.
-                            // If so, move the item to the new path.
-                            const { lastNewFolder } = values
-                            if (result.path.startsWith('Unfiled/') && typeof lastNewFolder === 'string') {
-                                const newPath = joinPath([
-                                    ...splitPath(lastNewFolder),
-                                    ...splitPath(result.path).slice(-1),
-                                ])
-                                actions.createSavedItem({ ...result, path: newPath })
-                                path = newPath
-                                await api.fileSystem.move(result.id, newPath)
-                            } else {
-                                actions.createSavedItem(result)
-                            }
-                            if (lastNewFolder) {
-                                actions.setLastNewFolder(null)
-                            }
-                            // </TODO>
-                        } else {
-                            actions.createSavedItem(result)
-                        }
+                        actions.createSavedItem(result)
                     }
                 }
 

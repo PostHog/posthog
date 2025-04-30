@@ -310,11 +310,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         ],
     })),
     listeners(({ values, props, actions, asyncActions }) => ({
-        setDataError: ({ error }) => {
-            if (error) {
-                actions.fixErrors(values.queryInput, error)
-            }
-        },
         fixErrorsSuccess: ({ response }) => {
             actions.setSuggestedQueryInput(response.query)
 
