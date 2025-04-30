@@ -47,9 +47,9 @@ function OtherProjectButton({ team }: { team: TeamBasicType }): JSX.Element {
                     buttonProps={{
                         menuItem: true,
                         hasSideActionRight: true,
-                        tooltip: `Switch to project: ${team.name}`,
-                        tooltipPlacement: 'right',
                     }}
+                    tooltip={`Switch to project: ${team.name}`}
+                    tooltipPlacement="right"
                     to={relativeOtherProjectPath}
                 >
                     <ProjectName team={team} />
@@ -125,9 +125,9 @@ export function ProjectDropdownMenu(): JSX.Element | null {
                                 active: true,
                                 iconOnly: true,
                                 isSideActionRight: true,
-                                tooltip: `View settings for project: ${currentTeam.name}`,
-                                tooltipPlacement: 'right',
                             }}
+                            tooltip={`View settings for project: ${currentTeam.name}`}
+                            tooltipPlacement="right"
                             to={urls.project(currentTeam.id, urls.settings('project'))}
                         >
                             <IconGear className="text-tertiary" />
