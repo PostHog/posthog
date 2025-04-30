@@ -39,7 +39,7 @@ export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
         exceptionList: [
             (s) => [s.properties],
             (properties: ErrorProperties) => {
-                return properties ? getExceptionList(properties) : null
+                return properties ? getExceptionList(properties) : []
             },
         ],
         timestamp: [

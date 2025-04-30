@@ -35,7 +35,7 @@ export function getRuntimeFromLib(lib?: string | null): ErrorTrackingRuntime {
 }
 
 export function concatValues(
-    attrs: ExceptionAttributes | undefined,
+    attrs: ExceptionAttributes | null,
     ...keys: (keyof ExceptionAttributes)[]
 ): string | undefined {
     if (!attrs) {
@@ -113,7 +113,7 @@ export function getExceptionList(properties: ErrorProperties): ErrorTrackingExce
 
 export function getFingerprintRecords(properties: ErrorProperties): FingerprintRecordPart[] {
     const { $fingerprint_records } = properties
-    return $fingerprint_records
+    return $fingerprint_records || []
 }
 
 export function getAdditionalProperties(
