@@ -195,6 +195,11 @@ def test_full_job_team_deletes(cluster: ClickhouseCluster):
     final_events = cluster.any_host(get_events_by_team).result()
     assert len(final_events) == event_count - delete_count
 
+    # Check that events for non-deleted teams were actually not deleted
+    assert all(
+        event[0] in final_events.keys() for event in events if event[0] not in range(delete_count)
+    ), f"There are events for non-deleted teams that were deleted"
+
     # Verify that the deletions for the teams have been marked verified
     # TODO: Uncomment next two lines once we setup deletion of all team data in other tables and we actually mark team deletions as processed
     # marked_deletions = AsyncDeletion.objects.filter(
