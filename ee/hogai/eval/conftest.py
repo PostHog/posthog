@@ -31,14 +31,12 @@ def MaxEval(
     task: EvalTask[Input, Output],
     scores: Sequence[EvalScorer[Input, Output]],
 ):
-    base_experiment_name = f"{experiment_name}-master"  # Always compare against master
+    base_experiment_name = f"{experiment_name}-master"  # Always compare against latest master
     if os.getenv("GITHUB_REF_NAME") == "master":
         experiment_name += "-master"
-        trial_count = 3
         overwrite_existing_experiment = True
     else:
         experiment_name += "-wip"
-        trial_count = 1
         overwrite_existing_experiment = False
     result = Eval(
         BRAINTRUST_PROJECT_NAME,
@@ -47,7 +45,7 @@ def MaxEval(
         task=task,
         scores=scores,
         base_experiment_name=base_experiment_name,
-        trial_count=trial_count,
+        trial_count=3 if os.getenv("CI") else 1,
         update=overwrite_existing_experiment,
     )
     if os.getenv("GITHUB_EVENT_NAME") == "pull_request":
