@@ -3,6 +3,7 @@ import re
 from datetime import datetime, timedelta, UTC
 from typing import Any
 from unittest.mock import ANY, patch
+import uuid
 
 import pytest
 from django.core.cache import cache
@@ -14,7 +15,7 @@ from rest_framework import status
 from posthog.api.survey import nh3_clean_with_allow_list
 from posthog.api.test.test_personal_api_keys import PersonalAPIKeysBaseTest
 from posthog.constants import AvailableFeature
-from posthog.models import Action, FeatureFlag, Team
+from posthog.models import Action, FeatureFlag, Team, Person
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.surveys.survey import Survey, MAX_ITERATION_COUNT
 from posthog.test.base import (
@@ -3235,14 +3236,19 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
             archived=True,
         )
 
+        user_1 = Person.objects.create(team=self.team, distinct_ids=[str(uuid.uuid4())])
+        user_2 = Person.objects.create(team=self.team, distinct_ids=[str(uuid.uuid4())])
+
         # Insert events for both surveys
         events = [
             # Active survey events
-            ("survey shown", "2024-05-01 12:00:00", "user1", active_survey.id),
-            ("survey sent", "2024-05-01 12:01:00", "user1", active_survey.id),
+            ("survey shown", "2024-05-01 12:00:00", user_1.distinct_ids[0], active_survey.id),
+            ("survey sent", "2024-05-01 12:01:00", user_1.distinct_ids[0], active_survey.id),
+            ("survey shown", "2024-05-01 12:00:00", user_1.distinct_ids[0], active_survey.id),
+            ("survey sent", "2024-05-01 12:01:00", user_1.distinct_ids[0], active_survey.id),
             # Archived survey events
-            ("survey shown", "2024-05-01 13:00:00", "user2", archived_survey.id),
-            ("survey sent", "2024-05-01 13:01:00", "user2", archived_survey.id),
+            ("survey shown", "2024-05-01 13:00:00", user_2.distinct_ids[0], archived_survey.id),
+            ("survey sent", "2024-05-01 13:01:00", user_2.distinct_ids[0], archived_survey.id),
         ]
 
         for event, timestamp, distinct_id, survey_id in events:
@@ -3261,8 +3267,10 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
         stats = data["stats"]
 
         # Should only include stats from active survey
-        self.assertEqual(stats["survey shown"]["total_count"], 1)
-        self.assertEqual(stats["survey sent"]["total_count"], 1)
+        self.assertEqual(stats["survey shown"]["total_count"], 2)
+        self.assertEqual(stats["survey sent"]["total_count"], 2)
+        self.assertEqual(stats["survey shown"]["unique_persons"], 1)
+        self.assertEqual(stats["survey sent"]["unique_persons"], 1)
 
         rates = data["rates"]
         self.assertEqual(rates["response_rate"], 100.0)  # 1 sent / 1 shown
@@ -3277,11 +3285,11 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
             questions=[{"type": "open", "question": "How are you?"}],
             enable_partial_responses=True,  # Enable partial responses
         )
-        survey_id = str(survey.id)
-        sub_id_1 = "submission_abc"
-        sub_id_2 = "submission_xyz"
-        user_1 = "user_p1"
-        user_2 = "user_p2"
+        sub_id_1 = str(uuid.uuid4())
+        sub_id_2 = str(uuid.uuid4())
+        user_1 = Person.objects.create(team=self.team, distinct_ids=[str(uuid.uuid4())])
+        user_2 = Person.objects.create(team=self.team, distinct_ids=[str(uuid.uuid4())])
+        user_3 = Person.objects.create(team=self.team, distinct_ids=[str(uuid.uuid4())])
 
         # Events:
         # user_1: shown -> sent (legacy) -> sent (partial 1, ts1) -> sent (partial 1, ts2)
@@ -3289,36 +3297,42 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
         events_data = [
             {
                 "event": "survey shown",
-                "distinct_id": user_1,
+                "distinct_id": user_1.distinct_ids[0],
                 "timestamp": "2024-06-10 09:00:00",
-                "properties": {"$survey_id": survey_id},
+                "properties": {"$survey_id": survey.id},
             },
             {
                 "event": "survey shown",
-                "distinct_id": user_2,
+                "distinct_id": user_2.distinct_ids[0],
                 "timestamp": "2024-06-10 09:01:00",
-                "properties": {"$survey_id": survey_id},
+                "properties": {"$survey_id": survey.id},
+            },
+            {
+                "event": "survey shown",
+                "distinct_id": user_3.distinct_ids[0],
+                "timestamp": "2024-06-10 09:01:00",
+                "properties": {"$survey_id": survey.id},
             },
             {
                 "event": "survey dismissed",
-                "distinct_id": user_2,
+                "distinct_id": user_3.distinct_ids[0],
                 "timestamp": "2024-06-10 09:02:00",
-                "properties": {"$survey_id": survey_id},
+                "properties": {"$survey_id": survey.id},
             },
             # Legacy submission (no submission_id)
             {
                 "event": "survey sent",
-                "distinct_id": user_1,
+                "distinct_id": user_1.distinct_ids[0],
                 "timestamp": "2024-06-10 09:05:00",
-                "properties": {"$survey_id": survey_id, "$survey_response": "ok"},
+                "properties": {"$survey_id": survey.id, "$survey_response_question_id": "ok"},
             },
             # Partial submission 1, first event
             {
                 "event": "survey sent",
-                "distinct_id": user_1,
+                "distinct_id": user_1.distinct_ids[0],
                 "timestamp": "2024-06-10 09:10:00",
                 "properties": {
-                    "$survey_id": survey_id,
+                    "$survey_id": survey.id,
                     "$survey_submission_id": sub_id_1,
                     "$survey_response_question_id": "good",
                 },
@@ -3326,10 +3340,10 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
             # Partial submission 1, second (later) event - should be the one counted for sub_id_1
             {
                 "event": "survey sent",
-                "distinct_id": user_1,
+                "distinct_id": user_1.distinct_ids[0],
                 "timestamp": "2024-06-10 09:11:00",
                 "properties": {
-                    "$survey_id": survey_id,
+                    "$survey_id": survey.id,
                     "$survey_submission_id": sub_id_1,
                     "$survey_response_question_id": "great",
                 },
@@ -3337,31 +3351,34 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
             # Partial submission 2
             {
                 "event": "survey sent",
-                "distinct_id": user_2,
+                "distinct_id": user_2.distinct_ids[0],
                 "timestamp": "2024-06-10 09:15:00",
-                "properties": {"$survey_id": survey_id, "$survey_submission_id": sub_id_2, "$survey_response": "fine"},
+                "properties": {
+                    "$survey_id": survey.id,
+                    "$survey_submission_id": sub_id_2,
+                    "$survey_response_question_id": "fine",
+                },
             },
         ]
 
-        for data in events_data:
+        for event in events_data:
             _create_event(
                 team=self.team,
-                event=data["event"],
-                distinct_id=data["distinct_id"],
-                timestamp=data["timestamp"],
-                properties=data["properties"],
+                event=event["event"],
+                distinct_id=event["distinct_id"],
+                timestamp=event["timestamp"],
+                properties=event["properties"],
             )
 
         response = self.client.get(f"/api/projects/{self.team.id}/surveys/{survey.id}/stats/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         data: dict[str, Any] = response.json()
-        stats: dict[str, dict[str, Any]] = data["stats"]
-        rates: dict[str, float] = data["rates"]
+        stats: dict[str, Any] = data["stats"]  # Use Any for the inner value type
 
         # Check counts based on unique events/persons
-        self.assertEqual(stats["survey shown"]["total_count"], 2)
-        self.assertEqual(stats["survey shown"]["unique_persons"], 2)
+        self.assertEqual(stats["survey shown"]["total_count"], 3)
+        self.assertEqual(stats["survey shown"]["unique_persons"], 3)
 
         self.assertEqual(stats["survey dismissed"]["total_count"], 1)
         self.assertEqual(stats["survey dismissed"]["unique_persons"], 1)
@@ -3373,11 +3390,12 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(stats["survey sent"]["unique_persons"], 2)
 
         # Check rates (based on unique persons)
-        rates = data["rates"]
+        # Re-assign rates here, as the previous assignment might have type issues
+        rates_reassigned: dict[str, float] = data["rates"]
         # (Unique persons sent / Unique persons shown) * 100 = (2 / 2) * 100 = 100.0
-        self.assertEqual(rates["response_rate"], 100.0)
-        # (Unique persons dismissed / Unique persons shown) * 100 = (1 / 2) * 100 = 50.0
-        self.assertEqual(rates["dismissal_rate"], 50.0)
+        self.assertEqual(rates_reassigned["response_rate"], 100.0)
+        # (Unique persons dismissed / Unique persons shown) * 100 = (1 / 3) * 100 = 33.33
+        self.assertEqual(rates_reassigned["dismissal_rate"], 33.33)
 
 
 @pytest.mark.parametrize(

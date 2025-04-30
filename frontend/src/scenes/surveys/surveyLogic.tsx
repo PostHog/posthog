@@ -386,6 +386,11 @@ export const surveyLogic = kea<surveyLogicType>([
                             AND {filters} -- Apply property filters here to the main query
                             -- Main condition for handling partial responses and answer filters:
                             AND (
+                                event != '${SurveyEventName.DISMISSED}'
+                                OR
+                                COALESCE(JSONExtractBool(properties, '$survey_partially_completed'), False) = False
+                            )
+                            AND (
                                 -- Include non-'sent' events directly
                                 event != '${SurveyEventName.SENT}'
                                 OR
@@ -436,7 +441,11 @@ export const surveyLogic = kea<surveyLogicType>([
                               AND properties.$survey_id = '${props.id}'
                               AND timestamp >= '${startDate}'
                               AND timestamp <= '${endDate}'
-
+                              AND (
+                                event != '${SurveyEventName.DISMISSED}'
+                                OR
+                                COALESCE(JSONExtractBool(properties, '$survey_partially_completed'), False) = False
+                              )
                               AND {filters} -- Apply property filters here to reduce initial events
                             GROUP BY person_id
                             HAVING sum(if(event = '${SurveyEventName.DISMISSED}', 1, 0)) > 0 -- Has at least one dismissed event (matching property filters)

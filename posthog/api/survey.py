@@ -974,6 +974,11 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             {survey_filter}
             {date_filter}
             AND (
+                event != %(dismissed)s
+                OR
+                COALESCE(JSONExtractBool(properties, '$survey_partially_completed'), False) = False
+            )
+            AND (
                 event != %(sent)s
                 OR
                 uuid IN (
@@ -1017,6 +1022,11 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                   AND event IN (%(dismissed)s, %(sent)s)
                   {survey_filter}
                   {date_filter}
+                AND (
+                    event != %(dismissed)s
+                    OR
+                    COALESCE(JSONExtractBool(properties, '$survey_partially_completed'), False) = False
+                )
                 GROUP BY person_id
                 HAVING sum(if(event = %(dismissed)s, 1, 0)) > 0
                    AND sum(if(event = %(sent)s, 1, 0)) > 0
