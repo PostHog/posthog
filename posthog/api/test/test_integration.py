@@ -266,7 +266,7 @@ class TestEmailIntegration:
         }
         mock_client.verify_email_domain.return_value = expected_result
 
-        integration: EmailIntegration = EmailIntegration.integration_from_domain(self.domain, self.team.id, self.user)
+        integration = EmailIntegration.integration_from_domain(self.domain, self.team.id, self.user)
         email_integration = EmailIntegration(integration)
         verification_result = email_integration.verify()
 
@@ -308,7 +308,7 @@ class TestEmailIntegration:
         }
         mock_client.verify_email_domain.return_value = expected_result
 
-        integration: EmailIntegration = EmailIntegration.integration_from_domain(self.domain, self.team.id, self.user)
+        integration = EmailIntegration.integration_from_domain(self.domain, self.team.id, self.user)
         email_integration = EmailIntegration(integration)
         verification_result = email_integration.verify()
 
