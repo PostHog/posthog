@@ -2,13 +2,13 @@ package handlers
 
 import (
 	"encoding/json"
-	"github.com/posthog/posthog/livestream/auth"
-	"github.com/posthog/posthog/livestream/events"
 	"net/http"
 	"strings"
 	"sync/atomic"
 
 	"github.com/labstack/echo/v4"
+	"github.com/posthog/posthog/livestream/auth"
+	"github.com/posthog/posthog/livestream/events"
 )
 
 func Index(c echo.Context) error {

@@ -3,14 +3,15 @@ package main
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
 	"github.com/labstack/echo/v4"
 	"github.com/posthog/posthog/livestream/events"
 	"github.com/posthog/posthog/livestream/handlers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"net/http"
-	"net/http/httptest"
-	"testing"
 )
 
 func TestIndex(t *testing.T) {
@@ -19,7 +20,7 @@ func TestIndex(t *testing.T) {
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
-	if assert.NoError(t, handlers.index(c)) {
+	if assert.NoError(t, handlers.Index(c)) {
 		assert.Equal(t, http.StatusOK, rec.Code)
 		assert.Equal(t, "RealTime Hog 3000", rec.Body.String())
 	}
