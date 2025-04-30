@@ -16,6 +16,7 @@ import { useEffect, useState } from 'react'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
+import { playerInspectorLogic } from '../inspector/playerInspectorLogic'
 import {
     SegmentMeta,
     SessionKeyAction,
@@ -426,10 +427,12 @@ function SessionSummary(): JSX.Element {
 
 function LoadSessionSummaryButton(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { sessionSummaryLoading, overviewItems, loading } = useValues(playerMetaLogic(logicProps))
+    const { sessionSummaryLoading, loading } = useValues(playerMetaLogic(logicProps))
+    const inspectorLogic = playerInspectorLogic(logicProps)
+    const { items: inspectorItems } = useValues(inspectorLogic)
     const { summarizeSession } = useActions(playerMetaLogic(logicProps))
 
-    const hasEnoughEvents = overviewItems && overviewItems.length > 0
+    const hasEnoughEvents = inspectorItems && inspectorItems.length > 0
 
     return (
         <div className="space-y-2">
