@@ -29,7 +29,12 @@ module.exports = {
         },
         'import/resolver': {
             node: {
-                paths: ['./common/eslint_rules', '../common/eslint_rules', '../../common/eslint_rules', '../../../common/eslint_rules'], // Add the directory containing your custom rules
+                paths: [
+                    './common/eslint_rules',
+                    '../common/eslint_rules',
+                    '../../common/eslint_rules',
+                    '../../../common/eslint_rules',
+                ], // Add the directory containing your custom rules
                 extensions: ['.js', '.jsx', '.ts', '.tsx'], // Ensure ESLint resolves both JS and TS files
             },
         },
@@ -286,6 +291,7 @@ module.exports = {
         'react-google-translate/no-conditional-text-nodes-with-siblings': 'warn',
         'react-google-translate/no-return-text-nodes': 'warn',
         'posthog/no-schema-index-import': 'error',
+        'posthog/no-survey-string-constants': 'error',
     },
     overrides: [
         {
@@ -378,6 +384,12 @@ module.exports = {
             },
             env: {
                 node: true,
+            },
+        },
+        {
+            files: ['frontend/src/types.ts'],
+            rules: {
+                'posthog/no-survey-string-constants': 'off',
             },
         },
     ],
