@@ -81,6 +81,79 @@ from posthog.tasks.calculate_cohort import (
 )
 from posthog.utils import format_query_params_absolute_url
 from prometheus_client import Counter
+from typing import Literal, Annotated
+from pydantic import BaseModel, Field, model_validator
+from pydantic import ValidationError as PydanticValidationError
+
+
+class EventPropFilter(BaseModel, extra="forbid"):
+    type: Literal["event"]
+    key: str
+    value: Any
+    operator: str
+
+
+class BehavioralFilter(BaseModel, extra="forbid"):
+    type: Literal["behavioral"]
+    key: Union[str, int]  # action IDs can be ints
+    value: Literal["performed_event"]
+    event_type: Literal["events", "actions"]
+    time_value: int
+    time_interval: Literal["day", "week", "hour"]
+    negation: bool = False
+    event_filters: list[EventPropFilter] | None = None
+    explicit_datetime: str | None = None  # e.g. "-30d"
+
+
+class CohortFilter(BaseModel, extra="forbid"):
+    type: Literal["cohort"]
+    key: Literal["id"]
+    value: int
+    negation: bool = False
+
+
+class PersonFilter(BaseModel, extra="forbid"):
+    type: Literal["person"]
+    key: str
+    operator: str | None = None  # accept any legacy operator
+    value: str | None = None
+    negation: bool = False
+
+    @model_validator(mode="after")
+    def _missing_keys_check(self):
+        missing: list[str] = []
+
+        # value is required unless operator is an *is_set* variant
+        if self.value is None and self.operator not in ("is_set", "is_not_set"):
+            missing.append("value")
+
+        # operator is required whenever value is supplied,
+        # and also when both value & operator are missing
+        if self.operator is None:
+            missing.append("operator")
+
+        if missing:
+            raise ValueError(f"Missing required keys for person filter: {', '.join(missing)}")
+
+        return self
+
+
+PropertyFilter = Annotated[
+    Union[BehavioralFilter, CohortFilter, PersonFilter],
+    Field(discriminator="type"),
+]
+
+
+class Group(BaseModel, extra="forbid"):
+    type: Literal["AND", "OR"]
+    values: list[Union[PropertyFilter, "Group"]]
+
+
+Group.model_rebuild()
+
+
+class CohortFilters(BaseModel, extra="forbid"):
+    properties: Group
 
 
 API_COHORT_PERSON_BYTES_READ_FROM_POSTGRES_COUNTER = Counter(
@@ -187,57 +260,47 @@ class CohortSerializer(serializers.ModelSerializer):
             raise ValidationError(f"Query must be an ActorsQuery or HogQLQuery. Got: {query.get('kind')}")
         return query
 
-    def validate_filters(self, request_filters: dict):
-        """Validate the filters object matches our expected schema for cohort filters"""
-        self._validate_filters_structure(request_filters)
-        self._validate_property_groups(request_filters["properties"])
-        self._validate_feature_flag_constraints(request_filters)
-        return request_filters
-
-    def _validate_filters_structure(self, request_filters: dict):
-        if not isinstance(request_filters, dict) or "properties" not in request_filters:
+    def validate_filters(self, raw: dict):
+        """
+        1. structural/schema check → pydantic
+        2. domain rules (feature-flag gotchas) → bespoke fn
+        """
+        if not isinstance(raw, dict) or "properties" not in raw:
             raise ValidationError(
                 {"detail": "Must contain a 'properties' key with type and values", "type": "validation_error"}
             )
+        try:
+            CohortFilters.model_validate(raw)  # raises if malformed
+        except PydanticValidationError as exc:
+            # pydantic → drf error shape
+            raise ValidationError(detail=self._cohort_error_message(exc))
 
-    def _validate_property_groups(self, properties: dict):
-        if not isinstance(properties, dict) or "type" not in properties or "values" not in properties:
-            raise ValidationError(
-                {"properties": "Must be an object with 'type' and 'values' keys", "received": properties}
-            )
+        self._validate_feature_flag_constraints(raw)  # keep your side-rules
+        return raw
 
-        if properties["type"] not in ["AND", "OR"]:
-            raise ValidationError({"properties.type": f"Must be 'AND' or 'OR', received '{properties['type']}'"})
+    @staticmethod
+    def _cohort_error_message(exc: PydanticValidationError) -> str:
+        """
+        make pydantic's missing-field error read like the old
+        'Missing required keys for <kind> filter: <field>' string.
+        if we can't map it, fall back to the raw pydantic payload.
+        """
+        for err in exc.errors():
+            # custom ValueError raised by model_validator
+            if err["type"] == "value_error":
+                msg = err["msg"]
+                idx = msg.find("Missing required keys")
+                if idx != -1:
+                    return msg[idx:]  # strip the "Value error, " prefix
 
-        if not isinstance(properties["values"], list):
-            raise ValidationError({"properties.values": "Must be a list of property groups"})
-
-        for group in properties["values"]:
-            self._validate_property_group(group)
-
-    def _validate_property_group(self, group: dict):
-        if not isinstance(group, dict):
-            raise ValidationError({"property_group": "Each property group must be an object", "received": group})
-
-        if "type" in group and group["type"] in ["behavioral", "cohort", "person", "event"]:
-            self.validate_property_filter(group)
-        else:
-            self._validate_nested_property_group(group)
-
-    def _validate_nested_property_group(self, group: dict):
-        if "type" not in group or "values" not in group:
-            raise ValidationError(
-                {"property_group": "Each property group must have 'type' and 'values' keys", "received": group}
-            )
-
-        if group["type"] not in ["AND", "OR"]:
-            raise ValidationError({"property_group.type": f"Must be 'AND' or 'OR', received '{group['type']}'"})
-
-        if not isinstance(group["values"], list):
-            raise ValidationError({"property_group.values": "Must be a list of property filters"})
-
-        for prop in group["values"]:
-            self.validate_property_filter(prop)
+            # generic missing-field case
+            if err["type"] == "missing":
+                loc = [str(p) for p in err["loc"]]
+                missing_field = loc[-1]
+                for kind in ("behavioral", "cohort", "person"):
+                    if kind in loc:
+                        return f"Missing required keys for {kind} filter: {missing_field}"
+        return str(exc.errors())
 
     def _validate_feature_flag_constraints(self, request_filters: dict):
         if self.context["request"].method != "PATCH":

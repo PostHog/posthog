@@ -1101,16 +1101,27 @@ email@example.org,
                         "type": "OR",
                         "values": [
                             {
-                                "key": "$pageview",
-                                "event_type": "events",
-                                "time_value": 1,
-                                "time_interval": "day",
-                                "value": "performed_event",
-                                "type": "behavioral",
-                                "event_filters": [
-                                    {"key": "$filter_prop", "value": "something", "operator": "exact", "type": "event"}
+                                "type": "OR",
+                                "values": [
+                                    {
+                                        "key": "$pageview",
+                                        "event_type": "events",
+                                        "time_value": 1,
+                                        "time_interval": "day",
+                                        "value": "performed_event",
+                                        "type": "behavioral",
+                                        "negation": False,
+                                        "event_filters": [
+                                            {
+                                                "key": "$filter_prop",
+                                                "value": "something",
+                                                "operator": "exact",
+                                                "type": "event",
+                                            }
+                                        ],
+                                    }
                                 ],
-                            },
+                            }
                         ],
                     }
                 },
@@ -1651,6 +1662,7 @@ email@example.org,
 
     @patch("posthog.api.cohort.report_user_action")
     def test_cohort_property_validation_missing_value(self, patch_capture):
+        self.maxDiff = None
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
             data={

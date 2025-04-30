@@ -91,25 +91,57 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     filters = models.JSONField(
         null=True,
         blank=True,
-        help_text="""Filters for the cohort. Example:
+        help_text="""Filters for the cohort. Examples:
+
+        # Behavioral filter (performed event)
         {
             "properties": {
-                "type": "AND",
-                "values": [
-                    {
+                "type": "OR",
+                "values": [{
+                    "type": "OR",
+                    "values": [{
+                        "key": "address page viewed",
                         "type": "behavioral",
-                        "key": "completed_event",
-                        "value": "signed_up",
-                        "time_interval": "day",
-                        "time_value": 7
-                    },
-                    {
+                        "value": "performed_event",
+                        "negation": false,
+                        "event_type": "events",
+                        "time_value": "30",
+                        "time_interval": "day"
+                    }]
+                }]
+            }
+        }
+
+        # Person property filter
+        {
+            "properties": {
+                "type": "OR",
+                "values": [{
+                    "type": "AND",
+                    "values": [{
+                        "key": "promoCodes",
                         "type": "person",
+                        "value": "",
+                        "negation": false,
+                        "operator": "icontains"
+                    }]
+                }]
+            }
+        }
+
+        # Cohort filter
+        {
+            "properties": {
+                "type": "OR",
+                "values": [{
+                    "type": "AND",
+                    "values": [{
                         "key": "id",
-                        "value": 123,
-                        "operator": "exact"
-                    }
-                ]
+                        "type": "cohort",
+                        "value": 8814,
+                        "negation": false
+                    }]
+                }]
             }
         }""",
     )
