@@ -267,7 +267,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             if hog_type not in ["site_destination", "destination"]:
                 raise serializers.ValidationError({"mappings": "Mappings are only allowed for destinations."})
 
-        if "hog" in attrs:
+        if "hog" in attrs and attrs["hog"] is not None:
             # First check the raw code size before trying to compile/transpile it
             hog_code_size = len(attrs["hog"].encode("utf-8"))
             if hog_code_size > MAX_HOG_CODE_SIZE_BYTES:
@@ -294,10 +294,6 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             else:
                 attrs["bytecode"] = compile_hog(attrs["hog"], hog_type)
                 attrs["transpiled"] = None
-
-        if is_create:
-            if not attrs.get("hog"):
-                raise serializers.ValidationError({"hog": "Required."})
 
         return attrs
 

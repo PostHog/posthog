@@ -2254,3 +2254,18 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             assert names_in_order[0] == "Transform B", "B should be first (order 1, most recently updated)"
             assert names_in_order[1] == "Transform A", "A should be second (order 1, updated earlier)"
             assert names_in_order[2] == "Transform C", "C should be last (order 3)"
+
+    def test_create_hog_function_with_minimal_fields(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "Minimal Function",
+                "type": "destination",
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        data = response.json()
+        assert data["hog"] is None or data["hog"] == ""
+        assert data["inputs_schema"] == []
+        assert data.get("mappings") is None or data["mappings"] == []
