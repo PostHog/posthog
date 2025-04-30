@@ -96,5 +96,5 @@ def test_shorten_url(url: str, expected: str) -> None:
     ],
 )
 def test_serialize_to_sse_event(event_label: str, event_data: str, expected: str) -> None:
-    result = serialize_to_sse_event(event_label, event_data, "test-session-id")
+    result = serialize_to_sse_event(event_label, event_data)
     assert result == expected
