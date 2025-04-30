@@ -13,6 +13,7 @@ from rest_framework import status
 
 from posthog import redis
 from posthog.models import SessionRecording, SessionRecordingPlaylistItem, Team
+from posthog.models.file_system.file_system import FileSystem
 from posthog.models.user import User
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.models.session_recording_playlist import (
@@ -632,3 +633,24 @@ class TestSessionRecordingPlaylist(APIBaseTest):
             ).count()
             == 0
         )
+
+    def test_create_playlist_in_specific_folder(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists",
+            {
+                "name": "Playlist in folder",
+                "filters": {"events": [{"id": "$pageview"}]},
+                "_create_in_folder": "Special Folder/Session Recordings",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        playlist_id = response.json()["short_id"]
+
+        self.assertTrue(playlist_id)
+
+        fs_entry = FileSystem.objects.filter(
+            team=self.team, ref=str(playlist_id), type="session_recording_playlist"
+        ).first()
+        self.assertIsNotNone(fs_entry)
+        self.assertIn("Special Folder/Session Recordings", fs_entry.path)
