@@ -92,8 +92,6 @@ def get_session_events(
         session_events_columns, session_events = load_session_recording_events_from_csv(
             local_path, extra_fields=EXTRA_SUMMARY_EVENT_FIELDS
         )
-    if not session_events_columns or not session_events:
-        raise ValueError(f"No events found for session_id {session_id}")
     return session_events_columns, session_events
 
 
