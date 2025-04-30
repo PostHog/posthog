@@ -11,7 +11,6 @@ import {
     PropertyOperator,
     Survey,
     SurveyEventName,
-    SurveyEventProperties,
     SurveyEventStats,
     SurveyPosition,
     SurveyQuestionBranchingType,
@@ -1527,7 +1526,7 @@ describe('survey filters', () => {
                         properties: expect.arrayContaining([
                             // Survey ID property should still be present
                             {
-                                key: SurveyEventProperties.SURVEY_ID,
+                                key: '$survey_id',
                                 operator: 'exact',
                                 type: 'event',
                                 value: MULTIPLE_CHOICE_SURVEY.id,
@@ -1558,7 +1557,7 @@ describe('survey filters', () => {
                         // Should still have the survey ID property even with no filters
                         properties: expect.arrayContaining([
                             {
-                                key: SurveyEventProperties.SURVEY_ID,
+                                key: '$survey_id',
                                 operator: 'exact',
                                 type: 'event',
                                 value: MULTIPLE_CHOICE_SURVEY.id,
@@ -1584,7 +1583,7 @@ describe('surveyLogic filters for surveys responses', () => {
         }).toDispatchActions(['loadSurveySuccess'])
 
         const answerFilter: EventPropertyFilter = {
-            key: SurveyEventProperties.SURVEY_RESPONSE,
+            key: '$survey_response',
             value: 'test response',
             operator: PropertyOperator.IContains,
             type: PropertyFilterType.Event,
