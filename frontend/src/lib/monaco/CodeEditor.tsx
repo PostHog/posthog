@@ -1,7 +1,8 @@
 import './CodeEditor.scss'
 
-import MonacoEditor, { DiffEditor as MonacoDiffEditor, type EditorProps, loader, Monaco } from '@monaco-editor/react'
+import MonacoEditor, { type EditorProps, loader, Monaco } from '@monaco-editor/react'
 import { BuiltLogic, useMountedLogic, useValues } from 'kea'
+import MonacoDiffEditor from 'lib/components/MonacoDiffEditor'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { codeEditorLogicType } from 'lib/monaco/codeEditorLogicType'
