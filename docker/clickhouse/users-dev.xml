@@ -144,7 +144,7 @@
                 <ip>::/0</ip>
             </networks>
 
-            <profile>api</profile>
+            <profile>app</profile>
 
             <quota>default</quota>
         </app>
