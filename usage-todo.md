@@ -138,6 +138,9 @@ After exploring multiple approaches, we've decided to standardize on the impleme
 - [ ] Implement `compare` parameter for previous period comparison
 - [ ] Add `show_values_on_series` parameter
 
+### Label Enrichment
+- [ ] Enrich labels with actual Team names (currently shows only team ID). Needs decision on where to implement (billing service, PostHog server, or frontend). TBD.
+
 ### Performance optimizations
 - [ ] Add caching for frequently requested data
 - [ ] Optimize SQL queries for larger datasets
@@ -211,7 +214,7 @@ After exploring multiple approaches, we've decided to standardize on the impleme
     - [x] Ensure NO 400 rule requiring `usage_types` when `breakdowns` includes `'team'`.
 
 ### Step S2: Refactor Service (`get_spend_data` in `billing/services/usage.py`) - Signature & Data Fetching ✅
-- [x] Update function signature: `breakdowns_list: Optional[List[str]]`, add `usage_types: Optional[List[str]]`, `team_ids: Optional[List[int]]`.
+- [x] Update function signature: `breakdowns: Optional[List[str]]`, add `usage_types: Optional[List[str]]`, `team_ids: Optional[List[int]]`.
 - [x] Replace ORM query (`UsageReport.objects.filter`) with raw SQL:
     - [x] Fetch `date`, `usage_sent_to_stripe`, `report`, `reported_to_period_end` from `billing_usagereport`.
     - [x] Filter by `organization_id` and date range (`start_date - 1 day` to `end_date`).
@@ -227,22 +230,22 @@ After exploring multiple approaches, we've decided to standardize on the impleme
 
 ### Step S4: Refactor Service (`get_spend_data`) - Filtering Logic ✅
 - [x] After calculating `processed_data` and before transformation:
-    - [x] Add logic to filter `processed_data` dictionary based on `usage_types` and `team_ids` provided in the request, respecting the `breakdowns_list`:
-        - [x] No filtering if `breakdowns_list` is `[]` (total).
-        - [x] Filter by `usage_types` if `breakdowns_list` is `['type']`.
-        - [x] Filter by `team_ids` (stringified) if `breakdowns_list` is `['team']`.
-        - [x] Filter by both `usage_types` and `team_ids` (stringified) if `breakdowns_list` is `['type', 'team']`.
+    - [x] Add logic to filter `processed_data` dictionary based on `usage_types` and `team_ids` provided in the request, respecting the `breakdowns`:
+        - [x] No filtering if `breakdowns` is `[]` (total).
+        - [x] Filter by `usage_types` if `breakdowns` is `['type']`.
+        - [x] Filter by `team_ids` (stringified) if `breakdowns` is `['team']`.
+        - [x] Filter by both `usage_types` and `team_ids` (stringified) if `breakdowns` is `['type', 'team']`.
 
 ### Step S5: Refactor Service (`get_spend_data`) - Transformation ✅
 - [x] Generate `all_period_starts` using `_generate_all_period_starts`.
-- [x] Determine `final_breakdown_type` (`None`, `'type'`, `'team'`, `'multiple'`) from `breakdowns_list`.
+- [x] Determine `final_breakdown_type` (`None`, `'type'`, `'team'`, `'multiple'`) from `breakdowns`.
 - [x] Determine `breakdown_label_prefix` ("Total Spend", "Spend").
 - [x] Call `_transform_spend_to_timeseries_format` with **filtered** `processed_data`, `final_breakdown_type`, `breakdown_label_prefix`, and `all_period_starts`.
 
 ### Step S6: Update API View (`SpendViewSet.list` in `billing/api/usage_v2.py`) ✅
 - [x] Instantiate updated `SpendRequestSerializer`.
 - [x] Update call to `get_spend_data`, passing:
-    - [x] `breakdowns_list=validated_data.get('breakdowns', [])`
+    - [x] `breakdowns=validated_data.get('breakdowns', [])`
     - [x] `usage_types=validated_data.get('usage_types')`
     - [x] `team_ids=validated_data.get('team_ids')`
     - [x] Other params as before.
@@ -251,14 +254,14 @@ After exploring multiple approaches, we've decided to standardize on the impleme
 - [x] Double-check (no code changes expected) that it correctly maps `breakdown_type` (`None`, `'type'`, `'team'`, `'multiple'`) to final `label` and `breakdown_value` (None, string, string, list) in the output.
 
 ### Step S8: Refactor Service (`get_spend_data`) - Revised Filtering/Aggregation ✅
-- [x] **(S8.1) Always Allocate:** Modify breakdown logic to always calculate the most granular `(type, team)` allocation, regardless of `breakdowns_list`. Store this in a temporary variable (e.g., `allocated_data`).
+- [x] **(S8.1) Always Allocate:** Modify breakdown logic to always calculate the most granular `(type, team)` allocation, regardless of `breakdowns`. Store this in a temporary variable (e.g., `allocated_data`).
 - [x] **(S8.2) Filter Allocated Data:** Apply `usage_types` and `team_ids` filters directly to the `allocated_data` (based on the tuple keys).
-- [x] **(S8.3) Aggregate Filtered Data:** Create the final `processed_data` by aggregating the `filtered_allocated_data` based on the original `breakdowns_list` requested by the user:
-    - [x] If `breakdowns_list` is `["type", "team"]`: `processed_data = filtered_allocated_data`.
-    - [x] If `breakdowns_list` is `["type"]`: Sum `filtered_allocated_data` values for each type key. (Ensure all expected keys exist).
-    - [x] If `breakdowns_list` is `["team"]`: Sum `filtered_allocated_data` values for each team key.
-    - [x] If `breakdowns_list` is `[]`: Sum all values in `filtered_allocated_data` into a single `"total"` key.
-- [x] **(S8.4) Update Transformation Call:** Ensure the correct `final_breakdown_type` (corresponding to the original `breakdowns_list`) is passed to `_transform_spend_to_timeseries_format` along with the newly aggregated `processed_data`.
+- [x] **(S8.3) Aggregate Filtered Data:** Create the final `processed_data` by aggregating the `filtered_allocated_data` based on the original `breakdowns` requested by the user:
+    - [x] If `breakdowns` is `["type", "team"]`: `processed_data = filtered_allocated_data`.
+    - [x] If `breakdowns` is `["type"]`: Sum `filtered_allocated_data` values for each type key. (Ensure all expected keys exist).
+    - [x] If `breakdowns` is `["team"]`: Sum `filtered_allocated_data` values for each team key.
+    - [x] If `breakdowns` is `[]`: Sum all values in `filtered_allocated_data` into a single `"total"` key.
+- [x] **(S8.4) Update Transformation Call:** Ensure the correct `final_breakdown_type` (corresponding to the original `breakdowns`) is passed to `_transform_spend_to_timeseries_format` along with the newly aggregated `processed_data`.
 
 ### Planned Spend API Endpoint
 
@@ -306,61 +309,54 @@ This phase migrates the existing usage and spend endpoints into the `/billing/ap
 ### Step M1: Split and Prepare Service Files ✅
 - [x] Create `billing/services/usage.py`.
 - [x] Create `billing/services/spend.py`.
-- [x] Create `billing/services/utils.py` (for shared constants, helpers, enums, dataclasses).
+- [x] Migrate relevant utils to `billing/utils/timeseries.py` and `billing/utils/usage.py`.
 
-### Step M2: Refactor Services into Separate Files and Classes ✅
-- [x] In `billing/services/utils.py`:
-    - [x] Define shared Enums (`SupportedUsageType`, `IntervalEnum`, `StripeProductKey`, `BreakdownDimensionEnum`).
-    - [x] Define shared constants (`ALL_SUPPORTED_USAGE_TYPES`, `USAGE_TYPE_LABELS`, `REPORT_TO_STRIPE_KEY_MAPPING`, `STRIPE_TO_REPORT_KEY_MAPPING`).
-    - [x] Define shared helper functions (`_generate_all_period_starts`, `_apply_interval_aggregation`).
-    - [x] Define shared service dataclasses (`TimeSeriesDataPoint`, `TimeSeriesResult`).
+### Step M2: Refactor Services into Separate Files and Classes 
+- [x] In `billing/types/usage.py` Define shared Enums (`SupportedUsageType`, `IntervalEnum`, `StripeProductKey`, `BreakdownDimensionEnum`).
+- [x] In `billing/types/usage.py` define shared service dataclasses (`TimeSeriesDataPoint`, `TimeSeriesResult`).
 - [x] In `billing/services/usage.py`:
     - [x] Create a `UsageService` class.
-    - [x] Implement the `get_usage_data` method using components from `utils.py`.
     - [x] Ensure the method returns the defined `TimeSeriesResult` dataclass.
-    - [x] Move relevant helper functions into the class as private static methods.
+    - [x] Move relevant (non-shared) helper functions into the class as private static methods.
 - [x] In `billing/services/spend.py`:
     - [x] Create a `SpendService` class.
-    - [x] Implement the `get_spend_data` method using components from `utils.py`.
     - [x] Ensure the method returns the defined `TimeSeriesResult` dataclass.
     - [x] Move relevant helper functions into the class as private static methods.
 
-### Step M3: Move and Split Serializers ✅
-- [x] Create directories: `billing/api/v2/serializers/usage/` and `billing/api/v2/serializers/spend/`.
-- [x] Move `TimeSeriesDataPointSerializer` to `billing/api/v2/serializers/common.py`.
+### Step M3: Move and Split Serializers 
+- [x] Create files: `billing/api/v2/serializers/usage.py` and `billing/api/v2/serializers/spend.py`.
+- [x] Move `TimeSeriesDataPointSerializer` to `billing/api/v2/serializers/shared.py`.
     - [x] Update `TimeSeriesDataPointSerializer` to serialize the `TimeSeriesDataPoint` dataclass.
-- [x] Move `UsageRequestSerializer` and `UsageResponseSerializer` to `billing/api/v2/serializers/usage/usage.py`.
-- [x] Move `SpendRequestSerializer` and `SpendResponseSerializer` to `billing/api/v2/serializers/spend/spend.py`.
+- [x] Move `UsageRequestSerializer` and `UsageResponseSerializer` to `billing/api/v2/serializers/usage.py`.
+- [x] Move `SpendRequestSerializer` and `SpendResponseSerializer` to `billing/api/v2/serializers/spend.py`.
 - [x] Update `UsageResponseSerializer` and `SpendResponseSerializer`:
-    - [x] Add `customer_id = serializers.CharField(read_only=True)` (handled via context).
+    - [x] Add `customer_id = serializers.CharField(read_only=True)` (handled via context - the request.user is customer so take customer.id).
     - [x] Ensure `status = serializers.CharField(read_only=True)` and `type = serializers.CharField(read_only=True)` are present.
     - [x] Ensure the `results` field serializes the `TimeSeriesResult.results` list using the updated `TimeSeriesDataPointSerializer(many=True)`.
 - [x] Update `UsageRequestSerializer` and `SpendRequestSerializer`:
     - [x] Change `interval` field to use the `IntervalEnum`.
     - [x] Update validation logic for `usage_types` to use Enums (`SupportedUsageType`, `StripeProductKey`).
-- [x] Delete the original `billing/serializers/usage.py` file.
 
-### Step M4: Move and Refactor Views ✅
+### Step M4: Move and Refactor Views 
 - [x] Create `billing/api/v2/views/usage.py`.
 - [x] Create `billing/api/v2/views/spend.py`.
 - [x] In `billing/api/v2/views/usage.py`, create `usage(request)` function-based view:
-    - [x] Add decorators: `@api_view(['GET'])`, `@authentication_classes(...)`, `@permission_classes(...)` (placeholders added).
-    - [x] Extract `customer_id` (placeholder added).
+    - [x] Add decorators: `@api_view(['GET'])`, `@authentication_classes(...)`, `@permission_classes(...)` (look at existing views like `billing/api/v2/views/subscription.py` and replicate).
+    - [x] Extract `customer_id` (via request.user.id).
     - [x] Instantiate V2 `UsageRequestSerializer`.
     - [x] Instantiate `UsageService` and call `get_usage_data`.
     - [x] Implement standardized try/except block.
     - [x] Instantiate V2 `UsageResponseSerializer` with result dataclass and `customer_id` context.
     - [x] Return `Response(response_serializer.data)`.
 - [x] In `billing/api/v2/views/spend.py`, create `spend(request)` function-based view similarly.
-- [x] Delete the original `billing/api/usage_v2.py` file.
 
-### Step M5: Update URL Configuration ✅
+### Step M5: Update URL Configuration 
 - [x] In `billing/api/v2/views/__init__.py`, import and expose `usage` and `spend` views.
 - [x] In `billing/api/v2/urls.py`, add paths for `usage` and `spend`.
 - [x] Include `billing.api.v2.urls` in main `billing/urls.py`.
 - [x] Remove old `/api/usage-v2/` routes from `billing/urls.py`.
 
-### Step M6: Verification & PostHog Adjustments ⏳
+### Step M6: Verification & PostHog Adjustments
 - [x] **PostHog Proxy (`BillingManager`):**
     - [x] Update `get_usage_data` method to call the **new** `/api/v2/usage/` endpoint in the billing service.
     - [x] Update `get_spend_data` method to call the **new** `/api/v2/spend/` endpoint in the billing service.

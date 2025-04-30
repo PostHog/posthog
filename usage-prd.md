@@ -157,8 +157,8 @@ interface SpendResponse {
 **Label Examples for Spend:**
 - **No Breakdown:** `label: "Total Spend"`, `breakdown_type: null`, `breakdown_value: null`
 - **Breakdown by Type:** `label: "Spend: Events"`, `breakdown_type: "type"`, `breakdown_value: "product_analytics"`
-- **Breakdown by Team:** `label: "Team 123"`, `breakdown_type: "team"`, `breakdown_value: "123"`
-- **Breakdown by Type & Team:** `label: "Spend: Events::Team 123"`, `breakdown_type: "multiple"`, `breakdown_value: ["product_analytics", "123"]`
+- **Breakdown by Team:** `label: "123"`, `breakdown_type: "team"`, `breakdown_value: "123"` (Label is just the team ID)
+- **Breakdown by Type & Team:** `label: "123::Spend: Events"`, `breakdown_type: "multiple"`, `breakdown_value: ["product_analytics", "123"]` (Label format: `team_id::type_label`)
 
 ### Multiple Breakdowns Support
 
@@ -199,9 +199,9 @@ Response will contain series for Events and Recordings, but only including data 
 GET /api/v2/usage/?organization_id=123&start_date=2025-04-09&end_date=2025-04-16&breakdowns=["type","team"]
 ```
 Response will contain series like:
-`{ ..., label: "Events::Team 1", breakdown_type: "multiple", breakdown_value: ["event_count_in_period", "1"] }`
-`{ ..., label: "Recordings::Team 1", breakdown_type: "multiple", breakdown_value: ["recording_count_in_period", "1"] }`
-`{ ..., label: "Events::Team 2", breakdown_type: "multiple", breakdown_value: ["event_count_in_period", "2"] }`
+`{ ..., label: "1::Events", breakdown_type: "multiple", breakdown_value: ["event_count_in_period", "1"] }`
+`{ ..., label: "1::Recordings", breakdown_type: "multiple", breakdown_value: ["recording_count_in_period", "1"] }`
+`{ ..., label: "2::Events", breakdown_type: "multiple", breakdown_value: ["event_count_in_period", "2"] }`
 ...
 
 4. Breakdown by type and team, filtered by specific types and teams:
@@ -209,11 +209,11 @@ Response will contain series like:
 GET /api/v2/usage/?organization_id=123&start_date=2025-04-09&end_date=2025-04-16&usage_types=["event_count_in_period"]&team_ids=[1,2]&breakdowns=["type","team"]
 ```
 Response will contain series only for Events and only for teams 1 and 2:
-`{ ..., label: "Events::Team 1", breakdown_type: "multiple", breakdown_value: ["event_count_in_period", "1"] }`
-`{ ..., label: "Events::Team 2", breakdown_type: "multiple", breakdown_value: ["event_count_in_period", "2"] }`
+`{ ..., label: "1::Events", breakdown_type: "multiple", breakdown_value: ["event_count_in_period", "1"] }`
+`{ ..., label: "2::Events", breakdown_type: "multiple", breakdown_value: ["event_count_in_period", "2"] }`
 
 
-With multiple breakdowns, the `breakdown_value` field in the response will be an array containing values for each dimension, and labels will be formatted with a double-colon separator (e.g., "Events::Team 123").
+With multiple breakdowns, the `breakdown_value` field in the response will be an array containing values for each dimension, and labels will be formatted with a double-colon separator (e.g., "123::Events").
 
 #### SQL Implementation for Multiple Breakdowns
 
@@ -580,7 +580,7 @@ def get_usage_data(
     organization_id: str,
     start_date: date,
     end_date: date,
-    breakdowns_list: Optional[List[str]] = None,
+    breakdowns: Optional[List[str]] = None,
     usage_types: Optional[List[str]] = None,
     team_ids: Optional[List[int]] = None,
     interval: str = "day",
@@ -592,7 +592,7 @@ def get_usage_data(
         organization_id: The organization to query data for
         start_date: Beginning of date range 
         end_date: End of date range
-        breakdowns_list: List of breakdown dimensions to apply
+        breakdowns: List of breakdown dimensions to apply
         usage_types: List of usage types to include
         team_ids: List of team IDs to include
         interval: Time aggregation ('day', 'week', 'month')
@@ -601,10 +601,10 @@ def get_usage_data(
         A dictionary with formatted time-series data
     """
     # Validate parameters
-    if breakdowns_list and "team" in breakdowns_list and not usage_types:
+    if breakdowns and "team" in breakdowns and not usage_types:
         raise ValueError("If 'team' is in breakdowns, 'usage_types' must be provided")
     
-    is_team_breakdown = "team" in (breakdowns_list or [])
+    is_team_breakdown = "team" in (breakdowns or [])
 
     if is_team_breakdown:
         raw_data = _fetch_usage_by_type_and_team(
@@ -629,7 +629,7 @@ def get_usage_data(
     # Transform to time-series format expected by frontend
     result_list = transform_to_timeseries_format(
         data=raw_data,
-        breakdowns=breakdowns_list,
+        breakdowns=breakdowns,
         start_date=start_date,
         end_date=end_date,
         interval=interval,
