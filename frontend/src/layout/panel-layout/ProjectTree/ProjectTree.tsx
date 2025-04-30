@@ -363,23 +363,22 @@ export function ProjectTree(): JSX.Element {
                         </ButtonPrimitive>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent loop align="end" className="w-[180px]">
-                        <DropdownMenuLabel inset>Display</DropdownMenuLabel>
+                        <DropdownMenuLabel inset>Sort by</DropdownMenuLabel>
                         <DropdownMenuSeparator />
                         <DropdownMenuRadioGroup
                             value={sortMethod}
                             onValueChange={(value) => setSortMethod(value as ProjectTreeSortMethod)}
                         >
-                            <DropdownMenuRadioItem value="created_at" asChild>
-                                <ButtonPrimitive menuItem>
-                                    <DropdownMenuItemIndicator intent="radio" />
-                                    Recent first
-                                </ButtonPrimitive>
-                            </DropdownMenuRadioItem>
-
                             <DropdownMenuRadioItem value="alphabetical" asChild>
                                 <ButtonPrimitive menuItem>
                                     <DropdownMenuItemIndicator intent="radio" />
-                                    Structured
+                                    Folder
+                                </ButtonPrimitive>
+                            </DropdownMenuRadioItem>
+                            <DropdownMenuRadioItem value="created_at" asChild>
+                                <ButtonPrimitive menuItem>
+                                    <DropdownMenuItemIndicator intent="radio" />
+                                    Recent
                                 </ButtonPrimitive>
                             </DropdownMenuRadioItem>
                         </DropdownMenuRadioGroup>
