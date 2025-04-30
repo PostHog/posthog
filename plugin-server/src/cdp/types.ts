@@ -206,7 +206,11 @@ export type HogFunctionInvocationQueueParameters =
     | HogFunctionQueueParametersFetchRequest
     | HogFunctionQueueParametersFetchResponse
 
-export type HogFunctionInvocationJobQueue = 'hog' | 'fetch' | 'plugin'
+export const HOG_FUNCTION_INVOCATION_JOB_QUEUES = ['hog', 'fetch', 'plugin'] as const
+export type HogFunctionInvocationJobQueue = (typeof HOG_FUNCTION_INVOCATION_JOB_QUEUES)[number]
+
+export const CYCLOTRON_JOB_QUEUE_KINDS = ['postgres', 'kafka'] as const
+export type CyclotronJobQueueKind = (typeof CYCLOTRON_JOB_QUEUE_KINDS)[number]
 
 export type HogFunctionInvocation = {
     id: string
@@ -222,6 +226,7 @@ export type HogFunctionInvocation = {
     queuePriority: number
     queueScheduledAt?: DateTime
     queueMetadata?: Record<string, any>
+    queueSource?: CyclotronJobQueueKind
 }
 
 export type HogFunctionAsyncFunctionRequest = {

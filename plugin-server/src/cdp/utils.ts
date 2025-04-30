@@ -330,7 +330,7 @@ export function createInvocation(
         globals,
         teamId: hogFunction.team_id,
         hogFunction,
-        queue: 'hog',
+        queue: isLegacyPluginHogFunction(hogFunction) ? 'plugin' : 'hog',
         queuePriority: 1,
         timings: [],
     }

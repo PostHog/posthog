@@ -28,7 +28,7 @@ const mockFetch: jest.Mock = require('../../src/utils/fetch').trackedFetch
 
 const ActualKafkaProducerWrapper = jest.requireActual('../../src/kafka/producer').KafkaProducerWrapper
 
-describe.each([['cyclotron' as const], ['kafka' as const]])('CDP Consumer loop: %s', (mode) => {
+describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP Consumer loop: %s', (mode) => {
     jest.setTimeout(10000)
 
     describe('e2e fetch call', () => {
@@ -65,7 +65,8 @@ describe.each([['cyclotron' as const], ['kafka' as const]])('CDP Consumer loop: 
             hub.CDP_FETCH_BACKOFF_BASE_MS = 100 // fast backoff
             hub.CDP_CYCLOTRON_COMPRESS_KAFKA_DATA = true
             hub.CYCLOTRON_DATABASE_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron'
-            hub.CDP_CYCLOTRON_DELIVERY_MODE = mode
+            hub.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING =
+                mode === 'hybrid' ? '*:kafka,fetch:postgres' : mode === 'postgres' ? '*:postgres' : '*:kafka'
 
             fnFetchNoFilters = await insertHogFunction({
                 ...HOG_EXAMPLES.simple_fetch,
@@ -73,12 +74,21 @@ describe.each([['cyclotron' as const], ['kafka' as const]])('CDP Consumer loop: 
                 ...HOG_FILTERS_EXAMPLES.no_filters,
             })
 
-            eventsConsumer = new CdpEventsConsumer(hub)
+            eventsConsumer = new CdpEventsConsumer({
+                ...hub,
+                CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: mode === 'hybrid' ? 'kafka' : mode,
+            })
             await eventsConsumer.start()
 
-            cyclotronWorker = new CdpCyclotronWorker(hub)
+            cyclotronWorker = new CdpCyclotronWorker({
+                ...hub,
+                CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: mode === 'hybrid' ? 'kafka' : mode, // hybrid mode we do hog on kafka
+            })
             await cyclotronWorker.start()
-            cyclotronFetchWorker = new CdpCyclotronWorkerFetch(hub)
+            cyclotronFetchWorker = new CdpCyclotronWorkerFetch({
+                ...hub,
+                CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: mode === 'hybrid' ? 'postgres' : mode, // hybrid mode we do fetch on postgres
+            })
             await cyclotronFetchWorker.start()
 
             globals = createHogExecutionGlobals({
