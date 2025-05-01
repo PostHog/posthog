@@ -270,7 +270,7 @@ class PipelineNonDLT:
         _update_last_synced_at_sync(self._schema, self._job)
 
         self._logger.debug("Notifying revenue analytics that sync has completed")
-        _notify_revenue_analytics_that_sync_has_completed(self._schema)
+        _notify_revenue_analytics_that_sync_has_completed(self._schema, self._logger)
 
         # As mentioned above, for sort mode 'desc' we only want to update the `incremental_field_last_value` once we
         # have processed all of the data (we could also update it here for 'asc' but it's not needed)
