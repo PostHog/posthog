@@ -45,9 +45,6 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
         enableAllFlags: true,
         disableAllFlags: true,
         resetAllOverrides: true,
-        enableAllFlagsSuccess: true,
-        disableAllFlagsSuccess: true,
-        resetAllOverridesSuccess: true,
     }),
     loaders(({ values }) => ({
         userFlags: [
@@ -71,27 +68,6 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
         ],
     })),
     reducers({
-        resettingAllOverrides: [
-            false,
-            {
-                resetAllOverrides: () => true,
-                resetAllOverridesSuccess: () => false,
-            },
-        ],
-        enablingAllFlags: [
-            false,
-            {
-                enableAllFlags: () => true,
-                enableAllFlagsSuccess: () => false,
-            },
-        ],
-        disablingAllFlags: [
-            false,
-            {
-                disableAllFlags: () => true,
-                disableAllFlagsSuccess: () => false,
-            },
-        ],
         localOverrides: [
             {} as Record<string, string | boolean>,
             {
@@ -205,41 +181,62 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
         ],
         countFlagsOverridden: [(s) => [s.localOverrides], (localOverrides) => Object.keys(localOverrides).length],
         hasFilteredFlags: [
-            (s) => [s.userFlags, s.filteredFlags],
-            (userFlags, filteredFlags) => userFlags.length > 0 && userFlags.length > filteredFlags.length,
+            (s) => [s.userFlagsWithOverrideInfo, s.filteredFlags],
+            (userFlagsWithOverrideInfo, filteredFlags) =>
+                userFlagsWithOverrideInfo.length > 0 && userFlagsWithOverrideInfo.length > filteredFlags.length,
         ],
         filteredFlagsCount: [(s) => [s.filteredFlags], (filteredFlags) => filteredFlags.length],
     }),
     listeners(({ actions, values }) => ({
         enableAllFlags: () => {
-            // a little timeout or the work to do the updates stops the UI reacting to the loading state
-            setTimeout(() => {
-                values.filteredFlags.forEach(({ feature_flag }) => {
-                    actions.setOverriddenUserFlag(feature_flag.key, true)
+            const clientPostHog = values.posthog
+            if (clientPostHog) {
+                const allBooleanEnabled = values.userFlagsWithOverrideInfo.reduce((acc, flag) => {
+                    if (typeof flag.currentValue === 'boolean') {
+                        acc[flag.feature_flag.key] = true
+                    } else {
+                        acc[flag.feature_flag.key] = flag.currentValue
+                    }
+                    return acc
+                }, {} as Record<string, string | boolean>)
+
+                clientPostHog.featureFlags.overrideFeatureFlags({
+                    flags: allBooleanEnabled,
+                    payloads: undefined,
                 })
-                actions.enableAllFlagsSuccess()
-            }, 1)
+                toolbarPosthogJS.capture('toolbar feature flag overridden - all enabled')
+                actions.checkLocalOverrides()
+                clientPostHog.featureFlags.reloadFeatureFlags()
+            }
         },
         disableAllFlags: () => {
-            // a little timeout or the work to do the updates stops the UI reacting to the loading state
-            setTimeout(() => {
-                values.filteredFlags.forEach(({ feature_flag }) => {
-                    actions.setOverriddenUserFlag(feature_flag.key, false)
+            const clientPostHog = values.posthog
+            if (clientPostHog) {
+                const allBooleanEnabled = values.userFlagsWithOverrideInfo.reduce((acc, flag) => {
+                    if (typeof flag.currentValue === 'boolean') {
+                        acc[flag.feature_flag.key] = false
+                    } else {
+                        acc[flag.feature_flag.key] = flag.currentValue
+                    }
+                    return acc
+                }, {} as Record<string, string | boolean>)
+
+                clientPostHog.featureFlags.overrideFeatureFlags({
+                    flags: allBooleanEnabled,
+                    payloads: undefined,
                 })
-                actions.disableAllFlagsSuccess()
-            }, 1)
+                toolbarPosthogJS.capture('toolbar feature flag overridden - all enabled')
+                actions.checkLocalOverrides()
+                clientPostHog.featureFlags.reloadFeatureFlags()
+            }
         },
         resetAllOverrides: () => {
-            // a little timeout or the work to do the updates stops the UI reacting to the loading state
-            setTimeout(() => {
-                const clientPostHog = values.posthog
-                if (clientPostHog) {
-                    clientPostHog.featureFlags.overrideFeatureFlags(false)
-                    actions.storeLocalOverrides({})
-                    actions.setPayloadOverride({}) // Clear payload overrides
-                }
-                actions.resetAllOverridesSuccess()
-            }, 1)
+            const clientPostHog = values.posthog
+            if (clientPostHog) {
+                clientPostHog.featureFlags.overrideFeatureFlags(false)
+                actions.checkLocalOverrides()
+                clientPostHog.featureFlags.reloadFeatureFlags()
+            }
         },
         checkLocalOverrides: () => {
             const clientPostHog = values.posthog

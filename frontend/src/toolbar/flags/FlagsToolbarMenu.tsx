@@ -17,27 +17,20 @@ import { flagsToolbarLogic } from '~/toolbar/flags/flagsToolbarLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 
 const FlagFooter = (): JSX.Element => {
-    const {
-        countFlagsOverridden,
-        enablingAllFlags,
-        disablingAllFlags,
-        resettingAllOverrides,
-        hasFilteredFlags,
-        filteredFlagsCount,
-    } = useValues(flagsToolbarLogic)
+    const { countFlagsOverridden, hasFilteredFlags, filteredFlagsCount } = useValues(flagsToolbarLogic)
     const { enableAllFlags, disableAllFlags, resetAllOverrides } = useActions(flagsToolbarLogic)
 
     return (
         <div className="flex flex-col gap-2 w-full">
             <div className="flex flex-row gap-x-2 justify-between">
-                <LemonButton size="small" loading={enablingAllFlags} onClick={enableAllFlags}>
+                <LemonButton size="small" onClick={enableAllFlags}>
                     <span>
                         {hasFilteredFlags
                             ? `Enable ${filteredFlagsCount} ${filteredFlagsCount === 1 ? 'flag' : 'flags'}`
                             : 'Enable all'}
                     </span>
                 </LemonButton>
-                <LemonButton size="small" loading={disablingAllFlags} onClick={disableAllFlags}>
+                <LemonButton size="small" onClick={disableAllFlags}>
                     <span>
                         {hasFilteredFlags
                             ? `Disable ${filteredFlagsCount} ${filteredFlagsCount === 1 ? 'flag' : 'flags'}`
@@ -47,7 +40,6 @@ const FlagFooter = (): JSX.Element => {
                 <LemonButton
                     size="small"
                     status="danger"
-                    loading={resettingAllOverrides}
                     disabledReason={countFlagsOverridden === 0 ? 'No overrides to reset' : undefined}
                     onClick={resetAllOverrides}
                 >
