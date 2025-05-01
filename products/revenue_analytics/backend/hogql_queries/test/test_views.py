@@ -104,7 +104,7 @@ class TestRevenueAnalyticsViews(BaseTest):
         self.assertEqual(views[0].name, "stripe.prefix_with_underscores.charge_revenue_view")
 
     def test_revenue_view_prefix_with_empty_string(self):
-        """Test that RevenueAnalyticsBaseView handles prefix with underscores and periods correctly"""
+        """Test that RevenueAnalyticsBaseView handles empty prefix"""
         self.source.prefix = ""
         self.source.save()
 

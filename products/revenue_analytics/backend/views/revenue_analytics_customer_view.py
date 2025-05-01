@@ -37,15 +37,15 @@ class RevenueAnalyticsCustomerView(RevenueAnalyticsBaseView):
         if not source.source_type == ExternalDataSource.Type.STRIPE:
             return []
 
-        charge_schema = source.schemas.all().filter(name=STRIPE_DATA_WAREHOUSE_CUSTOMER_IDENTIFIER).first()
-        if charge_schema is None:
+        customer_schema = source.schemas.all().filter(name=STRIPE_DATA_WAREHOUSE_CUSTOMER_IDENTIFIER).first()
+        if customer_schema is None:
             return []
 
-        charge_schema = cast(ExternalDataSchema, charge_schema)
-        if charge_schema.table is None:
+        customer_schema = cast(ExternalDataSchema, customer_schema)
+        if customer_schema.table is None:
             return []
 
-        table = cast(DataWarehouseTable, charge_schema.table)
+        table = cast(DataWarehouseTable, customer_schema.table)
 
         # Even though we need a string query for the view,
         # using an ast allows us to comment what each field means, and

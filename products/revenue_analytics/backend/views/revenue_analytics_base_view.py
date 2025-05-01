@@ -1,5 +1,5 @@
 from typing import Optional
-from posthog.caching.test.test_stale_utils import Team
+from posthog.models.team.team import Team
 from posthog.hogql.database.models import SavedQuery
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 
