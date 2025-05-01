@@ -350,46 +350,6 @@ class OrganizationMembership(UUIDModel):
             "team_ids": team_ids,
         }
 
-    def remove_scoped_api_keys(self, requesting_user):
-        """
-        Remove organization and team scoping from API keys.
-        Returns True if any keys were updated.
-        """
-        from posthog.utils import posthoganalytics
-        from posthog.event_usage import groups
-
-        api_keys_data = self.get_scoped_api_keys()
-        personal_api_keys = api_keys_data["personal_api_keys"]
-        team_ids = api_keys_data["team_ids"]
-
-        if personal_api_keys.exists():
-            posthoganalytics.capture(
-                str(requesting_user.distinct_id),
-                "scope removed on personal api keys",
-                properties={
-                    "personal_api_keys": [pk.id for pk in personal_api_keys],
-                },
-                groups=groups(self.organization),
-            )
-
-            # Remove organization from scoped_organizations
-            for key in personal_api_keys:
-                # Handle organization scoping
-                if key.scoped_organizations and str(self.organization_id) in key.scoped_organizations:
-                    key.scoped_organizations = [
-                        org_id for org_id in key.scoped_organizations if org_id != str(self.organization_id)
-                    ]
-
-                # Handle team scoping
-                if key.scoped_teams:
-                    key.scoped_teams = [team_id for team_id in key.scoped_teams if team_id not in team_ids]
-
-                key.save()
-
-            return True
-
-        return False
-
     __repr__ = sane_repr("organization", "user", "level")
 
 

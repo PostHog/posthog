@@ -148,8 +148,6 @@ class OrganizationMemberViewSet(
 
         is_self_removal = requesting_user.id == removed_user.id
 
-        instance.remove_scoped_api_keys(requesting_user)
-
         posthoganalytics.capture(
             str(requesting_user.distinct_id),
             "organization member removed",
