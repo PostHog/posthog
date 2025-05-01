@@ -441,7 +441,18 @@ function LoadSessionSummaryButton(): JSX.Element {
     const { items: inspectorItems } = useValues(inspectorLogic)
     const { summarizeSession } = useActions(playerMetaLogic(logicProps))
 
-    const hasEnoughEvents = inspectorItems && inspectorItems.length > 0
+    // We need $autocapture events to be able to generate a summary
+    const hasEvents = inspectorItems && inspectorItems.length > 0
+    const hasEnoughEvents =
+        hasEvents &&
+        inspectorItems?.some(
+            (item) =>
+                'data' in item &&
+                item.data &&
+                typeof item.data === 'object' &&
+                'event' in item.data &&
+                item.data.event === '$autocapture'
+        )
 
     return (
         <div className="space-y-2">
@@ -464,10 +475,21 @@ function LoadSessionSummaryButton(): JSX.Element {
                 </div>
             ) : (
                 !hasEnoughEvents && (
-                    <div className="text-sm">
-                        Session events not available for summary yet.
-                        <br />
-                        Please, try again in a few minutes.
+                    <div>
+                        {hasEvents ? (
+                            <>
+                                <h4>No autocapture events found for this session</h4>
+                                <p className="text-sm mb-1">
+                                    Please, ensure that Autocapture is enabled in project's settings, or try again in a
+                                    few minutes.
+                                </p>
+                            </>
+                        ) : (
+                            <>
+                                <h4>Session events are not available for summary yet</h4>
+                                <p className="text-sm mb-1">Please, try again in a few minutes.</p>
+                            </>
+                        )}
                     </div>
                 )
             )}
