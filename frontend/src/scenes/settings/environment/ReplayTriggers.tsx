@@ -608,7 +608,7 @@ function TriggerMatchChoice(): JSX.Element {
     return (
         <div className="flex flex-col gap-y-1">
             <SupportedPlatforms web={{ version: '1.238.0' }} />
-            <LemonBanner type="info" className="text-sm" hideIcon={true} dismisskey="replay-trigger-match-1-238-0">
+            <LemonBanner type="info" className="text-sm" hideIcon={true} dismissKey="replay-trigger-match-1-238-0">
                 <div className="flex flex-row gap-x-4 items-center">
                     <LemonTag type="warning">NEW</LemonTag>
                     <div>
