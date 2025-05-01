@@ -1,0 +1,2 @@
+#!/bin/bash
+java -jar /Users/ericduong/Posthog/posthog/antlr/antlr.jar $*

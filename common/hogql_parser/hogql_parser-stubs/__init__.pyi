@@ -1,4 +1,4 @@
-from posthog.hogql.ast import SelectQuery, SelectSetQuery, Program
+from posthog.hogql.ast import SelectQuery, SelectSetQuery, Program, CreateTableStmt
 from posthog.hogql.base import AST
 
 def parse_expr(expr: str, /, *, is_internal: bool = False) -> AST:
@@ -38,6 +38,13 @@ def parse_string_literal_text(value: str, /) -> str:
 
 def parse_program(source: str, /, *, is_internal: bool = False) -> Program:
     """Parse a Hog program.
+
+    If the expr `is_internal`, spans and notices won't be included in the AST.
+    """
+    ...
+
+def parse_create(expr: str, /, *, is_internal: bool = False) -> CreateTableStmt:
+    """Parse the CREATE TABLE statement string into an AST.
 
     If the expr `is_internal`, spans and notices won't be included in the AST.
     """

@@ -50,12 +50,19 @@ kvPair: expression ':' expression ;
 kvPairList: kvPair (COMMA kvPair)* COMMA?;
 
 
-// SELECT statement
-select: (selectSetStmt | selectStmt | hogqlxTagElement) EOF;
+// SQL statements
+// Top-level entry point for SQL statements
+sqlStatement: (createTableStmt | selectQuery) EOF;
+
+// CREATE TABLE statement
+createTableStmt: CREATE TABLE tableIdentifier AS LPAREN selectQuery RPAREN;
+
+// SELECT statement and its variants
+selectQuery: selectSetStmt | selectStmt | hogqlxTagElement;
 
 selectStmtWithParens: selectStmt | LPAREN selectSetStmt RPAREN | placeholder;
 
-subsequentSelectSetClause: (EXCEPT | UNION ALL | UNION DISTINCT | INTERSECT | INTERSECT DISTINCT) selectStmtWithParens;
+subsequentSelectSetClause: (EXCEPT | UNION ALL | UNION DISTINCT | UNION | INTERSECT | INTERSECT DISTINCT) selectStmtWithParens;
 selectSetStmt: selectStmtWithParens (subsequentSelectSetClause)*;
 
 selectStmt:
@@ -283,7 +290,7 @@ interval: SECOND | MINUTE | HOUR | DAY | WEEK | MONTH | QUARTER | YEAR;
 keyword
     // except NULL_SQL, INF, NAN_SQL
     : ALL | AND | ANTI | ANY | ARRAY | AS | ASCENDING | ASOF | BETWEEN | BOTH | BY | CASE
-    | CAST | COHORT | COLLATE | CROSS | CUBE | CURRENT | DATE | DESC | DESCENDING
+    | CAST | COHORT | COLLATE | CREATE | CROSS | CUBE | CURRENT | DATE | DESC | DESCENDING
     | DISTINCT | ELSE | END | EXTRACT | FINAL | FIRST
     | FOR | FOLLOWING | FROM | FULL | GROUP | HAVING | ID | IS
     | IF | ILIKE | IN | INNER | INTERVAL | JOIN | KEY
@@ -291,7 +298,7 @@ keyword
     | NOT | NULLS | OFFSET | ON | OR | ORDER | OUTER | OVER | PARTITION
     | PRECEDING | PREWHERE | RANGE | RETURN | RIGHT | ROLLUP | ROW
     | ROWS | SAMPLE | SELECT | SEMI | SETTINGS | SUBSTRING
-    | THEN | TIES | TIMESTAMP | TOTALS | TRAILING | TRIM | TRUNCATE | TO | TOP
+    | TABLE | THEN | TIES | TIMESTAMP | TOTALS | TRAILING | TRIM | TRUNCATE | TO | TOP
     | UNBOUNDED | UNION | USING | WHEN | WHERE | WINDOW | WITH
     ;
 keywordForAlias
@@ -310,3 +317,7 @@ stringContents : STRING_ESCAPE_TRIGGER columnExpr RBRACE | STRING_TEXT;
 // We will need to add F' to the start of the string to change the lexer's mode.
 fullTemplateString: QUOTE_SINGLE_TEMPLATE_FULL stringContentsFull* EOF ;
 stringContentsFull : FULL_STRING_ESCAPE_TRIGGER columnExpr RBRACE | FULL_STRING_TEXT;
+
+// BACKWARD COMPATIBILITY
+// Keep the old select rule for backward compatibility to avoid breaking existing code
+select: sqlStatement;

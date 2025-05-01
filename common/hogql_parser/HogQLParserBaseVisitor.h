@@ -99,7 +99,15 @@ public:
     return visitChildren(ctx);
   }
 
-  virtual std::any visitSelect(HogQLParser::SelectContext *ctx) override {
+  virtual std::any visitSqlStatement(HogQLParser::SqlStatementContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitCreateTableStmt(HogQLParser::CreateTableStmtContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitSelectQuery(HogQLParser::SelectQueryContext *ctx) override {
     return visitChildren(ctx);
   }
 
@@ -604,6 +612,10 @@ public:
   }
 
   virtual std::any visitStringContentsFull(HogQLParser::StringContentsFullContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitSelect(HogQLParser::SelectContext *ctx) override {
     return visitChildren(ctx);
   }
 

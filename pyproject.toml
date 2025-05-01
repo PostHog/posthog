@@ -52,7 +52,7 @@ dependencies = [
     "google-cloud-bigquery==3.26",
     "google-genai==1.10.0",
     "gunicorn==20.1.0",
-    "hogql-parser==1.1.1",
+    "hogql-parser==1.2.0",
     "infi-clickhouse-orm",
     "jsonref==1.1.0",
     "kafka-python==2.0.2",

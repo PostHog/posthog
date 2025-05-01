@@ -885,6 +885,12 @@ class SelectSetQuery(Expr):
 
 
 @dataclass(kw_only=True)
+class CreateTableStmt(Expr):
+    table: str
+    select: SelectQuery
+
+
+@dataclass(kw_only=True)
 class RatioExpr(Expr):
     left: Constant
     right: Optional[Constant] = None
