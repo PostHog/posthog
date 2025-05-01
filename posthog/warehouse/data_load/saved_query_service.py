@@ -2,7 +2,6 @@ from dataclasses import asdict
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
-
 from temporalio.client import (
     Schedule,
     ScheduleActionStartWorkflow,

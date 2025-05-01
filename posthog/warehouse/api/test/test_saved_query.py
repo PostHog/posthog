@@ -2,7 +2,7 @@ import uuid
 from unittest.mock import patch
 
 from posthog.test.base import APIBaseTest
-from posthog.warehouse.models import DataWarehouseModelPath, DataWarehouseSavedQuery
+from posthog.warehouse.models import DataWarehouseModelPath, DataWarehouseSavedQuery, DataWarehouseTable
 from posthog.models import ActivityLog
 
 
@@ -699,3 +699,65 @@ class TestSavedQuery(APIBaseTest):
                 },
             )
             self.assertEqual(query_change["before"], None)
+
+    def test_revert_materialization(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        saved_query = response.json()
+        saved_query_id = saved_query["id"]
+
+        # Simulate it being materialized by updating the database directly
+        db_saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
+        db_saved_query.sync_frequency_interval = "24hours"
+        db_saved_query.last_run_at = "2025-05-01T00:00:00Z"
+        db_saved_query.status = DataWarehouseSavedQuery.Status.COMPLETED
+
+        # Create a mock table reference - use DataWarehouseTable instead of DataWarehouseSavedQuery
+        mock_table = DataWarehouseTable.objects.create(
+            team=self.team, name="materialized_event_view", format="Parquet", url_pattern="s3://bucket/path"
+        )
+        db_saved_query.table = mock_table
+        db_saved_query.save()
+
+        # Create model path
+        DataWarehouseModelPath.objects.create(team=self.team, path=[mock_table.id.hex, db_saved_query.id.hex])
+
+        with patch("posthog.warehouse.api.saved_query.delete_saved_query_schedule") as mock_delete_saved_query_schedule:
+            # Call the revert_materialization endpoint
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/revert_materialization",
+            )
+
+            self.assertEqual(response.status_code, 200, response.content)
+
+            # Check the saved query has been updated correctly
+            db_saved_query.refresh_from_db()
+            self.assertIsNone(db_saved_query.sync_frequency_interval)
+            self.assertIsNone(db_saved_query.last_run_at)
+            self.assertIsNone(db_saved_query.latest_error)
+            self.assertIsNone(db_saved_query.status)
+            self.assertIsNone(db_saved_query.table_id)
+
+            # Check the table has been deleted
+            mock_table.refresh_from_db()
+            self.assertTrue(mock_table.deleted)
+
+            # Check the model path has been deleted
+            self.assertEqual(
+                DataWarehouseModelPath.objects.filter(
+                    team=self.team, path__lquery=f"*{{1,}}.{db_saved_query.id.hex}"
+                ).count(),
+                0,
+            )
+
+            # Check the schedule has been deleted
+            mock_delete_saved_query_schedule.assert_called_once_with(str(db_saved_query.id))
