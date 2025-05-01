@@ -128,6 +128,7 @@ export const TECHNOLOGY = {
         'IconFolder',
         'IconFolderOpen',
         'IconFolderPlus',
+        'IconFolderMove',
     ],
     UI: [
         'IconPassword',
