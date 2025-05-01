@@ -1,4 +1,5 @@
 import { IconArrowLeft, IconClockRewind, IconExternal, IconGear, IconPlus, IconSidePanel } from '@posthog/icons'
+import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -100,7 +101,7 @@ export function MaxInstance({ sidePanel }: MaxInstanceProps): JSX.Element {
     return (
         <>
             {sidePanel && (
-                <SidePanelPaneHeader title={chatTitle}>
+                <SidePanelPaneHeader title={chatTitle ?? <LemonSkeleton className="h-5 w-32" />}>
                     <LemonButton
                         size="small"
                         sideIcon={<IconPlus />}

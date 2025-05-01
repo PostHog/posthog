@@ -82,7 +82,7 @@ function ConversationCard({
 }): JSX.Element {
     return (
         <Link
-            className="p-4 flex flex-row bg-surface-primary rounded-lg gap-2 w-full min-h-14"
+            className="p-4 flex flex-row bg-surface-primary rounded-lg gap-2 w-full min-h-14 items-center"
             to={getConversationUrl({ pathname, search, conversationId: conversation.id })}
         >
             <span className="flex-1 line-clamp-1">{conversation.title}</span>

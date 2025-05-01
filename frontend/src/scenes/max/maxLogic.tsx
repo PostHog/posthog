@@ -444,13 +444,23 @@ export const maxLogic = kea<maxLogicType>([
         },
 
         loadConversationHistorySuccess: ({ conversationHistory, payload }) => {
-            if (!values.conversationId || payload?.doNotUpdateCurrentThread) {
+            if (!values.conversationId) {
+                return
+            }
+
+            const conversation = conversationHistory.find((c) => c.id === values.conversationId)
+
+            if (payload?.doNotUpdateCurrentThread) {
+                // Update conversation title
+                if (conversation) {
+                    actions.setConversation(conversation)
+                }
+
                 return
             }
 
             // If the user has opened a conversation from a direct link, we verify that the conversation exists
             // after the history has been loaded.
-            const conversation = conversationHistory.find((c) => c.id === values.conversationId)
             if (conversation) {
                 actions.loadThread(conversation)
             } else {
@@ -649,12 +659,12 @@ export const maxLogic = kea<maxLogicType>([
 
                 // Existing conversation
                 if (conversation) {
-                    return conversation.title ?? 'Chat'
+                    return conversation.title ?? 'New chat'
                 }
 
                 // Conversation is loading
                 if (conversationId) {
-                    return ''
+                    return null
                 }
 
                 return 'New chat'
