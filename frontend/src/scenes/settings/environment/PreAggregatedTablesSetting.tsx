@@ -10,10 +10,10 @@ export function PreAggregatedTablesSetting(): JSX.Element {
 
     const savedSetting = currentTeam?.modifiers?.useWebAnalyticsPreAggregatedTables
     const [useWebAnalyticsPreAggregatedTables, setUseWebAnalyticsPreAggregatedTables] = useState<boolean>(
-        savedSetting as boolean
+        savedSetting ?? false
     )
 
-    const handleChange = (mode: boolean | undefined): void => {
+    const handleChange = (mode: boolean): void => {
         updateCurrentTeam({ modifiers: { ...currentTeam?.modifiers, useWebAnalyticsPreAggregatedTables: mode } })
     }
 
