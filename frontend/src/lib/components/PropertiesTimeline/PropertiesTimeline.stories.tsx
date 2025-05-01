@@ -24,7 +24,7 @@ const EXAMPLE_PERSON: Omit<PersonActorType, 'id' | 'uuid'> = {
 }
 
 export function MultiplePointsForOnePersonProperty(): JSX.Element {
-    const examplePerson: PersonActorType = { ...EXAMPLE_PERSON, id: 1, uuid: '012e89b5-4239-4319-8ae4-d3cae2f5deb1' }
+    const examplePerson: PersonActorType = { ...EXAMPLE_PERSON, id: '012e89b5-4239-4319-8ae4-d3cae2f5deb1' }
     useStorybookMocks({
         get: {
             [`/api/environments/${MOCK_TEAM_ID}/persons/${examplePerson.uuid}/properties_timeline/`]: {
@@ -85,7 +85,7 @@ export function MultiplePointsForOnePersonProperty(): JSX.Element {
 }
 
 export function OnePointForOnePersonProperty(): JSX.Element {
-    const examplePerson: PersonActorType = { ...EXAMPLE_PERSON, id: 2, uuid: '012e89b5-4239-4319-8ae4-d3cae2f5deb2' }
+    const examplePerson: PersonActorType = { ...EXAMPLE_PERSON, id: '012e89b5-4239-4319-8ae4-d3cae2f5deb2' }
     useStorybookMocks({
         get: {
             [`/api/environments/${MOCK_TEAM_ID}/persons/${examplePerson.uuid}/properties_timeline/`]: {
@@ -122,7 +122,7 @@ export function OnePointForOnePersonProperty(): JSX.Element {
 }
 
 export function NoPointsForNoPersonProperties(): JSX.Element {
-    const examplePerson: PersonActorType = { ...EXAMPLE_PERSON, id: 3, uuid: '012e89b5-4239-4319-8ae4-d3cae2f5deb3' }
+    const examplePerson: PersonActorType = { ...EXAMPLE_PERSON, id: '012e89b5-4239-4319-8ae4-d3cae2f5deb3' }
     useStorybookMocks({
         get: {
             [`/api/environments/${MOCK_TEAM_ID}/persons/${examplePerson.uuid}/properties_timeline/`]: {
