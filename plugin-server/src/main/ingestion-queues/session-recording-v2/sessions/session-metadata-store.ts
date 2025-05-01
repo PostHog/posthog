@@ -18,7 +18,7 @@ export class SessionMetadataStore {
     public async storeSessionBlocks(blocks: SessionBlockMetadata[]): Promise<void> {
         logger.info('🔍', 'session_metadata_store_storing_blocks', { count: blocks.length })
 
-        const eventsV2 = blocks.map((metadata) => ({
+        const eventsTest = blocks.map((metadata) => ({
             uuid: randomUUID(),
             session_id: metadata.sessionId,
             team_id: metadata.teamId,
@@ -57,7 +57,7 @@ export class SessionMetadataStore {
         // 9. we backfill missing data from session_replay_events_v2_test to session_replay_events
         // 10. we stop reading from session_replay_events_v2_test
         // 11. we remove the session_replay_events_v2_test tables and topics
-        const eventsV1 = blocks.map((metadata) => ({
+        const eventsMain = blocks.map((metadata) => ({
             uuid: randomUUID(),
             session_id: metadata.sessionId,
             team_id: metadata.teamId,
@@ -80,18 +80,34 @@ export class SessionMetadataStore {
             snapshot_source: null,
             snapshot_library: null,
             event_count: 0,
+            first_timestamp_secondary: castTimestampOrNow(metadata.startDateTime, TimestampFormat.ClickHouse),
+            last_timestamp_secondary: castTimestampOrNow(metadata.endDateTime, TimestampFormat.ClickHouse),
+            first_url_secondary: metadata.firstUrl,
+            urls_secondary: metadata.urls || [],
+            click_count_secondary: metadata.clickCount || 0,
+            keypress_count_secondary: metadata.keypressCount || 0,
+            mouse_activity_count_secondary: metadata.mouseActivityCount || 0,
+            active_milliseconds_secondary: metadata.activeMilliseconds || 0,
+            console_log_count_secondary: metadata.consoleLogCount || 0,
+            console_warn_count_secondary: metadata.consoleWarnCount || 0,
+            console_error_count_secondary: metadata.consoleErrorCount || 0,
+            size_secondary: metadata.size || 0,
+            message_count_secondary: metadata.messageCount || 0,
+            event_count_secondary: metadata.eventCount || 0,
+            snapshot_source_secondary: metadata.snapshotSource,
+            snapshot_library_secondary: metadata.snapshotLibrary,
         }))
 
         await this.producer.queueMessages({
             topic: KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS_V2_TEST,
-            messages: eventsV2.map((event) => ({
+            messages: eventsTest.map((event) => ({
                 key: event.session_id,
                 value: JSON.stringify(event),
             })),
         })
         await this.producer.queueMessages({
             topic: KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
-            messages: eventsV1.map((event) => ({
+            messages: eventsMain.map((event) => ({
                 key: event.session_id,
                 value: JSON.stringify(event),
             })),
@@ -99,6 +115,6 @@ export class SessionMetadataStore {
 
         await this.producer.flush()
 
-        logger.info('🔍', 'session_metadata_store_blocks_stored', { count: eventsV2.length })
+        logger.info('🔍', 'session_metadata_store_blocks_stored', { count: eventsTest.length })
     }
 }
