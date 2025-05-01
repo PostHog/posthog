@@ -599,6 +599,18 @@ export function metricToQuery(
                             },
                         ],
                     } as TrendsQuery
+                case ExperimentMetricMathType.UniqueSessions:
+                    return {
+                        ...commonTrendsQueryProps,
+                        series: [
+                            {
+                                kind: NodeKind.EventsNode,
+                                event: (metric.source as EventsNode).event,
+                                name: (metric.source as EventsNode).name,
+                                math: ExperimentMetricMathType.UniqueSessions,
+                            },
+                        ],
+                    } as TrendsQuery
                 default:
                     return {
                         ...commonTrendsQueryProps,
