@@ -5,7 +5,7 @@ import { cn } from 'lib/utils/css-classes'
 import { CSSProperties, useEffect, useRef } from 'react'
 
 import { LemonCheckbox } from '../LemonCheckbox'
-import { TreeDataItem } from './LemonTree'
+import { LemonTreeSelectMode, TreeDataItem } from './LemonTree'
 
 export const ICON_CLASSES = 'text-tertiary size-5 flex items-center justify-center'
 
@@ -14,12 +14,11 @@ type TreeNodeDisplayIconWrapperProps = {
     expandedItemIds?: string[]
     defaultNodeIcon?: React.ReactNode
     handleClick: (item: TreeDataItem) => void
-    enableMultiSelection: boolean
+    selectMode: LemonTreeSelectMode
     defaultOffset: number
     multiSelectionOffset: number
     checkedItemCount?: number
     onItemChecked?: (id: string, checked: boolean, shift: boolean) => void
-    folderSelectMode: boolean
     isEmptyFolder: boolean
 }
 
@@ -28,12 +27,11 @@ export const TreeNodeDisplayIconWrapper = ({
     expandedItemIds,
     defaultNodeIcon,
     handleClick,
-    enableMultiSelection,
+    selectMode,
     checkedItemCount,
     onItemChecked,
     defaultOffset,
     multiSelectionOffset,
-    folderSelectMode,
     isEmptyFolder,
 }: TreeNodeDisplayIconWrapperProps): JSX.Element => {
     return (
@@ -48,7 +46,8 @@ export const TreeNodeDisplayIconWrapper = ({
                     'absolute flex items-center justify-center bg-transparent flex-shrink-0 h-[var(--button-height-base)] z-3',
                     {
                         // Apply group class only when there are no checked items
-                        'group/lemon-tree-icon-wrapper': checkedItemCount === 0 && !folderSelectMode && !isEmptyFolder,
+                        'group/lemon-tree-icon-wrapper':
+                            checkedItemCount === 0 && selectMode !== 'folder-only' && !isEmptyFolder,
                         'cursor-default': isEmptyFolder,
                     }
                 )}
@@ -61,7 +60,7 @@ export const TreeNodeDisplayIconWrapper = ({
                     className={cn('absolute z-2', {
                         // Apply hidden class only when hovering the (conditional)group and there are no checked items
                         'hidden group-hover/lemon-tree-icon-wrapper:block transition-all duration-50':
-                            checkedItemCount === 0 || folderSelectMode,
+                            checkedItemCount === 0 || selectMode === 'folder-only',
                     })}
                     style={{
                         left: `${defaultOffset}px`,
@@ -74,7 +73,7 @@ export const TreeNodeDisplayIconWrapper = ({
                     style={{
                         // If multi-selection is enabled, we need to offset the icon to the right to make space for the checkbox
                         left:
-                            enableMultiSelection && !item.disableSelect
+                            selectMode === 'multi' && !item.disableSelect
                                 ? `${multiSelectionOffset}px`
                                 : `${defaultOffset}px`,
                     }}

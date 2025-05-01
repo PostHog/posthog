@@ -32,6 +32,8 @@ import {
 
 const FIRST_COLUMN_OFFSET = 30
 
+export type LemonTreeSelectMode = 'default' | 'multi' | 'folder-only'
+
 export type TreeDataItem = {
     /** The ID of the item. */
     id: string
@@ -104,8 +106,8 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     showFolderActiveState?: boolean
     /** Whether to enable drag and drop of items. */
     enableDragAndDrop?: boolean
-    /** Whether to enable multi-selection. */
-    enableMultiSelection?: boolean
+    /** The mode of the tree. */
+    selectMode?: LemonTreeSelectMode
     /** Whether the item is active, useful for highlighting the current item against a URL path,
      * this takes precedence over showFolderActiveState, and selectedId state */
     isItemActive?: (item: TreeDataItem) => boolean
@@ -142,9 +144,6 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     setFocusToElementFromId?: (id: string) => void
     /** Set the focus to the last focused element. */
     setFocusToLastFocusedElement?: () => void
-
-    /** Whether to enable folder select mode. */
-    folderSelectMode?: boolean
 }
 
 export type LemonTreeProps = LemonTreeBaseProps & {
@@ -213,13 +212,12 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
             enableDragAndDrop = false,
             disableKeyboardInput,
             itemContextMenu,
-            enableMultiSelection = false,
+            selectMode = 'default',
             onItemChecked,
             isDragging,
             checkedItemCount,
             setFocusToElementFromId,
             setFocusToLastFocusedElement,
-            folderSelectMode = false,
             ...props
         },
         ref
@@ -334,7 +332,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                         'group-hover/lemon-tree-button-group:bg-fill-button-tertiary-hover cursor-pointer':
                                             !isEmptyFolder,
                                         'hover:bg-transparent opacity-50 cursor-default':
-                                            (folderSelectMode && !isFolder) || isEmptyFolder,
+                                            (selectMode === 'folder-only' && !isFolder) || isEmptyFolder,
                                     }
                                 ),
                             }}
@@ -357,7 +355,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={{
                                     width:
-                                        enableMultiSelection && !item.disableSelect
+                                        selectMode === 'multi' && !item.disableSelect
                                             ? `${emptySpaceOffset + 26}px`
                                             : `${emptySpaceOffset}px`,
                                 }}
@@ -525,12 +523,11 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                     expandedItemIds={expandedItemIds}
                                                     defaultNodeIcon={defaultNodeIcon}
                                                     handleClick={handleClick}
-                                                    enableMultiSelection={enableMultiSelection}
+                                                    selectMode={selectMode}
                                                     defaultOffset={iconWrapperOffset}
                                                     multiSelectionOffset={iconWrapperOffsetMultiSelection}
                                                     checkedItemCount={checkedItemCount}
                                                     onItemChecked={onItemChecked}
-                                                    folderSelectMode={folderSelectMode}
                                                     isEmptyFolder={isEmptyFolder}
                                                 />
 
@@ -545,7 +542,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                         style={{
                                                             paddingLeft: 'var(--button-padding-x-base)',
                                                             width:
-                                                                enableMultiSelection && !item.disableSelect
+                                                                selectMode === 'multi' && !item.disableSelect
                                                                     ? `${emptySpaceOffset + 26}px`
                                                                     : `${emptySpaceOffset}px`,
                                                         }}
@@ -608,7 +605,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                             isItemDroppable={isItemDroppable}
                                             enableDragAndDrop={enableDragAndDrop}
                                             itemContextMenu={itemContextMenu}
-                                            enableMultiSelection={enableMultiSelection}
+                                            selectMode={selectMode}
                                             onItemChecked={onItemChecked}
                                             isDragging={isDragging}
                                             checkedItemCount={checkedItemCount}
@@ -618,7 +615,6 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                             disableKeyboardInput={disableKeyboardInput}
                                             setFocusToElementFromId={setFocusToElementFromId}
                                             onItemNameChange={onItemNameChange}
-                                            folderSelectMode={folderSelectMode}
                                             {...props}
                                         />
                                     </AccordionPrimitive.Content>
@@ -652,7 +648,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                 className="pointer-events-none text-secondary font-bold text-xs uppercase flex gap-2 absolute top-[2px] motion-safe:transition-[left] duration-50"
                                                 style={{
                                                     left:
-                                                        enableMultiSelection && !item.disableSelect
+                                                        selectMode === 'multi' && !item.disableSelect
                                                             ? `${
                                                                   tableColumnSizeAndPosition &&
                                                                   tableColumnSizeAndPosition?.[index]?.left + 26
@@ -704,12 +700,11 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             enableDragAndDrop = false,
             itemContextMenu,
             isFinishedBuildingTreeData,
-            enableMultiSelection = false,
+            selectMode = 'default',
             onItemChecked,
             checkedItemCount = 0,
             tableViewKeys,
             emptySpaceContextMenu,
-            folderSelectMode = false,
             ...props
         },
         ref: ForwardedRef<LemonTreeRef>
@@ -810,7 +805,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
 
                 nodeArray.forEach((node) => {
                     // if folderSelectMode we don't return folder items
-                    if (!folderSelectMode || (folderSelectMode && node.children)) {
+                    if (selectMode !== 'folder-only') {
                         items.push(node)
                     }
                     if (node.children && expandedItemIdsState?.includes(node.id)) {
@@ -821,7 +816,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
 
             traverse(data)
             return items
-        }, [data, expandedItemIdsState, folderSelectMode])
+        }, [data, expandedItemIdsState, selectMode])
 
         // Focus on provided content ref
         const focusContent = useCallback(() => {
@@ -1388,12 +1383,11 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                                 setDisableKeyboardInput(disable)
                             }}
                             itemContextMenu={itemContextMenu}
-                            enableMultiSelection={enableMultiSelection}
+                            selectMode={selectMode}
                             onItemChecked={onItemChecked}
                             isDragging={isDragging}
                             checkedItemCount={checkedItemCount}
                             setFocusToElementFromId={focusElementFromId}
-                            folderSelectMode={folderSelectMode}
                             {...props}
                         />
                     </TreeNodeDroppable>

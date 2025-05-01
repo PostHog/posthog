@@ -370,7 +370,7 @@ export function ProjectTree(): JSX.Element {
                     }
                     return window.location.href.endsWith(item.record?.href)
                 }}
-                enableMultiSelection={checkedItemCountNumeric > 0}
+                selectMode={checkedItemCountNumeric > 0 ? 'multi' : 'default'}
                 onItemChecked={onItemChecked}
                 checkedItemCount={checkedItemCountNumeric}
                 onNodeClick={(node) => {
