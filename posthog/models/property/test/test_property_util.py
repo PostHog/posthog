@@ -1,23 +1,15 @@
 import pytest
 
-from posthog.test.base import BaseTest
 from unittest.mock import MagicMock
+from posthog.test.base import BaseTest
 
 from posthog.models.property.util import property_to_django_filter
 from posthog.schema import ErrorTrackingIssueFilter, PropertyOperator
 
 
-class FakeQuerySet:
-    def filter(self, **kwargs):
-        return self
-
-    def exclude(self, **kwargs):
-        return self
-
-
 class TestPropertyUtil(BaseTest):
     def test_property_to_django_filtering(self):
-        qs = FakeQuerySet()
+        qs = MagicMock()
         qs.filter = MagicMock()
         qs.exclude = MagicMock()
 
@@ -48,7 +40,7 @@ class TestPropertyUtil(BaseTest):
         qs.exclude.assert_called_once_with(name__in=["value"])
 
     def test_issue_description_mapping(self):
-        qs = FakeQuerySet()
+        qs = MagicMock()
         qs.filter = MagicMock()
 
         property_to_django_filter(
@@ -59,7 +51,7 @@ class TestPropertyUtil(BaseTest):
         qs.filter.reset_mock()
 
     def test_unimplemented_filter_types_raise(self):
-        qs = FakeQuerySet()
+        qs = MagicMock()
 
         with pytest.raises(NotImplementedError):
             property_to_django_filter(

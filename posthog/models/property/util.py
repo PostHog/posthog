@@ -51,7 +51,7 @@ from posthog.session_recordings.queries.session_query import SessionQuery
 from posthog.queries.util import PersonPropertiesMode
 from posthog.utils import is_json, is_valid_regex
 from posthog.schema import PropertyOperator
-from posthog.types import AnyPropertyFilter
+from posthog.types import ErrorTrackingIssueFilter
 from django.db.models import QuerySet
 
 StringMatching = Literal["selector", "tag_name", "href", "text"]
@@ -925,7 +925,7 @@ def clear_excess_levels(prop: Union["PropertyGroup", "Property"], skip=False):
     return prop
 
 
-def property_to_django_filter(queryset: QuerySet, property: AnyPropertyFilter):
+def property_to_django_filter(queryset: QuerySet, property: ErrorTrackingIssueFilter):
     operator = property.operator
     value = property.value
     field = property.key
@@ -962,20 +962,16 @@ def property_to_django_filter(queryset: QuerySet, property: AnyPropertyFilter):
         query += "__icontains"
     elif operator == PropertyOperator.REGEX:
         query += "__regex"
-    elif operator == PropertyOperator.GT:
+    elif operator == PropertyOperator.IS_DATE_EXACT:
+        query += "__date"
+    elif operator == PropertyOperator.GT or operator == PropertyOperator.IS_DATE_AFTER:
         query += "__gt"
     elif operator == PropertyOperator.GTE:
         query += "__gte"
-    elif operator == PropertyOperator.LT:
+    elif operator == PropertyOperator.LT or operator == PropertyOperator.IS_DATE_BEFORE:
         query += "__lt"
     elif operator == PropertyOperator.LTE:
         query += "__lte"
-    elif operator == PropertyOperator.IS_DATE_EXACT:
-        query += "__date"
-    elif operator == PropertyOperator.IS_DATE_BEFORE:
-        query += "__lte"
-    elif operator == PropertyOperator.IS_DATE_AFTER:
-        query += "__gte"
     else:
         raise NotImplementedError(f"PropertyOperator {operator} not implemented")
 
