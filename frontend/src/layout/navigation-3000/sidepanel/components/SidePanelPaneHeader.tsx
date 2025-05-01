@@ -8,9 +8,10 @@ import { sidePanelStateLogic } from '../sidePanelStateLogic'
 export type SidePanelPaneHeaderProps = {
     title?: string | JSX.Element
     children?: React.ReactNode
+    className?: string
 }
 
-export function SidePanelPaneHeader({ children, title }: SidePanelPaneHeaderProps): JSX.Element {
+export function SidePanelPaneHeader({ children, title, className }: SidePanelPaneHeaderProps): JSX.Element {
     const { modalMode } = useValues(sidePanelStateLogic)
     const { closeSidePanel } = useActions(sidePanelStateLogic)
 
@@ -18,7 +19,8 @@ export function SidePanelPaneHeader({ children, title }: SidePanelPaneHeaderProp
         <header
             className={clsx(
                 'border-b shrink-0 flex items-center justify-end gap-1',
-                !modalMode ? 'sticky top-0 z-10 bg-surface-secondary p-1 h-10' : 'pb-2 mt-2 mx-3'
+                !modalMode ? 'sticky top-0 z-10 bg-surface-secondary p-1 h-10' : 'pb-2 mt-2 mx-3',
+                className
             )}
         >
             {title ? (

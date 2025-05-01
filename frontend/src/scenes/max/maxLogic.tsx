@@ -100,6 +100,8 @@ export const maxLogic = kea<maxLogicType>([
         toggleConversationHistory: (visible?: boolean) => ({ visible }),
         loadThread: (conversation: ConversationDetail) => ({ conversation }),
         pollConversation: (currentRecursionDepth: number = 0) => ({ currentRecursionDepth }),
+        goBack: true,
+        setBackScreen: (screen: 'history') => ({ screen }),
     }),
 
     reducers({
@@ -186,6 +188,14 @@ export const maxLogic = kea<maxLogicType>([
             {
                 toggleConversationHistory: (state, { visible }) => visible ?? !state,
                 startNewConversation: () => false,
+            },
+        ],
+
+        backToScreen: [
+            null as 'history' | null,
+            {
+                setBackScreen: (_, { screen }) => screen,
+                startNewConversation: () => null,
             },
         ],
     }),
@@ -525,6 +535,14 @@ export const maxLogic = kea<maxLogicType>([
                 actions.scrollThreadToBottom('instant')
             }
         },
+
+        goBack: () => {
+            if (values.backToScreen === 'history' && !values.conversationHistoryVisible) {
+                actions.toggleConversationHistory(true)
+            } else {
+                actions.startNewConversation()
+            }
+        },
     })),
 
     selectors({
@@ -688,6 +706,13 @@ export const maxLogic = kea<maxLogicType>([
                 return !!(threadGrouped.length > 0 || conversationId)
             },
         ],
+
+        backButtonDisabled: [
+            (s) => [s.threadVisible, s.conversationHistoryVisible],
+            (threadVisible, conversationHistoryVisible) => {
+                return !threadVisible && !conversationHistoryVisible
+            },
+        ],
     }),
 
     afterMount(({ actions, values }) => {
@@ -731,6 +756,7 @@ export const maxLogic = kea<maxLogicType>([
 
                 if (values.conversationHistoryVisible) {
                     actions.toggleConversationHistory(false)
+                    actions.setBackScreen('history')
                 }
             }
         },
