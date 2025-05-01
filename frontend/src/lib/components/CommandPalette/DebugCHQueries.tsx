@@ -136,8 +136,6 @@ const generateHourlyLabels = (days: number): string[] => {
     return labels.reverse()
 }
 
-// TODO: DAVID come back to this file
-
 const BarChartWithLine: React.FC<{ data: DataPoint[] }> = ({ data }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const labels = generateHourlyLabels(14)
