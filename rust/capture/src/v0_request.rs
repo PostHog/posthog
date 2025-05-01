@@ -26,6 +26,9 @@ pub enum Compression {
 pub struct EventQuery {
     pub compression: Option<Compression>,
 
+    // legacy GET requests can include data as query param
+    pub data: Option<String>,
+
     #[serde(alias = "ver")]
     pub lib_version: Option<String>,
 
@@ -36,7 +39,7 @@ pub struct EventQuery {
 impl EventQuery {
     /// Returns the parsed value of the sent_at timestamp if present in the query params.
     /// We only support the format sent by recent posthog-js versions, in milliseconds integer.
-    /// Values in seconds integer (older SDKs will be ignored).
+    /// Values in seconds integer (older SDKs) will be ignored.
     pub fn sent_at(&self) -> Option<OffsetDateTime> {
         if let Some(value) = self.sent_at {
             let value_nanos: i128 = i128::from(value) * 1_000_000; // Assuming the value is in milliseconds, latest posthog-js releases

@@ -14,7 +14,7 @@ use limiters::token_dropper::TokenDropper;
 use metrics::counter;
 use serde_json::json;
 use serde_json::Value;
-use tracing::{debug, error, instrument, warn, Span};
+use tracing::{debug, info, warn, error, instrument, Span};
 
 use crate::prometheus::report_dropped_events;
 use crate::v0_request::{
@@ -26,6 +26,74 @@ use crate::{
     utils::uuid_v7,
     v0_request::{EventFormData, EventQuery},
 };
+
+async fn handle_legacy(
+    state: &State<router::State>,
+    InsecureClientIp(ip): &InsecureClientIp,
+    query_params: &EventQuery,
+    headers: &HeaderMap,
+    method: &Method,
+    path: &MatchedPath,
+    body: Bytes,
+) -> Result<(ProcessingContext, Vec<RawEvent>), CaptureError> {
+    // for now: capture all headers as log tags
+    for entry in headers {
+        let key = entry.0.as_str();
+        let value = entry.1.to_str().unwrap_or("UNKNOWN");
+        Span::current().record(key, value);
+    }
+    info!("in handle_legacy: header tags applied");
+
+    // extract the raw payload from the request
+    let payload: Vec<u8> = match *method {
+        Method::POST => {
+            match headers.get("content-type") {
+                Some(ct) => match ct.to_str().expect("") {
+                    "text/plain" | "application/json" => {
+                        body.into()
+                    },
+
+                    "application/x-www-form-urlencoded" => {
+                        if body.starts_with(b"data=") {
+                            // TODO(eli): decode the urlencoding and unpack the form?
+                            body.into()
+                        } else {
+                            // TODO(eli): check if whole payload is base64 encoded etc.
+                            body.into()
+                        }
+                    },
+                },
+                None => {
+                    body.into()
+                }
+            }
+        },
+
+        Method::GET if query_params.data.is_some_and(|d| !d.is_empty()) => {
+            let buf= query_params.data.unwrap();
+            buf.bytes().collect()
+        },
+
+        _ => return Err(CaptureError::RequestParsingError(format!("unsupported request method: {:?}", method))),
+    };
+
+    // TODO(eli): check for various compressions and encodings and continue the unwrapping!
+    let compression = {
+        if let Some(c) = query_params.compression {
+            c
+        } else if Some(c) = payload {
+            // TODO(eli): replace w/ check for form-encoded payload "compression" KV
+            Compression::Unsupported
+        } else {
+            // TODO(eli): final fallback - check "content-encoding" header
+            Compression::Unsupported
+        }
+    };
+
+    // TODO(eli): now we should have POST body or GET query params including still-compressed/b64'd DATA field
+
+    Ok(_)
+}
 
 /// Flexible endpoint that targets wide compatibility with the wide range of requests
 /// currently processed by posthog-events (analytics events capture). Replay is out
