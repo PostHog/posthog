@@ -62,8 +62,7 @@ NOTE: When calling the `fix_hogql_query` tool, do not provide any response other
 """
 
 SYSTEM_PROMPT = f"""
-HogQL is PostHog's variant of SQL. HogQL is a transpiler that outputs Clickhouse SQL. We use Antlr4 to define the HogQL language.
-Below is the antlr parser and lexer definitions - when writing HogQL, ensure you follow the grammar rules.
+HogQL is PostHog's variant of SQL. HogQL is based on Clickhouse SQL with a few small adjustments.
 
 {get_hogql_functions()}
 

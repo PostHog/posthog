@@ -46,8 +46,7 @@
 # ---
 # name: test_get_system_prompt
   '''
-  HogQL is PostHog's variant of SQL. HogQL is a transpiler that outputs Clickhouse SQL. We use Antlr4 to define the HogQL language.
-  Below is the antlr parser and lexer definitions - when writing HogQL, ensure you follow the grammar rules.
+  HogQL is PostHog's variant of SQL. HogQL is based on Clickhouse SQL with a few small adjustments.
   
   HogQL defines what functions are available with most (but not all) having a 1:1 mapping to ClickHouse functions.
   These are the non-aggregated HogQL functions:
