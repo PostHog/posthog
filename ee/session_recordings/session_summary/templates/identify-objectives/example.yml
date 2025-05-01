@@ -1,7 +1,7 @@
 segments:
     - index: 0
-      start_event_id: 'abcd1234'
-      end_event_id: 'vbgs1287'
+      start_event_id: 'abcd1234' # Must be copied EXACTLY from event data, never invented
+      end_event_id: 'vbgs1287' # Must be copied EXACTLY from event data, never invented
       name: 'Example Segment'
     - index: 1
       start_event_id: 'gfgz6242'
