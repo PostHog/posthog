@@ -33,7 +33,7 @@ class MessageTemplateSerializer(serializers.ModelSerializer):
         return instance
 
 
-class MessageTemplateViewSet(
+class MessageTemplatesViewSet(
     TeamAndOrgViewSetMixin,
     ForbidDestroyModel,
     viewsets.ModelViewSet,

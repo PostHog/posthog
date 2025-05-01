@@ -1,4 +1,4 @@
-import { IconChevronRight, IconFolderPlus } from '@posthog/icons'
+import { IconChevronRight, IconFolder, IconFolderPlus } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { MoveFilesModal } from 'lib/components/FileSystem/MoveFilesModal'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
@@ -191,14 +191,17 @@ export function ProjectTree(): JSX.Element {
                                         createFolder(item.record?.path)
                                     }}
                                 >
-                                    <ButtonPrimitive menuItem>Folder</ButtonPrimitive>
+                                    <ButtonPrimitive menuItem>
+                                        <IconFolder />
+                                        Folder
+                                    </ButtonPrimitive>
                                 </MenuItem>
                                 <MenuSeparator />
                                 {treeItemsNew.map((treeItem): JSX.Element => {
                                     if (treeItem.children) {
                                         return (
                                             <MenuSub key={treeItem.id}>
-                                                <MenuSubTrigger asChild>
+                                                <MenuSubTrigger asChild inset>
                                                     <ButtonPrimitive menuItem>
                                                         {treeItem.name ||
                                                             treeItem.id.charAt(0).toUpperCase() + treeItem.id.slice(1)}
@@ -221,6 +224,7 @@ export function ProjectTree(): JSX.Element {
                                                             }}
                                                         >
                                                             <ButtonPrimitive menuItem className="capitalize">
+                                                                {child.icon}
                                                                 {child.name}
                                                             </ButtonPrimitive>
                                                         </MenuItem>
@@ -242,7 +246,10 @@ export function ProjectTree(): JSX.Element {
                                                 treeItem.onClick?.()
                                             }}
                                         >
-                                            <ButtonPrimitive menuItem>{treeItem.name}</ButtonPrimitive>
+                                            <ButtonPrimitive menuItem>
+                                                {treeItem.icon}
+                                                {treeItem.name}
+                                            </ButtonPrimitive>
                                         </MenuItem>
                                     )
                                 })}

@@ -25,7 +25,7 @@ const ContextMenuSubTrigger = React.forwardRef<
     }
 >(
     ({ className, inset, ...props }, ref): JSX.Element => (
-        <ContextMenuPrimitive.SubTrigger ref={ref} className={cn(inset && 'pl-8', className)} {...props} />
+        <ContextMenuPrimitive.SubTrigger ref={ref} className={cn(inset && 'pl-7', className)} {...props} />
     )
 )
 ContextMenuSubTrigger.displayName = ContextMenuPrimitive.SubTrigger.displayName
@@ -77,7 +77,7 @@ const ContextMenuItem = React.forwardRef<
     }
 >(
     ({ className, inset, ...props }, ref): JSX.Element => (
-        <ContextMenuPrimitive.Item ref={ref} className={cn(inset && 'pl-8', className)} {...props} />
+        <ContextMenuPrimitive.Item ref={ref} className={cn(inset && 'pl-7', className)} {...props} />
     )
 )
 ContextMenuItem.displayName = ContextMenuPrimitive.Item.displayName
@@ -140,7 +140,7 @@ const ContextMenuLabel = React.forwardRef<
     ({ className, inset, ...props }, ref): JSX.Element => (
         <ContextMenuPrimitive.Label
             ref={ref}
-            className={cn('px-2 py-1.5 text-sm font-semibold text-foreground', inset && 'pl-8', className)}
+            className={cn('px-2 py-1.5 text-sm font-semibold text-foreground', inset && 'pl-7', className)}
             {...props}
         />
     )

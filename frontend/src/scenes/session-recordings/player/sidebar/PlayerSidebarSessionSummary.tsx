@@ -16,6 +16,7 @@ import { useEffect, useState } from 'react'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
+import { playerInspectorLogic } from '../inspector/playerInspectorLogic'
 import {
     SegmentMeta,
     SessionKeyAction,
@@ -426,21 +427,42 @@ function SessionSummary(): JSX.Element {
 
 function LoadSessionSummaryButton(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { sessionSummaryLoading } = useValues(playerMetaLogic(logicProps))
+    const { sessionSummaryLoading, loading } = useValues(playerMetaLogic(logicProps))
+    const inspectorLogic = playerInspectorLogic(logicProps)
+    const { items: inspectorItems } = useValues(inspectorLogic)
     const { summarizeSession } = useActions(playerMetaLogic(logicProps))
 
+    const hasEnoughEvents = inspectorItems && inspectorItems.length > 0
+
     return (
-        <LemonButton
-            size="small"
-            type="primary"
-            icon={<IconMagicWand />}
-            fullWidth={true}
-            data-attr="load-session-summary"
-            disabledReason={sessionSummaryLoading ? 'Loading...' : undefined}
-            onClick={summarizeSession}
-        >
-            Use AI to summarise this session
-        </LemonButton>
+        <div className="space-y-2">
+            <LemonButton
+                size="small"
+                type="primary"
+                icon={<IconMagicWand />}
+                fullWidth={true}
+                data-attr="load-session-summary"
+                disabled={loading || !hasEnoughEvents}
+                disabledReason={sessionSummaryLoading ? 'Loading...' : undefined}
+                onClick={summarizeSession}
+            >
+                Use AI to summarise this session
+            </LemonButton>
+
+            {loading ? (
+                <div className="text-sm">
+                    Checking on session events... <Spinner />
+                </div>
+            ) : (
+                !hasEnoughEvents && (
+                    <div className="text-sm">
+                        Session events not available for summary yet.
+                        <br />
+                        Please, try again in a few minutes.
+                    </div>
+                )
+            )}
+        </div>
     )
 }
 

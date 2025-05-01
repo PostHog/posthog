@@ -64,6 +64,10 @@ class Person(models.Model):
             .values_list("distinct_id")
         ]
 
+    @property
+    def email(self) -> Optional[str]:
+        return self.properties.get("email")
+
     # :DEPRECATED: This should happen through the plugin server
     def add_distinct_id(self, distinct_id: str) -> None:
         PersonDistinctId.objects.create(person=self, distinct_id=distinct_id, team_id=self.team_id)
