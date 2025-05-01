@@ -235,6 +235,8 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
                 const clientPostHog = values.posthog
                 if (clientPostHog) {
                     clientPostHog.featureFlags.overrideFeatureFlags(false)
+                    actions.storeLocalOverrides({})
+                    actions.setPayloadOverride({}) // Clear payload overrides
                 }
                 actions.resetAllOverridesSuccess()
             }, 1)
