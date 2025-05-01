@@ -260,10 +260,36 @@ class TestEnrichRawSessionSummary:
         mock_session_metadata: SessionSummaryMetadata,
     ) -> None:
         # Remove one event from mapping
-        del mock_events_mapping["defg4567"]
+        del mock_events_mapping["mnop3456"]
         session_id = "test_session"
         with pytest.raises(
-            ValueError, match=f"Mapping data for event_id defg4567 not found when summarizing session_id {session_id}"
+            ValueError, match=f"Mapping data for event_id mnop3456 not found when summarizing session_id {session_id}"
+        ):
+            enrich_raw_session_summary_with_meta(
+                mock_raw_session_summary,
+                mock_events_mapping,
+                mock_events_columns,
+                mock_url_mapping_reversed,
+                mock_window_mapping_reversed,
+                mock_session_metadata,
+                session_id,
+            )
+
+    def test_calculate_segment_meta_missing_event(
+        self,
+        mock_raw_session_summary: RawSessionSummarySerializer,
+        mock_events_mapping: dict[str, list[Any]],
+        mock_events_columns: list[str],
+        mock_url_mapping_reversed: dict[str, str],
+        mock_window_mapping_reversed: dict[str, str],
+        mock_session_metadata: SessionSummaryMetadata,
+    ) -> None:
+        # Remove one event from mapping (segment end id)
+        del mock_events_mapping["vbgs1287"]
+        session_id = "test_session"
+        with pytest.raises(
+            ValueError,
+            match=f"Mapping data for start_event_id abcd1234 or end_event_id vbgs1287 not found when preparing segment summary meta for session_id {session_id}",
         ):
             enrich_raw_session_summary_with_meta(
                 mock_raw_session_summary,

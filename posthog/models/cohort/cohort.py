@@ -401,6 +401,36 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             self.save()
             capture_exception(err)
 
+    def to_dict(self) -> dict:
+        people_data = [
+            {
+                "id": person.id,
+                "email": person.email or "(no email)",
+                "distinct_id": person.distinct_ids[0] if person.distinct_ids else "(no distinct id)",
+            }
+            for person in self.people.all()
+        ]
+
+        from posthog.models.activity_logging.activity_log import field_exclusions, common_field_exclusions
+
+        excluded_fields = field_exclusions.get("Cohort", []) + common_field_exclusions
+        base_dict = {
+            "id": self.pk,
+            "name": self.name,
+            "description": self.description,
+            "team_id": self.team_id,
+            "deleted": self.deleted,
+            "filters": self.filters,
+            "query": self.query,
+            "groups": self.groups,
+            "is_static": self.is_static,
+            "created_by_id": self.created_by_id,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "last_error_at": self.last_error_at.isoformat() if self.last_error_at else None,
+            "people": people_data,
+        }
+        return {k: v for k, v in base_dict.items() if k not in excluded_fields}
+
     __repr__ = sane_repr("id", "name", "last_calculation")
 
 

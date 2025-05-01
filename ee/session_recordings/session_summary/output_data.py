@@ -250,6 +250,12 @@ def _calculate_segment_meta(
     if segment_index is None or start_event_id is None or end_event_id is None:
         # If segment index, start, or end event ID aren't generated yet - return empty meta
         return SegmentMetaSerializer(data=segment_meta_data)
+    if start_event_id not in simplified_events_mapping or end_event_id not in simplified_events_mapping:
+        # If event id is found, but not in mapping, it's a hallucination
+        raise ValueError(
+            f"Mapping data for start_event_id {start_event_id} or end_event_id {end_event_id} not found "
+            f"when preparing segment summary meta for session_id {session_id} (probably a hallucination): {raw_segment}"
+        )
     # Calculate duration of the segment
     if not session_metadata.duration:
         raise ValueError(f"Session duration is not set when summarizing session_id {session_id}")
@@ -287,15 +293,14 @@ def _calculate_segment_meta(
     segment_key_actions_group = None
     # Find a relevant key actions group for the segment
     for key_actions_group in raw_key_actions:
-        failure_count = 0
         key_group_segment_index = key_actions_group.get("segment_index")
         if key_group_segment_index is None or key_group_segment_index != segment_index:
             # If key group segment index isn't generated yet or doesn't match the segment index - skip this group
             continue
         segment_key_actions_group = key_actions_group
         break
+    # If no relevant key actions group is found
     if not segment_key_actions_group:
-        # If no relevant key actions group is found
         return SegmentMetaSerializer(data=segment_meta_data)
     # Process the relevant events from the key actions group
     key_group_events = segment_key_actions_group.get("events", [])
@@ -304,6 +309,7 @@ def _calculate_segment_meta(
         return SegmentMetaSerializer(data=segment_meta_data)
     segment_meta_data["key_action_count"] = len(key_group_events)
     # Calculate failure count
+    failure_count = 0
     for key_action_event in key_group_events:
         if_failure = key_action_event.get("failure")
         if if_failure is None:
@@ -313,34 +319,35 @@ def _calculate_segment_meta(
             failure_count += 1
     segment_meta_data["failure_count"] = failure_count
     # Fallback - if enough events processed and the data drastically changes - calculate the meta from the key actions
-    if len(key_group_events) < 3:
+    if len(key_group_events) < 2:
         # If not enough events yet
         return SegmentMetaSerializer(data=segment_meta_data)
     # Calculate key action count and failure count
-    start_event_index = key_group_events[0].get("event_index")
-    end_event_index = key_group_events[-1].get("event_index")
-    if start_event_index is None or end_event_index is None:
-        # If event indexes aren't generated yet
+    fallback_start_event_id = key_group_events[0].get("event_id")
+    fallback_end_event_id = key_group_events[-1].get("event_id")
+    if fallback_start_event_id is None or fallback_end_event_id is None:
+        # If event ids aren't generated yet
         return SegmentMetaSerializer(data=segment_meta_data)
     fallback_duration, fallback_duration_percentage = _calculate_segment_duration(
-        start_event_id=start_event_id,
-        end_event_id=end_event_id,
+        start_event_id=fallback_start_event_id,
+        end_event_id=fallback_end_event_id,
         timestamp_index=timestamp_index,
         simplified_events_mapping=simplified_events_mapping,
         session_total_duration=session_metadata.duration,
     )
     fallback_events_count, fallback_events_percentage = _calculate_segment_events_count(
-        start_event_id=start_event_id,
-        end_event_id=end_event_id,
+        start_event_id=fallback_start_event_id,
+        end_event_id=fallback_end_event_id,
         event_index_index=event_index_index,
         simplified_events_mapping=simplified_events_mapping,
     )
-    if fallback_duration == 0 or duration == 0:
-        # If data is 0, calculations are not reliable
+    if fallback_duration == 0:
+        # If fallback_duration is also 0, calculations are not reliable
         return SegmentMetaSerializer(data=segment_meta_data)
-    # If the change is drastic (in both directions) - use the fallback data to avoid reader's confusion
+    # If the change is drastic, or no duration at all - use the fallback data to avoid reader's confusion
+    # Avoiding downsizing the segment as larger segments make more sense visually
     # TODO: Factor of two is arbitrary, find a better solution
-    if fallback_duration // duration > 2 or duration // fallback_duration > 2:
+    if duration <= 0 or fallback_duration // duration > 2:
         # Checking only duration as events are sorted chronologically
         logger.warning(
             f"Duration change is drastic (fallback: {fallback_duration} -> segments: {duration}) - using fallback data for session_id {session_id}"

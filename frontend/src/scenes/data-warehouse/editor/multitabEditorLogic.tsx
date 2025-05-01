@@ -142,8 +142,14 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         editInsight: (query: string, insight: QueryBasedInsightModel) => ({ query, insight }),
         updateQueryTabState: (skipBreakpoint?: boolean) => ({ skipBreakpoint }),
         setLastRunQuery: (lastRunQuery: DataVisualizationNode | null) => ({ lastRunQuery }),
-        setSuggestedQueryInput: (suggestedQueryInput: string) => ({ suggestedQueryInput }),
-        _setSuggestedQueryInput: (suggestedQueryInput: string) => ({ suggestedQueryInput }),
+        setSuggestedQueryInput: (suggestedQueryInput: string, source?: 'max_ai' | 'hogql_fixer') => ({
+            suggestedQueryInput,
+            source,
+        }),
+        _setSuggestedQueryInput: (suggestedQueryInput: string, source?: 'max_ai' | 'hogql_fixer') => ({
+            suggestedQueryInput,
+            source,
+        }),
         onAcceptSuggestedQueryInput: (shouldRunQuery?: boolean) => ({ shouldRunQuery }),
         onRejectSuggestedQueryInput: true,
         setResponse: (response: Record<string, any> | null) => ({ response, currentTab: values.activeModelUri }),
@@ -294,6 +300,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 _setSuggestedQueryInput: (_, { suggestedQueryInput }) => suggestedQueryInput,
             },
         ],
+        suggestedSource: [
+            null as 'max_ai' | 'hogql_fixer' | null,
+            {
+                _setSuggestedQueryInput: (_, { source }) => source ?? null,
+            },
+        ],
         isHistoryModalOpen: [
             false as boolean,
             {
@@ -310,13 +322,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         ],
     })),
     listeners(({ values, props, actions, asyncActions }) => ({
-        setDataError: ({ error }) => {
-            if (error) {
-                actions.fixErrors(values.queryInput, error)
-            }
-        },
         fixErrorsSuccess: ({ response }) => {
-            actions.setSuggestedQueryInput(response.query)
+            actions.setSuggestedQueryInput(response.query, 'hogql_fixer')
 
             posthog.capture('ai-error-fixer-success', { trace_id: response.trace_id })
         },
@@ -360,9 +367,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 void copyToClipboard(shareUrl.toString(), 'share link')
             }
         },
-        setSuggestedQueryInput: ({ suggestedQueryInput }) => {
+        setSuggestedQueryInput: ({ suggestedQueryInput, source }) => {
             if (values.queryInput) {
-                actions._setSuggestedQueryInput(suggestedQueryInput)
+                actions._setSuggestedQueryInput(suggestedQueryInput, source)
             } else {
                 actions.setQueryInput(suggestedQueryInput)
             }
@@ -402,6 +409,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
 
             actions.setSuggestedQueryInput('')
             actions.updateState(true)
+            posthog.capture('sql-editor-accepted-suggestion', { source: values.suggestedSource })
         },
         onRejectSuggestedQueryInput: () => {
             actions.reportAIQueryRejected()
@@ -433,6 +441,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
 
             actions.setSuggestedQueryInput('')
             actions.updateState(true)
+            posthog.capture('sql-editor-rejected-suggestion', { source: values.suggestedSource })
         },
         editView: ({ query, view }) => {
             const maybeExistingTab = values.allTabs.find((tab) => tab.view?.id === view.id)
