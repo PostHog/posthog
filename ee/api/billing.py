@@ -1,3 +1,4 @@
+import json
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
@@ -20,7 +21,7 @@ from ee.settings import BILLING_SERVICE_URL
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.event_usage import groups
-from posthog.models import Organization
+from posthog.models import Organization, Team
 from posthog.models.organization import OrganizationMembership
 from posthog.utils import relative_date_parse
 
@@ -463,8 +464,16 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         serializer.is_valid(raise_exception=True)
 
         try:
+            teams_map = {team.id: team.name for team in Team.objects.filter(organization=organization)}
+        except Exception as e:
+            logger.error(
+                "billing_fetch_teams_for_enrichment_error", org_id=organization.id, error=str(e), exc_info=True
+            )
+
+        try:
             params_to_pass = {k: v for k, v in serializer.validated_data.items() if v is not None}
             params_to_pass["organization_id"] = organization.id
+            params_to_pass["teams_map"] = json.dumps(teams_map)
             res = billing_manager.get_usage_data(organization, params_to_pass)
             return Response(res, status=status.HTTP_200_OK)
         except Exception as e:
@@ -503,8 +512,16 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         serializer.is_valid(raise_exception=True)
 
         try:
+            teams_map = {team.id: team.name for team in Team.objects.filter(organization=organization)}
+        except Exception as e:
+            logger.error(
+                "billing_fetch_teams_for_enrichment_error", org_id=organization.id, error=str(e), exc_info=True
+            )
+
+        try:
             params_to_pass = {k: v for k, v in serializer.validated_data.items() if v is not None}
             params_to_pass["organization_id"] = organization.id
+            params_to_pass["teams_map"] = json.dumps(teams_map)
             res = billing_manager.get_spend_data(organization, params_to_pass)
             return Response(res, status=status.HTTP_200_OK)
         except Exception as e:

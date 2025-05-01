@@ -1,7 +1,6 @@
 from datetime import datetime, timedelta, UTC
 from enum import Enum
 from typing import Any, Optional, cast
-import json
 
 import jwt
 import requests
@@ -19,7 +18,7 @@ from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Organization, Team
+from posthog.models import Organization
 from posthog.models.organization import OrganizationMembership, OrganizationUsageInfo
 from posthog.models.user import User
 
@@ -469,19 +468,10 @@ class BillingManager:
         """
         Get usage data from the billing service.
         """
-        params_to_send = params.copy()
-        try:
-            teams_map = {team.id: team.name for team in Team.objects.filter(organization=organization)}
-            params_to_send["teams_map"] = json.dumps(teams_map)
-        except Exception as e:
-            logger.error(
-                "billing_fetch_teams_for_enrichment_error", org_id=organization.id, error=str(e), exc_info=True
-            )
-
         res = requests.get(
             f"{BILLING_SERVICE_URL}/api/v2/usage/",
             headers=self.get_auth_headers(organization),
-            params=params_to_send,
+            params=params,
         )
 
         handle_billing_service_error(res)
@@ -492,19 +482,10 @@ class BillingManager:
         """
         Get spend data from the billing service.
         """
-        params_to_send = params.copy()
-        try:
-            teams_map = {team.id: team.name for team in Team.objects.filter(organization=organization)}
-            params_to_send["teams_map"] = json.dumps(teams_map)
-        except Exception as e:
-            logger.error(
-                "billing_fetch_teams_for_enrichment_error", org_id=organization.id, error=str(e), exc_info=True
-            )
-
         res = requests.get(
             f"{BILLING_SERVICE_URL}/api/v2/spend/",
             headers=self.get_auth_headers(organization),
-            params=params_to_send,
+            params=params,
         )
 
         handle_billing_service_error(res)
