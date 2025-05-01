@@ -1,6 +1,8 @@
 import {
     IconAIText,
     IconClock,
+    IconCollapse,
+    IconExpand,
     IconKeyboard,
     IconMagicWand,
     IconPointer,
@@ -8,13 +10,17 @@ import {
     IconThumbsUp,
     IconWarning,
 } from '@posthog/icons'
-import { LemonBanner, LemonCollapse, LemonDivider, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonDivider, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { useEffect, useState } from 'react'
+import { ReactNode, useEffect, useState } from 'react'
+import { Transition } from 'react-transition-group'
+import { ENTERED, ENTERING } from 'react-transition-group/Transition'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import useResizeObserver from 'use-resize-observer'
 
 import { playerInspectorLogic } from '../inspector/playerInspectorLogic'
 import {
@@ -75,6 +81,63 @@ function LoadingTimer({ operation }: { operation?: string }): JSX.Element {
     }, []) // Keep this dependency array empty to avoid resetting interval
 
     return <span className="font-mono text-xs text-muted">{elapsedSeconds}s</span>
+}
+
+interface SessionSegmentCollapseProps {
+    header: ReactNode
+    content: ReactNode
+    actionsPresent?: boolean
+    className?: string
+}
+
+function SessionSegmentCollapse({
+    header,
+    content,
+    actionsPresent,
+    className,
+}: SessionSegmentCollapseProps): JSX.Element {
+    const [isExpanded, setIsExpanded] = useState(false)
+    const { height: contentHeight, ref: contentRef } = useResizeObserver({ box: 'border-box' })
+
+    return (
+        <div className={clsx('LemonCollapse', className)}>
+            <div className="LemonCollapsePanel" aria-expanded={isExpanded}>
+                <LemonButton
+                    fullWidth
+                    className={clsx(
+                        'LemonCollapsePanel__header',
+                        !actionsPresent && 'LemonCollapsePanel__header--disabled'
+                    )}
+                    onClick={actionsPresent ? () => setIsExpanded(!isExpanded) : undefined}
+                    icon={isExpanded ? <IconCollapse /> : <IconExpand />}
+                    size="medium"
+                    disabled={!actionsPresent}
+                >
+                    {header}
+                </LemonButton>
+                <Transition in={isExpanded} timeout={200} mountOnEnter unmountOnExit>
+                    {(status) => (
+                        <div
+                            className="LemonCollapsePanel__body"
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={
+                                status === ENTERING || status === ENTERED
+                                    ? {
+                                          height: contentHeight,
+                                      }
+                                    : undefined
+                            }
+                            aria-busy={status.endsWith('ing')}
+                        >
+                            <div className="LemonCollapsePanel__content" ref={contentRef}>
+                                {content}
+                            </div>
+                        </div>
+                    )}
+                </Transition>
+            </div>
+        </div>
+    )
 }
 
 function SegmentMetaTable({ meta }: SegmentMetaProps): JSX.Element | null {
@@ -141,106 +204,93 @@ function SessionSegmentView({
 }: SessionSegmentViewProps): JSX.Element {
     return (
         <div key={segment.name} className="mb-4">
-            <LemonCollapse
-                size="medium"
+            <SessionSegmentCollapse
                 className={`border-b cursor-pointer py-2 px-2 hover:bg-primary-alt-highlight ${
                     segmentOutcome && Object.keys(segmentOutcome).length > 0 && segmentOutcome.success === false
                         ? 'bg-danger-highlight'
                         : ''
                 }`}
-                panels={[
-                    {
-                        key: `${segment.name}`,
-                        header: (
-                            <div className="py-2">
-                                <div className="flex flex-row gap-2">
-                                    <h3 className="mb-1">{segment.name}</h3>
-                                    {segmentOutcome && Object.keys(segmentOutcome).length > 0 ? (
-                                        <div>
-                                            {segmentOutcome.success ? null : (
-                                                <LemonTag size="small" type="default">
-                                                    failed
-                                                </LemonTag>
-                                            )}
-                                        </div>
-                                    ) : (
-                                        <Spinner />
+                actionsPresent={keyActions && keyActions.length > 0}
+                header={
+                    <div className="py-2">
+                        <div className="flex flex-row gap-2">
+                            <h3 className="mb-1">{segment.name}</h3>
+                            {segmentOutcome && Object.keys(segmentOutcome).length > 0 ? (
+                                <div>
+                                    {segmentOutcome.success ? null : (
+                                        <LemonTag size="small" type="default">
+                                            failed
+                                        </LemonTag>
                                     )}
                                 </div>
-                                {segmentOutcome && (
-                                    <>
-                                        <p className="text-sm font-normal mb-0">{segmentOutcome.summary}</p>
-                                    </>
-                                )}
-                                <SegmentMetaTable
-                                    meta={segment.meta && Object.keys(segment.meta).length > 0 ? segment.meta : null}
-                                />
-                            </div>
-                        ),
-                        content: (
+                            ) : (
+                                <Spinner />
+                            )}
+                        </div>
+                        {segmentOutcome && (
                             <>
-                                {keyActions && keyActions.length > 0 ? (
-                                    <>
-                                        {keyActions?.map((keyAction) =>
-                                            keyAction.events?.map((event: SessionKeyAction, eventIndex: number) =>
-                                                isValidTimestamp(event.milliseconds_since_start) ? (
-                                                    <div
-                                                        key={`${segment.name}-${eventIndex}`}
-                                                        className={`border-b cursor-pointer py-2 px-2 hover:bg-primary-alt-highlight ${
-                                                            event.failure ? 'bg-danger-highlight' : ''
-                                                        }`}
-                                                        onClick={() => {
-                                                            if (!isValidTimestamp(event.milliseconds_since_start)) {
-                                                                return
-                                                            }
-                                                            onSeekToTime(event.milliseconds_since_start)
-                                                        }}
-                                                    >
-                                                        <div className="flex flex-row gap-2">
-                                                            <span className="text-muted-alt shrink-0 min-w-[4rem] font-mono text-xs">
-                                                                {formatMsIntoTime(event.milliseconds_since_start)}
-                                                                <div className="flex flex-row gap-2 mt-1">
-                                                                    {event.current_url ? (
-                                                                        <Link to={event.current_url} target="_blank">
-                                                                            <Tooltip
-                                                                                title={event.current_url}
-                                                                                placement="top"
-                                                                            >
-                                                                                <span className="font-mono text-xs text-muted-alt">
-                                                                                    url
-                                                                                </span>
-                                                                            </Tooltip>
-                                                                        </Link>
-                                                                    ) : null}
-                                                                    <Tooltip
-                                                                        title={formatEventMetaInfo(event)}
-                                                                        placement="top"
-                                                                    >
+                                <p className="text-sm font-normal mb-0">{segmentOutcome.summary}</p>
+                            </>
+                        )}
+                        <SegmentMetaTable
+                            meta={segment.meta && Object.keys(segment.meta).length > 0 ? segment.meta : null}
+                        />
+                    </div>
+                }
+                content={
+                    <>
+                        {keyActions && keyActions.length > 0 ? (
+                            <>
+                                {keyActions?.map((keyAction) =>
+                                    keyAction.events?.map((event: SessionKeyAction, eventIndex: number) =>
+                                        isValidTimestamp(event.milliseconds_since_start) ? (
+                                            <div
+                                                key={`${segment.name}-${eventIndex}`}
+                                                className={`border-b cursor-pointer py-2 px-2 hover:bg-primary-alt-highlight ${
+                                                    event.failure ? 'bg-danger-highlight' : ''
+                                                }`}
+                                                onClick={() => {
+                                                    if (!isValidTimestamp(event.milliseconds_since_start)) {
+                                                        return
+                                                    }
+                                                    onSeekToTime(event.milliseconds_since_start)
+                                                }}
+                                            >
+                                                <div className="flex flex-row gap-2">
+                                                    <span className="text-muted-alt shrink-0 min-w-[4rem] font-mono text-xs">
+                                                        {formatMsIntoTime(event.milliseconds_since_start)}
+                                                        <div className="flex flex-row gap-2 mt-1">
+                                                            {event.current_url ? (
+                                                                <Link to={event.current_url} target="_blank">
+                                                                    <Tooltip title={event.current_url} placement="top">
                                                                         <span className="font-mono text-xs text-muted-alt">
-                                                                            meta
+                                                                            url
                                                                         </span>
                                                                     </Tooltip>
-                                                                </div>
-                                                            </span>
-
-                                                            <span className="text-xs break-words">
-                                                                {event.description}
-                                                            </span>
+                                                                </Link>
+                                                            ) : null}
+                                                            <Tooltip title={formatEventMetaInfo(event)} placement="top">
+                                                                <span className="font-mono text-xs text-muted-alt">
+                                                                    meta
+                                                                </span>
+                                                            </Tooltip>
                                                         </div>
-                                                    </div>
-                                                ) : null
-                                            )
-                                        )}
-                                    </>
-                                ) : (
-                                    <div className="text-muted-alt">
-                                        Waiting for key actions... <Spinner />
-                                    </div>
+                                                    </span>
+
+                                                    <span className="text-xs break-words">{event.description}</span>
+                                                </div>
+                                            </div>
+                                        ) : null
+                                    )
                                 )}
                             </>
-                        ),
-                    },
-                ]}
+                        ) : (
+                            <div className="text-muted-alt">
+                                Waiting for key actions... <Spinner />
+                            </div>
+                        )}
+                    </>
+                }
             />
         </div>
     )
