@@ -87,7 +87,7 @@ const cleanClickhouseType = (type: string | undefined): string | undefined => {
     }
 
     // Replace newline characters followed by empty space
-    type = type.replace(RegExp(/\n\s+/), '')
+    type = type.replace(/\n\s+/, '')
 
     if (type.startsWith('Nullable(')) {
         type = type.replace('Nullable(', '')
