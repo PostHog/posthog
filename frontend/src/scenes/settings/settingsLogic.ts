@@ -216,9 +216,11 @@ export const settingsLogic = kea<settingsLogicType>([
     }),
     actionToUrl(() => ({
         selectSetting: ({ setting }) => {
-            const hashParams = { ...router.values.hashParams, selectedSetting: setting }
-
-            return [router.values.location.pathname, router.values.searchParams, router.values.hashParams]
+            return [
+                router.values.location.pathname,
+                router.values.searchParams,
+                { ...router.values.hashParams, selectedSetting: setting },
+            ]
         },
     })),
     urlToAction(({ actions, values }) => ({
