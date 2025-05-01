@@ -1,9 +1,9 @@
-from ee.hogai.utils.filters import should_output_assistant_message
+from ee.hogai.utils.helpers import should_output_assistant_message
 from posthog.schema import AssistantMessage, AssistantToolCallMessage
 from posthog.test.base import BaseTest
 
 
-class TestMessageFilters(BaseTest):
+class TestAssistantHelpers(BaseTest):
     def test_should_output_assistant_message(self):
         """
         Test that the should_output_assistant_message filter works correctly:

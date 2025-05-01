@@ -2,7 +2,7 @@ import pydantic
 from langgraph.graph.state import CompiledStateGraph
 from rest_framework import serializers
 
-from ee.hogai.utils.filters import should_output_assistant_message
+from ee.hogai.utils.helpers import should_output_assistant_message
 from ee.hogai.utils.types import AssistantState
 from ee.models.assistant import Conversation
 
