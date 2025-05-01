@@ -22,6 +22,7 @@ import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useCallback, useMemo, useState } from 'react'
 import DataGrid from 'react-data-grid'
+import { DataGridProps } from 'react-data-grid'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 
@@ -49,6 +50,69 @@ interface RowDetailsModalProps {
     onClose: () => void
     row: Record<string, any> | null
     columns: string[]
+}
+
+const CLICKHOUSE_TYPES = [
+    'UUID',
+    'String',
+    'Nothing',
+    'DateTime64',
+    'DateTime32',
+    'DateTime',
+    'Date',
+    'Date32',
+    'UInt8',
+    'UInt16',
+    'UInt32',
+    'UInt64',
+    'Float8',
+    'Float16',
+    'Float32',
+    'Float64',
+    'Int8',
+    'Int16',
+    'Int32',
+    'Int64',
+    'Tuple',
+    'Array',
+    'Map',
+    'Bool',
+    'Decimal',
+    'FixedString',
+]
+
+const cleanClickhouseType = (type: string | undefined): string | undefined => {
+    if (!type) {
+        return undefined
+    }
+
+    // Replace newline characters followed by empty space
+    type = type.replace(RegExp(/\n\s+/), '')
+
+    if (type.startsWith('Nullable(')) {
+        type = type.replace('Nullable(', '')
+        type = type.substring(0, type.length - 1)
+    }
+
+    if (type.startsWith('Array(')) {
+        const tokenifiedType = type.split(/(\W)/)
+        type = tokenifiedType
+            .filter((n) => {
+                if (n === 'Nullable') {
+                    return true
+                }
+
+                // Is a single character and not alpha-numeric
+                if (n.length === 1 && !/^[a-z0-9]+$/i.test(n)) {
+                    return true
+                }
+
+                return CLICKHOUSE_TYPES.includes(n)
+            })
+            .join('')
+    }
+
+    return type.replace(/\(.+\)+/, '')
 }
 
 function RowDetailsModal({ isOpen, onClose, row, columns }: RowDetailsModalProps): JSX.Element {
@@ -222,7 +286,7 @@ export function OutputPane(): JSX.Element {
     const columns = useMemo(() => {
         const types = response?.types
 
-        const baseColumns = [
+        const baseColumns: DataGridProps<Record<string, any>>['columns'] = [
             {
                 key: '__details',
                 name: '',
@@ -258,13 +322,24 @@ export function OutputPane(): JSX.Element {
                 const isLongContent = maxContentLength > 100
                 const finalWidth = isLongContent ? 600 : undefined
 
+                const baseColumn = {
+                    key: column,
+                    name: (
+                        <>
+                            {column}{' '}
+                            {type && (
+                                <span className="text-[10px] font-medium italic">{cleanClickhouseType(type)}</span>
+                            )}
+                        </>
+                    ),
+                    resizable: true,
+                    width: finalWidth,
+                }
+
                 // Hack to get bools to render in the data grid
                 if (type && type.indexOf('Bool') !== -1) {
                     return {
-                        key: column,
-                        name: column,
-                        resizable: true,
-                        width: finalWidth,
+                        ...baseColumn,
                         renderCell: (props: any) => {
                             if (props.row[column] === null) {
                                 return null
@@ -272,13 +347,6 @@ export function OutputPane(): JSX.Element {
                             return props.row[column].toString()
                         },
                     }
-                }
-
-                const baseColumn = {
-                    key: column,
-                    name: column,
-                    resizable: true,
-                    width: finalWidth,
                 }
 
                 return {
