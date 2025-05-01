@@ -405,7 +405,7 @@ def export_tabular(exported_asset: ExportedAsset, limit: Optional[int] = None) -
         else:
             team_id = "unknown"
 
-        capture_exception(e, properties={"celery_task": "csv_export", "team_id": team_id})
+        capture_exception(e, additional_properties={"celery_task": "csv_export", "team_id": team_id})
 
         logger.error("csv_exporter.failed", exception=e, exc_info=True)
         EXPORT_FAILED_COUNTER.labels(type="csv").inc()

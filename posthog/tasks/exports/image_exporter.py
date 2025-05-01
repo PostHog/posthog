@@ -266,7 +266,7 @@ def export_image(exported_asset: ExportedAsset) -> None:
                 )
         except Exception as e:
             team_id = str(exported_asset.team.id) if exported_asset else "unknown"
-            capture_exception(e, properties={"celery_task": "image_export", "team_id": team_id})
+            capture_exception(e, additional_properties={"celery_task": "image_export", "team_id": team_id})
 
             logger.error("image_exporter.failed", exception=e, exc_info=True)
             EXPORT_FAILED_COUNTER.labels(type="image").inc()

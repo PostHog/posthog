@@ -19,7 +19,7 @@ def conversion_to_query_based(insight: "Insight") -> Iterator[None]:
         try:
             insight.query = filter_to_query(insight.filters).model_dump()
         except Exception as e:
-            capture_exception(e, properties={"filter_to_query_todo": True})
+            capture_exception(e, additional_properties={"filter_to_query_todo": True})
             raise
 
         try:
