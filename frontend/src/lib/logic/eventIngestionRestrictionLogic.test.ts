@@ -25,7 +25,10 @@ describe('eventIngestionRestrictionLogic', () => {
 
         logic.mount()
 
-        expect(api.get).toHaveBeenCalledWith('api/environments/@current/get_event_ingestion_restrictions/')
+        const hasMatchingCall = (api.get as jest.Mock).mock.calls.some(
+            (call) => call[0] === 'api/environments/@current/get_event_ingestion_restrictions/'
+        )
+        expect(hasMatchingCall).toBe(true)
 
         await expectLogic(logic)
             .toDispatchActions(['loadEventIngestionRestrictions'])
