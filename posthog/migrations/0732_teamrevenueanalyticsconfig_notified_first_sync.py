@@ -2,6 +2,7 @@
 
 from django.db import migrations, models
 
+
 # Dont want to send emails for integrations that have been around for a while
 # so let's completely ignore existing accounts
 def backfill_notified_first_sync(apps, schema_editor):
@@ -22,4 +23,3 @@ class Migration(migrations.Migration):
         ),
         migrations.RunPython(backfill_notified_first_sync),
     ]
-
