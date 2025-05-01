@@ -1,6 +1,5 @@
 import json
 from typing import Optional, cast
-from common.hogvm.python.execute import validate_bytecode
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from django_filters import BaseInFilter, CharFilter, FilterSet
@@ -68,6 +67,7 @@ class HogFunctionMinimalSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "type",
+            "kind",
             "name",
             "description",
             "created_at",
@@ -106,12 +106,14 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
     inputs = InputsSerializer(required=False)
     mappings = serializers.ListField(child=MappingsSerializer(), required=False, allow_null=True)
     filters = HogFunctionFiltersSerializer(required=False)
+    _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
         model = HogFunction
         fields = [
             "id",
             "type",
+            "kind",
             "name",
             "description",
             "created_at",
@@ -132,6 +134,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "template_id",
             "status",
             "execution_order",
+            "_create_in_folder",
         ]
         read_only_fields = [
             "id",
@@ -164,6 +167,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
         # Override some default values from the instance that should always be set
         data["type"] = data.get("type", instance.type if instance else "destination")
+        data["kind"] = data.get("kind", instance.kind if instance else None)
         data["template_id"] = instance.template_id if instance else data.get("template_id")
         data["inputs_schema"] = data.get("inputs_schema", instance.inputs_schema if instance else [])
         data["inputs"] = data.get("inputs", instance.inputs if instance else {})
@@ -293,12 +297,6 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 attrs["bytecode"] = compile_hog(attrs["hog"], hog_type)
                 attrs["transpiled"] = None
 
-                # Test execution to catch memory/execution exceptions only for transformations
-                if hog_type == "transformation":
-                    is_valid, error_message = validate_bytecode(attrs["bytecode"], attrs.get("inputs", {}))
-                    if not is_valid:
-                        raise serializers.ValidationError({"hog": error_message})
-
         if is_create:
             if not attrs.get("hog"):
                 raise serializers.ValidationError({"hog": "Required."})
@@ -392,10 +390,12 @@ class CommaSeparatedListFilter(BaseInFilter, CharFilter):
 
 class HogFunctionFilterSet(FilterSet):
     type = CommaSeparatedListFilter(field_name="type", lookup_expr="in")
+    kind = CommaSeparatedListFilter(field_name="kind", lookup_expr="in")
+    exclude_kind = CommaSeparatedListFilter(field_name="kind", lookup_expr="in", exclude=True)
 
     class Meta:
         model = HogFunction
-        fields = ["type", "enabled", "id", "created_by", "created_at", "updated_at"]
+        fields = ["type", "kind", "exclude_kind", "enabled", "id", "created_by", "created_at", "updated_at"]
 
 
 class HogFunctionViewSet(

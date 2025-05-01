@@ -23,7 +23,12 @@ export interface LemonTableColumn<T extends Record<string, any>, D extends keyof
     /** If true, the column is not displayed. Optional, defaults to not hidden. */
     isHidden?: boolean
     dataIndex?: D
-    render?: (dataValue: D extends keyof T ? T[D] : undefined, record: T, recordIndex: number) => TableCellRenderResult
+    render?: (
+        dataValue: D extends keyof T ? T[D] : undefined,
+        record: T,
+        recordIndex: number,
+        rowCount: number
+    ) => TableCellRenderResult
     /** Sorting function. Set to `true` if using manual pagination, in which case you'll also have to provide `sorting` on the table. */
     sorter?: ((a: T, b: T) => number) | true
     /** Menu containing extra column options, accessible via a "More" button in the title of the column. */

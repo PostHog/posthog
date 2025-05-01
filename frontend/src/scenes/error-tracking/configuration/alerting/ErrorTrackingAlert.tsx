@@ -1,4 +1,5 @@
 import { kea, path, props, selectors } from 'kea'
+import { ERROR_TRACKING_LOGIC_KEY } from 'scenes/error-tracking/utils'
 import { HogFunctionConfiguration } from 'scenes/pipeline/hogfunctions/HogFunctionConfiguration'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -18,6 +19,7 @@ const ERROR_TRACKING_TEMPLATE_IDS = [
     'template-microsoft-teams-error-tracking-issue-reopened',
     'template-webhook-error-tracking-issue-created',
     'template-webhook-error-tracking-issue-reopened',
+    'template-linear-error-tracking-issue-created',
 ]
 
 export const errorTrackingAlertSceneLogic = kea<errorTrackingAlertSceneLogicType>([
@@ -57,8 +59,8 @@ export function ErrorTrackingAlertScene({ id }: Partial<ErrorTrackingAlertSceneL
     return (
         <HogFunctionConfiguration
             {...props}
-            displayOptions={{ hideTestingConfiguration: true }}
-            logicKey="errorTracking"
+            displayOptions={{ hideTestingConfiguration: false }}
+            logicKey={ERROR_TRACKING_LOGIC_KEY}
         />
     )
 }

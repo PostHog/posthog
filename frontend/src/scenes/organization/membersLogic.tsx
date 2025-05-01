@@ -20,9 +20,9 @@ const PAGINATION_LIMIT = 200
 
 export const membersLogic = kea<membersLogicType>([
     path(['scenes', 'organization', 'membersLogic']),
-    connect({
+    connect(() => ({
         values: [userLogic, ['user']],
-    }),
+    })),
     actions({
         ensureAllMembersLoaded: true,
         loadAllMembers: true,

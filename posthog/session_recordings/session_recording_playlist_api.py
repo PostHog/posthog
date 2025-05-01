@@ -126,6 +126,7 @@ def log_playlist_activity(
 
 class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
     recordings_counts = serializers.SerializerMethodField()
+    _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
         model = SessionRecordingPlaylist
@@ -143,6 +144,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
             "last_modified_at",
             "last_modified_by",
             "recordings_counts",
+            "_create_in_folder",
         ]
         read_only_fields = [
             "id",
@@ -274,6 +276,11 @@ class SessionRecordingPlaylistViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel
         for key in filters:
             if key == "user":
                 queryset = queryset.filter(created_by=request.user)
+            elif key == "type" and filters["type"] == "saved_filters":
+                # Filter for playlists that have filters and no items
+                queryset = queryset.exclude(
+                    Q(filters={}) | Q(id__in=SessionRecordingPlaylistItem.objects.values_list("playlist_id", flat=True))
+                )
             elif key == "pinned":
                 queryset = queryset.filter(pinned=True)
             elif key == "date_from":

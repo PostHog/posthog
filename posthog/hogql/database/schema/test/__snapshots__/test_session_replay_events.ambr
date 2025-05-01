@@ -20,7 +20,8 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFilterSessionReplaysByConsoleLogs.test_select_by_console_log_text_and_level
@@ -46,7 +47,8 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFilterSessionReplaysByConsoleLogs.test_select_log_text
@@ -72,7 +74,8 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFilterSessionReplaysByEvents.test_select_by_event
@@ -93,7 +96,8 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFilterSessionReplaysByEvents.test_select_by_event_property
@@ -114,7 +118,8 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFilterSessionReplaysByEvents.test_select_by_subquery_on_event_property_without_join
@@ -133,13 +138,14 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFilterSessionReplaysByEvents.test_select_event_property
   '''
   SELECT session_replay_events.session_id AS session_id,
-         any(raw_session_replay_events__events.`properties___$current_url`)
+         any(raw_session_replay_events__events.`properties___$current_url`) AS `any(events.properties.$current_url)`
   FROM session_replay_events
   JOIN
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', '') AS `properties___$current_url`,
@@ -156,7 +162,8 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFilterSessionReplaysByPerson.test_select_by_event_person
@@ -194,7 +201,8 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFilterSessionReplaysByPerson.test_select_by_person_distinct_id
@@ -217,7 +225,8 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFilterSessionReplaysByPerson.test_select_by_replay_person
@@ -247,13 +256,14 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFilterSessionReplaysByPerson.test_select_person_property
   '''
   SELECT session_replay_events.session_id AS session_id,
-         any(raw_session_replay_events__pdi__person.properties___person_property)
+         any(raw_session_replay_events__pdi__person.properties___person_property) AS `any(person.properties.person_property)`
   FROM session_replay_events
   INNER JOIN
     (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS raw_session_replay_events__pdi___person_id,
@@ -283,13 +293,14 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFilterSessionReplaysByPerson.test_select_where_person_property_with_join_optimization
   '''
   SELECT session_replay_events.session_id AS session_id,
-         any(raw_session_replay_events__pdi__person.properties___person_property)
+         any(raw_session_replay_events__pdi__person.properties___person_property) AS `any(person.properties.person_property)`
   FROM session_replay_events
   INNER JOIN
     (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS raw_session_replay_events__pdi___person_id,
@@ -319,13 +330,14 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFilterSessionReplaysByPerson.test_select_where_person_property_without_join_optimization
   '''
   SELECT session_replay_events.session_id AS session_id,
-         any(raw_session_replay_events__pdi__person.properties___person_property)
+         any(raw_session_replay_events__pdi__person.properties___person_property) AS `any(person.properties.person_property)`
   FROM session_replay_events
   INNER JOIN
     (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS raw_session_replay_events__pdi___person_id,
@@ -355,7 +367,8 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFilterSessionReplaysBySessions.test_select_by_duration_with_session_duration_filter
@@ -380,7 +393,8 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFilterSessionReplaysBySessions.test_select_by_duration_without_session_filter
@@ -398,6 +412,7 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---

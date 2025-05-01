@@ -388,7 +388,7 @@ export function apiValueToMathType(math: string | undefined, groupTypeIndex: num
 
 export const mathsLogic = kea<mathsLogicType>([
     path(['scenes', 'trends', 'mathsLogic']),
-    connect({
+    connect(() => ({
         values: [
             groupsModel,
             ['groupTypes', 'aggregationLabel'],
@@ -397,7 +397,7 @@ export const mathsLogic = kea<mathsLogicType>([
             featureFlagLogic,
             ['featureFlags'],
         ],
-    }),
+    })),
     selectors({
         mathDefinitions: [
             (s) => [s.groupsMathDefinitions],

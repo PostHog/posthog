@@ -7,7 +7,7 @@ import type { tagsModelType } from './tagsModelType'
 
 export const tagsModel = kea<tagsModelType>([
     path(['models', 'tagsModel']),
-    connect({ values: [organizationLogic, ['hasTagging']] }),
+    connect(() => ({ values: [organizationLogic, ['hasTagging']] })),
     loaders(({ values }) => ({
         tags: {
             __default: [] as string[],

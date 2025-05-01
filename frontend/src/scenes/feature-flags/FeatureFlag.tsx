@@ -50,12 +50,14 @@ import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'
 import {
+    AccessControlLevel,
     AccessControlResourceType,
     ActivityScope,
     AnyPropertyFilter,
     AvailableFeature,
     DashboardPlacement,
     DashboardType,
+    EarlyAccessFeatureStage,
     FeatureFlagGroupType,
     FeatureFlagType,
     NotebookNodeType,
@@ -115,6 +117,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         setActiveTab,
     } = useActions(featureFlagLogic)
 
+    const { earlyAccessFeaturesList } = useValues(featureFlagLogic)
+
     const { tags } = useValues(tagsModel)
     const { hasAvailableFeature } = useValues(userLogic)
 
@@ -143,6 +147,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     if (accessDeniedToFeatureFlag) {
         return <AccessDenied object="feature flag" />
     }
+
+    const earlyAccessFeature = earlyAccessFeaturesList?.find((f: any) => f.flagKey === featureFlag.key)
 
     const tabs = [
         {
@@ -558,7 +564,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                     <LemonDivider />
                                                     <AccessControlledLemonButton
                                                         userAccessLevel={featureFlag.user_access_level}
-                                                        minAccessLevel="editor"
+                                                        minAccessLevel={AccessControlLevel.Editor}
                                                         resourceType={AccessControlResourceType.FeatureFlag}
                                                         data-attr={
                                                             featureFlag.deleted
@@ -600,7 +606,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
 
                                         <AccessControlledLemonButton
                                             userAccessLevel={featureFlag.user_access_level}
-                                            minAccessLevel="editor"
+                                            minAccessLevel={AccessControlLevel.Editor}
                                             resourceType={AccessControlResourceType.FeatureFlag}
                                             data-attr="edit-feature-flag"
                                             type="secondary"
@@ -621,6 +627,17 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 </>
                             }
                         />
+                        {earlyAccessFeature && earlyAccessFeature.stage === EarlyAccessFeatureStage.Concept && (
+                            <LemonBanner type="info">
+                                This feature flag is assigned to an early access feature in the{' '}
+                                <LemonTag type="default" className="uppercase">
+                                    Concept
+                                </LemonTag>{' '}
+                                stage. All users who register interest will be assigned this feature flag. Gate your
+                                code behind a different feature flag if you'd like to keep it hidden, and then switch
+                                your code to this feature flag when you're ready to release to your early access users.
+                            </LemonBanner>
+                        )}
                         <LemonTabs
                             activeKey={activeTab}
                             onChange={(tab) => tab !== activeTab && setActiveTab(tab)}
@@ -844,7 +861,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                     <div className="flex gap-2">
                                         <AccessControlAction
                                             userAccessLevel={featureFlag.user_access_level}
-                                            minAccessLevel="editor"
+                                            minAccessLevel={AccessControlLevel.Editor}
                                             resourceType={AccessControlResourceType.FeatureFlag}
                                         >
                                             {({ disabledReason: accessControlDisabledReason }) => (

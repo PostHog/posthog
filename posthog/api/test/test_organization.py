@@ -294,7 +294,10 @@ class TestOrganizationSerializer(APIBaseTest):
         self.assertEqual(teams1[0]["name"], self.team.name)
 
         self.assertEqual(len(teams2), 2)
-        self.assertEqual([teams2[0]["name"], teams2[1]["name"]], ["Default project", team2.name])
+        self.assertEqual(
+            sorted([team["name"] for team in teams2]),
+            sorted(["Default project", team2.name]),
+        )
 
 
 class TestOrganizationRbacMigrations(APIBaseTest):
@@ -368,13 +371,14 @@ class TestOrganizationRbacMigrations(APIBaseTest):
             access_level=21,  # view only
         )
 
-        # Create multiple feature flags
-        feature_flags = []
+        # Create multiple teams
+        teams = []
         for i in range(3):
-            feature_flag = FeatureFlag.objects.create(
-                team=self.team, created_by=self.admin_user, key=f"test-flag-{i}", name=f"Test Flag {i}"
+            team = Team.objects.create(
+                organization=self.organization,
+                name=f"Test Team {i}",
             )
-            feature_flags.append(feature_flag)
+            teams.append(team)
 
         response = self.client.post(f"/api/organizations/{self.organization.id}/migrate_access_control/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -385,16 +389,20 @@ class TestOrganizationRbacMigrations(APIBaseTest):
             resource="feature_flag",
             access_level="viewer",
             role__isnull=True,
+            organization_member__isnull=True,
+            resource_id__isnull=True,
         )
-        self.assertEqual(viewer_access.count(), 3)
+        self.assertEqual(viewer_access.count(), 4)  # 3 teams + 1 existing team from setup
 
         # Should create editor access for admin role (feature_flags_access_level=37)
         editor_access = AccessControl.objects.filter(
             resource="feature_flag",
             access_level="editor",
             role=self.admin_role,
+            organization_member__isnull=True,
+            resource_id__isnull=True,
         )
-        self.assertEqual(editor_access.count(), 3)
+        self.assertEqual(editor_access.count(), 4)  # 3 teams + 1 existing team from setup
 
         # Add verification of reporting calls at the end
         mock_report_action.assert_any_call(

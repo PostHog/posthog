@@ -57,8 +57,10 @@ const StatusTagSetting: Record<string, LemonTagType> = {
 
 export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Element => {
     const { currentTeam } = useValues(teamLogic)
-    const { updateSchema, reloadSchema, resyncSchema, setIsProjectTime } = useActions(dataWarehouseSourceSettingsLogic)
-    const { isProjectTime } = useValues(dataWarehouseSourceSettingsLogic)
+    const { updateSchema, reloadSchema, resyncSchema, deleteTable, setIsProjectTime } = useActions(
+        dataWarehouseSourceSettingsLogic
+    )
+    const { isProjectTime, source } = useValues(dataWarehouseSourceSettingsLogic)
     const { schemaReloadingById } = useValues(dataWarehouseSettingsLogic)
     const [initialLoad, setInitialLoad] = useState(true)
 
@@ -317,28 +319,68 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                                         <More
                                             overlay={
                                                 <>
-                                                    <LemonButton
-                                                        type="tertiary"
-                                                        size="xsmall"
-                                                        key={`reload-data-warehouse-schema-${schema.id}`}
-                                                        onClick={() => {
-                                                            reloadSchema(schema)
-                                                        }}
+                                                    <Tooltip
+                                                        title={
+                                                            schema.incremental
+                                                                ? 'Sync incremental data since the last run.'
+                                                                : 'Sync all data.'
+                                                        }
                                                     >
-                                                        Reload
-                                                    </LemonButton>
+                                                        <LemonButton
+                                                            type="tertiary"
+                                                            size="xsmall"
+                                                            fullWidth
+                                                            key={`reload-data-warehouse-schema-${schema.id}`}
+                                                            id="data-warehouse-schema-reload"
+                                                            onClick={() => {
+                                                                reloadSchema(schema)
+                                                            }}
+                                                        >
+                                                            Sync now
+                                                        </LemonButton>
+                                                    </Tooltip>
                                                     {schema.incremental && (
-                                                        <Tooltip title="Completely resync incrementally loaded data. Only recommended if there is an issue with data quality in previously imported data">
+                                                        <Tooltip title="Completely resync incrementally loaded data. Only recommended if there is an issue with data quality in previously imported data.">
                                                             <LemonButton
                                                                 type="tertiary"
                                                                 size="xsmall"
+                                                                fullWidth
                                                                 key={`resync-data-warehouse-schema-${schema.id}`}
+                                                                id="data-warehouse-schema-resync"
                                                                 onClick={() => {
                                                                     resyncSchema(schema)
                                                                 }}
                                                                 status="danger"
                                                             >
-                                                                Resync
+                                                                Delete table and resync
+                                                            </LemonButton>
+                                                        </Tooltip>
+                                                    )}
+                                                    {schema.table && (
+                                                        <Tooltip
+                                                            title={`Delete this table from PostHog. ${
+                                                                source?.source_type
+                                                                    ? `This will not delete the data in ${source.source_type}`
+                                                                    : ''
+                                                            }`}
+                                                        >
+                                                            <LemonButton
+                                                                status="danger"
+                                                                id="data-warehouse-schema-delete"
+                                                                type="tertiary"
+                                                                fullWidth
+                                                                size="xsmall"
+                                                                onClick={() => {
+                                                                    if (
+                                                                        window.confirm(
+                                                                            `Are you sure you want to delete the table ${schema?.table?.name} from PostHog?`
+                                                                        )
+                                                                    ) {
+                                                                        deleteTable(schema)
+                                                                    }
+                                                                }}
+                                                            >
+                                                                Delete table from PostHog
                                                             </LemonButton>
                                                         </Tooltip>
                                                     )}

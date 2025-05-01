@@ -13,6 +13,14 @@ function SvelteAppClientCodeSnippet(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const isPersonProfilesDisabled = featureFlags[FEATURE_FLAGS.PERSONLESS_EVENTS_NOT_SUPPORTED]
 
+    const options = [`api_host: '${apiHostOrigin()}'`]
+
+    if (!isPersonProfilesDisabled) {
+        options.push(
+            "person_profiles: 'identified_only', // or 'always' to create profiles for anonymous users as well"
+        )
+    }
+
     return (
         <CodeSnippet language={Language.JavaScript}>
             {`import posthog from 'posthog-js'
@@ -23,17 +31,11 @@ onMount(() => {
   if (browser) {
     posthog.init(
       '${currentTeam?.api_token}',
-      { 
-        api_host: '${apiHostOrigin()}',
-        ${
-            isPersonProfilesDisabled
-                ? ``
-                : `person_profiles: 'identified_only', // or 'always' to create profiles for anonymous users as well`
-        }
+      {
+        ${options.join(',\n        ')}
       }
     )
   }
-  return
 });`}
         </CodeSnippet>
     )

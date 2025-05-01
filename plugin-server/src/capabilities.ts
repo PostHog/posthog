@@ -22,6 +22,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 cdpInternalEvents: true,
                 cdpCyclotronWorker: true,
                 cdpCyclotronWorkerPlugins: true,
+                cdpCyclotronWorkerFetch: true,
                 cdpApi: true,
             }
 
@@ -31,10 +32,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return {
                 mmdb: true,
                 ingestionV2: true,
-            }
-        case PluginServerMode.property_defs:
-            return {
-                propertyDefs: true,
             }
         case PluginServerMode.recordings_blob_ingestion:
             return {
@@ -76,6 +73,10 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
         case PluginServerMode.cdp_cyclotron_worker_plugins:
             return {
                 cdpCyclotronWorkerPlugins: true,
+            }
+        case PluginServerMode.cdp_cyclotron_worker_fetch:
+            return {
+                cdpCyclotronWorkerFetch: true,
             }
         case PluginServerMode.cdp_api:
             return {

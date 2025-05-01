@@ -6,10 +6,10 @@ import type { dataColorThemesLogicType } from './dataColorThemesLogicType'
 
 export const dataColorThemesLogic = kea<dataColorThemesLogicType>([
     path(['scenes', 'settings', 'environment', 'dataColorThemesLogic']),
-    connect({
+    connect(() => ({
         values: [dataThemeLogic, ['themes', 'themesLoading', 'defaultTheme', 'posthogTheme']],
         actions: [dataColorThemesModalLogic, ['openModal', 'submitThemeSuccess'], dataThemeLogic, ['setThemes']],
-    }),
+    })),
     actions({
         selectTheme: (id: 'new' | number | null) => ({ id }),
     }),

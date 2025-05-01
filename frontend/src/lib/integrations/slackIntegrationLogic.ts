@@ -11,9 +11,9 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
     props({} as { id: number }),
     key((props) => props.id),
     path((key) => ['lib', 'integrations', 'slackIntegrationLogic', key]),
-    connect({
+    connect(() => ({
         values: [preflightLogic, ['siteUrlMisconfigured', 'preflight']],
-    }),
+    })),
     actions({
         loadAllSlackChannels: () => ({}),
         loadSlackChannelById: (channelId: string) => ({ channelId }),

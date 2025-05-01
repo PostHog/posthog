@@ -162,6 +162,7 @@ def org_quota_limited_until(
     is_over_limit = usage + todays_usage >= limit + OVERAGE_BUFFER[resource]
     billing_period_start = round(dateutil.parser.isoparse(organization.usage["period"][0]).timestamp())
     billing_period_end = round(dateutil.parser.isoparse(organization.usage["period"][1]).timestamp())
+    quota_limited_until = summary.get("quota_limited_until", None)
     quota_limiting_suspended_until = summary.get("quota_limiting_suspended_until", None)
     # Note: customer_trust_scores can initially be null. This should only happen after the initial migration and therefore
     # should be removed once all existing customers have this field set.
@@ -183,9 +184,8 @@ def org_quota_limited_until(
 
     # 1a. not over limit
     if not is_over_limit:
-        if quota_limiting_suspended_until:
+        if quota_limiting_suspended_until or quota_limited_until:
             # If they are not over limit, we want to remove the suspension if it exists
-            update_organization_usage_field(organization, resource, "quota_limiting_suspended_until", None)
             report_organization_action(
                 organization,
                 "org_quota_limited_until",
@@ -195,6 +195,9 @@ def org_quota_limited_until(
                     "resource": resource.value,
                     "quota_limiting_suspended_until": quota_limiting_suspended_until,
                 },
+            )
+            update_organization_usage_fields(
+                organization, resource, {"quota_limited_until": None, "quota_limiting_suspended_until": None}
             )
         return None
 
@@ -211,13 +214,16 @@ def org_quota_limited_until(
                 "trust_score": trust_score,
             },
         )
+        update_organization_usage_fields(
+            organization, resource, {"quota_limited_until": None, "quota_limiting_suspended_until": None}
+        )
         return None
 
     team_tokens = get_team_attribute_by_quota_resource(organization)
     team_being_limited = any(x in previously_quota_limited_team_tokens for x in team_tokens)
 
     # 2a. already being limited
-    if team_being_limited:
+    if team_being_limited or quota_limited_until:
         # They are already being limited, do not update their status.
         report_organization_action(
             organization,
@@ -226,7 +232,12 @@ def org_quota_limited_until(
                 "event": "already limited",
                 "current_usage": usage + todays_usage,
                 "resource": resource.value,
+                "quota_limited_until": billing_period_end,
+                "quota_limiting_suspended_until": quota_limiting_suspended_until,
             },
+        )
+        update_organization_usage_fields(
+            organization, resource, {"quota_limited_until": billing_period_end, "quota_limiting_suspended_until": None}
         )
         return {
             "quota_limited_until": billing_period_end,
@@ -252,6 +263,9 @@ def org_quota_limited_until(
                 "feature_flag": QUOTA_LIMIT_DATA_RETENTION_FLAG,
             },
         )
+        update_organization_usage_fields(
+            organization, resource, {"quota_limited_until": None, "quota_limiting_suspended_until": None}
+        )
         return None
 
     _, today_end = get_current_day()
@@ -276,6 +290,9 @@ def org_quota_limited_until(
                 "trust_score": trust_score,
             },
         )
+        update_organization_usage_fields(
+            organization, resource, {"quota_limited_until": billing_period_end, "quota_limiting_suspended_until": None}
+        )
         return {
             "quota_limited_until": billing_period_end,
             "quota_limiting_suspended_until": None,
@@ -294,7 +311,9 @@ def org_quota_limited_until(
                 "trust_score": trust_score,
             },
         )
-        update_organization_usage_field(organization, resource, "quota_limiting_suspended_until", None)
+        update_organization_usage_fields(
+            organization, resource, {"quota_limited_until": billing_period_end, "quota_limiting_suspended_until": None}
+        )
         return {
             "quota_limited_until": billing_period_end,
             "quota_limiting_suspended_until": None,
@@ -354,8 +373,10 @@ def org_quota_limited_until(
                 },
             )
             quota_limiting_suspended_until = round((today_end + timedelta(days=grace_period_days)).timestamp())
-            update_organization_usage_field(
-                organization, resource, "quota_limiting_suspended_until", quota_limiting_suspended_until
+            update_organization_usage_fields(
+                organization,
+                resource,
+                {"quota_limited_until": None, "quota_limiting_suspended_until": quota_limiting_suspended_until},
             )
             return {
                 "quota_limited_until": None,
@@ -374,6 +395,11 @@ def org_quota_limited_until(
                     "quota_limiting_suspended_until": quota_limiting_suspended_until,
                 },
             )
+            update_organization_usage_fields(
+                organization,
+                resource,
+                {"quota_limited_until": None, "quota_limiting_suspended_until": quota_limiting_suspended_until},
+            )
             return {
                 "quota_limited_until": None,
                 "quota_limiting_suspended_until": quota_limiting_suspended_until,
@@ -389,7 +415,11 @@ def org_quota_limited_until(
                     "resource": resource.value,
                 },
             )
-            update_organization_usage_field(organization, resource, "quota_limiting_suspended_until", None)
+            update_organization_usage_fields(
+                organization,
+                resource,
+                {"quota_limited_until": billing_period_end, "quota_limiting_suspended_until": None},
+            )
             return {
                 "quota_limited_until": billing_period_end,
                 "quota_limiting_suspended_until": None,
@@ -404,6 +434,9 @@ def org_quota_limited_until(
                 "resource": resource.value,
                 "trust_score": trust_score,
             },
+        )
+        update_organization_usage_fields(
+            organization, resource, {"quota_limited_until": billing_period_end, "quota_limiting_suspended_until": None}
         )
         return {
             "quota_limited_until": billing_period_end,
@@ -798,6 +831,21 @@ def update_organization_usage_field(organization: Organization, resource: QuotaR
     """
     Helper function to safely update a field within organization.usage[resource][key]
     If value is None, the key will be deleted.
+
+    Note: For updating multiple fields at once, use update_organization_usage_fields instead
+    to reduce database calls.
+    """
+    update_organization_usage_fields(organization, resource, {key: value})
+
+
+def update_organization_usage_fields(
+    organization: Organization, resource: QuotaResource, fields: dict[str, Any]
+) -> None:
+    """
+    Helper function to safely update multiple fields within organization.usage[resource]
+    If a value is None, the key will be deleted.
+    This is more efficient than calling update_organization_usage_field multiple times
+    as it only makes one database call.
     """
     if not organization.usage:
         capture_exception(Exception(f"quota_limiting: No usage found for organization: {organization.id}"))
@@ -810,10 +858,11 @@ def update_organization_usage_field(organization: Organization, resource: QuotaR
         )
         return
 
-    if value is None:
-        if key in organization.usage[resource.value]:
-            del organization.usage[resource.value][key]
-    else:
-        organization.usage[resource.value][key] = value
+    for key, value in fields.items():
+        if value is None:
+            if key in organization.usage[resource.value]:
+                del organization.usage[resource.value][key]
+        else:
+            organization.usage[resource.value][key] = value
 
     organization.save(update_fields=["usage"])

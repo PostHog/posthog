@@ -25,14 +25,14 @@ export type GroupsTabs = Record<string, { url: string; label: LemonTab<any>['lab
 
 export const groupsSceneLogic = kea<groupsSceneLogicType>([
     path(['scenes', 'groups', 'groupsSceneLogic']),
-    connect({
+    connect(() => ({
         values: [
             groupsModel,
             ['aggregationLabel', 'groupTypes', 'groupTypesLoading', 'groupsAccessStatus'],
             featureFlagLogic,
             ['featureFlags'],
         ],
-    }),
+    })),
     actions({
         setGroupTypeIndex: (groupTypeIndex: number) => ({ groupTypeIndex }),
         setTabKey: (tabKey: string) => ({ tabKey }),

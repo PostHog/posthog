@@ -13,7 +13,6 @@ import {
     IconPlug,
     IconServer,
     IconSparkles,
-    IconTarget,
     IconWarning,
 } from '@posthog/icons'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -35,8 +34,6 @@ export function iconForType(type?: string): JSX.Element {
             return <IconSparkles />
         case 'feature':
             return <IconFeatures />
-        case 'repl':
-            return <IconTarget />
         case 'survey':
             return <IconMessage />
         case 'sql':
@@ -44,7 +41,7 @@ export function iconForType(type?: string): JSX.Element {
         case 'folder':
             return <IconChevronRight />
         default:
-            if (type.startsWith('hog/')) {
+            if (type.startsWith('hog_function/')) {
                 return <IconPlug />
             }
             return <IconBook />
@@ -55,20 +52,9 @@ export const getDefaultTreeNew = (): FileSystemImport[] =>
     [
         ...treeItemsNew,
         {
-            path: `AI chat`,
-            type: 'aichat',
-            href: () => urls.max(),
-            flag: FEATURE_FLAGS.ARTIFICIAL_HOG,
-        },
-        {
-            path: `Feature`,
-            type: 'feature',
+            path: `Early access feature`,
+            type: 'early_access_feature',
             href: () => urls.earlyAccessFeature('new'),
-        },
-        {
-            path: `Hog repl`,
-            type: 'repl',
-            href: () => urls.debugHog() + '#repl=[]&code=',
         },
         {
             path: `Survey`,
@@ -76,35 +62,41 @@ export const getDefaultTreeNew = (): FileSystemImport[] =>
             href: () => urls.survey('new'),
         },
         {
-            path: `SQL query`,
-            type: 'sql',
-            href: () => urls.sqlEditor(),
+            path: `Cohort`,
+            type: 'cohort',
+            href: () => urls.cohort('new'),
         },
         {
-            path: `Data source`,
-            type: 'hog/source',
+            path: `Data/Source`,
+            type: 'hog_function/source',
             href: () => urls.pipelineNodeNew(PipelineStage.Source),
         },
         {
-            path: `Data destination`,
-            type: 'hog/destination',
+            path: `Data/Destination`,
+            type: 'hog_function/destination',
             href: () => urls.pipelineNodeNew(PipelineStage.Destination),
         },
         {
-            path: `Data transformation`,
-            type: 'hog/transformation',
+            path: `Data/Transformation`,
+            type: 'hog_function/transformation',
             href: () => urls.pipelineNodeNew(PipelineStage.Transformation),
         },
         {
-            path: `Site app`,
-            type: 'hog/site_app',
+            path: `Data/Site app`,
+            type: 'hog_function/site_app',
             href: () => urls.pipelineNodeNew(PipelineStage.SiteApp),
         },
-    ].sort((a, b) => a.path.localeCompare(b.path))
+    ].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
 
 export const getDefaultTreeExplore = (groupNodes: FileSystemImport[]): FileSystemImport[] =>
     [
         ...treeItemsExplore,
+        {
+            path: `AI chat`,
+            type: 'aichat',
+            href: () => urls.max(),
+            flag: FEATURE_FLAGS.ARTIFICIAL_HOG,
+        },
         {
             path: 'Data management/Event Definitions',
             icon: <IconDatabase />,
@@ -131,8 +123,7 @@ export const getDefaultTreeExplore = (groupNodes: FileSystemImport[]): FileSyste
         {
             path: 'Data management/Revenue',
             icon: <IconHandMoney />,
-            href: () => urls.revenue(),
-            flag: FEATURE_FLAGS.WEB_REVENUE_TRACKING,
+            href: () => urls.revenueSettings(),
         },
         {
             path: 'Data management/Ingestion Warnings',
@@ -140,7 +131,11 @@ export const getDefaultTreeExplore = (groupNodes: FileSystemImport[]): FileSyste
             href: () => urls.ingestionWarnings(),
             flag: FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED,
         },
-
+        {
+            path: `SQL query`,
+            type: 'sql',
+            href: () => urls.sqlEditor(),
+        },
         {
             path: 'Data warehouse',
             icon: <IconDatabase />,
@@ -172,7 +167,6 @@ export const getDefaultTreeExplore = (groupNodes: FileSystemImport[]): FileSyste
             path: 'Error tracking',
             icon: <IconWarning />,
             href: () => urls.errorTracking(),
-            flag: FEATURE_FLAGS.ERROR_TRACKING,
         },
         {
             path: 'Heatmaps',
@@ -180,4 +174,4 @@ export const getDefaultTreeExplore = (groupNodes: FileSystemImport[]): FileSyste
             href: () => urls.heatmaps(),
             flag: FEATURE_FLAGS.HEATMAPS_UI,
         },
-    ].sort((a, b) => a.path.localeCompare(b.path))
+    ].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))

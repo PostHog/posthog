@@ -1,0 +1,6 @@
+subscription_id,subscription_created_at,subscription_customer_id,subscription_amount
+"1","2023-01-02","user_control_0",100
+"2","2023-01-03","user_test_1",50
+"3","2023-01-04","user_test_2",75
+"4","2023-01-05","user_test_3",80
+"5","2023-01-06","user_extra",90

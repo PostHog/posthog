@@ -1022,3 +1022,87 @@ class TestActivateBillingAPI(APILicensedTest):
         response = self.client.get(url, data)
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class TestStartupApplicationBillingAPI(APILicensedTest):
+    def setUp(self):
+        super().setUp()
+        # Set user as admin/owner by default
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        self.url = "/api/billing/startups/apply"
+        self.data = {"organization_id": str(self.organization.id)}
+
+    @patch("ee.billing.billing_manager.BillingManager.apply_startup_program")
+    def test_startup_apply_owner_success(self, mock_apply_startup_program):
+        mock_apply_startup_program.return_value = {"success": True}
+
+        response = self.client.post(self.url, self.data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True})
+        mock_apply_startup_program.assert_called_once()
+
+    def test_startup_apply_non_admin_failure(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self.client.post(self.url, self.data)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(
+            response.json()["detail"], "You need to be an organization admin or owner to apply for the startup program"
+        )
+
+    def test_startup_apply_missing_org_id(self):
+        empty_data = {}
+
+        response = self.client.post(self.url, empty_data)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "This field is required.",
+                "attr": "organization_id",
+            },
+        )
+
+    @patch("ee.billing.billing_manager.BillingManager.apply_startup_program")
+    def test_startup_apply_passes_user_info(self, mock_apply_startup_program):
+        mock_apply_startup_program.return_value = {"success": True}
+
+        # Set user properties
+        self.user.email = "test@example.com"
+        self.user.first_name = "Test"
+        self.user.last_name = "User"
+        self.user.save()
+
+        # Add additional data fields
+        data = {
+            **self.data,
+            "raised": "1000000",
+            "incorporation_date": "2023-01-01",
+        }
+
+        response = self.client.post(self.url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        expected_data = {
+            "organization_id": str(self.organization.id),
+            "raised": "1000000",
+            "incorporation_date": "2023-01-01",
+            "email": "test@example.com",
+            "first_name": "Test",
+            "last_name": "User",
+        }
+
+        # Check that apply_startup_program was called with the organization and the expected data
+        mock_apply_startup_program.assert_called_once()
+        _, call_args, _ = mock_apply_startup_program.mock_calls[0]
+        self.assertEqual(call_args[0], self.organization)
+        self.assertEqual(call_args[1], expected_data)

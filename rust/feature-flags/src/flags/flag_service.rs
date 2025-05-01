@@ -2,7 +2,7 @@ use crate::{
     api::errors::FlagError,
     client::database::Client as DatabaseClient,
     flags::flag_models::FeatureFlagList,
-    metrics::metrics_consts::{
+    metrics::consts::{
         DB_FLAG_READS_COUNTER, DB_TEAM_READS_COUNTER, FLAG_CACHE_ERRORS_COUNTER,
         FLAG_CACHE_HIT_COUNTER, TEAM_CACHE_ERRORS_COUNTER, TEAM_CACHE_HIT_COUNTER,
         TOKEN_VALIDATION_ERRORS_COUNTER,
@@ -39,11 +39,7 @@ impl FlagService {
             Err(_) => {
                 match Team::from_pg(self.pg_client.clone(), token).await {
                     Ok(team) => {
-                        inc(
-                            DB_TEAM_READS_COUNTER,
-                            &[("token".to_string(), token.to_string())],
-                            1,
-                        );
+                        inc(DB_TEAM_READS_COUNTER, &[], 1);
                         // Token found in PostgreSQL, update Redis cache so that we can verify it from Redis next time
                         if let Err(e) =
                             Team::update_redis_cache(self.redis_client.clone(), &team).await
@@ -57,7 +53,8 @@ impl FlagService {
                         }
                         (Ok(token), false)
                     }
-                    Err(_) => {
+                    Err(e) => {
+                        tracing::error!("Token validation failed for token '{}': {:?}", token, e);
                         inc(
                             TOKEN_VALIDATION_ERRORS_COUNTER,
                             &[("reason".to_string(), "token_not_found".to_string())],
@@ -71,10 +68,7 @@ impl FlagService {
 
         inc(
             TEAM_CACHE_HIT_COUNTER,
-            &[
-                ("token".to_string(), token.to_string()),
-                ("cache_hit".to_string(), cache_hit.to_string()),
-            ],
+            &[("cache_hit".to_string(), cache_hit.to_string())],
             1,
         );
 
@@ -91,11 +85,7 @@ impl FlagService {
             Ok(team) => (Ok(team), true),
             Err(_) => match Team::from_pg(self.pg_client.clone(), token).await {
                 Ok(team) => {
-                    inc(
-                        DB_TEAM_READS_COUNTER,
-                        &[("token".to_string(), token.to_string())],
-                        1,
-                    );
+                    inc(DB_TEAM_READS_COUNTER, &[], 1);
                     // If we have the team in postgres, but not redis, update redis so we're faster next time
                     if (Team::update_redis_cache(self.redis_client.clone(), &team).await).is_err() {
                         inc(
@@ -113,10 +103,7 @@ impl FlagService {
 
         inc(
             TEAM_CACHE_HIT_COUNTER,
-            &[
-                ("token".to_string(), token.to_string()),
-                ("cache_hit".to_string(), cache_hit.to_string()),
-            ],
+            &[("cache_hit".to_string(), cache_hit.to_string())],
             1,
         );
 
@@ -136,11 +123,7 @@ impl FlagService {
                 Err(_) => {
                     match FeatureFlagList::from_pg(self.pg_client.clone(), project_id).await {
                         Ok(flags) => {
-                            inc(
-                                DB_FLAG_READS_COUNTER,
-                                &[("project_id".to_string(), project_id.to_string())],
-                                1,
-                            );
+                            inc(DB_FLAG_READS_COUNTER, &[], 1);
                             if (FeatureFlagList::update_flags_in_redis(
                                 self.redis_client.clone(),
                                 project_id,
@@ -165,10 +148,7 @@ impl FlagService {
         // Track cache hits and misses
         inc(
             FLAG_CACHE_HIT_COUNTER,
-            &[
-                ("project_id".to_string(), project_id.to_string()),
-                ("cache_hit".to_string(), cache_hit.to_string()),
-            ],
+            &[("cache_hit".to_string(), cache_hit.to_string())],
             1,
         );
 
@@ -181,7 +161,9 @@ mod tests {
     use serde_json::json;
 
     use crate::{
-        flags::flag_models::{FeatureFlag, FlagFilters, FlagGroupType, TEAM_FLAGS_CACHE_PREFIX},
+        flags::flag_models::{
+            FeatureFlag, FlagFilters, FlagPropertyGroup, TEAM_FLAGS_CACHE_PREFIX,
+        },
         properties::property_models::{OperatorType, PropertyFilter},
         utils::test_utils::{insert_new_team_in_redis, setup_pg_reader_client, setup_redis_client},
     };
@@ -242,10 +224,10 @@ mod tests {
                     name: Some("Beta Feature".to_string()),
                     key: "beta_feature".to_string(),
                     filters: FlagFilters {
-                        groups: vec![FlagGroupType {
+                        groups: vec![FlagPropertyGroup {
                             properties: Some(vec![PropertyFilter {
                                 key: "country".to_string(),
-                                value: json!("US"),
+                                value: Some(json!("US")),
                                 operator: Some(OperatorType::Exact),
                                 prop_type: "person".to_string(),
                                 group_type_index: None,
@@ -289,10 +271,10 @@ mod tests {
                     name: Some("Premium Feature".to_string()),
                     key: "premium_feature".to_string(),
                     filters: FlagFilters {
-                        groups: vec![FlagGroupType {
+                        groups: vec![FlagPropertyGroup {
                             properties: Some(vec![PropertyFilter {
                                 key: "is_premium".to_string(),
-                                value: json!(true),
+                                value: Some(json!(true)),
                                 operator: Some(OperatorType::Exact),
                                 prop_type: "person".to_string(),
                                 group_type_index: None,

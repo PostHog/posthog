@@ -11,9 +11,9 @@ import type { productsLogicType } from './productsLogicType'
 
 export const productsLogic = kea<productsLogicType>([
     path(['scenes', 'products', 'productsLogic']),
-    connect({
+    connect(() => ({
         actions: [teamLogic, ['addProductIntent']],
-    }),
+    })),
     actions(() => ({
         toggleSelectedProduct: (productKey: ProductKey) => ({ productKey }),
         setFirstProductOnboarding: (productKey: ProductKey) => ({ productKey }),
@@ -40,9 +40,20 @@ export const productsLogic = kea<productsLogicType>([
                 return
             }
 
+            const isFromWizard = router.values.searchParams['source'] === 'wizard'
+
+            const requiresFurtherSetup = [ProductKey.ERROR_TRACKING, ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS]
+
+            const secondStepKey =
+                values.firstProductOnboarding === ProductKey.WEB_ANALYTICS
+                    ? OnboardingStepKey.AUTHORIZED_DOMAINS
+                    : OnboardingStepKey.PRODUCT_CONFIGURATION
+
             const stepKey =
                 values.firstProductOnboarding === ProductKey.DATA_WAREHOUSE
                     ? OnboardingStepKey.LINK_DATA
+                    : isFromWizard && !requiresFurtherSetup.includes(values.firstProductOnboarding)
+                    ? secondStepKey
                     : OnboardingStepKey.INSTALL
 
             router.actions.push(urls.onboarding(values.firstProductOnboarding, stepKey))

@@ -24,8 +24,8 @@ class DataModelingJobSerializer(serializers.ModelSerializer):
 
 
 class DataModelingJobPagination(pagination.CursorPagination):
-    page_size = 10
     ordering = "-created_at"
+    page_size_query_param = "limit"
 
 
 class DataModelingJobViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):

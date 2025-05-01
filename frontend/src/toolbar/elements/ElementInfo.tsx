@@ -21,7 +21,7 @@ export function ElementInfo(): JSX.Element | null {
         return null
     }
 
-    const { element, position, count, clickCount, rageclickCount, actionStep } = activeMeta
+    const { element, position, count, clickCount, rageclickCount, deadclickCount, actionStep } = activeMeta
 
     return (
         <>
@@ -47,6 +47,7 @@ export function ElementInfo(): JSX.Element | null {
                         <ElementStatistic title="Ranking" prefix="#" value={position || 0} />
                         <ElementStatistic title="Autocapture clicks" value={clickCount || 0} />
                         <ElementStatistic title="Rageclicks" value={rageclickCount || 0} />
+                        <ElementStatistic title="Deadclicks" value={deadclickCount || 0} />
                     </div>
                 </div>
             ) : null}

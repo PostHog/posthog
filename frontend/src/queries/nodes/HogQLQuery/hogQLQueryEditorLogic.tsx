@@ -52,10 +52,10 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
             actions.setQueryInput(props.query.query)
         }
     }),
-    connect({
+    connect(() => ({
         values: [featureFlagLogic, ['featureFlags']],
         actions: [dataWarehouseViewsLogic, ['createDataWarehouseSavedQuery'], dataWarehouseSceneLogic, ['updateView']],
-    }),
+    })),
     actions({
         saveQuery: (queryOverride?: string) => ({ queryOverride }),
         setQueryInput: (queryInput: string) => ({ queryInput }),

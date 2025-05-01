@@ -1,8 +1,10 @@
-import { actions, afterMount, connect, kea, path, reducers } from 'kea'
+import equal from 'fast-deep-equal'
+import { actions, afterMount, kea, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
+import { urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isDefinitionStale } from 'lib/utils/definitions'
+import { Params } from 'scenes/sceneTypes'
 
 import { DateRange, ErrorTrackingIssue, ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
 import { EventDefinitionType, FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
@@ -19,16 +21,14 @@ export const DEFAULT_ERROR_TRACKING_FILTER_GROUP = {
 export const errorTrackingLogic = kea<errorTrackingLogicType>([
     path(['scenes', 'error-tracking', 'errorTrackingLogic']),
 
-    connect({
-        values: [featureFlagLogic, ['featureFlags']],
-    }),
-
     actions({
         setDateRange: (dateRange: DateRange) => ({ dateRange }),
         setAssignee: (assignee: ErrorTrackingIssue['assignee']) => ({ assignee }),
         setSearchQuery: (searchQuery: string) => ({ searchQuery }),
         setFilterGroup: (filterGroup: UniversalFiltersGroup) => ({ filterGroup }),
         setFilterTestAccounts: (filterTestAccounts: boolean) => ({ filterTestAccounts }),
+        setShowStacktrace: (showStacktrace: boolean) => ({ showStacktrace }),
+        setShowContext: (showContext: boolean) => ({ showContext }),
     }),
     reducers({
         dateRange: [
@@ -64,6 +64,20 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
                 setSearchQuery: (_, { searchQuery }) => searchQuery,
             },
         ],
+        showStacktrace: [
+            true,
+            { persist: true },
+            {
+                setShowStacktrace: (_, { showStacktrace }: { showStacktrace: boolean }) => showStacktrace,
+            },
+        ],
+        showContext: [
+            true,
+            { persist: true },
+            {
+                setShowContext: (_, { showContext }: { showContext: boolean }) => showContext,
+            },
+        ],
     }),
     loaders({
         hasSentExceptionEvent: {
@@ -77,6 +91,26 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
                 return definition ? !isDefinitionStale(definition) : false
             },
         },
+    }),
+
+    urlToAction(({ actions, values }) => {
+        const urlToAction = (_: any, params: Params): void => {
+            if (params.dateRange && !equal(params.dateRange, values.dateRange)) {
+                actions.setDateRange(params.dateRange)
+            }
+            if (params.filterGroup && !equal(params.filterGroup, values.filterGroup)) {
+                actions.setFilterGroup(params.filterGroup)
+            }
+            if (params.filterTestAccounts && !equal(params.filterTestAccounts, values.filterTestAccounts)) {
+                actions.setFilterTestAccounts(params.filterTestAccounts)
+            }
+            if (params.searchQuery && !equal(params.searchQuery, values.searchQuery)) {
+                actions.setSearchQuery(params.searchQuery)
+            }
+        }
+        return {
+            '*': urlToAction,
+        }
     }),
 
     afterMount(({ actions }) => {

@@ -73,10 +73,10 @@ export const personsModalLogic = kea<personsModalLogicType>([
         updateActorsQuery: (query: Partial<InsightActorsQuery>) => ({ query }),
         loadActorsQueryOptions: (query: InsightActorsQuery) => ({ query }),
     }),
-    connect({
+    connect(() => ({
         values: [groupsModel, ['groupTypes', 'aggregationLabel']],
         actions: [eventUsageLogic, ['reportPersonsModalViewed']],
-    }),
+    })),
 
     loaders(({ values, actions, props }) => ({
         actorsResponse: [

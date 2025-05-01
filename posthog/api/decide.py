@@ -11,7 +11,8 @@ from posthog.exceptions_capture import capture_exception
 from statshog.defaults.django import statsd
 from typing import Optional
 
-from posthog.api.survey import SURVEY_TARGETING_FLAG_PREFIX, get_surveys_count, get_surveys_opt_in
+from posthog.api.feature_flag import SURVEY_TARGETING_FLAG_PREFIX
+from posthog.api.survey import get_surveys_count, get_surveys_opt_in
 from posthog.api.utils import (
     get_project_id,
     get_token,
@@ -564,6 +565,7 @@ def _session_recording_config_response(request: HttpRequest, team: Team) -> Unio
                 "urlTriggers": team.session_recording_url_trigger_config,
                 "urlBlocklist": team.session_recording_url_blocklist_config,
                 "eventTriggers": team.session_recording_event_trigger_config,
+                "triggerMatchType": team.session_recording_trigger_match_type_config,
                 "scriptConfig": rrweb_script_config,
             }
 

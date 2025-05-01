@@ -252,6 +252,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         signatures=[
             ((IntegerType(),), IntegerType()),
             ((FloatType(),), FloatType()),
+            ((DecimalType(),), DecimalType()),
         ],
     ),
     "abs": HogQLFunctionMeta(
@@ -1408,6 +1409,7 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "uniqTheta": HogQLFunctionMeta("uniqTheta", 1, None, aggregate=True),
     "uniqThetaIf": HogQLFunctionMeta("uniqThetaIf", 2, None, aggregate=True),
     "uniqMerge": HogQLFunctionMeta("uniqMerge", 1, 1, aggregate=True),
+    "uniqMap": HogQLFunctionMeta("uniqMap", 1, 1, aggregate=True),
     "uniqUpToMerge": HogQLFunctionMeta("uniqUpToMerge", 1, 1, 1, 1, aggregate=True),
     "median": HogQLFunctionMeta("median", 1, 1, aggregate=True),
     "medianIf": HogQLFunctionMeta("medianIf", 2, 2, aggregate=True),

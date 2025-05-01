@@ -28,10 +28,9 @@ export function InstructionsModal({ onClose, visible, flag }: InstructionsModalP
                         <div>
                             Give your users a{' '}
                             <Link
-                                to={urls.pipelineNodeNew(
-                                    PipelineStage.SiteApp,
-                                    preflight?.region === Region.EU ? 332 : 574
-                                )}
+                                to={urls.pipelineNodeNew(PipelineStage.SiteApp, {
+                                    id: preflight?.region === Region.EU ? 332 : 574,
+                                })}
                             >
                                 prebuilt widget
                             </Link>{' '}

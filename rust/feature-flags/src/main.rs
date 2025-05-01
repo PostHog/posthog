@@ -1,5 +1,7 @@
 use envconfig::Envconfig;
 use tokio::signal;
+use tracing_subscriber::fmt;
+use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
@@ -28,14 +30,26 @@ async fn shutdown() {
 async fn main() {
     let config = Config::init_from_env().expect("Invalid configuration:");
 
-    // Basic logging for now:
-    //   - stdout with a level configured by the RUST_LOG envvar (default=ERROR)
-    let log_layer = tracing_subscriber::fmt::layer().with_filter(EnvFilter::from_default_env());
-    tracing_subscriber::registry().with(log_layer).init();
+    // Configure logging format:
+    //   with_span_events: Log when spans are created/closed
+    //   with_target: Include module path (e.g. "feature_flags::api")
+    //   with_thread_ids: Include thread ID for concurrent debugging
+    //   with_level: Show log level (ERROR, INFO, etc)
+    //   with_filter: Use RUST_LOG env var to control verbosity
+    let fmt_layer = fmt::layer()
+        .with_span_events(
+            FmtSpan::NEW | FmtSpan::CLOSE | FmtSpan::ENTER | FmtSpan::EXIT | FmtSpan::ACTIVE,
+        )
+        .with_target(true)
+        .with_thread_ids(true)
+        .with_level(true)
+        .with_filter(EnvFilter::from_default_env());
+    tracing_subscriber::registry().with(fmt_layer).init();
 
     // Open the TCP port and start the server
     let listener = tokio::net::TcpListener::bind(config.address)
         .await
         .expect("could not bind port");
-    serve(config, listener, shutdown()).await
+    serve(config, listener, shutdown()).await;
+    unreachable!("Server exited unexpectedly");
 }

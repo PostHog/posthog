@@ -38,6 +38,7 @@ class ActorsQueryRunner(QueryRunner):
 
         if self.query.source:
             self.source_query_runner = get_query_runner(self.query.source, self.team, self.timings, self.limit_context)
+            self.modifiers = self.source_query_runner.modifiers
 
         self.strategy = self.determine_strategy()
         self.calculating = False
@@ -81,6 +82,8 @@ class ActorsQueryRunner(QueryRunner):
                 new_row[actor_column_index] = actor
             else:
                 actor_data: dict[str, Any] = {"id": actor_id}
+                if self.group_type_index is not None:
+                    actor_data["group_type_index"] = self.group_type_index
                 if events_distinct_id_lookup is not None:
                     actor_data["distinct_ids"] = events_distinct_id_lookup.get(actor_id)
                 new_row[actor_column_index] = actor_data

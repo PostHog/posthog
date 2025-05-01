@@ -11,10 +11,10 @@ import type { staffUsersLogicType } from './staffUsersLogicType'
 
 export const staffUsersLogic = kea<staffUsersLogicType>([
     path(['scenes', 'instance', 'SystemStatus', 'staffUsersLogic']),
-    connect({
+    connect(() => ({
         values: [userLogic, ['user']],
         actions: [userLogic, ['loadUser']],
-    }),
+    })),
     actions({
         setStaffUsersToBeAdded: (userUuids: string[]) => ({ userUuids }),
         addStaffUsers: true,

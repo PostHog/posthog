@@ -8,7 +8,7 @@ use metrics_consts::{
     EMPTY_EVENTS, EVENTS_RECEIVED, EVENT_PARSE_ERROR, FORCED_SMALL_BATCH, ISSUE_FAILED,
     RECV_DEQUEUED, SKIPPED_DUE_TO_TEAM_FILTER, UPDATES_CACHE, UPDATES_DROPPED,
     UPDATES_FILTERED_BY_CACHE, UPDATES_PER_EVENT, UPDATES_SEEN, UPDATE_ISSUE_TIME,
-    UPDATE_PRODUCER_OFFSET, WORKER_BLOCKED,
+    UPDATE_PRODUCER_OFFSET, V2_ISOLATED_DB_SELECTED, WORKER_BLOCKED,
 };
 use types::{Event, Update};
 use v2_batch_ingestion::process_batch_v2;
@@ -81,7 +81,28 @@ pub async fn update_consumer_loop(
         let cache_utilization = cache.len() as f64 / config.cache_capacity as f64;
         metrics::gauge!(CACHE_CONSUMED).set(cache_utilization);
 
-        // conditionall enable new write path
+        // the new mirror deployment should point all Postgres writes
+        // at the new isolated "propdefs" DB instance in all envs.
+        // THE ORIGINAL property-defs-rs deployment should NEVER DO THIS
+        let mut resolved_pool = &context.pool;
+        if config.enable_mirror {
+            // for safely, the original propdefs deploy will not set the
+            // DATABASE_PROPDEFS_URL and local defaults set it the same
+            // as DATABASE_URL (the std posthog Cloud DB) so only if
+            // this context var != None will it be enabled
+            if let Some(resolved) = &context.propdefs_pool {
+                metrics::counter!(
+                    V2_ISOLATED_DB_SELECTED,
+                    &[(String::from("processor"), String::from("v2"))]
+                )
+                .increment(1);
+                resolved_pool = resolved;
+            }
+        }
+
+        // conditionally enable new v2 batch write path. While the new write
+        // path is being tested and not the default, THIS IS INDEPENDENT of
+        // whether config.enable_mirror is set, or which deploy we're in
         if config.enable_v2 {
             // enrich batch group events with resolved group_type_indices
             // before passing along to process_batch_v2. We can refactor this
@@ -95,7 +116,8 @@ pub async fn update_consumer_loop(
                         e
                     )
                 });
-            process_batch_v2(&config, cache.clone(), &context.pool, batch).await;
+
+            process_batch_v2(&config, cache.clone(), resolved_pool, batch).await;
         } else {
             process_batch_v1(&config, cache.clone(), context.clone(), batch).await;
         }

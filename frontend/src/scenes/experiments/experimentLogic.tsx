@@ -3,6 +3,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { openSaveToModal } from 'lib/components/SaveTo/saveToLogic'
 import { EXPERIMENT_DEFAULT_DURATION, FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -28,6 +29,7 @@ import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
 
 import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { performQuery, QUERY_TIMEOUT_ERROR_MESSAGE } from '~/queries/query'
@@ -72,12 +74,7 @@ import { experimentsLogic } from './experimentsLogic'
 import { holdoutsLogic } from './holdoutsLogic'
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 import { sharedMetricsLogic } from './SharedMetrics/sharedMetricsLogic'
-import {
-    featureFlagEligibleForExperiment,
-    getMinimumDetectableEffect,
-    percentageDistribution,
-    transformFiltersForWinningVariant,
-} from './utils'
+import { featureFlagEligibleForExperiment, percentageDistribution, transformFiltersForWinningVariant } from './utils'
 
 const NEW_EXPERIMENT: Experiment = {
     id: 'new',
@@ -100,7 +97,12 @@ const NEW_EXPERIMENT: Experiment = {
     created_by: null,
     updated_at: null,
     holdout_id: null,
+    exposure_criteria: {
+        filterTestAccounts: true,
+    },
 }
+
+export const DEFAULT_MDE = 30
 
 export interface ExperimentLogicProps {
     experimentId?: Experiment['id']
@@ -243,7 +245,7 @@ export const experimentLogic = kea<experimentLogicType>([
     actions({
         setExperimentMissing: true,
         setExperiment: (experiment: Partial<Experiment>) => ({ experiment }),
-        createExperiment: (draft?: boolean) => ({ draft }),
+        createExperiment: (draft?: boolean, folder?: string | null) => ({ draft, folder }),
         setExperimentType: (type?: string) => ({ type }),
         removeExperimentGroup: (idx: number) => ({ idx }),
         setEditExperiment: (editing: boolean) => ({ editing }),
@@ -786,6 +788,9 @@ export const experimentLogic = kea<experimentLogicType>([
                 setFeatureFlagValidationError: (_, { error }) => error,
             },
         ],
+        /**
+         * Controls the MDE modal visibility. Candidate for useState refactor.
+         */
         isCalculateRunningTimeModalOpen: [
             false,
             {
@@ -802,7 +807,7 @@ export const experimentLogic = kea<experimentLogicType>([
         ],
     }),
     listeners(({ values, actions }) => ({
-        createExperiment: async ({ draft }) => {
+        createExperiment: async ({ draft, folder }) => {
             const { recommendedRunningTime, recommendedSampleSize, minimumDetectableEffect } = values
 
             actions.touchExperimentField('name')
@@ -867,6 +872,7 @@ export const experimentLogic = kea<experimentLogicType>([
                             minimum_detectable_effect: minimumDetectableEffect,
                         },
                         ...(!draft && { start_date: dayjs() }),
+                        ...(typeof folder === 'string' ? { _create_in_folder: folder } : {}),
                     })
                     if (response) {
                         actions.reportExperimentCreated(response)
@@ -874,6 +880,9 @@ export const experimentLogic = kea<experimentLogicType>([
                             product_type: ProductKey.EXPERIMENTS,
                             intent_context: ProductIntentContext.EXPERIMENT_CREATED,
                         })
+                        if (response.feature_flag?.id) {
+                            refreshTreeItem('feature_flag', String(response.feature_flag.id))
+                        }
                     }
                 }
             } catch (error: any) {
@@ -883,6 +892,7 @@ export const experimentLogic = kea<experimentLogicType>([
 
             if (response?.id) {
                 const experimentId = response.id
+                refreshTreeItem('experiment', String(experimentId))
                 router.actions.push(urls.experiment(experimentId))
                 actions.addToExperiments(response)
                 lemonToast.success(`Experiment ${isUpdate ? 'updated' : 'created'}`, {
@@ -1368,6 +1378,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
                     update
                 )
+                refreshTreeItem('experiment', String(values.experimentId))
                 actions.setUnmodifiedExperiment(structuredClone(response))
                 return response
             },
@@ -1480,7 +1491,9 @@ export const experimentLogic = kea<experimentLogicType>([
         ],
         projectTreeRef: [
             () => [(_, props: ExperimentLogicProps) => props.experimentId],
-            (experimentId): ProjectTreeRef => ({ type: 'experiment', ref: String(experimentId) }),
+            (experimentId): ProjectTreeRef => {
+                return { type: 'experiment', ref: experimentId === 'new' ? null : String(experimentId) }
+            },
         ],
         variants: [
             (s) => [s.experiment],
@@ -1515,14 +1528,9 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         minimumDetectableEffect: [
-            (s) => [s.experiment, s.getInsightType, s.conversionMetrics, s.trendResults, s.firstPrimaryMetric],
-            (newExperiment, getInsightType, conversionMetrics, trendResults, firstPrimaryMetric): number => {
-                return (
-                    newExperiment?.parameters?.minimum_detectable_effect ||
-                    // :KLUDGE: extracted the method due to difficulties with logic tests
-                    getMinimumDetectableEffect(getInsightType(firstPrimaryMetric), conversionMetrics, trendResults) ||
-                    0
-                )
+            (s) => [s.experiment],
+            (newExperiment): number => {
+                return newExperiment?.parameters?.minimum_detectable_effect ?? DEFAULT_MDE
             },
         ],
         minimumSampleSizePerVariant: [
@@ -2189,15 +2197,14 @@ export const experimentLogic = kea<experimentLogicType>([
                 return true
             },
         ],
-        exposureCriteriaLabel: [
-            () => [],
-            (): string => {
-                // TODO: Implement exposure criteria label
-                return 'Default ($feature_flag_called)'
+        exposureCriteria: [
+            (s) => [s.experiment],
+            (experiment: Experiment): ExperimentExposureCriteria | undefined => {
+                return experiment.exposure_criteria
             },
         ],
     }),
-    forms(({ actions }) => ({
+    forms(({ actions, values }) => ({
         experiment: {
             options: { showErrorsOnTouch: true },
             defaults: { ...NEW_EXPERIMENT } as Experiment,
@@ -2212,7 +2219,18 @@ export const experimentLogic = kea<experimentLogicType>([
                     })),
                 },
             }),
-            submit: () => actions.createExperiment(true),
+            submit: () => {
+                if (values.experimentId && values.experimentId !== 'new') {
+                    actions.createExperiment(true)
+                } else {
+                    openSaveToModal({
+                        defaultFolder: 'Unfiled/Experiments',
+                        callback: (folder) => {
+                            actions.createExperiment(true, folder)
+                        },
+                    })
+                }
+            },
         },
     })),
     urlToAction(({ actions, values }) => ({

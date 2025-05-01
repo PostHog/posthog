@@ -33,6 +33,7 @@ export function cleanLiveEventsColumns(columns: string[]): string[] {
 
 export function getDefaultEventsQueryForTeam(team: Partial<TeamType>): EventsQuery | null {
     const liveColumns = team?.live_events_columns ? cleanLiveEventsColumns(team.live_events_columns) : null
+
     return liveColumns
         ? {
               kind: NodeKind.EventsQuery,

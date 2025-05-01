@@ -80,7 +80,8 @@ export function EnvironmentSwitcherOverlay({ onClickInside }: { onClickInside?: 
                         ).length,
                     })
                 },
-                disabledReason: projectCreationForbiddenReason?.replace('project', 'environment'),
+                disabledReason:
+                    "We're temporarily pausing new environments as we make some improvements! Stay tuned for more. In the meantime, you can create new projects.",
                 'data-attr': 'new-environment-button',
             })
         }

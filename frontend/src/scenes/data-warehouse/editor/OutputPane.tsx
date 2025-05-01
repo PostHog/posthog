@@ -1,12 +1,23 @@
 import 'react-data-grid/lib/styles.css'
 import './DataGrid.scss'
 
-import { IconCode, IconCopy, IconExpand45, IconGear, IconMinus, IconPlus } from '@posthog/icons'
-import { LemonButton, LemonModal, LemonTable, LemonTabs } from '@posthog/lemon-ui'
+import {
+    IconCode,
+    IconCopy,
+    IconDownload,
+    IconExpand45,
+    IconGear,
+    IconGraph,
+    IconMinus,
+    IconPlus,
+    IconShare,
+} from '@posthog/icons'
+import { LemonButton, LemonModal, LemonTable, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { JSONViewer } from 'lib/components/JSONViewer'
+import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useCallback, useMemo, useState } from 'react'
@@ -174,13 +185,29 @@ export function OutputPane(): JSX.Element {
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
 
-    const { sourceQuery, exportContext, editorKey, editingInsight, updateInsightButtonEnabled, showLegacyFilters } =
-        useValues(multitabEditorLogic)
-    const { saveAsInsight, updateInsight, setSourceQuery, runQuery } = useActions(multitabEditorLogic)
+    const {
+        sourceQuery,
+        exportContext,
+        editorKey,
+        editingInsight,
+        updateInsightButtonEnabled,
+        showLegacyFilters,
+        localStorageResponse,
+        queryInput,
+    } = useValues(multitabEditorLogic)
+    const { saveAsInsight, updateInsight, setSourceQuery, runQuery, shareTab } = useActions(multitabEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
-    const { response, responseLoading, responseError, queryId, pollResponse } = useValues(dataNodeLogic)
+    const {
+        response: dataNodeResponse,
+        responseLoading,
+        responseError,
+        queryId,
+        pollResponse,
+    } = useValues(dataNodeLogic)
     const { queryCancelled } = useValues(dataVisualizationLogic)
     const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
+
+    const response = dataNodeResponse ?? localStorageResponse
 
     const [progressCache, setProgressCache] = useState<Record<string, number>>({})
 
@@ -282,13 +309,13 @@ export function OutputPane(): JSX.Element {
         })
     }, [response])
 
+    const hasColumns = columns.length > 1
+
     return (
-        <div className="OutputPane flex flex-col w-full flex-1 bg-primary">
-            <div className="flex flex-row justify-between align-center py-2 px-4 w-full h-[50px] border-b">
-                <LemonTabs
-                    activeKey={activeTab}
-                    onChange={(tab) => setActiveTab(tab as OutputTab)}
-                    tabs={[
+        <div className="OutputPane flex flex-col w-full flex-1 bg-white dark:bg-black">
+            <div className="flex flex-row justify-between align-center w-full h-[50px] overflow-y-auto">
+                <div className="flex h-[50px] gap-2 ml-4">
+                    {[
                         {
                             key: OutputTab.Results,
                             label: 'Results',
@@ -297,9 +324,23 @@ export function OutputPane(): JSX.Element {
                             key: OutputTab.Visualization,
                             label: 'Visualization',
                         },
-                    ]}
-                />
-                <div className="flex gap-2">
+                    ].map((tab) => (
+                        <div
+                            key={tab.key}
+                            className={clsx(
+                                'flex-1 bold content-center px-2 pt-[3px] cursor-pointer border-b-[medium]',
+                                {
+                                    'font-semibold !border-brand-yellow': tab.key === activeTab,
+                                    'border-transparent': tab.key !== activeTab,
+                                }
+                            )}
+                            onClick={() => setActiveTab(tab.key)}
+                        >
+                            {tab.label}
+                        </div>
+                    ))}
+                </div>
+                <div className="flex gap-2 py-2 px-4">
                     {showLegacyFilters && (
                         <DateRange
                             key="date-range"
@@ -313,30 +354,18 @@ export function OutputPane(): JSX.Element {
                             }}
                         />
                     )}
-                    {activeTab === OutputTab.Results && exportContext && columns.length > 0 && (
-                        <ExportButton
-                            type="secondary"
-                            items={[
-                                {
-                                    export_format: ExporterFormat.CSV,
-                                    export_context: exportContext,
-                                },
-                                {
-                                    export_format: ExporterFormat.XLSX,
-                                    export_context: exportContext,
-                                },
-                            ]}
-                        />
-                    )}
-                    {activeTab === OutputTab.Visualization && columns.length > 0 && (
+                    {activeTab === OutputTab.Visualization && (
                         <>
                             <div className="flex justify-between flex-wrap">
                                 <div className="flex items-center" />
                                 <div className="flex items-center">
                                     <div className="flex gap-2 items-center flex-wrap">
-                                        <TableDisplay />
+                                        <TableDisplay
+                                            disabledReason={!hasColumns ? 'No results to visualize' : undefined}
+                                        />
 
                                         <LemonButton
+                                            disabledReason={!hasColumns ? 'No results to visualize' : undefined}
                                             type="secondary"
                                             icon={<IconGear />}
                                             onClick={() => toggleChartSettingsPanel()}
@@ -347,19 +376,84 @@ export function OutputPane(): JSX.Element {
                                                 disabledReason={!updateInsightButtonEnabled && 'No updates to save'}
                                                 type="primary"
                                                 onClick={() => updateInsight()}
+                                                id="sql-editor-update-insight"
+                                                sideAction={{
+                                                    dropdown: {
+                                                        placement: 'bottom-end',
+                                                        overlay: (
+                                                            <LemonMenuOverlay
+                                                                items={[
+                                                                    {
+                                                                        label: 'Save as...',
+                                                                        onClick: () => saveAsInsight(),
+                                                                    },
+                                                                ]}
+                                                            />
+                                                        ),
+                                                    },
+                                                }}
                                             >
                                                 Save insight
                                             </LemonButton>
                                         )}
                                         {!editingInsight && (
-                                            <LemonButton type="primary" onClick={() => saveAsInsight()}>
-                                                Create insight
+                                            <LemonButton
+                                                disabledReason={!hasColumns ? 'No results to save' : undefined}
+                                                type="primary"
+                                                onClick={() => saveAsInsight()}
+                                                id="sql-editor-save-insight"
+                                            >
+                                                Save insight
                                             </LemonButton>
                                         )}
                                     </div>
                                 </div>
                             </div>
                         </>
+                    )}
+                    {activeTab === OutputTab.Results && (
+                        <LemonButton
+                            disabledReason={!hasColumns && !editingInsight ? 'No results to visualize' : undefined}
+                            type="secondary"
+                            onClick={() => setActiveTab(OutputTab.Visualization)}
+                            id={`sql-editor-${editingInsight ? 'view' : 'create'}-insight`}
+                            icon={<IconGraph />}
+                        >
+                            {editingInsight ? 'View insight' : 'Create insight'}
+                        </LemonButton>
+                    )}
+                    {activeTab === OutputTab.Results && exportContext && (
+                        <Tooltip title="Export the table results" className={!hasColumns ? 'hidden' : ''}>
+                            <ExportButton
+                                id="sql-editor-export"
+                                disabledReason={!hasColumns ? 'No results to export' : undefined}
+                                type="secondary"
+                                icon={<IconDownload />}
+                                sideIcon={null}
+                                buttonCopy=""
+                                items={[
+                                    {
+                                        export_format: ExporterFormat.CSV,
+                                        export_context: exportContext,
+                                    },
+                                    {
+                                        export_format: ExporterFormat.XLSX,
+                                        export_context: exportContext,
+                                    },
+                                ]}
+                            />
+                        </Tooltip>
+                    )}
+                    {activeTab === OutputTab.Results && (
+                        <Tooltip title="Share your current query">
+                            <LemonButton
+                                id="sql-editor-share"
+                                disabledReason={!queryInput && 'No query to share'}
+                                type="secondary"
+                                icon={<IconShare />}
+                                onClick={() => shareTab()}
+                            />
+                        </Tooltip>
                     )}
                 </div>
             </div>
@@ -386,7 +480,9 @@ export function OutputPane(): JSX.Element {
                 />
             </div>
             <div className="flex justify-between px-2 border-t">
-                <div>{response && !responseError ? <LoadPreviewText /> : <></>}</div>
+                <div>
+                    {response && !responseError ? <LoadPreviewText localResponse={localStorageResponse} /> : <></>}
+                </div>
                 <ElapsedTime />
             </div>
             <RowDetailsModal
@@ -459,7 +555,7 @@ const ErrorState = ({ responseError, sourceQuery, queryCancelled, response }: an
                 title={
                     queryCancelled
                         ? 'The query was cancelled'
-                        : response && 'error' in response
+                        : response && 'error' in response && !!response.error
                         ? response.error
                         : responseError
                 }
@@ -487,20 +583,9 @@ const Content = ({
     setProgress,
     progress,
 }: any): JSX.Element | null => {
-    if (activeTab === OutputTab.Results) {
-        if (responseError) {
-            return (
-                <ErrorState
-                    responseError={responseError}
-                    sourceQuery={sourceQuery}
-                    queryCancelled={queryCancelled}
-                    response={response}
-                />
-            )
-        }
-
-        return responseLoading ? (
-            <div className="flex flex-1 p-2 w-full justify-center items-center">
+    if (responseLoading) {
+        return (
+            <div className="flex flex-1 p-2 w-full justify-center items-center border-t">
                 <StatelessInsightLoadingState
                     queryId={queryId}
                     pollResponse={pollResponse}
@@ -508,13 +593,36 @@ const Content = ({
                     progress={progress}
                 />
             </div>
-        ) : !response ? (
-            <div className="flex flex-1 justify-center items-center">
+        )
+    }
+
+    if (responseError) {
+        return (
+            <ErrorState
+                responseError={responseError}
+                sourceQuery={sourceQuery}
+                queryCancelled={queryCancelled}
+                response={response}
+            />
+        )
+    }
+
+    if (!response) {
+        const msg =
+            activeTab === OutputTab.Results
+                ? 'Query results will appear here.'
+                : 'Query results will be visualized here.'
+        return (
+            <div className="flex flex-1 justify-center items-center border-t">
                 <span className="text-secondary mt-3">
-                    Query results will appear here. Press <KeyboardShortcut command enter /> to run the query.
+                    {msg} Press <KeyboardShortcut command enter /> to run the query.
                 </span>
             </div>
-        ) : (
+        )
+    }
+
+    if (activeTab === OutputTab.Results) {
+        return (
             <TabScroller>
                 <DataGrid
                     className={isDarkModeOn ? 'rdg-dark h-full' : 'rdg-light h-full'}
@@ -526,25 +634,8 @@ const Content = ({
     }
 
     if (activeTab === OutputTab.Visualization) {
-        if (responseError) {
-            return (
-                <ErrorState
-                    responseError={responseError}
-                    sourceQuery={sourceQuery}
-                    queryCancelled={queryCancelled}
-                    response={response}
-                />
-            )
-        }
-
-        return !response ? (
-            <div className="flex flex-1 justify-center items-center">
-                <span className="text-secondary mt-3">
-                    Query results will be visualized here. Press <KeyboardShortcut command enter /> to run the query.
-                </span>
-            </div>
-        ) : (
-            <div className="flex-1 absolute top-0 left-0 right-0 bottom-0 px-4 py-1 hide-scrollbar">
+        return (
+            <div className="flex-1 absolute top-0 left-0 right-0 bottom-0 px-4 py-1 hide-scrollbar border-t">
                 <InternalDataTableVisualization
                     uniqueKey={vizKey}
                     query={sourceQuery}

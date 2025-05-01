@@ -31,7 +31,7 @@ export type DataThemeLogicProps = {
 export const dataThemeLogic = kea<dataThemeLogicType>([
     props({} as DataThemeLogicProps),
     path(['scenes', 'dataThemeLogic']),
-    connect({ values: [teamLogic, ['currentTeam']] }),
+    connect(() => ({ values: [teamLogic, ['currentTeam']] })),
     actions({ setThemes: (themes) => ({ themes }) }),
     loaders(({ props }) => ({
         themes: [

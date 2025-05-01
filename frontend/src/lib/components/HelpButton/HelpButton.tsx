@@ -24,9 +24,9 @@ export const helpButtonLogic = kea<helpButtonLogicType>([
     ),
     key((props: { key?: string }) => props.key || 'global'),
     path((key) => ['lib', 'components', 'HelpButton', key]),
-    connect({
+    connect(() => ({
         actions: [eventUsageLogic, ['reportHelpButtonViewed']],
-    }),
+    })),
     actions({
         toggleHelp: true,
         showHelp: true,

@@ -650,7 +650,7 @@ def get_teams_with_mobile_billable_recording_count_in_period(begin: datetime, en
             WHERE min_first_timestamp BETWEEN %(begin)s AND %(end)s
             GROUP BY session_id
             HAVING (ifNull(argMinMerge(snapshot_source), '') == 'mobile'
-            AND ifNull(argMinMerge(snapshot_library), '') IN ('posthog-ios', 'posthog-android', 'posthog-react-native'))
+            AND ifNull(argMinMerge(snapshot_library), '') IN ('posthog-ios', 'posthog-android', 'posthog-react-native', 'posthog-flutter'))
         )
         WHERE session_id NOT IN (
             -- we want to exclude sessions that might have events with timestamps
@@ -684,7 +684,7 @@ def get_teams_with_api_queries_metrics(
     query = f"""
         SELECT JSONExtractInt(log_comment, 'team_id') team_id, count(1) cnt, sum(read_bytes) read_bytes
         FROM clusterAllReplicas({CLICKHOUSE_CLUSTER}, system.query_log)
-        WHERE type != 'QueryStart'
+        WHERE type = 'QueryFinish'
         AND is_initial_query
         AND event_time between %(begin)s AND %(end)s
         AND team_id > 0
@@ -847,7 +847,6 @@ def get_teams_with_exceptions_captured_in_period(
         SELECT team_id, COUNT() as count
         FROM events
         WHERE event = '$exception' AND timestamp between %(begin)s AND %(end)s
-        AND not(JSONHas(properties, '$sentry_event_id'))
         GROUP BY team_id
     """,
         {"begin": begin, "end": end},

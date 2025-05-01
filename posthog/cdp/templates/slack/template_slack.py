@@ -222,6 +222,7 @@ if (res.status != 200 or res.body.ok == false) {
                         {
                             "type": "context",
                             "elements": [
+                                {"type": "plain_text", "text": "Status: {event.properties.status}"},
                                 {"type": "mrkdwn", "text": "Project: <{project.url}|{project.name}>"},
                                 {"type": "mrkdwn", "text": "Alert: <{source.url}|{source.name}>"},
                             ],
@@ -238,7 +239,7 @@ if (res.status != 200 or res.body.ok == false) {
                             ],
                         },
                     ],
-                    "hidden": True,
+                    "hidden": False,
                 },
                 "text": {
                     "default": "New issue created: {event.properties.name}",
@@ -261,6 +262,7 @@ if (res.status != 200 or res.body.ok == false) {
                         {
                             "type": "context",
                             "elements": [
+                                {"type": "plain_text", "text": "Status: {event.properties.status}"},
                                 {"type": "mrkdwn", "text": "Project: <{project.url}|{project.name}>"},
                                 {"type": "mrkdwn", "text": "Alert: <{source.url}|{source.name}>"},
                             ],
@@ -277,7 +279,7 @@ if (res.status != 200 or res.body.ok == false) {
                             ],
                         },
                     ],
-                    "hidden": True,
+                    "hidden": False,
                 },
                 "text": {
                     "default": "Issue reopened: {event.properties.name}",

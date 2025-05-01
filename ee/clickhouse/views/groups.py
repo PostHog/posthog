@@ -21,7 +21,7 @@ from posthog.models.activity_logging.activity_log import Change, Detail, load_ac
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.group import Group
 from posthog.models.group.util import raw_create_group_ch
-from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.models.group_type_mapping import GroupTypeMapping, GROUP_TYPE_MAPPING_SERIALIZER_FIELDS
 from loginas.utils import is_impersonated_session
 
 from posthog.models.user import User
@@ -30,14 +30,7 @@ from posthog.models.user import User
 class GroupTypeSerializer(serializers.ModelSerializer):
     class Meta:
         model = GroupTypeMapping
-        fields = [
-            "group_type",
-            "group_type_index",
-            "name_singular",
-            "name_plural",
-            "detail_dashboard",
-            "default_columns",
-        ]
+        fields = GROUP_TYPE_MAPPING_SERIALIZER_FIELDS
         read_only_fields = ["group_type", "group_type_index"]
 
 

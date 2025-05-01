@@ -11,17 +11,17 @@ export function MessagingTabs(): JSX.Element {
     const { setTab } = useActions(messagingTabsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const isLibraryEnabled = featureFlags[FEATURE_FLAGS.MESSAGING_LIBRARY]
     const isAutomationEnabled = featureFlags[FEATURE_FLAGS.MESSAGING_AUTOMATION]
+    const isLibraryEnabled = featureFlags[FEATURE_FLAGS.MESSAGING_LIBRARY]
 
     const tabs = [{ key: 'broadcasts', label: 'Broadcasts' }]
 
-    if (isLibraryEnabled) {
-        tabs.push({ key: 'library', label: 'Library' })
+    if (isAutomationEnabled) {
+        tabs.push({ key: 'campaigns', label: 'Campaigns' })
     }
 
-    if (isAutomationEnabled) {
-        tabs.push({ key: 'automations', label: 'Automations' })
+    if (isLibraryEnabled) {
+        tabs.push({ key: 'library', label: 'Templates' })
     }
 
     return <LemonTabs activeKey={currentTab} onChange={(tab) => setTab(tab as MessagingTab)} tabs={tabs} />

@@ -20,9 +20,9 @@ use tower_http::{
 use crate::{
     api::{endpoint, test_endpoint},
     client::database::Client as DatabaseClient,
-    cohort::cohort_cache_manager::CohortCacheManager,
+    cohorts::cohort_cache_manager::CohortCacheManager,
     config::{Config, TeamIdsToTrack},
-    metrics::metrics_utils::team_id_label_filter,
+    metrics::utils::team_id_label_filter,
 };
 
 #[derive(Clone)]

@@ -94,7 +94,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=23622320128,
                      allow_experimental_analyzer=1,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFOSSFunnel.test_funnel_conversion_window_seconds.1
@@ -198,7 +199,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=1,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFOSSFunnel.test_funnel_events_with_person_on_events_v2
@@ -305,7 +307,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=23622320128,
                      allow_experimental_analyzer=1,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFOSSFunnel.test_funnel_with_precalculated_cohort_step_filter
@@ -330,6 +333,7 @@
 # ---
 # name: TestFOSSFunnel.test_funnel_with_precalculated_cohort_step_filter.2
   '''
+  /* cohort_calculation: */
   SELECT countIf(ifNull(equals(steps, 1), 0)) AS step_1,
          countIf(ifNull(equals(steps, 2), 0)) AS step_2,
          avg(step_1_average_conversion_time_inner) AS step_1_average_conversion_time,
@@ -393,7 +397,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=23622320128,
                      allow_experimental_analyzer=1,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFOSSFunnel.test_funnel_with_property_groups
@@ -502,7 +507,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=23622320128,
                      allow_experimental_analyzer=1,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFOSSFunnel.test_funnel_with_property_groups.1
@@ -617,7 +623,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=1,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFOSSFunnel.test_funnel_with_property_groups.2
@@ -732,7 +739,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=1,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFOSSFunnel.test_funnel_with_property_groups.3
@@ -847,7 +855,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=1,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFOSSFunnel.test_funnel_with_static_cohort_step_filter
@@ -924,7 +933,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=23622320128,
                      allow_experimental_analyzer=1,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFOSSFunnel.test_timezones
@@ -989,7 +999,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=23622320128,
                      allow_experimental_analyzer=1,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFunnelBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen
@@ -1087,7 +1098,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=23622320128,
                     allow_experimental_analyzer=1,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFunnelBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen_for_step
@@ -1192,7 +1204,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=23622320128,
                     allow_experimental_analyzer=1,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFunnelBreakdown.test_funnel_step_multiple_breakdown_snapshot
@@ -1290,7 +1303,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=23622320128,
                     allow_experimental_analyzer=1,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events
@@ -1429,7 +1443,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=23622320128,
                     allow_experimental_analyzer=1,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events_poe_v2
@@ -1568,7 +1583,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=23622320128,
                     allow_experimental_analyzer=1,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group
@@ -1714,7 +1730,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=23622320128,
                     allow_experimental_analyzer=1,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.1
@@ -1853,7 +1870,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=1,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.2
@@ -1992,7 +2010,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=1,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.3
@@ -2131,7 +2150,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=1,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.4
@@ -2270,6 +2290,7 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=1,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---

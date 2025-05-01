@@ -11,7 +11,7 @@ use tokio::net::TcpListener;
 
 use crate::client::database::get_pool;
 
-use crate::cohort::cohort_cache_manager::CohortCacheManager;
+use crate::cohorts::cohort_cache_manager::CohortCacheManager;
 use crate::config::Config;
 use crate::router;
 use common_cookieless::CookielessManager;

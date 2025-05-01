@@ -6,14 +6,14 @@ from loginas.utils import is_impersonated_session
 from sentry_sdk import start_span
 import structlog
 
-from posthog.models.activity_logging.activity_log import log_activity, Detail, changes_between, load_activity
+from posthog.models.activity_logging.activity_log import log_activity, Detail, dict_changes_between, load_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.feature_flag.flag_matching import (
     FeatureFlagMatcher,
     FlagsMatcherCache,
     get_feature_flag_hash_key_overrides,
 )
-from posthog.models.person.person import PersonDistinctId
+from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId
 from posthog.models.property.property import Property, PropertyGroup
 from posthog.models.team.team import Team
 from posthog.queries.base import property_group_to_Q
@@ -95,6 +95,7 @@ logger = structlog.get_logger(__name__)
 class CohortSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     earliest_timestamp_func = get_earliest_timestamp
+    _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     # If this cohort is an exposure cohort for an experiment
     experiment_set: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
@@ -117,6 +118,7 @@ class CohortSerializer(serializers.ModelSerializer):
             "count",
             "is_static",
             "experiment_set",
+            "_create_in_folder",
         ]
         read_only_fields = [
             "id",
@@ -512,28 +514,41 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
     def perform_create(self, serializer):
         serializer.save()
+        instance = cast(Cohort, serializer.instance)
+
+        # Although there are no changes when creating a Cohort, we synthesize one here because
+        # it is helpful to show the list of people in the cohort when looking at the activity log.
+        people = instance.to_dict()["people"]
+        changes = dict_changes_between(
+            "Cohort", previous={"people": []}, new={"people": people}, use_field_exclusions=True
+        )
+
         log_activity(
             organization_id=self.organization.id,
             team_id=self.team_id,
             user=serializer.context["request"].user,
             was_impersonated=is_impersonated_session(serializer.context["request"]),
-            item_id=serializer.instance.id,
+            item_id=instance.id,
             scope="Cohort",
             activity="created",
-            detail=Detail(name=serializer.instance.name),
+            detail=Detail(changes=changes, name=instance.name),
         )
 
     def perform_update(self, serializer):
-        instance_id = serializer.instance.id
+        instance = cast(Cohort, serializer.instance)
+        instance_id = instance.id
 
         try:
-            before_update = Cohort.objects.get(pk=instance_id)
+            # Using to_dict() here serializer.save() was changing the instance in memory,
+            # so we need to get the before state in a "detached" manner that won't be
+            # affected by the serializer.save() call.
+            before_update = Cohort.objects.get(pk=instance_id).to_dict()
         except Cohort.DoesNotExist:
-            before_update = None
+            before_update = {}
 
         serializer.save()
 
-        changes = changes_between("Cohort", previous=before_update, current=serializer.instance)
+        changes = dict_changes_between("Cohort", previous=before_update, new=instance.to_dict())
 
         log_activity(
             organization_id=self.organization.id,
@@ -543,7 +558,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             item_id=instance_id,
             scope="Cohort",
             activity="updated",
-            detail=Detail(changes=changes, name=serializer.instance.name),
+            detail=Detail(changes=changes, name=instance.name),
         )
 
 
@@ -715,7 +730,8 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
         # We pre-filter all persons to be ones that will match the feature flag, so that we don't have to
         # iterate through all persons
         queryset = (
-            Person.objects.filter(team_id=team_id)
+            Person.objects.db_manager(READ_DB_FOR_PERSONS)
+            .filter(team_id=team_id)
             .filter(property_group_to_Q(team_id, flag_property_group, cohorts_cache=cohorts_cache))
             .order_by("id")
         )
@@ -729,14 +745,18 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
             #     "distinct_id", flat=True
             # )[0]
             distinct_id_subquery = Subquery(
-                PersonDistinctId.objects.filter(person_id=OuterRef("person_id")).values_list("id", flat=True)[:3]
+                PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
+                .filter(person_id=OuterRef("person_id"))
+                .values_list("id", flat=True)[:3]
             )
             prefetch_related_objects(
                 batch_of_persons,
                 Prefetch(
                     "persondistinctid_set",
                     to_attr="distinct_ids_cache",
-                    queryset=PersonDistinctId.objects.filter(id__in=distinct_id_subquery),
+                    queryset=PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS).filter(
+                        id__in=distinct_id_subquery
+                    ),
                 ),
             )
 

@@ -3,6 +3,7 @@
 from posthog.settings.data_stores import KAFKA_PREFIX, SUFFIX
 
 KAFKA_EVENTS_JSON = f"{KAFKA_PREFIX}clickhouse_events_json{SUFFIX}"
+KAFKA_EXCEPTIONS_INGESTION = f"{KAFKA_PREFIX}exceptions_ingestion{SUFFIX}"
 KAFKA_EVENTS_PLUGIN_INGESTION = f"{KAFKA_PREFIX}events_plugin_ingestion{SUFFIX}"
 KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW = f"{KAFKA_PREFIX}events_plugin_ingestion_overflow{SUFFIX}"
 KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL = f"{KAFKA_PREFIX}events_plugin_ingestion_historical{SUFFIX}"

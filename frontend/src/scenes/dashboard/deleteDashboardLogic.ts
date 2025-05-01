@@ -20,9 +20,9 @@ const defaultFormValues: DeleteDashboardForm = {
 
 export const deleteDashboardLogic = kea<deleteDashboardLogicType>([
     path(['scenes', 'dashboard', 'deleteDashboardLogic']),
-    connect({
+    connect(() => ({
         actions: [groupsModel, ['removeDetailDashboard']],
-    }),
+    })),
     actions({
         showDeleteDashboardModal: (id: number) => ({ id }),
         hideDeleteDashboardModal: true,

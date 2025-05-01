@@ -1,6 +1,7 @@
 import { Counter } from 'prom-client'
 
 import { defaultConfig } from '../config/config'
+import { runInstrumentedFunction } from '../main/utils'
 import { logger } from './logger'
 
 const REFRESH_AGE = 1000 * 60 * 5 // 5 minutes
@@ -120,50 +121,55 @@ export class LazyLoader<T> {
      * If the value is older than the refreshAge, it is loaded from the database.
      */
     private async loadViaCache(keys: string[]): Promise<Record<string, T | null>> {
-        const results: Record<string, T | null> = {}
-        const keysToLoad = new Set<string>()
+        return await runInstrumentedFunction({
+            statsKey: `lazyLoader.loadViaCache`,
+            func: async () => {
+                const results: Record<string, T | null> = {}
+                const keysToLoad = new Set<string>()
 
-        // First, check if all keys are already cached and update the lastUsed time
-        for (const key of keys) {
-            const cached = this.cache[key]
+                // First, check if all keys are already cached and update the lastUsed time
+                for (const key of keys) {
+                    const cached = this.cache[key]
 
-            if (cached !== undefined) {
-                results[key] = cached
-                // Always update the lastUsed time
-                this.lastUsed[key] = Date.now()
+                    if (cached !== undefined) {
+                        results[key] = cached
+                        // Always update the lastUsed time
+                        this.lastUsed[key] = Date.now()
 
-                const cacheUntil = this.cacheUntil[key] ?? 0
+                        const cacheUntil = this.cacheUntil[key] ?? 0
 
-                if (Date.now() > cacheUntil) {
-                    keysToLoad.add(key)
-                    lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
-                    continue
+                        if (Date.now() > cacheUntil) {
+                            keysToLoad.add(key)
+                            lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
+                            continue
+                        }
+                    } else {
+                        keysToLoad.add(key)
+                        lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
+                        continue
+                    }
+
+                    lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'hit' }).inc()
                 }
-            } else {
-                keysToLoad.add(key)
-                lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
-                continue
-            }
 
-            lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'hit' }).inc()
-        }
+                if (keysToLoad.size === 0) {
+                    lazyLoaderFullCacheHits.labels({ name: this.options.name, hit: 'hit' }).inc()
+                    return results
+                }
 
-        if (keysToLoad.size === 0) {
-            lazyLoaderFullCacheHits.labels({ name: this.options.name, hit: 'hit' }).inc()
-            return results
-        }
+                lazyLoaderFullCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
 
-        lazyLoaderFullCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
+                // We have something to load so we schedule it and then await all of them
+                await this.load(Array.from(keysToLoad))
 
-        // We have something to load so we schedule it and then await all of them
-        await this.load(Array.from(keysToLoad))
+                for (const key of keys) {
+                    // Grab the new cached result for all keys
+                    results[key] = this.cache[key] ?? null
+                }
 
-        for (const key of keys) {
-            // Grab the new cached result for all keys
-            results[key] = this.cache[key] ?? null
-        }
-
-        return results
+                return results
+            },
+        })
     }
 
     /**

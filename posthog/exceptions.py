@@ -6,6 +6,7 @@ from django.http.response import JsonResponse
 from rest_framework import status
 from rest_framework.exceptions import APIException
 from posthog.exceptions_capture import capture_exception
+from posthog.clickhouse.query_tagging import get_query_tags
 
 from posthog.cloud_utils import is_cloud
 
@@ -42,6 +43,11 @@ class Conflict(APIException):
     default_code = "conflict"
 
 
+class ClickhouseAtCapacity(APIException):
+    status_code = 500
+    default_detail = "Clickhouse cluster is at capacity. Please try this query again later."
+
+
 class EstimatedQueryExecutionTimeTooLong(APIException):
     status_code = 512  # Custom error code
     default_detail = "Estimated query execution time is too long. Try reducing its scope by changing the time range."
@@ -61,7 +67,8 @@ def exception_reporting(exception: Exception, context: ExceptionContext) -> Opti
     Used through drf-exceptions-hog
     """
     if not isinstance(exception, APIException):
-        logger.exception(exception, path=context["request"].path)
+        tags = get_query_tags()
+        logger.exception(exception, path=context["request"].path, **tags)
         return capture_exception(exception)
     return None
 

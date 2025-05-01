@@ -24,11 +24,18 @@ export const manifest: ProductManifest = {
         replaySettings: (sectionId?: string): string => `/replay/settings${sectionId ? `?sectionId=${sectionId}` : ''}`,
     },
     fileSystemTypes: {
-        replay_playlist: {
+        session_recording_playlist: {
             icon: <IconRewindPlay />,
             href: (ref: string) => urls.replayPlaylist(ref),
         },
     },
+    treeItemsNew: [
+        {
+            path: `Replay playlist`,
+            type: 'session_recording_playlist',
+            href: () => urls.replayPlaylist('new'),
+        },
+    ],
     treeItemsExplore: [
         {
             path: 'Recordings/Recordings',

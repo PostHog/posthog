@@ -35,9 +35,9 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setSidebarOpen: (open: boolean) => ({ open }),
         setPlaylistOpen: (open: boolean) => ({ open }),
     }),
-    connect({
+    connect(() => ({
         values: [teamLogic, ['currentTeam']],
-    }),
+    })),
     reducers(({ values }) => ({
         showFilters: [true, { persist: true }, { setShowFilters: (_, { showFilters }) => showFilters }],
         sidebarOpen: [false, { persist: true }, { setSidebarOpen: (_, { open }) => open }],

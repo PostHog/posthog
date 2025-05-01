@@ -1,8 +1,8 @@
 import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonMenu, PopoverReferenceContext } from '@posthog/lemon-ui'
-import { captureException } from '@sentry/react'
 import { useValues } from 'kea'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import posthog from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
 
 import { PathsFilter } from '~/queries/schema/schema-general'
@@ -45,7 +45,7 @@ export function PathNodeCardButton({
         viewPathToFunnel(node)
     }
     const copyName = (): void => {
-        void copyToClipboard(nodeName).then(captureException)
+        void copyToClipboard(nodeName).catch((e) => posthog.captureException(e))
     }
     const openModal = (): void => openPersonsModal({ path_end_key: name })
 

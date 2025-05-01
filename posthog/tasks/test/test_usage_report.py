@@ -1653,13 +1653,6 @@ class TestErrorTrackingUsageReport(ClickhouseDestroyTablesMixin, TestCase, Click
             timestamp=now() - relativedelta(days=20),
             team=self.analytics_team,
         )
-        # sentry events excluded
-        _create_event(
-            distinct_id="4",
-            event="$exception",
-            properties={"$sentry_event_id": "some id"},
-            team=self.org_1_team_1,
-        )
 
         flush_persons_and_events()
 

@@ -34,6 +34,7 @@ from posthog.kafka_client.topics import (
     KAFKA_SESSION_RECORDING_EVENTS,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
+    KAFKA_EXCEPTIONS_INGESTION,
 )
 from posthog.logging.timing import timed
 from posthog.metrics import KLUDGES_COUNTER, LABEL_RESOURCE_TYPE
@@ -169,9 +170,9 @@ def get_tokens_to_drop() -> set[str]:
 
     if TOKEN_DISTINCT_ID_PAIRS_TO_DROP is None:
         TOKEN_DISTINCT_ID_PAIRS_TO_DROP = set()
-        if settings.DROPPED_KEYS:
-            # DROPPED_KEYS is a semicolon separated list of <team_id:distinct_id> pairs
-            TOKEN_DISTINCT_ID_PAIRS_TO_DROP = set(settings.DROPPED_KEYS.split(";"))
+        if settings.DROP_EVENTS_BY_TOKEN_DISTINCT_ID:
+            # DROP_EVENTS_BY_TOKEN_DISTINCT_ID is a comma separated list of <team_id:distinct_id> pairs where the distinct_id is optional
+            TOKEN_DISTINCT_ID_PAIRS_TO_DROP = set(settings.DROP_EVENTS_BY_TOKEN_DISTINCT_ID.split(","))
 
     return TOKEN_DISTINCT_ID_PAIRS_TO_DROP
 
@@ -216,6 +217,8 @@ def _kafka_topic(event_name: str, historical: bool = False, overflowing: bool = 
             if overflowing:
                 return KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW
             return KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
+        case "$exception":
+            return KAFKA_EXCEPTIONS_INGESTION
         case _:
             # If the token is in the TOKENS_HISTORICAL_DATA list, we push to the
             # historical data topic.

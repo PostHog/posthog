@@ -13,6 +13,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Insight]: () => import('./insights/InsightScene'),
     [Scene.WebAnalytics]: () => import('./web-analytics/WebAnalyticsScene'),
     [Scene.WebAnalyticsWebVitals]: () => import('./web-analytics/WebAnalyticsScene'),
+    [Scene.RevenueAnalytics]: () => import('products/revenue_analytics/frontend/RevenueAnalyticsScene'),
     [Scene.Cohort]: () => import('./cohorts/Cohort'),
     [Scene.DataManagement]: () => import('./data-management/DataManagementScene'),
     [Scene.Activity]: () => import('./activity/ActivityScene'),
@@ -85,7 +86,8 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.SessionAttributionExplorer]: () =>
         import('scenes/web-analytics/SessionAttributionExplorer/SessionAttributionExplorerScene'),
     [Scene.MessagingBroadcasts]: () => import('products/messaging/frontend/Broadcasts'),
-    [Scene.MessagingAutomations]: () => import('products/messaging/frontend/Automations'),
-    [Scene.MessagingLibrary]: () => import('products/messaging/frontend/Library'),
+    [Scene.MessagingCampaigns]: () => import('products/messaging/frontend/Campaigns'),
+    [Scene.MessagingLibrary]: () => import('products/messaging/frontend/library/MessageLibrary'),
     [Scene.Wizard]: () => import('./wizard/Wizard'),
+    [Scene.StartupProgram]: () => import('./startups/StartupProgram'),
 }

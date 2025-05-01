@@ -38,6 +38,7 @@ from posthog.temporal.data_imports.pipelines.schemas import (
 )
 from posthog.temporal.data_imports.pipelines.stripe import (
     validate_credentials as validate_stripe_credentials,
+    StripePermissionError,
 )
 from posthog.temporal.data_imports.pipelines.vitally import (
     validate_credentials as validate_vitally_credentials,
@@ -157,6 +158,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
     latest_error = serializers.SerializerMethodField(read_only=True)
     status = serializers.SerializerMethodField(read_only=True)
     schemas = serializers.SerializerMethodField(read_only=True)
+    revenue_analytics_enabled = serializers.BooleanField(default=False)
 
     class Meta:
         model = ExternalDataSource
@@ -170,6 +172,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "source_type",
             "latest_error",
             "prefix",
+            "revenue_analytics_enabled",
             "last_run_at",
             "schemas",
             "job_inputs",
@@ -546,6 +549,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             team=self.team,
             status="Running",
             source_type=source_type,
+            revenue_analytics_enabled=True,
             job_inputs={"stripe_secret_key": client_secret, "stripe_account_id": account_id},
             prefix=prefix,
         )
@@ -946,7 +950,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Validate sourced credentials
         if source_type == ExternalDataSource.Type.STRIPE:
             key = request.data.get("stripe_secret_key", "")
-            if not validate_stripe_credentials(api_key=key):
+            try:
+                validate_stripe_credentials(api_key=key)
+            except StripePermissionError as e:
+                missing_resources = ", ".join(e.missing_permissions.keys())
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": f"Invalid credentials: Stripe API key lacks permissions for {missing_resources}"},
+                )
+            except Exception:
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": "Invalid credentials: Stripe secret is incorrect"},

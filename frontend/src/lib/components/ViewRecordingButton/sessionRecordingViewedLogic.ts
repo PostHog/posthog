@@ -18,9 +18,9 @@ export const sessionRecordingViewedLogic = kea<sessionRecordingViewedLogicType>(
     path(['lib', 'components', 'ViewRecordingButton', 'sessionRecordingViewedLogic']),
     key((props: Record<string, unknown>) => props.sessionRecordingId as string),
     props({} as unknown as SessionRecordingViewedProps),
-    connect({
+    connect(() => ({
         values: [teamLogic, ['currentTeamId']],
-    }),
+    })),
     loaders(({ props, values }) => ({
         recordingViewed: {
             loadRecordingViewed: async () => {

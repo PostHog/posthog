@@ -182,7 +182,12 @@ export function DataTable({
         ...columnsInLemonTable.map((key, index) => ({
             dataIndex: key as any,
             ...renderColumnMeta(key, query, context),
-            render: function RenderDataTableColumn(_: any, { result, label }: DataTableRow, recordIndex: number) {
+            render: function RenderDataTableColumn(
+                _: any,
+                { result, label }: DataTableRow,
+                recordIndex: number,
+                rowCount: number
+            ) {
                 if (label) {
                     if (index === (expandable ? 1 : 0)) {
                         return {
@@ -193,9 +198,9 @@ export function DataTable({
                     return { props: { colSpan: 0 } }
                 } else if (result) {
                     if (sourceFeatures.has(QueryFeature.resultIsArrayOfArrays)) {
-                        return renderColumn(key, result[index], result, recordIndex, query, setQuery, context)
+                        return renderColumn(key, result[index], result, recordIndex, rowCount, query, setQuery, context)
                     }
-                    return renderColumn(key, result[key], result, recordIndex, query, setQuery, context)
+                    return renderColumn(key, result[key], result, recordIndex, rowCount, query, setQuery, context)
                 }
             },
             sorter: undefined, // using custom sorting code
@@ -446,7 +451,12 @@ export function DataTable({
             <PersonsSearch key="persons-search" query={query.source as PersonsNode} setQuery={setQuerySource} />
         ) : null,
         showSearch && sourceFeatures.has(QueryFeature.groupsSearch) ? (
-            <GroupsSearch key="groups-search" query={query.source as GroupsQuery} setQuery={setQuerySource} />
+            <GroupsSearch
+                key="groups-search"
+                query={query.source as GroupsQuery}
+                setQuery={setQuerySource}
+                groupTypeLabel={context?.groupTypeLabel}
+            />
         ) : null,
         showPropertyFilter && sourceFeatures.has(QueryFeature.eventPropertyFilters) ? (
             <EventPropertyFilters

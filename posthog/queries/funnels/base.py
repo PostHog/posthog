@@ -71,9 +71,10 @@ class ClickhouseFunnelBase(ABC):
 
         # HACK: Because we're in a legacy query, we need to override hogql_context with the legacy-alised PoE mode
         self._filter.hogql_context.modifiers.personsOnEventsMode = alias_poe_mode_for_legacy(team.person_on_events_mode)
+
         # Recreate the database with the legacy-alised PoE mode
         self._filter.hogql_context.database = create_hogql_database(
-            team_id=self._team.pk, modifiers=self._filter.hogql_context.modifiers
+            team=self._team, modifiers=self._filter.hogql_context.modifiers
         )
 
         # handle default if window isn't provided

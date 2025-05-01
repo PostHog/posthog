@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from functools import cached_property
 from typing import Any, Optional, cast
 from django.db import transaction
@@ -29,10 +29,11 @@ from posthog.models.activity_logging.activity_log import (
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.models.group_type_mapping import GROUP_TYPE_MAPPING_SERIALIZER_FIELDS, GroupTypeMapping
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.product_intent.product_intent import (
     ProductIntent,
+    ProductIntentSerializer,
     calculate_product_activation,
 )
 from posthog.models.project import Project
@@ -72,6 +73,7 @@ class ProjectSerializer(serializers.ModelSerializer):
 class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, UserPermissionsSerializerMixin):
     effective_membership_level = serializers.SerializerMethodField()  # Compat with TeamSerializer
     has_group_types = serializers.SerializerMethodField()  # Compat with TeamSerializer
+    group_types = serializers.SerializerMethodField()  # Compat with TeamSerializer
     live_events_token = serializers.SerializerMethodField()  # Compat with TeamSerializer
     product_intents = serializers.SerializerMethodField()  # Compat with TeamSerializer
 
@@ -85,6 +87,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "created_at",
             "effective_membership_level",  # Compat with TeamSerializer
             "has_group_types",  # Compat with TeamSerializer
+            "group_types",  # Compat with TeamSerializer
             "live_events_token",  # Compat with TeamSerializer
             "updated_at",  # Compat with TeamSerializer
             "uuid",  # Compat with TeamSerializer
@@ -139,6 +142,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "organization",
             "effective_membership_level",
             "has_group_types",
+            "group_types",
             "live_events_token",
             "created_at",
             "api_token",
@@ -203,6 +207,11 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
 
     def get_has_group_types(self, project: Project) -> bool:
         return GroupTypeMapping.objects.filter(project_id=project.id).exists()
+
+    def get_group_types(self, project: Project) -> list[dict[str, Any]]:
+        return list(
+            GroupTypeMapping.objects.filter(project_id=project.id).values(*GROUP_TYPE_MAPPING_SERIALIZER_FIELDS)
+        )
 
     def get_live_events_token(self, project: Project) -> Optional[str]:
         team = project.teams.get(pk=project.pk)
@@ -599,37 +608,19 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         project = self.get_object()
         team = project.passthrough_team
         user = request.user
-        product_type = request.data.get("product_type")
         current_url = request.headers.get("Referer")
         session_id = request.headers.get("X-Posthog-Session-Id")
 
-        if not product_type:
-            return response.Response({"error": "product_type is required"}, status=400)
+        serializer = ProductIntentSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
 
-        product_intent, created = ProductIntent.objects.get_or_create(team=team, product_type=product_type)
-        if not created:
-            if not product_intent.activated_at:
-                product_intent.check_and_update_activation()
-            product_intent.updated_at = datetime.now(tz=UTC)
-            product_intent.save()
-
-        if isinstance(user, User) and not product_intent.activated_at:
-            report_user_action(
-                user,
-                "user showed product intent",
-                {
-                    "product_key": product_type,
-                    "$set_once": {"first_onboarding_product_selected": product_type},
-                    "$current_url": current_url,
-                    "$session_id": session_id,
-                    "intent_context": request.data.get("intent_context"),
-                    "is_first_intent_for_product": created,
-                    "intent_created_at": product_intent.created_at,
-                    "intent_updated_at": product_intent.updated_at,
-                    "realm": get_instance_realm(),
-                },
-                team=team,
-            )
+        ProductIntent.register(
+            team=team,
+            product_type=serializer.validated_data["product_type"],
+            context=serializer.validated_data["intent_context"],
+            user=cast(User, user),
+            metadata={**serializer.validated_data["metadata"], "$current_url": current_url, "$session_id": session_id},
+        )
 
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data, status=201)
 
@@ -649,27 +640,18 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         if not product_type:
             return response.Response({"error": "product_type is required"}, status=400)
 
-        product_intent, created = ProductIntent.objects.get_or_create(team=team, product_type=product_type)
+        product_intent_serializer = ProductIntentSerializer(data=request.data)
+        product_intent_serializer.is_valid(raise_exception=True)
+        intent_data = product_intent_serializer.validated_data
 
-        if created and isinstance(user, User):
-            report_user_action(
-                user,
-                "user showed product intent",
-                {
-                    "product_key": product_type,
-                    "$set_once": {"first_onboarding_product_selected": product_type},
-                    "$current_url": current_url,
-                    "$session_id": session_id,
-                    "intent_context": request.data.get("intent_context"),
-                    "is_first_intent_for_product": created,
-                    "intent_created_at": product_intent.created_at,
-                    "intent_updated_at": product_intent.updated_at,
-                    "realm": get_instance_realm(),
-                },
-                team=team,
-            )
-        product_intent.onboarding_completed_at = datetime.now(tz=UTC)
-        product_intent.save()
+        product_intent = ProductIntent.register(
+            team=team,
+            product_type=product_type,
+            context=intent_data["intent_context"],
+            user=cast(User, user),
+            metadata={**intent_data["metadata"], "$current_url": current_url, "$session_id": session_id},
+            is_onboarding=True,
+        )
 
         if isinstance(user, User):  # typing
             report_user_action(
@@ -679,7 +661,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
                     "product_key": product_type,
                     "$current_url": current_url,
                     "$session_id": session_id,
-                    "intent_context": request.data.get("intent_context"),
+                    "intent_context": intent_data["intent_context"],
                     "intent_created_at": product_intent.created_at,
                     "intent_updated_at": product_intent.updated_at,
                     "realm": get_instance_realm(),
@@ -831,19 +813,10 @@ class PremiumMultiProjectPermission(BasePermission):
             if organization.teams.filter(is_demo=True).count() > 0:
                 return False
 
-        has_projects_feature = organization.is_feature_available(AvailableFeature.ORGANIZATIONS_PROJECTS)
         current_non_demo_project_count = organization.teams.exclude(is_demo=True).distinct("project_id").count()
-
-        allowed_project_count = next(
-            (
-                feature.get("limit")
-                for feature in organization.available_product_features or []
-                if feature.get("key") == AvailableFeature.ORGANIZATIONS_PROJECTS
-            ),
-            None,
-        )
-
-        if has_projects_feature:
+        projects_feature = organization.get_available_feature(AvailableFeature.ORGANIZATIONS_PROJECTS)
+        if projects_feature:
+            allowed_project_count = projects_feature.get("limit")
             # If allowed_project_count is None then the user is allowed unlimited projects
             if allowed_project_count is None:
                 return True
