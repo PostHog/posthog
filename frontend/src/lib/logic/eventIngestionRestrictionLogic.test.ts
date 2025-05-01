@@ -25,8 +25,7 @@ describe('eventIngestionRestrictionLogic', () => {
 
         logic.mount()
 
-        //
-        expect(api.get).toHaveBeenCalledWith('api/environments/@current/get_event_ingestion_restriction_config/')
+        expect(api.get).toHaveBeenCalledWith('api/environments/@current/get_event_ingestion_restrictions/')
 
         await expectLogic(logic)
             .toDispatchActions(['loadEventIngestionRestrictions'])
