@@ -88,6 +88,7 @@ interface SessionSegmentCollapseProps {
     content: ReactNode
     actionsPresent?: boolean
     className?: string
+    isFailed?: boolean
 }
 
 function SessionSegmentCollapse({
@@ -95,6 +96,7 @@ function SessionSegmentCollapse({
     content,
     actionsPresent,
     className,
+    isFailed,
 }: SessionSegmentCollapseProps): JSX.Element {
     const [isExpanded, setIsExpanded] = useState(false)
     const { height: contentHeight, ref: contentRef } = useResizeObserver({ box: 'border-box' })
@@ -105,8 +107,9 @@ function SessionSegmentCollapse({
                 <LemonButton
                     fullWidth
                     className={clsx(
-                        'LemonCollapsePanel__header',
-                        !actionsPresent && 'LemonCollapsePanel__header--disabled'
+                        'LemonCollapsePanel__header hover:bg-primary-alt-highlight border-l-[5px]',
+                        !actionsPresent && 'LemonCollapsePanel__header--disabled',
+                        isFailed && 'border-l-danger'
                     )}
                     onClick={actionsPresent ? () => setIsExpanded(!isExpanded) : undefined}
                     icon={isExpanded ? <IconCollapse /> : <IconExpand />}
@@ -205,12 +208,9 @@ function SessionSegmentView({
     return (
         <div key={segment.name} className="mb-4">
             <SessionSegmentCollapse
-                className={`border-b cursor-pointer py-2 px-2 hover:bg-primary-alt-highlight ${
-                    segmentOutcome && Object.keys(segmentOutcome).length > 0 && segmentOutcome.success === false
-                        ? 'bg-danger-highlight'
-                        : ''
-                }`}
+                className="cursor-pointer"
                 actionsPresent={keyActions && keyActions.length > 0}
+                isFailed={segmentOutcome && Object.keys(segmentOutcome).length > 0 && segmentOutcome.success === false}
                 header={
                     <div className="py-2">
                         <div className="flex flex-row gap-2">
@@ -242,45 +242,55 @@ function SessionSegmentView({
                         {keyActions && keyActions.length > 0 ? (
                             <>
                                 {keyActions?.map((keyAction) =>
-                                    keyAction.events?.map((event: SessionKeyAction, eventIndex: number) =>
-                                        isValidTimestamp(event.milliseconds_since_start) ? (
-                                            <div
-                                                key={`${segment.name}-${eventIndex}`}
-                                                className={`border-b cursor-pointer py-2 px-2 hover:bg-primary-alt-highlight ${
-                                                    event.failure ? 'bg-danger-highlight' : ''
-                                                }`}
-                                                onClick={() => {
-                                                    if (!isValidTimestamp(event.milliseconds_since_start)) {
-                                                        return
-                                                    }
-                                                    onSeekToTime(event.milliseconds_since_start)
-                                                }}
-                                            >
-                                                <div className="flex flex-row gap-2">
-                                                    <span className="text-muted-alt shrink-0 min-w-[4rem] font-mono text-xs">
-                                                        {formatMsIntoTime(event.milliseconds_since_start)}
-                                                        <div className="flex flex-row gap-2 mt-1">
-                                                            {event.current_url ? (
-                                                                <Link to={event.current_url} target="_blank">
-                                                                    <Tooltip title={event.current_url} placement="top">
-                                                                        <span className="font-mono text-xs text-muted-alt">
-                                                                            url
-                                                                        </span>
-                                                                    </Tooltip>
-                                                                </Link>
-                                                            ) : null}
-                                                            <Tooltip title={formatEventMetaInfo(event)} placement="top">
-                                                                <span className="font-mono text-xs text-muted-alt">
-                                                                    meta
-                                                                </span>
-                                                            </Tooltip>
-                                                        </div>
-                                                    </span>
+                                    keyAction.events?.map(
+                                        (event: SessionKeyAction, eventIndex: number, events: SessionKeyAction[]) =>
+                                            isValidTimestamp(event.milliseconds_since_start) ? (
+                                                <div
+                                                    key={`${segment.name}-${eventIndex}`}
+                                                    className={clsx(
+                                                        'cursor-pointer py-2 px-2 hover:bg-primary-alt-highlight',
+                                                        // Avoid adding a border to the last event
+                                                        eventIndex !== events.length - 1 && 'border-b',
+                                                        event.failure && 'bg-danger-highlight'
+                                                    )}
+                                                    onClick={() => {
+                                                        if (!isValidTimestamp(event.milliseconds_since_start)) {
+                                                            return
+                                                        }
+                                                        onSeekToTime(event.milliseconds_since_start)
+                                                    }}
+                                                >
+                                                    <div className="flex flex-row gap-2">
+                                                        <span className="text-muted-alt shrink-0 min-w-[4rem] font-mono text-xs">
+                                                            {formatMsIntoTime(event.milliseconds_since_start)}
+                                                            <div className="flex flex-row gap-2 mt-1">
+                                                                {event.current_url ? (
+                                                                    <Link to={event.current_url} target="_blank">
+                                                                        <Tooltip
+                                                                            title={event.current_url}
+                                                                            placement="top"
+                                                                        >
+                                                                            <span className="font-mono text-xs text-muted-alt">
+                                                                                url
+                                                                            </span>
+                                                                        </Tooltip>
+                                                                    </Link>
+                                                                ) : null}
+                                                                <Tooltip
+                                                                    title={formatEventMetaInfo(event)}
+                                                                    placement="top"
+                                                                >
+                                                                    <span className="font-mono text-xs text-muted-alt">
+                                                                        meta
+                                                                    </span>
+                                                                </Tooltip>
+                                                            </div>
+                                                        </span>
 
-                                                    <span className="text-xs break-words">{event.description}</span>
+                                                        <span className="text-xs break-words">{event.description}</span>
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        ) : null
+                                            ) : null
                                     )
                                 )}
                             </>
