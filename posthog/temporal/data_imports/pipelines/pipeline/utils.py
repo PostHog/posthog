@@ -412,11 +412,12 @@ def _notify_revenue_analytics_that_sync_has_completed(schema: ExternalDataSchema
             # For every admin in the org, send a revenue analytics ready event
             # This will trigger a Campaign in PostHog and send an email
             for user in schema.team.all_users_with_access():
-                posthoganalytics.capture(
-                    user.distinct_id,
-                    "revenue_analytics_ready",
-                    {"source_type": schema.source.source_type},
-                )
+                if user.distinct_id is not None:
+                    posthoganalytics.capture(
+                        user.distinct_id,
+                        "revenue_analytics_ready",
+                        {"source_type": schema.source.source_type},
+                    )
 
             # Mark the team as notified, avoiding spamming emails
             schema.team.revenue_analytics_config.notified_first_sync = True
