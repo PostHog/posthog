@@ -153,7 +153,7 @@ class ActorsQueryRunner(QueryRunner):
                 person_uuid_to_event_distinct_ids,
             )
 
-        for column_index, col in enumerate(self.query.select):
+        for column_index, col in enumerate(input_columns):
             # convert tuple that gets returned into a dict
             if col.split("--")[0].strip() == "person_display_name":
                 for index, result in enumerate(self.paginator.results):
