@@ -996,6 +996,7 @@ class ExperimentExposureTimeSeries(BaseModel):
 class ExperimentMetricMathType(StrEnum):
     TOTAL = "total"
     SUM = "sum"
+    UNIQUE_SESSION = "unique_session"
 
 
 class ExperimentMetricOutlierHandling(BaseModel):
