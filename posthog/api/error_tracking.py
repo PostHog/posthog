@@ -122,7 +122,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         search_key = request.data.get("key")
 
         if search_key and value:
-            if search_key == "issue_name":
+            if search_key == "name":
                 queryset.filter(name__icontains=value)
             elif search_key == "issue_descrpition":
                 queryset.filter(description__icontains=value)
@@ -174,12 +174,12 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
 
         issue_values = []
         if key and value:
-            if key == "issue_name":
+            if key == "name":
                 issue_values = queryset.filter(name__icontains=value).values_list("name", flat=True)
             elif key == "issue_description":
                 issue_values = queryset.filter(description__icontains=value).values_list("description", flat=True)
 
-        return Response([{"name": value for value in issue_values}])  # noqa: B035
+        return Response([{"name": value} for value in issue_values])
 
     @action(methods=["POST"], detail=False)
     def bulk(self, request, **kwargs):

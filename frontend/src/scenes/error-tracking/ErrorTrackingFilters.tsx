@@ -80,6 +80,7 @@ const UniversalSearch = (): JSX.Element => {
         onEnter: onClose,
         autoSelectItem: false,
         initialSearchQuery: searchQuery,
+        excludedProperties: { [TaxonomicFilterGroupType.ErrorTrackingIssues]: ['assignee'] },
     }
 
     return (

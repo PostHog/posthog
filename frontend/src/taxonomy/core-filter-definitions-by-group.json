@@ -47,7 +47,7 @@
             "description": "The description of an issue.",
             "label": "Issue description"
         },
-        "issue_name": {
+        "name": {
             "description": "The name of an issue.",
             "label": "Issue name"
         }

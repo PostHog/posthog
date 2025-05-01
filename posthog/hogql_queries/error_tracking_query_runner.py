@@ -18,6 +18,7 @@ from posthog.schema import (
 from posthog.hogql.parser import parse_select
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.error_tracking import ErrorTrackingIssue
+from posthog.models.property.util import property_to_django_filter
 
 logger = structlog.get_logger(__name__)
 
@@ -452,6 +453,9 @@ class ErrorTrackingQueryRunner(QueryRunner):
                 )
             )
 
+        for filter in self.issue_properties:
+            queryset = property_to_django_filter(queryset, filter)
+
         issues = queryset.values(
             "id",
             "status",
@@ -521,20 +525,25 @@ class ErrorTrackingQueryRunner(QueryRunner):
                 )
             )
 
+        for filter in self.issue_properties:
+            queryset = property_to_django_filter(queryset, filter)
+
         if not use_prefetched:
             return []
 
         return [str(issue.id) for issue in queryset.only("id").iterator()]
 
-    def hogql_properties(self):
-        return [value for value in self.properties if "error_tracking_issue" != value["type"]]
-
+    @cached_property
     def issue_properties(self):
-        return [value for value in self.properties if "error_tracking_issue" == value["type"]]
+        return [value for value in self.properties if "error_tracking_issue" == value.type]
+
+    @cached_property
+    def hogql_properties(self):
+        return [value for value in self.properties if "error_tracking_issue" != value.type]
 
     @cached_property
     def properties(self):
-        return self.query.filterGroup.values[0].values if self.query.filterGroup else None
+        return self.query.filterGroup.values[0].values if self.query.filterGroup else []
 
 
 def search_tokenizer(query: str) -> list[str]:
