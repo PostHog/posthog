@@ -469,29 +469,11 @@ def delete_events(
     return (load_and_verify_deletes_dictionary, shard_mutations)
 
 
-@dagster.op(out=dagster.DynamicOut())
-def get_tables_to_delete_team_data_from():
-    teams_to_delete_data_from = [
-        PERSON_DISTINCT_ID2_TABLE,
-        PERSONS_TABLE,
-        # PERSON_DISTINCT_ID_TABLE, #TODO: Do we need to delete from this table? It's legacy, afaik not used anymore
-        GROUPS_TABLE,
-        "cohortpeople",
-        PERSON_STATIC_COHORT_TABLE,
-        PLUGIN_LOG_ENTRIES_TABLE,
-    ]
-
-    for table in teams_to_delete_data_from:
-        yield dagster.DynamicOutput(table, mapping_key=table)
-
-
-@dagster.op
 def delete_team_data(
     context: dagster.OpExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
     table_name,
     load_and_verify_deletes_dictionary: PendingDeletesDictionary,
-    delete_events_mutation: PendingDeletesDictionary,
 ) -> tuple[PendingDeletesDictionary, ShardMutations]:
     """Delete events from sharded_events table for persons pending deletion."""
 
@@ -543,12 +525,72 @@ def delete_team_data(
 
 
 @dagster.op
+def delete_team_data_from_person_distinct_id2(
+    context: dagster.OpExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    load_and_verify_deletes_dictionary: PendingDeletesDictionary,
+    previous_mutations: PendingDeletesDictionary,
+) -> tuple[PendingDeletesDictionary, ShardMutations]:
+    return delete_team_data(context, cluster, PERSON_DISTINCT_ID2_TABLE, load_and_verify_deletes_dictionary)
+
+
+@dagster.op
+def delete_team_data_from_persons(
+    context: dagster.OpExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    load_and_verify_deletes_dictionary: PendingDeletesDictionary,
+    previous_mutations: PendingDeletesDictionary,
+) -> tuple[PendingDeletesDictionary, ShardMutations]:
+    return delete_team_data(context, cluster, PERSONS_TABLE, load_and_verify_deletes_dictionary)
+
+
+@dagster.op
+def delete_team_data_from_groups(
+    context: dagster.OpExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    load_and_verify_deletes_dictionary: PendingDeletesDictionary,
+    previous_mutations: PendingDeletesDictionary,
+) -> tuple[PendingDeletesDictionary, ShardMutations]:
+    return delete_team_data(context, cluster, GROUPS_TABLE, load_and_verify_deletes_dictionary)
+
+
+@dagster.op
+def delete_team_data_from_cohortpeople(
+    context: dagster.OpExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    load_and_verify_deletes_dictionary: PendingDeletesDictionary,
+    previous_mutations: PendingDeletesDictionary,
+) -> tuple[PendingDeletesDictionary, ShardMutations]:
+    return delete_team_data(context, cluster, "cohortpeople", load_and_verify_deletes_dictionary)
+
+
+@dagster.op
+def delete_team_data_from_person_static_cohort(
+    context: dagster.OpExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    load_and_verify_deletes_dictionary: PendingDeletesDictionary,
+    previous_mutations: PendingDeletesDictionary,
+) -> tuple[PendingDeletesDictionary, ShardMutations]:
+    return delete_team_data(context, cluster, PERSON_STATIC_COHORT_TABLE, load_and_verify_deletes_dictionary)
+
+
+@dagster.op
+def delete_team_data_from_plugin_log_entries(
+    context: dagster.OpExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    load_and_verify_deletes_dictionary: PendingDeletesDictionary,
+    previous_mutations: PendingDeletesDictionary,
+) -> tuple[PendingDeletesDictionary, ShardMutations]:
+    return delete_team_data(context, cluster, PLUGIN_LOG_ENTRIES_TABLE, load_and_verify_deletes_dictionary)
+
+
+@dagster.op
 def wait_for_delete_mutations(
     context: dagster.OpExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
-    delete_events_mutations: tuple[PendingDeletesDictionary, ShardMutations],
+    delete_mutations: tuple[PendingDeletesDictionary, ShardMutations],
 ) -> PendingDeletesDictionary:
-    pending_deletes_dict, shard_mutations = delete_events_mutations
+    pending_deletes_dict, shard_mutations = delete_mutations
 
     cluster.map_all_hosts_in_shards({shard: mutation.wait for shard, mutation in shard_mutations.items()}).result()
 
@@ -561,8 +603,7 @@ def cleanup_delete_assets(
     config: DeleteConfig,
     create_pending_deletions_table: PendingDeletesTable,
     create_deletes_dict: PendingDeletesDictionary,
-    wait_for_delete_mutations: PendingDeletesDictionary,
-    team_mutations: list[PendingDeletesDictionary],
+    waited_mutation: PendingDeletesDictionary,
 ) -> bool:
     """Clean up temporary tables and mark deletions as verified."""
     # Drop the dictionary and table using the table object
@@ -594,10 +635,7 @@ def cleanup_delete_assets(
     return True
 
 
-@dagster.job(
-    tags={"owner": JobOwners.TEAM_CLICKHOUSE.value},
-    executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 1}),
-)
+@dagster.job(tags={"owner": JobOwners.TEAM_CLICKHOUSE.value})
 def deletes_job():
     """Job that handles deletion of events."""
     # Prepare requested deletions data
@@ -609,20 +647,29 @@ def deletes_job():
     load_dict = load_and_verify_deletes_dictionary(create_deletes_dict_op)
 
     # Delete all data requested
-    delete_events_mutation = delete_events(load_dict)
-    waited_event_mutation = wait_for_delete_mutations(delete_events_mutation)
+    delete_mutations = delete_events(load_dict)
+    waited_mutation = wait_for_delete_mutations(delete_mutations)
 
-    def delete_team_data_from_table(table: str):
-        delete_mutation = delete_team_data(table, load_dict, waited_event_mutation)
-        return wait_for_delete_mutations(delete_mutation)
+    delete_mutations = delete_team_data_from_person_distinct_id2(load_dict, waited_mutation)
+    waited_mutation = wait_for_delete_mutations(delete_mutations)
 
-    tables_to_delete_team_data_from = get_tables_to_delete_team_data_from()
-    waited_team_mutations = tables_to_delete_team_data_from.map(delete_team_data_from_table).collect()
+    delete_mutations = delete_team_data_from_persons(load_dict, waited_mutation)
+    waited_mutation = wait_for_delete_mutations(delete_mutations)
+
+    delete_mutations = delete_team_data_from_groups(load_dict, waited_mutation)
+    waited_mutation = wait_for_delete_mutations(delete_mutations)
+
+    delete_mutations = delete_team_data_from_cohortpeople(load_dict, waited_mutation)
+    waited_mutation = wait_for_delete_mutations(delete_mutations)
+
+    delete_mutations = delete_team_data_from_person_static_cohort(load_dict, waited_mutation)
+    waited_mutation = wait_for_delete_mutations(delete_mutations)
+
+    delete_mutations = delete_team_data_from_plugin_log_entries(load_dict, waited_mutation)
+    waited_mutation = wait_for_delete_mutations(delete_mutations)
 
     # Clean up
-    cleaned = cleanup_delete_assets(
-        deletions_table, create_deletes_dict_op, waited_event_mutation, waited_team_mutations
-    )
+    cleaned = cleanup_delete_assets(deletions_table, create_deletes_dict_op, waited_mutation)
     load_pending_deletions(report_deletions_table, cleaned)
 
 
