@@ -10,7 +10,7 @@ from dateutil.relativedelta import relativedelta
 from django.db.models import Case, F, ExpressionWrapper, DurationField, Q, QuerySet, When
 from django.utils import timezone
 from prometheus_client import Gauge
-from sentry_sdk import set_tag
+from posthog.clickhouse.query_tagging import tags_context
 
 from datetime import timedelta
 
@@ -93,16 +93,13 @@ def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating
 def calculate_cohort_ch(cohort_id: int, pending_version: int, initiating_user_id: Optional[int] = None) -> None:
     cohort: Cohort = Cohort.objects.get(pk=cohort_id)
 
-    set_tag("feature", Feature.COHORT.value)
-    set_tag("cohort_id", cohort.id)
-    set_tag("team_id", cohort.team.id)
+    with tags_context(feature=Feature.COHORT.value, cohort_id=cohort.id, team_id=cohort.team.id):
+        staleness_hours = 0.0
+        if cohort.last_calculation is not None:
+            staleness_hours = (timezone.now() - cohort.last_calculation).total_seconds() / 3600
+        COHORT_STALENESS_HOURS_GAUGE.set(staleness_hours)
 
-    staleness_hours = 0.0
-    if cohort.last_calculation is not None:
-        staleness_hours = (timezone.now() - cohort.last_calculation).total_seconds() / 3600
-    COHORT_STALENESS_HOURS_GAUGE.set(staleness_hours)
-
-    cohort.calculate_people_ch(pending_version, initiating_user_id=initiating_user_id)
+        cohort.calculate_people_ch(pending_version, initiating_user_id=initiating_user_id)
 
 
 @shared_task(ignore_result=True, max_retries=1)

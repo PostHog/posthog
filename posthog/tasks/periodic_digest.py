@@ -28,8 +28,9 @@ from posthog.tasks.report_utils import (
     capture_event,
     get_user_team_lookup,
 )
-from posthog.tasks.usage_report import USAGE_REPORT_TASK_KWARGS, get_instance_metadata, get_ph_client
+from posthog.tasks.usage_report import USAGE_REPORT_TASK_KWARGS, get_instance_metadata
 from posthog.warehouse.models.external_data_source import ExternalDataSource
+from posthog.ph_client import get_us_client
 
 logger = structlog.get_logger(__name__)
 
@@ -352,8 +353,10 @@ def send_digest_notifications(
     Sends a single notification for digest reports.
     """
 
+    client = get_us_client()
+
     capture_event(
-        pha_client=get_ph_client(),
+        pha_client=client,
         name=event_name,
         organization_id=organization_id,
         team_id=None,
@@ -361,4 +364,4 @@ def send_digest_notifications(
         timestamp=timestamp,
         distinct_id=distinct_id,
     )
-    get_ph_client().group_identify("organization", organization_id, properties)
+    client.group_identify("organization", organization_id, properties)

@@ -12,10 +12,10 @@ from posthog.exceptions_capture import capture_exception
 from django.conf import settings
 from posthog.clickhouse.client import sync_execute
 from datetime import datetime
-
+from collections.abc import Callable
 
 if TYPE_CHECKING:
-    from posthoganalytics import Posthog
+    pass
 
 REDIS_LOCK_TOKEN = "posthog:decide_analytics:lock"
 CACHE_BUCKET_SIZE = 60 * 2  # duration in seconds
@@ -64,12 +64,12 @@ def _extract_total_count_for_key_from_redis_hash(client: redis.Redis, key: str) 
     return total_count, min_time, max_time
 
 
-def capture_usage_for_all_teams(ph_client: "Posthog") -> None:
+def capture_usage_for_all_teams(capture_ph_event: Callable) -> None:
     for team in Team.objects.exclude(Q(organization__for_internal_metrics=True) | Q(is_demo=True)).only("id", "uuid"):
-        capture_team_decide_usage(ph_client, team.id, team.uuid)
+        capture_team_decide_usage(capture_ph_event, team.id, team.uuid)
 
 
-def capture_team_decide_usage(ph_client: "Posthog", team_id: int, team_uuid: str) -> None:
+def capture_team_decide_usage(capture_ph_event: Callable, team_id: int, team_uuid: str) -> None:
     try:
         client = get_client()
         total_decide_request_count = 0
@@ -84,7 +84,7 @@ def capture_team_decide_usage(ph_client: "Posthog", team_id: int, team_uuid: str
             ) = _extract_total_count_for_key_from_redis_hash(client, decide_key_name)
 
             if total_decide_request_count > 0 and settings.DECIDE_BILLING_ANALYTICS_TOKEN:
-                ph_client.capture(
+                capture_ph_event(
                     team_id,
                     "decide usage",
                     {
@@ -105,7 +105,7 @@ def capture_team_decide_usage(ph_client: "Posthog", team_id: int, team_uuid: str
             ) = _extract_total_count_for_key_from_redis_hash(client, local_evaluation_key_name)
 
             if total_local_evaluation_request_count > 0 and settings.DECIDE_BILLING_ANALYTICS_TOKEN:
-                ph_client.capture(
+                capture_ph_event(
                     team_id,
                     "local evaluation usage",
                     {

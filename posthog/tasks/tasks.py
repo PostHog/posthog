@@ -18,10 +18,10 @@ from posthog.cloud_utils import is_cloud
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.hogql.constants import LimitContext
 from posthog.metrics import pushed_metrics_registry
-from posthog.ph_client import get_ph_client
 from posthog.redis import get_client
 from posthog.settings import CLICKHOUSE_CLUSTER
 from posthog.tasks.utils import CeleryQueue
+from posthog.ph_client import ph_scoped_capture
 
 logger = get_logger(__name__)
 
@@ -716,11 +716,8 @@ def calculate_decide_usage() -> None:
         capture_usage_for_all_teams as capture_decide_usage_for_all_teams,
     )
 
-    ph_client = get_ph_client()
-
-    if ph_client:
-        capture_decide_usage_for_all_teams(ph_client)
-        ph_client.shutdown()
+    with ph_scoped_capture() as capture_ph_event:
+        capture_decide_usage_for_all_teams(capture_ph_event)
 
 
 @shared_task(ignore_result=True)

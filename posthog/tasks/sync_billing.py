@@ -1,6 +1,10 @@
+import structlog
+import logging
+
 from celery import shared_task
 
-from sentry_sdk import capture_message
+logger = structlog.get_logger(__name__)
+logger.setLevel(logging.INFO)
 
 
 @shared_task(ignore_result=True, rate_limit="5/s")
@@ -14,7 +18,7 @@ def sync_members_to_billing(organization_id: str) -> None:
     ).first()
 
     if not first_owner:
-        capture_message(f"Organization {organization.id} has no owner", level="error")
+        logger.info(f"Organization {organization.id} has no owner", level="error")
         return
 
     first_owner.update_billing_organization_users(organization)
