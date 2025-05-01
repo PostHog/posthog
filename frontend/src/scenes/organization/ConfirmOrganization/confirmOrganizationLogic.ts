@@ -1,6 +1,6 @@
 import { actions, kea, path, reducers } from 'kea'
 import { forms } from 'kea-forms'
-import { router, urlToAction } from 'kea-router'
+import { urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
@@ -46,23 +46,18 @@ export const confirmOrganizationLogic = kea<confirmOrganizationLogicType>([
             }),
 
             submit: async (formValues) => {
-                try {
-                    const response = await api.create('api/social_signup/', {
+                await api
+                    .create('api/social_signup/', {
                         ...formValues,
                     })
+                    .catch((error: any) => {
+                        console.error('error', error)
+                        lemonToast.error(error.detail || 'Failed to create organization')
+                    })
 
-                    const nextUrl = router.values.searchParams.get('next')
+                const nextUrl = new URLSearchParams(location.search).get('next')
 
-                    const successUrl = response.success_url || '/'
-
-                    const redirectUrl = new URL(successUrl, location.origin)
-
-                    redirectUrl.searchParams.set('next', nextUrl || '')
-
-                    location.href = redirectUrl.toString()
-                } catch (error: any) {
-                    lemonToast.error(error.detail || 'Failed to create organization')
-                }
+                location.href = nextUrl || '/'
             },
         },
     })),
