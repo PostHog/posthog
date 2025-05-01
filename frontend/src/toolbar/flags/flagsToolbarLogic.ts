@@ -42,6 +42,12 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
         savePayloadOverride: (flagKey: string) => ({ flagKey }),
         setPayloadError: (flagKey: string, error: string | null) => ({ flagKey, error }),
         setPayloadEditorOpen: (flagKey: string, isOpen: boolean) => ({ flagKey, isOpen }),
+        enableAllFlags: true,
+        disableAllFlags: true,
+        resetAllOverrides: true,
+        enableAllFlagsSuccess: true,
+        disableAllFlagsSuccess: true,
+        resetAllOverridesSuccess: true,
     }),
     loaders(({ values }) => ({
         userFlags: [
@@ -65,6 +71,27 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
         ],
     })),
     reducers({
+        resettingAllOverrides: [
+            false,
+            {
+                resetAllOverrides: () => true,
+                resetAllOverridesSuccess: () => false,
+            },
+        ],
+        enablingAllFlags: [
+            false,
+            {
+                enableAllFlags: () => true,
+                enableAllFlagsSuccess: () => false,
+            },
+        ],
+        disablingAllFlags: [
+            false,
+            {
+                disableAllFlags: () => true,
+                disableAllFlagsSuccess: () => false,
+            },
+        ],
         localOverrides: [
             {} as Record<string, string | boolean>,
             {
@@ -177,8 +204,41 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
             },
         ],
         countFlagsOverridden: [(s) => [s.localOverrides], (localOverrides) => Object.keys(localOverrides).length],
+        hasFilteredFlags: [
+            (s) => [s.userFlags, s.filteredFlags],
+            (userFlags, filteredFlags) => userFlags.length > 0 && userFlags.length > filteredFlags.length,
+        ],
+        filteredFlagsCount: [(s) => [s.filteredFlags], (filteredFlags) => filteredFlags.length],
     }),
     listeners(({ actions, values }) => ({
+        enableAllFlags: () => {
+            // a little timeout or the work to do the updates stops the UI reacting to the loading state
+            setTimeout(() => {
+                values.filteredFlags.forEach(({ feature_flag }) => {
+                    actions.setOverriddenUserFlag(feature_flag.key, true)
+                })
+                actions.enableAllFlagsSuccess()
+            }, 1)
+        },
+        disableAllFlags: () => {
+            // a little timeout or the work to do the updates stops the UI reacting to the loading state
+            setTimeout(() => {
+                values.filteredFlags.forEach(({ feature_flag }) => {
+                    actions.setOverriddenUserFlag(feature_flag.key, false)
+                })
+                actions.disableAllFlagsSuccess()
+            }, 1)
+        },
+        resetAllOverrides: () => {
+            // a little timeout or the work to do the updates stops the UI reacting to the loading state
+            setTimeout(() => {
+                const clientPostHog = values.posthog
+                if (clientPostHog) {
+                    clientPostHog.featureFlags.overrideFeatureFlags(false)
+                }
+                actions.resetAllOverridesSuccess()
+            }, 1)
+        },
         checkLocalOverrides: () => {
             const clientPostHog = values.posthog
             if (clientPostHog) {
