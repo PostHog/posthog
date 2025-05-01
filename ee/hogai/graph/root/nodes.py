@@ -1,5 +1,7 @@
 import datetime
+import importlib
 import math
+import pkgutil
 from typing import Literal, TypeVar, cast
 from uuid import uuid4
 
@@ -15,25 +17,24 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
-from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL, create_and_query_insight, search_documentation
 
-from .prompts import (
-    ROOT_HARD_LIMIT_REACHED_PROMPT,
-    ROOT_SYSTEM_PROMPT,
-)
-from ..base import AssistantNode
+import products
+from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL, create_and_query_insight, search_documentation
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.schema import (
     AssistantContextualTool,
     AssistantMessage,
     AssistantToolCall,
     AssistantToolCallMessage,
-    HumanMessage,
     FailureMessage,
+    HumanMessage,
 )
-import importlib
-import pkgutil
-import products
+
+from ..base import AssistantNode
+from .prompts import (
+    ROOT_HARD_LIMIT_REACHED_PROMPT,
+    ROOT_SYSTEM_PROMPT,
+)
 
 # TRICKY: Dynamically import max_tools from all products
 for module_info in pkgutil.iter_modules(products.__path__):

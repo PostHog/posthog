@@ -49,16 +49,17 @@ async fn handle_common(
         .get("content-encoding")
         .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
 
+    let current_span = Span::current();
     if state.is_mirror_deploy {
         // for mirror deploy, temporarily log all headers
         for entry in headers {
             let key = entry.0.as_str();
             let value = entry.1.to_str().unwrap_or("UNKNOWN");
-            Span::current().record(key, value);
+            current_span.record(key, value);
         }
     } else {
-        Span::current().record("user_agent", user_agent);
-        Span::current().record("content_encoding", content_encoding);
+        current_span.record("user_agent", user_agent);
+        current_span.record("content_encoding", content_encoding);
     }
 
     let comp = match meta.compression {
@@ -90,9 +91,8 @@ async fn handle_common(
                         // get a peek at the headers and a short snip of the payload in mirror
                         // see which capture.py "kludge warning" these may map to, if any
                         error!(
-                            "failed to decode mirrored form w/error: {} and data: <<{:?}>>",
-                            e,
-                            &input.data[0..input.data.len().min(40)]
+                            data = &input.data[0..input.data.len().min(128)],
+                            "failed to decode mirrored form w/error: {}", e
                         );
                     } else {
                         error!("failed to decode base64 form data: {}", e);
@@ -121,9 +121,9 @@ async fn handle_common(
     let historical_migration = request.historical_migration();
     let events = request.events(); // Takes ownership of request
 
-    tracing::Span::current().record("token", &token);
-    tracing::Span::current().record("historical_migration", historical_migration);
-    tracing::Span::current().record("batch_size", events.len());
+    Span::current().record("token", &token);
+    Span::current().record("historical_migration", historical_migration);
+    Span::current().record("batch_size", events.len());
 
     if events.is_empty() {
         warn!("rejected empty batch");

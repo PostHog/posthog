@@ -106,13 +106,28 @@ else:
         f'The environment vars "DATABASE_URL" or "POSTHOG_DB_NAME" are absolutely required to run this software'
     )
 
+DATABASE_ROUTERS: list[str] = []
+
 # Configure the database which will be used as a read replica.
 # This should have all the same config as our main writer DB, just use a different host.
 # Our database router will point here.
 read_host = os.getenv("POSTHOG_POSTGRES_READ_HOST")
 if read_host:
     DATABASES["replica"] = postgres_config(read_host)
-    DATABASE_ROUTERS = ["posthog.dbrouter.ReplicaRouter"]
+    DATABASE_ROUTERS.append("posthog.dbrouter.ReplicaRouter")
+
+# Add the persons_db_writer database configuration using PERSONS_DB_WRITER_URL
+if os.getenv("PERSONS_DB_WRITER_URL"):
+    DATABASES["persons_db_writer"] = dj_database_url.config(default=os.getenv("PERSONS_DB_WRITER_URL"), conn_max_age=0)
+
+    # Fall back to the writer URL if no reader URL is set
+    persons_reader_url = os.getenv("PERSONS_DB_READER_URL") or os.getenv("PERSONS_DB_WRITER_URL")
+    DATABASES["persons_db_reader"] = dj_database_url.config(default=persons_reader_url, conn_max_age=0)
+    if DISABLE_SERVER_SIDE_CURSORS:
+        DATABASES["persons_db_writer"]["DISABLE_SERVER_SIDE_CURSORS"] = True
+        DATABASES["persons_db_reader"]["DISABLE_SERVER_SIDE_CURSORS"] = True
+
+    DATABASE_ROUTERS.insert(0, "posthog.person_db_router.PersonDBRouter")
 
 if JOB_QUEUE_GRAPHILE_URL:
     DATABASES["graphile"] = dj_database_url.config(default=JOB_QUEUE_GRAPHILE_URL, conn_max_age=600)
