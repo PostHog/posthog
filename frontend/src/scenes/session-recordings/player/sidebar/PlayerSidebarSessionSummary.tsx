@@ -85,7 +85,7 @@ function SegmentMetaTable({ meta }: SegmentMetaProps): JSX.Element | null {
     return (
         <div className="grid grid-cols-2 gap-2 text-xs mt-2">
             <div className="flex items-center gap-1">
-                <IconKeyboard />
+                <IconKeyboard className={meta.key_action_count && meta.key_action_count > 0 ? 'text-success' : ''} />
                 <span className="text-muted">Key actions:</span>
                 {isValidMetaNumber(meta.key_action_count) && <span>{meta.key_action_count}</span>}
             </div>
