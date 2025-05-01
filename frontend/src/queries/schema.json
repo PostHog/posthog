@@ -9033,7 +9033,7 @@
             "type": "object"
         },
         "ExperimentMetricMathType": {
-            "enum": ["total", "sum"],
+            "enum": ["total", "sum", "unique_session"],
             "type": "string"
         },
         "ExperimentMetricOutlierHandling": {

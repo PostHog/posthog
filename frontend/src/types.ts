@@ -3895,6 +3895,7 @@ export enum GroupMathType {
 export enum ExperimentMetricMathType {
     TotalCount = 'total',
     Sum = 'sum',
+    UniqueSessions = 'unique_session',
 }
 
 export enum ActorGroupType {
