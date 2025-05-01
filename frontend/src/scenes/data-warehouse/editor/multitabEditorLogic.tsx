@@ -98,6 +98,7 @@ export interface SuggestionPayload {
     acceptText?: string
     rejectText?: string
     diffShowRunButton?: boolean
+    source?: 'max_ai' | 'hogql_fixer'
     onAccept: (
         shouldRunQuery: boolean,
         actions: multitabEditorLogicType['actions'],
@@ -181,8 +182,11 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         editInsight: (query: string, insight: QueryBasedInsightModel) => ({ query, insight }),
         updateQueryTabState: (skipBreakpoint?: boolean) => ({ skipBreakpoint }),
         setLastRunQuery: (lastRunQuery: DataVisualizationNode | null) => ({ lastRunQuery }),
-        setSuggestedQueryInput: (suggestedQueryInput: string) => ({ suggestedQueryInput }),
         _setSuggestionPayload: (payload: SuggestionPayload | null) => ({ payload }),
+        setSuggestedQueryInput: (suggestedQueryInput: string, source?: SuggestionPayload['source']) => ({
+            suggestedQueryInput,
+            source,
+        }),
         onAcceptSuggestedQueryInput: (shouldRunQuery?: boolean) => ({ shouldRunQuery }),
         onRejectSuggestedQueryInput: true,
         setResponse: (response: Record<string, any> | null) => ({ response, currentTab: values.activeModelUri }),
@@ -372,7 +376,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
     })),
     listeners(({ values, props, actions, asyncActions }) => ({
         fixErrorsSuccess: ({ response }) => {
-            actions.setSuggestedQueryInput(response.query)
+            actions.setSuggestedQueryInput(response.query, 'hogql_fixer')
 
             posthog.capture('ai-error-fixer-success', { trace_id: response.trace_id })
         },
@@ -416,7 +420,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 void copyToClipboard(shareUrl.toString(), 'share link')
             }
         },
-        setSuggestedQueryInput: ({ suggestedQueryInput }) => {
+        setSuggestedQueryInput: ({ suggestedQueryInput, source }) => {
             if (values.queryInput) {
                 actions._setSuggestionPayload({
                     suggestedValue: suggestedQueryInput,
@@ -424,6 +428,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     rejectText: aiSuggestionOnRejectText,
                     onAccept: aiSuggestionOnAccept,
                     onReject: aiSuggestionOnReject,
+                    source,
                     diffShowRunButton: true,
                 })
             } else {
@@ -460,6 +465,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
 
             actions._setSuggestionPayload(null)
             actions.updateState(true)
+            posthog.capture('sql-editor-accepted-suggestion', { source: values.suggestedSource })
         },
         onRejectSuggestedQueryInput: () => {
             values.suggestionPayload?.onReject(actions, values, props)
@@ -491,6 +497,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
 
             actions._setSuggestionPayload(null)
             actions.updateState(true)
+            posthog.capture('sql-editor-rejected-suggestion', { source: values.suggestedSource })
         },
         editView: ({ query, view }) => {
             const maybeExistingTab = values.allTabs.find((tab) => tab.view?.id === view.id)
@@ -1137,6 +1144,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         },
     })),
     selectors({
+        suggestedSource: [
+            (s) => [s.suggestionPayload],
+            (suggestionPayload) => {
+                return suggestionPayload?.source ?? null
+            },
+        ],
         diffShowRunButton: [
             (s) => [s.suggestionPayload],
             (suggestionPayload) => {

@@ -77,7 +77,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                             current_query: props.queryInput,
                         }}
                         callback={(toolOutput: string) => {
-                            setSuggestedQueryInput(toolOutput)
+                            setSuggestedQueryInput(toolOutput, 'max_ai')
                         }}
                         suggestions={[]}
                         onMaxOpen={() => {

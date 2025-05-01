@@ -12,6 +12,7 @@ from ee.session_recordings.session_summary import ExceptionToRetry, SummaryValid
 from prometheus_client import Histogram
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_fixed, wait_random
 from ee.session_recordings.session_summary.prompt_data import SessionSummaryMetadata
+from ee.session_recordings.session_summary.utils import serialize_to_sse_event
 from posthog.models.user import User
 from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.chat.chat_completion_chunk import ChatCompletionChunk
@@ -66,10 +67,6 @@ def _get_raw_content(llm_response: ChatCompletion | ChatCompletionChunk, session
     else:
         raise ValueError(f"Unexpected LLM response type for session_id {session_id}: {type(llm_response)}")
     return content if content else ""
-
-
-def _serialize_to_sse_event(event_label: str, event_data: str) -> str:
-    return f"event: {event_label}\ndata: {event_data}\n\n"
 
 
 def _convert_llm_content_to_session_summary_json(
@@ -162,7 +159,7 @@ def stream_llm_session_summary(
                 if not intermediate_summary:
                     continue
                 # If parsing succeeds, yield the new chunk
-                sse_event_to_send = _serialize_to_sse_event(
+                sse_event_to_send = serialize_to_sse_event(
                     event_label="session-summary-stream", event_data=intermediate_summary
                 )
                 yield sse_event_to_send
@@ -212,7 +209,7 @@ def stream_llm_session_summary(
             raise ValueError("Final content validation failed")
 
         # If parsing succeeds, yield the final validated summary
-        sse_event_to_send = _serialize_to_sse_event(event_label="session-summary-stream", event_data=final_summary)
+        sse_event_to_send = serialize_to_sse_event(event_label="session-summary-stream", event_data=final_summary)
         yield sse_event_to_send
     # At this stage, when all the chunks are processed, any exception should be retried to ensure valid final content
     except (SummaryValidationError, ValueError) as err:
