@@ -1,6 +1,7 @@
 from unittest.mock import call, patch, ANY
 
 from rest_framework import status
+from datetime import timedelta
 
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
@@ -107,7 +108,7 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
             user=user,
             label="Old Org Key",
             scoped_organizations=[str(self.organization.id)],
-            last_used_at=timezone.now() - timezone.timedelta(days=14),
+            last_used_at=timezone.now() - timedelta(days=14),
         )
 
         # Check response with one inactive key
@@ -127,21 +128,31 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
             user=user,
             label="Team Key",
             scoped_teams=[self.team.id],
-            last_used_at=timezone.now() - timezone.timedelta(days=2),
+            last_used_at=timezone.now() - timedelta(days=2),
         )
 
-        # Check response with both keys (one org-scoped, one team-scoped)
+        # Create a key with no scoped teams or organizations (applies to all orgs/teams)
+        global_key = PersonalAPIKey.objects.create(
+            user=user,
+            label="Global Key",
+            scoped_teams=[],
+            scoped_organizations=[],
+            last_used_at=timezone.now() - timedelta(days=1),
+        )
+
+        # Check response with all keys (one org-scoped, one team-scoped, one global)
         response = self.client.get(f"/api/organizations/@current/members/{user.uuid}/scoped_api_keys/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(response_data["has_keys"], True)
         self.assertEqual(response_data["keys_active_last_week"], True)
-        self.assertEqual(len(response_data["keys"]), 2)
+        self.assertEqual(len(response_data["keys"]), 3)
 
-        # Verify both keys are in the response with correct data
+        # Verify all keys are in the response with correct data
         key_names = [k["name"] for k in response_data["keys"]]
         self.assertIn("Old Org Key", key_names)
         self.assertIn("Team Key", key_names)
+        self.assertIn("Global Key", key_names)
 
         # Find each key in the response and verify its last_used_at
         for key_data in response_data["keys"]:
@@ -149,6 +160,25 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
                 self.assertEqual(key_data["last_used_at"], old_key.last_used_at.isoformat().replace("+00:00", "Z"))
             elif key_data["name"] == "Team Key":
                 self.assertEqual(key_data["last_used_at"], team_key.last_used_at.isoformat().replace("+00:00", "Z"))
+            elif key_data["name"] == "Global Key":
+                self.assertEqual(key_data["last_used_at"], global_key.last_used_at.isoformat().replace("+00:00", "Z"))
+
+        # Create a key with null scoped teams and organizations (also applies to all orgs/teams)
+        PersonalAPIKey.objects.create(
+            user=user,
+            label="Null Scoped Key",
+            scoped_teams=None,
+            scoped_organizations=None,
+            last_used_at=timezone.now() - timedelta(days=3),
+        )
+
+        # Check response with all keys including the null scoped key
+        response = self.client.get(f"/api/organizations/@current/members/{user.uuid}/scoped_api_keys/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(len(response_data["keys"]), 4)
+        key_names = [k["name"] for k in response_data["keys"]]
+        self.assertIn("Null Scoped Key", key_names)
 
         # Test with a user who doesn't have scoped API keys for this organization or its teams
         other_org = Organization.objects.create(name="Other Org")
