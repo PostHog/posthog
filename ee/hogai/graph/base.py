@@ -81,7 +81,11 @@ class AssistantNode(ABC):
     def _is_conversation_cancelled(self, conversation_id: UUID) -> bool:
         conversation = self._get_conversation(conversation_id)
         if not conversation:
-            return True
+            raise ValueError(
+                f"Conversation {conversation_id} not found",
+                Team.objects.all().count(),
+                Conversation.objects.all().count(),
+            )
         return conversation.status == Conversation.Status.CANCELING
 
     def _get_tool_call(self, messages: Sequence[AssistantMessageUnion], tool_call_id: str) -> AssistantToolCall:

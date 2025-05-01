@@ -7,6 +7,7 @@ import net from 'node:net'
 import fetch, { type RequestInfo, type RequestInit, type Response, FetchError, Request } from 'node-fetch'
 import { URL } from 'url'
 
+import { defaultConfig } from '../config/config'
 import { runInstrumentedFunction } from '../main/utils'
 import { isProdEnv } from './env-utils'
 
@@ -87,28 +88,36 @@ const httpStaticLookup: net.LookupFunction = async (hostname, options, cb) => {
     }
 }
 
+const COMMON_AGENT_OPTIONS: http.AgentOptions = { keepAlive: false }
+
+const getSafeAgent = (url: URL) => {
+    return url.protocol === 'http:'
+        ? new http.Agent({ ...COMMON_AGENT_OPTIONS, lookup: httpStaticLookup })
+        : new https.Agent({ ...COMMON_AGENT_OPTIONS, lookup: httpStaticLookup })
+}
+
 export class SecureFetch {
     constructor(private options?: { allowUnsafe?: boolean }) {}
 
-    fetch(url: RequestInfo, init?: RequestInit): Promise<Response> {
+    fetch(url: RequestInfo, init: RequestInit = {}): Promise<Response> {
         return runInstrumentedFunction({
             statsKey: 'secureFetch',
             func: async () => {
+                init.timeout = init.timeout ?? defaultConfig.EXTERNAL_REQUEST_TIMEOUT_MS
                 const request = new Request(url, init)
 
                 const allowUnsafe =
                     this.options?.allowUnsafe ?? (process.env.NODE_ENV?.includes('functional-tests') || !isProdEnv())
+
                 if (allowUnsafe) {
-                    return await fetch(url, init)
+                    // NOTE: Agent is false to disable keep alive, and increase parallelization
+                    return await fetch(url, { ...init, agent: false })
                 }
 
                 validateUrl(request.url)
                 return await fetch(url, {
                     ...init,
-                    agent: ({ protocol }: URL) =>
-                        protocol === 'http:'
-                            ? new http.Agent({ lookup: httpStaticLookup })
-                            : new https.Agent({ lookup: httpStaticLookup }),
+                    agent: getSafeAgent,
                 })
             },
         })

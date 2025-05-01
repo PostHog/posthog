@@ -10,6 +10,7 @@ import {
     LemonSegmentedButtonOption,
     LemonSelect,
     LemonSnack,
+    LemonTag,
     lemonToast,
     Link,
     Popover,
@@ -605,43 +606,68 @@ function TriggerMatchChoice(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
 
     return (
-        <div className="flex flex-row gap-x-2 items-center">
-            <div>Start when</div>
-            <LemonSelect
-                options={[
-                    {
-                        label: 'all',
-                        value: 'all',
-                        labelInMenu: (
-                            <SelectOption
-                                title="All"
-                                description="Every trigger must match"
-                                value="all"
-                                selectedValue={currentTeam?.session_recording_trigger_match_type_config || 'all'}
-                            />
-                        ),
-                    },
-                    {
-                        label: 'any',
-                        value: 'any',
-                        labelInMenu: (
-                            <SelectOption
-                                title="Any"
-                                description="One or more triggers must match"
-                                value="any"
-                                selectedValue={currentTeam?.session_recording_trigger_match_type_config || 'all'}
-                            />
-                        ),
-                    },
-                ]}
-                dropdownMatchSelectWidth={false}
-                data-attr="trigger-match-choice"
-                onChange={(value) => {
-                    updateCurrentTeam({ session_recording_trigger_match_type_config: value })
-                }}
-                value={currentTeam?.session_recording_trigger_match_type_config || 'all'}
-            />
-            <div>triggers match</div>
+        <div className="flex flex-col gap-y-1">
+            <SupportedPlatforms web={{ version: '1.238.0' }} />
+            <LemonBanner type="info" className="text-sm" hideIcon={true} dismissKey="replay-trigger-match-1-238-0">
+                <div className="flex flex-row gap-x-4 items-center">
+                    <LemonTag type="warning">NEW</LemonTag>
+                    <div>
+                        <strong>Trigger matching</strong>
+                        <p>
+                            From version 1.238.0 of posthog-js on web, you can choose between "all" and "any" for
+                            trigger matching.
+                        </p>
+                        <p>For example if you set 30% sampling and an event trigger for exceptions:</p>
+                        <ul>
+                            <li className="my-1">
+                                With "ALL" trigger matching, only 30% of sessions with exceptions will be recorded.
+                            </li>
+                            <li>
+                                With "ANY" trigger matching, 30% of all sessions will be recorded, and 100% of sessions
+                                that have exceptions will be recorded.
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </LemonBanner>
+            <div className="flex flex-row gap-x-2 items-center">
+                <div>Start when</div>
+                <LemonSelect
+                    options={[
+                        {
+                            label: 'all',
+                            value: 'all',
+                            labelInMenu: (
+                                <SelectOption
+                                    title="All"
+                                    description="Every trigger must match"
+                                    value="all"
+                                    selectedValue={currentTeam?.session_recording_trigger_match_type_config || 'all'}
+                                />
+                            ),
+                        },
+                        {
+                            label: 'any',
+                            value: 'any',
+                            labelInMenu: (
+                                <SelectOption
+                                    title="Any"
+                                    description="One or more triggers must match"
+                                    value="any"
+                                    selectedValue={currentTeam?.session_recording_trigger_match_type_config || 'all'}
+                                />
+                            ),
+                        },
+                    ]}
+                    dropdownMatchSelectWidth={false}
+                    data-attr="trigger-match-choice"
+                    onChange={(value) => {
+                        updateCurrentTeam({ session_recording_trigger_match_type_config: value })
+                    }}
+                    value={currentTeam?.session_recording_trigger_match_type_config || 'all'}
+                />
+                <div>triggers match</div>
+            </div>
         </div>
     )
 }
@@ -664,11 +690,9 @@ export function ReplayTriggers(): JSX.Element {
                 </Link>
             </p>
 
-            <div className="border rounded p-2">
-                <FlaggedFeature flag={FEATURE_FLAGS.REPLAY_TRIGGER_TYPE_CHOICE} match={true}>
-                    <TriggerMatchChoice />
-                    <LemonDivider />
-                </FlaggedFeature>
+            <div className="border rounded py-2 px-4">
+                <TriggerMatchChoice />
+                <LemonDivider />
                 <UrlTriggerOptions />
                 <EventTriggerOptions />
                 <PayGateMini feature={AvailableFeature.SESSION_REPLAY_SAMPLING}>
@@ -677,7 +701,7 @@ export function ReplayTriggers(): JSX.Element {
                 </PayGateMini>
             </div>
             <MinimumDurationSetting />
-            <LemonDivider dashed={true} />
+            <LemonDivider />
             <UrlBlocklistOptions />
         </div>
     )
