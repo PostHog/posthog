@@ -40,7 +40,7 @@ export const productsLogic = kea<productsLogicType>([
         handleStartOnboarding: () => {
             const nextUrl = getRelativeNextPath(router.values.searchParams['next'], location)
 
-            if (nextUrl) {
+            if (nextUrl && nextUrl !== '/') {
                 actions.setOnCompleteOnboardingRedirectUrl(nextUrl)
             }
 
