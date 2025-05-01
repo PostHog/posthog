@@ -287,7 +287,14 @@ function SessionSegmentView({
                                                             </div>
                                                         </span>
 
-                                                        <span className="text-xs break-words">{event.description}</span>
+                                                        <span className="text-xs break-words">
+                                                            {event.description}&nbsp;{' '}
+                                                            {event.milliseconds_since_start === 0 && (
+                                                                <LemonTag size="small" type="default">
+                                                                    before start
+                                                                </LemonTag>
+                                                            )}
+                                                        </span>
                                                     </div>
                                                 </div>
                                             ) : null
