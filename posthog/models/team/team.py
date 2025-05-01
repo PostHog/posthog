@@ -527,11 +527,12 @@ class Team(UUIDClassicModel):
                 continue
         return filters
 
-    def reset_token_and_save(self, *, user: "User", is_impersonated_session: bool):
+    def _reset_token_and_save(self, field_name: str, generate_token_func, user: "User", is_impersonated_session: bool):
         from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 
-        old_token = self.api_token
-        self.api_token = generate_random_token_project()
+        old_token = getattr(self, field_name)
+        new_token = generate_token_func()
+        setattr(self, field_name, new_token)
         self.save()
         set_team_in_cache(old_token, None)
         log_activity(
@@ -548,10 +549,26 @@ class Team(UUIDClassicModel):
                     Change(
                         type="Team",
                         action="changed",
-                        field="api_token",
+                        field=field_name,
                     )
                 ],
             ),
+        )
+
+    def reset_token_and_save(self, *, user: "User", is_impersonated_session: bool):
+        self._reset_token_and_save(
+            field_name="api_token",
+            generate_token_func=generate_random_token_project,
+            user=user,
+            is_impersonated_session=is_impersonated_session,
+        )
+
+    def reset_secret_token_and_save(self, *, user: "User", is_impersonated_session: bool):
+        self._reset_token_and_save(
+            field_name="secret_api_token",
+            generate_token_func=generate_random_token_secret,
+            user=user,
+            is_impersonated_session=is_impersonated_session,
         )
 
     def get_is_generating_demo_data(self) -> bool:

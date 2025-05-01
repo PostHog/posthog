@@ -600,6 +600,62 @@ def team_api_test_factory():
             response = self.client.patch(f"/api/environments/{self.team.id}/reset_token/")
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+        @freeze_time("2022-02-08")
+        def test_reset_secret_token(self):
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
+            self._assert_activity_log_is_empty()
+
+            self.team.api_token = "xyz"
+            self.team.save()
+
+            response = self.client.patch(f"/api/environments/{self.team.id}/reset_secret_token/")
+            response_data = response.json()
+
+            self.team.refresh_from_db()
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertNotEqual(response_data["secret_api_token"], "xyz")
+            self.assertEqual(response_data["secret_api_token"], self.team.secret_api_token)
+            self.assertTrue(response_data["secret_api_token"].startswith("phc_"))
+
+            self._assert_activity_log(
+                [
+                    {
+                        "activity": "updated",
+                        "created_at": "2022-02-08T00:00:00Z",
+                        "detail": {
+                            "changes": [
+                                {
+                                    "action": "changed",
+                                    "after": None,
+                                    "before": None,
+                                    "field": "secret_api_token",
+                                    "type": "Team",
+                                },
+                            ],
+                            "name": "Default project",
+                            "short_id": None,
+                            "trigger": None,
+                            "type": None,
+                        },
+                        "item_id": str(self.team.pk),
+                        "scope": "Team",
+                        "user": {
+                            "email": "user1@posthog.com",
+                            "first_name": "",
+                        },
+                    },
+                ]
+            )
+
+        def test_reset_secret_token_insufficient_priviledges(self):
+            self.team.secret_api_token = "xyz"
+            self.team.save()
+
+            response = self.client.patch(f"/api/environments/{self.team.id}/reset_secret_token/")
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
         def test_update_primary_dashboard(self):
             d = Dashboard.objects.create(name="Test", team=self.team)
 
