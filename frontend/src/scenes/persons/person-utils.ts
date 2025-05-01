@@ -9,7 +9,7 @@ import { urls } from 'scenes/urls'
 export type PersonPropType =
     | { properties?: Record<string, any>; distinct_ids?: string[]; distinct_id?: never; id?: never }
     | { properties?: Record<string, any>; distinct_ids?: never; distinct_id?: string; id?: never }
-    | { properties?: never; distinct_ids?: never; distinct_id?: never; id: string }
+    | { properties?: Record<string, any>; distinct_ids?: string[]; distinct_id?: string; id: string }
 
 export interface PersonDisplayProps {
     person?: PersonPropType | null
