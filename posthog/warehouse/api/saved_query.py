@@ -57,7 +57,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
     columns = serializers.SerializerMethodField(read_only=True)
     sync_frequency = serializers.SerializerMethodField()
     latest_history_id = serializers.SerializerMethodField(read_only=True)
-    edited_history_id = serializers.CharField(write_only=True, required=False)
+    edited_history_id = serializers.CharField(write_only=True, required=False, allow_null=True)
 
     class Meta:
         model = DataWarehouseSavedQuery

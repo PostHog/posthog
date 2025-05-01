@@ -477,6 +477,8 @@ def log_activity(
             # as we currently don't treat activity logs as critical
             raise
 
+    return None
+
 
 @dataclasses.dataclass(frozen=True)
 class ActivityPage:
