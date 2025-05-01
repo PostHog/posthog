@@ -114,7 +114,7 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     /** Whether the item can accept drops */
     isItemDroppable?: (item: TreeDataItem) => boolean
     /** The side action to render for the item. */
-    itemSideAction?: (item: TreeDataItem) => SideAction | undefined
+    itemSideAction?: (item: TreeDataItem) => React.ReactNode | undefined
     /** The context menu to render for the item. */
     itemContextMenu?: (item: TreeDataItem) => React.ReactNode
     /** Whether the item is loading */
