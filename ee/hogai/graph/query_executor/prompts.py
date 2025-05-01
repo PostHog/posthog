@@ -21,7 +21,7 @@ Date|$pageview|sign up
 """.strip()
 
 SQL_QUERY_PROMPT = """
-Here is the generated ClickHouse SQL query used to retrieve the results:
+Here is the generated HogQL (a PostHog's subset of ClickHouse SQL) query used to retrieve the results:
 
 ```
 {query}
