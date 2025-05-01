@@ -45,6 +45,8 @@ def call_node(demo_org_team_user):
 def eval_root(call_node):
     MaxEval(
         experiment_name="root",
+        task=call_node,
+        scores=[ToolRelevance(semantic_similarity_args={"query_description"})],
         data=[
             EvalCase(
                 input="Create an SQL insight to calculate active users recently",
@@ -62,7 +64,7 @@ def eval_root(call_node):
                     args={"query_kind": "sql", "query_description": "Calculate the number of active users recently"},
                 ),
             ),
-            # Should propagate the dates from the previous messages
+            # Should propagate the dates from the previous insight request
             EvalCase(
                 input=[
                     HumanMessage(content="what is the trend of pageviews ytd 2025"),
@@ -102,7 +104,78 @@ def eval_root(call_node):
                     },
                 ),
             ),
+            # When the company name appears in the query results, it should NOT confuse the agent and it should still generate a new insight
+            EvalCase(
+                input=[
+                    HumanMessage(content="List all user names who have completed a page view YTD"),
+                    AssistantMessage(
+                        content="",
+                        tool_calls=[
+                            AssistantToolCall(
+                                id="call_XdLOyLrHbjoBBACDCZd8WyNS",
+                                name="create_and_query_insight",
+                                args={
+                                    "query_kind": "sql",
+                                    "query_description": "List all user names who have completed a page view Year-To-Date (YTD).",
+                                },
+                            )
+                        ],
+                    ),
+                    AssistantToolCallMessage(
+                        tool_call_id="call_XdLOyLrHbjoBBACDCZd8WyNS",
+                        content=json.dumps(
+                            {
+                                "query_kind": "trends",
+                                "query_description": 'You\'ll be given a JSON object with the results of a query.\n\nHere is the generated ClickHouse SQL query used to retrieve the results:\n\n```\nSELECT DISTINCT person.properties.name AS user_name\nFROM events\nWHERE event = \'$pageview\'\n  AND toYear(timestamp) = toYear(now())\n```\n\nYou\'ll be given a JSON object with the results of a query.\n\nHere is the results table of the HogQLQuery I created to answer your latest question:\n\n```\n[[null],["Mario Bridges"],["Alexander Dickson"],["YCombinator"],["Andrea Dickson"]]\n```\n\nThe current date and time is 2025-05-01 10:12:06 UTC, which is 2025-05-01 10:12:06 in this project\'s timezone (UTC).\nIt\'s expected that the data point for the current period can have a drop in value, as data collection is still ongoing for it. Do not point this out.',
+                            }
+                        ),
+                    ),
+                    AssistantMessage(
+                        content="Here's the list of user names who have completed a page view Year-To-Date (YTD):\n\n- Mario Bridges\n- Alexander Dickson\n- YCombinator\n- Andrea Dickson\n\nThat's quite a crowd! If you need anything else, just let me know!"
+                    ),
+                    HumanMessage(content="give me a list of the companies only"),
+                ],
+                expected=AssistantToolCall(
+                    id="2",
+                    name="create_and_query_insight",
+                    args={
+                        "query_kind": "sql",
+                        "query_description": "List all companies who have completed a page view Year-To-Date (YTD).",
+                    },
+                ),
+            ),
+            # Must reuse the previous data
+            EvalCase(
+                input=[
+                    HumanMessage(content="List all user names who have completed a page view YTD"),
+                    AssistantMessage(
+                        content="",
+                        tool_calls=[
+                            AssistantToolCall(
+                                id="call_XdLOyLrHbjoBBACDCZd8WyNS",
+                                name="create_and_query_insight",
+                                args={
+                                    "query_kind": "sql",
+                                    "query_description": "List all user names who have completed a page view Year-To-Date (YTD).",
+                                },
+                            )
+                        ],
+                    ),
+                    AssistantToolCallMessage(
+                        tool_call_id="call_XdLOyLrHbjoBBACDCZd8WyNS",
+                        content=json.dumps(
+                            {
+                                "query_kind": "trends",
+                                "query_description": 'You\'ll be given a JSON object with the results of a query.\n\nHere is the generated ClickHouse SQL query used to retrieve the results:\n\n```\nSELECT DISTINCT person.properties.name AS user_name\nFROM events\nWHERE event = \'$pageview\'\n  AND toYear(timestamp) = toYear(now())\n```\n\nYou\'ll be given a JSON object with the results of a query.\n\nHere is the results table of the HogQLQuery I created to answer your latest question:\n\n```\n[[null],["Mario Bridges"],["Alexander Dickson"],["YCombinator"],["Andrea Dickson"]]\n```\n\nThe current date and time is 2025-05-01 10:12:06 UTC, which is 2025-05-01 10:12:06 in this project\'s timezone (UTC).\nIt\'s expected that the data point for the current period can have a drop in value, as data collection is still ongoing for it. Do not point this out.',
+                            }
+                        ),
+                    ),
+                    AssistantMessage(
+                        content="Here's the list of user names who have completed a page view Year-To-Date (YTD):\n\n- Mario Bridges\n- Alexander Dickson\n- YCombinator\n- Andrea Dickson\n\nThat's quite a crowd! If you need anything else, just let me know!"
+                    ),
+                    HumanMessage(content="List all user names who have completed a page view YTD"),
+                ],
+                expected=None,
+            ),
         ],
-        task=call_node,
-        scores=[ToolRelevance(semantic_similarity_args={"query_description"})],
     )
