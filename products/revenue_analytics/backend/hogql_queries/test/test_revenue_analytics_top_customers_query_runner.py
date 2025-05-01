@@ -7,8 +7,10 @@ from posthog.models.utils import uuid7
 from products.revenue_analytics.backend.hogql_queries.revenue_analytics_top_customers_query_runner import (
     RevenueAnalyticsTopCustomersQueryRunner,
 )
-from products.revenue_analytics.backend.models import (
+from products.revenue_analytics.backend.views.revenue_analytics_charge_view import (
     STRIPE_DATA_WAREHOUSE_CHARGE_IDENTIFIER,
+)
+from products.revenue_analytics.backend.views.revenue_analytics_customer_view import (
     STRIPE_DATA_WAREHOUSE_CUSTOMER_IDENTIFIER,
 )
 from posthog.schema import (
@@ -100,7 +102,7 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
         )
 
         # Besides the default creations above, also create the external data schemas
-        # because this is required by the `RevenueAnalyticsRevenueView` to find the right tables
+        # because this is required by the `RevenueAnalyticsBaseView` to find the right tables
         self.charges_schema = ExternalDataSchema.objects.create(
             team=self.team,
             name=STRIPE_DATA_WAREHOUSE_CHARGE_IDENTIFIER,

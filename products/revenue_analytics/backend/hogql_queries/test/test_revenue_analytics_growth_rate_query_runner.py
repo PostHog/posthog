@@ -7,7 +7,9 @@ from posthog.models.utils import uuid7
 from products.revenue_analytics.backend.hogql_queries.revenue_analytics_growth_rate_query_runner import (
     RevenueAnalyticsGrowthRateQueryRunner,
 )
-from products.revenue_analytics.backend.models import STRIPE_DATA_WAREHOUSE_CHARGE_IDENTIFIER
+from products.revenue_analytics.backend.views.revenue_analytics_charge_view import (
+    STRIPE_DATA_WAREHOUSE_CHARGE_IDENTIFIER,
+)
 from posthog.schema import (
     CurrencyCode,
     DateRange,
@@ -82,7 +84,7 @@ class TestRevenueAnalyticsGrowthRateQueryRunner(ClickhouseTestMixin, APIBaseTest
         )
 
         # Besides the default creations above, also create the external data schema
-        # because this is required by the `RevenueAnalyticsRevenueView` to find the right tables
+        # because this is required by the `RevenueAnalyticsBaseView` to find the right tables
         self.schema = ExternalDataSchema.objects.create(
             team=self.team,
             name=STRIPE_DATA_WAREHOUSE_CHARGE_IDENTIFIER,
