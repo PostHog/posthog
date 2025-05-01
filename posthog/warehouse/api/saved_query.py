@@ -324,6 +324,34 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
 
         return response.Response(status=status.HTTP_200_OK)
 
+    # undo materialization, revert back to the original view (i.e. delete the materialized table and the schedule)
+    @action(methods=["POST"], detail=True)
+    def revert_materialization(self, request: request.Request, *args, **kwargs) -> response.Response:
+        saved_query = self.get_object()
+        saved_query.sync_frequency_interval = None
+        # we still preserve the history in our DataModelingJob
+        saved_query.last_run_at = None
+        saved_query.latest_error = None
+        saved_query.status = DataWarehouseSavedQuery.Status.MODIFIED
+
+        # delete the materialized table
+        if saved_query.table is not None:
+            saved_query.table.soft_delete()
+            # Make sure to remove the reference to the deleted table
+            saved_query.table = None
+
+        saved_query.save()
+
+        # delete the schedule
+        delete_saved_query_schedule(str(saved_query.id))
+
+        # delete the model path
+        DataWarehouseModelPath.objects.filter(
+            team=saved_query.team, path__lquery=f"*{{1,}}.{saved_query.id.hex}"
+        ).delete()
+
+        return response.Response(status=status.HTTP_200_OK)
+
     @action(methods=["POST"], detail=True)
     def ancestors(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Return the ancestors of this saved query.

@@ -1,3 +1,4 @@
+import { IconX } from '@posthog/icons'
 import { LemonTable, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
 import { useValues } from 'kea'
@@ -68,7 +69,8 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
         dataModelingJobs,
         hasMoreJobsToLoad,
     } = useValues(dataWarehouseViewsLogic)
-    const { updateDataWarehouseSavedQuery, loadOlderDataModelingJobs } = useActions(dataWarehouseViewsLogic)
+    const { updateDataWarehouseSavedQuery, loadOlderDataModelingJobs, revertMaterialization } =
+        useActions(dataWarehouseViewsLogic)
 
     // note: editingView is stale, but dataWarehouseSavedQueryMapById gets updated
     const savedQuery = editingView ? dataWarehouseSavedQueryMapById[editingView.id] : null
@@ -139,6 +141,18 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                         loading={updatingDataWarehouseSavedQuery}
                                         options={OPTIONS}
                                     />
+                                    <Tooltip title="Revert materialized view to view">
+                                        <LemonButton
+                                            type="secondary"
+                                            size="small"
+                                            icon={<IconX />}
+                                            onClick={() => {
+                                                if (editingView) {
+                                                    revertMaterialization(editingView.id)
+                                                }
+                                            }}
+                                        />
+                                    </Tooltip>
                                 </div>
                             </div>
                         ) : (

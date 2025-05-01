@@ -39,6 +39,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
     }),
     actions({
         runDataWarehouseSavedQuery: (viewId: string) => ({ viewId }),
+        revertMaterialization: (viewId: string) => ({ viewId }),
         loadOlderDataModelingJobs: () => {},
         resetDataModelingJobs: () => {},
     }),
@@ -158,6 +159,16 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 actions.loadDataWarehouseSavedQueries()
             } catch (error) {
                 lemonToast.error(`Failed to run materialization`)
+            }
+        },
+        revertMaterialization: async ({ viewId }) => {
+            try {
+                await api.dataWarehouseSavedQueries.revertMaterialization(viewId)
+                lemonToast.success('Materialization reverted')
+                actions.loadDataWarehouseSavedQueries()
+                actions.resetDataModelingJobs()
+            } catch (error) {
+                lemonToast.error(`Failed to revert materialization`)
             }
         },
     })),
