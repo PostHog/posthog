@@ -7,3 +7,4 @@ pub mod flag_models;
 pub mod flag_operations;
 pub mod flag_request;
 pub mod flag_service;
+pub mod models;

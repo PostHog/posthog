@@ -18,7 +18,7 @@ use tower_http::{
 };
 
 use crate::{
-    api::{endpoint, test_endpoint},
+    api::{endpoint, flag_definitions_endpoint, test_endpoint},
     client::database::Client as DatabaseClient,
     cohorts::cohort_cache_manager::CohortCacheManager,
     config::{Config, TeamIdsToTrack},
@@ -100,9 +100,23 @@ where
         .route("/flags/", post(endpoint::flags).get(endpoint::flags))
         .layer(ConcurrencyLimitLayer::new(config.max_concurrency));
 
+    let flag_definitions_router = Router::new()
+        .route(
+            "/flags/definitions",
+            post(flag_definitions_endpoint::flag_definitions)
+                .get(flag_definitions_endpoint::flag_definitions),
+        )
+        .route(
+            "/flags/definitions/",
+            post(flag_definitions_endpoint::flag_definitions)
+                .get(flag_definitions_endpoint::flag_definitions),
+        )
+        .layer(ConcurrencyLimitLayer::new(config.max_concurrency));
+
     let router = Router::new()
         .merge(status_router)
         .merge(flags_router)
+        .merge(flag_definitions_router)
         .merge(test_router)
         .layer(TraceLayer::new_for_http())
         .layer(cors)

@@ -1,5 +1,10 @@
+pub mod auth;
 pub mod endpoint;
 pub mod errors;
+pub mod flag_definition_types;
+pub mod flag_definitions_endpoint;
+pub mod flag_definitions_request_handler;
+pub mod permissions;
 pub mod request_handler;
 pub mod test_endpoint;
 pub mod types;

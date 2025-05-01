@@ -1,3 +1,4 @@
+use crate::api::auth::AuthError;
 use crate::client::database::CustomDatabaseError;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
@@ -37,6 +38,10 @@ pub enum FlagError {
     NoTokenError,
     #[error("API key is not valid")]
     TokenValidationError,
+    #[error("No Personal API key in request")]
+    NoPersonalApiKeyError,
+    #[error("Personal API key is not valid")]
+    PersonalApiKeyValidationError,
     #[error("Row not found in postgres")]
     RowNotFound,
     #[error("failed to parse redis cache data")]
@@ -69,6 +74,38 @@ pub enum FlagError {
     StaticCohortMatchesNotCached,
     #[error(transparent)]
     CookielessError(#[from] CookielessManagerError),
+    #[error("Invalid scopes: {0}")]
+    InvalidScopes(String),
+}
+
+impl IntoResponse for AuthError {
+    fn into_response(self) -> Response {
+        match self {
+            AuthError::NoPersonalApiKey => (
+                StatusCode::UNAUTHORIZED,
+                "No personal API key provided".to_string(),
+            ),
+            AuthError::InvalidPersonalApiKey => (
+                StatusCode::UNAUTHORIZED,
+                "Invalid personal API key".to_string(),
+            ),
+            AuthError::InvalidKey(msg) => {
+                (StatusCode::BAD_REQUEST, format!("Invalid key: {}", msg))
+            }
+            AuthError::Internal(msg) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Internal server error: {}", msg),
+            ),
+            AuthError::RequestDecodingError(msg) => (
+                StatusCode::BAD_REQUEST,
+                format!("Request decoding error: {}", msg),
+            ),
+            AuthError::InvalidScopes(msg) => {
+                (StatusCode::FORBIDDEN, format!("Invalid scopes: {}", msg))
+            }
+        }
+        .into_response()
+    }
 }
 
 impl IntoResponse for FlagError {
@@ -210,7 +247,16 @@ impl IntoResponse for FlagError {
                         (StatusCode::INTERNAL_SERVER_ERROR, "An internal error occurred while processing your request.".to_string())
                     }
                 }
-            }
+            },
+            FlagError::InvalidScopes(msg) => {
+                (StatusCode::FORBIDDEN, format!("Invalid scopes: {}", msg))
+            },
+            FlagError::NoPersonalApiKeyError => {
+                (StatusCode::UNAUTHORIZED, "No personal API key provided.".to_string())
+            },
+            FlagError::PersonalApiKeyValidationError => {
+                (StatusCode::UNAUTHORIZED, "Personal API key is not valid.".to_string())
+            },
         }
         .into_response()
     }

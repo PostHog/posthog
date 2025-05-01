@@ -223,6 +223,52 @@ mod tests {
         assert_eq!(flag_payload.distinct_id, Some("123.45".to_string()));
     }
 
+    #[test]
+    fn test_extract_properties() {
+        let flag_request = FlagRequest {
+            person_properties: Some(HashMap::from([
+                ("key1".to_string(), json!("value1")),
+                ("key2".to_string(), json!(42)),
+            ])),
+            ..Default::default()
+        };
+
+        let properties = flag_request.extract_properties();
+        assert_eq!(properties.len(), 2);
+        assert_eq!(properties.get("key1").unwrap(), &json!("value1"));
+        assert_eq!(properties.get("key2").unwrap(), &json!(42));
+    }
+
+    #[test]
+    fn test_extract_token() {
+        // Test valid token
+        let flag_request = FlagRequest {
+            token: Some("valid_token".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(flag_request.extract_token().unwrap(), "valid_token");
+
+        // Test empty token
+        let flag_request = FlagRequest {
+            token: Some("".to_string()),
+            ..Default::default()
+        };
+        assert!(matches!(
+            flag_request.extract_token(),
+            Err(FlagError::NoTokenError)
+        ));
+
+        // Test missing token
+        let flag_request = FlagRequest {
+            token: None,
+            ..Default::default()
+        };
+        assert!(matches!(
+            flag_request.extract_token(),
+            Err(FlagError::NoTokenError)
+        ));
+    }
+
     #[tokio::test]
     async fn token_is_returned_correctly() {
         let redis_client = setup_redis_client(None);
@@ -249,22 +295,6 @@ mod tests {
             Ok(extracted_token) => assert_eq!(extracted_token, team.api_token),
             Err(e) => panic!("Failed to extract and verify token: {:?}", e),
         };
-    }
-
-    #[test]
-    fn test_extract_properties() {
-        let flag_request = FlagRequest {
-            person_properties: Some(HashMap::from([
-                ("key1".to_string(), json!("value1")),
-                ("key2".to_string(), json!(42)),
-            ])),
-            ..Default::default()
-        };
-
-        let properties = flag_request.extract_properties();
-        assert_eq!(properties.len(), 2);
-        assert_eq!(properties.get("key1").unwrap(), &json!("value1"));
-        assert_eq!(properties.get("key2").unwrap(), &json!(42));
     }
 
     #[tokio::test]
