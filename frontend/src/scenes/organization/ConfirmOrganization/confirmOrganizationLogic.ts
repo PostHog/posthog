@@ -50,14 +50,15 @@ export const confirmOrganizationLogic = kea<confirmOrganizationLogicType>([
                     .create('api/social_signup/', {
                         ...formValues,
                     })
+                    .then(() => {
+                        const nextUrl = new URLSearchParams(location.search).get('next')
+
+                        location.href = nextUrl || '/'
+                    })
                     .catch((error: any) => {
                         console.error('error', error)
                         lemonToast.error(error.detail || 'Failed to create organization')
                     })
-
-                const nextUrl = new URLSearchParams(location.search).get('next')
-
-                location.href = nextUrl || '/'
             },
         },
     })),
