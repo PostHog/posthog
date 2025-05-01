@@ -216,7 +216,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
                     .first()
                 )
 
-                if edited_history_id != str(latest_activity_id):
+                if str(edited_history_id) != str(latest_activity_id):
                     raise serializers.ValidationError("The query was modified by someone else.")
 
             if sync_frequency == "never":

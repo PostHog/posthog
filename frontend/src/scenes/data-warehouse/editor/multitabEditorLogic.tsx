@@ -792,7 +792,10 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             if (values.activeModelUri?.view) {
                 if (queryInput === values.activeModelUri.view?.query.query) {
                     actions.deleteInProgressViewEdit(values.activeModelUri.view.id)
-                } else if (!values.inProgressViewEdits[values.activeModelUri.view.id]) {
+                } else if (
+                    !values.inProgressViewEdits[values.activeModelUri.view.id] &&
+                    values.activeModelUri.view.latest_history_id
+                ) {
                     actions.setInProgressViewEdit(
                         values.activeModelUri.view.id,
                         values.activeModelUri.view.latest_history_id
@@ -1070,7 +1073,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     rejectText: 'Cancel',
                     diffShowRunButton: false,
                     onAccept: () => {
-                        actions.setQueryInput(view.query.query)
+                        actions.setQueryInput(view.query?.query ?? '')
                         actions.updateDataWarehouseSavedQuery({
                             ...view,
                             edited_history_id: latestView?.latest_history_id,
