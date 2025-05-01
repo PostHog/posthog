@@ -21,7 +21,7 @@ export function ConversationHistory({ displayHeader = false }: ConversationHisto
     const { updateHasSeenProductIntroFor } = useActions(userLogic)
 
     return (
-        <div className="flex flex-col gap-4 w-full self-center px-4 py-8 grow max-w-screen-lg">
+        <div className="@container/chat-history flex flex-col gap-4 w-full self-center px-4 py-8 grow max-w-screen-lg">
             {displayHeader && <h2 className="text-xl font-bold">Chat history</h2>}
             {conversationHistory.length > 0 ? (
                 conversationHistory.map((conversation) => (

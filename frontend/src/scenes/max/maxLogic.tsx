@@ -415,11 +415,7 @@ export const maxLogic = kea<maxLogicType>([
             requestAnimationFrame(() => {
                 // On next frame so that the message has been rendered
                 const threadEl = document.getElementsByClassName('@container/thread')[0]
-                let scrollableEl = threadEl?.parentElement // .Navigation3000__scene or .SidePanel3000__content
-                if (scrollableEl && !scrollableEl.classList.contains('SidePanel3000__content')) {
-                    // In this case we need to go up to <main>, since .Navigation3000__scene is not scrollable
-                    scrollableEl = scrollableEl.parentElement
-                }
+                const scrollableEl = getScrollableContainer(threadEl)
                 if (scrollableEl) {
                     scrollableEl.scrollTo({
                         top: threadEl.scrollHeight,
@@ -512,6 +508,21 @@ export const maxLogic = kea<maxLogicType>([
                 actions.loadThread(conversation)
             } else {
                 actions.pollConversation(currentRecursionDepth + 1)
+            }
+        },
+
+        toggleConversationHistory: () => {
+            if (values.conversationHistoryVisible) {
+                const threadEl = document.getElementsByClassName('@container/thread')[0]
+                const scrollableEl = getScrollableContainer(threadEl)
+                if (scrollableEl) {
+                    scrollableEl.scrollTo({
+                        top: 0,
+                        behavior: 'instant',
+                    })
+                }
+            } else {
+                actions.scrollThreadToBottom('instant')
             }
         },
     })),
@@ -674,7 +685,7 @@ export const maxLogic = kea<maxLogicType>([
         threadVisible: [
             (s) => [s.threadGrouped, s.conversationId],
             (threadGrouped, conversationId) => {
-                return threadGrouped.length > 0 || conversationId
+                return !!(threadGrouped.length > 0 || conversationId)
             },
         ],
     }),
@@ -746,4 +757,13 @@ function parseResponse<T>(response: string): T | null | undefined {
     } catch {
         return null
     }
+}
+
+function getScrollableContainer(element: Element): HTMLElement | null {
+    const scrollableEl = element.parentElement // .Navigation3000__scene or .SidePanel3000__content
+    if (scrollableEl && !scrollableEl.classList.contains('SidePanel3000__content')) {
+        // In this case we need to go up to <main>, since .Navigation3000__scene is not scrollable
+        return scrollableEl.parentElement
+    }
+    return scrollableEl
 }
