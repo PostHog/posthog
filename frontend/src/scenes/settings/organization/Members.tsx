@@ -42,7 +42,9 @@ function RemoveMemberModal({ member }: { member: OrganizationMemberType }): JSX.
                 <div className="mt-4">
                     <LemonBanner type="warning" className="mb-2">
                         The following API keys which belong to {member.user.uuid == user?.uuid ? 'you' : 'this member'}{' '}
-                        will be de-scoped from the organization and will stop working immediately.
+                        will lose access to this organization and will stop working immediately. Please confirm they
+                        will not affect any services that depend on them before removing{' '}
+                        {member.user.uuid == user?.uuid ? 'yourself' : 'this member'}.
                     </LemonBanner>
                     <LemonTable
                         dataSource={scopedApiKeys.keys}
