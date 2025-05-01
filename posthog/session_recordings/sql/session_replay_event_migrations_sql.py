@@ -196,9 +196,9 @@ ADD_BLOCK_COLUMNS_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SE
 
 ALTER_SESSION_REPLAY_ADD_SECONDARY_COLUMNS = """
     ALTER TABLE {table_name} on CLUSTER '{cluster}'
-        ADD COLUMN IF NOT EXISTS min_first_timestamp_secondary SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
-        ADD COLUMN IF NOT EXISTS max_last_timestamp_secondary SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
-        ADD COLUMN IF NOT EXISTS first_url_secondary AggregateFunction(argMin, Nullable(VARCHAR), DateTime64(6, 'UTC')),
+        ADD COLUMN IF NOT EXISTS min_first_timestamp_secondary SimpleAggregateFunction(min, Nullable(DateTime64(6, 'UTC'))),
+        ADD COLUMN IF NOT EXISTS max_last_timestamp_secondary SimpleAggregateFunction(max, Nullable(DateTime64(6, 'UTC'))),
+        ADD COLUMN IF NOT EXISTS first_url_secondary AggregateFunction(argMin, Nullable(VARCHAR), Nullable(DateTime64(6, 'UTC'))),
         ADD COLUMN IF NOT EXISTS all_urls_secondary SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
         ADD COLUMN IF NOT EXISTS click_count_secondary SimpleAggregateFunction(sum, Int64),
         ADD COLUMN IF NOT EXISTS keypress_count_secondary SimpleAggregateFunction(sum, Int64),
@@ -210,8 +210,8 @@ ALTER_SESSION_REPLAY_ADD_SECONDARY_COLUMNS = """
         ADD COLUMN IF NOT EXISTS size_secondary SimpleAggregateFunction(sum, Int64),
         ADD COLUMN IF NOT EXISTS message_count_secondary SimpleAggregateFunction(sum, Int64),
         ADD COLUMN IF NOT EXISTS event_count_secondary SimpleAggregateFunction(sum, Int64),
-        ADD COLUMN IF NOT EXISTS snapshot_source_secondary AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
-        ADD COLUMN IF NOT EXISTS snapshot_library_secondary AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))
+        ADD COLUMN IF NOT EXISTS snapshot_source_secondary AggregateFunction(argMin, LowCardinality(Nullable(String)), Nullable(DateTime64(6, 'UTC'))),
+        ADD COLUMN IF NOT EXISTS snapshot_library_secondary AggregateFunction(argMin, Nullable(String), Nullable(DateTime64(6, 'UTC')))
 """
 
 ADD_SECONDARY_COLUMNS_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_SECONDARY_COLUMNS.format(
