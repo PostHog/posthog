@@ -250,6 +250,12 @@ def _calculate_segment_meta(
     if segment_index is None or start_event_id is None or end_event_id is None:
         # If segment index, start, or end event ID aren't generated yet - return empty meta
         return SegmentMetaSerializer(data=segment_meta_data)
+    if start_event_id not in simplified_events_mapping or end_event_id not in simplified_events_mapping:
+        # If event id is found, but not in mapping, it's a hallucination
+        raise ValueError(
+            f"Mapping data for start_event_id {start_event_id} or end_event_id {end_event_id} not found "
+            f"when preparing segment summary meta for session_id {session_id} (probably a hallucination): {raw_segment}"
+        )
     # Calculate duration of the segment
     if not session_metadata.duration:
         raise ValueError(f"Session duration is not set when summarizing session_id {session_id}")
