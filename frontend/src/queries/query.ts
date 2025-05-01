@@ -98,8 +98,9 @@ async function executeQuery<N extends DataNode>(
         // Determine the refresh type based on the query node type and refresh parameter
         let refreshParam: RefreshType
 
-        // Handle insight-related queries - they should always be async
-        if (shouldQueryBeAsync(queryNode)) {
+        if (posthog.isFeatureEnabled('always-query-blocking')) {
+            refreshParam = refresh || 'blocking'
+        } else if (shouldQueryBeAsync(queryNode)) {
             // For insight queries, use async variants but preserve explicit force requests
             refreshParam = refresh || 'async'
         } else {
