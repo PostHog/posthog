@@ -25,16 +25,14 @@ const FlagFooter = (): JSX.Element => {
             <div className="flex flex-row gap-x-2 justify-between">
                 <LemonButton size="small" onClick={enableAllFlags}>
                     <span>
-                        {hasFilteredFlags
-                            ? `Enable ${filteredFlagsCount} ${filteredFlagsCount === 1 ? 'flag' : 'flags'}`
-                            : 'Enable all'}
+                        Enable {hasFilteredFlags ? filteredFlagsCount : 'all'} boolean{' '}
+                        {filteredFlagsCount === 1 ? 'flag' : 'flags'}
                     </span>
                 </LemonButton>
                 <LemonButton size="small" onClick={disableAllFlags}>
                     <span>
-                        {hasFilteredFlags
-                            ? `Disable ${filteredFlagsCount} ${filteredFlagsCount === 1 ? 'flag' : 'flags'}`
-                            : 'Disable all'}
+                        Disable {hasFilteredFlags ? filteredFlagsCount : 'all'} boolean{' '}
+                        {filteredFlagsCount === 1 ? 'flag' : 'flags'}
                     </span>
                 </LemonButton>
                 <LemonButton

@@ -191,7 +191,7 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
         enableAllFlags: () => {
             const clientPostHog = values.posthog
             if (clientPostHog) {
-                const allBooleanEnabled = values.userFlagsWithOverrideInfo.reduce((acc, flag) => {
+                const allBooleanEnabled = values.filteredFlags.reduce((acc, flag) => {
                     if (typeof flag.currentValue === 'boolean') {
                         acc[flag.feature_flag.key] = true
                     } else {
@@ -212,7 +212,7 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
         disableAllFlags: () => {
             const clientPostHog = values.posthog
             if (clientPostHog) {
-                const allBooleanEnabled = values.userFlagsWithOverrideInfo.reduce((acc, flag) => {
+                const allBooleanEnabled = values.filteredFlags.reduce((acc, flag) => {
                     if (typeof flag.currentValue === 'boolean') {
                         acc[flag.feature_flag.key] = false
                     } else {
@@ -225,7 +225,7 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
                     flags: allBooleanEnabled,
                     payloads: undefined,
                 })
-                toolbarPosthogJS.capture('toolbar feature flag overridden - all enabled')
+                toolbarPosthogJS.capture('toolbar feature flag overridden - all disabled')
                 actions.checkLocalOverrides()
                 clientPostHog.featureFlags.reloadFeatureFlags()
             }
