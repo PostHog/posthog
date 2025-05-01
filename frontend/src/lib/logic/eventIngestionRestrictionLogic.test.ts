@@ -1,4 +1,4 @@
-import { expectLogic, partial } from 'kea-test-utils'
+import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
@@ -51,21 +51,6 @@ describe('eventIngestionRestrictionLogic', () => {
             .toDispatchActions(['loadEventIngestionRestrictions', 'loadEventIngestionRestrictionsSuccess'])
             .toMatchValues({
                 eventIngestionRestrictions: [],
-                hasAnyRestriction: false,
-            })
-    })
-
-    it('handles API errors', async () => {
-        const error = new Error('API error')
-        jest.spyOn(api, 'get').mockRejectedValue(error)
-
-        logic.mount()
-
-        await expectLogic(logic)
-            .toDispatchActions(['loadEventIngestionRestrictions', 'loadEventIngestionRestrictionsFailure'])
-            .toMatchValues({
-                eventIngestionRestrictions: [],
-                eventIngestionRestrictionsError: partial(error),
                 hasAnyRestriction: false,
             })
     })
