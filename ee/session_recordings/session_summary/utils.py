@@ -50,7 +50,7 @@ def load_session_recording_events_from_csv(
         timestamp_index = get_column_index(list(headers_indexes.keys()), "timestamp")
         for raw_row in reader:
             row: list[str | datetime | list[str] | None] = []
-            for header_metadata in headers_indexes.values():
+            for header_index, header_metadata in headers_indexes.items():
                 if len(header_metadata["indexes"]) == 1:
                     raw_row_value = raw_row[header_metadata["indexes"][0]]
                     # Ensure to keep the format for multi-column fields
@@ -62,8 +62,10 @@ def load_session_recording_events_from_csv(
                     else:
                         if header_metadata["multi_column"]:
                             row.append([])
-                        else:
+                        elif header_index in ("$window_id", "$current_url"):
                             row.append(None)
+                        else:
+                            row.append("")
                 # Ensure to combine all values for multi-column fields (like chain texts) into a single list
                 else:
                     # Store only non-empty values
@@ -74,7 +76,10 @@ def load_session_recording_events_from_csv(
             rows.append(tuple(row))
         # Ensure chronological order of the events
         rows.sort(key=lambda x: x[timestamp_index])  # type: ignore
-    return list(headers_indexes.keys()), rows
+    session_events_columns, session_events = list(headers_indexes.keys()), rows
+    if not session_events_columns or not session_events:
+        raise ValueError(f"No events found when loading session recording events from {file_path}")
+    return session_events_columns, session_events
 
 
 def load_session_metadata_from_json(file_path: str) -> dict[str, Any]:
@@ -163,3 +168,24 @@ def load_custom_template(template_dir: Path, template_name: str, context: dict |
     template = engine.from_string(template_string)
     # Render template with context
     return template.render(Context(context or {}))
+
+
+def serialize_to_sse_event(event_label: str, event_data: str) -> str:
+    """
+    Serialize data into a Server-Sent Events (SSE) message format.
+    Args:
+        event_label: The type of event (e.g. "session-summary-stream" or "error")
+        event_data: The data to be sent in the event (most likely JSON-serialized)
+    Returns:
+        A string formatted according to the SSE specification
+    """
+    # Escape new lines in event label
+    event_label = event_label.replace("\n", "\\n")
+    # Check (cheap) if event data is JSON-serialized, no need to escape
+    if (event_data.startswith("{") and event_data.endswith("}")) or (
+        event_data.startswith("[") and event_data.endswith("]")
+    ):
+        return f"event: {event_label}\ndata: {event_data}\n\n"
+    # Otherwise, escape newlines also
+    event_data = event_data.replace("\n", "\\n")
+    return f"event: {event_label}\ndata: {event_data}\n\n"

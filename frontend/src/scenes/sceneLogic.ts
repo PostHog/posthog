@@ -41,6 +41,21 @@ export const productUrlMapping: Partial<Record<ProductKey, string[]>> = {
     [ProductKey.WEB_ANALYTICS]: [urls.webAnalytics()],
 }
 
+const pathPrefixesOnboardingNotRequiredFor = [
+    urls.onboarding(''),
+    urls.products(),
+    '/settings',
+    urls.organizationBilling(),
+    urls.billingAuthorizationStatus(),
+    urls.wizard(),
+    '/instance',
+    urls.moveToPostHogCloud(),
+    urls.unsubscribe(),
+    urls.debugHog(),
+    urls.debugQuery(),
+    urls.activity(),
+]
+
 export const sceneLogic = kea<sceneLogicType>([
     props(
         {} as {
@@ -270,13 +285,9 @@ export const sceneLogic = kea<sceneLogicType>([
                     } else if (
                         teamLogic.values.currentTeam &&
                         !teamLogic.values.currentTeam.is_demo &&
-                        ![
-                            urls.onboarding(''),
-                            urls.products(),
-                            '/settings',
-                            urls.organizationBilling(),
-                            urls.wizard(),
-                        ].some((path) => removeProjectIdIfPresent(location.pathname).startsWith(path))
+                        !pathPrefixesOnboardingNotRequiredFor.some((path) =>
+                            removeProjectIdIfPresent(location.pathname).startsWith(path)
+                        )
                     ) {
                         const allProductUrls = Object.values(productUrlMapping).flat()
                         if (

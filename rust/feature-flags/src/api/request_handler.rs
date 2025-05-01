@@ -280,6 +280,13 @@ async fn evaluate_flags_for_request(
 }
 
 /// Translates the request body and query params into a [`FlagRequest`] by examining Content-Type and compression settings.
+/// We support (i.e. our SDKs send) the following content types:
+/// - application/json
+/// - application/json-patch; charset=utf-8
+/// - text/plain
+/// - application/x-www-form-urlencoded
+///
+/// We also support gzip and base64 compression.
 pub fn decode_request(
     headers: &HeaderMap,
     body: Bytes,
@@ -288,22 +295,18 @@ pub fn decode_request(
     let content_type = headers
         .get(CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
-        .unwrap_or("unknown");
+        .unwrap_or("application/json"); // Default to JSON if no content type
 
-    if content_type.starts_with("application/json; encoding=base64")
-        && !matches!(query.compression, Some(Compression::Base64))
-    {
-        return FlagRequest::from_bytes(decode_base64(body)?);
-    }
+    let base_content_type = content_type.split(';').next().unwrap_or("").trim();
 
-    match content_type {
-        "application/json" => {
+    match base_content_type {
+        "application/json" | "text/plain" => {
             let decoded_body = decode_body(body, query.compression)?;
             FlagRequest::from_bytes(decoded_body)
         }
         "application/x-www-form-urlencoded" => decode_form_data(body, query.compression),
-        ct => Err(FlagError::RequestDecodingError(format!(
-            "unsupported content type: {ct}"
+        _ => Err(FlagError::RequestDecodingError(format!(
+            "unsupported content type: {content_type}"
         ))),
     }
 }
@@ -1585,5 +1588,56 @@ mod tests {
         // Test case 4: Neither groups nor existing overrides
         let result = process_group_property_overrides(None, None);
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_decode_request_content_types() {
+        let test_json = r#"{"token": "test_token", "distinct_id": "user123"}"#;
+        let body = Bytes::from(test_json);
+        let meta = FlagsQueryParams::default();
+
+        // Test application/json
+        let mut headers = HeaderMap::new();
+        headers.insert(CONTENT_TYPE, "application/json".parse().unwrap());
+        let result = decode_request(&headers, body.clone(), &meta);
+        assert!(result.is_ok());
+        let request = result.unwrap();
+        assert_eq!(request.token, Some("test_token".to_string()));
+        assert_eq!(request.distinct_id, Some("user123".to_string()));
+
+        // Test text/plain
+        let mut headers = HeaderMap::new();
+        headers.insert(CONTENT_TYPE, "text/plain".parse().unwrap());
+        let result = decode_request(&headers, body.clone(), &meta);
+        assert!(result.is_ok());
+        let request = result.unwrap();
+        assert_eq!(request.token, Some("test_token".to_string()));
+        assert_eq!(request.distinct_id, Some("user123".to_string()));
+
+        // Test application/json with charset
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            CONTENT_TYPE,
+            "application/json; charset=utf-8".parse().unwrap(),
+        );
+        let result = decode_request(&headers, body.clone(), &meta);
+        assert!(result.is_ok());
+        let request = result.unwrap();
+        assert_eq!(request.token, Some("test_token".to_string()));
+        assert_eq!(request.distinct_id, Some("user123".to_string()));
+
+        // Test default when no content type is provided
+        let headers = HeaderMap::new();
+        let result = decode_request(&headers, body.clone(), &meta);
+        assert!(result.is_ok());
+        let request = result.unwrap();
+        assert_eq!(request.token, Some("test_token".to_string()));
+        assert_eq!(request.distinct_id, Some("user123".to_string()));
+
+        // Test unsupported content type
+        let mut headers = HeaderMap::new();
+        headers.insert(CONTENT_TYPE, "application/xml".parse().unwrap());
+        let result = decode_request(&headers, body, &meta);
+        assert!(matches!(result, Err(FlagError::RequestDecodingError(_))));
     }
 }
