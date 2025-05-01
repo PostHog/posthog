@@ -122,7 +122,7 @@ class HogFunction(FileSystemSyncMixin, UUIDModel):
             href = f"/messaging/broadcasts/{self.pk}"
 
         return FileSystemRepresentation(
-            base_folder=folder,
+            base_folder=self._create_in_folder or folder,
             type=f"hog_function/{self.type}",  # sync with APIScopeObject in scopes.py
             ref=str(self.pk),
             name=self.name or "Untitled",

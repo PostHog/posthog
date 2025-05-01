@@ -30,7 +30,7 @@ class RevenueExampleDataWarehouseTablesQueryRunner(QueryRunnerWithHogQLContext):
         # UNION ALL for all of the `RevenueAnalyticsRevenueView`s
         for view_name in self.database.get_views():
             view = self.database.get_table(view_name)
-            if isinstance(view, RevenueAnalyticsRevenueView):
+            if isinstance(view, RevenueAnalyticsRevenueView) and not view.is_events_view:
                 view = cast(RevenueAnalyticsRevenueView, view)
 
                 queries.append(
@@ -38,7 +38,7 @@ class RevenueExampleDataWarehouseTablesQueryRunner(QueryRunnerWithHogQLContext):
                         select=[
                             ast.Alias(alias="view_name", expr=ast.Constant(value=view_name)),
                             ast.Alias(alias="distinct_id", expr=ast.Field(chain=["id"])),
-                            ast.Alias(alias="original_amount", expr=ast.Field(chain=["adjusted_original_amount"])),
+                            ast.Alias(alias="original_amount", expr=ast.Field(chain=["currency_aware_amount"])),
                             ast.Alias(alias="original_currency", expr=ast.Field(chain=["original_currency"])),
                             ast.Alias(alias="amount", expr=ast.Field(chain=["amount"])),
                             ast.Alias(alias="currency", expr=ast.Field(chain=["currency"])),

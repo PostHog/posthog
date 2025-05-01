@@ -154,6 +154,7 @@ class DashboardSerializer(DashboardBasicSerializer):
     is_shared = serializers.BooleanField(source="is_sharing_enabled", read_only=True, required=False)
     breakdown_colors = serializers.JSONField(required=False)
     data_color_theme_id = serializers.IntegerField(required=False, allow_null=True)
+    _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
         model = Dashboard
@@ -181,6 +182,7 @@ class DashboardSerializer(DashboardBasicSerializer):
             "effective_privilege_level",
             "user_access_level",
             "access_control_version",
+            "_create_in_folder",
         ]
         read_only_fields = ["creation_mode", "effective_restriction_level", "is_shared", "user_access_level"]
 
@@ -607,6 +609,7 @@ class DashboardsViewSet(
         dashboard = Dashboard.objects.create(
             team_id=self.team_id,
             created_by=cast(User, request.user),
+            _create_in_folder=request.data.get("_create_in_folder"),  # type: ignore
         )
 
         try:

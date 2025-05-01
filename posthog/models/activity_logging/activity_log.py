@@ -48,6 +48,7 @@ ActivityScope = Literal[
     "Team",
     "Project",
     "ErrorTrackingIssue",
+    "DataWarehouseSavedQuery",
 ]
 ChangeAction = Literal["changed", "created", "deleted", "merged", "split", "exported"]
 
@@ -174,6 +175,7 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "count",
         "is_calculating",
         "last_calculation",
+        "last_error_at",
         "errors_calculating",
     ],
     "HogFunction": [
@@ -246,6 +248,16 @@ field_exclusions: dict[ActivityScope, list[str]] = {
     ],
     "Team": ["uuid", "updated_at", "api_token", "created_at", "id"],
     "Project": ["id", "created_at"],
+    "DataWarehouseSavedQuery": [
+        "name",
+        "columns",
+        "status",
+        "external_tables",
+        "last_run_at",
+        "latest_error",
+        "sync_frequency_interval",
+        "deleted_name",
+    ],
 }
 
 

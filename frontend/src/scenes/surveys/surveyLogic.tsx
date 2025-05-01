@@ -4,6 +4,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { openSaveToModal } from 'lib/components/SaveTo/saveToLogic'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
 import { allOperatorsMapping, debounce, hasFormErrors, isObject } from 'lib/utils'
@@ -258,8 +259,8 @@ export const surveyLogic = kea<surveyLogicType>([
     }),
     loaders(({ props, actions, values }) => ({
         responseSummary: {
-            summarize: async ({ questionIndex }: { questionIndex?: number }) => {
-                return api.surveys.summarize_responses(props.id, questionIndex)
+            summarize: async ({ questionIndex, questionId }: { questionIndex?: number; questionId?: string }) => {
+                return api.surveys.summarize_responses(props.id, questionIndex, questionId)
             },
         },
         survey: {
@@ -1290,7 +1291,9 @@ export const surveyLogic = kea<surveyLogicType>([
         ],
         projectTreeRef: [
             () => [(_, props: SurveyLogicProps) => props.id],
-            (id): ProjectTreeRef => ({ type: 'survey', ref: String(id) }),
+            (id): ProjectTreeRef => {
+                return { type: 'survey', ref: id === 'new' ? null : String(id) }
+            },
         ],
         answerFilterHogQLExpression: [
             (s) => [s.survey, s.answerFilters],
@@ -1837,7 +1840,18 @@ export const surveyLogic = kea<surveyLogicType>([
                 if (props.id && props.id !== 'new') {
                     actions.updateSurvey(payload)
                 } else {
-                    actions.createSurvey(payload)
+                    openSaveToModal({
+                        defaultFolder: 'Unfiled/Surveys',
+                        callback: (folder) =>
+                            actions.createSurvey(
+                                typeof folder === 'string'
+                                    ? {
+                                          ...payload,
+                                          _create_in_folder: folder,
+                                      }
+                                    : payload
+                            ),
+                    })
                 }
             },
         },

@@ -5,7 +5,7 @@ import math
 from clickhouse_driver.errors import ServerException
 
 from posthog.clickhouse.client.async_task_chain import task_chain_context, execute_task_chain
-from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.client.connection import Workload, ClickHouseUser
 import uuid
 
 from django.test import TestCase, SimpleTestCase
@@ -440,10 +440,10 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         result = sync_execute(query)
 
         # Verify first call was with OFFLINE workload
-        mock_get_client.assert_any_call(Workload.OFFLINE, None, False)
+        mock_get_client.assert_any_call(Workload.OFFLINE, None, False, ClickHouseUser.API)
 
         # Verify second call was with ONLINE workload
-        mock_get_client.assert_any_call(Workload.ONLINE, None, False)
+        mock_get_client.assert_any_call(Workload.ONLINE, None, False, ClickHouseUser.API)
 
         # Verify final result
         self.assertEqual(result, "success")

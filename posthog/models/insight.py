@@ -121,7 +121,7 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
     def get_file_system_representation(self) -> FileSystemRepresentation:
         should_delete = self.deleted or not self.saved
         return FileSystemRepresentation(
-            base_folder="Unfiled/Insights",
+            base_folder=self._create_in_folder or "Unfiled/Insights",
             type="insight",  # sync with APIScopeObject in scopes.py
             ref=self.short_id,
             name=self.name or self.derived_name or "Untitled",

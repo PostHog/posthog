@@ -4,6 +4,7 @@ from django.core.management import call_command
 from django.utils.html import format_html
 from django.urls import reverse
 from posthog.admin.inlines.organization_member_inline import OrganizationMemberInline
+from posthog.admin.inlines.organization_invite_inline import OrganizationInviteInline
 from posthog.admin.inlines.project_inline import ProjectInline
 from posthog.admin.inlines.team_inline import TeamInline
 from posthog.admin.paginators.no_count_paginator import NoCountPaginator
@@ -44,7 +45,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         "customer_trust_scores",
         "is_hipaa",
     ]
-    inlines = [ProjectInline, TeamInline, OrganizationMemberInline]
+    inlines = [ProjectInline, TeamInline, OrganizationMemberInline, OrganizationInviteInline]
     readonly_fields = [
         "id",
         "created_at",

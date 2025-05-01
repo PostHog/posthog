@@ -203,7 +203,10 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         ],
         projectTreeRef: [
             (s) => [s.insightId],
-            (insightId): ProjectTreeRef => ({ type: 'insight', ref: String(insightId) }),
+            (insightId): ProjectTreeRef => ({
+                type: 'insight',
+                ref: insightId && insightId !== 'new' ? String(insightId) : null,
+            }),
         ],
         [SIDE_PANEL_CONTEXT_KEY]: [
             (s) => [s.insight],
