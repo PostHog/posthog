@@ -1,3 +1,4 @@
+use core::str;
 use std::collections::HashMap;
 
 use serde_json::{json, Value as JsonValue};
@@ -6,6 +7,7 @@ use crate::{
     error::VmError,
     memory::VmHeap,
     program::Module,
+    util::regex_match,
     values::{HogLiteral, HogValue, Num},
     vm::HogVM,
     ExportedFunction,
@@ -27,7 +29,7 @@ pub fn hog_stl_map() -> HashMap<String, Module> {
     res
 }
 
-// NOTE - if you make changes to this, be sure to re-run `bin/dump_hogvm_stl`
+// NOTE - if you make changes to this, be sure to re-run `bin/dump_hogvmrs_stl`
 pub const fn stl() -> &'static [(&'static str, NativeFunction)] {
     &[
         ("toString", |vm, args| {
@@ -253,6 +255,12 @@ pub const fn stl() -> &'static [(&'static str, NativeFunction)] {
                     val.type_name()
                 ))),
             }
+        }),
+        ("match", |vm, args| {
+            assert_argc(&args, 2, "match")?;
+            let value = args[0].deref(&vm.heap)?.try_as::<str>()?;
+            let regex = args[1].deref(&vm.heap)?.try_as::<str>()?;
+            Ok(HogLiteral::Boolean(regex_match(value, regex, true)?).into())
         }),
     ]
 }
