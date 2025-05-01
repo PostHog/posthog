@@ -1160,10 +1160,6 @@ class ApiRequest {
         return this.environments().current().addPathComponent('authenticate_wizard')
     }
 
-		public eventIngestionRestrictionConfig(): ApiRequest {
-			return this.environments().current().addPathComponent('event_ingestion_restriction_config')
-		}
-
     public messagingTemplates(): ApiRequest {
         return this.environments().current().addPathComponent('messaging_templates')
     }

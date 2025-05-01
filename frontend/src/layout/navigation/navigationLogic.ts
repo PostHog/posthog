@@ -119,7 +119,6 @@ export const navigationLogic = kea<navigationLogicType>([
                 if (!organization) {
                     return null
                 }
-
                 if (internetConnectionIssue) {
                     return 'internet_connection_issue'
                 } else if (user?.is_impersonated) {

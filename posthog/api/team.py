@@ -807,8 +807,8 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
 
         return response.Response({"success": True}, status=200)
 
-    @action(methods=["GET"], detail=True, url_path="get_event_ingestion_restriction_config")
-    def get_event_ingestion_restriction_config(self, request, **kwargs):
+    @action(methods=["GET"], detail=True, required_scopes=["team:read"], url_path="event_ingestion_restrictions")
+    def event_ingestion_restrictions(self, request, **kwargs):
         team = self.get_object()
         restrictions = EventIngestionRestrictionConfig.objects.filter(token=team.api_token)
         data = [

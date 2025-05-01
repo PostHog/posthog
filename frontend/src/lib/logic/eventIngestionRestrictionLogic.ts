@@ -1,4 +1,5 @@
-import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { events, kea, path, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
 import type { eventIngestionRestrictionLogicType } from './eventIngestionRestrictionLogicType'
@@ -16,40 +17,34 @@ export interface EventIngestionRestriction {
 
 export const eventIngestionRestrictionLogic = kea<eventIngestionRestrictionLogicType>([
     path(['lib', 'logic', 'eventIngestionRestrictionLogic']),
-    actions({
-        loadEventIngestionRestrictionConfig: true,
-        loadEventIngestionRestrictionConfigSuccess: (_, { eventIngestionRestrictions }) => ({eventIngestionRestrictions})
-    }),
-    reducers({
-        eventIngestionRestrictions: [
-            [] as EventIngestionRestriction[],
-            {
-                loadEventIngestionRestrictionConfigSuccess: (_, { eventIngestionRestrictions }) =>
-                    eventIngestionRestrictions,
+
+    loaders(() => ({
+        eventIngestionRestrictions: {
+            __default: [] as EventIngestionRestriction[],
+            loadEventIngestionRestrictions: async () => {
+                try {
+                    const response = await api.get('api/environments/@current/event_ingestion_restrictions/')
+                    return response
+                } catch (error) {
+                    console.error('Failed to load event ingestion restrictions:', error)
+                    return []
+                }
             },
-        ],
-    }),
+        },
+    })),
+
     selectors({
         hasAnyRestriction: [
             (s) => [s.eventIngestionRestrictions],
-            (eventIngestionRestrictions): boolean => eventIngestionRestrictions.length > 0,
+            (eventIngestionRestrictions): boolean => {
+                return eventIngestionRestrictions.length > 0
+            },
         ],
     }),
+
     events(({ actions }) => ({
         afterMount: () => {
-            actions.loadEventIngestionRestrictionConfig()
-        },
-    })),
-    listeners(({ actions }) => ({
-        loadEventIngestionRestrictionConfig: async () => {
-            try {
-                const eventIngestionRestrictions = await api.get(
-                    `api/environments/@current/get_event_ingestion_restriction_config/`
-                )
-                actions.loadEventIngestionRestrictionConfigSuccess({ eventIngestionRestrictions })
-            } catch (error) {
-                console.error('Failed to load event ingestion restriction config:', error)
-            }
+            actions.loadEventIngestionRestrictions()
         },
     })),
 ])
