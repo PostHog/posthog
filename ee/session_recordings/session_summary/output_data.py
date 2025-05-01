@@ -248,7 +248,15 @@ def _calculate_segment_meta(
     start_event_id = raw_segment.get("start_event_id")
     end_event_id = raw_segment.get("end_event_id")
     segment_meta_data: dict[str, Any] = {}
-    if segment_index is None or start_event_id is None or end_event_id is None:
+    if (
+        segment_index is None
+        or start_event_id is None
+        or end_event_id is None
+        # All the proper event IDs are 8 characters long
+        # If shorter - could still not fully streamed yet
+        or len(start_event_id) != 8
+        or len(end_event_id) != 8
+    ):
         # If segment index, start, or end event ID aren't generated yet - return empty meta
         return SegmentMetaSerializer(data=segment_meta_data)
     # Calculate duration of the segment
@@ -325,8 +333,21 @@ def _calculate_segment_meta(
     # Calculate key action count and failure count
     fallback_start_event_id = key_group_events[0].get("event_id")
     fallback_end_event_id = key_group_events[-1].get("event_id")
-    if fallback_start_event_id is None or fallback_end_event_id is None:
+    if (
+        fallback_start_event_id is None
+        or fallback_end_event_id is None
+        # All the proper event IDs are 8 characters long
+        # If shorter - could still not fully streamed yet
+        or len(fallback_start_event_id) != 8
+        or len(fallback_end_event_id) != 8
+    ):
         # If event ids aren't generated yet
+        return SegmentMetaSerializer(data=segment_meta_data)
+    if (
+        fallback_start_event_id not in simplified_events_mapping
+        or fallback_end_event_id not in simplified_events_mapping
+    ):
+        # If event ids are hallucinated and fallback can't be calculated also
         return SegmentMetaSerializer(data=segment_meta_data)
     fallback_duration, fallback_duration_percentage = _calculate_segment_duration(
         start_event_id=fallback_start_event_id,
