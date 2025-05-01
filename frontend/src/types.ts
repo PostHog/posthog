@@ -1539,6 +1539,7 @@ export interface SessionRecordingPlaylistType {
      * marked as has more if the filters count onoy matched one page and there are more available
      */
     recordings_counts?: PlaylistRecordingsCounts
+    _create_in_folder?: string | null
 }
 
 export interface SessionRecordingSegmentType {
@@ -3899,6 +3900,7 @@ export enum GroupMathType {
 export enum ExperimentMetricMathType {
     TotalCount = 'total',
     Sum = 'sum',
+    UniqueSessions = 'unique_session',
 }
 
 export enum ActorGroupType {
@@ -5094,6 +5096,7 @@ export type HogFunctionConfigurationType = Omit<
 > & {
     hog?: HogFunctionType['hog'] // In the config it can be empty if using a template
     sub_template_id?: HogFunctionSubTemplateIdType
+    _create_in_folder?: string | null
 }
 
 export type HogFunctionSubTemplateType = Pick<HogFunctionType, 'filters' | 'inputs' | 'masking' | 'mappings'> & {

@@ -71,7 +71,7 @@ class EventsQueryRunner(QueryRunner):
                 person_indices.append(index)
             elif col.split("--")[0].strip() == "person_display_name":
                 property_keys = self.team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
-                props = [f"person.properties.{key}" for key in property_keys]
+                props = [f"toString(person.properties.{key})" for key in property_keys]
                 expr = f"(coalesce({', '.join([*props, 'distinct_id'])}), distinct_id)"  # we always need distinct_id for the URL, and we can't rely on it being selected elsewhere
                 select_input.append(expr)
             else:

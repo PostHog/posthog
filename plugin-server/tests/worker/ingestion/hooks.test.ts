@@ -51,6 +51,7 @@ describe('hooks', () => {
                 [
                   "https://example.com/",
                   {
+                    "agent": false,
                     "body": "{
                     "hook": {
                         "id": "id",
@@ -101,6 +102,7 @@ describe('hooks', () => {
                 [
                   "https://example.com/",
                   {
+                    "agent": false,
                     "body": "{
                     "hook": {
                         "id": "id",

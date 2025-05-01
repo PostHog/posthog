@@ -106,6 +106,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
     inputs = InputsSerializer(required=False)
     mappings = serializers.ListField(child=MappingsSerializer(), required=False, allow_null=True)
     filters = HogFunctionFiltersSerializer(required=False)
+    _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
         model = HogFunction
@@ -133,6 +134,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "template_id",
             "status",
             "execution_order",
+            "_create_in_folder",
         ]
         read_only_fields = [
             "id",
