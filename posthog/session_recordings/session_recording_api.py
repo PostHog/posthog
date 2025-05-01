@@ -813,9 +813,8 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         if not environment_is_allowed or not has_openai_api_key:
             raise exceptions.ValidationError("session summary is only supported in PostHog Cloud")
 
-        # TODO: Uncomment after testing
-        # if not posthoganalytics.feature_enabled("ai-session-summary", str(user.distinct_id)):
-        #     raise exceptions.ValidationError("session summary is not enabled for this user")
+        if not posthoganalytics.feature_enabled("ai-session-summary", str(user.distinct_id)):
+            raise exceptions.ValidationError("session summary is not enabled for this user")
 
         replay_summarizer = ReplaySummarizer(recording, user, self.team)
         return StreamingHttpResponse(
