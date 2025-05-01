@@ -43,6 +43,8 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     snapshot_source LowCardinality(Nullable(String)),
     snapshot_library Nullable(String),
     -- Secondary columns for v2 migration
+    first_timestamp_secondary DateTime64(6, 'UTC'),
+    last_timestamp_secondary DateTime64(6, 'UTC'),
     first_url_secondary Nullable(VARCHAR),
     urls_secondary Array(String),
     click_count_secondary Int64,
@@ -200,7 +202,24 @@ sum(message_count) as message_count,
 sum(event_count) as event_count,
 argMinState(snapshot_source, first_timestamp) as snapshot_source,
 argMinState(snapshot_library, first_timestamp) as snapshot_library,
-max(_timestamp) as _timestamp
+max(_timestamp) as _timestamp,
+-- Secondary columns for v2 migration
+min(first_timestamp_secondary) AS min_first_timestamp_secondary,
+max(last_timestamp_secondary) AS max_last_timestamp_secondary,
+argMinState(first_url_secondary, first_timestamp_secondary) as first_url_secondary,
+groupUniqArrayArray(urls_secondary) as all_urls_secondary,
+sum(click_count_secondary) as click_count_secondary,
+sum(keypress_count_secondary) as keypress_count_secondary,
+sum(mouse_activity_count_secondary) as mouse_activity_count_secondary,
+sum(active_milliseconds_secondary) as active_milliseconds_secondary,
+sum(console_log_count_secondary) as console_log_count_secondary,
+sum(console_warn_count_secondary) as console_warn_count_secondary,
+sum(console_error_count_secondary) as console_error_count_secondary,
+sum(size_secondary) as size_secondary,
+sum(message_count_secondary) as message_count_secondary,
+sum(event_count_secondary) as event_count_secondary,
+argMinState(snapshot_source_secondary, first_timestamp_secondary) as snapshot_source_secondary,
+argMinState(snapshot_library_secondary, first_timestamp_secondary) as snapshot_library_secondary
 FROM {database}.kafka_session_replay_events
 group by session_id, team_id
 """.format(
@@ -226,7 +245,24 @@ group by session_id, team_id
 `event_count` Int64,
 `snapshot_source` AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
 `snapshot_library` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-`_timestamp` Nullable(DateTime)
+`_timestamp` Nullable(DateTime),
+-- Secondary columns for v2 migration
+`min_first_timestamp_secondary` DateTime64(6, 'UTC'),
+`max_last_timestamp_secondary` DateTime64(6, 'UTC'),
+`first_url_secondary` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+`all_urls_secondary` SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+`click_count_secondary` Int64,
+`keypress_count_secondary` Int64,
+`mouse_activity_count_secondary` Int64,
+`active_milliseconds_secondary` Int64,
+`console_log_count_secondary` Int64,
+`console_warn_count_secondary` Int64,
+`console_error_count_secondary` Int64,
+`size_secondary` Int64,
+`message_count_secondary` Int64,
+`event_count_secondary` Int64,
+`snapshot_source_secondary` AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+`snapshot_library_secondary` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))
 )""",
     )
 )
