@@ -1,4 +1,12 @@
-import { IconArrowLeft, IconChevronLeft, IconClockRewind, IconExternal, IconGear, IconSidePanel } from '@posthog/icons'
+import {
+    IconArrowLeft,
+    IconChevronLeft,
+    IconClockRewind,
+    IconExternal,
+    IconGear,
+    IconPlus,
+    IconSidePanel,
+} from '@posthog/icons'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
@@ -63,7 +71,7 @@ export interface MaxInstanceProps {
 }
 
 export function MaxInstance({ sidePanel }: MaxInstanceProps): JSX.Element {
-    const { threadVisible, conversationHistoryVisible, chatTitle, backButtonDisabled } = useValues(maxLogic)
+    const { threadVisible, conversationHistoryVisible, chatTitle } = useValues(maxLogic)
     const { startNewConversation, toggleConversationHistory, goBack } = useActions(maxLogic)
     const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
     const { closeSidePanel } = useActions(sidePanelLogic)
@@ -108,7 +116,7 @@ export function MaxInstance({ sidePanel }: MaxInstanceProps): JSX.Element {
                         onClick={() => goBack()}
                         tooltip="Go back"
                         tooltipPlacement="bottom-end"
-                        disabledReason={backButtonDisabled ? 'You are already at home' : undefined}
+                        disabledReason={conversationHistoryVisible ? 'You are already at history' : undefined}
                     />
 
                     <h3 className="flex-1 flex items-center font-semibold mb-0 truncate text-sm">
@@ -117,11 +125,12 @@ export function MaxInstance({ sidePanel }: MaxInstanceProps): JSX.Element {
 
                     <LemonButton
                         size="small"
-                        sideIcon={<IconClockRewind />}
-                        onClick={() => toggleConversationHistory()}
-                        tooltip="Open chat history"
+                        sideIcon={<IconPlus />}
+                        onClick={() => startNewConversation()}
+                        tooltip="Start a new chat"
                         tooltipPlacement="bottom"
                     />
+
                     <LemonButton
                         size="small"
                         sideIcon={<IconExternal />}
