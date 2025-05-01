@@ -3,6 +3,7 @@ import { forms } from 'kea-forms'
 import { urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { getRelativeNextPath } from 'lib/utils'
 
 import type { confirmOrganizationLogicType } from './confirmOrganizationLogicType'
 
@@ -51,7 +52,7 @@ export const confirmOrganizationLogic = kea<confirmOrganizationLogicType>([
                         ...formValues,
                     })
                     .then(() => {
-                        const nextUrl = new URLSearchParams(location.search).get('next')
+                        const nextUrl = getRelativeNextPath(new URLSearchParams(location.search).get('next'), location)
 
                         location.href = nextUrl || '/'
                     })

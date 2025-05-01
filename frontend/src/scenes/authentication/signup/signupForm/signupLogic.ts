@@ -7,6 +7,7 @@ import api from 'lib/api'
 import { ValidatedPasswordResult, validatePassword } from 'lib/components/PasswordStrength'
 import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getRelativeNextPath } from 'lib/utils'
 import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
@@ -90,7 +91,7 @@ export const signupLogic = kea<signupLogicType>([
             submit: async (payload, breakpoint) => {
                 breakpoint()
                 try {
-                    const nextUrl = router.values.searchParams['next']
+                    const nextUrl = getRelativeNextPath(new URLSearchParams(location.search).get('next'), location)
 
                     const res = await api.create('api/signup/', {
                         ...values.signupPanel1,
@@ -98,7 +99,7 @@ export const signupLogic = kea<signupLogicType>([
                         first_name: payload.name.split(' ')[0],
                         last_name: payload.name.split(' ')[1] || undefined,
                         organization_name: payload.organization_name || undefined,
-                        next_url: nextUrl,
+                        next_url: nextUrl ?? undefined,
                     })
 
                     if (!payload.organization_name) {
@@ -128,7 +129,7 @@ export const signupLogic = kea<signupLogicType>([
         loginUrl: [
             () => [router.selectors.searchParams],
             (searchParams: Record<string, string>) => {
-                const nextParam = searchParams['next']
+                const nextParam = getRelativeNextPath(searchParams['next'], location)
                 return nextParam ? `/login?next=${encodeURIComponent(nextParam)}` : '/login'
             },
         ],

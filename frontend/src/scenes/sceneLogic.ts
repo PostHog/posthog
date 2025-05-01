@@ -5,6 +5,7 @@ import { BarStatus } from 'lib/components/CommandBar/types'
 import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getRelativeNextPath } from 'lib/utils'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import posthog from 'posthog-js'
 import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations } from 'scenes/scenes'
@@ -286,7 +287,8 @@ export const sceneLogic = kea<sceneLogicType>([
                             console.warn('No onboarding completed, redirecting to /products')
 
                             const nextUrl =
-                                router.values.searchParams['next'] ?? removeProjectIdIfPresent(location.pathname)
+                                getRelativeNextPath(params.searchParams.next, location) ??
+                                removeProjectIdIfPresent(location.pathname)
 
                             router.actions.replace(urls.products(), nextUrl ? { next: nextUrl } : undefined)
                             return

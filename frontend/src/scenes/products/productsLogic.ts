@@ -1,5 +1,6 @@
 import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { router } from 'kea-router'
+import { getRelativeNextPath } from 'lib/utils'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { OnboardingStepKey } from 'scenes/onboarding/onboardingLogic'
 import { onboardingLogic } from 'scenes/onboarding/onboardingLogic'
@@ -37,7 +38,7 @@ export const productsLogic = kea<productsLogicType>([
     }),
     listeners(({ actions, values }) => ({
         handleStartOnboarding: () => {
-            const nextUrl = router.values.searchParams['next']
+            const nextUrl = getRelativeNextPath(router.values.searchParams['next'], location)
 
             if (nextUrl) {
                 actions.setOnCompleteOnboardingRedirectUrl(nextUrl)
