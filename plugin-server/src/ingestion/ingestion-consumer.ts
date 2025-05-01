@@ -21,15 +21,15 @@ import {
     PluginsServerConfig,
 } from '../types'
 import { normalizeEvent } from '../utils/event'
+import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restriction-manager'
 import { parseJSON } from '../utils/json-parse'
 import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
 import { retryIfRetriable } from '../utils/retries'
-import { UUIDT } from '../utils/utils'
 import { EventPipelineResult, EventPipelineRunner } from '../worker/ingestion/event-pipeline/runner'
+import { MeasuringPersonsStore } from '../worker/ingestion/persons/measuring-person-store'
+import { PersonsStoreForDistinctIdBatch } from '../worker/ingestion/persons/persons-store-for-distinct-id-batch'
 import { MemoryRateLimiter } from './utils/overflow-detector'
-// Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
-require('@sentry/tracing')
 
 const ingestionEventOverflowed = new Counter({
     name: 'ingestion_event_overflowed',
@@ -89,6 +89,9 @@ export class IngestionConsumer {
     private tokenDistinctIdsToDrop: string[] = []
     private tokenDistinctIdsToSkipPersons: string[] = []
     private tokenDistinctIdsToForceOverflow: string[] = []
+    private personStore: MeasuringPersonsStore
+    private eventIngestionRestrictionManager: EventIngestionRestrictionManager
+
     constructor(
         private hub: Hub,
         overrides: Partial<
@@ -114,6 +117,11 @@ export class IngestionConsumer {
         this.tokenDistinctIdsToForceOverflow = hub.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID.split(',').filter(
             (x) => !!x
         )
+        this.eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
+            staticDropEventTokens: this.tokenDistinctIdsToDrop,
+            staticSkipPersonTokens: this.tokenDistinctIdsToSkipPersons,
+            staticForceOverflowTokens: this.tokenDistinctIdsToForceOverflow,
+        })
         this.testingTopic = overrides.INGESTION_CONSUMER_TESTING_TOPIC ?? hub.INGESTION_CONSUMER_TESTING_TOPIC
 
         this.name = `ingestion-consumer-${this.topic}`
@@ -124,6 +132,11 @@ export class IngestionConsumer {
 
         this.ingestionWarningLimiter = new MemoryRateLimiter(1, 1.0 / 3600)
         this.hogTransformer = new HogTransformerService(hub)
+
+        this.personStore = new MeasuringPersonsStore(this.hub.db, {
+            personCacheEnabledForUpdates: this.hub.PERSON_CACHE_ENABLED_FOR_UPDATES,
+            personCacheEnabledForChecks: this.hub.PERSON_CACHE_ENABLED_FOR_CHECKS,
+        })
         this.kafkaConsumer = new KafkaConsumer({ groupId: this.groupId, topic: this.topic })
     }
 
@@ -140,19 +153,17 @@ export class IngestionConsumer {
             this.hogTransformer.start(),
             KafkaProducerWrapper.create(this.hub).then((producer) => {
                 this.kafkaProducer = producer
-                this.kafkaProducer.producer.connect()
             }),
             // TRICKY: When we produce overflow events they are back to the kafka we are consuming from
             KafkaProducerWrapper.create(this.hub, 'consumer').then((producer) => {
                 this.kafkaOverflowProducer = producer
-                this.kafkaOverflowProducer.producer.connect()
             }),
         ])
 
         await this.kafkaConsumer.connect(async (messages) => {
             return await runInstrumentedFunction({
                 statsKey: `ingestionConsumer.handleEachBatch`,
-                sendTimeoutGuardToSentry: false,
+                sendException: false,
                 func: async () => await this.handleKafkaBatch(messages),
             })
         })
@@ -247,13 +258,20 @@ export class IngestionConsumer {
             await this.fetchAndCacheHogFunctionStates(parsedMessages)
         }
 
+        const personsStoreForBatch = this.personStore.forBatch()
+
         await this.runInstrumented('processBatch', async () => {
             await Promise.all(
                 Object.values(parsedMessages).map(async (events) => {
                     const eventsToProcess = this.redirectEvents(events)
 
+                    const personsStoreForDistinctId = personsStoreForBatch.forDistinctID(
+                        events.token,
+                        events.distinctId
+                    )
+
                     return await this.runInstrumented('processEventsForDistinctId', () =>
-                        this.processEventsForDistinctId(eventsToProcess)
+                        this.processEventsForDistinctId(eventsToProcess, personsStoreForDistinctId)
                     )
                 })
             )
@@ -262,6 +280,8 @@ export class IngestionConsumer {
         logger.debug('🔁', `Waiting for promises`, { promises: this.promises.size })
         await this.runInstrumented('awaitScheduledWork', () => Promise.all(this.promises))
         logger.debug('🔁', `Processed batch`)
+
+        personsStoreForBatch.reportBatch()
 
         for (const message of messages) {
             if (message.timestamp) {
@@ -295,7 +315,7 @@ export class IngestionConsumer {
         const kafkaTimestamp = eventsForDistinctId.events[0].message.timestamp
         const eventKey = `${token}:${distinctId}`
 
-        // Check if this token is in the force overflow list
+        // Check if this token is in the force overflow static/dynamic config list
         const shouldForceOverflow = this.shouldForceOverflow(token, distinctId)
 
         // Check the rate limiter and emit to overflow if necessary
@@ -372,16 +392,22 @@ export class IngestionConsumer {
         })
     }
 
-    private async processEventsForDistinctId(eventsForDistinctId: EventsForDistinctId): Promise<void> {
+    private async processEventsForDistinctId(
+        eventsForDistinctId: EventsForDistinctId,
+        personsStoreForDistinctId: PersonsStoreForDistinctIdBatch
+    ): Promise<void> {
         // Process every message sequentially, stash promises to await on later
         for (const incomingEvent of eventsForDistinctId.events) {
             // Track $set usage in events that aren't known to use it, before ingestion adds anything there
             trackIfNonPersonEventUpdatesPersons(incomingEvent.event)
-            await this.runEventRunnerV1(incomingEvent)
+            await this.runEventRunnerV1(incomingEvent, personsStoreForDistinctId)
         }
     }
 
-    private async runEventRunnerV1(incomingEvent: IncomingEvent): Promise<EventPipelineResult | undefined> {
+    private async runEventRunnerV1(
+        incomingEvent: IncomingEvent,
+        personsStoreForDistinctId: PersonsStoreForDistinctIdBatch
+    ): Promise<EventPipelineResult | undefined> {
         const { event, message } = incomingEvent
 
         const existingBreadcrumbs = this.getExistingBreadcrumbsFromHeaders(message)
@@ -391,7 +417,7 @@ export class IngestionConsumer {
         try {
             const result = await this.runInstrumented('runEventPipeline', () =>
                 retryIfRetriable(async () => {
-                    const runner = this.getEventPipelineRunnerV1(event, allBreadcrumbs)
+                    const runner = this.getEventPipelineRunnerV1(event, allBreadcrumbs, personsStoreForDistinctId)
                     return await runner.runEventPipeline(event)
                 })
             )
@@ -423,15 +449,14 @@ export class IngestionConsumer {
         // NOTE: there is behavior to push to a DLQ at the moment within EventPipelineRunner. This
         // doesn't work so well with e.g. messages that when sent to the DLQ is it's self too large.
         // Here we explicitly do _not_ add any additional metadata to the message. We might want to add
-        // some metadata to the message e.g. in the header or reference e.g. the sentry event id.
+        // some metadata to the message e.g. in the header or reference e.g. the event id.
         //
         // TODO: properly abstract out this `isRetriable` error logic. This is currently relying on the
         // fact that node-rdkafka adheres to the `isRetriable` interface.
 
         if (error?.isRetriable === false) {
-            const sentryEventId = captureException(error)
+            captureException(error)
             const headers: MessageHeader[] = message.headers ?? []
-            headers.push({ ['sentry-event-id']: sentryEventId })
             headers.push({ ['event-id']: event.uuid })
             try {
                 await this.kafkaProducer!.produce({
@@ -461,9 +486,10 @@ export class IngestionConsumer {
 
     private getEventPipelineRunnerV1(
         event: PipelineEvent,
-        breadcrumbs: KafkaConsumerBreadcrumb[] = []
+        breadcrumbs: KafkaConsumerBreadcrumb[] = [],
+        personsStoreForDistinctId: PersonsStoreForDistinctIdBatch
     ): EventPipelineRunner {
-        return new EventPipelineRunner(this.hub, event, this.hogTransformer, breadcrumbs)
+        return new EventPipelineRunner(this.hub, event, this.hogTransformer, breadcrumbs, personsStoreForDistinctId)
     }
 
     private parseKafkaBatch(messages: Message[]): Promise<IncomingEventsByDistinctId> {
@@ -501,11 +527,9 @@ export class IngestionConsumer {
                 continue
             }
 
-            let eventKey = `${event.token}:${event.distinct_id}`
+            const eventKey = `${event.token}:${event.distinct_id}`
 
             if (this.shouldSkipPerson(event.token, event.distinct_id)) {
-                // If we are skipping person processing, then we can parallelize processing of this event for dramatic performance gains
-                eventKey = new UUIDT().toString()
                 event.properties = {
                     ...(event.properties ?? {}),
                     $process_person_profile: false,
@@ -542,24 +566,24 @@ export class IngestionConsumer {
     }
 
     private shouldDropEvent(token?: string, distinctId?: string) {
-        return (
-            (token && this.tokenDistinctIdsToDrop.includes(token)) ||
-            (token && distinctId && this.tokenDistinctIdsToDrop.includes(`${token}:${distinctId}`))
-        )
+        if (!token) {
+            return false
+        }
+        return this.eventIngestionRestrictionManager.shouldDropEvent(token, distinctId)
     }
 
     private shouldSkipPerson(token?: string, distinctId?: string) {
-        return (
-            (token && this.tokenDistinctIdsToSkipPersons.includes(token)) ||
-            (token && distinctId && this.tokenDistinctIdsToSkipPersons.includes(`${token}:${distinctId}`))
-        )
+        if (!token) {
+            return false
+        }
+        return this.eventIngestionRestrictionManager.shouldSkipPerson(token, distinctId)
     }
 
     private shouldForceOverflow(token?: string, distinctId?: string) {
-        return (
-            (token && this.tokenDistinctIdsToForceOverflow.includes(token)) ||
-            (token && distinctId && this.tokenDistinctIdsToForceOverflow.includes(`${token}:${distinctId}`))
-        )
+        if (!token) {
+            return false
+        }
+        return this.eventIngestionRestrictionManager.shouldForceOverflow(token, distinctId)
     }
 
     private overflowEnabled() {

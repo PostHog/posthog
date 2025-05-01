@@ -105,7 +105,7 @@ export enum NodeKind {
     WebVitalsQuery = 'WebVitalsQuery',
     WebVitalsPathBreakdownQuery = 'WebVitalsPathBreakdownQuery',
     WebPageURLSearchQuery = 'WebPageURLSearchQuery',
-    WebActiveHoursHeatMapQuery = 'WebActiveHoursHeatMapQuery',
+    EventsHeatMapQuery = 'EventsHeatMapQuery',
 
     // Revenue analytics queries
     RevenueAnalyticsOverviewQuery = 'RevenueAnalyticsOverviewQuery',
@@ -166,7 +166,7 @@ export type AnyDataNode =
     | RecordingsQuery
     | TracesQuery
     | VectorSearchQuery
-    | WebActiveHoursHeatMapQuery
+    | EventsHeatMapQuery
 
 /**
  * @discriminator kind
@@ -204,7 +204,7 @@ export type QuerySchema =
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
     | WebPageURLSearchQuery
-    | WebActiveHoursHeatMapQuery
+    | EventsHeatMapQuery
 
     // Revenue analytics
     | RevenueAnalyticsOverviewQuery
@@ -708,7 +708,7 @@ export interface DataTableNode
                     | WebGoalsQuery
                     | WebVitalsQuery
                     | WebVitalsPathBreakdownQuery
-                    | WebActiveHoursHeatMapQuery
+                    | EventsHeatMapQuery
                     | SessionAttributionExplorerQuery
                     | RevenueAnalyticsOverviewQuery
                     | RevenueAnalyticsGrowthRateQuery
@@ -738,7 +738,7 @@ export interface DataTableNode
         | WebGoalsQuery
         | WebVitalsQuery
         | WebVitalsPathBreakdownQuery
-        | WebActiveHoursHeatMapQuery
+        | EventsHeatMapQuery
         | SessionAttributionExplorerQuery
         | RevenueAnalyticsOverviewQuery
         | RevenueAnalyticsGrowthRateQuery
@@ -1602,6 +1602,9 @@ export enum WebAnalyticsOrderByFields {
     UniqueConversions = 'UniqueConversions',
     ConversionRate = 'ConversionRate',
     ConvertingUsers = 'ConvertingUsers',
+    RageClicks = 'RageClicks',
+    DeadClicks = 'DeadClicks',
+    Errors = 'Errors',
 }
 export type WebAnalyticsOrderBy = [WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]
 interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<R> {
@@ -1671,6 +1674,7 @@ export enum WebStatsBreakdown {
     City = 'City',
     Timezone = 'Timezone',
     Language = 'Language',
+    FrustrationMetrics = 'FrustrationMetrics',
 }
 export interface WebStatsTableQuery extends WebAnalyticsQueryBase<WebStatsTableQueryResponse> {
     kind: NodeKind.WebStatsTableQuery
@@ -2882,6 +2886,17 @@ export interface RevenueAnalyticsEventItem {
      * @default {"static": "USD"}
      */
     revenueCurrencyProperty: RevenueCurrencyPropertyConfig
+
+    /**
+     * If true, the revenue will be divided by the smallest unit of the currency.
+     *
+     * For example, in case this is set to true,
+     * if the revenue is 1089 and the currency is USD, the revenue will be $10.89,
+     * but if the currency is JPY, the revenue will be ¥1089.
+     *
+     * @default false
+     */
+    currencyAwareDecimal: boolean
 }
 
 export interface RevenueAnalyticsConfig {
@@ -2915,37 +2930,39 @@ export interface WebPageURLSearchQueryResponse extends AnalyticsQueryResponseBas
 
 export type CachedWebPageURLSearchQueryResponse = CachedQueryResponse<WebPageURLSearchQueryResponse>
 
-export interface WebActiveHoursHeatMapQuery extends WebAnalyticsQueryBase<WebActiveHoursHeatMapQueryResponse> {
-    kind: NodeKind.WebActiveHoursHeatMapQuery
+export type HeatMapQuerySource = EventsNode
+
+export interface EventsHeatMapQuery extends WebAnalyticsQueryBase<EventsHeatMapQueryResponse> {
+    kind: NodeKind.EventsHeatMapQuery
+    source: HeatMapQuerySource
 }
 
-export interface WebActiveHoursHeatMapQueryResponse
-    extends AnalyticsQueryResponseBase<WebActiveHoursHeatMapStructuredResult> {
+export interface EventsHeatMapQueryResponse extends AnalyticsQueryResponseBase<EventsHeatMapStructuredResult> {
     hasMore?: boolean
     limit?: integer
 }
 
-export interface WebActiveHoursHeatMapDayAndHourResult {
-    day: integer
-    hour: integer
-    total: integer
+export interface EventsHeatMapDataResult {
+    row: integer
+    column: integer
+    value: integer
 }
 
-export interface WebActiveHoursHeatMapDayResult {
-    day: integer
-    total: integer
+export interface EventsHeatMapRowAggregationResult {
+    row: integer
+    value: integer
 }
 
-export interface WebActiveHoursHeatMapHourResult {
-    hour: integer
-    total: integer
+export interface EventsHeatMapColumnAggregationResult {
+    column: integer
+    value: integer
 }
 
-export interface WebActiveHoursHeatMapStructuredResult {
-    dayAndHours: WebActiveHoursHeatMapDayAndHourResult[]
-    days: WebActiveHoursHeatMapDayResult[]
-    hours: WebActiveHoursHeatMapHourResult[]
-    total: integer
+export interface EventsHeatMapStructuredResult {
+    data: EventsHeatMapDataResult[]
+    rowAggregations: EventsHeatMapRowAggregationResult[]
+    columnAggregations: EventsHeatMapColumnAggregationResult[]
+    allAggregations: integer
 }
 
-export type CachedWebActiveHoursHeatMapQueryResponse = CachedQueryResponse<WebActiveHoursHeatMapQueryResponse>
+export type CachedEventsHeatMapQueryResponse = CachedQueryResponse<EventsHeatMapQueryResponse>

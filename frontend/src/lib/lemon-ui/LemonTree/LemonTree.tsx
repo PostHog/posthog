@@ -19,6 +19,7 @@ import {
 
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '../../ui/ContextMenu/ContextMenu'
 import { SideAction } from '../LemonButton'
+import { Link } from '../Link/Link'
 import { Spinner } from '../Spinner/Spinner'
 import { Tooltip } from '../Tooltip/Tooltip'
 import {
@@ -113,7 +114,7 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     /** Whether the item can accept drops */
     isItemDroppable?: (item: TreeDataItem) => boolean
     /** The side action to render for the item. */
-    itemSideAction?: (item: TreeDataItem) => SideAction | undefined
+    itemSideAction?: (item: TreeDataItem) => React.ReactNode | undefined
     /** The context menu to render for the item. */
     itemContextMenu?: (item: TreeDataItem) => React.ReactNode
     /** Whether the item is loading */
@@ -141,6 +142,9 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     setFocusToElementFromId?: (id: string) => void
     /** Set the focus to the last focused element. */
     setFocusToLastFocusedElement?: () => void
+
+    /** Whether to enable folder select mode. */
+    folderSelectMode?: boolean
 }
 
 export type LemonTreeProps = LemonTreeBaseProps & {
@@ -215,6 +219,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
             checkedItemCount,
             setFocusToElementFromId,
             setFocusToLastFocusedElement,
+            folderSelectMode = false,
             ...props
         },
         ref
@@ -309,6 +314,193 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                             )
                         }
 
+                        let button = (
+                            <Link
+                                data-id={item.id}
+                                // When dragging, don't allow links to be clicked,
+                                // without this drag end would fire this href causing a reload
+                                to={isEmptyFolder ? '#' : item.record?.href || '#'}
+                                onClick={() => {
+                                    handleClick(item)
+                                }}
+                                disabled={isDragging}
+                                role="treeitem"
+                                buttonProps={{
+                                    active: getItemActiveState(item),
+                                    menuItem: true,
+                                    hasSideActionRight: true,
+                                    disabled: isEmptyFolder,
+                                    className: cn(
+                                        'group/lemon-tree-button',
+                                        'relative z-1 focus-visible:bg-fill-button-tertiary-hover h-[var(--button-height-base)] motion-safe:transition-[padding] duration-50',
+                                        {
+                                            'bg-fill-button-tertiary-hover':
+                                                (folderSelectMode && selectedId === item.id && !isEmptyFolder) ||
+                                                isContextMenuOpenForItem === item.id,
+                                            'bg-fill-button-tertiary-active': getItemActiveState(item),
+                                            'group-hover/lemon-tree-button-group:bg-fill-button-tertiary-hover cursor-pointer':
+                                                !isEmptyFolder,
+                                            'hover:bg-transparent opacity-50 cursor-default':
+                                                (folderSelectMode && !isFolder) || isEmptyFolder,
+                                        }
+                                    ),
+                                }}
+                                tabIndex={isEmptyFolder ? -1 : 0}
+                                aria-level={depth + 1}
+                                aria-setsize={data.length} // TODO: somehow get all loaded items length here in children
+                                aria-posinset={index + 1}
+                                aria-selected={selectedId === item.id}
+                                aria-disabled={!!item.disabledReason}
+                                aria-haspopup={!!itemContextMenu?.(item)}
+                                aria-roledescription="tree item"
+                                aria-rolemap={`item-${item.id}`}
+                                aria-label={ariaLabel}
+                                tooltip={isDragging || isEmptyFolder || mode === 'table' ? undefined : displayName}
+                                tooltipPlacement="right"
+                            >
+                                {/* Spacer to offset button padding */}
+                                <span
+                                    className="h-full bg-transparent pointer-events-none flex-shrink-0 transition-[width] duration-50"
+                                    // eslint-disable-next-line react/forbid-dom-props
+                                    style={{
+                                        width:
+                                            enableMultiSelection && !item.disableSelect
+                                                ? `${emptySpaceOffset + 26}px`
+                                                : `${emptySpaceOffset}px`,
+                                    }}
+                                />
+
+                                {/* Render contents */}
+                                <span
+                                    className={cn('relative truncate', {
+                                        'w-full h-full h-[var(--button-height-base)]': mode === 'table',
+                                    })}
+                                >
+                                    <span
+                                        className={cn('truncate text-left', {
+                                            'absolute h-[var(--button-height-base)] flex items-center':
+                                                mode === 'table',
+                                            'w-full': mode === 'tree',
+                                        })}
+                                        // eslint-disable-next-line react/forbid-dom-props
+                                        style={{
+                                            width: `${
+                                                tableColumnSizeAndPosition && tableColumnSizeAndPosition?.[0]?.width
+                                                    ? tableColumnSizeAndPosition?.[0]?.width - emptySpaceOffset
+                                                    : 0
+                                            }px`,
+                                        }}
+                                    >
+                                        {renderItem ? (
+                                            <>
+                                                {renderItem(
+                                                    item,
+                                                    <span
+                                                        className={cn({
+                                                            'font-semibold': isFolder,
+                                                        })}
+                                                    >
+                                                        <Tooltip
+                                                            title={mode === 'table' ? displayName : undefined}
+                                                            placement="top-start"
+                                                            className="w-fit"
+                                                        >
+                                                            <span>{displayName}</span>
+                                                        </Tooltip>
+                                                    </span>
+                                                )}
+                                            </>
+                                        ) : (
+                                            <span
+                                                className={cn('truncate', {
+                                                    'font-semibold': isFolder && !isEmptyFolder,
+                                                })}
+                                                // eslint-disable-next-line react/forbid-dom-props
+                                                style={{
+                                                    paddingRight: mode === 'table' ? `3px` : undefined,
+                                                }}
+                                            >
+                                                <Tooltip
+                                                    title={mode === 'table' ? displayName : undefined}
+                                                    placement="top-start"
+                                                    className="w-fit"
+                                                >
+                                                    <span>{displayName}</span>
+                                                </Tooltip>
+                                            </span>
+                                        )}
+
+                                        {/* Loading state */}
+                                        {item.record?.loading && <Spinner className="ml-1" />}
+
+                                        {/* Unapplied state */}
+                                        {item.record?.unapplied && <IconUpload className="ml-1 text-warning" />}
+                                    </span>
+
+                                    {mode === 'table' &&
+                                        tableViewKeys?.headers.slice(1).map((header, index) => {
+                                            const value = header.key
+                                                .split('.')
+                                                .reduce((obj, key) => (obj as any)?.[key], item)
+
+                                            return (
+                                                <span
+                                                    key={header.key}
+                                                    className="absolute truncate text-left flex items-center h-[var(--button-height-base)]"
+                                                    // eslint-disable-next-line react/forbid-dom-props
+                                                    style={{
+                                                        left: `${
+                                                            tableColumnSizeAndPosition &&
+                                                            tableColumnSizeAndPosition?.[index + 1]?.left
+                                                                ? tableColumnSizeAndPosition?.[index + 1]?.left -
+                                                                  10 -
+                                                                  emptySpaceOffset
+                                                                : 0
+                                                        }px`,
+                                                        width: `${tableColumnSizeAndPosition?.[index + 1]?.width}px`,
+                                                    }}
+                                                >
+                                                    <Tooltip
+                                                        title={
+                                                            typeof header.tooltip === 'function'
+                                                                ? header.tooltip(value)
+                                                                : header.tooltip
+                                                        }
+                                                        placement="top-start"
+                                                    >
+                                                        <span
+                                                            className={cn(
+                                                                'starting:opacity-0 opacity-100 delay-50 motion-safe:transition-opacity duration-100 font-normal',
+                                                                {
+                                                                    'font-normal': index > 1,
+                                                                    'opacity-0': index !== 1 && isEmptyFolder,
+                                                                }
+                                                            )}
+                                                        >
+                                                            {header.formatFunction
+                                                                ? header.formatFunction(value)
+                                                                : value}
+                                                        </span>
+                                                    </Tooltip>
+                                                </span>
+                                            )
+                                        })}
+                                </span>
+                            </Link>
+                        )
+
+                        if (enableDragAndDrop && isItemDraggable?.(item) && item.id) {
+                            button = (
+                                <TreeNodeDraggable
+                                    id={item.id}
+                                    enableDragging
+                                    className="h-[var(--button-height-base)]"
+                                >
+                                    {button}
+                                </TreeNodeDraggable>
+                            )
+                        }
+
                         const content = (
                             <AccordionPrimitive.Root
                                 type="multiple"
@@ -340,22 +532,21 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                 <ButtonGroupPrimitive
                                                     fullWidth
                                                     className="group/lemon-tree-button-group relative h-[var(--button-height-base)]"
-                                                    groupVariant="side-action-group"
                                                 >
                                                     {/* The contents of this <TreeNodeDisplayIconWrapper> are positioned absolutely, so to give the effect it's inside the button */}
-                                                    {!isEmptyFolder && (
-                                                        <TreeNodeDisplayIconWrapper
-                                                            item={item}
-                                                            expandedItemIds={expandedItemIds}
-                                                            defaultNodeIcon={defaultNodeIcon}
-                                                            handleClick={handleClick}
-                                                            enableMultiSelection={enableMultiSelection}
-                                                            defaultOffset={iconWrapperOffset}
-                                                            multiSelectionOffset={iconWrapperOffsetMultiSelection}
-                                                            checkedItemCount={checkedItemCount}
-                                                            onItemChecked={onItemChecked}
-                                                        />
-                                                    )}
+                                                    <TreeNodeDisplayIconWrapper
+                                                        item={item}
+                                                        expandedItemIds={expandedItemIds}
+                                                        defaultNodeIcon={defaultNodeIcon}
+                                                        handleClick={handleClick}
+                                                        enableMultiSelection={enableMultiSelection}
+                                                        defaultOffset={iconWrapperOffset}
+                                                        multiSelectionOffset={iconWrapperOffsetMultiSelection}
+                                                        checkedItemCount={checkedItemCount}
+                                                        onItemChecked={onItemChecked}
+                                                        folderSelectMode={folderSelectMode}
+                                                        isEmptyFolder={isEmptyFolder}
+                                                    />
 
                                                     {isItemEditing?.(item) ? (
                                                         <InlineEditField
@@ -374,229 +565,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                             }}
                                                         />
                                                     ) : (
-                                                        <ButtonPrimitive
-                                                            data-id={item.id}
-                                                            // When dragging, don't allow links to be clicked,
-                                                            // without this drag end would fire this href causing a reload
-                                                            href={isDragging ? undefined : item.record?.href}
-                                                            onClick={() => {
-                                                                handleClick(item)
-                                                            }}
-                                                            className={cn(
-                                                                'group/lemon-tree-button',
-                                                                'relative z-1 focus-visible:bg-fill-button-tertiary-hover h-[var(--button-height-base)] motion-safe:transition-[padding] duration-50',
-                                                                {
-                                                                    'bg-fill-button-tertiary-hover':
-                                                                        selectedId === item.id ||
-                                                                        isContextMenuOpenForItem === item.id,
-                                                                    'bg-fill-button-tertiary-active':
-                                                                        getItemActiveState(item),
-                                                                    'group-hover/lemon-tree-button-group:bg-fill-button-tertiary-hover cursor-pointer':
-                                                                        !isEmptyFolder,
-                                                                }
-                                                            )}
-                                                            role="treeitem"
-                                                            active={getItemActiveState(item)}
-                                                            menuItem
-                                                            sideActionLeft
-                                                            tooltip={
-                                                                isDragging || isEmptyFolder || mode === 'table'
-                                                                    ? undefined
-                                                                    : displayName
-                                                            }
-                                                            tooltipPlacement="right"
-                                                            disabled={isEmptyFolder}
-                                                            tabIndex={isEmptyFolder ? -1 : 0}
-                                                            buttonWrapper={
-                                                                enableDragAndDrop && isItemDraggable?.(item) && item.id
-                                                                    ? (button) => (
-                                                                          <TreeNodeDraggable
-                                                                              id={item.id}
-                                                                              enableDragging
-                                                                              className="h-[var(--button-height-base)]"
-                                                                          >
-                                                                              {button}
-                                                                          </TreeNodeDraggable>
-                                                                      )
-                                                                    : undefined
-                                                            }
-                                                            aria-level={depth + 1}
-                                                            aria-setsize={data.length} // TODO: somehow get all loaded items length here in children
-                                                            aria-posinset={index + 1}
-                                                            aria-selected={selectedId === item.id}
-                                                            aria-disabled={!!item.disabledReason}
-                                                            aria-haspopup={!!itemContextMenu?.(item)}
-                                                            aria-roledescription="tree item"
-                                                            aria-rolemap={`item-${item.id}`}
-                                                            aria-label={ariaLabel}
-                                                        >
-                                                            {/* Spacer to offset button padding */}
-                                                            <div
-                                                                className="h-full bg-transparent pointer-events-none flex-shrink-0 transition-[width] duration-50"
-                                                                // eslint-disable-next-line react/forbid-dom-props
-                                                                style={{
-                                                                    width:
-                                                                        enableMultiSelection && !item.disableSelect
-                                                                            ? `${emptySpaceOffset + 26}px`
-                                                                            : `${emptySpaceOffset}px`,
-                                                                }}
-                                                            />
-
-                                                            {/* Render contents */}
-                                                            <span
-                                                                className={cn('relative truncate', {
-                                                                    'w-full h-full h-[var(--button-height-base)]':
-                                                                        mode === 'table',
-                                                                })}
-                                                            >
-                                                                <span
-                                                                    className={cn('truncate text-left', {
-                                                                        'absolute h-[var(--button-height-base)] flex items-center':
-                                                                            mode === 'table',
-                                                                        'w-full': mode === 'tree',
-                                                                    })}
-                                                                    // eslint-disable-next-line react/forbid-dom-props
-                                                                    style={{
-                                                                        width: `${
-                                                                            tableColumnSizeAndPosition &&
-                                                                            tableColumnSizeAndPosition?.[0]?.width
-                                                                                ? tableColumnSizeAndPosition?.[0]
-                                                                                      ?.width - emptySpaceOffset
-                                                                                : 0
-                                                                        }px`,
-                                                                    }}
-                                                                >
-                                                                    {renderItem ? (
-                                                                        <>
-                                                                            {renderItem(
-                                                                                item,
-                                                                                <span
-                                                                                    className={cn({
-                                                                                        'font-semibold': isFolder,
-                                                                                    })}
-                                                                                >
-                                                                                    <Tooltip
-                                                                                        title={
-                                                                                            mode === 'table'
-                                                                                                ? displayName
-                                                                                                : undefined
-                                                                                        }
-                                                                                        placement="top-start"
-                                                                                        className="w-fit"
-                                                                                    >
-                                                                                        <span>{displayName}</span>
-                                                                                    </Tooltip>
-                                                                                </span>
-                                                                            )}
-                                                                        </>
-                                                                    ) : (
-                                                                        <span
-                                                                            className={cn('truncate', {
-                                                                                'font-semibold':
-                                                                                    isFolder && !isEmptyFolder,
-                                                                            })}
-                                                                            // eslint-disable-next-line react/forbid-dom-props
-                                                                            style={{
-                                                                                paddingRight:
-                                                                                    mode === 'table'
-                                                                                        ? `3px`
-                                                                                        : undefined,
-                                                                            }}
-                                                                        >
-                                                                            <Tooltip
-                                                                                title={
-                                                                                    mode === 'table'
-                                                                                        ? displayName
-                                                                                        : undefined
-                                                                                }
-                                                                                placement="top-start"
-                                                                                className="w-fit"
-                                                                            >
-                                                                                <span>{displayName}</span>
-                                                                            </Tooltip>
-                                                                        </span>
-                                                                    )}
-
-                                                                    {/* Loading state */}
-                                                                    {item.record?.loading && (
-                                                                        <Spinner className="ml-1" />
-                                                                    )}
-
-                                                                    {/* Unapplied state */}
-                                                                    {item.record?.unapplied && (
-                                                                        <IconUpload className="ml-1 text-warning" />
-                                                                    )}
-                                                                </span>
-
-                                                                {mode === 'table' &&
-                                                                    tableViewKeys?.headers
-                                                                        .slice(1)
-                                                                        .map((header, index) => {
-                                                                            const value = header.key
-                                                                                .split('.')
-                                                                                .reduce(
-                                                                                    (obj, key) => (obj as any)?.[key],
-                                                                                    item
-                                                                                )
-
-                                                                            return (
-                                                                                <span
-                                                                                    key={header.key}
-                                                                                    className="absolute truncate text-left flex items-center h-[var(--button-height-base)]"
-                                                                                    // eslint-disable-next-line react/forbid-dom-props
-                                                                                    style={{
-                                                                                        left: `${
-                                                                                            tableColumnSizeAndPosition &&
-                                                                                            tableColumnSizeAndPosition?.[
-                                                                                                index + 1
-                                                                                            ]?.left
-                                                                                                ? tableColumnSizeAndPosition?.[
-                                                                                                      index + 1
-                                                                                                  ]?.left -
-                                                                                                  10 -
-                                                                                                  emptySpaceOffset
-                                                                                                : 0
-                                                                                        }px`,
-                                                                                        width: `${
-                                                                                            tableColumnSizeAndPosition?.[
-                                                                                                index + 1
-                                                                                            ]?.width
-                                                                                        }px`,
-                                                                                    }}
-                                                                                >
-                                                                                    <Tooltip
-                                                                                        title={
-                                                                                            typeof header.tooltip ===
-                                                                                            'function'
-                                                                                                ? header.tooltip(value)
-                                                                                                : header.tooltip
-                                                                                        }
-                                                                                        placement="top-start"
-                                                                                    >
-                                                                                        <span
-                                                                                            className={cn(
-                                                                                                'starting:opacity-0 opacity-100 delay-50 motion-safe:transition-opacity duration-100 font-normal',
-                                                                                                {
-                                                                                                    'font-normal':
-                                                                                                        index > 1,
-                                                                                                    'opacity-0':
-                                                                                                        index !== 1 &&
-                                                                                                        isEmptyFolder,
-                                                                                                }
-                                                                                            )}
-                                                                                        >
-                                                                                            {header.formatFunction
-                                                                                                ? header.formatFunction(
-                                                                                                      value
-                                                                                                  )
-                                                                                                : value}
-                                                                                        </span>
-                                                                                    </Tooltip>
-                                                                                </span>
-                                                                            )
-                                                                        })}
-                                                            </span>
-                                                        </ButtonPrimitive>
+                                                        button
                                                     )}
 
                                                     {itemSideAction && !isEmptyFolder && (
@@ -604,7 +573,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                             <DropdownMenuTrigger asChild>
                                                                 <ButtonPrimitive
                                                                     iconOnly
-                                                                    sideActionRight
+                                                                    isSideActionRight
                                                                     className="z-2 shrink-0 motion-safe:transition-opacity duration-[50ms] group-hover/lemon-tree-button-group:opacity-100 aria-expanded:opacity-100"
                                                                 >
                                                                     <IconEllipsis className="size-3 text-tertiary" />
@@ -664,6 +633,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                 disableKeyboardInput={disableKeyboardInput}
                                                 setFocusToElementFromId={setFocusToElementFromId}
                                                 onItemNameChange={onItemNameChange}
+                                                folderSelectMode={folderSelectMode}
                                                 {...props}
                                             />
                                         </AccordionPrimitive.Content>
@@ -752,9 +722,10 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             isFinishedBuildingTreeData,
             enableMultiSelection = false,
             onItemChecked,
-            checkedItemCount,
+            checkedItemCount = 0,
             tableViewKeys,
             emptySpaceContextMenu,
+            folderSelectMode = false,
             ...props
         },
         ref: ForwardedRef<LemonTreeRef>
@@ -854,7 +825,10 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                 const nodeArray = nodes instanceof Array ? nodes : [nodes]
 
                 nodeArray.forEach((node) => {
-                    items.push(node)
+                    // if folderSelectMode we don't return folder items
+                    if (!folderSelectMode || (folderSelectMode && node.children)) {
+                        items.push(node)
+                    }
                     if (node.children && expandedItemIdsState?.includes(node.id)) {
                         traverse(node.children)
                     }
@@ -863,7 +837,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
 
             traverse(data)
             return items
-        }, [data, expandedItemIdsState])
+        }, [data, expandedItemIdsState, folderSelectMode])
 
         // Focus on provided content ref
         const focusContent = useCallback(() => {
@@ -930,7 +904,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                     const element = containerRef.current?.querySelector(
                         `[data-id="${CSS.escape(match.id)}"]`
                     ) as HTMLElement
-                    element.focus()
+                    element?.focus()
 
                     // If item is in a collapsed folder, expand the path to it
                     const path = findPathToItem(Array.isArray(data) ? data : [data], match.id)
@@ -1003,6 +977,8 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                     const willBeOpen = item?.children ? !expandedItemIdsState.includes(item.id) : undefined
                     item.onClick(willBeOpen)
                 }
+
+                setSelectedId(item?.id)
             },
             [expandedItemIdsState, onFolderClick, onNodeClick, focusContent]
         )
@@ -1014,7 +990,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                 // Now use the escaped ID in your query
                 const element = containerRef.current?.querySelector(`[data-id=${CSS.escape(id)}]`) as HTMLElement
                 // Focus the element
-                element.focus()
+                element?.focus()
             }, 100)
         }, [])
 
@@ -1066,7 +1042,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                                     const element = containerRef.current?.querySelector(
                                         `[data-id="${CSS.escape(nextItem.id)}"]`
                                     ) as HTMLElement
-                                    element.focus()
+                                    element?.focus()
                                 }
                             }
                         }
@@ -1120,13 +1096,13 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                                 const element = containerRef.current?.querySelector(
                                     `[data-id="${CSS.escape(parentItem.id)}"]`
                                 ) as HTMLElement
-                                element.focus()
+                                element?.focus()
                             } else {
                                 // If parent is already collapsed, just focus it
                                 const element = containerRef.current?.querySelector(
                                     `[data-id="${CSS.escape(parentItem.id)}"]`
                                 ) as HTMLElement
-                                element.focus()
+                                element?.focus()
                             }
                         }
                         break
@@ -1143,7 +1119,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                                 const element = containerRef.current?.querySelector(
                                     `[data-id="${CSS.escape(firstItem.id)}"]`
                                 ) as HTMLElement
-                                element.focus()
+                                element?.focus()
                             }
                         } else {
                             const nextItem = findNextFocusableItem(visibleItems, currentIndex, 1)
@@ -1151,7 +1127,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                                 const element = containerRef.current?.querySelector(
                                     `[data-id="${CSS.escape(nextItem.id)}"]`
                                 ) as HTMLElement
-                                element.focus()
+                                element?.focus()
                             }
                         }
                         break
@@ -1168,7 +1144,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                                 const element = containerRef.current?.querySelector(
                                     `[data-id="${CSS.escape(lastItem.id)}"]`
                                 ) as HTMLElement
-                                element.focus()
+                                element?.focus()
                             }
                         } else {
                             const prevItem = findNextFocusableItem(visibleItems, currentIndex, -1)
@@ -1176,7 +1152,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                                 const element = containerRef.current?.querySelector(
                                     `[data-id="${CSS.escape(prevItem.id)}"]`
                                 ) as HTMLElement
-                                element.focus()
+                                element?.focus()
                             }
                         }
                         break
@@ -1191,7 +1167,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                             const element = containerRef.current?.querySelector(
                                 `[data-id="${CSS.escape(visibleItems[0].id)}"]`
                             ) as HTMLElement
-                            element.focus()
+                            element?.focus()
                         }
                         break
                     }
@@ -1205,7 +1181,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                             const element = containerRef.current?.querySelector(
                                 `[data-id="${CSS.escape(visibleItems[visibleItems.length - 1].id)}"]`
                             ) as HTMLElement
-                            element.focus()
+                            element?.focus()
                         }
                         break
                     }
@@ -1312,9 +1288,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                 const element = containerRef.current?.querySelector(
                     `[data-id="${CSS.escape(defaultSelectedFolderOrNodeId)}"]`
                 ) as HTMLElement
-                if (element) {
-                    element.focus()
-                }
+                element?.focus()
                 setSelectedId(defaultSelectedFolderOrNodeId)
             }
         }, [defaultSelectedFolderOrNodeId, hasFocusedContent])
@@ -1324,7 +1298,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             focusItem: (id: string) => {
                 // Find and focus the actual DOM element
                 const element = containerRef.current?.querySelector(`[data-id="${CSS.escape(id)}"]`) as HTMLElement
-                element.focus()
+                element?.focus()
             },
         }))
 
@@ -1435,6 +1409,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                             isDragging={isDragging}
                             checkedItemCount={checkedItemCount}
                             setFocusToElementFromId={focusElementFromId}
+                            folderSelectMode={folderSelectMode}
                             {...props}
                         />
                     </TreeNodeDroppable>

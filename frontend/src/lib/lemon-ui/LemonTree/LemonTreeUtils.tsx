@@ -1,6 +1,6 @@
 import { useDraggable, useDroppable } from '@dnd-kit/core'
-import { IconChevronRight, IconDocument, IconFolder, IconFolderOpenFilled } from '@posthog/icons'
-import { buttonVariants } from 'lib/ui/Button/ButtonPrimitives'
+import { IconChevronRight, IconCircleDashed, IconDocument, IconFolder, IconFolderOpenFilled } from '@posthog/icons'
+import { buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
 import { CSSProperties, useEffect, useRef } from 'react'
 
@@ -19,6 +19,8 @@ type TreeNodeDisplayIconWrapperProps = {
     multiSelectionOffset: number
     checkedItemCount?: number
     onItemChecked?: (id: string, checked: boolean, shift: boolean) => void
+    folderSelectMode: boolean
+    isEmptyFolder: boolean
 }
 
 export const TreeNodeDisplayIconWrapper = ({
@@ -31,6 +33,8 @@ export const TreeNodeDisplayIconWrapper = ({
     onItemChecked,
     defaultOffset,
     multiSelectionOffset,
+    folderSelectMode,
+    isEmptyFolder,
 }: TreeNodeDisplayIconWrapperProps): JSX.Element => {
     return (
         <>
@@ -44,7 +48,8 @@ export const TreeNodeDisplayIconWrapper = ({
                     'absolute flex items-center justify-center bg-transparent flex-shrink-0 h-[var(--button-height-base)] z-3',
                     {
                         // Apply group class only when there are no checked items
-                        'group/lemon-tree-icon-wrapper': checkedItemCount === 0,
+                        'group/lemon-tree-icon-wrapper': checkedItemCount === 0 && !folderSelectMode && !isEmptyFolder,
+                        'cursor-default': isEmptyFolder,
                     }
                 )}
             >
@@ -56,7 +61,7 @@ export const TreeNodeDisplayIconWrapper = ({
                     className={cn('absolute z-2', {
                         // Apply hidden class only when hovering the (conditional)group and there are no checked items
                         'hidden group-hover/lemon-tree-icon-wrapper:block transition-all duration-50':
-                            checkedItemCount === 0,
+                            checkedItemCount === 0 || folderSelectMode,
                     })}
                     style={{
                         left: `${defaultOffset}px`,
@@ -153,11 +158,16 @@ export const TreeNodeDisplayIcon = ({
 }: TreeNodeDisplayIconProps): JSX.Element => {
     const isOpen = expandedItemIds.includes(item.id)
     const isFolder = item.record?.type === 'folder'
+    const isEmptyFolder = item.type === 'empty-folder'
     const isFile = item.record?.type === 'file'
     let iconElement: React.ReactNode = item.icon || defaultNodeIcon || <div />
 
     if (isFolder) {
         iconElement = isOpen ? <IconFolderOpenFilled /> : <IconFolder />
+    }
+
+    if (isEmptyFolder) {
+        iconElement = <IconCircleDashed />
     }
 
     if (isFile) {
@@ -312,7 +322,7 @@ export const InlineEditField = ({
         <form
             onSubmit={onSubmit}
             className={cn(
-                buttonVariants({ menuItem: true, size: 'base', sideActionLeft: true }),
+                buttonPrimitiveVariants({ menuItem: true, size: 'base', hasSideActionRight: true }),
                 className,
                 'bg-fill-button-tertiary-active'
             )}

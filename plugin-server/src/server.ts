@@ -42,6 +42,8 @@ import { delay } from './utils/utils'
 import { teardownPlugins } from './worker/plugins/teardown'
 import { initPlugins as _initPlugins } from './worker/tasks'
 
+const { version } = require('../package.json')
+
 CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
 CompressionCodecs[CompressionTypes.LZ4] = new LZ4().codec
 
@@ -279,6 +281,10 @@ export class PluginServer {
                 })
             }
 
+            if (capabilities.preflightSchedules) {
+                this.startPreflightSchedules(hub)
+            }
+
             pluginServerStartupTimeMs.inc(Date.now() - startupTimer.valueOf())
             logger.info('🚀', `All systems go in ${Date.now() - startupTimer.valueOf()}ms`)
         } catch (error) {
@@ -287,6 +293,19 @@ export class PluginServer {
             logger.error('💥', 'Exception while starting server, shutting down!', { error })
             await this.stop(error)
         }
+    }
+
+    private startPreflightSchedules(hub: Hub) {
+        // These are used by the preflight checks in the Django app to determine if
+        // the plugin-server is running.
+        schedule.scheduleJob('*/5 * * * * *', async () => {
+            await hub.db.redisSet('@posthog-plugin-server/ping', new Date().toISOString(), 'preflightSchedules', 60, {
+                jsonSerialize: false,
+            })
+            await hub.db.redisSet('@posthog-plugin-server/version', version, 'preflightSchedules', undefined, {
+                jsonSerialize: false,
+            })
+        })
     }
 
     private setupListeners() {

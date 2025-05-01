@@ -62,6 +62,15 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
 
         activity: list[dict] = activity_response["results"]
         self.maxDiff = None
+
+        # Sort 'changes' lists for order-insensitive comparison
+        for item in activity:
+            if "detail" in item and "changes" in item["detail"]:
+                item["detail"]["changes"].sort(key=lambda x: x.get("field", ""))
+        for item in expected:
+            if "detail" in item and "changes" in item["detail"]:
+                item["detail"]["changes"].sort(key=lambda x: x.get("field", ""))
+
         assert activity == expected
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
@@ -563,7 +572,7 @@ email@example.org,
                     "activity": "created",
                     "scope": "Cohort",
                     "item_id": str(cohort.pk),
-                    "detail": {"changes": None, "trigger": None, "name": "whatever", "short_id": None, "type": None},
+                    "detail": {"changes": [], "trigger": None, "name": "whatever", "short_id": None, "type": None},
                     "created_at": mock.ANY,
                 }
             ],
@@ -625,7 +634,7 @@ email@example.org,
                     "activity": "created",
                     "scope": "Cohort",
                     "item_id": str(cohort.pk),
-                    "detail": {"changes": None, "trigger": None, "name": "whatever", "short_id": None, "type": None},
+                    "detail": {"changes": [], "trigger": None, "name": "whatever", "short_id": None, "type": None},
                     "created_at": mock.ANY,
                 },
             ],
@@ -1619,6 +1628,29 @@ email@example.org,
         )
 
         self.assertEqual(len(AsyncDeletion.objects.all()), 0)
+
+    def test_create_cohort_in_specific_folder(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "Test Cohort in folder",
+                "groups": [{"properties": {"prop": "5"}}],
+                "_create_in_folder": "Special Folder/Cohorts",
+            },
+            format="json",
+        )
+        assert response.status_code == 201, response.json()
+
+        cohort_id = response.json()["id"]
+        assert cohort_id is not None
+
+        from posthog.models.file_system.file_system import FileSystem
+
+        fs_entry = FileSystem.objects.filter(team=self.team, ref=str(cohort_id), type="cohort").first()
+        assert fs_entry is not None, "A FileSystem entry was not created for this Cohort."
+        assert (
+            "Special Folder/Cohorts" in fs_entry.path
+        ), f"Expected path to include 'Special Folder/Cohorts', got '{fs_entry.path}'."
 
 
 def create_cohort(client: Client, team_id: int, name: str, groups: list[dict[str, Any]]):
