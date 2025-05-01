@@ -13,7 +13,7 @@ import { initKeaTests } from '~/test/init'
 
 const testExampleResult = [
     {
-        id: 1,
+        id: 'test_uuid',
         name: 'Test User',
         distinct_ids: ['test_id'],
         properties: {
@@ -151,7 +151,7 @@ describe('PersonsManagementScene', () => {
         userEvent.click(personDisplayLink)
 
         await waitFor(() => {
-            expect(router.values.location.pathname).toBe(`/project/${MOCK_TEAM_ID}/person/test_id`)
+            expect(router.values.location.pathname).toBe(`/project/${MOCK_TEAM_ID}/person/test_uuid`)
         })
     })
 })
