@@ -114,18 +114,13 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
-    # Visit a parse tree produced by HogQLParser#sqlStatement.
-    def visitSqlStatement(self, ctx:HogQLParser.SqlStatementContext):
+    # Visit a parse tree produced by HogQLParser#select.
+    def visitSelect(self, ctx:HogQLParser.SelectContext):
         return self.visitChildren(ctx)
 
 
-    # Visit a parse tree produced by HogQLParser#createTableStmt.
-    def visitCreateTableStmt(self, ctx:HogQLParser.CreateTableStmtContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#selectQuery.
-    def visitSelectQuery(self, ctx:HogQLParser.SelectQueryContext):
+    # Visit a parse tree produced by HogQLParser#create.
+    def visitCreate(self, ctx:HogQLParser.CreateContext):
         return self.visitChildren(ctx)
 
 
@@ -756,11 +751,6 @@ class HogQLParserVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by HogQLParser#stringContentsFull.
     def visitStringContentsFull(self, ctx:HogQLParser.StringContentsFullContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#select.
-    def visitSelect(self, ctx:HogQLParser.SelectContext):
         return self.visitChildren(ctx)
 
 

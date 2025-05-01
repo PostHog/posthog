@@ -1,4 +1,4 @@
-from posthog.hogql.ast import SelectQuery, SelectSetQuery, Program, CreateTableStmt
+from posthog.hogql.ast import SelectQuery, SelectSetQuery, Program, CreateQuery
 from posthog.hogql.base import AST
 
 def parse_expr(expr: str, /, *, is_internal: bool = False) -> AST:
@@ -43,7 +43,7 @@ def parse_program(source: str, /, *, is_internal: bool = False) -> Program:
     """
     ...
 
-def parse_create(expr: str, /, *, is_internal: bool = False) -> CreateTableStmt:
+def parse_create(expr: str, /, *, is_internal: bool = False) -> CreateQuery:
     """Parse the CREATE TABLE statement string into an AST.
 
     If the expr `is_internal`, spans and notices won't be included in the AST.

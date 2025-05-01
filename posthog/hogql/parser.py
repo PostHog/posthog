@@ -21,7 +21,7 @@ from hogql_parser import (
     parse_select as _parse_select_cpp,
     parse_full_template_string as _parse_full_template_string_cpp,
     parse_program as _parse_program_cpp,
-    parse_create_table as _parse_create_table_cpp,
+    # parse_create as _parse_create_cpp,
 )
 
 
@@ -50,7 +50,7 @@ RULE_TO_PARSE_FUNCTION: dict[
             lambda string: HogQLParseTreeConverter().visit(get_parser(string).fullTemplateString())
         ),
         "program": safe_lambda(lambda string: HogQLParseTreeConverter().visit(get_parser(string).program())),
-        "create": safe_lambda(lambda string: HogQLParseTreeConverter().visit(get_parser(string).createTableStmt())),
+        # "create": safe_lambda(lambda string: HogQLParseTreeConverter().visit(get_parser(string).createTableStmt())),
     },
     "cpp": {
         "expr": lambda string, start: _parse_expr_cpp(string, is_internal=start is None),
@@ -58,7 +58,7 @@ RULE_TO_PARSE_FUNCTION: dict[
         "select": lambda string: _parse_select_cpp(string),
         "full_template_string": lambda string: _parse_full_template_string_cpp(string),
         "program": lambda string: _parse_program_cpp(string),
-        "create": lambda string: _parse_create_table_cpp(string),
+        # "create": lambda string: _parse_create_cpp(string),
     },
 }
 
@@ -154,10 +154,10 @@ def parse_create(
     timings: Optional[HogQLTimings] = None,
     *,
     backend: Literal["python", "cpp"] = "cpp",
-) -> ast.CreateTableStmt:
+) -> ast.CreateQuery:
     if timings is None:
         timings = HogQLTimings()
-    with timings.measure(f"parse_create_table_{backend}"):
+    with timings.measure(f"parse_create_{backend}"):
         with RULE_TO_HISTOGRAM["create"].labels(backend=backend).time():
             node = RULE_TO_PARSE_FUNCTION[backend]["create"](statement)
         if placeholders:

@@ -51,14 +51,12 @@ kvPairList: kvPair (COMMA kvPair)* COMMA?;
 
 
 // SQL statements
-// Top-level entry point for SQL statements
-sqlStatement: (createTableStmt | selectQuery) EOF;
-
-// CREATE TABLE statement
-createTableStmt: CREATE TABLE tableIdentifier AS LPAREN selectQuery RPAREN;
 
 // SELECT statement and its variants
-selectQuery: selectSetStmt | selectStmt | hogqlxTagElement;
+select: selectSetStmt | selectStmt | hogqlxTagElement;
+
+// CREATE statement 
+create: CREATE TABLE tableIdentifier AS LPAREN select RPAREN;
 
 selectStmtWithParens: selectStmt | LPAREN selectSetStmt RPAREN | placeholder;
 
@@ -317,7 +315,3 @@ stringContents : STRING_ESCAPE_TRIGGER columnExpr RBRACE | STRING_TEXT;
 // We will need to add F' to the start of the string to change the lexer's mode.
 fullTemplateString: QUOTE_SINGLE_TEMPLATE_FULL stringContentsFull* EOF ;
 stringContentsFull : FULL_STRING_ESCAPE_TRIGGER columnExpr RBRACE | FULL_STRING_TEXT;
-
-// BACKWARD COMPATIBILITY
-// Keep the old select rule for backward compatibility to avoid breaking existing code
-select: sqlStatement;

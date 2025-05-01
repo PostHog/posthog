@@ -885,9 +885,9 @@ class SelectSetQuery(Expr):
 
 
 @dataclass(kw_only=True)
-class CreateTableStmt(Expr):
-    table: str
-    select: SelectQuery
+class CreateQuery(Expr):
+    chain: list[str]
+    select_query: SelectQuery
 
 
 @dataclass(kw_only=True)

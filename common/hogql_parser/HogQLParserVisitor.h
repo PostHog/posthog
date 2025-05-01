@@ -61,11 +61,9 @@ public:
 
     virtual std::any visitKvPairList(HogQLParser::KvPairListContext *context) = 0;
 
-    virtual std::any visitSqlStatement(HogQLParser::SqlStatementContext *context) = 0;
+    virtual std::any visitSelect(HogQLParser::SelectContext *context) = 0;
 
-    virtual std::any visitCreateTableStmt(HogQLParser::CreateTableStmtContext *context) = 0;
-
-    virtual std::any visitSelectQuery(HogQLParser::SelectQueryContext *context) = 0;
+    virtual std::any visitCreate(HogQLParser::CreateContext *context) = 0;
 
     virtual std::any visitSelectStmtWithParens(HogQLParser::SelectStmtWithParensContext *context) = 0;
 
@@ -318,8 +316,6 @@ public:
     virtual std::any visitFullTemplateString(HogQLParser::FullTemplateStringContext *context) = 0;
 
     virtual std::any visitStringContentsFull(HogQLParser::StringContentsFullContext *context) = 0;
-
-    virtual std::any visitSelect(HogQLParser::SelectContext *context) = 0;
 
 
 };

@@ -51,28 +51,28 @@ public:
     RuleCatchBlock = 8, RuleTryCatchStmt = 9, RuleIfStmt = 10, RuleWhileStmt = 11, 
     RuleForStmt = 12, RuleForInStmt = 13, RuleFuncStmt = 14, RuleVarAssignment = 15, 
     RuleExprStmt = 16, RuleEmptyStmt = 17, RuleBlock = 18, RuleKvPair = 19, 
-    RuleKvPairList = 20, RuleSqlStatement = 21, RuleCreateTableStmt = 22, 
-    RuleSelectQuery = 23, RuleSelectStmtWithParens = 24, RuleSubsequentSelectSetClause = 25, 
-    RuleSelectSetStmt = 26, RuleSelectStmt = 27, RuleWithClause = 28, RuleTopClause = 29, 
-    RuleFromClause = 30, RuleArrayJoinClause = 31, RuleWindowClause = 32, 
-    RulePrewhereClause = 33, RuleWhereClause = 34, RuleGroupByClause = 35, 
-    RuleHavingClause = 36, RuleOrderByClause = 37, RuleProjectionOrderByClause = 38, 
-    RuleLimitByClause = 39, RuleLimitAndOffsetClause = 40, RuleOffsetOnlyClause = 41, 
-    RuleSettingsClause = 42, RuleJoinExpr = 43, RuleJoinOp = 44, RuleJoinOpCross = 45, 
-    RuleJoinConstraintClause = 46, RuleSampleClause = 47, RuleLimitExpr = 48, 
-    RuleOrderExprList = 49, RuleOrderExpr = 50, RuleRatioExpr = 51, RuleSettingExprList = 52, 
-    RuleSettingExpr = 53, RuleWindowExpr = 54, RuleWinPartitionByClause = 55, 
-    RuleWinOrderByClause = 56, RuleWinFrameClause = 57, RuleWinFrameExtend = 58, 
-    RuleWinFrameBound = 59, RuleExpr = 60, RuleColumnTypeExpr = 61, RuleColumnExprList = 62, 
-    RuleColumnExpr = 63, RuleColumnLambdaExpr = 64, RuleHogqlxChildElement = 65, 
-    RuleHogqlxTagElement = 66, RuleHogqlxTagAttribute = 67, RuleWithExprList = 68, 
-    RuleWithExpr = 69, RuleColumnIdentifier = 70, RuleNestedIdentifier = 71, 
-    RuleTableExpr = 72, RuleTableFunctionExpr = 73, RuleTableIdentifier = 74, 
-    RuleTableArgList = 75, RuleDatabaseIdentifier = 76, RuleFloatingLiteral = 77, 
-    RuleNumberLiteral = 78, RuleLiteral = 79, RuleInterval = 80, RuleKeyword = 81, 
-    RuleKeywordForAlias = 82, RuleAlias = 83, RuleIdentifier = 84, RuleEnumValue = 85, 
-    RulePlaceholder = 86, RuleString = 87, RuleTemplateString = 88, RuleStringContents = 89, 
-    RuleFullTemplateString = 90, RuleStringContentsFull = 91, RuleSelect = 92
+    RuleKvPairList = 20, RuleSelect = 21, RuleCreate = 22, RuleSelectStmtWithParens = 23, 
+    RuleSubsequentSelectSetClause = 24, RuleSelectSetStmt = 25, RuleSelectStmt = 26, 
+    RuleWithClause = 27, RuleTopClause = 28, RuleFromClause = 29, RuleArrayJoinClause = 30, 
+    RuleWindowClause = 31, RulePrewhereClause = 32, RuleWhereClause = 33, 
+    RuleGroupByClause = 34, RuleHavingClause = 35, RuleOrderByClause = 36, 
+    RuleProjectionOrderByClause = 37, RuleLimitByClause = 38, RuleLimitAndOffsetClause = 39, 
+    RuleOffsetOnlyClause = 40, RuleSettingsClause = 41, RuleJoinExpr = 42, 
+    RuleJoinOp = 43, RuleJoinOpCross = 44, RuleJoinConstraintClause = 45, 
+    RuleSampleClause = 46, RuleLimitExpr = 47, RuleOrderExprList = 48, RuleOrderExpr = 49, 
+    RuleRatioExpr = 50, RuleSettingExprList = 51, RuleSettingExpr = 52, 
+    RuleWindowExpr = 53, RuleWinPartitionByClause = 54, RuleWinOrderByClause = 55, 
+    RuleWinFrameClause = 56, RuleWinFrameExtend = 57, RuleWinFrameBound = 58, 
+    RuleExpr = 59, RuleColumnTypeExpr = 60, RuleColumnExprList = 61, RuleColumnExpr = 62, 
+    RuleColumnLambdaExpr = 63, RuleHogqlxChildElement = 64, RuleHogqlxTagElement = 65, 
+    RuleHogqlxTagAttribute = 66, RuleWithExprList = 67, RuleWithExpr = 68, 
+    RuleColumnIdentifier = 69, RuleNestedIdentifier = 70, RuleTableExpr = 71, 
+    RuleTableFunctionExpr = 72, RuleTableIdentifier = 73, RuleTableArgList = 74, 
+    RuleDatabaseIdentifier = 75, RuleFloatingLiteral = 76, RuleNumberLiteral = 77, 
+    RuleLiteral = 78, RuleInterval = 79, RuleKeyword = 80, RuleKeywordForAlias = 81, 
+    RuleAlias = 82, RuleIdentifier = 83, RuleEnumValue = 84, RulePlaceholder = 85, 
+    RuleString = 86, RuleTemplateString = 87, RuleStringContents = 88, RuleFullTemplateString = 89, 
+    RuleStringContentsFull = 90
   };
 
   explicit HogQLParser(antlr4::TokenStream *input);
@@ -113,9 +113,8 @@ public:
   class BlockContext;
   class KvPairContext;
   class KvPairListContext;
-  class SqlStatementContext;
-  class CreateTableStmtContext;
-  class SelectQueryContext;
+  class SelectContext;
+  class CreateContext;
   class SelectStmtWithParensContext;
   class SubsequentSelectSetClauseContext;
   class SelectSetStmtContext;
@@ -183,8 +182,7 @@ public:
   class TemplateStringContext;
   class StringContentsContext;
   class FullTemplateStringContext;
-  class StringContentsFullContext;
-  class SelectContext; 
+  class StringContentsFullContext; 
 
   class  ProgramContext : public antlr4::ParserRuleContext {
   public:
@@ -557,43 +555,9 @@ public:
 
   KvPairListContext* kvPairList();
 
-  class  SqlStatementContext : public antlr4::ParserRuleContext {
+  class  SelectContext : public antlr4::ParserRuleContext {
   public:
-    SqlStatementContext(antlr4::ParserRuleContext *parent, size_t invokingState);
-    virtual size_t getRuleIndex() const override;
-    antlr4::tree::TerminalNode *EOF();
-    CreateTableStmtContext *createTableStmt();
-    SelectQueryContext *selectQuery();
-
-
-    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
-   
-  };
-
-  SqlStatementContext* sqlStatement();
-
-  class  CreateTableStmtContext : public antlr4::ParserRuleContext {
-  public:
-    CreateTableStmtContext(antlr4::ParserRuleContext *parent, size_t invokingState);
-    virtual size_t getRuleIndex() const override;
-    antlr4::tree::TerminalNode *CREATE();
-    antlr4::tree::TerminalNode *TABLE();
-    TableIdentifierContext *tableIdentifier();
-    antlr4::tree::TerminalNode *AS();
-    antlr4::tree::TerminalNode *LPAREN();
-    SelectQueryContext *selectQuery();
-    antlr4::tree::TerminalNode *RPAREN();
-
-
-    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
-   
-  };
-
-  CreateTableStmtContext* createTableStmt();
-
-  class  SelectQueryContext : public antlr4::ParserRuleContext {
-  public:
-    SelectQueryContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    SelectContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
     SelectSetStmtContext *selectSetStmt();
     SelectStmtContext *selectStmt();
@@ -604,7 +568,26 @@ public:
    
   };
 
-  SelectQueryContext* selectQuery();
+  SelectContext* select();
+
+  class  CreateContext : public antlr4::ParserRuleContext {
+  public:
+    CreateContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    virtual size_t getRuleIndex() const override;
+    antlr4::tree::TerminalNode *CREATE();
+    antlr4::tree::TerminalNode *TABLE();
+    TableIdentifierContext *tableIdentifier();
+    antlr4::tree::TerminalNode *AS();
+    antlr4::tree::TerminalNode *LPAREN();
+    SelectContext *select();
+    antlr4::tree::TerminalNode *RPAREN();
+
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+   
+  };
+
+  CreateContext* create();
 
   class  SelectStmtWithParensContext : public antlr4::ParserRuleContext {
   public:
@@ -2621,19 +2604,6 @@ public:
   };
 
   StringContentsFullContext* stringContentsFull();
-
-  class  SelectContext : public antlr4::ParserRuleContext {
-  public:
-    SelectContext(antlr4::ParserRuleContext *parent, size_t invokingState);
-    virtual size_t getRuleIndex() const override;
-    SqlStatementContext *sqlStatement();
-
-
-    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
-   
-  };
-
-  SelectContext* select();
 
 
   bool sempred(antlr4::RuleContext *_localctx, size_t ruleIndex, size_t predicateIndex) override;
