@@ -10823,6 +10823,9 @@
                 },
                 "usePresortedEventsTable": {
                     "type": "boolean"
+                },
+                "useWebAnalyticsPreAggregatedTables": {
+                    "type": "boolean"
                 }
             },
             "type": "object"
