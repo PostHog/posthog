@@ -37,6 +37,7 @@ from posthog.warehouse.data_load.saved_query_service import (
     saved_query_workflow_exists,
     sync_saved_query_workflow,
     delete_saved_query_schedule,
+    recreate_model_paths,
 )
 from rest_framework.response import Response
 import uuid
@@ -223,6 +224,10 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
                 detail=Detail(name=view.name, changes=changes),
             )
 
+            if sync_frequency and sync_frequency != "never":
+                # Ensure model paths exist before scheduling
+                recreate_model_paths(view)
+
         if was_sync_frequency_updated:
             schedule_exists = saved_query_workflow_exists(str(instance.id))
             sync_saved_query_workflow(view, create=not schedule_exists)
@@ -305,6 +310,9 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
 
         saved_query = self.get_object()
 
+        # Ensure model paths exist before running the workflow
+        recreate_model_paths(saved_query)
+
         temporal = sync_connect()
 
         inputs = RunWorkflowInputs(
@@ -329,16 +337,16 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
     def revert_materialization(self, request: request.Request, *args, **kwargs) -> response.Response:
         saved_query = self.get_object()
         saved_query.sync_frequency_interval = None
-        # we still preserve the history in our DataModelingJob
+        # we still have the history preserved in our DataModelingJob
         saved_query.last_run_at = None
         saved_query.latest_error = None
-        saved_query.status = DataWarehouseSavedQuery.Status.MODIFIED
+        saved_query.status = None
 
         # delete the materialized table
         if saved_query.table is not None:
             saved_query.table.soft_delete()
             # Make sure to remove the reference to the deleted table
-            saved_query.table = None
+            saved_query.table_id = None
 
         saved_query.save()
 

@@ -166,7 +166,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 await api.dataWarehouseSavedQueries.revertMaterialization(viewId)
                 lemonToast.success('Materialization reverted')
                 actions.loadDataWarehouseSavedQueries()
-                actions.resetDataModelingJobs()
+                actions.loadDatabase()
             } catch (error) {
                 lemonToast.error(`Failed to revert materialization`)
             }

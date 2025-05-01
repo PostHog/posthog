@@ -176,7 +176,10 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                                 id: editingView.id,
                                                 sync_frequency: '24hour',
                                                 types: [[]],
-                                                lifecycle: 'create',
+                                                lifecycle:
+                                                    dataModelingJobs && dataModelingJobs.results.length > 0
+                                                        ? 'update'
+                                                        : 'create',
                                             })
                                         } else {
                                             saveAsView({ materializeAfterSave: true })
