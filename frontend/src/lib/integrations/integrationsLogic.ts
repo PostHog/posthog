@@ -100,23 +100,6 @@ export const integrationsLogic = kea<integrationsLogicType>([
                         throw e
                     }
                 },
-                newEmailSenderDomain: async ({ domain, callback }) => {
-                    try {
-                        const response = await api.integrations.create({
-                            kind: 'email',
-                            config: { domain },
-                        })
-                        const responseWithIcon = { ...response, icon_url: ICONS['email'] }
-
-                        // run onChange after updating the integrations loader
-                        window.setTimeout(() => callback?.(responseWithIcon), 0)
-
-                        return [...(values.integrations ?? []), responseWithIcon]
-                    } catch (e) {
-                        lemonToast.error('Failed to create email sender domain.')
-                        throw e
-                    }
-                },
             },
         ],
     })),

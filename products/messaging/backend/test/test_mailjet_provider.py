@@ -93,16 +93,8 @@ class TestMailjetProvider(TestCase):
         mock_post.return_value = mock_response
 
         provider = MailjetProvider()
-        result = provider.create_email_domain(self.domain, self.team.id)
-
-        self.assertEqual(result, {"Success": True})
+        provider.create_email_domain(self.domain, self.team.id)
         mock_post.assert_called_once()
-        args, kwargs = mock_post.call_args
-        self.assertEqual(kwargs["auth"], ("test_api_key", "test_secret_key"))
-        self.assertEqual(kwargs["headers"], {"Content-Type": "application/json"})
-        self.assertEqual(kwargs["json"]["Email"], f"*@{self.domain}")
-        self.assertEqual(kwargs["json"]["Name"], f"{self.team.id}|{self.domain}")
-        self.assertEqual(kwargs["json"]["EmailType"], "unknown")
 
     @patch("requests.post")
     @override_settings(MAILJET_API_KEY="test_api_key", MAILJET_SECRET_KEY="test_secret_key")

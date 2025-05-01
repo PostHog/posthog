@@ -28,7 +28,7 @@ export function IntegrationChoice({
     beforeRedirect,
 }: IntegrationConfigureProps): JSX.Element | null {
     const { integrationsLoading, integrations } = useValues(integrationsLogic)
-    const { newGoogleCloudKey, newEmailSenderDomain } = useActions(integrationsLogic)
+    const { newGoogleCloudKey } = useActions(integrationsLogic)
     const kind = integration
 
     const integrationsOfKind = integrations?.filter((x) => x.kind === kind)
@@ -71,8 +71,8 @@ export function IntegrationChoice({
 
     function showEmailSetupModal(): void {
         const modalProps = getEmailSetupModal({
-            onComplete: (domain: string) => {
-                newEmailSenderDomain(domain, (integration) => onChange?.(integration.id))
+            onComplete: (integrationId: number) => {
+                onChange?.(integrationId)
             },
         })
 

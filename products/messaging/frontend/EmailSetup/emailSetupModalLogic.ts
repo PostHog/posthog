@@ -7,7 +7,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import type { emailSetupModalLogicType } from './emailSetupModalLogicType'
 
 export interface EmailSetupModalLogicProps {
-    onComplete: (domain: string) => void
+    onComplete: (integrationId: number) => void
 }
 
 export interface DnsRecord {
@@ -28,7 +28,7 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
     props({} as EmailSetupModalLogicProps),
     key(() => 'global'),
     forms(({ actions }) => ({
-        emailIntegration: {
+        emailSender: {
             defaults: {
                 domain: '',
             },
@@ -45,36 +45,43 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
                     domain: domainError,
                 }
             },
-            submit: async ({ domain }) => {
-                actions.submitDomain(domain)
+            submit: async () => {
+                actions.submitDomain()
             },
         },
     })),
     loaders(({ values }) => ({
-        setupResponse: {
-            submitDomain: (domain) => {
-                return api.messaging.createEmailSenderDomain(domain)
+        integration: {
+            submitDomain: () => {
+                return api.integrations.create({
+                    kind: 'email',
+                    config: {
+                        domain: values.emailSender.domain,
+                    },
+                })
             },
         },
-        verificationResponse: {
+        verification: {
             verifyDomain: async () => {
-                return api.messaging.verifyEmailSenderDomain(values.emailIntegration.domain)
+                return api.integrations.verifyEmail(values.integration.id)
             },
         },
     })),
     selectors({
         dnsRecords: [
-            (s) => [s.setupResponse],
-            (setupResponse: { records: DnsRecord[] } | null) => setupResponse?.records || null,
+            (s) => [s.verification],
+            (verification: { status: string } | null) => verification?.status || null,
         ],
     }),
-    listeners(({ props, values }) => ({
-        verifyDomainSuccess: ({ verificationResponse }) => {
-            if (verificationResponse?.verified) {
+    listeners(({ props, values, actions }) => ({
+        submitDomainSuccess: () => {
+            // Fetch the DNS records and current verification status
+            actions.verifyDomain()
+        },
+        verifyDomainSuccess: ({ verification }) => {
+            if (verification.status === 'success') {
                 lemonToast.success('Domain verified successfully!')
-                props.onComplete(values.emailIntegration.domain)
-            } else {
-                lemonToast.warning('Domain verification failed. Please check your DNS records and try again.')
+                props.onComplete(values.integration.id)
             }
         },
     })),

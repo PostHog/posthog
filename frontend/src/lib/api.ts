@@ -944,6 +944,10 @@ class ApiRequest {
             .withQueryString({ accountId })
     }
 
+    public integrationEmailVerify(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.integrations(teamId).addPathComponent(id).addPathComponent('email/verify')
+    }
+
     public media(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('uploaded_media')
     }
@@ -1167,18 +1171,6 @@ class ApiRequest {
 
     public messagingTemplate(templateId: MessageTemplate['id']): ApiRequest {
         return this.messagingTemplates().addPathComponent(templateId)
-    }
-
-    public messagingSetup(): ApiRequest {
-        return this.environments().current().addPathComponent('messaging_setup')
-    }
-
-    public messagingSetupEmail(): ApiRequest {
-        return this.messagingSetup().addPathComponent('email')
-    }
-
-    public messagingSetupEmailVerify(): ApiRequest {
-        return this.messagingSetup().addPathComponent('email_verify')
     }
 }
 
@@ -3064,6 +3056,9 @@ const api = {
         ): Promise<{ conversionRules: LinkedInAdsConversionRuleType[] }> {
             return await new ApiRequest().integrationLinkedInAdsConversionRules(id, accountId).get()
         },
+        async verifyEmail(id: IntegrationType['id']): Promise<EmailSenderDomainStatus> {
+            return await new ApiRequest().integrationEmailVerify(id).create()
+        },
     },
 
     resourcePermissions: {
@@ -3179,12 +3174,6 @@ const api = {
             data: Partial<MessageTemplate>
         ): Promise<MessageTemplate> {
             return await new ApiRequest().messagingTemplate(templateId).update({ data })
-        },
-        async createEmailSenderDomain(domain: string): Promise<EmailSenderDomainStatus> {
-            return await new ApiRequest().messagingSetupEmail().create({ data: { domain } })
-        },
-        async verifyEmailSenderDomain(domain: string): Promise<EmailSenderDomainStatus> {
-            return await new ApiRequest().messagingSetupEmailVerify().create({ data: { domain } })
         },
     },
 

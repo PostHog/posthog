@@ -5326,21 +5326,21 @@ export interface ProjectTreeRef {
 }
 
 export interface EmailSenderDomainStatus {
-    status: 'pending' | 'verified'
+    status: 'pending' | 'success'
     dnsRecords: (
         | {
               type: 'dkim'
               recordType: 'TXT'
               recordHostname: string
               recordValue: string
-              status: 'pending' | 'verified'
+              status: 'pending' | 'success'
           }
         | {
               type: 'spf'
               recordType: 'TXT'
               recordHostname: '@'
               recordValue: string
-              status: 'pending' | 'verified'
+              status: 'pending' | 'success'
           }
     )[]
 }

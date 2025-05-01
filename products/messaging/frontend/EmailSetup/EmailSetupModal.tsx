@@ -8,23 +8,25 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { DnsRecord, emailSetupModalLogic, EmailSetupModalLogicProps } from './emailSetupModalLogic'
 
 const EmailSetupModalContent = (props: EmailSetupModalLogicProps): JSX.Element => {
-    const { setupResponse, setupResponseLoading, verificationResponseLoading } = useValues(emailSetupModalLogic(props))
-    const { verifyDomain, submitEmailIntegration } = useActions(emailSetupModalLogic(props))
+    const { integration, integrationLoading, verification, verificationLoading } = useValues(
+        emailSetupModalLogic(props)
+    )
+    const { verifyDomain, submitEmailSender } = useActions(emailSetupModalLogic(props))
 
-    if (!setupResponse) {
+    if (!integration) {
         return (
-            <Form logic={emailSetupModalLogic} formKey="emailIntegration">
+            <Form logic={emailSetupModalLogic} formKey="emailSender">
                 <div className="space-y-4">
                     <LemonField name="domain" label="Domain">
-                        <LemonInput type="text" placeholder="example.com" disabled={setupResponseLoading} />
+                        <LemonInput type="text" placeholder="example.com" disabled={integrationLoading} />
                     </LemonField>
                     <div className="flex justify-end">
                         <LemonButton
                             type="primary"
                             htmlType="submit"
-                            disabledReason={setupResponseLoading ? 'Creating sender domain...' : undefined}
-                            loading={setupResponseLoading}
-                            onClick={submitEmailIntegration}
+                            disabledReason={integrationLoading ? 'Creating sender domain...' : undefined}
+                            loading={integrationLoading}
+                            onClick={submitEmailSender}
                         >
                             Continue
                         </LemonButton>
@@ -52,7 +54,7 @@ const EmailSetupModalContent = (props: EmailSetupModalLogicProps): JSX.Element =
                         </tr>
                     </thead>
                     <tbody>
-                        {setupResponse.dnsRecords?.map((record: DnsRecord, index: number) => (
+                        {verification?.dnsRecords?.map((record: DnsRecord, index: number) => (
                             <tr key={index} className="border-b">
                                 <td className="py-2">{record.recordType}</td>
                                 <td className="py-2 max-w-[160px]">
@@ -84,7 +86,7 @@ const EmailSetupModalContent = (props: EmailSetupModalLogicProps): JSX.Element =
                                     </div>
                                 </td>
                                 <td className="py-2 w-24">
-                                    {verificationResponseLoading ? (
+                                    {verificationLoading ? (
                                         <Spinner className="text-lg" />
                                     ) : record.status === 'pending' ? (
                                         <div className="flex items-center gap-1">
@@ -101,14 +103,21 @@ const EmailSetupModalContent = (props: EmailSetupModalLogicProps): JSX.Element =
                     </tbody>
                 </table>
             </div>
-            <div className="flex justify-end">
+            <div className="flex gap-2 justify-end">
                 <LemonButton
-                    type="primary"
+                    type="secondary"
                     onClick={verifyDomain}
-                    disabled={verificationResponseLoading}
-                    loading={verificationResponseLoading}
+                    disabled={verificationLoading}
+                    loading={verificationLoading}
                 >
                     Verify DNS records
+                </LemonButton>
+                <LemonButton
+                    type="primary"
+                    onClick={() => props.onComplete(integration.id)}
+                    tooltip="You will not be able to send emails until you verify the DNS records"
+                >
+                    Finish later
                 </LemonButton>
             </div>
         </div>
@@ -120,7 +129,8 @@ export const getEmailSetupModal = ({ onComplete }: EmailSetupModalLogicProps): L
         title: `Configure email sender domain`,
         width: 'auto',
         content: <EmailSetupModalContent onComplete={onComplete} />,
-        primaryButton: null,
-        secondaryButton: null,
+        primaryButton: {
+            children: 'Complete later',
+        },
     }
 }
