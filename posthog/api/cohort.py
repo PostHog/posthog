@@ -90,7 +90,12 @@ class EventPropFilter(BaseModel, extra="forbid"):
     type: Literal["event"]
     key: str
     value: Any
-    operator: str
+    operator: str | None = None
+
+
+class HogQLFilter(BaseModel, extra="forbid"):
+    type: Literal["hogql"]
+    key: str
 
 
 class BehavioralFilter(BaseModel, extra="forbid"):
@@ -98,11 +103,11 @@ class BehavioralFilter(BaseModel, extra="forbid"):
     key: Union[str, int]  # action IDs can be ints
     value: Literal["performed_event"]
     event_type: Literal["events", "actions"]
-    time_value: int
-    time_interval: Literal["day", "week", "hour"]
+    time_value: int | None = None
+    time_interval: Literal["day", "week", "hour"] | None = None
     negation: bool = False
-    event_filters: list[EventPropFilter] | None = None
-    explicit_datetime: str | None = None  # e.g. "-30d"
+    event_filters: list[Union[EventPropFilter, HogQLFilter]] | None = None
+    explicit_datetime: str | None = None
 
 
 class CohortFilter(BaseModel, extra="forbid"):
@@ -339,45 +344,6 @@ class CohortSerializer(serializers.ModelSerializer):
                     detail=f"A dependent cohort ({dependent_cohort.name}) has filters based on events. These cohorts can't be used in feature flags.",
                     code="behavioral_cohort_found",
                 )
-
-    def validate_property_filter(self, prop: dict):
-        if not isinstance(prop, dict):
-            raise ValidationError({"property_filter": "Each property filter must be an object", "received": prop})
-
-        if "type" not in prop:
-            raise ValidationError({"property_filter": "Property filter must have a 'type' field", "received": prop})
-
-        REQUIRED_KEYS: dict[str, Union[list[str], dict[str, list[str]]]] = {
-            "behavioral": ["key", "type", "value", "event_type"],
-            "cohort": ["key", "type", "value"],
-            "standard": {
-                "is_set": ["key", "type", "operator"],
-                "is_not_set": ["key", "type", "operator"],
-                "default": ["key", "type", "value", "operator"],
-            },
-        }
-
-        prop_type = prop["type"]
-        if prop_type == "behavioral":
-            required_keys = cast(list[str], REQUIRED_KEYS["behavioral"])
-        elif prop_type == "cohort":
-            required_keys = cast(list[str], REQUIRED_KEYS["cohort"])
-        else:
-            operator = prop.get("operator")
-            standard_keys = cast(dict[str, list[str]], REQUIRED_KEYS["standard"])
-            if operator in ["is_set", "is_not_set"]:
-                required_keys = standard_keys[operator]
-            else:
-                required_keys = standard_keys["default"]
-
-        missing_keys = [key for key in required_keys if key not in prop]
-        if missing_keys:
-            raise ValidationError(
-                {
-                    "property_filter": f"Missing required keys for {prop_type} filter: {', '.join(missing_keys)}",
-                    "received": prop,
-                }
-            )
 
     def update(self, cohort: Cohort, validated_data: dict, *args: Any, **kwargs: Any) -> Cohort:  # type: ignore
         request = self.context["request"]
