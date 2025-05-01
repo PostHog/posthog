@@ -103,7 +103,7 @@ async function staticLookupAsync(hostname: string): Promise<LookupAddress> {
     return addrinfo[0]
 }
 
-const httpStaticLookup: net.LookupFunction = async (hostname, _options, cb) => {
+export const httpStaticLookup: net.LookupFunction = async (hostname, _options, cb) => {
     try {
         const addrinfo = await staticLookupAsync(hostname)
         cb(null, addrinfo.address, addrinfo.family)

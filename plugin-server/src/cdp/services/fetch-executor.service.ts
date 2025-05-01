@@ -1,8 +1,7 @@
 import { DateTime } from 'luxon'
-import { FetchError, RequestInit } from 'node-fetch'
 
 import { PluginsServerConfig } from '../../types'
-import { trackedFetch } from '../../utils/fetch'
+import { secureRequest, SecureRequestOptions } from '../../utils/request'
 import {
     CyclotronFetchFailureInfo,
     CyclotronFetchFailureKind,
@@ -86,20 +85,19 @@ export class FetchExecutorService {
         try {
             const start = performance.now()
             const method = params.method.toUpperCase()
-            const fetchParams: RequestInit = {
+            const fetchParams: SecureRequestOptions = {
                 method,
                 headers: params.headers,
-                timeout: this.serverConfig.CDP_FETCH_TIMEOUT_MS,
+                timeoutMs: this.serverConfig.CDP_FETCH_TIMEOUT_MS,
             }
             if (!['GET', 'HEAD'].includes(method) && params.body) {
                 fetchParams.body = params.body
             }
-            const fetchResponse = await trackedFetch(params.url, fetchParams)
+            const fetchResponse = await secureRequest(params.url, fetchParams)
 
-            responseBody = await fetchResponse.text()
+            responseBody = fetchResponse.body
 
             const duration = performance.now() - start
-            const headers = Object.fromEntries(fetchResponse.headers.entries())
 
             // Match Rust implementation: Only return response for success status codes (<400)
             if (fetchResponse.status && fetchResponse.status < 400) {
@@ -110,7 +108,7 @@ export class FetchExecutorService {
                         queueParameters: {
                             response: {
                                 status: fetchResponse.status,
-                                headers,
+                                headers: fetchResponse.headers,
                             },
                             body: responseBody,
                             timings: [
@@ -129,7 +127,7 @@ export class FetchExecutorService {
                 const failure: CyclotronFetchFailureInfo = {
                     kind: 'failurestatus' as CyclotronFetchFailureKind,
                     message: `Received failure status: ${fetchResponse.status}`,
-                    headers,
+                    headers: fetchResponse.headers,
                     status: fetchResponse.status,
                     timestamp: DateTime.utc(),
                 }
@@ -138,10 +136,8 @@ export class FetchExecutorService {
         } catch (err) {
             let kind: CyclotronFetchFailureKind = 'requesterror'
 
-            if (err instanceof FetchError) {
-                if (err.type === 'request-timeout') {
-                    kind = 'timeout'
-                }
+            if (err.message.includes('timeout')) {
+                kind = 'timeout'
             }
 
             // Match Rust implementation: Create a failure trace for errors

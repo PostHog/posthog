@@ -1,6 +1,6 @@
 import { FetchError } from 'node-fetch'
 
-import { raiseIfUserProvidedUrlUnsafe, SecureFetch } from './fetch'
+import { SecureFetch } from './fetch'
 
 // Restore the real fetch implementation for this test file
 jest.unmock('node-fetch')
@@ -19,33 +19,6 @@ describe('secureFetch', () => {
     beforeEach(() => {
         jest.setTimeout(1000)
         jest.mocked(dns.lookup).mockImplementation(realDnsLookup)
-    })
-
-    describe('raiseIfUserProvidedUrlUnsafe', () => {
-        it.each([
-            'https://google.com?q=20', // Safe
-            'https://posthog.com', // Safe
-            'https://posthog.com/foo/bar', // Safe, with path
-            'https://posthog.com:443', // Safe, good port
-            'https://1.1.1.1', // Safe, public IP
-        ])('should allow safe URLs: %s', async (url) => {
-            await expect(raiseIfUserProvidedUrlUnsafe(url)).resolves.not.toThrow()
-        })
-
-        it.each([
-            ['', 'Invalid URL'],
-            ['@@@', 'Invalid URL'],
-            ['posthog.com', 'Invalid URL'],
-            ['ftp://posthog.com', 'Scheme must be either HTTP or HTTPS'],
-            ['http://localhost', 'Internal hostname'],
-            ['http://192.168.0.5', 'Internal hostname'],
-            ['http://0.0.0.0', 'Internal hostname'],
-            ['http://10.0.0.24', 'Internal hostname'],
-            ['http://172.20.0.21', 'Internal hostname'],
-            ['http://fgtggggzzggggfd.com', 'Invalid hostname'],
-        ])('should raise against unsafe URLs: %s', async (url, error) => {
-            await expect(raiseIfUserProvidedUrlUnsafe(url)).rejects.toThrow(new FetchError(error, 'posthog-host-guard'))
-        })
     })
 
     describe('trackedFetch', () => {
