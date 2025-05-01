@@ -16,6 +16,7 @@ from posthog.constants import PropertyOperatorType
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.filters.filter import Filter
 from posthog.models.person import Person
+from posthog.models.person.person import READ_DB_FOR_PERSONS
 from posthog.models.property import BehavioralPropertyType, Property, PropertyGroup
 from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
 from posthog.settings.base_variables import TEST
@@ -119,7 +120,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(
-            base_folder="Unfiled/Cohorts",
+            base_folder=self._create_in_folder or "Unfiled/Cohorts",
             type="cohort",  # sync with APIScopeObject in scopes.py
             ref=str(self.pk),
             name=self.name or "Untitled",
@@ -300,7 +301,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             for i in range(0, len(items), batchsize):
                 batch = items[i : i + batchsize]
                 persons_query = (
-                    Person.objects.filter(team_id=team_id)
+                    Person.objects.db_manager(READ_DB_FOR_PERSONS)
+                    .filter(team_id=team_id)
                     .filter(
                         Q(
                             persondistinctid__team_id=team_id,
@@ -360,7 +362,10 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             for i in range(0, len(items), batchsize):
                 batch = items[i : i + batchsize]
                 persons_query = (
-                    Person.objects.filter(team_id=team_id).filter(uuid__in=batch).exclude(cohort__id=self.id)
+                    Person.objects.db_manager(READ_DB_FOR_PERSONS)
+                    .filter(team_id=team_id)
+                    .filter(uuid__in=batch)
+                    .exclude(cohort__id=self.id)
                 )
                 if insert_in_clickhouse:
                     insert_static_cohort(
@@ -395,6 +400,36 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
             self.save()
             capture_exception(err)
+
+    def to_dict(self) -> dict:
+        people_data = [
+            {
+                "id": person.id,
+                "email": person.email or "(no email)",
+                "distinct_id": person.distinct_ids[0] if person.distinct_ids else "(no distinct id)",
+            }
+            for person in self.people.all()
+        ]
+
+        from posthog.models.activity_logging.activity_log import field_exclusions, common_field_exclusions
+
+        excluded_fields = field_exclusions.get("Cohort", []) + common_field_exclusions
+        base_dict = {
+            "id": self.pk,
+            "name": self.name,
+            "description": self.description,
+            "team_id": self.team_id,
+            "deleted": self.deleted,
+            "filters": self.filters,
+            "query": self.query,
+            "groups": self.groups,
+            "is_static": self.is_static,
+            "created_by_id": self.created_by_id,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "last_error_at": self.last_error_at.isoformat() if self.last_error_at else None,
+            "people": people_data,
+        }
+        return {k: v for k, v in base_dict.items() if k not in excluded_fields}
 
     __repr__ = sane_repr("id", "name", "last_calculation")
 

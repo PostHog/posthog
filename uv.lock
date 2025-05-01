@@ -274,6 +274,22 @@ wheels = [
 ]
 
 [[package]]
+name = "autoevals"
+version = "0.0.127"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "braintrust-core" },
+    { name = "chevron" },
+    { name = "jsonschema" },
+    { name = "polyleven" },
+    { name = "pyyaml" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/63/96/db5af3c9c3b2d34e49e9e75963fe93531b2d3b4c243597a9dccc037c45b2/autoevals-0.0.127.tar.gz", hash = "sha256:233c58f3709b835abf3b45aa37c35303b206c90d2b8da467f0915a828e3a4032", size = 49708 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/36/45/6306e1bff0008d34213803270b03f98a5e825bda47ca154927e7bcf87650/autoevals-0.0.127-py3-none-any.whl", hash = "sha256:f50f3d868893a2e7e58d2802d8acceeaeaee647a1b1fe904e25f7b76dacd1477", size = 53249 },
+]
+
+[[package]]
 name = "backoff"
 version = "2.2.1"
 source = { registry = "https://pypi.org/simple" }
@@ -423,6 +439,49 @@ wheels = [
 ]
 
 [[package]]
+name = "braintrust"
+version = "0.0.200"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "braintrust-core" },
+    { name = "chevron" },
+    { name = "exceptiongroup" },
+    { name = "gitpython" },
+    { name = "python-dotenv" },
+    { name = "python-slugify" },
+    { name = "requests" },
+    { name = "sseclient-py" },
+    { name = "tqdm" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/14/0b/2c7878f59a8608ddb4cf40b3716a02506afb05b72b88bdf9bc58c366adc5/braintrust-0.0.200.tar.gz", hash = "sha256:3bf36cb42ca4333761399d208d73c6e3e8a2807ac174aae37609073a0dd438c8", size = 114320 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2a/7e/a4a50bf8ed87c10ab105c5b01640d67e86f832281974a0f65d1e9ee55bb2/braintrust-0.0.200-py3-none-any.whl", hash = "sha256:3f31d82fff230a411b36235f0be0772a8c76ea8b40603d6784a02189ee1751ce", size = 132913 },
+]
+
+[[package]]
+name = "braintrust-core"
+version = "0.0.58"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/16/13/ab46b7033b585ecafb636eda505e049bcae31f7b0335e7b83bb8250147ca/braintrust_core-0.0.58.tar.gz", hash = "sha256:213ef6515ea1b5802213035b12b66971b10f4ee55a6bc426e29370d2da063f6c", size = 3610 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b3/58/a255894436f3eca4a20611785a30a43b85bc75adf1b77f227e1e6d0cce0a/braintrust_core-0.0.58-py3-none-any.whl", hash = "sha256:fa272b70376d2c6692acf00ebd9fb9bae057b0c53b2b6a59a64850bf79757311", size = 4438 },
+]
+
+[[package]]
+name = "braintrust-langchain"
+version = "0.0.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "braintrust" },
+    { name = "langchain" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/77/1d/9f1def0527de67191c41fa3941a8cc72b187c6fd52c1f8b7a9b24fc6240a/braintrust_langchain-0.0.2.tar.gz", hash = "sha256:f5af5ebc600cd45fd67a4ba4b6e0b99248eb6f6caea79f521d0bee1f045ac4b0", size = 42543 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3a/7e/235c99c8d934b922b8ffd9cd2220f21e14fabb4cc126eb2e3a914baa54f1/braintrust_langchain-0.0.2-py3-none-any.whl", hash = "sha256:8a5cab14b84f375e43500eb5feae64d5311683a268a3d7c4c70e592dfdbaa444", size = 43040 },
+]
+
+[[package]]
 name = "brotli"
 version = "1.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -537,6 +596,30 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/93/1d/d9392056df6670ae2a29fcb04cfa5cee9f6fbde7311a1bb511d4115e9b7a/charset-normalizer-2.1.0.tar.gz", hash = "sha256:575e708016ff3a5e3681541cb9d79312c416835686d054a23accb873b254f413", size = 81769 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/94/69/64b11e8c2fb21f08634468caef885112e682b0ebe2908e74d3616eb1c113/charset_normalizer-2.1.0-py3-none-any.whl", hash = "sha256:5189b6f22b01957427f35b6a08d9a0bc45b46d3788ef5a92e978433c7a35f8a5", size = 39548 },
+]
+
+[[package]]
+name = "chdb"
+version = "3.1.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pandas" },
+    { name = "pyarrow" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2d/00/c5ab14ceace5ecb8929c3161fb17b74cb1f03cab3213914010c47870e201/chdb-3.1.2-cp311-cp311-macosx_10_15_x86_64.whl", hash = "sha256:e0b4967c04a235ba7d8f37af4b3d619768e27b57a63e54992c40eaec9cc496c4", size = 102624550 },
+    { url = "https://files.pythonhosted.org/packages/68/e6/04e0645cba6f6aa06e4d72317b2abcdf188389d6735c0988a4f26792d4dd/chdb-3.1.2-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:1f42790b5b3aa8997cb47485189876a1762f3aa6865e226639235f2537e961fe", size = 78151553 },
+    { url = "https://files.pythonhosted.org/packages/97/47/7b10bb7260c89c74a6184ce415f6e8dd83bcc3f7235351e91db440171737/chdb-3.1.2-cp311-cp311-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:e1ebfb8d673e1b0f95177ae74a2f671d6ae028a3fb1bca8205670707c75c894a", size = 113885266 },
+    { url = "https://files.pythonhosted.org/packages/e3/e2/652bd562a3b09c0d30caacd3cc44f98d928ab388057a5492f5abee4052ef/chdb-3.1.2-cp311-cp311-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:d8632bea2ddcc3b42855db08911c1437e5e38953cd2556402ddb960bcbd747bd", size = 140193793 },
+]
+
+[[package]]
+name = "chevron"
+version = "0.14.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/15/1f/ca74b65b19798895d63a6e92874162f44233467c9e7c1ed8afd19016ebe9/chevron-0.14.0.tar.gz", hash = "sha256:87613aafdf6d77b6a90ff073165a61ae5086e21ad49057aa0e53681601800ebf", size = 11440 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/52/93/342cc62a70ab727e093ed98e02a725d85b746345f05d2b5e5034649f4ec8/chevron-0.14.0-py3-none-any.whl", hash = "sha256:fbf996a709f8da2e745ef763f482ce2d311aa817d287593a5b990d6d6e4f0443", size = 11595 },
 ]
 
 [[package]]
@@ -1499,6 +1582,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/30/ea/8b0ac4469d4c347c6a385ff09dc3c048c2d021696664e26c7ee6791631b5/eval_type_backport-0.2.2.tar.gz", hash = "sha256:f0576b4cf01ebb5bd358d02314d31846af5e07678387486e2c798af0e7d849c1", size = 9079 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ce/31/55cd413eaccd39125368be33c46de24a1f639f2e12349b0361b4678f3915/eval_type_backport-0.2.2-py3-none-any.whl", hash = "sha256:cb6ad7c393517f476f96d456d0412ea80f0a8cf96f6892834cd9340149111b0a", size = 5830 },
+]
+
+[[package]]
+name = "exceptiongroup"
+version = "1.2.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/09/35/2495c4ac46b980e4ca1f6ad6db102322ef3ad2410b79fdde159a4b0f3b92/exceptiongroup-1.2.2.tar.gz", hash = "sha256:47c2edf7c6738fafb49fd34290706d1a1a2f4d1c6df275526b62cbb4aa5393cc", size = 28883 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/02/cc/b7e31358aac6ed1ef2bb790a9746ac2c69bcb3c8588b41616914eb106eaf/exceptiongroup-1.2.2-py3-none-any.whl", hash = "sha256:3111b9d131c238bec2f8f516e123e14ba243563fb135d3fe885990585aa7795b", size = 16453 },
 ]
 
 [[package]]
@@ -3550,6 +3642,21 @@ wheels = [
 ]
 
 [[package]]
+name = "polyleven"
+version = "0.9.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/5c/a9/5fcf2c4d77270d9f8cd5e3d1c878ca7ffcab22debc27c16d9c67288632de/polyleven-0.9.0.tar.gz", hash = "sha256:299a93766761b5e5fb4092388f3dc6401224fd436c05f11c4ee48b262587e8da", size = 6274 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/88/bb/d11d699bfa168bdd08f26ccba71a87b0bcfe0e49f57c4402ab4657c07889/polyleven-0.9.0-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:e58bbcd3f062043fa67e76e89f803eb308ea06fbb4dc6f32d7063c37f1c16dfd", size = 7337 },
+    { url = "https://files.pythonhosted.org/packages/d9/c7/4b6823eabdaaee18778c95f41beed0b9399ccedb4785045d3cb7505cbfd8/polyleven-0.9.0-cp311-cp311-manylinux_2_5_i686.manylinux1_i686.manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:3fd803de02e99f51ade3fcae4e5be50c89c1ff360213bcdbcf98820e2633c71a", size = 22669 },
+    { url = "https://files.pythonhosted.org/packages/fc/45/9ed7b75cce9ab47541a1b3c5ee0ce7e8e73e3c5701e6ed11651a6083a323/polyleven-0.9.0-cp311-cp311-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:ff60e2da0864b3d4bec2826eadbbb0a8967384d53bec9e693aad7b0089e1258c", size = 20958 },
+    { url = "https://files.pythonhosted.org/packages/51/be/94493e60e368ff3ed4f2f47f92e359aef5b9f9031d8407f0c58be4c11b01/polyleven-0.9.0-cp311-cp311-musllinux_1_2_i686.whl", hash = "sha256:259856641423ca82230237d637869301ba02971c24283101b67c8117e7116b7a", size = 21593 },
+    { url = "https://files.pythonhosted.org/packages/65/1b/0a5f272b6c0030d33c50c6280583e4ba13da4018369e5fd28593e70f1a29/polyleven-0.9.0-cp311-cp311-musllinux_1_2_x86_64.whl", hash = "sha256:a46e7b364b3936f025022d1182e10cba9ac45974dc2cafa17b7f9f515784adb5", size = 20448 },
+    { url = "https://files.pythonhosted.org/packages/2a/72/8080391bf7f918bb31f6afa806245da4ed4b2337aab94175f13ba34dedf6/polyleven-0.9.0-cp311-cp311-win32.whl", hash = "sha256:6f0fd999efaa0d5409603ae7e44b60152b8d12a190b54115bcf0ba93e41e09f1", size = 11266 },
+    { url = "https://files.pythonhosted.org/packages/02/02/6a51a9bce05a19e8d4080dd80901529c6958f97b9ac83e0aba94812a9335/polyleven-0.9.0-cp311-cp311-win_amd64.whl", hash = "sha256:65a6e899db184bce6384526e46f446c6c159a2b0bb3b463dcc78a2bc8ddf85f5", size = 10647 },
+]
+
+[[package]]
 name = "portalocker"
 version = "2.10.1"
 source = { registry = "https://pypi.org/simple" }
@@ -3576,6 +3683,7 @@ dependencies = [
     { name = "brotli" },
     { name = "celery" },
     { name = "celery-redbeat" },
+    { name = "chdb" },
     { name = "clickhouse-connect" },
     { name = "clickhouse-driver" },
     { name = "clickhouse-pool" },
@@ -3702,8 +3810,11 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "aioresponses" },
+    { name = "autoevals" },
     { name = "black" },
     { name = "boto3-stubs", extra = ["s3"] },
+    { name = "braintrust" },
+    { name = "braintrust-langchain" },
     { name = "datamodel-code-generator" },
     { name = "deepeval" },
     { name = "django-linear-migrations" },
@@ -3770,6 +3881,7 @@ requires-dist = [
     { name = "brotli", specifier = "==1.1.0" },
     { name = "celery", specifier = "==5.3.4" },
     { name = "celery-redbeat", specifier = "==2.1.1" },
+    { name = "chdb", specifier = ">=3.1.2" },
     { name = "clickhouse-connect", specifier = "==0.8.17" },
     { name = "clickhouse-driver", specifier = "==0.2.9" },
     { name = "clickhouse-pool", specifier = "==0.5.3" },
@@ -3896,8 +4008,11 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "aioresponses", specifier = "==0.7.6" },
+    { name = "autoevals", specifier = ">=0.0.127" },
     { name = "black", specifier = "~=23.9.1" },
     { name = "boto3-stubs", extras = ["s3"], specifier = ">=1.34.84" },
+    { name = "braintrust", specifier = ">=0.0.200" },
+    { name = "braintrust-langchain", specifier = ">=0.0.2" },
     { name = "datamodel-code-generator", specifier = "==0.28.5" },
     { name = "deepeval", specifier = "==2.6.*" },
     { name = "django-linear-migrations", specifier = "==2.16.*" },
@@ -4580,6 +4695,18 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/87/8d/ab7352188f605e3f663f34692b2ed7457da5985857e9e4c2335cd12fb3c9/python-dotenv-0.21.0.tar.gz", hash = "sha256:b77d08274639e3d34145dfa6c7008e66df0f04b7be7a75fd0d5292c191d79045", size = 34984 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/2d/10/ff4f2f5b2a420fd09e1331d63cc87cf4367c5745c0a4ce99cea92b1cbacb/python_dotenv-0.21.0-py3-none-any.whl", hash = "sha256:1684eb44636dd462b66c3ee016599815514527ad99965de77f43e0944634a7e5", size = 18818 },
+]
+
+[[package]]
+name = "python-slugify"
+version = "8.0.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "text-unidecode" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/87/c7/5e1547c44e31da50a460df93af11a535ace568ef89d7a811069ead340c4a/python-slugify-8.0.4.tar.gz", hash = "sha256:59202371d1d05b54a9e7720c5e038f928f45daaffe41dd10822f3907b937c856", size = 10921 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a4/62/02da182e544a51a5c3ccf4b03ab79df279f9c60c5e82d5e8bec7ca26ac11/python_slugify-8.0.4-py2.py3-none-any.whl", hash = "sha256:276540b79961052b66b7d116620b36518847f52d5fd9e3a70164fc8c50faa6b8", size = 10051 },
 ]
 
 [[package]]
@@ -5363,6 +5490,15 @@ wheels = [
 ]
 
 [[package]]
+name = "sseclient-py"
+version = "1.8.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/e8/ed/3df5ab8bb0c12f86c28d0cadb11ed1de44a92ed35ce7ff4fd5518a809325/sseclient-py-1.8.0.tar.gz", hash = "sha256:c547c5c1a7633230a38dc599a21a2dc638f9b5c297286b48b46b935c71fac3e8", size = 7791 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/49/58/97655efdfeb5b4eeab85b1fc5d3fa1023661246c2ab2a26ea8e47402d4f2/sseclient_py-1.8.0-py2.py3-none-any.whl", hash = "sha256:4ecca6dc0b9f963f8384e9d7fd529bf93dd7d708144c4fb5da0e0a1a926fee83", size = 8828 },
+]
+
+[[package]]
 name = "sshtunnel"
 version = "0.4.0"
 source = { registry = "https://pypi.org/simple" }
@@ -5512,6 +5648,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/9a/dc/7b9818743ab08d53245b777639b6c2d274be8e7eb09b1131885958a3f517/tenacity-8.4.2.tar.gz", hash = "sha256:cd80a53a79336edba8489e767f729e4f391c896956b57140b5d7511a64bbd3ef", size = 46206 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e3/ee/b179c3ab5cb842d75c65339c4b86b572eaf8f43407890bd1d2c7b72eb829/tenacity-8.4.2-py3-none-any.whl", hash = "sha256:9e6f7cf7da729125c7437222f8a522279751cdfbe6b67bfe64f75d3a348661b2", size = 28165 },
+]
+
+[[package]]
+name = "text-unidecode"
+version = "1.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/ab/e2/e9a00f0ccb71718418230718b3d900e71a5d16e701a3dae079a21e9cd8f8/text-unidecode-1.3.tar.gz", hash = "sha256:bad6603bb14d279193107714b288be206cac565dfa49aa5b105294dd5c4aab93", size = 76885 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a6/a5/c0b6468d3824fe3fde30dbb5e1f687b291608f9473681bbf7dabbf5a87d7/text_unidecode-1.3-py2.py3-none-any.whl", hash = "sha256:1311f10e8b895935241623731c2ba64f4c455287888b18189350b67134a822e8", size = 78154 },
 ]
 
 [[package]]

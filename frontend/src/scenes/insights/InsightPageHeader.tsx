@@ -12,6 +12,7 @@ import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
+import { openSaveToModal } from 'lib/components/SaveTo/saveToLogic'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
@@ -182,6 +183,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 <AddToDashboard insight={insight} setOpenModal={setAddToDashboardModalOpenModal} />
                             </>
                         )}
+
                         {insightMode !== ItemMode.Edit ? (
                             canEditInsight && (
                                 <AccessControlledLemonButton
@@ -203,8 +205,20 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             )
                         ) : (
                             <InsightSaveButton
-                                saveAs={saveAs}
-                                saveInsight={saveInsight}
+                                saveAs={() =>
+                                    openSaveToModal({
+                                        callback: (folder) => saveAs(undefined, undefined, folder),
+                                        defaultFolder: 'Unfiled/Insights',
+                                    })
+                                }
+                                saveInsight={(redirectToViewMode) =>
+                                    insight.short_id
+                                        ? saveInsight(redirectToViewMode)
+                                        : openSaveToModal({
+                                              callback: (folder) => saveInsight(redirectToViewMode, folder),
+                                              defaultFolder: 'Unfiled/Insights',
+                                          })
+                                }
                                 isSaved={hasDashboardItemId}
                                 addingToDashboard={!!insight.dashboards?.length && !insight.id}
                                 insightSaving={insightSaving}

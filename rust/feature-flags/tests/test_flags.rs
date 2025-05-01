@@ -1429,3 +1429,87 @@ async fn test_super_condition_with_complex_request() -> Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_flag_matches_with_no_person_profile() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token;
+
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id))
+        .await
+        .unwrap();
+
+    // Create a flag with two conditions:
+    // 1. A property filter (which won't match since there's no person)
+    // 2. Just a rollout percentage (which should match since it's 100%)
+    let flag_json = json!([{
+        "id": 1,
+        "key": "test-flag",
+        "name": "Test Flag",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [
+                {
+                    "properties": [{
+                        "key": "email",
+                        "value": "test@example.com",
+                        "type": "person",
+                        "operator": "exact"
+                    }],
+                    "rollout_percentage": 100
+                },
+                {
+                    "properties": [],
+                    "rollout_percentage": 100
+                }
+            ],
+        },
+    }]);
+
+    insert_flags_for_team_in_redis(
+        client,
+        team.id,
+        team.project_id,
+        Some(flag_json.to_string()),
+    )
+    .await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Use a distinct_id that doesn't exist in the database
+    let payload = json!({
+        "token": token,
+        "distinct_id": "nonexistent_user",
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("3"))
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "test-flag": {
+                    "key": "test-flag",
+                    "enabled": true,
+                    "reason": {
+                        "code": "condition_match",
+                        "condition_index": 1,  // Important: matches on the second condition
+                        "description": "Matched condition set 2"
+                    }
+                }
+            }
+        })
+    );
+
+    Ok(())
+}

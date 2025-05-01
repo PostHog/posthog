@@ -7,6 +7,7 @@ import { beforeUnload, router } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
+import { asyncSaveToModal } from 'lib/components/SaveTo/saveToLogic'
 import { dayjs } from 'lib/dayjs'
 import { uuid } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
@@ -596,6 +597,12 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     delete payload.inputs_schema
                 }
 
+                if (!props.id || props.id === 'new') {
+                    const folder = await asyncSaveToModal({})
+                    if (typeof folder === 'string') {
+                        payload._create_in_folder = folder
+                    }
+                }
                 await asyncActions.upsertHogFunction(payload as HogFunctionConfigurationType)
             },
         },

@@ -165,6 +165,7 @@ export const DateRangeFilter = ({
                 onChange={(changedDateFrom, changedDateTo) =>
                     setDateRange({ date_from: changedDateFrom, date_to: changedDateTo })
                 }
+                allowedRollingDateOptions={['hours', 'days', 'weeks', 'months', 'years']}
             />
         </span>
     )

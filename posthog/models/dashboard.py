@@ -115,7 +115,7 @@ class Dashboard(FileSystemSyncMixin, RootTeamMixin, models.Model):
     def get_file_system_representation(self) -> FileSystemRepresentation:
         should_delete = self.deleted or (self.creation_mode == "template")
         return FileSystemRepresentation(
-            base_folder="Unfiled/Dashboards",
+            base_folder=self._create_in_folder or "Unfiled/Dashboards",
             type="dashboard",  # sync with APIScopeObject in scopes.py
             ref=str(self.id),
             name=self.name or "Untitled",
