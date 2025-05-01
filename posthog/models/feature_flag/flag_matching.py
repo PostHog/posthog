@@ -74,8 +74,8 @@ PERSON_KEY = "person"
 # This is temporary while we migrate persons to its own database.
 # It'll use `replica` until we set the PERSONS_DB_WRITER_URL env var
 DATABASE_FOR_PERSONS = (
-    "persons_db_writer"
-    if "persons_db_writer" in connections
+    "persons_db_reader"
+    if "persons_db_reader" in connections
     else "replica"
     if "replica" in connections and "decide" in settings.READ_REPLICA_OPT_IN
     else "default"
