@@ -228,7 +228,8 @@ def _calculate_segment_events_count(
     start_event_id: str, end_event_id: str, event_index_index: int, simplified_events_mapping: dict[str, list[Any]]
 ) -> tuple[int, float]:
     start_event, end_event = simplified_events_mapping[start_event_id], simplified_events_mapping[end_event_id]
-    events_count = end_event[event_index_index] - start_event[event_index_index]
+    # Events from the start to the end event (inclusive)
+    events_count = end_event[event_index_index] - start_event[event_index_index] + 1
     events_percentage = events_count / len(simplified_events_mapping)
     return events_count, events_percentage
 
