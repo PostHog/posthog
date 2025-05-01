@@ -219,7 +219,7 @@ def _send_via_smtp(
                 )
 
 
-def sanitize_email_properties(properties: dict[str, Any]) -> dict[str, Any]:
+def sanitize_email_properties(properties: dict[str, Any] | None) -> dict[str, Any]:
     """
     Sanitizes properties that will be used in email templates to prevent HTML injection.
     This function recursively processes dictionaries, lists, and scalar values to ensure
