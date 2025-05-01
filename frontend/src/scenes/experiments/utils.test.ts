@@ -36,6 +36,7 @@ import {
     featureFlagEligibleForExperiment,
     filterToExposureConfig,
     filterToMetricConfig,
+    getFunnelPreviewSeries,
     getViewRecordingFilters,
     isLegacyExperiment,
     isLegacyExperimentQuery,
@@ -1009,5 +1010,56 @@ describe('hasLegacyMetrics', () => {
         } as unknown as Experiment
 
         expect(isLegacyExperiment(experiment)).toBe(false)
+    })
+})
+
+describe('getFunnelPreviewSeries', () => {
+    it('returns the correct series for a funnel metric with events and actions', () => {
+        const metric: ExperimentMetric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.FUNNEL,
+            series: [
+                {
+                    event: 'checkout started',
+                    kind: NodeKind.EventsNode,
+                    name: 'checkout started',
+                },
+                {
+                    id: 1,
+                    kind: NodeKind.ActionsNode,
+                    name: 'purchase completed',
+                },
+                {
+                    event: 'survey submitted',
+                    kind: NodeKind.EventsNode,
+                    name: 'survey submitted',
+                },
+            ],
+        }
+
+        const series = getFunnelPreviewSeries(metric)
+        expect(series).toEqual([
+            {
+                kind: NodeKind.EventsNode,
+                event: '$pageview',
+                name: '$pageview',
+                custom_name: 'Placeholder for experiment exposure',
+            },
+            {
+                kind: NodeKind.EventsNode,
+                event: 'checkout started',
+                name: 'checkout started',
+            },
+            {
+                kind: NodeKind.ActionsNode,
+                id: 1,
+                name: 'purchase completed',
+            },
+            {
+                kind: NodeKind.EventsNode,
+                event: 'survey submitted',
+                name: 'survey submitted',
+            },
+        ])
     })
 })

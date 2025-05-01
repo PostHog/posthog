@@ -37,7 +37,7 @@ jest.mock('../../../src/kafka/producer', () => {
         produce: jest.fn().mockReturnValue(Promise.resolve()),
         queueMessages: jest.fn().mockReturnValue(Promise.resolve()),
         flush: jest.fn().mockReturnValue(Promise.resolve()),
-    }
+    } as any
 
     const MockKafkaProducer = {
         create: jest.fn(() => Promise.resolve(mockKafkaProducer)),

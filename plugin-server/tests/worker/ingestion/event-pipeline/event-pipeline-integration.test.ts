@@ -165,6 +165,7 @@ describe('Event Pipeline integration test', () => {
         }
 
         expect(fetch).toHaveBeenCalledWith('https://webhook.example.com/', {
+            agent: false,
             body: JSON.stringify(expectedPayload, undefined, 4),
             headers: { 'Content-Type': 'application/json' },
             method: 'POST',

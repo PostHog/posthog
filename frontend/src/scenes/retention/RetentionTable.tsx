@@ -96,8 +96,7 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                                                     const validRows = breakdownRows.filter((row) => {
                                                         return !(
                                                             row.values?.[interval]?.isCurrentPeriod ||
-                                                            !row.values?.[interval] ||
-                                                            row.values?.[interval]?.count <= 0
+                                                            row.cohortSize <= 0
                                                         )
                                                     })
 

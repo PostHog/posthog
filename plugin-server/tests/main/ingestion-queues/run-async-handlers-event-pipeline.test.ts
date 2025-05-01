@@ -104,7 +104,7 @@ describe('runAppsOnEventPipeline()', () => {
             isRetriable: true,
         })
 
-        jest.spyOn(hub.kafkaProducer.producer, 'produce').mockImplementation(
+        jest.spyOn(hub.kafkaProducer['producer'], 'produce').mockImplementation(
             (topic, partition, message, key, timestamp, headers, cb) => cb(error)
         )
 
