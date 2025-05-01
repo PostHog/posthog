@@ -1,7 +1,6 @@
 from typing import Any, Optional
 
-from django.conf import settings
-from django.db import models, transaction
+from django.db import models, transaction, connections
 from django.db.models import F, Q
 
 from posthog.models.utils import UUIDT
@@ -11,7 +10,12 @@ from .missing_person import uuidFromDistinctId
 
 MAX_LIMIT_DISTINCT_IDS = 2500
 
-READ_DB_FOR_PERSONS = "replica" if "replica" in settings.DATABASES else "default"
+if "persons_db_reader" in connections:
+    READ_DB_FOR_PERSONS = "persons_db_reader"
+elif "replica" in connections:
+    READ_DB_FOR_PERSONS = "replica"
+else:
+    READ_DB_FOR_PERSONS = "default"
 
 
 class PersonManager(models.Manager):
