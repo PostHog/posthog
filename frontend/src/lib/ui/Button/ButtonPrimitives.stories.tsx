@@ -1,5 +1,6 @@
-import { IconSearch } from '@posthog/icons'
+import { IconGear, IconSearch } from '@posthog/icons'
 import type { Meta } from '@storybook/react'
+import { Link } from 'lib/lemon-ui/Link/Link'
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -27,12 +28,16 @@ export function Default(): JSX.Element {
                 Button base
             </ButtonPrimitive>
 
+            <ButtonPrimitive size="base" disabled>
+                Button base disabled
+            </ButtonPrimitive>
+
             <ButtonPrimitive variant="outline" size="base">
                 <IconSearch />
                 Button base
             </ButtonPrimitive>
 
-            <ButtonPrimitive variant="outline" size="base" className="max-w-[100px]">
+            <ButtonPrimitive variant="outline" size="base" className="max-w-[120px]">
                 <IconSearch />
                 <span className="truncate">Button base truncate</span>
             </ButtonPrimitive>
@@ -41,7 +46,7 @@ export function Default(): JSX.Element {
                 <IconSearch />
             </ButtonPrimitive>
 
-            <ButtonGroupPrimitive size="base" variant="outline">
+            <ButtonGroupPrimitive size="base" groupVariant="outline">
                 <ButtonPrimitive
                     onClick={() => {
                         alert('clicked')
@@ -50,9 +55,9 @@ export function Default(): JSX.Element {
                 >
                     Button1
                 </ButtonPrimitive>
-                <ButtonPrimitive href="#" tooltip="Tooltip">
+                <Link tooltip="Tooltip" to="https://google.com" target="_blank">
                     Link
-                </ButtonPrimitive>
+                </Link>
                 <ButtonPrimitive iconOnly tooltip="Tooltip">
                     <IconSearch />
                 </ButtonPrimitive>
@@ -61,13 +66,26 @@ export function Default(): JSX.Element {
                 </ButtonPrimitive>
             </ButtonGroupPrimitive>
 
-            <ButtonGroupPrimitive size="base" variant="outline" groupVariant="side-action-group">
-                <ButtonPrimitive href="#" sideActionLeft tooltip="Tooltip">
+            <ButtonGroupPrimitive size="base" groupVariant="outline">
+                <Link
+                    buttonProps={{
+                        hasSideActionRight: true,
+                    }}
+                    tooltip="Tooltip"
+                    to="#"
+                >
                     Side action group
-                </ButtonPrimitive>
-                <ButtonPrimitive iconOnly sideActionRight tooltip="Tooltip">
+                </Link>
+                <Link
+                    buttonProps={{
+                        iconOnly: true,
+                        isSideActionRight: true,
+                    }}
+                    tooltip="Tooltip"
+                    to="#"
+                >
                     <IconSearch />
-                </ButtonPrimitive>
+                </Link>
             </ButtonGroupPrimitive>
 
             <DropdownMenu>
@@ -91,16 +109,49 @@ export function Default(): JSX.Element {
                             Item 2
                         </ButtonPrimitive>
                     </DropdownMenuItem>
+                    <DropdownMenuLabel>Links</DropdownMenuLabel>
+                    <ButtonGroupPrimitive menuItem fullWidth>
+                        <DropdownMenuItem asChild>
+                            <Link
+                                buttonProps={{
+                                    menuItem: true,
+                                    hasSideActionRight: true,
+                                }}
+                                tooltip="go to google"
+                                tooltipPlacement="right"
+                                to="https://google.com"
+                            >
+                                Name
+                            </Link>
+                        </DropdownMenuItem>
+                        <Link
+                            buttonProps={{
+                                iconOnly: true,
+                                isSideActionRight: true,
+                            }}
+                            tooltip="go to bing"
+                            tooltipPlacement="right"
+                            to="https://bing.com"
+                        >
+                            <IconGear />
+                        </Link>
+                    </ButtonGroupPrimitive>
                 </DropdownMenuContent>
             </DropdownMenu>
 
             <DropdownMenu>
-                <ButtonGroupPrimitive size="base" variant="outline" fullWidth>
-                    <ButtonPrimitive href="#" menuItem>
+                <ButtonGroupPrimitive size="base" groupVariant="outline" fullWidth>
+                    <Link
+                        buttonProps={{
+                            menuItem: true,
+                            hasSideActionRight: true,
+                        }}
+                        to="#"
+                    >
                         Link here, dropdown on the right
-                    </ButtonPrimitive>
+                    </Link>
                     <DropdownMenuTrigger asChild>
-                        <ButtonPrimitive variant="outline" size="base" iconOnly>
+                        <ButtonPrimitive variant="outline" size="base" iconOnly isSideActionRight>
                             <IconSearch />
                         </ButtonPrimitive>
                     </DropdownMenuTrigger>
@@ -124,11 +175,17 @@ export function Default(): JSX.Element {
 
             <DropdownMenu>
                 <ButtonGroupPrimitive size="base" variant="default" fullWidth>
-                    <ButtonPrimitive href="#" menuItem>
+                    <Link
+                        buttonProps={{
+                            menuItem: true,
+                            hasSideActionRight: true,
+                        }}
+                        to="#"
+                    >
                         Link here, dropdown on the right
-                    </ButtonPrimitive>
+                    </Link>
                     <DropdownMenuTrigger asChild>
-                        <ButtonPrimitive variant="outline" size="base" iconOnly>
+                        <ButtonPrimitive variant="outline" size="base" iconOnly isSideActionRight>
                             <IconSearch />
                         </ButtonPrimitive>
                     </DropdownMenuTrigger>
