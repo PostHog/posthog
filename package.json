@@ -40,8 +40,7 @@
         "concurrently": "^5.3.0",
         "husky": "^7.0.4",
         "lint-staged": "~15.4.3",
-        "turbo": "^2.4.2",
-        "@posthog/icons": "0.13.1"
+        "turbo": "^2.4.2"
     },
     "devDependencies": {
         "@parcel/packager-ts": "2.13.3",
