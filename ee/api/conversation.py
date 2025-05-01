@@ -10,7 +10,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
-from ee.hogai.api.serializers import ConversationDetailSerializer
+from ee.hogai.api.serializers import ConversationSerializer
 from ee.hogai.assistant import Assistant
 from ee.hogai.graph.graph import AssistantGraph
 from ee.hogai.utils.types import AssistantMode
@@ -40,7 +40,7 @@ class MessageSerializer(serializers.Serializer):
 
 class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMixin, GenericViewSet):
     scope_object = "INTERNAL"
-    serializer_class = ConversationDetailSerializer
+    serializer_class = ConversationSerializer
     queryset = Conversation.objects.all()
     lookup_url_kwarg = "conversation"
 

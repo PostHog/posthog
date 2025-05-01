@@ -1,6 +1,6 @@
 from unittest.mock import patch
 
-from ee.hogai.api.serializers import ConversationDetailSerializer
+from ee.hogai.api.serializers import ConversationSerializer
 from ee.hogai.graph.graph import AssistantGraph
 from ee.hogai.utils.types import AssistantState
 from ee.models.assistant import Conversation
@@ -11,7 +11,7 @@ from posthog.test.base import APIBaseTest
 class TestConversationSerializers(APIBaseTest):
     def test_message_filtering_behavior(self):
         """
-        Test that the message filtering in ConversationDetailSerializer works correctly:
+        Test that the message filtering in ConversationSerializer works correctly:
         - AssistantMessage with content should be included
         - Empty AssistantMessage should be excluded
         - AssistantToolCallMessage with UI payload should be included
@@ -45,7 +45,7 @@ class TestConversationSerializers(APIBaseTest):
 
             mock_get_state.return_value = MockSnapshot()
 
-            data = ConversationDetailSerializer(
+            data = ConversationSerializer(
                 conversation, context={"assistant_graph": AssistantGraph(self.team).compile_full_graph()}
             ).data
 

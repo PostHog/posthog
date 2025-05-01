@@ -9,14 +9,14 @@ from ee.models.assistant import Conversation
 _conversation_fields = ["id", "status", "title", "created_at", "updated_at"]
 
 
-class ConversationSerializer(serializers.ModelSerializer):
+class ConversationMinimalSerializer(serializers.ModelSerializer):
     class Meta:
         model = Conversation
         fields = _conversation_fields
         read_only_fields = fields
 
 
-class ConversationDetailSerializer(serializers.ModelSerializer):
+class ConversationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Conversation
         fields = [*_conversation_fields, "messages"]

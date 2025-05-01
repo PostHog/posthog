@@ -15,7 +15,7 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import StateSnapshot
 from pydantic import BaseModel
 
-from ee.hogai.api.serializers import ConversationSerializer
+from ee.hogai.api.serializers import ConversationMinimalSerializer
 from ee.hogai.graph.funnels.nodes import FunnelsSchemaGeneratorOutput
 from ee.hogai.graph.memory import prompts as memory_prompts
 from ee.hogai.graph.retention.nodes import RetentionSchemaGeneratorOutput
@@ -135,7 +135,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     def _serialize_conversation(self, conversation: Conversation | None = None) -> dict[str, Any]:
         conversation = conversation or self.conversation
         return {
-            **ConversationSerializer(conversation).data,
+            **ConversationMinimalSerializer(conversation).data,
             # Status is set in progress because conversation was generating.
             "status": Conversation.Status.IN_PROGRESS,
         }
