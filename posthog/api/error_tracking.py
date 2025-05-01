@@ -116,20 +116,6 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
     def safely_get_queryset(self, queryset):
         return queryset.filter(team_id=self.team.id)
 
-    def list(self, request, *args, **kwargs):
-        queryset = self.get_queryset()
-        value = request.data.get("value", None)
-        search_key = request.data.get("key")
-
-        if search_key and value:
-            if search_key == "name":
-                queryset.filter(name__icontains=value)
-            elif search_key == "issue_descrpition":
-                queryset.filter(description__icontains=value)
-
-        serializer = self.get_serializer(queryset, many=True)
-        return Response(serializer.data)
-
     def retrieve(self, request, *args, **kwargs):
         fingerprint = self.request.GET.get("fingerprint")
         if fingerprint:
