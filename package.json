@@ -40,7 +40,8 @@
         "concurrently": "^5.3.0",
         "husky": "^7.0.4",
         "lint-staged": "~15.4.3",
-        "turbo": "^2.4.2"
+        "turbo": "^2.4.2",
+        "@posthog/icons": "0.13.1"
     },
     "devDependencies": {
         "@parcel/packager-ts": "2.13.3",
@@ -72,7 +73,8 @@
     "pnpm": {
         "overrides": {
             "playwright": "1.45.0",
-            "typescript": "~4.9.5"
+            "typescript": "~4.9.5",
+            "@posthog/icons": "0.13.1"
         },
         "patchedDependencies": {
             "node-rdkafka@2.17.0": "patches/node-rdkafka@2.17.0.patch",
