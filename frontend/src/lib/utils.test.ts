@@ -934,5 +934,9 @@ describe('lib/utils', () => {
         it('returns relative path for encoded root-relative path', () => {
             expect(getRelativeNextPath('%2Ftest%2Ffoo%3Fbar%3Dbaz%23hash', location)).toBe('/test/foo?bar=baz#hash')
         })
+
+        it('returns null for encoded protocol-relative URL', () => {
+            expect(getRelativeNextPath('%2F%2Fevil.com%2Ftest', location)).toBeNull()
+        })
     })
 })
