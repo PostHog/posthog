@@ -176,7 +176,12 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
 
 
 class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
-    """A way of authenticating with a project secret API key.
+    """
+    Authenticates using a project secret API key. Unlike a personal API key, this is not associated with a user
+    and should only be used for local_evaluation requests. When authenticated, this returns a "synthetic"
+    ProjectSecretAPIKeyUser object that has the team set. This allows us to use the existing permissioning system
+    for local_evaluation requests.
+
     Only the first key candidate found in the request is tried, and the order is:
     1. Request Authorization header of type Bearer.
     2. Request body.
@@ -222,17 +227,23 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
             if team is None:
                 return None
 
-            # Secret api keys are not associated with a user, so we create an AnonymousUser and attach the team
-            # The team is the important part here.
+            # Secret api keys are not associated with a user, so we create a ProjectSecretAPIKeyUser
+            # and attach the team. The team is the important part here.
             return (ProjectSecretAPIKeyUser(team), None)
         except Team.DoesNotExist:
             return None
 
 
 class ProjectSecretAPIKeyUser:
+    """
+    A "synthetic" user object returned by the ProjectSecretAPIKeyAuthentication when authenticating with a project secret API key.
+    """
+
     def __init__(self, team):
         self.team = team
+        self.current_team_id = team.id
         self.is_authenticated = True
+        self.pk = 0
 
 
 class TemporaryTokenAuthentication(authentication.BaseAuthentication):

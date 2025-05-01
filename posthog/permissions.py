@@ -15,6 +15,7 @@ from posthog.auth import (
     PersonalAPIKeyAuthentication,
     SessionAuthentication,
     SharingAccessTokenAuthentication,
+    ProjectSecretAPIKeyUser,
 )
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions import EnterpriseFeatureException
@@ -168,6 +169,11 @@ class TeamMemberAccessPermission(BasePermission):
             view.team  # noqa: B018
         except Team.DoesNotExist:
             return True  # This will be handled as a 404 in the viewset
+
+        if isinstance(request.user, ProjectSecretAPIKeyUser):
+            # NOTE: If the user is a ProjectSecretAPIKeyUser then we've already checked that they have access to the team
+            # and that this request is for the local_evaluation endpoint.
+            return True
 
         # NOTE: The naming here is confusing - "current_team" refers to the team that the user_permissions was initialized with
         # - not the "current_team" property of the user
@@ -496,6 +502,11 @@ class AccessControlPermission(ScopeBasePermission):
             if view.param_derived_from_user_current_team in ("team_id", "project_id"):
                 if request.user.current_team_id is None:
                     raise AuthenticationFailed("This endpoint requires a current project to be set on your account.")
+
+        if isinstance(request.user, ProjectSecretAPIKeyUser):
+            # NOTE: If the user is a ProjectSecretAPIKeyUser then we've already checked that they have access to the team
+            # and that this request is for the local_evaluation endpoint.
+            return True
 
         uac = self._get_user_access_control(request, view)
         scope_object = self._get_scope_object(request, view)

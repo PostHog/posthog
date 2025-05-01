@@ -975,7 +975,9 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         request = Request(wsgi_request)  # Wrap the WSGIRequest in a DRF Request
 
         authenticator = ProjectSecretAPIKeyAuthentication()
-        user, _ = authenticator.authenticate(request)
+        result = authenticator.authenticate(request)
+        assert result is not None
+        user, _ = result
 
         self.assertIsNotNone(user)
         self.assertIsInstance(user, ProjectSecretAPIKeyUser)
@@ -992,7 +994,9 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         request.parsers = [JSONParser()]  # Explicitly set JSONParser
 
         authenticator = ProjectSecretAPIKeyAuthentication()
-        user, _ = authenticator.authenticate(request)
+        result = authenticator.authenticate(request)
+        assert result is not None
+        user, _ = result
 
         self.assertIsNotNone(user)
         self.assertIsInstance(user, ProjectSecretAPIKeyUser)
@@ -1004,7 +1008,9 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         request = Request(wsgi_request)  # Wrap the WSGIRequest in a DRF Request
 
         authenticator = ProjectSecretAPIKeyAuthentication()
-        user, _ = authenticator.authenticate(request)
+        result = authenticator.authenticate(request)
+        assert result is not None
+        user, _ = result
 
         self.assertIsNotNone(user)
         self.assertIsInstance(user, ProjectSecretAPIKeyUser)
