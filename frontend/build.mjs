@@ -89,7 +89,10 @@ await buildInParallel(
                             /lib\/components\/CodeSnippet/,
                             /scenes\/session-recordings\/player/,
                             /queries\/schema-guard/,
+                            /queries\/schema.json/,
                             /queries\/QueryEditor\/QueryEditor/,
+                            /scenes\/billing/,
+                            /scenes\/data-warehouse/,
                         ]
 
                         build.onResolve({ filter: /.*/ }, (args) => {
