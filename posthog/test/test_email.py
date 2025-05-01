@@ -207,6 +207,19 @@ class TestEmail(BaseTest):
         # Check that utm_tags are not sanitized (to preserve valid URL query parameters)
         self.assertEqual(sanitized["utm_tags"], "utm_source=posthog&utm_medium=email&utm_campaign=test")
 
+    def test_sanitize_email_properties_raises_for_unsupported_types(self) -> None:
+        # Test that sanitize_email_properties raises TypeError for unsupported types
+        properties = {
+            "custom_object": type("CustomObject", (), {})(),  # Create a simple custom object
+        }
+
+        with self.assertRaises(TypeError) as context:
+            sanitize_email_properties(properties)
+
+        # Check that the error message contains useful information
+        self.assertIn("Unsupported type in email properties: CustomObject", str(context.exception))
+        self.assertIn("Only str, int, float, bool, NoneType, Decimal", str(context.exception))
+
     def test_email_message_sanitizes_properties(self) -> None:
         # Test that EmailMessage constructor properly sanitizes template_context
         with override_instance_config("EMAIL_HOST", "localhost"):

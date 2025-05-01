@@ -230,12 +230,18 @@ def sanitize_email_properties(properties: dict[str, Any]) -> dict[str, Any]:
 
     Returns:
         Sanitized copy of the properties dictionary
+
+    Raises:
+        TypeError: If an unsupported type is encountered
     """
     if properties is None:
         return {}
 
     # Special keys that should not be sanitized (e.g., URL query parameters)
     skip_sanitization_keys = ["utm_tags"]
+
+    # Supported types (besides containers like dict and list)
+    supported_types = (str, int, float, bool, type(None), Decimal)
 
     def sanitize_value(value: Any) -> Any:
         if isinstance(value, str):
@@ -254,8 +260,11 @@ def sanitize_email_properties(properties: dict[str, Any]) -> dict[str, Any]:
             # These types are safe as-is
             return value
         else:
-            # For any other types, convert to string and escape
-            return html.escape(str(value))
+            # Raise an error for unsupported types - this is a security measure to prevent uncaught injections
+            raise TypeError(
+                f"Unsupported type in email properties: {type(value).__name__}. "
+                f"Only {', '.join(t.__name__ for t in supported_types)}, dict, list, and Django models are supported."
+            )
 
     result = {}
     for k, v in properties.items():
