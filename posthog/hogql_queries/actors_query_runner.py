@@ -195,18 +195,6 @@ class ActorsQueryRunner(QueryRunner):
 
         return self.strategy.input_columns()
 
-    def select_cols(self) -> tuple[list[str], list[ast.Expr]]:
-        select_input: list[str] = []
-        for col in self.input_columns():
-            if col.split("--")[0].strip() == "person_display_name":
-                property_keys = self.team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
-                props = [f"properties.{key}" for key in property_keys]
-                expr = f"coalesce({', '.join([*props, 'distinct_id'])})"
-                select_input.append(expr)
-            else:
-                select_input.append(col)
-        return select_input, [parse_expr(column) for column in select_input]
-
     # TODO: Figure out a more sure way of getting the actor id than using the alias or chain name
     def source_id_column(self, source_query: ast.SelectQuery | ast.SelectSetQuery) -> list[int | str]:
         # Figure out the id column of the source query, first column that has id in the name
@@ -271,7 +259,7 @@ class ActorsQueryRunner(QueryRunner):
             for idx, expr in enumerate(self.input_columns()):
                 if expr.split("--")[0].strip() == "person_display_name":
                     property_keys = self.team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
-                    props = [f"properties.{key}" for key in property_keys]
+                    props = [f"toString(properties.{key})" for key in property_keys]
                     column = parse_expr(f"(coalesce({', '.join([*props, 'toString(id)'])}), toString(id))")
                     person_display_name_indices.append(idx)
                 else:

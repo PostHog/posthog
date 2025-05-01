@@ -41,6 +41,7 @@ from freezegun import freeze_time
 from django.test import override_settings
 from unittest.mock import patch
 from posthog.hogql.query import execute_hogql_query
+from posthog.models.property_definition import PropertyDefinition, PropertyType
 
 
 class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -554,12 +555,19 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         _create_person(
             team_id=self.team.pk,
             distinct_ids=["id_email", "id_anon"],
-            properties={"email": "user@email.com", "name": "Test User"},
+            properties={"email": "user@email.com", "name": "Test User", "numeric_prop": 123},
         )
-        self.team.person_display_name_properties = ["name"]
+        self.team.person_display_name_properties = ["name", "numeric_prop"]
         self.team.save()
         self.team.refresh_from_db()
         flush_persons_and_events()
+        PropertyDefinition.objects.create(
+            team_id=self.team.pk,
+            name="numeric_prop",
+            property_type=PropertyType.Numeric,
+            is_numerical=True,
+            type=PropertyDefinition.Type.PERSON,
+        )
         query = ActorsQuery(select=["person_display_name"])
         runner = self._create_runner(query)
         response = runner.calculate()
