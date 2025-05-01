@@ -166,6 +166,21 @@ class TeamManager(models.Manager):
         except Team.DoesNotExist:
             return None
 
+    def get_team_from_cache_or_secret_api_token(self, secret_api_token: Optional[str]) -> Optional["Team"]:
+        if not secret_api_token:
+            return None
+        try:
+            team = get_team_in_cache(secret_api_token)
+            if team:
+                return team
+
+            team = Team.objects.get(secret_api_token=secret_api_token)
+            set_team_in_cache(secret_api_token, team)
+            return team
+
+        except Team.DoesNotExist:
+            return None
+
     def increment_id_sequence(self) -> int:
         """Increment the `Team.id` field's sequence and return the latest value.
 
