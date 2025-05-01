@@ -175,6 +175,7 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "count",
         "is_calculating",
         "last_calculation",
+        "last_error_at",
         "errors_calculating",
     ],
     "HogFunction": [
