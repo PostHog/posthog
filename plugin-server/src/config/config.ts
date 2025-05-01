@@ -144,13 +144,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         STARTUP_PROFILE_HEAP_INTERVAL: 512 * 1024, // default v8 value
         STARTUP_PROFILE_HEAP_DEPTH: 16, // default v8 value
 
-        SESSION_RECORDING_KAFKA_HOSTS: undefined,
-        SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL: undefined,
-        SESSION_RECORDING_KAFKA_BATCH_SIZE: 500,
-        SESSION_RECORDING_KAFKA_QUEUE_SIZE: 1500,
-        // if not set we'll use the plugin server default value
-        SESSION_RECORDING_KAFKA_QUEUE_SIZE_KB: undefined,
-
         SESSION_RECORDING_LOCAL_DIRECTORY: '.tmp/sessions',
         // NOTE: 10 minutes
         SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS: 60 * 10,
@@ -166,14 +159,11 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED: true,
         SESSION_RECORDING_REPLAY_EVENTS_INGESTION_ENABLED: true,
         SESSION_RECORDING_DEBUG_PARTITION: '',
-        SESSION_RECORDING_KAFKA_DEBUG: undefined,
         SESSION_RECORDING_MAX_PARALLEL_FLUSHES: 10,
         SESSION_RECORDING_OVERFLOW_ENABLED: false,
         SESSION_RECORDING_OVERFLOW_BUCKET_REPLENISH_RATE: 5_000_000, // 5MB/second uncompressed, sustained
         SESSION_RECORDING_OVERFLOW_BUCKET_CAPACITY: 200_000_000, // 200MB burst
         SESSION_RECORDING_OVERFLOW_MIN_PER_BATCH: 1_000_000, // All sessions consume at least 1MB/batch, to penalise poor batching
-        SESSION_RECORDING_KAFKA_CONSUMPTION_STATISTICS_EVENT_INTERVAL_MS: 0, // 0 disables stats collection
-        SESSION_RECORDING_KAFKA_FETCH_MIN_BYTES: 1_048_576, // 1MB
 
         ENCRYPTION_SALT_KEYS: isDevEnv() || isTestEnv() ? '00beef0000beef0000beef0000beef00' : '',
 
@@ -230,6 +220,9 @@ export function getDefaultConfig(): PluginsServerConfig {
         PROPERTY_DEFS_CONSUMER_ENABLED_TEAMS: isDevEnv() ? '*' : '',
         PROPERTY_DEFS_WRITE_DISABLED: isProdEnv() ? true : false, // For now we don't want to do writes on prod - only count them
 
+        // temporary: enable, rate limit expensive measurement in persons processing; value in [0,1]
+        PERSON_JSONB_SIZE_ESTIMATE_ENABLE: 0, // defaults to off
+
         // Session recording V2
         SESSION_RECORDING_MAX_BATCH_SIZE_KB: 100 * 1024, // 100MB
         SESSION_RECORDING_MAX_BATCH_AGE_MS: 10 * 1000, // 10 seconds
@@ -257,6 +250,10 @@ export function getDefaultConfig(): PluginsServerConfig {
                 24) * // amount of time salt is valid in one timezone
             60 *
             60,
+
+        PERSON_CACHE_ENABLED_FOR_UPDATES: true,
+        PERSON_CACHE_ENABLED_FOR_CHECKS: true,
+        USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG: false,
     }
 }
 

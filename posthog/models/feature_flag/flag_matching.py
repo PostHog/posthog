@@ -12,6 +12,8 @@ from django.db.models.expressions import ExpressionWrapper, RawSQL
 from django.db.models.fields import BooleanField
 from django.db.models import Q, Func, F, CharField, Expression
 from django.db.models.query import QuerySet
+from django.db import connections
+from sentry_sdk.api import start_span
 from posthog.metrics import LABEL_TEAM_ID
 
 from posthog.exceptions_capture import capture_exception
@@ -67,6 +69,17 @@ FLAG_CACHE_HIT_COUNTER = Counter(
 
 ENTITY_EXISTS_PREFIX = "flag_entity_exists_"
 PERSON_KEY = "person"
+
+# Define which database to use for persons only.
+# This is temporary while we migrate persons to its own database.
+# It'll use `replica` until we set the PERSONS_DB_WRITER_URL env var
+DATABASE_FOR_PERSONS = (
+    "persons_db_reader"
+    if "persons_db_reader" in connections
+    else "replica"
+    if "replica" in connections and "decide" in settings.READ_REPLICA_OPT_IN
+    else "default"
+)  # Fallback if persons DB not configured
 
 
 class FeatureFlagMatchReason(StrEnum):
@@ -500,9 +513,9 @@ class FeatureFlagMatcher:
         try:
             # Some extra wiggle room here for timeouts because this depends on the number of flags as well,
             # and not just the database query.
-            with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS * 2, DATABASE_FOR_FLAG_MATCHING):
+            with start_span(op="query_conditions"):
                 all_conditions: dict = {}
-                person_query: QuerySet = Person.objects.db_manager(DATABASE_FOR_FLAG_MATCHING).filter(
+                person_query: QuerySet = Person.objects.db_manager(DATABASE_FOR_PERSONS).filter(
                     team_id=self.team_id,
                     persondistinctid__distinct_id=self.distinct_id,
                     persondistinctid__team_id=self.team_id,
@@ -657,25 +670,36 @@ class FeatureFlagMatcher:
                             }
                             condition_eval(is_set_key, is_set_condition)
 
-                    for index, condition in enumerate(feature_flag.conditions):
-                        key = f"flag_{feature_flag.pk}_condition_{index}"
-                        condition_eval(key, condition)
+                    with start_span(
+                        op="parse_feature_flag_conditions",
+                        description=f"feature_flag={feature_flag.pk} key={feature_flag.key}",
+                    ):
+                        for index, condition in enumerate(feature_flag.conditions):
+                            key = f"flag_{feature_flag.pk}_condition_{index}"
+                            condition_eval(key, condition)
 
                 if len(person_fields) > 0:
-                    person_query = person_query.values(*person_fields)
-                    if len(person_query) > 0:
-                        all_conditions = {**all_conditions, **person_query[0]}
+                    with start_span(op="execute_person_query"):
+                        with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS * 2, DATABASE_FOR_PERSONS):
+                            person_query = person_query.values(*person_fields)
+                            if len(person_query) > 0:
+                                all_conditions = {**all_conditions, **person_query[0]}
 
-                for (
-                    group_query,
-                    group_fields,
-                ) in group_query_per_group_type_mapping.values():
-                    # Only query the group if there's a field to query
-                    if len(group_fields) > 0:
-                        group_query = group_query.values(*group_fields)
-                        if len(group_query) > 0:
-                            assert len(group_query) == 1, f"Expected 1 group query result, got {len(group_query)}"
-                            all_conditions = {**all_conditions, **group_query[0]}
+                if len(group_query_per_group_type_mapping) > 0:
+                    with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS * 2, DATABASE_FOR_FLAG_MATCHING):
+                        for (
+                            group_query,
+                            group_fields,
+                        ) in group_query_per_group_type_mapping.values():
+                            # Only query the group if there's a field to query
+                            if len(group_fields) > 0:
+                                with start_span(op="execute_group_query"):
+                                    group_query = group_query.values(*group_fields)
+                                    if len(group_query) > 0:
+                                        assert (
+                                            len(group_query) == 1
+                                        ), f"Expected 1 group query result, got {len(group_query)}"
+                                        all_conditions = {**all_conditions, **group_query[0]}
                 return all_conditions
         except DatabaseError as e:
             logger.exception("query_conditions database error", error=str(e), exc_info=True)

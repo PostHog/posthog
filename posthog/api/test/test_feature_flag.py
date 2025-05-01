@@ -3958,6 +3958,50 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertTrue(len(response_data["flags"]) > 0)
             self.assertNotIn("quotaLimited", response_data)
 
+    @patch("posthog.api.feature_flag.settings.DECIDE_FEATURE_FLAG_QUOTA_CHECK", False)
+    def test_local_evaluation_only_survey_targeting_flags(self):
+        FeatureFlag.objects.all().delete()
+
+        client = redis.get_client()
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
+
+        with freeze_time("2022-05-07 12:23:07"):
+
+            def make_request_and_assert_requests_recorded(expected_requests=None):
+                response = self.client.get(
+                    f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
+                    HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+                )
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                self.assertEqual(
+                    client.hgetall(f"posthog:local_evaluation_requests:{self.team.pk}"),
+                    expected_requests or {},
+                )
+
+            # No requests should be recorded if there are no flags
+            make_request_and_assert_requests_recorded()
+
+            FeatureFlag.objects.create(
+                name="Survey Targeting Flag",
+                key="survey-targeting-flag",
+                team=self.team,
+                filters={"properties": [{"key": "survey-targeting-property", "value": "survey-targeting-value"}]},
+            )
+
+            # No requests should be recorded if the only flags are survey targeting flags
+            make_request_and_assert_requests_recorded()
+
+            # Requests should be recorded if there is one regular feature flag
+            FeatureFlag.objects.create(
+                name="Regular Feature Flag",
+                key="regular-feature-flag",
+                team=self.team,
+                filters={"properties": [{"key": "regular-property", "value": "regular-value"}]},
+            )
+            make_request_and_assert_requests_recorded({b"13766051": b"1"})
+
     @patch("posthog.api.feature_flag.report_user_action")
     def test_evaluation_reasons(self, mock_capture):
         FeatureFlag.objects.all().delete()
@@ -5297,6 +5341,29 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "cohort_name": "test_cohort",
             },
         )
+
+    def test_create_feature_flag_in_specific_folder(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={
+                "key": "my-test-flag-in-folder",
+                "name": "Test Flag in Folder",
+                "filters": {"groups": [{"properties": [], "rollout_percentage": 50}]},
+                "_create_in_folder": "Special Folder/Flags",
+            },
+            format="json",
+        )
+        assert response.status_code == 201, response.json()
+        flag_id = response.json()["id"]
+        assert flag_id is not None
+
+        from posthog.models.file_system.file_system import FileSystem
+
+        fs_entry = FileSystem.objects.filter(team=self.team, ref=str(flag_id), type="feature_flag").first()
+        assert fs_entry, "No FileSystem entry found for this feature flag."
+        assert (
+            "Special Folder/Flags" in fs_entry.path
+        ), f"Expected 'Special Folder/Flags' in path, got: '{fs_entry.path}'"
 
 
 class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):

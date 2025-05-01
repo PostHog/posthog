@@ -64,6 +64,7 @@ class AssistantBaseMultipleBreakdownFilter(BaseModel):
 class AssistantContextualTool(StrEnum):
     SEARCH_SESSION_RECORDINGS = "search_session_recordings"
     GENERATE_HOGQL_QUERY = "generate_hogql_query"
+    FIX_HOGQL_QUERY = "fix_hogql_query"
 
 
 class AssistantDateRange(BaseModel):
@@ -1416,7 +1417,7 @@ class NodeKind(StrEnum):
     WEB_VITALS_QUERY = "WebVitalsQuery"
     WEB_VITALS_PATH_BREAKDOWN_QUERY = "WebVitalsPathBreakdownQuery"
     WEB_PAGE_URL_SEARCH_QUERY = "WebPageURLSearchQuery"
-    WEB_ACTIVE_HOURS_HEAT_MAP_QUERY = "WebActiveHoursHeatMapQuery"
+    EVENTS_HEAT_MAP_QUERY = "EventsHeatMapQuery"
     REVENUE_ANALYTICS_OVERVIEW_QUERY = "RevenueAnalyticsOverviewQuery"
     REVENUE_ANALYTICS_GROWTH_RATE_QUERY = "RevenueAnalyticsGrowthRateQuery"
     REVENUE_ANALYTICS_TOP_CUSTOMERS_QUERY = "RevenueAnalyticsTopCustomersQuery"
@@ -1519,6 +1520,7 @@ class PropertyFilterType(StrEnum):
     DATA_WAREHOUSE = "data_warehouse"
     DATA_WAREHOUSE_PERSON_PROPERTY = "data_warehouse_person_property"
     ERROR_TRACKING_ISSUE = "error_tracking_issue"
+    ERROR_TRACKING_ISSUE_PROPERTY = "error_tracking_issue_property"
 
 
 class PropertyMathType(StrEnum):
@@ -1850,6 +1852,7 @@ class TaxonomicFilterGroupType(StrEnum):
     NOTEBOOKS = "notebooks"
     LOG_ENTRIES = "log_entries"
     ERROR_TRACKING_ISSUES = "error_tracking_issues"
+    ERROR_TRACKING_ISSUE_PROPERTIES = "error_tracking_issue_properties"
     REPLAY = "replay"
     RESOURCES = "resources"
 
@@ -1929,14 +1932,6 @@ class VizSpecificOptions(BaseModel):
     RETENTION_1: Optional[RETENTION] = Field(default=None, alias="RETENTION")
 
 
-class Sampling(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    enabled: Optional[bool] = None
-    forceSamplingRate: Optional[SamplingRate] = None
-
-
 class WebAnalyticsOrderByDirection(StrEnum):
     ASC = "ASC"
     DESC = "DESC"
@@ -1953,6 +1948,17 @@ class WebAnalyticsOrderByFields(StrEnum):
     UNIQUE_CONVERSIONS = "UniqueConversions"
     CONVERSION_RATE = "ConversionRate"
     CONVERTING_USERS = "ConvertingUsers"
+    RAGE_CLICKS = "RageClicks"
+    DEAD_CLICKS = "DeadClicks"
+    ERRORS = "Errors"
+
+
+class Sampling(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    enabled: Optional[bool] = None
+    forceSamplingRate: Optional[SamplingRate] = None
 
 
 class WebOverviewItemKind(StrEnum):
@@ -1985,6 +1991,7 @@ class WebStatsBreakdown(StrEnum):
     CITY = "City"
     TIMEZONE = "Timezone"
     LANGUAGE = "Language"
+    FRUSTRATION_METRICS = "FrustrationMetrics"
 
 
 class WebVitalsMetric(StrEnum):
@@ -2648,6 +2655,41 @@ class EventTaxonomyItem(BaseModel):
     sample_values: list[str]
 
 
+class EventsHeatMapColumnAggregationResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    column: int
+    value: int
+
+
+class EventsHeatMapDataResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    column: int
+    row: int
+    value: int
+
+
+class EventsHeatMapRowAggregationResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    row: int
+    value: int
+
+
+class EventsHeatMapStructuredResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    allAggregations: int
+    columnAggregations: list[EventsHeatMapColumnAggregationResult]
+    data: list[EventsHeatMapDataResult]
+    rowAggregations: list[EventsHeatMapRowAggregationResult]
+
+
 class ExperimentExposureQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2938,6 +2980,14 @@ class RetentionValue(BaseModel):
 class RevenueAnalyticsEventItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    currencyAwareDecimal: Optional[bool] = Field(
+        default=False,
+        description=(
+            "If true, the revenue will be divided by the smallest unit of the currency.\n\nFor example, in case this is"
+            " set to true, if the revenue is 1089 and the currency is USD, the revenue will be $10.89, but if the"
+            " currency is JPY, the revenue will be ¥1089."
+        ),
     )
     eventName: str
     revenueCurrencyProperty: Optional[RevenueCurrencyPropertyConfig] = Field(
@@ -3441,41 +3491,6 @@ class TrendsQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-
-
-class WebActiveHoursHeatMapDayAndHourResult(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    day: int
-    hour: int
-    total: int
-
-
-class WebActiveHoursHeatMapDayResult(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    day: int
-    total: int
-
-
-class WebActiveHoursHeatMapHourResult(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    hour: int
-    total: int
-
-
-class WebActiveHoursHeatMapStructuredResult(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    dayAndHours: list[WebActiveHoursHeatMapDayAndHourResult]
-    days: list[WebActiveHoursHeatMapDayResult]
-    hours: list[WebActiveHoursHeatMapHourResult]
-    total: int
 
 
 class WebExternalClicksTableQueryResponse(BaseModel):
@@ -4239,6 +4254,38 @@ class CachedEventTaxonomyQueryResponse(BaseModel):
     )
 
 
+class CachedEventsHeatMapQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[datetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: datetime
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    next_allowed_client_refresh: datetime
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: EventsHeatMapStructuredResult
+    timezone: str
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
 class CachedEventsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4860,38 +4907,6 @@ class CachedVectorSearchQueryResponse(BaseModel):
     )
 
 
-class CachedWebActiveHoursHeatMapQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    cache_key: str
-    cache_target_age: Optional[datetime] = None
-    calculation_trigger: Optional[str] = Field(
-        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
-    )
-    error: Optional[str] = Field(
-        default=None,
-        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-    )
-    hasMore: Optional[bool] = None
-    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
-    is_cached: bool
-    last_refresh: datetime
-    limit: Optional[int] = None
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    next_allowed_client_refresh: datetime
-    query_status: Optional[QueryStatus] = Field(
-        default=None, description="Query status indicates whether next to the provided data, a query is still running."
-    )
-    results: WebActiveHoursHeatMapStructuredResult
-    timezone: str
-    timings: Optional[list[QueryTiming]] = Field(
-        default=None, description="Measured timings for different parts of the query generation process"
-    )
-
-
 class CachedWebExternalClicksTableQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5264,7 +5279,7 @@ class Response9(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: WebActiveHoursHeatMapStructuredResult
+    results: EventsHeatMapStructuredResult
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -5484,6 +5499,19 @@ class ErrorTrackingIssueFilter(BaseModel):
     ] = None
 
 
+class ErrorTrackingIssuePropertyFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str
+    label: Optional[str] = None
+    operator: PropertyOperator
+    type: Literal["error_tracking_issue_property"] = "error_tracking_issue_property"
+    value: Optional[
+        Union[list[Union[str, float, ErrorTrackingIssueAssignee]], Union[str, float, ErrorTrackingIssueAssignee]]
+    ] = None
+
+
 class ErrorTrackingQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5551,6 +5579,29 @@ class EventTaxonomyQueryResponse(BaseModel):
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
     results: list[EventTaxonomyItem]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class EventsHeatMapQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: EventsHeatMapStructuredResult
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -6161,7 +6212,7 @@ class QueryResponseAlternative24(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: WebActiveHoursHeatMapStructuredResult
+    results: EventsHeatMapStructuredResult
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -6409,7 +6460,7 @@ class QueryResponseAlternative37(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: WebActiveHoursHeatMapStructuredResult
+    results: EventsHeatMapStructuredResult
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -7009,29 +7060,6 @@ class VisualizationMessage(BaseModel):
     type: Literal["ai/viz"] = "ai/viz"
 
 
-class WebActiveHoursHeatMapQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    error: Optional[str] = Field(
-        default=None,
-        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-    )
-    hasMore: Optional[bool] = None
-    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
-    limit: Optional[int] = None
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    query_status: Optional[QueryStatus] = Field(
-        default=None, description="Query status indicates whether next to the provided data, a query is still running."
-    )
-    results: WebActiveHoursHeatMapStructuredResult
-    timings: Optional[list[QueryTiming]] = Field(
-        default=None, description="Measured timings for different parts of the query generation process"
-    )
-
-
 class WebExternalClicksTableQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -7421,6 +7449,7 @@ class DashboardFilter(BaseModel):
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
+                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = None
@@ -7505,6 +7534,7 @@ class DataWarehouseNode(BaseModel):
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
+                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(
@@ -7549,6 +7579,7 @@ class DataWarehouseNode(BaseModel):
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
+                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -7580,6 +7611,7 @@ class EntityNode(BaseModel):
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
+                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(
@@ -7622,6 +7654,7 @@ class EntityNode(BaseModel):
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
+                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -7667,6 +7700,7 @@ class EventsNode(BaseModel):
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
+                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(
@@ -7711,6 +7745,7 @@ class EventsNode(BaseModel):
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
+                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -7742,6 +7777,7 @@ class ExperimentDataWarehouseNode(BaseModel):
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
+                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(
@@ -7784,6 +7820,7 @@ class ExperimentDataWarehouseNode(BaseModel):
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
+                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -7815,6 +7852,7 @@ class ExperimentEventExposureConfig(BaseModel):
             DataWarehousePropertyFilter,
             DataWarehousePersonPropertyFilter,
             ErrorTrackingIssueFilter,
+            ErrorTrackingIssuePropertyFilter,
         ]
     ]
 
@@ -7850,6 +7888,7 @@ class FunnelExclusionActionsNode(BaseModel):
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
+                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(
@@ -7895,6 +7934,7 @@ class FunnelExclusionActionsNode(BaseModel):
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
+                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -7925,6 +7965,7 @@ class FunnelExclusionEventsNode(BaseModel):
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
+                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(
@@ -7971,6 +8012,7 @@ class FunnelExclusionEventsNode(BaseModel):
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
+                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -8019,6 +8061,7 @@ class HogQLFilters(BaseModel):
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
+                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = None
@@ -8082,6 +8125,7 @@ class PersonsNode(BaseModel):
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
+                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(
@@ -8112,6 +8156,7 @@ class PersonsNode(BaseModel):
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
+                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -8143,6 +8188,7 @@ class PropertyGroupFilterValue(BaseModel):
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
+                ErrorTrackingIssuePropertyFilter,
             ],
         ]
     ]
@@ -8198,6 +8244,7 @@ class RecordingsQuery(BaseModel):
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
+                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = None
@@ -8228,6 +8275,7 @@ class RecordingsQuery(BaseModel):
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
+                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = None
@@ -8263,6 +8311,7 @@ class RetentionEntity(BaseModel):
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
+                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(default=None, description="filters on the event")
@@ -8387,6 +8436,7 @@ class TracesQuery(BaseModel):
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
+                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -8405,27 +8455,6 @@ class VectorSearchQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[VectorSearchQueryResponse] = None
-
-
-class WebActiveHoursHeatMapQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    compareFilter: Optional[CompareFilter] = None
-    conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
-    dateRange: Optional[DateRange] = None
-    doPathCleaning: Optional[bool] = None
-    filterTestAccounts: Optional[bool] = None
-    includeRevenue: Optional[bool] = None
-    kind: Literal["WebActiveHoursHeatMapQuery"] = "WebActiveHoursHeatMapQuery"
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
-    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
-    response: Optional[WebActiveHoursHeatMapQueryResponse] = None
-    sampling: Optional[Sampling] = None
-    useSessionsTable: Optional[bool] = None
 
 
 class WebVitalsPathBreakdownQuery(BaseModel):
@@ -8475,6 +8504,7 @@ class ActionsNode(BaseModel):
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
+                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(
@@ -8518,6 +8548,7 @@ class ActionsNode(BaseModel):
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
+                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -8571,6 +8602,28 @@ class DatabaseSchemaViewTable(BaseModel):
     query: HogQLQuery
     row_count: Optional[float] = None
     type: Literal["view"] = "view"
+
+
+class EventsHeatMapQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    compareFilter: Optional[CompareFilter] = None
+    conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
+    dateRange: Optional[DateRange] = None
+    doPathCleaning: Optional[bool] = None
+    filterTestAccounts: Optional[bool] = None
+    includeRevenue: Optional[bool] = None
+    kind: Literal["EventsHeatMapQuery"] = "EventsHeatMapQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
+    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
+    response: Optional[EventsHeatMapQueryResponse] = None
+    sampling: Optional[Sampling] = None
+    source: EventsNode
+    useSessionsTable: Optional[bool] = None
 
 
 class ExperimentFunnelMetricTypeProps(BaseModel):
@@ -8704,6 +8757,7 @@ class RetentionQuery(BaseModel):
                     DataWarehousePropertyFilter,
                     DataWarehousePersonPropertyFilter,
                     ErrorTrackingIssueFilter,
+                    ErrorTrackingIssuePropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -8754,6 +8808,7 @@ class StickinessQuery(BaseModel):
                     DataWarehousePropertyFilter,
                     DataWarehousePersonPropertyFilter,
                     ErrorTrackingIssueFilter,
+                    ErrorTrackingIssuePropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -8811,6 +8866,7 @@ class TrendsQuery(BaseModel):
                     DataWarehousePropertyFilter,
                     DataWarehousePersonPropertyFilter,
                     ErrorTrackingIssueFilter,
+                    ErrorTrackingIssuePropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -9010,6 +9066,7 @@ class FunnelsQuery(BaseModel):
                     DataWarehousePropertyFilter,
                     DataWarehousePersonPropertyFilter,
                     ErrorTrackingIssueFilter,
+                    ErrorTrackingIssuePropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -9055,6 +9112,7 @@ class InsightsQueryBaseFunnelsQueryResponse(BaseModel):
                     DataWarehousePropertyFilter,
                     DataWarehousePersonPropertyFilter,
                     ErrorTrackingIssueFilter,
+                    ErrorTrackingIssuePropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -9097,6 +9155,7 @@ class InsightsQueryBaseLifecycleQueryResponse(BaseModel):
                     DataWarehousePropertyFilter,
                     DataWarehousePersonPropertyFilter,
                     ErrorTrackingIssueFilter,
+                    ErrorTrackingIssuePropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -9139,6 +9198,7 @@ class InsightsQueryBasePathsQueryResponse(BaseModel):
                     DataWarehousePropertyFilter,
                     DataWarehousePersonPropertyFilter,
                     ErrorTrackingIssueFilter,
+                    ErrorTrackingIssuePropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -9181,6 +9241,7 @@ class InsightsQueryBaseRetentionQueryResponse(BaseModel):
                     DataWarehousePropertyFilter,
                     DataWarehousePersonPropertyFilter,
                     ErrorTrackingIssueFilter,
+                    ErrorTrackingIssuePropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -9223,6 +9284,7 @@ class InsightsQueryBaseTrendsQueryResponse(BaseModel):
                     DataWarehousePropertyFilter,
                     DataWarehousePersonPropertyFilter,
                     ErrorTrackingIssueFilter,
+                    ErrorTrackingIssuePropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -9272,6 +9334,7 @@ class LifecycleQuery(BaseModel):
                     DataWarehousePropertyFilter,
                     DataWarehousePersonPropertyFilter,
                     ErrorTrackingIssueFilter,
+                    ErrorTrackingIssuePropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -9732,6 +9795,7 @@ class PathsQuery(BaseModel):
                     DataWarehousePropertyFilter,
                     DataWarehousePersonPropertyFilter,
                     ErrorTrackingIssueFilter,
+                    ErrorTrackingIssuePropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -9878,6 +9942,7 @@ class FunnelCorrelationActorsQuery(BaseModel):
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
+                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = None
@@ -9992,6 +10057,7 @@ class EventsQuery(BaseModel):
                     DataWarehousePropertyFilter,
                     DataWarehousePersonPropertyFilter,
                     ErrorTrackingIssueFilter,
+                    ErrorTrackingIssuePropertyFilter,
                 ],
             ]
         ]
@@ -10025,6 +10091,7 @@ class EventsQuery(BaseModel):
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
                 ErrorTrackingIssueFilter,
+                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -10121,7 +10188,7 @@ class DataTableNode(BaseModel):
         WebGoalsQuery,
         WebVitalsQuery,
         WebVitalsPathBreakdownQuery,
-        WebActiveHoursHeatMapQuery,
+        EventsHeatMapQuery,
         SessionAttributionExplorerQuery,
         RevenueAnalyticsOverviewQuery,
         RevenueAnalyticsGrowthRateQuery,
@@ -10183,7 +10250,7 @@ class HogQLAutocomplete(BaseModel):
             RecordingsQuery,
             TracesQuery,
             VectorSearchQuery,
-            WebActiveHoursHeatMapQuery,
+            EventsHeatMapQuery,
         ]
     ] = Field(default=None, description="Query in whose context to validate.")
     startPosition: int = Field(..., description="Start position of the editor word")
@@ -10239,7 +10306,7 @@ class HogQLMetadata(BaseModel):
             RecordingsQuery,
             TracesQuery,
             VectorSearchQuery,
-            WebActiveHoursHeatMapQuery,
+            EventsHeatMapQuery,
         ]
     ] = Field(
         default=None,
@@ -10289,7 +10356,7 @@ class QueryRequest(BaseModel):
         WebVitalsQuery,
         WebVitalsPathBreakdownQuery,
         WebPageURLSearchQuery,
-        WebActiveHoursHeatMapQuery,
+        EventsHeatMapQuery,
         RevenueAnalyticsOverviewQuery,
         RevenueAnalyticsGrowthRateQuery,
         RevenueAnalyticsTopCustomersQuery,
@@ -10370,7 +10437,7 @@ class QuerySchemaRoot(
             WebVitalsQuery,
             WebVitalsPathBreakdownQuery,
             WebPageURLSearchQuery,
-            WebActiveHoursHeatMapQuery,
+            EventsHeatMapQuery,
             RevenueAnalyticsOverviewQuery,
             RevenueAnalyticsGrowthRateQuery,
             RevenueAnalyticsTopCustomersQuery,
@@ -10425,7 +10492,7 @@ class QuerySchemaRoot(
         WebVitalsQuery,
         WebVitalsPathBreakdownQuery,
         WebPageURLSearchQuery,
-        WebActiveHoursHeatMapQuery,
+        EventsHeatMapQuery,
         RevenueAnalyticsOverviewQuery,
         RevenueAnalyticsGrowthRateQuery,
         RevenueAnalyticsTopCustomersQuery,

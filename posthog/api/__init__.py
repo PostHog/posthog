@@ -1,8 +1,10 @@
 from rest_framework import decorators, exceptions, viewsets
 from rest_framework_extensions.routers import NestedRegistryItem
 
+import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 import products.early_access_features.backend.api as early_access_feature
 from products.editor.backend.api import LLMProxyViewSet, MaxToolsViewSet
+from products.messaging.backend.api import MessageTemplatesViewSet
 from posthog.api import data_color_theme, metalytics, project, wizard
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.batch_exports import http as batch_exports
@@ -45,7 +47,6 @@ from . import (
     instance_settings,
     instance_status,
     integration,
-    message_templates,
     notebook,
     organization,
     organization_domain,
@@ -326,6 +327,12 @@ register_grandfathered_environment_nested_viewset(
     r"external_data_schemas",
     external_data_schema.ExternalDataSchemaViewset,
     "environment_external_data_schemas",
+    ["team_id"],
+)
+environments_router.register(
+    r"fix_hogql",
+    fix_hogql.FixHogQLViewSet,
+    "project_fix_hogql",
     ["team_id"],
 )
 
@@ -657,7 +664,7 @@ environments_router.register(r"max_tools", MaxToolsViewSet, "environment_max_too
 
 environments_router.register(
     r"messaging_templates",
-    message_templates.MessageTemplateViewSet,
+    MessageTemplatesViewSet,
     "environment_messaging_templates",
     ["team_id"],
 )

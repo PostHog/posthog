@@ -91,48 +91,44 @@ export async function eachBatchHandlerHelper(
     const loggingKey = `each_batch_${key}`
     const { batch, resolveOffset, heartbeat, commitOffsetsIfNecessary, isRunning, isStale }: EachBatchPayload = payload
 
-    try {
-        const batchesWithOffsets = groupIntoBatchesByUsage(batch.messages, concurrency, shouldProcess)
+    const batchesWithOffsets = groupIntoBatchesByUsage(batch.messages, concurrency, shouldProcess)
 
-        ingestEventBatchingInputLengthSummary.observe(batch.messages.length)
-        ingestEventBatchingBatchCountSummary.observe(batchesWithOffsets.length)
+    ingestEventBatchingInputLengthSummary.observe(batch.messages.length)
+    ingestEventBatchingBatchCountSummary.observe(batchesWithOffsets.length)
 
-        for (const { eventBatch, lastOffset, lastTimestamp } of batchesWithOffsets) {
-            if (!isRunning() || isStale()) {
-                logger.info('🚪', `Bailing out of a batch of ${batch.messages.length} events (${loggingKey})`, {
-                    isRunning: isRunning(),
-                    isStale: isStale(),
-                    msFromBatchStart: new Date().valueOf() - batchStartTimer.valueOf(),
-                })
-                await heartbeat()
-                return
-            }
-
-            await Promise.all(
-                eventBatch.map((event: RawKafkaEvent) => eachMessageHandler(event).finally(() => heartbeat()))
-            )
-
-            resolveOffset(lastOffset)
-            await commitOffsetsIfNecessary()
-
-            // Record that latest messages timestamp, such that we can then, for
-            // instance, alert on if this value is too old.
-            latestOffsetTimestampGauge
-                .labels({ partition: batch.partition, topic: batch.topic, groupId: key })
-                .set(Number.parseInt(lastTimestamp))
-
+    for (const { eventBatch, lastOffset, lastTimestamp } of batchesWithOffsets) {
+        if (!isRunning() || isStale()) {
+            logger.info('🚪', `Bailing out of a batch of ${batch.messages.length} events (${loggingKey})`, {
+                isRunning: isRunning(),
+                isStale: isStale(),
+                msFromBatchStart: new Date().valueOf() - batchStartTimer.valueOf(),
+            })
             await heartbeat()
+            return
         }
 
-        logger.debug(
-            '🧩',
-            `Kafka batch of ${batch.messages.length} events completed in ${
-                new Date().valueOf() - batchStartTimer.valueOf()
-            }ms (${loggingKey})`
+        await Promise.all(
+            eventBatch.map((event: RawKafkaEvent) => eachMessageHandler(event).finally(() => heartbeat()))
         )
-    } finally {
-        transaction.finish()
+
+        resolveOffset(lastOffset)
+        await commitOffsetsIfNecessary()
+
+        // Record that latest messages timestamp, such that we can then, for
+        // instance, alert on if this value is too old.
+        latestOffsetTimestampGauge
+            .labels({ partition: batch.partition, topic: batch.topic, groupId: key })
+            .set(Number.parseInt(lastTimestamp))
+
+        await heartbeat()
     }
+
+    logger.debug(
+        '🧩',
+        `Kafka batch of ${batch.messages.length} events completed in ${
+            new Date().valueOf() - batchStartTimer.valueOf()
+        }ms (${loggingKey})`
+    )
 }
 
 async function addGroupPropertiesToPostIngestionEvent(

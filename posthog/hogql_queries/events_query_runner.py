@@ -21,6 +21,7 @@ from posthog.models.person.person import READ_DB_FOR_PERSONS, get_distinct_ids_f
 from posthog.models.person.util import get_persons_by_distinct_ids
 from posthog.schema import DashboardFilter, EventsQuery, EventsQueryResponse, CachedEventsQueryResponse
 from posthog.utils import relative_date_parse
+from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 
 # Allow-listed fields returned when you select "*" from events. Person and group fields will be nested later.
 SELECT_STAR_FROM_EVENTS_FIELDS = [
@@ -68,6 +69,11 @@ class EventsQueryRunner(QueryRunner):
                 # This will be expanded into a followup query
                 select_input.append("distinct_id")
                 person_indices.append(index)
+            elif col.split("--")[0].strip() == "person_display_name":
+                property_keys = self.team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
+                props = [f"person.properties.{key}" for key in property_keys]
+                expr = f"(coalesce({', '.join([*props, 'distinct_id'])}), distinct_id)"  # we always need distinct_id for the URL, and we can't rely on it being selected elsewhere
+                select_input.append(expr)
             else:
                 select_input.append(col)
         return select_input, [parse_expr(column, timings=self.timings) for column in select_input]
@@ -270,9 +276,18 @@ class EventsQueryRunner(QueryRunner):
                     self.paginator.results[index][star_idx] = new_result
 
         person_indices: list[int] = []
-        for index, col in enumerate(self.select_input_raw()):
+        for column_index, col in enumerate(self.select_input_raw()):
             if col.split("--")[0].strip() == "person":
-                person_indices.append(index)
+                person_indices.append(column_index)
+            # convert tuple that gets returned into a dict
+            if col.split("--")[0].strip() == "person_display_name":
+                for index, result in enumerate(self.paginator.results):
+                    row = list(self.paginator.results[index])
+                    row[column_index] = {
+                        "display_name": result[column_index][0],
+                        "distinct_id": str(result[column_index][1]),
+                    }
+                    self.paginator.results[index] = row
 
         if len(person_indices) > 0 and len(self.paginator.results) > 0:
             with self.timings.measure("person_column_extra_query"):

@@ -1,4 +1,5 @@
 from django.db import models
+from django.db.models import Q
 from typing import Optional
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -53,17 +54,14 @@ def create_or_update_file(
     created_by: Optional[User] = None,
 ):
     has_existing = False
-    all_existing = FileSystem.objects.filter(team=team, type=file_type, ref=ref).all()
+    all_existing = FileSystem.objects.filter(team=team, type=file_type, ref=ref).filter(~Q(shortcut=True)).all()
     for existing in all_existing:
         has_existing = True
         segments = split_path(existing.path)
-        if len(segments) <= 2:
-            new_path = f"{base_folder}/{escape_path(name)}"
-        else:
-            segments[-1] = escape_path(name)
-            new_path = join_path(segments)
+        segments[-1] = escape_path(name)
+        new_path = join_path(segments)
         existing.path = new_path
-        existing.depth = len(split_path(new_path))
+        existing.depth = len(segments)
         existing.href = href
         existing.meta = meta
         existing.save()

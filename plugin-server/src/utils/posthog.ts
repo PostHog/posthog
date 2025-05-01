@@ -4,6 +4,8 @@ import { SeverityLevel } from 'posthog-node/src/extensions/error-tracking/types'
 import { defaultConfig } from '../config/config'
 import { Team } from '../types'
 
+const fs = require('fs')
+
 const posthog = defaultConfig.POSTHOG_API_KEY
     ? new PostHog(defaultConfig.POSTHOG_API_KEY, {
           host: defaultConfig.POSTHOG_HOST_URL,
@@ -13,6 +15,27 @@ const posthog = defaultConfig.POSTHOG_API_KEY
 
 if (process.env.NODE_ENV === 'test' && posthog) {
     void posthog.disable()
+}
+
+export function initSuperProperties(): void {
+    if (posthog) {
+        const superProperties: Record<string, any> = {
+            plugin_server_mode: defaultConfig.PLUGIN_SERVER_MODE,
+            deployment: defaultConfig.CLOUD_DEPLOYMENT,
+            plugin_server_events_ingestion_pipeline: defaultConfig.PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE,
+        }
+
+        try {
+            // Docker containers should have a commit.txt file in the base directory with the git
+            // commit hash used to generate them. `plugin-server` runs from a child directory, so we
+            // need to look up one level.
+            superProperties['release'] = fs.readFileSync('../commit.txt', 'utf8')
+        } catch (error) {
+            // The release isn't required, it's just nice to have.
+        }
+
+        void posthog.register(superProperties)
+    }
 }
 
 export function captureTeamEvent(
