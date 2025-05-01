@@ -1,6 +1,7 @@
 import { actions, kea, path, reducers, useActions, useValues } from 'kea'
 import { ConfirmUpgradeModal } from 'lib/components/ConfirmUpgradeModal/ConfirmUpgradeModal'
 import { HedgehogBuddyWithLogic } from 'lib/components/HedgehogBuddy/HedgehogBuddyWithLogic'
+import { SaveToModal } from 'lib/components/SaveTo/SaveTo'
 import { TimeSensitiveAuthenticationModal } from 'lib/components/TimeSensitiveAuthentication/TimeSensitiveAuthentication'
 import { GlobalCustomUnitModal } from 'lib/components/UnitPicker/GlobalCustomUnitModal'
 import { UpgradeModal } from 'lib/components/UpgradeModal/UpgradeModal'
@@ -74,6 +75,7 @@ export function GlobalModals(): JSX.Element {
             <HedgehogBuddyWithLogic />
             <PaymentEntryModal />
             <GlobalCustomUnitModal />
+            <SaveToModal />
         </>
     )
 }

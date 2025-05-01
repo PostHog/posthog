@@ -1713,6 +1713,34 @@ class TestSurvey(APIBaseTest):
         self.assertTrue(data["next"] is not None)  # Should have next page
         self.assertTrue(data["count"] > 10)  # Total count should be more than 10
 
+    def test_create_survey_in_specific_folder(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            {
+                "name": "Survey with custom folder",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "What would you like to see improved?",
+                    }
+                ],
+                "_create_in_folder": "Special Folder/Surveys",
+            },
+            format="json",
+        )
+        assert response.status_code == 201, response.json()
+        survey_id = response.json()["id"]
+        assert survey_id is not None
+
+        from posthog.models.file_system.file_system import FileSystem
+
+        fs_entry = FileSystem.objects.filter(team=self.team, ref=str(survey_id), type="survey").first()
+        assert fs_entry is not None, "A FileSystem entry was not created for this Survey."
+        assert (
+            "Special Folder/Surveys" in fs_entry.path
+        ), f"Expected path to include 'Special Folder/Surveys', got '{fs_entry.path}'."
+
 
 class TestMultipleChoiceQuestions(APIBaseTest):
     def test_create_survey_has_open_choice(self):

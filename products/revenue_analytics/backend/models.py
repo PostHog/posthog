@@ -75,9 +75,9 @@ CHARGE_FIELDS: dict[str, FieldOrTable] = {
     # Mostly helper fields
     "original_currency": StringDatabaseField(name="original_currency"),
     "original_amount": DecimalDatabaseField(name="original_amount"),
-    "currency_is_zero_decimal": BooleanDatabaseField(name="currency_is_zero_decimal"),
-    "amount_decimal_divider": DecimalDatabaseField(name="amount_decimal_divider"),
-    "adjusted_original_amount": DecimalDatabaseField(name="adjusted_original_amount"),
+    "enable_currency_aware_divider": BooleanDatabaseField(name="enable_currency_aware_divider"),
+    "currency_aware_divider": DecimalDatabaseField(name="currency_aware_divider"),
+    "currency_aware_amount": DecimalDatabaseField(name="currency_aware_amount"),
 }
 
 CUSTOMER_FIELDS: dict[str, FieldOrTable] = {
@@ -89,23 +89,20 @@ CUSTOMER_FIELDS: dict[str, FieldOrTable] = {
 }
 
 
-def is_zero_decimal(field: ast.Field) -> ast.Alias:
-    return ast.Alias(
-        alias="currency_is_zero_decimal",
-        expr=ast.Call(
-            name="in",
-            args=[field, ast.Constant(value=ZERO_DECIMAL_CURRENCIES_IN_STRIPE)],
-        ),
+def is_zero_decimal_in_stripe(field: ast.Field) -> ast.Call:
+    return ast.Call(
+        name="in",
+        args=[field, ast.Constant(value=ZERO_DECIMAL_CURRENCIES_IN_STRIPE)],
     )
 
 
-def amount_decimal_divider() -> ast.Alias:
+def currency_aware_divider() -> ast.Alias:
     return ast.Alias(
-        alias="amount_decimal_divider",
+        alias="currency_aware_divider",
         expr=ast.Call(
             name="if",
             args=[
-                ast.Field(chain=["currency_is_zero_decimal"]),
+                ast.Field(chain=["enable_currency_aware_divider"]),
                 ast.Call(
                     name="toDecimal",
                     args=[ast.Constant(value=1), ast.Constant(value=EXCHANGE_RATE_DECIMAL_PRECISION)],
@@ -119,14 +116,14 @@ def amount_decimal_divider() -> ast.Alias:
     )
 
 
-def adjusted_original_amount() -> ast.Alias:
+def currency_aware_amount() -> ast.Alias:
     return ast.Alias(
-        alias="adjusted_original_amount",
+        alias="currency_aware_amount",
         expr=ast.Call(
             name="divideDecimal",
             args=[
                 ast.Field(chain=["original_amount"]),
-                ast.Field(chain=["amount_decimal_divider"]),
+                ast.Field(chain=["currency_aware_divider"]),
             ],
         ),
     )
@@ -143,26 +140,51 @@ class RevenueAnalyticsRevenueView(SavedQuery):
 
         revenue_config = team.revenue_analytics_config
 
+        currency_aware_event_names = [event.eventName for event in revenue_config.events if event.currencyAwareDecimal]
+
         query = ast.SelectQuery(
             select=[
                 ast.Alias(alias="id", expr=ast.Field(chain=["uuid"])),
                 ast.Alias(alias="timestamp", expr=ast.Field(chain=["created_at"])),
                 ast.Alias(alias="customer_id", expr=ast.Field(chain=["distinct_id"])),
-                ast.Alias(alias="session_id", expr=ast.Field(chain=["properties", "$session_id"])),
+                ast.Alias(alias="session_id", expr=ast.Call(name="toString", args=[ast.Field(chain=["$session_id"])])),
                 ast.Alias(alias="event_name", expr=ast.Field(chain=["event"])),
                 ast.Alias(alias="original_currency", expr=currency_expression_for_all_events(revenue_config)),
                 ast.Alias(
                     alias="original_amount",
                     expr=revenue_expression_for_events(revenue_config, do_currency_conversion=False),
                 ),
-                is_zero_decimal(ast.Field(chain=["original_currency"])),
-                amount_decimal_divider(),
-                adjusted_original_amount(),
+                # Being zero-decimal implies we will NOT divide the original amount by 100
+                # We should only do that if we've tagged the event with `currencyAwareDecimal`
+                # Otherwise, we'll just assume it's a non-zero-decimal currency
+                # There's a small optimization here in case NONE of the events have `currencyAwareDecimal`
+                # in which case we can just return True for all rows
+                ast.Alias(
+                    alias="enable_currency_aware_divider",
+                    expr=ast.Constant(value=True)
+                    if not currency_aware_event_names
+                    else ast.Call(
+                        name="if",
+                        args=[
+                            ast.Call(
+                                name="in",
+                                args=[
+                                    ast.Field(chain=["event_name"]),
+                                    ast.Constant(value=currency_aware_event_names),
+                                ],
+                            ),
+                            is_zero_decimal_in_stripe(ast.Field(chain=["original_currency"])),
+                            ast.Constant(value=True),
+                        ],
+                    ),
+                ),
+                currency_aware_divider(),
+                currency_aware_amount(),
                 ast.Alias(alias="currency", expr=ast.Constant(value=revenue_config.base_currency)),
                 ast.Alias(
                     alias="amount",
                     expr=revenue_expression_for_events(
-                        revenue_config, amount_expr=ast.Field(chain=["adjusted_original_amount"])
+                        revenue_config, amount_expr=ast.Field(chain=["currency_aware_amount"])
                     ),
                 ),
             ],
@@ -259,20 +281,24 @@ class RevenueAnalyticsRevenueView(SavedQuery):
                     ),
                 ),
                 # Compute whether the original currency is a zero-decimal currency
-                # by comparing it against a list of zero-decimal currencies
-                is_zero_decimal(ast.Field(chain=["original_currency"])),
+                # by comparing it against a list of known zero-decimal currencies
+                # in Stripe's API
+                ast.Alias(
+                    alias="enable_currency_aware_divider",
+                    expr=is_zero_decimal_in_stripe(ast.Field(chain=["original_currency"])),
+                ),
                 # Compute the amount decimal divider, which is 1 for zero-decimal currencies and 100 for others
                 # This is used to convert the original amount to the adjusted amount
-                amount_decimal_divider(),
+                currency_aware_divider(),
                 # Compute the adjusted original amount, which is the original amount divided by the amount decimal divider
-                adjusted_original_amount(),
+                currency_aware_amount(),
                 # Expose the base/converted currency, which is the base currency from the team's revenue config
                 ast.Alias(alias="currency", expr=ast.Constant(value=revenue_config.base_currency)),
                 # Convert the adjusted original amount to the base currency
                 ast.Alias(
                     alias="amount",
                     expr=convert_currency_call(
-                        amount=ast.Field(chain=["adjusted_original_amount"]),
+                        amount=ast.Field(chain=["currency_aware_amount"]),
                         currency_from=ast.Field(chain=["original_currency"]),
                         currency_to=ast.Field(chain=["currency"]),
                         timestamp=ast.Call(

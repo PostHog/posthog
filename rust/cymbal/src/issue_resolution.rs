@@ -5,6 +5,7 @@ use chrono::{DateTime, Utc};
 use common_kafka::kafka_messages::internal_events::{InternalEvent, InternalEventEvent};
 use common_kafka::kafka_producer::send_iter_to_kafka;
 
+use serde_json::json;
 use sqlx::Acquire;
 use uuid::Uuid;
 
@@ -42,6 +43,18 @@ pub enum IssueStatus {
     Resolved,
     PendingRelease,
     Suppressed,
+}
+
+impl IssueStatus {
+    fn as_str(&self) -> &'static str {
+        match self {
+            IssueStatus::Archived => "Archived",
+            IssueStatus::Active => "Active",
+            IssueStatus::Resolved => "Resolved",
+            IssueStatus::PendingRelease => "Pending Release",
+            IssueStatus::Suppressed => "Suppressed",
+        }
+    }
 }
 
 impl Issue {
@@ -169,7 +182,7 @@ impl Issue {
         let assignments = sqlx::query_as!(
             Assignment,
             r#"
-            SELECT id, issue_id, user_id, user_group_id, created_at FROM posthog_errortrackingissueassignment
+            SELECT id, issue_id, user_id, user_group_id, role_id, created_at FROM posthog_errortrackingissueassignment
             WHERE issue_id = $1
             "#,
             self.id
@@ -354,16 +367,31 @@ async fn send_internal_event(
     event
         .insert_prop("description", issue.description.clone())
         .expect("Strings are serializable");
+    event.insert_prop("status", issue.status.as_str())?;
 
     if let Some(assignment) = new_assignment {
         if let Some(user_id) = assignment.user_id {
             event
-                .insert_prop("assigned_to", user_id.to_string())
+                .insert_prop(
+                    "assignee",
+                    json!({"type": "user", "id": user_id.to_string()}),
+                )
                 .expect("Strings are serializable");
         }
         if let Some(group_id) = assignment.user_group_id {
             event
-                .insert_prop("assigned_to_user_group", group_id.to_string())
+                .insert_prop(
+                    "assignee",
+                    json!({"type": "user_group", "id": group_id.to_string()}),
+                )
+                .expect("Strings are serializable");
+        }
+        if let Some(role_id) = assignment.role_id {
+            event
+                .insert_prop(
+                    "assignee",
+                    json!({"type": "role", "id": role_id.to_string()}),
+                )
                 .expect("Strings are serializable");
         }
     }

@@ -1,4 +1,4 @@
-package main
+package handlers
 
 import (
 	"bytes"
@@ -6,7 +6,7 @@ import (
 	"net/http"
 )
 
-// Event structure is defined here: https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events#event_stream_format
+// Event structure used when server streaming events, defined here: https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events#event_stream_format
 type Event struct {
 	ID      []byte
 	Data    []byte

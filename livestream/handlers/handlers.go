@@ -1,4 +1,4 @@
-package main
+package handlers
 
 import (
 	"encoding/json"
@@ -11,12 +11,16 @@ import (
 	"github.com/posthog/posthog/livestream/events"
 )
 
+func Index(c echo.Context) error {
+	return c.String(http.StatusOK, "RealTime Hog 3000")
+}
+
 type Counter struct {
 	EventCount int
 	UserCount  int
 }
 
-func servedHandler(stats *events.Stats) func(c echo.Context) error {
+func ServedHandler(stats *events.Stats) func(c echo.Context) error {
 	return func(c echo.Context) error {
 		userCount := stats.GlobalStore.Len()
 		count := stats.Counter.Count()
@@ -28,7 +32,7 @@ func servedHandler(stats *events.Stats) func(c echo.Context) error {
 	}
 }
 
-func statsHandler(stats *events.Stats) func(c echo.Context) error {
+func StatsHandler(stats *events.Stats) func(c echo.Context) error {
 	return func(c echo.Context) error {
 
 		type resp struct {
@@ -57,7 +61,7 @@ func statsHandler(stats *events.Stats) func(c echo.Context) error {
 
 var subID uint64 = 1
 
-func streamEventsHandler(log echo.Logger, subChan chan events.Subscription, filter *events.Filter) func(c echo.Context) error {
+func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, filter *events.Filter) func(c echo.Context) error {
 	return func(c echo.Context) error {
 		log.Debugf("SSE client connected, ip: %v", c.RealIP())
 
