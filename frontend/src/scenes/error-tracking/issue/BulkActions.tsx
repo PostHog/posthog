@@ -34,7 +34,7 @@ export function BulkActions(): JSX.Element {
         }, null)
 
     return (
-        <div className="flex deprecated-space-x-2">
+        <div className="flex gap-x-2">
             <LemonButton
                 disabledReason={!hasAtLeastTwoIssues ? 'Select at least two issues to merge' : null}
                 type="secondary"
