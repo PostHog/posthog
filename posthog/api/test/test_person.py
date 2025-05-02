@@ -2,7 +2,7 @@ import json
 from typing import Optional, cast
 from unittest import mock
 from unittest.mock import patch
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 from django.utils import timezone
 from freezegun.api import freeze_time
