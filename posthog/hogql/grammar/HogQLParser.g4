@@ -53,7 +53,7 @@ kvPairList: kvPair (COMMA kvPair)* COMMA?;
 // SQL statements
 
 // SELECT statement and its variants
-select: selectSetStmt | selectStmt | hogqlxTagElement;
+select: (selectSetStmt | selectStmt | hogqlxTagElement) EOF;
 
 // CREATE statement 
 create: CREATE TABLE tableIdentifier AS LPAREN select RPAREN;
