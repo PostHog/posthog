@@ -970,7 +970,7 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
             "/",
             data=None,
             secure=False,
-            headers={"AUTHORIZATION": "Bearer phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"},
+            headers={"AUTHORIZATION": f"Bearer {self.team.secret_api_token}"},
         )
         request = Request(wsgi_request)  # Wrap the WSGIRequest in a DRF Request
 
@@ -987,7 +987,7 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         # Simulate a request with a valid secret API key
         wsgi_request = self.factory.post(
             "/",
-            data='{"secret_api_key": "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"}',
+            data=f'{{"secret_api_key": "{self.team.secret_api_token}"}}',
             content_type="application/json",
         )
         request = Request(wsgi_request)  # Wrap the WSGIRequest in a DRF Request
@@ -1004,7 +1004,7 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
 
     def test_authenticate_with_valid_secret_api_key_in_query_string(self):
         # Simulate a request with a valid secret API key
-        wsgi_request = self.factory.get("/?secret_api_key=phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C")
+        wsgi_request = self.factory.get(f"/?secret_api_key={self.team.secret_api_token}")
         request = Request(wsgi_request)  # Wrap the WSGIRequest in a DRF Request
 
         authenticator = ProjectSecretAPIKeyAuthentication()
