@@ -435,19 +435,12 @@ class ApiRequest {
         return this.hogFunctions(teamId).addPathComponent(id)
     }
 
-    public hogFunctionTemplates(teamId?: TeamType['id'], db_templates?: boolean): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('hog_function_templates').withQueryString({ db_templates })
+    public hogFunctionTemplates(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('hog_function_templates')
     }
 
-    public hogFunctionTemplate(
-        id: HogFunctionTemplateType['id'],
-        teamId?: TeamType['id'],
-        db_templates?: boolean
-    ): ApiRequest {
-        return this.projectsDetail(teamId)
-            .addPathComponent('hog_function_templates')
-            .addPathComponent(id)
-            .withQueryString({ db_templates })
+    public hogFunctionTemplate(id: HogFunctionTemplateType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.hogFunctionTemplates(teamId).addPathComponent(id)
     }
 
     // # Actions
@@ -2170,6 +2163,7 @@ const api = {
                 ...params,
                 types: params.types.join(','),
             }
+
             return new ApiRequest().hogFunctionTemplates().withQueryString(finalParams).get()
         },
         async getTemplate(id: HogFunctionTemplateType['id'], db_templates?: boolean): Promise<HogFunctionTemplateType> {
