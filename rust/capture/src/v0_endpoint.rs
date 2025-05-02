@@ -81,7 +81,7 @@ async fn handle_legacy(
     let raw_payload: Bytes = match *method {
         Method::POST => {
             if !body.is_empty() {
-                error!("unexpected missing payload on {} request", *method);
+                error!("unexpected missing payload on {:?} request", method);
                 return Err(CaptureError::EmptyPayload);
             }
             body
@@ -94,7 +94,7 @@ async fn handle_legacy(
             } else if !body.is_empty() {
                 body
             } else {
-                error!("unexpected missing payload on {} request", *method);
+                error!("unexpected missing payload on {:?} request", method);
                 return Err(CaptureError::EmptyPayload);
             }
         }
