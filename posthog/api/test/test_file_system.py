@@ -41,7 +41,6 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual(response_data["type"], "doc-file")
         self.assertEqual(response_data["shortcut"], False)
         self.assertDictEqual(response_data["meta"], {"description": "A test file"})
-        self.assertEqual(response_data["created_by"]["id"], self.user.pk)
 
     def test_create_shortcut(self):
         """
@@ -52,7 +51,7 @@ class TestFileSystemAPI(APIBaseTest):
             {
                 "path": "MyFolder/Document.txt",
                 "type": "doc-file",
-                "meta": {"description": "A test file"},
+                "meta": {"description": "A test file", "created_by": self.user.pk},
                 "shortcut": True,
             },
         )
@@ -63,8 +62,7 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual(response_data["path"], "MyFolder/Document.txt")
         self.assertEqual(response_data["type"], "doc-file")
         self.assertEqual(response_data["shortcut"], True)
-        self.assertDictEqual(response_data["meta"], {"description": "A test file"})
-        self.assertEqual(response_data["created_by"]["id"], self.user.pk)
+        self.assertDictEqual(response_data["meta"], {"description": "A test file", "created_by": self.user.pk})
 
     def test_retrieve_file(self):
         """
@@ -933,8 +931,12 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         second_user = User.objects.create_and_join(self.organization, "second@posthog.com", "testpass")
 
         # Create two files with different created_by users
-        FileSystem.objects.create(team=self.team, path="File1", type="doc", created_by=self.user)
-        FileSystem.objects.create(team=self.team, path="File2", type="doc", created_by=second_user)
+        FileSystem.objects.create(
+            team=self.team, path="File1", type="doc", created_by=self.user, meta={"created_by": self.user.pk}
+        )
+        FileSystem.objects.create(
+            team=self.team, path="File2", type="doc", created_by=second_user, meta={"created_by": second_user.pk}
+        )
 
         # Request the list
         response = self.client.get(f"/api/projects/{self.team.id}/file_system/")
@@ -963,7 +965,5 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         file1_data = results_by_path["File1"]
         file2_data = results_by_path["File2"]
 
-        self.assertEqual(file1_data["created_by"]["id"], self.user.pk)
-        self.assertEqual(file2_data["created_by"]["id"], second_user.pk)
-        self.assertEqual(file1_data["created_by"]["email"], self.user.email)
-        self.assertEqual(file2_data["created_by"]["email"], second_user.email)
+        self.assertEqual(file1_data["meta"]["created_by"], self.user.pk)
+        self.assertEqual(file2_data["meta"]["created_by"], second_user.pk)
