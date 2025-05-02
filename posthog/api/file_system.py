@@ -158,7 +158,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Collect user IDs from the "created_by" meta field
         for item in results:
             created_by = item.get("meta", {}).get("created_by")
-            if created_by:
+            if created_by and isinstance(created_by, int):
                 user_ids.add(created_by)
 
         if user_ids:
