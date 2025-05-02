@@ -17,8 +17,10 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { JSONViewer } from 'lib/components/JSONViewer'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useCallback, useMemo, useState } from 'react'
 import DataGrid from 'react-data-grid'
@@ -40,6 +42,7 @@ import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVi
 import { HogQLQueryResponse } from '~/queries/schema/schema-general'
 import { ChartDisplayType, ExporterFormat } from '~/types'
 
+import { FixErrorButton } from './components/FixErrorButton'
 import { multitabEditorLogic } from './multitabEditorLogic'
 import { outputPaneLogic, OutputTab } from './outputPaneLogic'
 import TabScroller from './TabScroller'
@@ -547,17 +550,26 @@ function InternalDataTableVisualization(
 }
 
 const ErrorState = ({ responseError, sourceQuery, queryCancelled, response }: any): JSX.Element | null => {
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const error = queryCancelled
+        ? 'The query was cancelled'
+        : response && 'error' in response && !!response.error
+        ? response.error
+        : responseError
+
     return (
         <div className={clsx('flex-1 absolute top-0 left-0 right-0 bottom-0 overflow-scroll')}>
             <InsightErrorState
                 query={sourceQuery}
                 excludeDetail
-                title={
-                    queryCancelled
-                        ? 'The query was cancelled'
-                        : response && 'error' in response && !!response.error
-                        ? response.error
-                        : responseError
+                title={error}
+                fixWithAIComponent={
+                    featureFlags[FEATURE_FLAGS.SQL_EDITOR_AI_ERROR_FIXER] ? (
+                        <FixErrorButton contentOverride="Fix error with AI" type="primary" source="query-error" />
+                    ) : (
+                        <></>
+                    )
                 }
             />
         </div>
