@@ -432,7 +432,7 @@ class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelV
         if json_filters:
             parsed_filters = PropertyGroupFilterValue(**json_filters)
             assignment_rule.filters = json_filters
-            assignment_rule.bytecode = self.generate_byte_code(parsed_filters)
+            assignment_rule.bytecode = generate_byte_code(self.team, parsed_filters)
 
         if assignee:
             assignment_rule.user_id = None if assignee["type"] != "user" else assignee["id"]
