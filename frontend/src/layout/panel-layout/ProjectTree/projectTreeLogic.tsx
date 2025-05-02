@@ -14,7 +14,7 @@ import { urls } from 'scenes/urls'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
-import { Breadcrumb, ProjectTreeBreadcrumb, ProjectTreeRef } from '~/types'
+import { Breadcrumb, ProjectTreeBreadcrumb, ProjectTreeRef, UserBasicType } from '~/types'
 
 import { panelLayoutLogic } from '../panelLayoutLogic'
 import { getDefaultTreeExplore, getDefaultTreeNew } from './defaultTree'
@@ -121,6 +121,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         setSortMethod: (sortMethod: ProjectTreeSortMethod) => ({ sortMethod }),
         setSelectMode: (selectMode: LemonTreeSelectMode) => ({ selectMode }),
         setTreeTableColumnSizes: (sizes: number[]) => ({ sizes }),
+        addUsers: (users: UserBasicType[]) => ({ users }),
     }),
     loaders(({ actions, values }) => ({
         unfiledItems: [
@@ -159,7 +160,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                             : []),
                         ...response.results.slice(0, PAGINATION_LIMIT),
                     ]
-
+                    if (response.users?.length > 0) {
+                        actions.addUsers(response.users)
+                    }
                     return {
                         searchTerm,
                         results: values.sortMethod === 'recent' ? results : results.sort(sortFilesAndFolders),
@@ -189,7 +192,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     const returnedResults = response.results.slice(0, PAGINATION_LIMIT)
                     const hasMore = response.results.length > PAGINATION_LIMIT
                     breakpoint()
-
                     const seenIds = new Set()
                     const results = [...values.recentResults.results, ...returnedResults]
                         .filter((item) => {
@@ -202,6 +204,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         .sort((a, b) => {
                             return new Date(b.created_at ?? '').getTime() - new Date(a.created_at ?? '').getTime()
                         })
+                    if (response.users?.length > 0) {
+                        actions.addUsers(response.users)
+                    }
                     return {
                         results,
                         hasMore,
@@ -485,6 +490,21 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 },
             },
         ],
+        users: [
+            {} as Record<string, UserBasicType>,
+            {
+                addUsers: (state, { users }) => {
+                    if (!users || users.length === 0) {
+                        return state
+                    }
+                    const newState = { ...state }
+                    for (const user of users) {
+                        newState[user.id] = user
+                    }
+                    return newState
+                },
+            },
+        ],
         lastNewFolder: [
             null as string | null,
             {
@@ -735,18 +755,19 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
         pendingActionsCount: [(s) => [s.pendingActions], (pendingActions): number => pendingActions.length],
         projectTree: [
-            (s) => [s.viableItems, s.folderStates, s.checkedItems],
-            (viableItems, folderStates, checkedItems): TreeDataItem[] =>
+            (s) => [s.viableItems, s.folderStates, s.checkedItems, s.users],
+            (viableItems, folderStates, checkedItems, users): TreeDataItem[] =>
                 convertFileSystemEntryToTreeDataItem({
                     imports: viableItems,
                     folderStates,
                     checkedItems,
                     root: 'project',
+                    users,
                 }),
         ],
         projectTreeOnlyFolders: [
-            (s) => [s.viableItems, s.folderStates, s.checkedItems],
-            (viableItems, folderStates, checkedItems): TreeDataItem[] => [
+            (s) => [s.viableItems, s.folderStates, s.checkedItems, s.users],
+            (viableItems, folderStates, checkedItems, users): TreeDataItem[] => [
                 {
                     id: '/',
                     name: '/',
@@ -758,6 +779,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         checkedItems,
                         root: 'project',
                         disabledReason: (item) => (item.type !== 'folder' ? 'Only folders can be selected' : undefined),
+                        users,
                     }),
                 },
             ],
@@ -789,8 +811,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             },
         ],
         treeItemsNew: [
-            (s) => [s.featureFlags, s.folderStates],
-            (featureFlags, folderStates): TreeDataItem[] =>
+            (s) => [s.featureFlags, s.folderStates, s.users],
+            (featureFlags, folderStates, users): TreeDataItem[] =>
                 convertFileSystemEntryToTreeDataItem({
                     imports: getDefaultTreeNew().filter(
                         (f) => !f.flag || (featureFlags as Record<string, boolean>)[f.flag]
@@ -798,11 +820,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     checkedItems: {},
                     folderStates,
                     root: 'new',
+                    users,
                 }),
         ],
         treeItemsExplore: [
-            (s) => [s.featureFlags, s.groupNodes, s.folderStates],
-            (featureFlags, groupNodes: FileSystemImport[], folderStates): TreeDataItem[] =>
+            (s) => [s.featureFlags, s.groupNodes, s.folderStates, s.users],
+            (featureFlags, groupNodes: FileSystemImport[], folderStates, users): TreeDataItem[] =>
                 convertFileSystemEntryToTreeDataItem({
                     imports: getDefaultTreeExplore(groupNodes).filter(
                         (f) => !f.flag || (featureFlags as Record<string, boolean>)[f.flag]
@@ -810,11 +833,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     checkedItems: {},
                     folderStates,
                     root: 'explore',
+                    users,
                 }),
         ],
         recentTreeItems: [
-            (s) => [s.recentResults, s.recentResultsLoading, s.folderStates, s.checkedItems],
-            (recentResults, recentResultsLoading, folderStates, checkedItems): TreeDataItem[] => {
+            (s) => [s.recentResults, s.recentResultsLoading, s.folderStates, s.checkedItems, s.users],
+            (recentResults, recentResultsLoading, folderStates, checkedItems, users): TreeDataItem[] => {
                 const results = convertFileSystemEntryToTreeDataItem({
                     imports: recentResults.results,
                     folderStates,
@@ -822,6 +846,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     root: 'project',
                     disableFolderSelect: true,
                     recent: true,
+                    users,
                 })
                 if (recentResultsLoading) {
                     results.push({
@@ -843,8 +868,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             },
         ],
         searchedTreeItems: [
-            (s) => [s.searchResults, s.searchResultsLoading, s.folderStates, s.checkedItems, s.sortMethod],
-            (searchResults, searchResultsLoading, folderStates, checkedItems, sortMethod): TreeDataItem[] => {
+            (s) => [s.searchResults, s.searchResultsLoading, s.folderStates, s.checkedItems, s.sortMethod, s.users],
+            (searchResults, searchResultsLoading, folderStates, checkedItems, sortMethod, users): TreeDataItem[] => {
                 const results = convertFileSystemEntryToTreeDataItem({
                     imports: searchResults.results,
                     folderStates,
@@ -853,6 +878,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     searchTerm: searchResults.searchTerm,
                     disableFolderSelect: true,
                     recent: sortMethod === 'recent',
+                    users,
                 })
                 if (searchResultsLoading) {
                     results.push({
@@ -1055,6 +1081,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 const previousUniqueFiles = previousFiles.filter(
                     (prevFile) => !fileIds.has(prevFile.id) && prevFile.path !== folder
                 )
+                if (response.users?.length > 0) {
+                    actions.addUsers(response.users)
+                }
                 actions.loadFolderSuccess(folder, [...previousUniqueFiles, ...files], hasMore, files.length)
             } catch (error) {
                 actions.loadFolderFailure(folder, String(error))
@@ -1430,6 +1459,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                             : { ref: projectTreeRef.ref, type: projectTreeRef.type }
                     )
                     breakpoint() // bail if we opened some other item in the meanwhile
+                    if (resp.users?.length > 0) {
+                        actions.addUsers(resp.users)
+                    }
                     if (resp.results && resp.results.length > 0) {
                         const result = resp.results[0]
                         path = result.path
@@ -1449,6 +1481,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             const items = await (type.endsWith('/')
                 ? api.fileSystem.list({ type__startswith: type, ref })
                 : api.fileSystem.list({ type, ref }))
+            if (items.users?.length > 0) {
+                actions.addUsers(items.users)
+            }
             actions.updateSyncedFiles(items.results)
         },
         setLastNewFolder: ({ folder }) => {
