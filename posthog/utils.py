@@ -53,7 +53,6 @@ from posthog.exceptions import (
 from posthog.exceptions_capture import capture_exception
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.metrics import KLUDGES_COUNTER
-from posthog.plugins.plugin_server_api import get_plugin_server_status
 from posthog.redis import get_client
 
 if TYPE_CHECKING:
@@ -878,6 +877,8 @@ def is_celery_alive() -> bool:
 
 def is_plugin_server_alive() -> bool:
     try:
+        from posthog.plugins.plugin_server_api import get_plugin_server_status
+
         plugin_server_status = get_plugin_server_status()
         return plugin_server_status.status_code == 200
     except BaseException:
