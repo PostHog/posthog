@@ -133,6 +133,7 @@ services:
             CDP_REDIS_HOST: redis7
             CDP_REDIS_PORT: 6379
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
+            CYCLOTRON_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
         depends_on:
             - db
             - redis
