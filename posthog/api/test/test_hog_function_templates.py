@@ -203,7 +203,7 @@ class TestDatabaseHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMa
         mock_get_templates.return_value.json.return_value = MOCK_NODE_TEMPLATES
 
         # Test getting templates via API endpoint
-        response = self.client.get("/api/projects/@current/hog_function_templates/?dbTemplates=true")
+        response = self.client.get("/api/projects/@current/hog_function_templates/?db_templates=true")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         results = response.json()["results"]
@@ -223,7 +223,7 @@ class TestDatabaseHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMa
     def test_get_specific_template_from_db(self):
         """Test retrieving a specific template from the database via API"""
         # Test getting a specific template via API endpoint
-        response = self.client.get(f"/api/projects/@current/hog_function_templates/template-slack?dbTemplates=true")
+        response = self.client.get(f"/api/projects/@current/hog_function_templates/template-slack?db_templates=true")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         # Verify it has the expected name
@@ -231,7 +231,7 @@ class TestDatabaseHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMa
 
         # Verify non-existent template returns 404
         response_missing = self.client.get(
-            "/api/projects/@current/hog_function_templates/non-existent-template?dbTemplates=true"
+            "/api/projects/@current/hog_function_templates/non-existent-template?db_templates=true"
         )
         assert response_missing.status_code == status.HTTP_404_NOT_FOUND
 
@@ -241,7 +241,7 @@ class TestDatabaseHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMa
 
         # Initial sha of the template
         initial_response = self.client.get(
-            "/api/projects/@current/hog_function_templates/template-slack?dbTemplates=true"
+            "/api/projects/@current/hog_function_templates/template-slack?db_templates=true"
         )
         assert initial_response.status_code == status.HTTP_200_OK
         assert initial_response.json()["name"] == template.name
@@ -264,7 +264,7 @@ class TestDatabaseHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMa
 
         # Get the template again and check it was updated
         updated_response = self.client.get(
-            "/api/projects/@current/hog_function_templates/template-slack?dbTemplates=true"
+            "/api/projects/@current/hog_function_templates/template-slack?db_templates=true"
         )
         assert updated_response.status_code == status.HTTP_200_OK
         assert updated_response.json()["name"] == "Updated Slack"
@@ -272,7 +272,7 @@ class TestDatabaseHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMa
 
     @patch("posthog.api.hog_function_template.get_hog_function_templates")
     def test_toggle_returns_in_memory_templates_when_off(self, mock_get_templates):
-        """Test that in-memory templates are used when dbTemplates is false"""
+        """Test that in-memory templates are used when db_templates is false"""
         # Setup: First create a distinct template in the DB with a unique name
         # that doesn't exist in the in-memory templates
         DBHogFunctionTemplate.objects.create(
@@ -293,8 +293,8 @@ class TestDatabaseHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMa
         mock_get_templates.return_value.status_code = 200
         mock_get_templates.return_value.json.return_value = MOCK_NODE_TEMPLATES
 
-        # 1. First test with dbTemplates = true
-        response = self.client.get("/api/projects/@current/hog_function_templates/?dbTemplates=true")
+        # 1. First test with db_templates = true
+        response = self.client.get("/api/projects/@current/hog_function_templates/?db_templates=true")
         assert response.status_code == status.HTTP_200_OK, response.json()
 
         # Verify our unique DB template is included
@@ -303,12 +303,12 @@ class TestDatabaseHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMa
 
         # Get the specific template via API
         response_specific = self.client.get(
-            "/api/projects/@current/hog_function_templates/unique-db-template?dbTemplates=true"
+            "/api/projects/@current/hog_function_templates/unique-db-template?db_templates=true"
         )
         assert response_specific.status_code == status.HTTP_200_OK, response_specific.json()
         assert response_specific.json()["name"] == "Unique DB Template"
 
-        # 2. Now test with dbTemplates = false (default)
+        # 2. Now test with db_templates = false (default)
         response_memory = self.client.get("/api/projects/@current/hog_function_templates/")
         assert response_memory.status_code == status.HTTP_200_OK, response_memory.json()
 
@@ -325,7 +325,7 @@ class TestDatabaseHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMa
 
     @patch("posthog.api.hog_function_template.get_hog_function_templates")
     def test_db_templates_and_inmemory_subtemplate(self, mock_get_templates):
-        """Test that templates come from DB with dbTemplates=true, but sub_templates always come from in-memory"""
+        """Test that templates come from DB with db_templates=true, but sub_templates always come from in-memory"""
         mock_get_templates.return_value.status_code = 200
         mock_get_templates.return_value.json.return_value = MOCK_NODE_TEMPLATES
 
@@ -345,7 +345,7 @@ class TestDatabaseHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMa
         )
 
         # Should get the DB template (retrieve endpoint)
-        response = self.client.get("/api/projects/@current/hog_function_templates/unique-db-template?dbTemplates=true")
+        response = self.client.get("/api/projects/@current/hog_function_templates/unique-db-template?db_templates=true")
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["name"] == "Unique DB Template"
 
@@ -367,6 +367,6 @@ class TestDatabaseHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMa
 
         # Should 404 for a non-existent template
         response_missing = self.client.get(
-            "/api/projects/@current/hog_function_templates/does-not-exist?dbTemplates=true"
+            "/api/projects/@current/hog_function_templates/does-not-exist?db_templates=true"
         )
         assert response_missing.status_code == status.HTTP_404_NOT_FOUND

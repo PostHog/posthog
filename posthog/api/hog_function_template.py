@@ -144,7 +144,7 @@ class PublicHogFunctionTemplateViewSet(viewsets.GenericViewSet):
     def list(self, request: Request, *args, **kwargs):
         types = ["destination"]
         sub_template_id = request.GET.get("sub_template_id")
-        use_db_templates = request.GET.get("dbTemplates") == "true"
+        use_db_templates = request.GET.get("db_templates") == "true"
 
         if "type" in request.GET:
             types = [self.request.GET.get("type", "destination")]
@@ -204,7 +204,7 @@ class PublicHogFunctionTemplateViewSet(viewsets.GenericViewSet):
         return self.get_paginated_response(serializer.data)
 
     def retrieve(self, request: Request, *args, **kwargs):
-        use_db_templates = request.GET.get("dbTemplates") == "true"
+        use_db_templates = request.GET.get("db_templates") == "true"
         template_id = kwargs["pk"]
 
         if use_db_templates:
