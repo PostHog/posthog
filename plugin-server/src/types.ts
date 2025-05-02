@@ -189,11 +189,8 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
 
     // Kafka params - identical for client and producer
     KAFKA_HOSTS: string // comma-delimited Kafka hosts
-    KAFKA_PRODUCER_HOSTS?: string // If specified - different hosts to produce to (useful for migrating between kafka clusters)
     KAFKA_SECURITY_PROTOCOL: KafkaSecurityProtocol | undefined
-    KAFKA_PRODUCER_SECURITY_PROTOCOL?: KafkaSecurityProtocol // If specified - different security protocol to produce to (useful for migrating between kafka clusters)
-    KAFKA_CLIENT_ID: string | undefined
-    KAFKA_PRODUCER_CLIENT_ID?: string // If specified - different client ID to produce to (useful for migrating between kafka clusters)
+    KAFKA_CLIENT_RACK: string | undefined
 
     // Other methods that are generally only used by self-hosted users
     KAFKA_CLIENT_CERT_B64: string | undefined
@@ -203,19 +200,9 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     KAFKA_SASL_USER: string | undefined
     KAFKA_SASL_PASSWORD: string | undefined
 
-    // Consumer specific settings
-    KAFKA_CLIENT_RACK: string | undefined
-    KAFKA_CONSUMPTION_MAX_BYTES: number
-    KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION: number
-    KAFKA_CONSUMPTION_MAX_WAIT_MS: number // fetch.wait.max.ms rdkafka parameter
-    KAFKA_CONSUMPTION_ERROR_BACKOFF_MS: number // fetch.error.backoff.ms rdkafka parameter
-    KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS: number
-    KAFKA_CONSUMPTION_TOPIC: string | null
-    KAFKA_CONSUMPTION_OVERFLOW_TOPIC: string | null
+    // Consumer specific settings (deprecated but cant be removed until legacy onevent consumer is removed)
     KAFKA_CONSUMPTION_REBALANCE_TIMEOUT_MS: number | null
     KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS: number
-    KAFKA_CONSUMPTION_MAX_POLL_INTERVAL_MS: number
-    KAFKA_TOPIC_METADATA_REFRESH_INTERVAL_MS: number | undefined
     APP_METRICS_FLUSH_FREQUENCY_MS: number
     APP_METRICS_FLUSH_MAX_QUEUE_SIZE: number
     BASE_DIR: string // base path for resolving local plugins
