@@ -9,7 +9,7 @@ use serde_json::json;
 use sqlx::Acquire;
 use uuid::Uuid;
 
-use crate::assignment_rules::{assign_issue, Assignment};
+use crate::assignment_rules::{try_assignment_rules, Assignment};
 use crate::types::FingerprintedErrProps;
 use crate::{
     app_context::AppContext,
@@ -258,16 +258,28 @@ pub async fn resolve_issue(
     let fingerprint = &event_properties.fingerprint;
     let mut conn = context.pool.acquire().await?;
     // Fast path - just fetch the issue directly, and then reopen it if needed
-    let existing_issue = Issue::load_by_fingerprint(&mut *conn, team_id, fingerprint).await?;
+    let existing_issue =
+        Issue::load_by_fingerprint(&mut *conn, team_id, &fingerprint.value).await?;
     if let Some(mut issue) = existing_issue {
         if issue.maybe_reopen(&mut *conn).await? {
-            let assignment = assign_issue(
-                &mut conn,
-                &context.team_manager,
-                issue.clone(),
-                event_properties.to_output(issue.id),
-            )
-            .await?;
+            let new_assignment = if let Some(new) = fingerprint.assignment.clone() {
+                Some(new)
+            } else {
+                try_assignment_rules(
+                    &mut conn,
+                    &context.team_manager,
+                    issue.clone(),
+                    event_properties.to_output(issue.id),
+                )
+                .await?
+            };
+
+            let assignment = if let Some(new_assignment) = new_assignment {
+                Some(new_assignment.apply(&mut *conn, issue.id).await?)
+            } else {
+                issue.get_assignments(&mut *conn).await?.first().cloned()
+            };
+
             send_issue_reopened_alert(&context, &issue, assignment).await?;
         }
         return Ok(issue);
@@ -292,7 +304,7 @@ pub async fn resolve_issue(
     let issue_override = IssueFingerprintOverride::create_or_load(
         &mut *txn,
         team_id,
-        fingerprint,
+        &fingerprint.value,
         &issue,
         event_timestamp,
     )
@@ -312,28 +324,51 @@ pub async fn resolve_issue(
 
         // Since we just loaded an issue, check if it needs to be reopened
         if issue.maybe_reopen(&mut *conn).await? {
-            let assignment = assign_issue(
-                &mut conn,
-                &context.team_manager,
-                issue.clone(),
-                event_properties.to_output(issue.id),
-            )
-            .await?;
+            let new_assignment = if let Some(new) = fingerprint.assignment.clone() {
+                Some(new)
+            } else {
+                try_assignment_rules(
+                    &mut conn,
+                    &context.team_manager,
+                    issue.clone(),
+                    event_properties.to_output(issue.id),
+                )
+                .await?
+            };
+
+            let assignment = if let Some(new_assignment) = new_assignment {
+                Some(new_assignment.apply(&mut *conn, issue.id).await?)
+            } else {
+                issue.get_assignments(&mut *conn).await?.first().cloned()
+            };
+
             send_issue_reopened_alert(&context, &issue, assignment).await?;
         }
     } else {
         metrics::counter!(ISSUE_CREATED).increment(1);
-        let assignment = assign_issue(
-            &mut txn,
-            &context.team_manager,
-            issue.clone(),
-            event_properties.to_output(issue.id),
-        )
-        .await?;
+
+        let new_assignment = if let Some(new) = fingerprint.assignment.clone() {
+            Some(new)
+        } else {
+            try_assignment_rules(
+                &mut *txn,
+                &context.team_manager,
+                issue.clone(),
+                event_properties.to_output(issue.id),
+            )
+            .await?
+        };
+
+        let assignment = if let Some(new_assignment) = new_assignment {
+            Some(new_assignment.apply(&mut *txn, issue.id).await?)
+        } else {
+            issue.get_assignments(&mut *txn).await?.first().cloned()
+        };
+
         send_issue_created_alert(&context, &issue, assignment).await?;
         txn.commit().await?;
         capture_issue_created(team_id, issue_override.issue_id);
-    }
+    };
 
     Ok(issue)
 }
