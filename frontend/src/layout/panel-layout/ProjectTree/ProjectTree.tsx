@@ -459,7 +459,7 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                 }}
                 expandedItemIds={searchTerm ? expandedSearchFolders : expandedFolders}
                 onSetExpandedItemIds={searchTerm ? setExpandedSearchFolders : setExpandedFolders}
-                enableDragAndDrop={true}
+                enableDragAndDrop={sortMethod === 'folder'}
                 onDragEnd={(dragEvent) => {
                     const itemToId = (item: FileSystemEntry): string =>
                         item.type === 'folder' ? 'project-folder/' + item.path : 'project/' + item.id
