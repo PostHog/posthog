@@ -25,19 +25,19 @@ jobs:
 
         steps:
             - name: Check Out Repo
-              uses: actions/checkout@v3
+              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
 
             - name: Set up Depot CLI
-              uses: depot/setup-action@v1
+              uses: depot/setup-action@b0b1ea4f69e92ebf5dea3f8713a1b0c37b2126a5 # v1
 
             - name: Set up QEMU
-              uses: docker/setup-qemu-action@v3
+              uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3
               with:
                   image: tonistiigi/binfmt:latest
                   platforms: all
 
             - name: Login to ghcr.io
-              uses: docker/login-action@v3
+              uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3
               with:
                   registry: ghcr.io
                   username: ${{ github.actor }}
@@ -46,7 +46,7 @@ jobs:
 
             - name: Docker meta
               id: meta
-              uses: docker/metadata-action@v5
+              uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804 # v5
               with:
                   images: ghcr.io/posthog/posthog/node
                   tags: |
@@ -58,11 +58,11 @@ jobs:
 
             - name: Set up Docker Buildx
               id: buildx
-              uses: docker/setup-buildx-action@v2
+              uses: docker/setup-buildx-action@885d1462b80bc1c1c7f0b00334ad271f09369c55 # v2
 
             - name: Build and push image
               id: docker_build
-              uses: depot/build-push-action@v1
+              uses: depot/build-push-action@636daae76684e38c301daa0c5eca1c095b24e780 # v1
               with:
                   project: ${{ matrix.project }}
                   context: .
@@ -114,7 +114,7 @@ jobs:
 
             - name: Run docker image
               run: |
-                  DOCKER_RUN="docker run --rm --network host --add-host kafka:127.0.0.1 --add-host clickhouse:127.0.0.1 --env-file .env ${{ needs.container.outputs.tag }}"
+                  DOCKER_RUN="docker run --rm --network host --add-host kafka:127.0.0.1 --add-host clickhouse:127.0.0.1 -p 6738:6738 --env-file .env ${{ needs.container.outputs.tag }}"
                   $DOCKER_RUN ./bin/plugin-server &> /tmp/logs/server.txt &
 
             - name: Wait for PostHog
@@ -123,10 +123,10 @@ jobs:
               with:
                   verbose: true
                   log: true
-                  resource: http://localhost:8000/_health
+                  resource: http://localhost:6738/_health
 
             - name: Archive report
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
               with:
                   name: plugin-server-logs
                   path: /tmp/logs/server.txt
