@@ -489,6 +489,7 @@ class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelVie
         grouping_rule = self.get_object()
         assignee = request.data.get("assignee")
         json_filters = request.data.get("filters")
+        description = request.data.get("description")
 
         if json_filters:
             parsed_filters = PropertyGroupFilterValue(**json_filters)
@@ -500,6 +501,9 @@ class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelVie
             grouping_rule.user_group_id = None if assignee["type"] != "user_group" else assignee["id"]
             grouping_rule.role_id = None if assignee["type"] != "role" else assignee["id"]
 
+        if description:
+            grouping_rule.description = description
+
         grouping_rule.save()
 
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
@@ -507,6 +511,7 @@ class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelVie
     def create(self, request, *args, **kwargs) -> Response:
         json_filters = request.data.get("filters")
         assignee = request.data.get("assignee", None)
+        description = request.data.get("description", None)
 
         if not json_filters:
             return Response({"error": "Filters are required"}, status=status.HTTP_400_BAD_REQUEST)
@@ -522,6 +527,7 @@ class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelVie
             user_id=None if assignee["type"] != "user" else assignee["id"],
             user_group_id=None if assignee["type"] != "user_group" else assignee["id"],
             role_id=None if assignee["type"] != "role" else assignee["id"],
+            description=description,
         )
 
         serializer = ErrorTrackingGroupingRuleSerializer(grouping_rule)

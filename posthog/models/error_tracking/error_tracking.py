@@ -158,6 +158,9 @@ class ErrorTrackingGroupingRule(UUIDModel):
     user_group = models.ForeignKey(UserGroup, null=True, on_delete=models.CASCADE)
     role = models.ForeignKey(Role, null=True, on_delete=models.CASCADE)
 
+    # Users will probably find it convenient to be able to add a short description to grouping rules
+    description = models.TextField(null=True)
+
     class Meta:
         indexes = [
             models.Index(fields=["team_id"]),
