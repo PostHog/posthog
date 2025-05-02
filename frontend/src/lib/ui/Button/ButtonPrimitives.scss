@@ -39,7 +39,8 @@
         &[data-current='true'],
         &[data-state='open'],
         &[data-state='checked'],
-        &[data-highlighted] {
+        &[data-highlighted],
+        &.button-primitive--active {
             background-color: var(--bg-fill-button-tertiary-active);
         }
 
@@ -58,7 +59,8 @@
         &[data-current='true'],
         &[data-state='open'],
         &[data-state='checked'],
-        &[data-highlighted] {
+        &[data-highlighted],
+        &.button-primitive--active {
             background-color: var(--bg-fill-button-tertiary-active);
         }
 

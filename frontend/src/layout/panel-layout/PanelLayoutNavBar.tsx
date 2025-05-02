@@ -298,38 +298,60 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                 }
                                             }}
                                         >
-                                            <Link
-                                                data-attr={`menu-item-${item.identifier.toString().toLowerCase()}`}
-                                                buttonProps={{
-                                                    menuItem: !isLayoutNavCollapsed,
-                                                    active: activePanelIdentifier === item.id,
-                                                    className: 'group',
-                                                    iconOnly: isLayoutNavCollapsed,
-                                                }}
-                                                to={item.to}
-                                                tooltip={item.tooltip}
-                                                tooltipPlacement="right"
-                                                tooltipDocLink={item.tooltipDocLink}
-                                            >
-                                                <span
-                                                    className={`flex text-tertiary group-hover:text-primary ${
-                                                        isLayoutNavCollapsed ? '[&_svg]:size-5' : ''
-                                                    }`}
+                                            {item.identifier === 'Recent' || item.identifier === 'Project' ? (
+                                                <ButtonPrimitive
+                                                    active={activePanelIdentifier === item.id}
+                                                    className="group"
+                                                    menuItem={!isLayoutNavCollapsed}
+                                                    iconOnly={isLayoutNavCollapsed}
+                                                    tooltip={item.tooltip}
+                                                    tooltipPlacement="right"
+                                                    tooltipDocLink={item.tooltipDocLink}
+                                                    data-attr={`menu-item-${item.identifier.toString().toLowerCase()}`}
                                                 >
-                                                    {item.icon}
-                                                </span>
+                                                    <span
+                                                        className={`flex text-tertiary group-hover:text-primary ${
+                                                            isLayoutNavCollapsed ? '[&_svg]:size-5' : ''
+                                                        }`}
+                                                    >
+                                                        {item.icon}
+                                                    </span>
 
-                                                {!isLayoutNavCollapsed && (
-                                                    <>
-                                                        <span className="truncate">{item.id}</span>
-                                                        {item.showChevron && (
+                                                    {!isLayoutNavCollapsed && (
+                                                        <>
+                                                            <span className="truncate">{item.id}</span>
                                                             <span className="ml-auto">
                                                                 <IconChevronRight className="size-3 text-secondary" />
                                                             </span>
-                                                        )}
-                                                    </>
-                                                )}
-                                            </Link>
+                                                        </>
+                                                    )}
+                                                </ButtonPrimitive>
+                                            ) : (
+                                                <Link
+                                                    data-attr={`menu-item-${item.identifier.toString().toLowerCase()}`}
+                                                    buttonProps={{
+                                                        menuItem: !isLayoutNavCollapsed,
+                                                        className: 'group',
+                                                        iconOnly: isLayoutNavCollapsed,
+                                                    }}
+                                                    to={item.to}
+                                                    tooltip={item.tooltip}
+                                                    tooltipPlacement="right"
+                                                    tooltipDocLink={item.tooltipDocLink}
+                                                >
+                                                    <span
+                                                        className={`flex text-tertiary group-hover:text-primary ${
+                                                            isLayoutNavCollapsed ? '[&_svg]:size-5' : ''
+                                                        }`}
+                                                    >
+                                                        {item.icon}
+                                                    </span>
+
+                                                    {!isLayoutNavCollapsed && (
+                                                        <span className="truncate">{item.id}</span>
+                                                    )}
+                                                </Link>
+                                            )}
                                         </ListBox.Item>
                                     ))}
                                 </div>
