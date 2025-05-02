@@ -1,6 +1,5 @@
 use crate::api::errors::FlagError;
 use crate::api::types::{FlagDetails, FlagsResponse, FromFeatureAndMatch};
-use crate::client::database::Client as DatabaseClient;
 use crate::cohorts::cohort_cache_manager::CohortCacheManager;
 use crate::cohorts::cohort_models::{Cohort, CohortId};
 use crate::cohorts::cohort_operations::{apply_cohort_membership_logic, evaluate_dynamic_cohorts};
@@ -18,6 +17,7 @@ use crate::metrics::consts::{
 use crate::metrics::utils::parse_exception_for_prometheus_label;
 use crate::properties::property_models::PropertyFilter;
 use anyhow::Result;
+use common_database::Client as DatabaseClient;
 use common_metrics::inc;
 use common_types::{PersonId, ProjectId, TeamId};
 use rayon::prelude::*;

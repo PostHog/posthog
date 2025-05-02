@@ -1,11 +1,11 @@
 import { useDraggable, useDroppable } from '@dnd-kit/core'
-import { IconChevronRight, IconDocument, IconFolder, IconFolderOpenFilled } from '@posthog/icons'
-import { buttonVariants } from 'lib/ui/Button/ButtonPrimitives'
+import { IconChevronRight, IconCircleDashed, IconDocument, IconFolder, IconFolderOpenFilled } from '@posthog/icons'
+import { buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
 import { CSSProperties, useEffect, useRef } from 'react'
 
 import { LemonCheckbox } from '../LemonCheckbox'
-import { TreeDataItem } from './LemonTree'
+import { LemonTreeSelectMode, TreeDataItem } from './LemonTree'
 
 export const ICON_CLASSES = 'text-tertiary size-5 flex items-center justify-center'
 
@@ -14,11 +14,11 @@ type TreeNodeDisplayIconWrapperProps = {
     expandedItemIds?: string[]
     defaultNodeIcon?: React.ReactNode
     handleClick: (item: TreeDataItem) => void
-    enableMultiSelection: boolean
+    selectMode: LemonTreeSelectMode
     defaultOffset: number
     multiSelectionOffset: number
-    checkedItemCount?: number
     onItemChecked?: (id: string, checked: boolean, shift: boolean) => void
+    isEmptyFolder: boolean
 }
 
 export const TreeNodeDisplayIconWrapper = ({
@@ -26,11 +26,11 @@ export const TreeNodeDisplayIconWrapper = ({
     expandedItemIds,
     defaultNodeIcon,
     handleClick,
-    enableMultiSelection,
-    checkedItemCount,
+    selectMode,
     onItemChecked,
     defaultOffset,
     multiSelectionOffset,
+    isEmptyFolder,
 }: TreeNodeDisplayIconWrapperProps): JSX.Element => {
     return (
         <>
@@ -43,8 +43,7 @@ export const TreeNodeDisplayIconWrapper = ({
                 className={cn(
                     'absolute flex items-center justify-center bg-transparent flex-shrink-0 h-[var(--button-height-base)] z-3',
                     {
-                        // Apply group class only when there are no checked items
-                        'group/lemon-tree-icon-wrapper': checkedItemCount === 0,
+                        'cursor-default': isEmptyFolder,
                     }
                 )}
             >
@@ -54,9 +53,8 @@ export const TreeNodeDisplayIconWrapper = ({
                         onItemChecked?.(item.id, checked, shift)
                     }}
                     className={cn('absolute z-2', {
-                        // Apply hidden class only when hovering the (conditional)group and there are no checked items
-                        'hidden group-hover/lemon-tree-icon-wrapper:block transition-all duration-50':
-                            checkedItemCount === 0,
+                        // Hide checkboxwhen select mode is default/folder only
+                        hidden: selectMode === 'default' || selectMode === 'folder-only',
                     })}
                     style={{
                         left: `${defaultOffset}px`,
@@ -69,7 +67,7 @@ export const TreeNodeDisplayIconWrapper = ({
                     style={{
                         // If multi-selection is enabled, we need to offset the icon to the right to make space for the checkbox
                         left:
-                            enableMultiSelection && !item.disableSelect
+                            selectMode === 'multi' && !item.disableSelect
                                 ? `${multiSelectionOffset}px`
                                 : `${defaultOffset}px`,
                     }}
@@ -112,11 +110,14 @@ export const TreeNodeDisplayCheckbox = ({
         >
             <div className={ICON_CLASSES}>
                 <LemonCheckbox
-                    className={cn('size-5 ml-[2px]', {
-                        // Hide the checkbox if the item is disabled from being checked and is a folder
-                        // When searching we disable folders from being checked
-                        hidden: item.disableSelect && item.record?.type === 'folder',
-                    })}
+                    className={cn(
+                        'size-5 ml-[2px] starting:opacity-0 starting:-translate-x-2 translate-x-0 opacity-100 motion-safe:transition-all [transition-behavior:allow-discrete] duration-100',
+                        {
+                            // Hide the checkbox if the item is disabled from being checked and is a folder
+                            // When searching we disable folders from being checked
+                            hidden: item.disableSelect && item.record?.type === 'folder',
+                        }
+                    )}
                     checked={isChecked ?? false}
                     onChange={(checked, event) => {
                         // Just in case
@@ -153,6 +154,7 @@ export const TreeNodeDisplayIcon = ({
 }: TreeNodeDisplayIconProps): JSX.Element => {
     const isOpen = expandedItemIds.includes(item.id)
     const isFolder = item.record?.type === 'folder'
+    const isEmptyFolder = item.type === 'empty-folder'
     const isFile = item.record?.type === 'file'
     let iconElement: React.ReactNode = item.icon || defaultNodeIcon || <div />
 
@@ -160,17 +162,16 @@ export const TreeNodeDisplayIcon = ({
         iconElement = isOpen ? <IconFolderOpenFilled /> : <IconFolder />
     }
 
+    if (isEmptyFolder) {
+        iconElement = <IconCircleDashed />
+    }
+
     if (isFile) {
         iconElement = <IconDocument />
     }
 
     return (
-        <div
-            className={cn('flex gap-1 relative [&_svg]:size-4', {
-                // Don't hide the icon on hover if the item is disabled from being checked
-                'group-hover/lemon-tree-icon-wrapper:opacity-0': !item.disableSelect,
-            })}
-        >
+        <div className="flex gap-1 relative [&_svg]:size-4">
             {isFolder && (
                 <div
                     className={cn(
@@ -312,7 +313,7 @@ export const InlineEditField = ({
         <form
             onSubmit={onSubmit}
             className={cn(
-                buttonVariants({ menuItem: true, size: 'base', sideActionLeft: true }),
+                buttonPrimitiveVariants({ menuItem: true, size: 'base', hasSideActionRight: true }),
                 className,
                 'bg-fill-button-tertiary-active'
             )}

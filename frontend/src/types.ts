@@ -28,6 +28,10 @@ import { Layout } from 'react-grid-layout'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'
 import { Holdout } from 'scenes/experiments/holdoutsLogic'
+import {
+    ConversionRateInputType,
+    EventConfig,
+} from 'scenes/experiments/RunningTimeCalculator/runningTimeCalculatorLogic'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 import { Params, Scene, SceneConfig } from 'scenes/sceneTypes'
@@ -652,6 +656,7 @@ export interface ActionType {
     bytecode?: any[]
     bytecode_error?: string
     pinned_at: string | null
+    _create_in_folder?: string | null
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -838,6 +843,7 @@ export enum PropertyFilterType {
     DataWarehouse = 'data_warehouse',
     DataWarehousePersonProperty = 'data_warehouse_person_property',
     ErrorTrackingIssue = 'error_tracking_issue',
+    ErrorTrackingIssueProperty = 'error_tracking_issue_property',
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -878,6 +884,11 @@ export interface DataWarehousePersonPropertyFilter extends BasePropertyFilter {
 
 export interface ErrorTrackingIssueFilter extends BasePropertyFilter {
     type: PropertyFilterType.ErrorTrackingIssue
+    operator: PropertyOperator
+}
+
+export interface ErrorTrackingIssuePropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.ErrorTrackingIssueProperty
     operator: PropertyOperator
 }
 
@@ -944,6 +955,7 @@ export type AnyPropertyFilter =
     | DataWarehousePropertyFilter
     | DataWarehousePersonPropertyFilter
     | ErrorTrackingIssueFilter
+    | ErrorTrackingIssuePropertyFilter
 
 /** Any filter type supported by `property_to_expr(scope="person", ...)`. */
 export type AnyPersonScopeFilter =
@@ -1403,6 +1415,7 @@ export interface CohortType {
         properties: CohortCriteriaGroupFilter
     }
     experiment_set?: number[]
+    _create_in_folder?: string | null
 }
 
 export interface InsightHistory {
@@ -1526,6 +1539,7 @@ export interface SessionRecordingPlaylistType {
      * marked as has more if the filters count onoy matched one page and there are more available
      */
     recordings_counts?: PlaylistRecordingsCounts
+    _create_in_folder?: string | null
 }
 
 export interface SessionRecordingSegmentType {
@@ -1976,6 +1990,8 @@ export interface InsightModel extends Cacheable, WithAccessControl {
     filters: Partial<FilterType>
     query?: Node | null
     query_status?: QueryStatus
+    /** Only used when creating objects */
+    _create_in_folder?: string | null
 }
 
 export interface QueryBasedInsightModel extends Omit<InsightModel, 'filters'> {
@@ -2977,6 +2993,7 @@ export interface Survey {
     response_sampling_limit?: number | null
     response_sampling_daily_limits?: string[] | null
     enable_partial_responses?: boolean | null
+    _create_in_folder?: string | null
 }
 
 export enum SurveyMatchType {
@@ -3183,6 +3200,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     is_remote_configuration: boolean
     has_encrypted_payloads: boolean
     status: 'ACTIVE' | 'INACTIVE' | 'STALE' | 'DELETED' | 'UNKNOWN'
+    _create_in_folder?: string | null
 }
 
 export interface OrganizationFeatureFlag {
@@ -3262,6 +3280,7 @@ export interface EarlyAccessFeatureType {
     /** Documentation URL. Can be empty. */
     documentation_url: string
     created_at: string
+    _create_in_folder?: string | null
 }
 
 export interface NewEarlyAccessFeatureType extends Omit<EarlyAccessFeatureType, 'id' | 'created_at' | 'feature_flag'> {
@@ -3452,6 +3471,7 @@ export enum PropertyType {
     Selector = 'Selector',
     Cohort = 'Cohort',
     Assignee = 'Assignee',
+    StringArray = 'StringArray',
 }
 
 export enum PropertyDefinitionType {
@@ -3537,9 +3557,17 @@ export interface Experiment {
     saved_metrics_ids: { id: number; metadata: { type: 'primary' | 'secondary' } }[]
     saved_metrics: any[]
     parameters: {
+        /**
+         * This is the state of the Running Time Calculator modal, while
+         * minimum_detectable_effect, recommended_running_time, and recommended_sample_size
+         * are the results of the Running Time Calculator.
+         */
         exposure_estimate_config?: {
-            event: string
-            properties: AnyPropertyFilter[]
+            eventFilter: EventConfig | null
+            metric: ExperimentMetric | null
+            conversionRateInputType: ConversionRateInputType
+            manualConversionRate: number | null
+            uniqueUsers: number | null
         } | null
         minimum_detectable_effect?: number
         recommended_running_time?: number
@@ -3561,6 +3589,7 @@ export interface Experiment {
     stats_config?: {
         version?: number
     }
+    _create_in_folder?: string | null
 }
 
 export interface FunnelExperimentVariant {
@@ -3865,6 +3894,7 @@ export enum GroupMathType {
 export enum ExperimentMetricMathType {
     TotalCount = 'total',
     Sum = 'sum',
+    UniqueSessions = 'unique_session',
 }
 
 export enum ActorGroupType {
@@ -4244,6 +4274,7 @@ export enum ActivityScope {
     COHORT = 'Cohort',
     TEAM = 'Team',
     ERROR_TRACKING_ISSUE = 'ErrorTrackingIssue',
+    DATA_WAREHOUSE_SAVED_QUERY = 'DataWarehouseSavedQuery',
 }
 
 export type CommentType = {
@@ -4267,6 +4298,7 @@ export type NotebookListItemType = {
     created_by: UserBasicType | null
     last_modified_at?: string
     last_modified_by?: UserBasicType | null
+    _create_in_folder?: string
 }
 
 export type NotebookType = NotebookListItemType &
@@ -5058,6 +5090,7 @@ export type HogFunctionConfigurationType = Omit<
 > & {
     hog?: HogFunctionType['hog'] // In the config it can be empty if using a template
     sub_template_id?: HogFunctionSubTemplateIdType
+    _create_in_folder?: string | null
 }
 
 export type HogFunctionSubTemplateType = Pick<HogFunctionType, 'filters' | 'inputs' | 'masking' | 'mappings'> & {

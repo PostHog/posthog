@@ -3,15 +3,14 @@ import { ErrorTrackingException, ErrorTrackingRuntime } from 'lib/components/Err
 import { getRuntimeFromLib } from 'lib/components/Errors/utils'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { componentsToDayJs, dateStringToComponents, isStringDateRegex, objectsEqual } from 'lib/utils'
+import { Properties } from 'posthog-js'
 import { MouseEvent } from 'react'
 import { Params } from 'scenes/sceneTypes'
 
 import { DateRange, ErrorTrackingIssue } from '~/queries/schema/schema-general'
+import { isPostHogProperty } from '~/taxonomy/taxonomy'
 
 import { DEFAULT_ERROR_TRACKING_DATE_RANGE, DEFAULT_ERROR_TRACKING_FILTER_GROUP } from './errorTrackingLogic'
-
-export const ERROR_TRACKING_LOGIC_KEY = 'errorTracking'
-const THIRD_PARTY_SCRIPT_ERROR = 'Script error.'
 
 export const SEARCHABLE_EXCEPTION_PROPERTIES = [
     '$exception_types',
@@ -19,6 +18,14 @@ export const SEARCHABLE_EXCEPTION_PROPERTIES = [
     '$exception_sources',
     '$exception_functions',
 ]
+export const INTERNAL_EXCEPTION_PROPERTY_KEYS = [
+    '$exception_list',
+    '$exception_fingerprint_record',
+    '$exception_proposed_fingerprint',
+    ...SEARCHABLE_EXCEPTION_PROPERTIES,
+]
+export const ERROR_TRACKING_LOGIC_KEY = 'errorTracking'
+const THIRD_PARTY_SCRIPT_ERROR = 'Script error.'
 
 const volumePeriods: ('volumeRange' | 'volumeDay')[] = ['volumeRange', 'volumeDay']
 const sumVolumes = (...arrays: number[][]): number[] =>
@@ -146,6 +153,14 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
         level,
         ingestionErrors,
     }
+}
+
+export function getAdditionalProperties(properties: Properties, isCloudOrDev: boolean | undefined): Properties {
+    return Object.fromEntries(
+        Object.entries(properties).filter(([key]) => {
+            return !isPostHogProperty(key, isCloudOrDev)
+        })
+    )
 }
 
 export function getSessionId(properties: Record<string, any>): string | undefined {

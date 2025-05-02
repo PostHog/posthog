@@ -1,1 +1,1 @@
-0718_alter_datamodelingjob_status
+0720_add_hog_function_template_model

@@ -51,8 +51,8 @@ pub enum CaptureError {
 
     #[error("transient error, please retry")]
     RetryableSinkError,
-    #[error("maximum event size exceeded")]
-    EventTooBig,
+    #[error("maximum event size exceeded: {0}")]
+    EventTooBig(String),
     #[error("invalid event could not be processed")]
     NonRetryableSinkError,
 
@@ -78,12 +78,13 @@ impl IntoResponse for CaptureError {
             | CaptureError::MissingEventName
             | CaptureError::MissingDistinctId
             | CaptureError::InvalidCookielessMode
-            | CaptureError::EventTooBig
             | CaptureError::NonRetryableSinkError
             | CaptureError::MissingSessionId
             | CaptureError::MissingWindowId
             | CaptureError::InvalidSessionId
             | CaptureError::MissingSnapshotData => (StatusCode::BAD_REQUEST, self.to_string()),
+
+            CaptureError::EventTooBig(_) => (StatusCode::PAYLOAD_TOO_LARGE, self.to_string()),
 
             CaptureError::NoTokenError
             | CaptureError::MultipleTokensError
