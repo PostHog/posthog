@@ -66,7 +66,7 @@ export const toUtcOffsetFormat = (value: number): string => {
     const formattedMinutes = decimalPartAsMinutes > 0 ? `:${decimalPartAsMinutes}` : ''
 
     // E.g. UTC-3, UTC, UTC+5:30, UTC+11:45
-    return `UTC${sign}${Math.abs(integerPart)}${formattedMinutes}`
+    return `UTC${sign}${integerPart}${formattedMinutes}`
 }
 
 type VariationCellProps = { isPercentage?: boolean; reverseColors?: boolean }
