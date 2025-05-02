@@ -58,7 +58,7 @@ create: CREATE TABLE tableIdentifier AS LPAREN select RPAREN;
 
 selectStmtWithParens: selectStmt | LPAREN selectSetStmt RPAREN | placeholder;
 
-subsequentSelectSetClause: (EXCEPT | UNION ALL | UNION DISTINCT | UNION | INTERSECT | INTERSECT DISTINCT) selectStmtWithParens;
+subsequentSelectSetClause: (EXCEPT | UNION ALL | UNION DISTINCT | INTERSECT | INTERSECT DISTINCT) selectStmtWithParens;
 selectSetStmt: selectStmtWithParens (subsequentSelectSetClause)*;
 
 selectStmt:
