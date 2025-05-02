@@ -435,12 +435,18 @@ class ApiRequest {
         return this.hogFunctions(teamId).addPathComponent(id)
     }
 
-    public hogFunctionTemplates(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('hog_function_templates')
+    public hogFunctionTemplates(teamId?: TeamType['id'], db_templates?: boolean): ApiRequest {
+        const req = this.projectsDetail(teamId).addPathComponent('hog_function_templates')
+        return db_templates !== undefined ? req.withQueryString({ db_templates }) : req
     }
 
-    public hogFunctionTemplate(id: HogFunctionTemplateType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.hogFunctionTemplates(teamId).addPathComponent(id)
+    public hogFunctionTemplate(
+        id: HogFunctionTemplateType['id'],
+        teamId?: TeamType['id'],
+        db_templates?: boolean
+    ): ApiRequest {
+        const req = this.hogFunctionTemplates(teamId).addPathComponent(id)
+        return db_templates !== undefined ? req.withQueryString({ db_templates }) : req
     }
 
     // # Actions
@@ -2157,6 +2163,7 @@ const api = {
         async listTemplates(params: {
             types: HogFunctionTypeType[]
             sub_template_id?: HogFunctionSubTemplateIdType
+            db_templates?: boolean
         }): Promise<PaginatedResponse<HogFunctionTemplateType>> {
             const finalParams = {
                 ...params,
@@ -2164,8 +2171,9 @@ const api = {
             }
             return new ApiRequest().hogFunctionTemplates().withQueryString(finalParams).get()
         },
-        async getTemplate(id: HogFunctionTemplateType['id']): Promise<HogFunctionTemplateType> {
-            return await new ApiRequest().hogFunctionTemplate(id).get()
+        async getTemplate(id: HogFunctionTemplateType['id'], db_templates?: boolean): Promise<HogFunctionTemplateType> {
+            const query = db_templates !== undefined ? { db_templates } : undefined
+            return await new ApiRequest().hogFunctionTemplate(id).withQueryString(query).get()
         },
 
         async listIcons(params: { query?: string } = {}): Promise<HogFunctionIconResponse[]> {

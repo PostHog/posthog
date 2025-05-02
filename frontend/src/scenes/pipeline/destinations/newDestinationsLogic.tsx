@@ -5,6 +5,7 @@ import { combineUrl, router } from 'kea-router'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import posthog from 'posthog-js'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -49,7 +50,11 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
                     const destinationTypes = siteDesinationsEnabled
                         ? props.types
                         : props.types.filter((type) => type !== 'site_destination')
-                    const templates = await api.hogFunctions.listTemplates({ types: destinationTypes })
+                    const dbTemplates = posthog.isFeatureEnabled('getTemplatesFromDB')
+                    const templates = await api.hogFunctions.listTemplates({
+                        types: destinationTypes,
+                        db_templates: dbTemplates,
+                    })
                     return templates.results.reduce((acc, template) => {
                         acc[template.id] = template
                         return acc

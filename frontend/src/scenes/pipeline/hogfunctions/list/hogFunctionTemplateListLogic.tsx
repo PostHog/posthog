@@ -5,6 +5,7 @@ import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
+import posthog from 'posthog-js'
 import { hogFunctionNewUrl } from 'scenes/pipeline/hogfunctions/urls'
 import { pipelineAccessLogic } from 'scenes/pipeline/pipelineAccessLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -97,10 +98,12 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
             [] as HogFunctionTemplateType[],
             {
                 loadHogFunctionTemplates: async () => {
+                    const dbTemplates = posthog.isFeatureEnabled('getTemplatesFromDB')
                     return (
                         await api.hogFunctions.listTemplates({
                             types: [props.type],
                             sub_template_id: props.subTemplateId,
+                            db_templates: dbTemplates,
                         })
                     ).results
                 },

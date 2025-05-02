@@ -367,7 +367,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         }
                     }
 
-                    const res = await api.hogFunctions.getTemplate(props.templateId)
+                    const dbTemplates = posthog.isFeatureEnabled('getTemplatesFromDB')
+                    const res = await api.hogFunctions.getTemplate(props.templateId, dbTemplates)
 
                     if (!res) {
                         throw new Error('Template not found')
