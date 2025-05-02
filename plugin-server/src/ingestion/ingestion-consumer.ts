@@ -155,7 +155,7 @@ export class IngestionConsumer {
                 this.kafkaProducer = producer
             }),
             // TRICKY: When we produce overflow events they are back to the kafka we are consuming from
-            KafkaProducerWrapper.create(this.hub, 'consumer').then((producer) => {
+            KafkaProducerWrapper.create(this.hub, 'CONSUMER').then((producer) => {
                 this.kafkaOverflowProducer = producer
             }),
         ])

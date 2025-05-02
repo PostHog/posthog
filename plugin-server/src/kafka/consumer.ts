@@ -19,7 +19,7 @@ import { captureException } from '../utils/posthog'
 import { retryIfRetriable } from '../utils/retries'
 import { promisifyCallback } from '../utils/utils'
 import { ensureTopicExists } from './admin'
-import { getConsumerConfigFromEnv } from './config'
+import { getKafkaConfigFromEnv } from './config'
 
 const DEFAULT_BATCH_TIMEOUT_MS = 500
 const DEFAULT_FETCH_BATCH_SIZE = 1000
@@ -130,7 +130,7 @@ export class KafkaConsumer {
             'queued.max.messages.kbytes': 102400, // 1048576 is the default, we go smaller to reduce mem usage.
             'client.rack': defaultConfig.KAFKA_CLIENT_RACK, // Helps with cross-AZ traffic awareness and is not unique to the consumer
             // Custom settings and overrides - this is where most configuration overrides should be done
-            ...getConsumerConfigFromEnv(),
+            ...getKafkaConfigFromEnv('CONSUMER'),
             // Finally any specifically given consumer config overrides
             ...rdKafkaConfig,
             // Below is config that we explicitly DO NOT want to be overrideable by env vars - i.e. things that would require code changes to change

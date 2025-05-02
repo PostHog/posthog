@@ -1,4 +1,4 @@
-import { IconChevronRight, IconFolder, IconFolderPlus } from '@posthog/icons'
+import { IconCheckbox, IconChevronRight, IconFolder, IconFolderPlus, IconX } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { MoveFilesModal } from 'lib/components/FileSystem/MoveFilesModal'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
@@ -54,6 +54,7 @@ export function ProjectTree(): JSX.Element {
         movingItems,
         treeTableColumnSizes,
         treeTableTotalWidth,
+        selectMode,
     } = useValues(projectTreeLogic)
 
     const {
@@ -76,6 +77,7 @@ export function ProjectTree(): JSX.Element {
         setEditingItemId,
         setMovingItems,
         setTreeTableColumnSizes,
+        setSelectMode,
     } = useActions(projectTreeLogic)
 
     const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier, setProjectTreeMode } =
@@ -113,16 +115,20 @@ export function ProjectTree(): JSX.Element {
 
         return (
             <>
-                {item.record?.path ? (
-                    <MenuItem
-                        asChild
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            onItemChecked(item.id, !checkedItems[item.id], false)
-                        }}
-                    >
-                        <ButtonPrimitive menuItem>{checkedItems[item.id] ? 'Deselect' : 'Select'}</ButtonPrimitive>
-                    </MenuItem>
+                {item.record?.path && !item.disableSelect ? (
+                    <>
+                        <MenuItem
+                            asChild
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                onItemChecked(item.id, !checkedItems[item.id], false)
+                            }}
+                        >
+                            <ButtonPrimitive menuItem>{checkedItems[item.id] ? 'Deselect' : 'Select'}</ButtonPrimitive>
+                        </MenuItem>
+
+                        <MenuSeparator />
+                    </>
                 ) : null}
 
                 {item.record?.path && item.record?.type !== 'folder' && item.record?.href ? (
@@ -152,7 +158,6 @@ export function ProjectTree(): JSX.Element {
 
                 {checkedItemCountNumeric > 0 && item.record?.type === 'folder' ? (
                     <>
-                        <MenuSeparator />
                         <MenuItem
                             asChild
                             onClick={(e) => {
@@ -175,12 +180,13 @@ export function ProjectTree(): JSX.Element {
                                 Create {checkedItemsCount} shortcut{checkedItemsCount === '1' ? '' : 's'} here
                             </ButtonPrimitive>
                         </MenuItem>
+
+                        <MenuSeparator />
                     </>
                 ) : null}
 
                 {item.record?.type === 'folder' || item.id?.startsWith('project-folder-empty/') ? (
                     <>
-                        <MenuSeparator />
                         <MenuSub key="new">
                             <MenuSubTrigger asChild>
                                 <ButtonPrimitive menuItem>
@@ -260,6 +266,7 @@ export function ProjectTree(): JSX.Element {
                                 })}
                             </MenuSubContent>
                         </MenuSub>
+
                         <MenuSeparator />
                     </>
                 ) : null}
@@ -335,14 +342,37 @@ export function ProjectTree(): JSX.Element {
             searchPlaceholder="Search your project"
             panelActions={
                 <>
-                    <ButtonPrimitive onClick={() => createFolder('')} tooltip="New root folder">
+                    <ButtonPrimitive onClick={() => createFolder('')} tooltip="New root folder" iconOnly>
                         <IconFolderPlus className="text-tertiary" />
                     </ButtonPrimitive>
-                    {checkedItemCountNumeric > 0 && checkedItemsCount !== '0+' ? (
-                        <ButtonPrimitive onClick={() => setCheckedItems({})} tooltip="Clear">
-                            <LemonTag type="highlight">{checkedItemsCount} selected</LemonTag>
+
+                    {selectMode === 'default' && checkedItemCountNumeric === 0 ? (
+                        <ButtonPrimitive onClick={() => setSelectMode('multi')} tooltip="Enable multi-select" iconOnly>
+                            <IconCheckbox className="text-tertiary size-4" />
                         </ButtonPrimitive>
-                    ) : null}
+                    ) : (
+                        <>
+                            {checkedItemCountNumeric > 0 && checkedItemsCount !== '0+' ? (
+                                <ButtonPrimitive
+                                    onClick={() => {
+                                        setCheckedItems({})
+                                        setSelectMode('default')
+                                    }}
+                                    tooltip="Clear selected and disable multi-select"
+                                >
+                                    <LemonTag type="highlight">{checkedItemsCount} selected</LemonTag>
+                                </ButtonPrimitive>
+                            ) : (
+                                <ButtonPrimitive
+                                    onClick={() => setSelectMode('default')}
+                                    tooltip="Disable multi-select"
+                                    iconOnly
+                                >
+                                    <IconX className="text-tertiary size-4" />
+                                </ButtonPrimitive>
+                            )}
+                        </>
+                    )}
                 </>
             }
         >
@@ -375,7 +405,7 @@ export function ProjectTree(): JSX.Element {
                     }
                     return window.location.href.endsWith(item.record?.href)
                 }}
-                enableMultiSelection={checkedItemCountNumeric > 0}
+                selectMode={selectMode}
                 onItemChecked={onItemChecked}
                 checkedItemCount={checkedItemCountNumeric}
                 onNodeClick={(node) => {

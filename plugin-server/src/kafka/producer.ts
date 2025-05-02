@@ -8,12 +8,13 @@ import {
     NumberNullUndefined,
     ProducerGlobalConfig,
 } from 'node-rdkafka'
+import { hostname } from 'os'
 import { Counter, Summary } from 'prom-client'
 
 import { PluginsServerConfig } from '../types'
 import { DependencyUnavailableError, MessageSizeTooLarge } from '../utils/db/error'
 import { logger } from '../utils/logger'
-import { createRdConnectionConfigFromEnvVars, getProducerConfigFromEnv, KafkaConfigTarget } from './config'
+import { getKafkaConfigFromEnv, KafkaConfigTarget } from './config'
 
 // TODO: Rewrite this description
 /** This class is a wrapper around the rdkafka producer, and does very little.
@@ -42,19 +43,22 @@ export class KafkaProducerWrapper {
     /** Kafka producer used for syncing Postgres and ClickHouse person data. */
     private producer: HighLevelProducer
 
-    static async create(config: PluginsServerConfig, mode: KafkaConfigTarget = 'producer') {
+    static async create(config: PluginsServerConfig, mode: KafkaConfigTarget = 'PRODUCER') {
         // NOTE: In addition to some defaults we allow overriding any setting via env vars.
         // This makes it much easier to react to issues without needing code changes
 
         const producerConfig: ProducerGlobalConfig = {
             // Defaults that could be overridden by env vars
+            'client.id': hostname(),
+            'client.rack': config.KAFKA_CLIENT_RACK,
+            'metadata.broker.list': 'kafka:9092',
             'linger.ms': 20,
+            log_level: 4, // WARN as the default
             'batch.size': 8 * 1024 * 1024,
             'queue.buffering.max.messages': 100_000,
             'compression.codec': 'snappy',
             'enable.idempotence': true,
-            ...getProducerConfigFromEnv(),
-            ...createRdConnectionConfigFromEnvVars(config, mode),
+            ...getKafkaConfigFromEnv(mode),
             dr_cb: true,
         }
 
