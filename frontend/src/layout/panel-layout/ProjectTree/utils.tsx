@@ -73,14 +73,15 @@ export function convertFileSystemEntryToTreeDataItem({
         const displayName = <SearchHighlightMultiple string={itemName} substring={searchTerm ?? ''} />
         const user: UserBasicType | undefined = item.meta?.created_by ? users?.[item.meta.created_by] : undefined
         const profile = user ? <ProfilePicture user={user} size="sm" className="ml-1" /> : null
-        const itemWithDate = recent ? (
-            <>
-                {displayName}{' '}
-                <span className="text-muted text-xs font-normal">- {dayjs(item.created_at).fromNow()}</span>
-            </>
-        ) : (
-            displayName
-        )
+        const itemWithDate =
+            recent && item.meta?.created_at ? (
+                <>
+                    {displayName}{' '}
+                    <span className="text-muted text-xs font-normal">- {dayjs(item.meta?.created_at).fromNow()}</span>
+                </>
+            ) : (
+                displayName
+            )
         const itemWithProfile = profile ? (
             <>
                 {itemWithDate}

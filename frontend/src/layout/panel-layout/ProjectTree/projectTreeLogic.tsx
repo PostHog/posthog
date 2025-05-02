@@ -1,7 +1,8 @@
 import { IconPlus } from '@posthog/icons'
-import { lemonToast, Spinner } from '@posthog/lemon-ui'
+import { lemonToast, Link, ProfilePicture, Spinner } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
@@ -58,11 +59,11 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             featureFlagLogic,
             ['featureFlags'],
             panelLayoutLogic,
-            ['searchTerm'],
+            ['searchTerm', 'projectTreeMode'],
             breadcrumbsLogic,
             ['projectTreeRef', 'appBreadcrumbs', 'sceneBreadcrumbs'],
         ],
-        actions: [panelLayoutLogic, ['setSearchTerm']],
+        actions: [panelLayoutLogic, ['setSearchTerm', 'setProjectTreeMode']],
     })),
     actions({
         loadUnfiledItems: true,
@@ -606,7 +607,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             },
         ],
         treeTableColumnSizes: [
-            [350, 200, 200] as number[],
+            [350, 200, 200, 200] as number[],
             { persist: true },
             {
                 setTreeTableColumnSizes: (_, { sizes }) => sizes,
@@ -926,8 +927,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
         // TODO: use treeData + some other logic to determine the keys
         treeTableKeys: [
-            (s) => [s.treeTableColumnSizes, s.treeTableColumnOffsets, s.sortMethod],
-            (sizes, offsets, sortMethod): TreeTableViewKeys => ({
+            (s) => [s.treeTableColumnSizes, s.treeTableColumnOffsets, s.sortMethod, s.users, s.projectTreeMode],
+            (sizes, offsets, sortMethod, users, projectTreeMode): TreeTableViewKeys => ({
                 headers: [
                     {
                         key: 'name',
@@ -937,17 +938,47 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         offset: offsets[0],
                     },
                     {
-                        key: 'record.created_at',
+                        key: 'record.meta.created_at',
                         title: 'Created at',
-                        formatFunction: (value: string) => dayjs(value).format('MMM D, YYYY'),
-                        tooltip: (value: string) => dayjs(value).format('MMM D, YYYY HH:mm:ss'),
+                        formatComponent: (created_at) =>
+                            created_at ? (
+                                <span className="text-muted text-xs">{dayjs(created_at).fromNow()}</span>
+                            ) : (
+                                '-'
+                            ),
+                        formatString: (created_at) => (created_at ? dayjs(created_at).fromNow() : '-'),
+                        tooltip: (created_at) => (created_at ? dayjs(created_at).format('MMM D, YYYY HH:mm:ss') : ''),
                         width: sizes[1],
                         offset: offsets[1],
                     },
                     {
-                        key: 'record.created_by.first_name',
+                        key: 'record.meta.created_by',
                         title: 'Created by',
-                        tooltip: (value: string) => value,
+                        formatComponent: (created_by) =>
+                            created_by && users[created_by] ? (
+                                <Link
+                                    to={urls.personByDistinctId(users[created_by].distinct_id)}
+                                    onClick={(e) => {
+                                        e.preventDefault()
+                                        e.stopPropagation()
+                                        router.actions.push(urls.personByDistinctId(users[created_by].distinct_id))
+                                        if (projectTreeMode === 'table') {
+                                            projectTreeLogic.actions.setProjectTreeMode('tree')
+                                        }
+                                    }}
+                                >
+                                    <ProfilePicture user={users[created_by]} size="sm" className="mr-1" />
+                                    <span>
+                                        {users[created_by].first_name} {users[created_by].last_name}
+                                    </span>
+                                </Link>
+                            ) : (
+                                '-'
+                            ),
+                        formatString: (created_by) =>
+                            created_by && users[created_by]
+                                ? `${users[created_by].first_name} ${users[created_by].last_name}`
+                                : '-',
                         width: sizes[2],
                         offset: offsets[2],
                     },
@@ -956,9 +987,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                               {
                                   key: 'record.path',
                                   title: 'Path',
-                                  formatFunction: (value: string) => value,
+                                  formatString: (value: string) => value,
                                   tooltip: (value: string) => value,
-                                  width: sizes[3],
+                                  width: sizes[3] || 200,
                                   offset: offsets[3],
                               },
                           ]

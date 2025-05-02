@@ -77,9 +77,11 @@ export type TreeTableViewKeys = {
         /** Display title for the column */
         title: string
         /** Format function for the column */
-        formatFunction?: (value: any) => string
+        formatString?: (value: any, item?: TreeDataItem) => string
+        /** Format function for the column */
+        formatComponent?: (value: any, item?: TreeDataItem) => React.ReactNode
         /** Tooltip function for the column */
-        tooltip?: string | ((value: any) => string)
+        tooltip?: string | ((value: any, item?: TreeDataItem) => React.ReactNode)
         /** Width of the column */
         width?: number
         /** Offset of the column */
@@ -281,9 +283,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                       const value = header.key
                                           .split('.')
                                           .reduce((obj, key) => (obj as any)?.[key], item)
-                                      const formattedValue = header.formatFunction
-                                          ? header.formatFunction(value)
-                                          : value
+                                      const formattedValue = header.formatString ? header.formatString(value) : value
                                       // Add null/undefined check and handle object values properly
                                       const displayValue =
                                           formattedValue === null || formattedValue === undefined

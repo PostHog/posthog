@@ -616,7 +616,11 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                                                     }
                                                 )}
                                             >
-                                                {header.formatFunction ? header.formatFunction(value) : value}
+                                                {header.formatComponent
+                                                    ? header.formatComponent(value, item)
+                                                    : header.formatString
+                                                    ? header.formatString(value, item)
+                                                    : value}
                                             </span>
                                         </Tooltip>
                                     </span>

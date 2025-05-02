@@ -29,10 +29,12 @@ class FileSystemSerializer(serializers.ModelSerializer):
             "href",
             "meta",
             "shortcut",
+            "created_at",
         ]
         read_only_fields = [
             "id",
             "depth",
+            "created_at",
         ]
 
     def update(self, instance: FileSystem, validated_data: dict[str, Any]) -> FileSystem:
