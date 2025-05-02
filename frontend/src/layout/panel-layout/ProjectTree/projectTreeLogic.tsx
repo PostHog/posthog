@@ -6,7 +6,7 @@ import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
-import { TreeDataItem, TreeTableViewKeys } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { LemonTreeSelectMode, TreeDataItem, TreeTableViewKeys } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { urls } from 'scenes/urls'
@@ -119,6 +119,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         setEditingItemId: (id: string) => ({ id }),
         setMovingItems: (items: FileSystemEntry[]) => ({ items }),
         setSortMethod: (sortMethod: ProjectTreeSortMethod) => ({ sortMethod }),
+        setSelectMode: (selectMode: LemonTreeSelectMode) => ({ selectMode }),
         setTreeTableColumnSizes: (sizes: number[]) => ({ sizes }),
     }),
     loaders(({ actions, values }) => ({
@@ -576,6 +577,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 setSortMethod: (_, { sortMethod }) => sortMethod,
             },
         ],
+        selectMode: [
+            'default' as LemonTreeSelectMode,
+            {
+                setSelectMode: (_, { selectMode }) => selectMode,
+            },
+        ],
         treeTableColumnSizes: [
             [350, 200, 200] as number[],
             { persist: true },
@@ -783,7 +790,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             (s) => [s.featureFlags, s.folderStates],
             (featureFlags, folderStates): TreeDataItem[] =>
                 convertFileSystemEntryToTreeDataItem({
-                    imports: getDefaultTreeNew().filter((f) => !f.flag || featureFlags[f.flag]),
+                    imports: getDefaultTreeNew().filter(
+                        (f) => !f.flag || (featureFlags as Record<string, boolean>)[f.flag]
+                    ),
                     checkedItems: {},
                     folderStates,
                     root: 'new',
@@ -793,7 +802,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             (s) => [s.featureFlags, s.groupNodes, s.folderStates],
             (featureFlags, groupNodes: FileSystemImport[], folderStates): TreeDataItem[] =>
                 convertFileSystemEntryToTreeDataItem({
-                    imports: getDefaultTreeExplore(groupNodes).filter((f) => !f.flag || featureFlags[f.flag]),
+                    imports: getDefaultTreeExplore(groupNodes).filter(
+                        (f) => !f.flag || (featureFlags as Record<string, boolean>)[f.flag]
+                    ),
                     checkedItems: {},
                     folderStates,
                     root: 'explore',
@@ -1185,6 +1196,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
 
             actions.setLastCheckedItem(id, checked, shift)
             actions.setCheckedItems(checkedItems)
+
+            // If any items are checked, set the select mode to multi
+            // We don't do the inverse because we don't want to set the select mode to default when deselecting all
+            if (Object.values(checkedItems).some((v) => !!v)) {
+                actions.setSelectMode('multi')
+            }
         },
         moveCheckedItems: ({ path }) => {
             const { checkedItems } = values

@@ -109,7 +109,7 @@ export function FolderSelect({ value, onChange, className }: FolderSelectProps):
         <div className={clsx('bg-surface-primary p-2 border rounded-[var(--radius)] overflow-y-scroll', className)}>
             <LemonTree
                 ref={treeRef}
-                folderSelectMode
+                selectMode="folder-only"
                 className="px-0 py-1"
                 data={projectTreeOnlyFolders}
                 mode="tree"
@@ -125,7 +125,6 @@ export function FolderSelect({ value, onChange, className }: FolderSelectProps):
                     setLocalEditingId('')
                 }}
                 // handleStartEditing={(itemId) => setLocalEditingId(itemId) }
-                enableMultiSelection={false}
                 showFolderActiveState={true}
                 checkedItemCount={0}
                 onFolderClick={(folder) => {

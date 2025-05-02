@@ -40,7 +40,7 @@ export class CyclotronJobQueueKafka {
             {
                 ...this.config,
             },
-            'cdp_producer'
+            'CDP_PRODUCER'
         )
     }
 

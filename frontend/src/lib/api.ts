@@ -2189,15 +2189,17 @@ const api = {
         async listTemplates(params: {
             types: HogFunctionTypeType[]
             sub_template_id?: HogFunctionSubTemplateIdType
+            db_templates?: boolean
         }): Promise<PaginatedResponse<HogFunctionTemplateType>> {
             const finalParams = {
                 ...params,
                 types: params.types.join(','),
             }
+
             return new ApiRequest().hogFunctionTemplates().withQueryString(finalParams).get()
         },
-        async getTemplate(id: HogFunctionTemplateType['id']): Promise<HogFunctionTemplateType> {
-            return await new ApiRequest().hogFunctionTemplate(id).get()
+        async getTemplate(id: HogFunctionTemplateType['id'], db_templates?: boolean): Promise<HogFunctionTemplateType> {
+            return await new ApiRequest().hogFunctionTemplate(id).withQueryString({ db_templates }).get()
         },
 
         async listIcons(params: { query?: string } = {}): Promise<HogFunctionIconResponse[]> {

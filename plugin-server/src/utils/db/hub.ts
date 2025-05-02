@@ -203,27 +203,6 @@ export const closeHub = async (hub: Hub): Promise<void> => {
     }
 }
 
-export type KafkaConfig = Pick<
-    PluginsServerConfig,
-    | 'KAFKA_HOSTS'
-    | 'KAFKA_PRODUCER_HOSTS'
-    | 'KAFKA_SECURITY_PROTOCOL'
-    | 'KAFKA_PRODUCER_SECURITY_PROTOCOL'
-    | 'KAFKA_CLIENT_ID'
-    | 'KAFKA_PRODUCER_CLIENT_ID'
-    | 'KAFKA_CLIENT_RACK'
-    | 'KAFKAJS_LOG_LEVEL'
-    | 'KAFKA_CLIENT_CERT_B64'
-    | 'KAFKA_CLIENT_CERT_KEY_B64'
-    | 'KAFKA_TRUSTED_CERT_B64'
-    | 'KAFKA_SASL_MECHANISM'
-    | 'KAFKA_SASL_USER'
-    | 'KAFKA_SASL_PASSWORD'
-    | 'KAFKA_CDP_PRODUCER_HOSTS'
-    | 'KAFKA_CDP_PRODUCER_SECURITY_PROTOCOL'
-    | 'KAFKA_CDP_PRODUCER_CLIENT_ID'
->
-
 export function createKafkaClient({
     KAFKA_HOSTS,
     KAFKAJS_LOG_LEVEL,
@@ -234,7 +213,7 @@ export function createKafkaClient({
     KAFKA_SASL_MECHANISM,
     KAFKA_SASL_USER,
     KAFKA_SASL_PASSWORD,
-}: KafkaConfig) {
+}: PluginsServerConfig) {
     let kafkaSsl: ConnectionOptions | boolean | undefined
     if (KAFKA_CLIENT_CERT_B64 && KAFKA_CLIENT_CERT_KEY_B64 && KAFKA_TRUSTED_CERT_B64) {
         kafkaSsl = {
