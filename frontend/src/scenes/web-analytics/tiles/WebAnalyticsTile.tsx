@@ -52,21 +52,21 @@ import { HeatmapButton } from '../CrossSellButtons/HeatmapButton'
 import { ReplayButton } from '../CrossSellButtons/ReplayButton'
 import { pageReportsLogic } from '../pageReportsLogic'
 
-const toUtcOffsetFormat = (value: number): string => {
+export const toUtcOffsetFormat = (value: number): string => {
     if (value === 0) {
         return 'UTC'
     }
 
-    const integerPart = Math.floor(value)
-    const sign = integerPart > 0 ? '+' : '-'
+    const sign = value > 0 ? '+' : '-'
+    const integerPart = Math.abs(Math.trunc(value))
 
     // India has half-hour offsets, and Australia has 45-minute offsets, why?
-    const decimalPart = value - integerPart
+    const decimalPart = Math.abs(value) - integerPart
     const decimalPartAsMinutes = decimalPart * 60
     const formattedMinutes = decimalPartAsMinutes > 0 ? `:${decimalPartAsMinutes}` : ''
 
     // E.g. UTC-3, UTC, UTC+5:30, UTC+11:45
-    return `UTC${sign}${integerPart}${formattedMinutes}`
+    return `UTC${sign}${Math.abs(integerPart)}${formattedMinutes}`
 }
 
 type VariationCellProps = { isPercentage?: boolean; reverseColors?: boolean }

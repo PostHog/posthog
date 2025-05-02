@@ -42,6 +42,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 insightProps,
                 breakdownFilter: {},
                 isTrends: true,
+                isFunnels: false,
                 updateBreakdownFilter,
                 updateDisplay,
             })
@@ -69,6 +70,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
                     breakdown: ['all', 1],
                 },
                 isTrends: true,
+                isFunnels: false,
                 updateBreakdownFilter,
                 updateDisplay,
             })
@@ -97,6 +99,8 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 insightProps,
                 breakdownFilter: {},
                 isTrends: true,
+                isFunnels: false,
+
                 updateBreakdownFilter,
                 updateDisplay,
             })
@@ -120,6 +124,8 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 insightProps,
                 breakdownFilter: {},
                 isTrends: true,
+                isFunnels: false,
+
                 updateBreakdownFilter,
                 updateDisplay,
             })
@@ -146,6 +152,8 @@ describe('taxonomicBreakdownFilterLogic', () => {
                     breakdown_type: 'person',
                 },
                 isTrends: true,
+                isFunnels: false,
+
                 display: ChartDisplayType.WorldMap,
                 updateBreakdownFilter,
                 updateDisplay,
@@ -169,6 +177,8 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 insightProps,
                 breakdownFilter: {},
                 isTrends: true,
+                isFunnels: false,
+
                 updateBreakdownFilter,
                 updateDisplay,
             })
@@ -188,6 +198,8 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 insightProps,
                 breakdownFilter: {},
                 isTrends: true,
+                isFunnels: false,
+
                 updateBreakdownFilter,
                 updateDisplay,
             })
@@ -213,6 +225,8 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 insightProps,
                 breakdownFilter: {},
                 isTrends: true,
+                isFunnels: false,
+
                 updateBreakdownFilter,
                 updateDisplay,
             })
@@ -230,6 +244,8 @@ describe('taxonomicBreakdownFilterLogic', () => {
                     breakdown_type: 'event',
                 },
                 isTrends: true,
+                isFunnels: false,
+
                 updateBreakdownFilter,
                 updateDisplay,
             })
@@ -246,6 +262,8 @@ describe('taxonomicBreakdownFilterLogic', () => {
                     breakdowns: [],
                 },
                 isTrends: true,
+                isFunnels: false,
+
                 updateBreakdownFilter,
                 updateDisplay,
             })
@@ -269,6 +287,8 @@ describe('taxonomicBreakdownFilterLogic', () => {
                     ],
                 },
                 isTrends: true,
+                isFunnels: false,
+
                 updateBreakdownFilter,
                 updateDisplay,
             })
