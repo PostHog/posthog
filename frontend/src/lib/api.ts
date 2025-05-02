@@ -2167,8 +2167,7 @@ const api = {
             return new ApiRequest().hogFunctionTemplates().withQueryString(finalParams).get()
         },
         async getTemplate(id: HogFunctionTemplateType['id'], db_templates?: boolean): Promise<HogFunctionTemplateType> {
-            const query = db_templates !== undefined ? { db_templates } : undefined
-            return await new ApiRequest().hogFunctionTemplate(id).withQueryString(query).get()
+            return await new ApiRequest().hogFunctionTemplate(id).withQueryString({ db_templates }).get()
         },
 
         async listIcons(params: { query?: string } = {}): Promise<HogFunctionIconResponse[]> {
