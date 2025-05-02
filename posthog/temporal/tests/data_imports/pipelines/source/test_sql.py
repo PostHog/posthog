@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pyarrow as pa
+import pytest
 
 from posthog.temporal.data_imports.pipelines.source.sql import Column, Table, TableReference
 
@@ -24,6 +25,15 @@ def test_table_get_item():
     assert table[0] == column
     assert table[column_name] == column
 
+    with pytest.raises(KeyError):
+        table["something"]
+
+    with pytest.raises(IndexError):
+        table[1000]
+
+    with pytest.raises(TypeError):
+        table[object]  # type: ignore
+
 
 def test_table_contains():
     """Test `Table.__contains__` returns `True` with existing column."""
@@ -32,6 +42,7 @@ def test_table_contains():
     table = Table(name="test", columns=[column])
 
     assert column_name in table
+    assert "not a column" not in table
 
 
 def test_table_len():
@@ -50,18 +61,22 @@ def test_table_len():
 def test_table_to_arrow_schema():
     """Test `to_arrow_schema` method returns fields based on columns."""
     column_name = "some_column"
-    column = TestColumn(column_name)
-    table = Table(name="test", columns=[column])
+    column_0 = TestColumn(column_name)
+    column_1 = TestColumn(column_name)
+    column_2 = TestColumn(column_name)
+    table = Table(name="test", columns=[column_0])
     schema = table.to_arrow_schema()
 
     assert len(schema) == 1
-    assert schema.field(0) == column.to_arrow_field()
+    assert schema.field(0) == column_0.to_arrow_field()
 
-    table = Table(name="test", columns=[column, column, column])
+    table = Table(name="test", columns=[column_0, column_1, column_2])
     schema = table.to_arrow_schema()
 
     assert len(schema) == 3
-    assert schema.field(0) == column.to_arrow_field()
+    assert schema.field(0) == column_0.to_arrow_field()
+    assert schema.field(1) == column_1.to_arrow_field()
+    assert schema.field(2) == column_2.to_arrow_field()
 
 
 def test_table_fully_qualified_name():
