@@ -80,11 +80,36 @@ def stats(request):
 
 
 def robots_txt(request):
-    ROBOTS_TXT_CONTENT = (
-        "User-agent: *\nDisallow: /shared_dashboard/\nDisallow: /shared/"
-        if is_cloud()
-        else "User-agent: *\nDisallow: /"
-    )
+    # Block all on self-hosted instances
+    if not is_cloud():
+        return HttpResponse("User-agent: *\nDisallow: /", content_type="text/plain")
+
+    ROBOTS_TXT_CONTENT = """User-agent: *
+
+# Block shared paths
+Disallow: /shared_dashboard/
+Disallow: /shared/
+
+# Block URLs with sensitive query parameters
+Disallow: /*?*email=
+Disallow: /*?*organization_name=
+Disallow: /*?*first_name=
+Disallow: /*?*token=
+Disallow: /*?*sharing_access_token=
+Disallow: /*%40*
+Disallow: /*@*
+
+# Block authentication paths
+Disallow: /verify_email/
+Disallow: /authorize_and_redirect
+
+# Block ingestion paths
+Disallow: /e/
+Disallow: /s/
+Disallow: /i/
+Disallow: /decide/
+Disallow: /flags/
+"""
     return HttpResponse(ROBOTS_TXT_CONTENT, content_type="text/plain")
 
 

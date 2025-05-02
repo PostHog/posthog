@@ -2935,11 +2935,6 @@ export enum SurveyEventName {
     SENT = 'survey sent',
 }
 
-export enum SurveyEventProperties {
-    SURVEY_ID = '$survey_id',
-    SURVEY_RESPONSE = '$survey_response',
-}
-
 export interface SurveyEventStats {
     total_count: number
     total_count_only_seen: number
@@ -3899,6 +3894,7 @@ export enum GroupMathType {
 export enum ExperimentMetricMathType {
     TotalCount = 'total',
     Sum = 'sum',
+    UniqueSessions = 'unique_session',
 }
 
 export enum ActorGroupType {
@@ -5094,6 +5090,7 @@ export type HogFunctionConfigurationType = Omit<
 > & {
     hog?: HogFunctionType['hog'] // In the config it can be empty if using a template
     sub_template_id?: HogFunctionSubTemplateIdType
+    _create_in_folder?: string | null
 }
 
 export type HogFunctionSubTemplateType = Pick<HogFunctionType, 'filters' | 'inputs' | 'masking' | 'mappings'> & {

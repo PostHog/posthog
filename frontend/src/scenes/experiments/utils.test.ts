@@ -852,6 +852,41 @@ describe('metricToQuery', () => {
         })
     })
 
+    it('returns the correct query for a mean metric with unique sessions math type', () => {
+        const metric: ExperimentMetric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.MEAN,
+            source: {
+                kind: NodeKind.EventsNode,
+                event: '$pageview',
+                name: '$pageview',
+                math: ExperimentMetricMathType.UniqueSessions,
+            },
+        }
+        const query = metricToQuery(metric, true)
+        expect(query).toEqual({
+            kind: NodeKind.TrendsQuery,
+            interval: 'day',
+            dateRange: {
+                date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+                date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                explicitDate: true,
+            },
+            trendsFilter: {
+                display: ChartDisplayType.ActionsLineGraph,
+            },
+            filterTestAccounts: true,
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    event: '$pageview',
+                    name: '$pageview',
+                    math: ExperimentMetricMathType.UniqueSessions,
+                },
+            ],
+        })
+    })
+
     it('returns undefined for unsupported metric types', () => {
         const metric = {
             kind: NodeKind.ExperimentMetric,
