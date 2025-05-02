@@ -1,6 +1,6 @@
 import { actions, kea, listeners, path, props, reducers, selectors } from 'kea'
 
-import { exceptionCardLogicType } from './exceptionCardLogicType'
+import type { exceptionCardLogicType } from './exceptionCardLogicType'
 
 export interface ExceptionCardLogicProps {
     loading: boolean
