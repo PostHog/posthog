@@ -64,14 +64,14 @@ class TestExternalDataSchema(APIBaseTest):
         self.temporal = temporal
 
     def test_incremental_fields_stripe(self):
-        soruce = ExternalDataSource.objects.create(
+        source = ExternalDataSource.objects.create(
             team=self.team,
             source_type=ExternalDataSource.Type.STRIPE,
         )
         schema = ExternalDataSchema.objects.create(
             name="BalanceTransaction",
             team=self.team,
-            source=soruce,
+            source=source,
             should_sync=True,
             status=ExternalDataSchema.Status.COMPLETED,
             sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
@@ -85,14 +85,14 @@ class TestExternalDataSchema(APIBaseTest):
         assert payload == [{"label": "created_at", "type": "datetime", "field": "created", "field_type": "integer"}]
 
     def test_incremental_fields_missing_source_type(self):
-        soruce = ExternalDataSource.objects.create(
+        source = ExternalDataSource.objects.create(
             team=self.team,
             source_type="bad_source",
         )
         schema = ExternalDataSchema.objects.create(
             name="BalanceTransaction",
             team=self.team,
-            source=soruce,
+            source=source,
             should_sync=True,
             status=ExternalDataSchema.Status.COMPLETED,
             sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
@@ -105,14 +105,14 @@ class TestExternalDataSchema(APIBaseTest):
         assert response.status_code == 400
 
     def test_incremental_fields_missing_table_name(self):
-        soruce = ExternalDataSource.objects.create(
+        source = ExternalDataSource.objects.create(
             team=self.team,
             source_type=ExternalDataSource.Type.STRIPE,
         )
         schema = ExternalDataSchema.objects.create(
             name="Some_other_non_existent_table",
             team=self.team,
-            source=soruce,
+            source=source,
             should_sync=True,
             status=ExternalDataSchema.Status.COMPLETED,
             sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
@@ -397,7 +397,9 @@ class TestUpdateExternalDataSchema:
         assert response.status_code == 200
 
         schema.refresh_from_db()
-        assert schema.should_sync is True
+        # needed to appease mypy ;-(
+        new_schema = schema
+        assert new_schema.should_sync is True
 
         schedule_desc = describe_schedule(temporal, str(schema.id))
         assert schedule_desc.schedule.state.paused is False
