@@ -40,6 +40,7 @@ struct LegacyEventForm {
     pub lib_version: Option<String>,
 }
 
+/// handle_legacy owns the /e, /capture, /track, and /engage capture endpoints
 #[instrument(
     skip_all,
     fields(
@@ -49,6 +50,7 @@ struct LegacyEventForm {
         query_params,
         token,
         historical_migration,
+        lib_version,
         batch_size,
         compression
     )
@@ -136,7 +138,9 @@ async fn handle_legacy(
             }
         }
 
-        // TODO(eli): VALIDATE capture.py DOES THIS
+        // TODO(eli): check capture.py wrt details here or add best-effort path
+        // can always observe these with rich logging from mirror then figure how
+        // to best classify them based on per-SDK quirks we see
         unexpected_ct => {
             error!("unexpected content-type");
             return Err(CaptureError::RequestParsingError(format!(
@@ -149,6 +153,9 @@ async fn handle_legacy(
     // extract the "compression" param; location varies depending on SDK/version etc.
     let compression = extract_compression(method, &form, query_params, headers);
     Span::current().record("compression", format!("{}", compression));
+
+    let lib_version = extract_lib_version(&form, query_params); // TODO(eli): check headers here too?
+    Span::current().record("lib_version", lib_version);
 
     // TODO(eli): Add is_mirror_deploy to error logging in RawRequest::from_bytes
     let request = RawRequest::from_bytes(
@@ -202,9 +209,23 @@ async fn handle_legacy(
         return Err(CaptureError::BillingLimit);
     }
 
-    debug!(context=?context, events=?events, "decoded request");
+    // TODO(eli): back to debug-level logging as we ramp the mirror
+    info!(context=?context, events=?events, "handle_legacy: decoded request");
 
     Ok((context, events))
+}
+
+fn extract_lib_version(form: &LegacyEventForm, params: &EventQuery) -> String {
+    let form_lv = form.lib_version.as_ref();
+    let params_lv = params.lib_version.as_ref();
+    if form_lv.is_some_and(|lv| !lv.is_empty()) {
+        return form_lv.unwrap().clone();
+    }
+    if params_lv.is_some_and(|lv| !lv.is_empty()) {
+        return params_lv.unwrap().clone();
+    }
+
+    String::from("")
 }
 
 // the compression hint can be tucked away any number of places depending on the SDK submitting the request...
@@ -328,6 +349,8 @@ fn decode_base64(payload: &[u8]) -> Result<Vec<u8>, CaptureError> {
 ///
 /// Because it must accommodate several shapes, it is inefficient in places. A v1
 /// endpoint should be created, that only accepts the BatchedRequest payload shape.
+///
+/// NOTE: handle_common owns the /i and /batch capture endpoints
 async fn handle_common(
     state: &State<router::State>,
     InsecureClientIp(ip): &InsecureClientIp,
@@ -447,6 +470,74 @@ async fn handle_common(
     debug!(context=?context, events=?events, "decoded request");
 
     Ok((context, events))
+}
+
+#[instrument(
+    skip_all,
+    fields(
+        path,
+        token,
+        batch_size,
+        user_agent,
+        content_encoding,
+        content_type,
+        version,
+        compression,
+        historical_migration
+    )
+)]
+#[debug_handler]
+pub async fn event_legacy(
+    state: State<router::State>,
+    ip: InsecureClientIp,
+    meta: Query<EventQuery>,
+    headers: HeaderMap,
+    method: Method,
+    path: MatchedPath,
+    body: Bytes,
+) -> Result<Json<CaptureResponse>, CaptureError> {
+    let mut params: EventQuery = meta.0;
+
+    match handle_legacy(&state, &ip, &mut params, &headers, &method, &path, body).await {
+        Err(CaptureError::BillingLimit) => {
+            // for v0 we want to just return ok 🙃
+            // this is because the clients are pretty dumb and will just retry over and over and
+            // over...
+            //
+            // for v1, we'll return a meaningful error code and error, so that the clients can do
+            // something meaningful with that error
+            Ok(Json(CaptureResponse {
+                status: CaptureResponseCode::Ok,
+                quota_limited: None,
+            }))
+        }
+        Err(err) => Err(err),
+        Ok((context, events)) => {
+            if let Err(err) = process_events(
+                state.sink.clone(),
+                state.token_dropper.clone(),
+                state.historical_cfg.clone(),
+                &events,
+                &context,
+            )
+            .await
+            {
+                let cause = match err {
+                    CaptureError::MissingDistinctId => "missing_distinct_id",
+                    CaptureError::MissingEventName => "missing_event_name",
+                    _ => "process_events_error",
+                };
+                report_dropped_events(cause, events.len() as u64);
+                tracing::log::warn!("rejected invalid payload: {}", err);
+                return Err(err);
+            }
+
+            Ok(Json(CaptureResponse {
+                status: CaptureResponseCode::Ok,
+                quota_limited: None,
+            }))
+        }
+    }
 }
 
 #[instrument(
