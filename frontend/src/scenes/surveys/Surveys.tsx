@@ -26,12 +26,13 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
 import { SceneExport } from 'scenes/sceneTypes'
+import { isSurveyRunning } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { ActivityScope, ProductKey, ProgressStatus, Survey } from '~/types'
 
-import { SurveyQuestionLabel } from './constants'
+import { SURVEY_TYPE_LABEL_MAP, SurveyQuestionLabel } from './constants'
 import { SurveysDisabledBanner, SurveySettings } from './SurveySettings'
 import { getSurveyStatus, surveysLogic, SurveysTabs } from './surveysLogic'
 
@@ -256,6 +257,9 @@ export function Surveys(): JSX.Element {
                                     {
                                         dataIndex: 'type',
                                         title: 'Mode',
+                                        render: function RenderType(_, survey) {
+                                            return SURVEY_TYPE_LABEL_MAP[survey.type]
+                                        },
                                     },
                                     {
                                         title: 'Question type',
@@ -327,7 +331,7 @@ export function Surveys(): JSX.Element {
                                                                     Launch survey
                                                                 </LemonButton>
                                                             )}
-                                                            {survey.start_date && !survey.end_date && (
+                                                            {isSurveyRunning(survey) && (
                                                                 <LemonButton
                                                                     fullWidth
                                                                     onClick={() => {

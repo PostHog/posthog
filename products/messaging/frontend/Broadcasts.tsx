@@ -32,6 +32,11 @@ const Broadcast = ({ broadcastId }: { broadcastId: string }): JSX.Element => {
                 <HogFunctionConfiguration
                     id={broadcastId === 'new' ? null : broadcastId}
                     templateId={broadcastId === 'new' ? 'template-new-broadcast' : ''}
+                    displayOptions={{
+                        showStatus: false,
+                        showEnabled: false,
+                        canEditSource: false,
+                    }}
                 />
             )}
             {currentTab === 'logs' && <HogFunctionLogs hogFunctionId={broadcastId} />}
@@ -46,7 +51,7 @@ export function Broadcasts(): JSX.Element {
         <Broadcast broadcastId={broadcastId} />
     ) : (
         <>
-            <MessagingTabs />
+            <MessagingTabs key="broadcasts-tabs" />
             <PageHeader
                 caption="Send one time communications to your users"
                 buttons={

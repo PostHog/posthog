@@ -34,7 +34,7 @@ export class CyclotronManager {
 
     async createJob(job: CyclotronJobInit): Promise<string> {
         job.priority ??= 1
-        job.scheduled ??= new Date()
+        job.scheduled ??= new Date().toISOString()
 
         // TODO: Why is this type of job snake case whereas the dequeue return type is camel case?
         const jobInitInternal = {
@@ -55,7 +55,7 @@ export class CyclotronManager {
     async bulkCreateJobs(jobs: CyclotronJobInit[]): Promise<string[]> {
         const jobInitsInternal = jobs.map((job) => {
             job.priority ??= 1
-            job.scheduled ??= new Date()
+            job.scheduled ??= new Date().toISOString()
 
             return {
                 team_id: job.teamId,

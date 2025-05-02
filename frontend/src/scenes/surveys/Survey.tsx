@@ -28,7 +28,7 @@ export const scene: SceneExport = {
 }
 
 export function SurveyComponent({ id }: { id?: string } = {}): JSX.Element {
-    const { editingSurvey, setSelectedPageIndex, setPropertyFilters } = useActions(surveyLogic)
+    const { editingSurvey, setSelectedPageIndex } = useActions(surveyLogic)
     const { isEditingSurvey, surveyMissing } = useValues(surveyLogic)
 
     /**
@@ -39,9 +39,8 @@ export function SurveyComponent({ id }: { id?: string } = {}): JSX.Element {
         return () => {
             editingSurvey(false)
             setSelectedPageIndex(0)
-            setPropertyFilters([])
         }
-    }, [editingSurvey, setSelectedPageIndex, setPropertyFilters])
+    }, [editingSurvey, setSelectedPageIndex])
 
     if (surveyMissing) {
         return <NotFound object="survey" />

@@ -1047,6 +1047,7 @@ dependencies = [
  "health",
  "httpmock",
  "rayon",
+ "rdkafka",
  "reqwest 0.12.3",
  "serde",
  "serde_json",
@@ -1431,6 +1432,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-database"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "sqlx",
+ "thiserror 1.0.69",
+ "tokio",
+]
+
+[[package]]
 name = "common-dns"
 version = "0.1.0"
 dependencies = [
@@ -1793,6 +1805,7 @@ dependencies = [
  "common-types",
  "envconfig",
  "health",
+ "hogvm",
  "httpmock",
  "limiters",
  "metrics",
@@ -2225,7 +2238,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "assert-json-diff",
- "async-trait",
  "axum 0.7.5",
  "axum-client-ip",
  "base64 0.22.0",
@@ -2233,6 +2245,7 @@ dependencies = [
  "chrono",
  "common-alloc",
  "common-cookieless",
+ "common-database",
  "common-geoip",
  "common-metrics",
  "common-redis",
@@ -2246,6 +2259,7 @@ dependencies = [
  "metrics",
  "moka",
  "once_cell",
+ "percent-encoding",
  "petgraph",
  "rand",
  "rayon",
@@ -2256,7 +2270,6 @@ dependencies = [
  "rust_decimal",
  "serde",
  "serde_json",
- "serde_urlencoded",
  "sha1",
  "sqlx",
  "strum",
@@ -2266,7 +2279,6 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-subscriber",
- "urlencoding",
  "uuid",
 ]
 

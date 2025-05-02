@@ -8,7 +8,7 @@ from products.editor.backend.providers.codestral import CodestralConfig, Codestr
 
 @patch("django.conf.settings.MISTRAL_API_KEY", "test_key")
 class TestCodestralProvider(TestCase):
-    def setUp(self) -> None:
+    def setUp(self):
         super().setUp()
         self.model_id = "codestral-latest"
 

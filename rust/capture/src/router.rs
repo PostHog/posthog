@@ -35,6 +35,7 @@ pub struct State {
     pub token_dropper: Arc<TokenDropper>,
     pub event_size_limit: usize,
     pub historical_cfg: HistoricalConfig,
+    pub is_mirror_deploy: bool,
 }
 
 #[derive(Clone)]
@@ -52,7 +53,7 @@ impl HistoricalConfig {
     ) -> Self {
         let mut htk = HashSet::new();
         if let Some(s) = tokens_keys {
-            for entry in s.split(",") {
+            for entry in s.split(",").filter(|s| !s.trim().is_empty()) {
                 htk.insert(entry.trim().to_string());
             }
         }
@@ -68,6 +69,10 @@ impl HistoricalConfig {
     // and self.historical_tokens_keys is a set of the same. if the key
     // matches any entry in the set, the event should be rerouted
     pub fn should_reroute(&self, event_key: &str) -> bool {
+        if event_key.is_empty() {
+            return false;
+        }
+
         // is the event key in the forced_keys list?
         let key_match = self.historical_tokens_keys.contains(event_key);
 
@@ -104,6 +109,7 @@ pub fn router<
     enable_historical_rerouting: bool,
     historical_rerouting_threshold_days: i64,
     historical_tokens_keys: Option<String>,
+    is_mirror_deploy: bool,
 ) -> Router {
     let state = State {
         sink: Arc::new(sink),
@@ -117,6 +123,7 @@ pub fn router<
             historical_rerouting_threshold_days,
             historical_tokens_keys,
         ),
+        is_mirror_deploy,
     };
 
     // Very permissive CORS policy, as old SDK versions
@@ -234,4 +241,38 @@ pub fn router<
     } else {
         router
     }
+}
+
+#[test]
+fn test_historical_config_handles_tokens_key_routing_correctly() {
+    let inputs = Some(String::from("token1,token2:user2,")); // 3 entries including empty string!
+    let hcfg = HistoricalConfig::new(true, 100, inputs);
+
+    // event key not in list passes
+    let key = "token3:user3";
+    assert!(!hcfg.should_reroute(key));
+
+    // token not in list passes
+    let key = "token4";
+    assert!(!hcfg.should_reroute(key));
+
+    // full event key in list should always be rerouted
+    let key = "token2:user2";
+    assert!(hcfg.should_reroute(key));
+
+    // event key with token 2 but different suffix should not be rerouted
+    let key = "token2:user7";
+    assert!(!hcfg.should_reroute(key));
+
+    // anything having to do with token1 should be rerouted
+    let key = "token1:user1";
+    assert!(hcfg.should_reroute(key));
+    let key = "token1:user2";
+    assert!(hcfg.should_reroute(key));
+    let key = "token1";
+    assert!(hcfg.should_reroute(key));
+
+    // empty event key/token should not be rerouted, fails open
+    let key = "";
+    assert!(!hcfg.should_reroute(key));
 }

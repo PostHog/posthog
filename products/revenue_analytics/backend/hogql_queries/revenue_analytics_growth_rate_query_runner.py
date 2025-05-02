@@ -10,6 +10,8 @@ from posthog.schema import (
 
 from .revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
 
+ORDER_BY_MONTH_ASC = ast.OrderExpr(expr=ast.Field(chain=["month"]), order="ASC")
+
 
 class RevenueAnalyticsGrowthRateQueryRunner(RevenueAnalyticsQueryRunner):
     query: RevenueAnalyticsGrowthRateQuery
@@ -22,43 +24,29 @@ class RevenueAnalyticsGrowthRateQueryRunner(RevenueAnalyticsQueryRunner):
         if charge_subquery is None:
             return ast.SelectQuery.empty()
 
-        monthly_mrr_cte = self.monthly_mrr_cte(charge_subquery)
-        mrr_with_growth_cte = self.mrr_with_growth_cte(monthly_mrr_cte)
+        monthly_revenue_cte = self.monthly_revenue_cte(charge_subquery)
+        revenue_with_growth_cte = self.revenue_with_growth_cte(monthly_revenue_cte)
 
         return ast.SelectQuery(
             select=[
                 ast.Field(chain=["month"]),
-                ast.Alias(alias="mrr", expr=ast.Field(chain=["mrr_avg"])),
-                ast.Alias(alias="previous_mrr", expr=ast.Field(chain=["previous_mrr_avg"])),
-                ast.Alias(
-                    alias="mrr_growth_rate",
-                    expr=ast.Call(
-                        name="divide",
-                        args=[
-                            ast.Call(
-                                name="minus", args=[ast.Field(chain=["mrr_avg"]), ast.Field(chain=["previous_mrr_avg"])]
-                            ),
-                            ast.Field(chain=["previous_mrr_avg"]),
-                        ],
-                    ),
-                ),
+                ast.Field(chain=["revenue"]),
+                ast.Field(chain=["previous_month_revenue"]),
+                ast.Field(chain=["month_over_month_growth_rate"]),
+                ast.Alias(alias="three_month_growth_rate", expr=self.growth_rate_over_last_n_months(3)),
+                ast.Alias(alias="six_month_growth_rate", expr=self.growth_rate_over_last_n_months(6)),
             ],
-            select_from=ast.JoinExpr(table=ast.Field(chain=[mrr_with_growth_cte.name])),
-            where=ast.Call(
-                name="isNotNull",
-                args=[ast.Field(chain=["previous_mrr_avg"])],
-            ),
-            order_by=[ast.OrderExpr(expr=ast.Field(chain=["month"]), order="DESC")],
+            select_from=ast.JoinExpr(table=ast.Field(chain=[revenue_with_growth_cte.name])),
+            order_by=[ORDER_BY_MONTH_ASC],
             ctes={
-                "monthly_mrr": monthly_mrr_cte,
-                "mrr_with_growth": mrr_with_growth_cte,
+                "monthly_revenue": monthly_revenue_cte,
+                "revenue_with_growth": revenue_with_growth_cte,
             },
-            limit=ast.Constant(value=24),  # Limit to last 24 months
         )
 
-    def monthly_mrr_cte(self, select_from: ast.SelectQuery | ast.SelectSetQuery) -> ast.CTE:
+    def monthly_revenue_cte(self, select_from: ast.SelectQuery | ast.SelectSetQuery) -> ast.CTE:
         return ast.CTE(
-            name="monthly_mrr",
+            name="monthly_revenue",
             expr=ast.SelectQuery(
                 select=[
                     ast.Alias(
@@ -66,56 +54,63 @@ class RevenueAnalyticsGrowthRateQueryRunner(RevenueAnalyticsQueryRunner):
                         expr=ast.Call(name="toStartOfMonth", args=[ast.Field(chain=["timestamp"])]),
                     ),
                     ast.Alias(
-                        alias="mrr",
+                        alias="revenue",
                         expr=ast.Call(name="sum", args=[ast.Field(chain=["amount"])]),
                     ),
                 ],
                 select_from=ast.JoinExpr(table=select_from),
                 group_by=[ast.Field(chain=["month"])],
-                order_by=[ast.OrderExpr(expr=ast.Field(chain=["month"]))],
+                order_by=[ORDER_BY_MONTH_ASC],
+                where=self.timestamp_where_clause(),
             ),
             cte_type="subquery",
         )
 
-    def mrr_with_growth_cte(self, monthly_mrr_cte: ast.CTE) -> ast.CTE:
+    def revenue_with_growth_cte(self, monthly_revenue_cte: ast.CTE) -> ast.CTE:
         return ast.CTE(
-            name="mrr_with_growth",
+            name="revenue_with_growth",
             expr=ast.SelectQuery(
                 select=[
                     ast.Field(chain=["month"]),
-                    ast.Field(chain=["mrr"]),
-                    # Equivalent to: "avg(mrr) OVER (ORDER BY month ROWS BETWEEN 2 PRECEDING AND CURRENT ROW) AS mrr_avg"
+                    ast.Field(chain=["revenue"]),
                     ast.Alias(
-                        alias="mrr_avg",
+                        alias="previous_month_revenue",
                         expr=ast.WindowFunction(
-                            name="avg",
-                            exprs=[ast.Field(chain=["mrr"])],
-                            over_expr=ast.WindowExpr(
-                                order_by=[ast.OrderExpr(expr=ast.Field(chain=["month"]), order="ASC")],
-                                frame_method="ROWS",
-                                frame_start=ast.WindowFrameExpr(frame_type="PRECEDING", frame_value=2),
-                                frame_end=ast.WindowFrameExpr(frame_type="CURRENT ROW"),
-                            ),
+                            name="lagInFrame",
+                            exprs=[ast.Field(chain=["revenue"]), ast.Constant(value=1)],
+                            over_expr=ast.WindowExpr(order_by=[ORDER_BY_MONTH_ASC]),
                         ),
                     ),
-                    # Equivalent to: "avg(mrr) OVER (ORDER BY month ROWS BETWEEN 3 PRECEDING AND 1 PRECEDING) AS previous_mrr_avg"
+                    # Month over month growth rate
                     ast.Alias(
-                        alias="previous_mrr_avg",
-                        expr=ast.WindowFunction(
-                            name="avg",
-                            exprs=[ast.Field(chain=["mrr"])],
-                            over_expr=ast.WindowExpr(
-                                order_by=[ast.OrderExpr(expr=ast.Field(chain=["month"]), order="ASC")],
-                                frame_method="ROWS",
-                                frame_start=ast.WindowFrameExpr(frame_type="PRECEDING", frame_value=3),
-                                frame_end=ast.WindowFrameExpr(frame_type="PRECEDING", frame_value=1),
-                            ),
+                        alias="month_over_month_growth_rate",
+                        expr=ast.Call(
+                            name="divide",
+                            args=[
+                                ast.Call(
+                                    name="minus",
+                                    args=[ast.Field(chain=["revenue"]), ast.Field(chain=["previous_month_revenue"])],
+                                ),
+                                ast.Field(chain=["previous_month_revenue"]),
+                            ],
                         ),
                     ),
                 ],
-                select_from=ast.JoinExpr(table=ast.Field(chain=[monthly_mrr_cte.name])),
+                select_from=ast.JoinExpr(table=ast.Field(chain=[monthly_revenue_cte.name])),
             ),
             cte_type="subquery",
+        )
+
+    def growth_rate_over_last_n_months(self, n: int) -> ast.WindowFunction:
+        return ast.WindowFunction(
+            name="avg",
+            exprs=[ast.Field(chain=["month_over_month_growth_rate"])],
+            over_expr=ast.WindowExpr(
+                order_by=[ORDER_BY_MONTH_ASC],
+                frame_method="ROWS",
+                frame_start=ast.WindowFrameExpr(frame_type="PRECEDING", frame_value=n - 1),
+                frame_end=ast.WindowFrameExpr(frame_type="CURRENT ROW"),
+            ),
         )
 
     def calculate(self):
@@ -130,16 +125,28 @@ class RevenueAnalyticsGrowthRateQueryRunner(RevenueAnalyticsQueryRunner):
 
         results = [
             (
-                result[0],
-                Decimal(str(round(result[1], 10))),
-                Decimal(str(round(result[2], 10))),
-                Decimal(str(round(result[3], 10))),
+                result[0],  # month
+                result[1],  # revenue
+                result[2],  # previous_month_revenue
+                result[3],  # month_over_month_growth_rate
+                # Need to cast to Decimal because the `avg` window function always return a Float64
+                # rather than keeping the underlying Decimal type
+                # https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/avg
+                Decimal(str(round(result[4], 10))) if result[4] is not None else None,  # three_month_growth_rate
+                Decimal(str(round(result[5], 10))) if result[5] is not None else None,  # six_month_growth_rate
             )
             for result in response.results
         ]
 
         return RevenueAnalyticsGrowthRateQueryResponse(
             results=results,
-            columns=["month", "mrr", "previous_mrr", "mrr_growth_rate"],
+            columns=[
+                "month",
+                "revenue",
+                "previous_month_revenue",
+                "month_over_month_growth_rate",
+                "three_month_growth_rate",
+                "six_month_growth_rate",
+            ],
             modifiers=self.modifiers,
         )

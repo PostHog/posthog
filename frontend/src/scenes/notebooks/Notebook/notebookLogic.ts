@@ -17,6 +17,7 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { notebooksModel, openNotebook, SCRATCHPAD_NOTEBOOK } from '~/models/notebooksModel'
 import {
+    AccessControlLevel,
     ActivityScope,
     CommentType,
     NotebookNodeType,
@@ -244,7 +245,7 @@ export const notebookLogic = kea<notebookLogicType>([
                             content: null,
                             text_content: null,
                             version: 0,
-                            user_access_level: 'editor',
+                            user_access_level: AccessControlLevel.Editor,
                         }
                     } else if (props.shortId.startsWith('template-')) {
                         response =

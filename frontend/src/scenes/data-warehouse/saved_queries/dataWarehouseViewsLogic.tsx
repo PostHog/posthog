@@ -72,7 +72,11 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                         shouldRematerialize?: boolean
                     }
                 ) => {
-                    const newView = await api.dataWarehouseSavedQueries.update(view.id, view)
+                    const current_query = values.dataWarehouseSavedQueryMapById[view.id]?.query
+                    const newView = await api.dataWarehouseSavedQueries.update(view.id, {
+                        ...view,
+                        current_query: current_query?.query,
+                    })
                     return values.dataWarehouseSavedQueries.map((savedQuery) => {
                         if (savedQuery.id === view.id) {
                             return newView

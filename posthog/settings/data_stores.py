@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 import dj_database_url
 from django.core.exceptions import ImproperlyConfigured
 
-from posthog.settings.base_variables import DEBUG, IS_COLLECT_STATIC, TEST
+from posthog.settings.base_variables import DEBUG, IS_COLLECT_STATIC, TEST, IN_EVAL_TESTING
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
 # See https://docs.djangoproject.com/en/3.2/ref/settings/#std:setting-DATABASE-DISABLE_SERVER_SIDE_CURSORS
@@ -61,7 +61,11 @@ if TEST or DEBUG:
     PG_USER: str = os.getenv("PGUSER", "posthog")
     PG_PASSWORD: str = os.getenv("PGPASSWORD", "posthog")
     PG_PORT: str = os.getenv("PGPORT", "5432")
-    PG_DATABASE: str = os.getenv("PGDATABASE", "posthog")
+    PG_DATABASE: str = os.getenv(
+        "PGDATABASE",
+        # AI evals get their own database, as they fully reuse the DB between runs and only reset once per day, for perf
+        "posthog_ai_eval" if IN_EVAL_TESTING else "posthog",
+    )
     DATABASE_URL: str = os.getenv(
         "DATABASE_URL",
         f"postgres://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/{PG_DATABASE}",
@@ -102,13 +106,28 @@ else:
         f'The environment vars "DATABASE_URL" or "POSTHOG_DB_NAME" are absolutely required to run this software'
     )
 
+DATABASE_ROUTERS: list[str] = []
+
 # Configure the database which will be used as a read replica.
 # This should have all the same config as our main writer DB, just use a different host.
 # Our database router will point here.
 read_host = os.getenv("POSTHOG_POSTGRES_READ_HOST")
 if read_host:
     DATABASES["replica"] = postgres_config(read_host)
-    DATABASE_ROUTERS = ["posthog.dbrouter.ReplicaRouter"]
+    DATABASE_ROUTERS.append("posthog.dbrouter.ReplicaRouter")
+
+# Add the persons_db_writer database configuration using PERSONS_DB_WRITER_URL
+if os.getenv("PERSONS_DB_WRITER_URL"):
+    DATABASES["persons_db_writer"] = dj_database_url.config(default=os.getenv("PERSONS_DB_WRITER_URL"), conn_max_age=0)
+
+    # Fall back to the writer URL if no reader URL is set
+    persons_reader_url = os.getenv("PERSONS_DB_READER_URL") or os.getenv("PERSONS_DB_WRITER_URL")
+    DATABASES["persons_db_reader"] = dj_database_url.config(default=persons_reader_url, conn_max_age=0)
+    if DISABLE_SERVER_SIDE_CURSORS:
+        DATABASES["persons_db_writer"]["DISABLE_SERVER_SIDE_CURSORS"] = True
+        DATABASES["persons_db_reader"]["DISABLE_SERVER_SIDE_CURSORS"] = True
+
+    DATABASE_ROUTERS.insert(0, "posthog.person_db_router.PersonDBRouter")
 
 if JOB_QUEUE_GRAPHILE_URL:
     DATABASES["graphile"] = dj_database_url.config(default=JOB_QUEUE_GRAPHILE_URL, conn_max_age=600)
@@ -137,7 +156,10 @@ try:
 except:
     pass
 
-if TEST:
+if IN_EVAL_TESTING:
+    # AI evals get their own database, as they fully reuse the DB between runs and only reset once per day, for perf
+    SUFFIX = "_ai_eval" + XDIST_SUFFIX
+elif TEST:
     SUFFIX = "_test" + XDIST_SUFFIX
 
 # Clickhouse Settings

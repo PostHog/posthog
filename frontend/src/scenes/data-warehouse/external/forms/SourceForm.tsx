@@ -228,24 +228,26 @@ export function SourceFormComponent({
             </Group>
             {showPrefix && (
                 <LemonField name="prefix" label="Table prefix (optional)">
-                    {({ value, onChange }) => (
-                        <>
-                            <LemonInput
-                                className="ph-ignore-input"
-                                data-attr="prefix"
-                                placeholder="internal_"
-                                value={value}
-                                onChange={onChange}
-                            />
-                            <p>
-                                Example table name:{' '}
-                                <strong>
-                                    {value}
-                                    {sourceConfig.name.toLowerCase()}_table_name
-                                </strong>
-                            </p>
-                        </>
-                    )}
+                    {({ value, onChange }) => {
+                        const tableName = value
+                            ? `${sourceConfig.name.toLowerCase()}.${value}.table_name`
+                            : `${sourceConfig.name.toLowerCase()}.table_name`
+                        return (
+                            <>
+                                <LemonInput
+                                    className="ph-ignore-input"
+                                    data-attr="prefix"
+                                    placeholder="internal"
+                                    value={value}
+                                    onChange={onChange}
+                                />
+                                <p>
+                                    Example table name:&nbsp;
+                                    <strong>{tableName}</strong>
+                                </p>
+                            </>
+                        )
+                    }}
                 </LemonField>
             )}
         </div>

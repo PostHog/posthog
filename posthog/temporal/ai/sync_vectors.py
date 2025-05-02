@@ -22,6 +22,7 @@ from posthog.models.ai.pg_embeddings import INSERT_BULK_PG_EMBEDDINGS_SQL
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import ClickHouseClient, get_client
 from posthog.temporal.common.utils import get_scheduled_start_time
+from posthog.exceptions_capture import capture_exception
 
 logger = structlog.get_logger(__name__)
 
@@ -123,7 +124,7 @@ async def batch_summarize_actions(inputs: BatchSummarizeActionsInputs):
             # so we can retry them later. It's not practical to cancel the other 95 requests if
             # one fails, but we can retry summarization later.
             if not isinstance(maybe_summary, OpenAIAPIError):
-                posthoganalytics.capture_exception(maybe_summary, properties={"action_id": action.id, "tag": "max_ai"})
+                capture_exception(maybe_summary, additional_properties={"action_id": action.id, "tag": "max_ai"})
             logger.exception("Error summarizing actions", error=maybe_summary, action_id=action.id)
             continue
         action.last_summarized_at = workflow_start_dt
@@ -218,9 +219,11 @@ async def sync_action_vectors(
 
         await Action.objects.abulk_update(
             bulk_update,
-            ["embedding_last_synced_at", "embedding_version"]
-            if embedding_version is not None
-            else ["embedding_last_synced_at"],
+            (
+                ["embedding_last_synced_at", "embedding_version"]
+                if embedding_version is not None
+                else ["embedding_last_synced_at"]
+            ),
         )
 
 

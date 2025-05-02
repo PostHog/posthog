@@ -141,23 +141,26 @@ export class CyclotronWorker {
 
     updateJob(id: CyclotronJob['id'], state: CyclotronJobState, updates?: CyclotronJobUpdate): void {
         cyclotron.setState(id, state)
-        if (updates?.queueName) {
+        if (updates?.queueName !== undefined) {
             cyclotron.setQueue(id, updates.queueName)
         }
-        if (updates?.priority) {
+        if (updates?.priority !== undefined) {
             cyclotron.setPriority(id, updates.priority)
         }
-        if (updates?.parameters) {
+        if (updates?.parameters !== undefined) {
             cyclotron.setParameters(id, serializeObject('parameters', updates.parameters))
         }
-        if (updates?.metadata) {
+        if (updates?.metadata !== undefined) {
             cyclotron.setMetadata(id, serializeObject('metadata', updates.metadata))
         }
-        if (updates?.vmState) {
+        if (updates?.vmState !== undefined) {
             cyclotron.setVmState(id, serializeObject('vmState', updates.vmState))
         }
-        if (updates?.blob) {
+        if (updates?.blob !== undefined) {
             cyclotron.setBlob(id, updates.blob)
+        }
+        if (updates?.scheduled !== undefined) {
+            cyclotron.setScheduledAt(id, updates.scheduled)
         }
     }
 }

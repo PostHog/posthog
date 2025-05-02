@@ -7,10 +7,16 @@ import { experimentLogic } from '../experimentLogic'
 import { MetricTitle } from '../MetricsView/MetricTitle'
 import { FunnelMetricDataPanel } from './FunnelMetricDataPanel'
 import { MeanMetricDataPanel } from './MeanMetricDataPanel'
-import { runningTimeCalculatorLogic } from './runningTimeCalculatorLogic'
+import { ConversionRateInputType, runningTimeCalculatorLogic } from './runningTimeCalculatorLogic'
 import { RunningTimeCalculatorModalStep } from './RunningTimeCalculatorModalStep'
 
-export const MetricSelectorStep = (): JSX.Element => {
+export const MetricSelectorStep = ({
+    onChangeMetric,
+    onChangeFunnelConversionRateType,
+}: {
+    onChangeMetric: (metric: ExperimentMetric) => void
+    onChangeFunnelConversionRateType: (type: ConversionRateInputType) => void
+}): JSX.Element => {
     const { experimentId } = useValues(experimentLogic)
 
     const { experiment, metric, metricIndex, metricResultLoading } = useValues(
@@ -41,6 +47,11 @@ export const MetricSelectorStep = (): JSX.Element => {
                     onChange={(value) => {
                         if (value !== null) {
                             setMetricIndex(value)
+                            /**
+                             * Instead of using the metric index, we should be using an unique id.
+                             * This could lead to issues if the metrics change after saving this value.
+                             */
+                            onChangeMetric(experiment.metrics[value] as ExperimentMetric)
                         }
                     }}
                 />
@@ -55,7 +66,7 @@ export const MetricSelectorStep = (): JSX.Element => {
                 <div className="border-t pt-2">
                     {(metric as ExperimentMetric)?.metric_type === ExperimentMetricType.MEAN && <MeanMetricDataPanel />}
                     {(metric as ExperimentMetric)?.metric_type === ExperimentMetricType.FUNNEL && (
-                        <FunnelMetricDataPanel />
+                        <FunnelMetricDataPanel onChangeType={onChangeFunnelConversionRateType} />
                     )}
                 </div>
             )}

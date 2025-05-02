@@ -151,6 +151,10 @@ services:
             CLICKHOUSE_DATABASE: 'posthog'
             CLICKHOUSE_SECURE: 'false'
             CLICKHOUSE_VERIFY: 'false'
+            CLICKHOUSE_API_USER: 'api'
+            CLICKHOUSE_API_PASSWORD: 'apipass'
+            CLICKHOUSE_APP_USER: 'app'
+            CLICKHOUSE_APP_PASSWORD: 'apppass'
             API_QUERIES_PER_TEAM: '{"1": 7}'
             KAFKA_HOSTS: 'kafka'
             REDIS_URL: 'redis://redis:6379/'
@@ -231,6 +235,7 @@ services:
         restart: on-failure
         environment:
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            PERSONS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             KAFKA_HOSTS: 'kafka:9092'
             REDIS_URL: 'redis://redis:6379/'
             CLICKHOUSE_HOST: 'clickhouse'
@@ -284,7 +289,7 @@ services:
     temporal:
         restart: on-failure
         environment:
-            - DB=postgres12_pgx
+            - DB=postgresql
             - DB_PORT=5432
             - POSTGRES_USER=posthog
             - POSTGRES_PWD=posthog
@@ -293,7 +298,7 @@ services:
             - ENABLE_ES=true
             - ES_SEEDS=elasticsearch
             - ES_VERSION=v7
-        image: temporalio/auto-setup:1.27
+        image: temporalio/auto-setup:1.20.0
         ports:
             - 7233:7233
         labels:
@@ -305,11 +310,10 @@ services:
                 condition: service_healthy
             elasticsearch:
                 condition: service_started
-
     temporal-admin-tools:
         environment:
             - TEMPORAL_CLI_ADDRESS=temporal:7233
-        image: temporalio/admin-tools:1.27
+        image: temporalio/admin-tools:1.20.0
         stdin_open: true
         tty: true
     temporal-ui:
@@ -317,7 +321,7 @@ services:
             - TEMPORAL_ADDRESS=temporal:7233
             - TEMPORAL_CORS_ORIGINS=http://localhost:3000
             - TEMPORAL_CSRF_COOKIE_INSECURE=true
-        image: temporalio/ui:2.37.0
+        image: temporalio/ui:2.31.2
         ports:
             - 8081:8080
     temporal-django-worker:
