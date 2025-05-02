@@ -150,6 +150,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         offset,
                         limit: PAGINATION_LIMIT + 1,
                         orderBy: values.sortMethod === 'recent' ? '-created_at' : undefined,
+                        notType: values.sortMethod === 'recent' ? 'folder' : undefined,
                     })
                     breakpoint()
                     const results = [
@@ -1140,14 +1141,26 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             ])
         },
         onItemChecked: ({ id, checked, shift }) => {
-            const { sortedItems, searchResults, viableItemsById, lastCheckedItem, checkedItems: prevChecked } = values
+            const {
+                sortedItems,
+                searchResults,
+                sortMethod,
+                recentResults,
+                viableItemsById,
+                lastCheckedItem,
+                checkedItems: prevChecked,
+            } = values
             const clickedItem = viableItemsById[id]
             if (!clickedItem) {
                 // should never happen
                 return
             }
             const isSearching = !!values.searchTerm
-            const shownItems = isSearching ? searchResults.results : sortedItems
+            const shownItems = isSearching
+                ? searchResults.results
+                : sortMethod === 'recent'
+                ? recentResults.results
+                : sortedItems
 
             const checkedItems = { ...prevChecked }
 
