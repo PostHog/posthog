@@ -43,9 +43,6 @@ export const TreeNodeDisplayIconWrapper = ({
                 className={cn(
                     'absolute flex items-center justify-center bg-transparent flex-shrink-0 h-[var(--button-height-base)] z-3',
                     {
-                        // Apply group class only when there are no checked items
-                        // 'group/lemon-tree-icon-wrapper':
-                        //     checkedItemCount === 0 && selectMode !== 'folder-only' && !isEmptyFolder,
                         'cursor-default': isEmptyFolder,
                     }
                 )}
@@ -57,8 +54,7 @@ export const TreeNodeDisplayIconWrapper = ({
                     }}
                     className={cn('absolute z-2', {
                         // Hide checkboxwhen select mode is default/folder only
-                        'hidden group-hover/lemon-tree-icon-wrapper:block transition-all duration-50':
-                            selectMode === 'default' || selectMode === 'folder-only',
+                        hidden: selectMode === 'default' || selectMode === 'folder-only',
                     })}
                     style={{
                         left: `${defaultOffset}px`,
@@ -175,12 +171,7 @@ export const TreeNodeDisplayIcon = ({
     }
 
     return (
-        <div
-            className={cn('flex gap-1 relative [&_svg]:size-4', {
-                // Don't hide the icon on hover if the item is disabled from being checked
-                'group-hover/lemon-tree-icon-wrapper:opacity-0': !item.disableSelect,
-            })}
-        >
+        <div className="flex gap-1 relative [&_svg]:size-4">
             {isFolder && (
                 <div
                     className={cn(
