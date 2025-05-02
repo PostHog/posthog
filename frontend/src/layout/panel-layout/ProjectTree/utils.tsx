@@ -5,7 +5,7 @@ import { dayjs } from 'lib/dayjs'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
-import {RecentResults, SearchResults} from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { RecentResults, SearchResults } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
 
 import { iconForType } from './defaultTree'
