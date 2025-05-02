@@ -57,7 +57,7 @@ async def organization():
 
 @pytest_asyncio.fixture
 async def team(organization):
-    name = f"BatchExportsTestTeam-{random.randint(1, 99999)}"
+    name = f"TestTeam-{random.randint(1, 99999)}"
     team = await sync_to_async(Team.objects.create)(organization=organization, name=name)
 
     yield team
