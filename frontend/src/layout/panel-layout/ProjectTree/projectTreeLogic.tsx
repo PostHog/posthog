@@ -33,7 +33,7 @@ const PAGINATION_LIMIT = 100
 const MOVE_ALERT_LIMIT = 50
 const DELETE_ALERT_LIMIT = 0
 
-export type ProjectTreeSortMethod = 'alphabetical' | 'created_at'
+export type ProjectTreeSortMethod = 'folder' | 'recent'
 
 export interface RecentResults {
     results: FileSystemEntry[]
@@ -144,7 +144,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         search: searchTerm,
                         offset,
                         limit: PAGINATION_LIMIT + 1,
-                        order: values.sortMethod === 'created_at' ? '-created_at' : undefined,
+                        order: values.sortMethod === 'recent' ? '-created_at' : undefined,
                     })
                     breakpoint()
                     const results = [
@@ -156,7 +156,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
 
                     return {
                         searchTerm,
-                        results: values.sortMethod === 'created_at' ? results : results.sort(sortFilesAndFolders),
+                        results: values.sortMethod === 'recent' ? results : results.sort(sortFilesAndFolders),
                         hasMore: response.results.length > PAGINATION_LIMIT,
                         lastCount: Math.min(response.results.length, PAGINATION_LIMIT),
                     }
@@ -772,7 +772,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     checkedItems,
                     root: 'project',
                     disableFolderSelect: true,
-                    flat: true,
+                    recent: true,
                 })
                 if (recentResultsLoading) {
                     results.push({
@@ -803,7 +803,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     root: 'project',
                     searchTerm: searchResults.searchTerm,
                     disableFolderSelect: true,
-                    flat: sortMethod === 'created_at',
+                    recent: sortMethod === 'recent',
                 })
                 if (searchResultsLoading) {
                     results.push({
@@ -834,7 +834,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 if (searchTerm) {
                     return searchedTreeItems
                 }
-                if (sortMethod === 'created_at') {
+                if (sortMethod === 'recent') {
                     return recentTreeItems
                 }
                 if (loadingPaths[''] && projectTree.length === 0) {
@@ -869,7 +869,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         width: sizes[1],
                         offset: offsets[1],
                     },
-                    ...(sortMethod === 'created_at'
+                    ...(sortMethod === 'recent'
                         ? [
                               {
                                   key: 'record.path',
@@ -1328,7 +1328,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             if (values.searchTerm) {
                 actions.loadSearchResults(values.searchTerm, 0)
             }
-            if (sortMethod === 'created_at' && !values.recentResultsLoading && values.recentResults.lastCount === 0) {
+            if (sortMethod === 'recent' && !values.recentResultsLoading && values.recentResults.lastCount === 0) {
                 actions.loadRecentResults()
             }
         },

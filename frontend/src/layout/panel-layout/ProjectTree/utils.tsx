@@ -19,7 +19,7 @@ export interface ConvertProps {
     searchTerm?: string
     disableFolderSelect?: boolean
     disabledReason?: (item: FileSystemImport | FileSystemEntry) => string | undefined
-    flat?: boolean
+    recent?: boolean
 }
 
 export function getItemId(item: FileSystemImport | FileSystemEntry, root: string = 'project'): string {
@@ -61,7 +61,7 @@ export function convertFileSystemEntryToTreeDataItem({
     searchTerm,
     disableFolderSelect,
     disabledReason,
-    flat,
+    recent,
 }: ConvertProps): TreeDataItem[] {
     function itemToTreeDataItem(item: FileSystemImport | FileSystemEntry): TreeDataItem {
         const pathSplit = splitPath(item.path)
@@ -71,7 +71,7 @@ export function convertFileSystemEntryToTreeDataItem({
         const node: TreeDataItem = {
             id: nodeId,
             name: itemName,
-            displayName: flat ? (
+            displayName: recent ? (
                 <>
                     {displayName}{' '}
                     <span className="text-muted text-xs font-normal">- {dayjs(item.created_at).fromNow()}</span>
@@ -102,7 +102,7 @@ export function convertFileSystemEntryToTreeDataItem({
         return node
     }
 
-    if (flat) {
+    if (recent) {
         return imports.map(itemToTreeDataItem)
     }
 
