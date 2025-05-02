@@ -1,7 +1,9 @@
 import { IconChevronRight, IconFolder, IconFolderPlus } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { MoveFilesModal } from 'lib/components/FileSystem/MoveFilesModal'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { ResizableDiv } from 'lib/components/ResizeElement/ResizeElement'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { LemonTree, LemonTreeRef, TreeDataItem, TreeMode } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { Tooltip } from 'lib/lemon-ui/Tooltip/Tooltip'
@@ -358,21 +360,20 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                 </>
             }
         >
-            {/* Does not work locally ??? */}
-            {/*<FlaggedFeature flag={FEATURE_FLAGS.TREE_VIEW_TABLE_MODE}>*/}
-            <ButtonPrimitive
-                tooltip={projectTreeMode === 'tree' ? 'Switch to table view' : 'Switch to tree view'}
-                onClick={() => setProjectTreeMode(projectTreeMode === 'tree' ? 'table' : 'tree')}
-                className="absolute top-1/2 translate-y-1/2 right-0 translate-x-1/2 z-top w-fit bg-surface-primary border border-primary"
-            >
-                <IconChevronRight
-                    className={cn('size-4', {
-                        'rotate-180': projectTreeMode === 'table',
-                        'rotate-0': projectTreeMode === 'tree',
-                    })}
-                />
-            </ButtonPrimitive>
-            {/*</FlaggedFeature>*/}
+            <FlaggedFeature flag={FEATURE_FLAGS.TREE_VIEW_TABLE_MODE}>
+                <ButtonPrimitive
+                    tooltip={projectTreeMode === 'tree' ? 'Switch to table view' : 'Switch to tree view'}
+                    onClick={() => setProjectTreeMode(projectTreeMode === 'tree' ? 'table' : 'tree')}
+                    className="absolute top-1/2 translate-y-1/2 right-0 translate-x-1/2 z-top w-fit bg-surface-primary border border-primary"
+                >
+                    <IconChevronRight
+                        className={cn('size-4', {
+                            'rotate-180': projectTreeMode === 'table',
+                            'rotate-0': projectTreeMode === 'tree',
+                        })}
+                    />
+                </ButtonPrimitive>
+            </FlaggedFeature>
 
             <div role="status" aria-live="polite" className="sr-only">
                 Sorted {sortMethod === 'recent' ? 'by creation date' : 'alphabetically'}
