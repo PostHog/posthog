@@ -115,7 +115,7 @@ impl GroupingRule {
                 StepOutcome::Finished(Value::Bool(b)) => return Ok(b),
                 StepOutcome::Finished(res) => {
                     return Err(VmError::Other(format!(
-                        "Assignment rule returned {:?}, expected a boolean value",
+                        "Grouping rule returned {:?}, expected a boolean value",
                         res
                     )))
                 }
