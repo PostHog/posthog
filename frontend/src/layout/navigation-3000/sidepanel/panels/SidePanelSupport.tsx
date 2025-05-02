@@ -32,12 +32,12 @@ const Section = ({ title, children }: { title: string; children: React.ReactNode
 
 //Support offsite messaging
 const SUPPORT_MESSAGE_OVERRIDE_TITLE = "We're making improvements:"
-const SUPPORT_MESSAGE_OVERRIDE_BODY = "Many of our support engineers are attending an offsite (from 12th to 16th May) so we can make long-term enhancements. We're working different hours, so non-urgent inquiries without priority support may experience a slight delay. We’ll be back to full speed from the 19th!"
+const SUPPORT_MESSAGE_OVERRIDE_BODY =
+    "Many of our support engineers are attending an offsite (from 12th to 16th May) so we can make long-term enhancements. We're working different hours, so non-urgent inquiries without priority support may experience a slight delay. We’ll be back to full speed from the 19th!"
 
 //Support Christmas messaging
 //const SUPPORT_MESSAGE_OVERRIDE_TITLE = '🎄 🎅 Support during the holidays 🎁 ⛄'
 //const SUPPORT_MESSAGE_OVERRIDE_BODY = "We're offering reduced support while we celebrate the holidays. Responses may be slower than normal over the holiday period (23rd December to the 6th January), and between the 25th and 27th of December we'll only be responding to critical issues. Thanks for your patience!"
-
 
 // Table shown to free users on Help panel, instead of email button
 // Support response times are pulled dynamically from billing plans (product.features) where available
