@@ -175,7 +175,11 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 instance.sync_frequency_interval = sync_frequency_interval
 
         if sync_time_of_day is not None:
-            new_time = dt.datetime.strptime(str(sync_time_of_day), "%H:%M:%S").time()
+            try:
+                new_time = dt.datetime.strptime(str(sync_time_of_day), "%H:%M:%S").time()
+            except ValueError:
+                raise ValidationError("Invalid sync time of day")
+
             if new_time != instance.sync_time_of_day:
                 was_sync_time_of_day_updated = True
                 validated_data["sync_time_of_day"] = sync_time_of_day
