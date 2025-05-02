@@ -23,6 +23,12 @@ export function getDefaultConfig(): PluginsServerConfig {
             : '',
         DATABASE_READONLY_URL: '',
         PLUGIN_STORAGE_DATABASE_URL: '',
+        PERSONS_DATABASE_URL: isTestEnv()
+            ? 'postgres://posthog:posthog@localhost:5432/test_posthog'
+            : isDevEnv()
+            ? 'postgres://posthog:posthog@localhost:5432/posthog'
+            : '',
+        PERSONS_READONLY_DATABASE_URL: '',
         POSTGRES_CONNECTION_POOL_SIZE: 10,
         POSTHOG_DB_NAME: null,
         POSTHOG_DB_USER: 'postgres',
@@ -256,6 +262,7 @@ export function getDefaultConfig(): PluginsServerConfig {
 
         PERSON_CACHE_ENABLED_FOR_UPDATES: true,
         PERSON_CACHE_ENABLED_FOR_CHECKS: true,
+        USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG: false,
     }
 }
 

@@ -41,7 +41,7 @@ export const QueryCard = React.forwardRef<HTMLDivElement, QueryCardProps>(functi
             style={{ ...(divProps?.style ?? {}), ...(theme?.boxStyle ?? {}) }}
             ref={ref}
         >
-            <ErrorBoundary tags={{ feature: 'insight' }}>
+            <ErrorBoundary exceptionProps={{ feature: 'insight' }}>
                 <CardMeta
                     ribbonColor={ribbonColor}
                     setAreDetailsShown={setAreDetailsShown}

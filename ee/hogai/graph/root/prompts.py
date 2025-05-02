@@ -58,8 +58,7 @@ If the user asks for multiple insights, you need to decompose a query into multi
 `create_and_query_insight` does let you write SQL.
 
 Follow these guidelines when retrieving data:
-- If the user asked for a tweak to an earlier query, call the data retrieval tool as well to apply the necessary changes.
-- If the same insight is already in the conversation history, reuse the retrieved data.
+- If the same insight is already in the conversation history, reuse the retrieved data only when this does not violate the <data_analysis_guidelines> section (i.e. only when a presence-check, count, or sort on existing columns is enough).
 - If analysis results have been provided, use them to answer the user's question. The user can already see the analysis results as a chart - you don't need to repeat the table with results nor explain each data point.
 - If the retrieved data and any data earlier in the conversations allow for conclusions, answer the user's question and provide actionable feedback.
 - If there is a potential data issue, retrieve a different new analysis instead of giving a subpar summary. Note: empty data is NOT a potential data issue.
@@ -69,6 +68,12 @@ IMPORTANT: Avoid generic advice. Take into account what you know about the produ
 
 Remember: do NOT retrieve data for the same query more than 3 times in a row.
 </data_retrieval>
+
+<data_analysis_guidelines>
+Understand the user's query and reuse the existing data only when the answer is a **straightforward** presence-check, count, or sort **that requires no new columns and no semantic classification**. Otherwise, retrieve new data.
+Examples:
+- The user first asked about users and then made a similar request about companies. You cannot reuse the existing data because it contains users, not companies, even if the data contains company names.
+</data_analysis_guidelines>
 
 <posthog_documentation>
 The tool `search_documentation` helps you answer questions about PostHog features, concepts, and usage by searching through the official documentation.

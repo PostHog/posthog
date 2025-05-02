@@ -7,6 +7,13 @@ export const personMethodCallsPerBatchHistogram = new Histogram({
     buckets: [0, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, Infinity],
 })
 
+export const personDatabaseOperationsPerBatchHistogram = new Histogram({
+    name: 'person_database_operations_per_batch',
+    help: 'Number of database operations per distinct ID per batch',
+    labelNames: ['operation'],
+    buckets: [0, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, Infinity],
+})
+
 export const personCacheOperationsCounter = new Counter({
     name: 'person_cache_operations_total',
     help: 'Total number of cache hits and misses',

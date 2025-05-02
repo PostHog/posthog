@@ -6,7 +6,11 @@ import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team 
 import { DB } from '../../../utils/db/db'
 import { PostgresUse, TransactionClient } from '../../../utils/db/postgres'
 import { logger } from '../../../utils/logger'
-import { personCacheOperationsCounter, personMethodCallsPerBatchHistogram } from './metrics'
+import {
+    personCacheOperationsCounter,
+    personDatabaseOperationsPerBatchHistogram,
+    personMethodCallsPerBatchHistogram,
+} from './metrics'
 import { PersonsStore } from './persons-store'
 import { PersonsStoreForBatch } from './persons-store-for-batch'
 import { PersonsStoreForDistinctIdBatch } from './persons-store-for-distinct-id-batch'
@@ -83,6 +87,11 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
                 personMethodCallsPerBatchHistogram.observe({ method }, count)
             }
 
+            const databaseCounts = store.getDatabaseOperationCounts()
+            for (const [operation, count] of databaseCounts.entries()) {
+                personDatabaseOperationsPerBatchHistogram.observe({ operation }, count)
+            }
+
             const cacheMetrics = store.getCacheMetrics()
             personCacheOperationsCounter.inc({ cache: 'update', operation: 'hit' }, cacheMetrics.updateCacheHits)
             personCacheOperationsCounter.inc({ cache: 'update', operation: 'miss' }, cacheMetrics.updateCacheMisses)
@@ -95,6 +104,7 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
 export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForDistinctIdBatch {
     private methodCounts: Map<MethodName, number>
     private cacheMetrics: CacheMetrics
+    private databaseOperationCounts: Map<MethodName, number>
     /**
      * We maintain two separate person caches for different read patterns:
      *
@@ -122,9 +132,13 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
         }
     ) {
         this.methodCounts = new Map()
+        this.databaseOperationCounts = new Map()
+
         for (const method of ALL_METHODS) {
             this.methodCounts.set(method, 0)
+            this.databaseOperationCounts.set(method, 0)
         }
+
         this.personCache = new Map()
         this.personCheckCache = new Map()
         this.cacheMetrics = {
@@ -156,6 +170,7 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
             return checkCachedPerson
         }
 
+        this.incrementDatabaseOperation('fetchForChecking')
         const person = await this.db.fetchPerson(teamId, distinctId, { useReadReplica: true })
         this.setCheckCachedPerson(teamId, distinctId, person ?? null)
         return person ?? null
@@ -169,6 +184,7 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
             return cachedPerson
         }
 
+        this.incrementDatabaseOperation('fetchForUpdate')
         const person = await this.db.fetchPerson(teamId, distinctId, { useReadReplica: false })
         this.setCachedPerson(teamId, distinctId, person ?? null)
         return person ?? null
@@ -188,6 +204,7 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
     ): Promise<[InternalPerson, TopicMessage[]]> {
         this.incrementCount('createPerson')
         this.clearCache()
+        this.incrementDatabaseOperation('createPerson')
         return await this.db.createPerson(
             createdAt,
             properties,
@@ -209,12 +226,14 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
     ): Promise<[InternalPerson, TopicMessage[]]> {
         this.incrementCount('updatePersonDeprecated')
         this.clearCache()
+        this.incrementDatabaseOperation('updatePersonDeprecated')
         return await this.db.updatePersonDeprecated(person, update, tx)
     }
 
     async deletePerson(person: InternalPerson, tx?: TransactionClient): Promise<TopicMessage[]> {
         this.incrementCount('deletePerson')
         this.clearCache()
+        this.incrementDatabaseOperation('deletePerson')
         return await this.db.deletePerson(person, tx)
     }
 
@@ -226,6 +245,7 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
     ): Promise<TopicMessage[]> {
         this.incrementCount('addDistinctId')
         this.clearCache()
+        this.incrementDatabaseOperation('addDistinctId')
         return await this.db.addDistinctId(person, distinctId, version, tx)
     }
 
@@ -236,6 +256,7 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
     ): Promise<TopicMessage[]> {
         this.incrementCount('moveDistinctIds')
         this.clearCache()
+        this.incrementDatabaseOperation('moveDistinctIds')
         return await this.db.moveDistinctIds(source, target, tx)
     }
 
@@ -276,6 +297,10 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
 
     getCacheMetrics(): CacheMetrics {
         return this.cacheMetrics
+    }
+
+    getDatabaseOperationCounts(): Map<string, number> {
+        return new Map(this.databaseOperationCounts)
     }
 
     // Private cache management methods
@@ -339,5 +364,9 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
 
     private incrementCount(method: MethodName): void {
         this.methodCounts.set(method, (this.methodCounts.get(method) || 0) + 1)
+    }
+
+    private incrementDatabaseOperation(operation: MethodName): void {
+        this.databaseOperationCounts.set(operation, (this.databaseOperationCounts.get(operation) || 0) + 1)
     }
 }

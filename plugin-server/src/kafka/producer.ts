@@ -40,7 +40,7 @@ export type TopicMessage = {
 
 export class KafkaProducerWrapper {
     /** Kafka producer used for syncing Postgres and ClickHouse person data. */
-    public producer: HighLevelProducer
+    private producer: HighLevelProducer
 
     static async create(config: PluginsServerConfig, mode: KafkaConfigTarget = 'producer') {
         // NOTE: In addition to some defaults we allow overriding any setting via env vars.

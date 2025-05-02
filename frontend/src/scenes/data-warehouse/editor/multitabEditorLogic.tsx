@@ -12,6 +12,7 @@ import { removeUndefinedAndNull } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import isEqual from 'lodash.isequal'
 import { editor, Uri } from 'monaco-editor'
+import posthog from 'posthog-js'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -31,6 +32,7 @@ import {
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { DATAWAREHOUSE_EDITOR_ITEM_ID, sizeOfInBytes } from '../utils'
 import { editorSceneLogic } from './editorSceneLogic'
+import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
 import type { multitabEditorLogicType } from './multitabEditorLogicType'
 import { outputPaneLogic, OutputTab } from './outputPaneLogic'
 import { ViewEmptyState } from './ViewLoadingState'
@@ -98,6 +100,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             ['setActiveTab'],
             editorSceneLogic,
             ['reportAIQueryPrompted', 'reportAIQueryAccepted', 'reportAIQueryRejected', 'reportAIQueryPromptOpen'],
+            fixSQLErrorsLogic,
+            ['fixErrors', 'fixErrorsSuccess', 'fixErrorsFailure'],
         ],
     })),
     actions(({ values }) => ({
@@ -130,6 +134,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         updateInsight: true,
         setCacheLoading: (loading: boolean) => ({ loading }),
         setError: (error: string | null) => ({ error }),
+        setDataError: (error: string | null) => ({ error }),
         setSourceQuery: (sourceQuery: DataVisualizationNode) => ({ sourceQuery }),
         setMetadata: (metadata: HogQLMetadataResponse | null) => ({ metadata }),
         setMetadataLoading: (loading: boolean) => ({ loading }),
@@ -137,8 +142,14 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         editInsight: (query: string, insight: QueryBasedInsightModel) => ({ query, insight }),
         updateQueryTabState: (skipBreakpoint?: boolean) => ({ skipBreakpoint }),
         setLastRunQuery: (lastRunQuery: DataVisualizationNode | null) => ({ lastRunQuery }),
-        setSuggestedQueryInput: (suggestedQueryInput: string) => ({ suggestedQueryInput }),
-        _setSuggestedQueryInput: (suggestedQueryInput: string) => ({ suggestedQueryInput }),
+        setSuggestedQueryInput: (suggestedQueryInput: string, source?: 'max_ai' | 'hogql_fixer') => ({
+            suggestedQueryInput,
+            source,
+        }),
+        _setSuggestedQueryInput: (suggestedQueryInput: string, source?: 'max_ai' | 'hogql_fixer') => ({
+            suggestedQueryInput,
+            source,
+        }),
         onAcceptSuggestedQueryInput: (shouldRunQuery?: boolean) => ({ shouldRunQuery }),
         onRejectSuggestedQueryInput: true,
         setResponse: (response: Record<string, any> | null) => ({ response, currentTab: values.activeModelUri }),
@@ -289,6 +300,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 _setSuggestedQueryInput: (_, { suggestedQueryInput }) => suggestedQueryInput,
             },
         ],
+        suggestedSource: [
+            null as 'max_ai' | 'hogql_fixer' | null,
+            {
+                _setSuggestedQueryInput: (_, { source }) => source ?? null,
+            },
+        ],
         isHistoryModalOpen: [
             false as boolean,
             {
@@ -296,8 +313,23 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 closeHistoryModal: () => false,
             },
         ],
+        fixErrorsError: [
+            null as string | null,
+            {
+                setQueryInput: () => null,
+                fixErrorsFailure: (_, { error }) => error,
+            },
+        ],
     })),
     listeners(({ values, props, actions, asyncActions }) => ({
+        fixErrorsSuccess: ({ response }) => {
+            actions.setSuggestedQueryInput(response.query, 'hogql_fixer')
+
+            posthog.capture('ai-error-fixer-success', { trace_id: response.trace_id })
+        },
+        fixErrorsFailure: () => {
+            posthog.capture('ai-error-fixer-failure')
+        },
         shareTab: () => {
             const currentTab = values.activeModelUri
             if (!currentTab) {
@@ -335,9 +367,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 void copyToClipboard(shareUrl.toString(), 'share link')
             }
         },
-        setSuggestedQueryInput: ({ suggestedQueryInput }) => {
+        setSuggestedQueryInput: ({ suggestedQueryInput, source }) => {
             if (values.queryInput) {
-                actions._setSuggestedQueryInput(suggestedQueryInput)
+                actions._setSuggestedQueryInput(suggestedQueryInput, source)
             } else {
                 actions.setQueryInput(suggestedQueryInput)
             }
@@ -377,6 +409,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
 
             actions.setSuggestedQueryInput('')
             actions.updateState(true)
+            posthog.capture('sql-editor-accepted-suggestion', { source: values.suggestedSource })
         },
         onRejectSuggestedQueryInput: () => {
             actions.reportAIQueryRejected()
@@ -408,6 +441,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
 
             actions.setSuggestedQueryInput('')
             actions.updateState(true)
+            posthog.capture('sql-editor-rejected-suggestion', { source: values.suggestedSource })
         },
         editView: ({ query, view }) => {
             const maybeExistingTab = values.allTabs.find((tab) => tab.view?.id === view.id)

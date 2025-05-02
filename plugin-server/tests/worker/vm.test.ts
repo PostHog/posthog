@@ -122,7 +122,10 @@ describe('vm tests', () => {
         })
         expect(fetch).not.toHaveBeenCalled()
         await vm.methods.teardownPlugin!()
-        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=hoho', undefined)
+        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=hoho', {
+            agent: false,
+            timeout: 10000,
+        })
     })
 
     test('processEvent', async () => {
@@ -376,7 +379,10 @@ describe('vm tests', () => {
                 event: 'export',
             }
             await vm.methods.onEvent!(event)
-            expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=export', undefined)
+            expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=export', {
+                agent: false,
+                timeout: 10000,
+            })
         })
 
         test('export default', async () => {
@@ -395,7 +401,10 @@ describe('vm tests', () => {
                 event: 'default export',
             }
             await vm.methods.onEvent!(event)
-            expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=default export', undefined)
+            expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=default export', {
+                agent: false,
+                timeout: 10000,
+            })
         })
     })
 
@@ -725,7 +734,10 @@ describe('vm tests', () => {
         }
 
         await vm.methods.processEvent!(event)
-        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=fetched', undefined)
+        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=fetched', {
+            agent: false,
+            timeout: 10000,
+        })
 
         expect(event.properties).toEqual({ count: 2, query: 'bla', results: [true, true] })
     })
@@ -747,7 +759,10 @@ describe('vm tests', () => {
         }
 
         await vm.methods.processEvent!(event)
-        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=fetched', undefined)
+        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=fetched', {
+            agent: false,
+            timeout: 10000,
+        })
 
         expect(event.properties).toEqual({ count: 2, query: 'bla', results: [true, true] })
     })
@@ -768,7 +783,10 @@ describe('vm tests', () => {
         }
 
         await vm.methods.processEvent!(event)
-        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=fetched', undefined)
+        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=fetched', {
+            agent: false,
+            timeout: 10000,
+        })
 
         expect(event.properties).toEqual({ count: 2, query: 'bla', results: [true, true] })
     })
@@ -921,7 +939,10 @@ describe('vm tests', () => {
             event: 'onEvent',
         }
         await vm.methods.onEvent!(event)
-        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=onEvent', undefined)
+        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=onEvent', {
+            agent: false,
+            timeout: 10000,
+        })
     })
 
     test('imports', async () => {
