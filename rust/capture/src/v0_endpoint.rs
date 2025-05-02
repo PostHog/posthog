@@ -5,16 +5,17 @@ use axum::{debug_handler, Json};
 use bytes::Bytes;
 // TODO: stream this instead
 use axum::extract::{MatchedPath, Query, State};
-use axum::http::{HeaderMap, Method};
+use axum::http::{HeaderMap, HeaderValue, Method};
 use axum_client_ip::InsecureClientIp;
 use base64::Engine;
 use chrono::{DateTime, Duration, Utc};
 use common_types::{CapturedEvent, RawEvent};
 use limiters::token_dropper::TokenDropper;
 use metrics::counter;
+use serde::Deserialize;
 use serde_json::json;
 use serde_json::Value;
-use tracing::{debug, info, warn, error, instrument, Span};
+use tracing::{debug, error, info, instrument, warn, Span};
 
 use crate::prometheus::report_dropped_events;
 use crate::v0_request::{
@@ -27,6 +28,31 @@ use crate::{
     v0_request::{EventFormData, EventQuery},
 };
 
+// used to limit test scans and extract loggable snippets from potentially large strings/buffers
+pub const MAX_CHARS_TO_CHECK: usize = 128;
+
+// flexible form schema to accommodate legacy quirks across SDKs/versions
+#[derive(Deserialize)]
+struct LegacyEventForm {
+    pub data: Vec<u8>,
+    pub compression: Option<Compression>,
+    #[serde(alias = "ver")]
+    pub lib_version: Option<String>,
+}
+
+#[instrument(
+    skip_all,
+    fields(
+        headers,
+        method,
+        path,
+        query_params,
+        token,
+        historical_migration,
+        batch_size,
+        compression
+    )
+)]
 async fn handle_legacy(
     state: &State<router::State>,
     InsecureClientIp(ip): &InsecureClientIp,
@@ -36,63 +62,265 @@ async fn handle_legacy(
     path: &MatchedPath,
     body: Bytes,
 ) -> Result<(ProcessingContext, Vec<RawEvent>), CaptureError> {
-    // for now: capture all headers as log tags
-    for entry in headers {
-        let key = entry.0.as_str();
-        let value = entry.1.to_str().unwrap_or("UNKNOWN");
-        Span::current().record(key, value);
-    }
-    info!("in handle_legacy: header tags applied");
+    info!("entering handle_legacy");
+    Span::current().record("path", path.as_str());
 
-    // extract the raw payload from the request
-    let payload: Vec<u8> = match *method {
+    let user_agent = headers
+        .get("user-agent")
+        .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
+
+    // extract the raw payload from the request which may include:
+    // - GZIP or lz64 compressed blob representing ANY of the below options :)
+    // - POST body: "raw" JSON which we can hydrate into the event/batch shape we expect
+    // - GET query params or POST form KVs including:
+    //     - data = JSON event/batch payload which may be compressed or base64 encoded or both
+    //     - compression = optional hint to how "data" is encoded or compressed
+    let raw_payload: Vec<u8> = match *method {
         Method::POST => {
-            match headers.get("content-type") {
-                Some(ct) => match ct.to_str().expect("") {
-                    "text/plain" | "application/json" => {
-                        body.into()
-                    },
-
-                    "application/x-www-form-urlencoded" => {
-                        if body.starts_with(b"data=") {
-                            // TODO(eli): decode the urlencoding and unpack the form?
-                            body.into()
-                        } else {
-                            // TODO(eli): check if whole payload is base64 encoded etc.
-                            body.into()
-                        }
-                    },
-                },
-                None => {
-                    body.into()
-                }
+            if !body.is_empty() {
+                error!("unexpected missing payload on {} request", *method);
+                return Err(CaptureError::EmptyPayload);
             }
-        },
+            Vec::from(body)
+        }
 
-        Method::GET if query_params.data.is_some_and(|d| !d.is_empty()) => {
-            let buf= query_params.data.unwrap();
-            buf.bytes().collect()
-        },
+        Method::GET => {
+            if query_params.data.as_ref().is_some_and(|d| !d.is_empty()) {
+                query_params.data.as_ref().unwrap().bytes().collect()
+            } else if !body.is_empty() {
+                Vec::from(body)
+            } else {
+                error!("unexpected missing payload on {} request", *method);
+                return Err(CaptureError::EmptyPayload);
+            }
+        }
 
-        _ => return Err(CaptureError::RequestParsingError(format!("unsupported request method: {:?}", method))),
-    };
-
-    // TODO(eli): check for various compressions and encodings and continue the unwrapping!
-    let compression = {
-        if let Some(c) = query_params.compression {
-            c
-        } else if Some(c) = payload {
-            // TODO(eli): replace w/ check for form-encoded payload "compression" KV
-            Compression::Unsupported
-        } else {
-            // TODO(eli): final fallback - check "content-encoding" header
-            Compression::Unsupported
+        _ => {
+            return Err(CaptureError::RequestParsingError(format!(
+                "data payload not found on request w/method {:?} - try POST",
+                method
+            )))
         }
     };
 
-    // TODO(eli): now we should have POST body or GET query params including still-compressed/b64'd DATA field
+    // source and unpack first layer of form data if possible. Store it in an
+    // LegacyEventForm for convenience regardless of source (POST body, GET params, etc.)
+    let form: LegacyEventForm = match headers
+        .get("content-type")
+        .unwrap_or(&HeaderValue::from_static("UNKNOWN"))
+        .to_str()
+        .unwrap()
+    {
+        "text/plain" | "application/json" => LegacyEventForm {
+            data: raw_payload,
+            compression: None,
+            lib_version: None,
+        },
 
-    Ok(_)
+        "application/x-www-form-urlencoded" => {
+            if is_likely_urlencoded_form(&raw_payload) {
+                decode_form(&raw_payload, "plain_form")?
+            } else if is_likely_base64(&raw_payload) {
+                let decoded = decode_base64(&raw_payload)?;
+                decode_form(&decoded, "form_after_b64_unwrap")?
+            } else {
+                let form_data_snippet =
+                    String::from_utf8(raw_payload[..MAX_CHARS_TO_CHECK].to_vec())
+                        .unwrap_or(String::from("INVALID_UTF8"));
+                error!(
+                    form_data = form_data_snippet,
+                    "invalid expected form in request payload"
+                );
+                return Err(CaptureError::RequestDecodingError(String::from(
+                    "invalid form in request payload",
+                )));
+            }
+        }
+
+        // TODO(eli): VALIDATE capture.py DOES THIS
+        unexpected_ct => {
+            error!("unexpected content-type");
+            return Err(CaptureError::RequestParsingError(format!(
+                "unsupported Content-Type: {}",
+                unexpected_ct
+            )));
+        }
+    };
+
+    // extract the "compression" param; location varies depending on SDK/version etc.
+    let compression = extract_compression(method, &form, query_params, headers);
+    Span::current().record("compression", format!("{}", compression));
+
+    // TODO(eli): Add is_mirror_deploy to error logging in RawRequest::from_bytes
+    let request = RawRequest::from_bytes(
+        form.data.into(),
+        compression,
+        state.event_size_limit,
+        state.is_mirror_deploy,
+    )?;
+
+    let sent_at = request.sent_at().or(query_params.sent_at());
+    let token = match request.extract_and_verify_token() {
+        Ok(token) => token,
+        Err(err) => {
+            report_dropped_events("token_shape_invalid", request.events().len() as u64);
+            return Err(err);
+        }
+    };
+    let historical_migration = request.historical_migration();
+    let events = request.events(); // Takes ownership of request
+
+    Span::current().record("token", &token);
+    Span::current().record("historical_migration", historical_migration);
+    Span::current().record("batch_size", events.len());
+
+    if events.is_empty() {
+        warn!("rejected empty batch");
+        return Err(CaptureError::EmptyBatch);
+    }
+
+    counter!("capture_events_received_total", &[("legacy", "true")]).increment(events.len() as u64);
+
+    // TODO(eli): implement extract_lib_version with more flexible approach!
+    let context = ProcessingContext {
+        lib_version: query_params.lib_version.clone(),
+        sent_at,
+        token,
+        now: state.timesource.current_time(),
+        client_ip: ip.to_string(),
+        historical_migration,
+        user_agent: Some(user_agent.to_string()),
+    };
+
+    let billing_limited = state
+        .billing_limiter
+        .is_limited(context.token.as_str())
+        .await;
+
+    if billing_limited {
+        report_dropped_events("over_quota", events.len() as u64);
+
+        return Err(CaptureError::BillingLimit);
+    }
+
+    debug!(context=?context, events=?events, "decoded request");
+
+    Ok((context, events))
+}
+
+// the compression hint can be tucked away any number of places depending on the SDK submitting the request...
+fn extract_compression(
+    method: &Method,
+    form: &LegacyEventForm,
+    params: &EventQuery,
+    headers: &HeaderMap,
+) -> Compression {
+    match *method {
+        Method::GET => {
+            if params.compression.is_some() {
+                params.compression.unwrap()
+            } else if form
+                .compression
+                .is_some_and(|c| c != Compression::Unsupported)
+            {
+                form.compression.unwrap()
+            } else if let Some(ct) = headers.get("content-encoding") {
+                match ct.to_str().unwrap_or("UNKNOWN") {
+                    "gzip" | "gzip-js" => Compression::Gzip,
+                    "lz64" | "lz-string" => Compression::LZString,
+                    _ => Compression::Unsupported,
+                }
+            } else {
+                Compression::Unsupported
+            }
+        }
+
+        Method::POST => {
+            if form
+                .compression
+                .is_some_and(|c| c != Compression::Unsupported)
+            {
+                form.compression.unwrap()
+            } else if params.compression.is_some() {
+                params.compression.unwrap()
+            } else if let Some(ct) = headers.get("content-encoding") {
+                match ct.to_str().unwrap_or("UNKNOWN") {
+                    "gzip" | "gzip-js" => Compression::Gzip,
+                    "lz64" | "lz-string" => Compression::LZString,
+                    _ => Compression::Unsupported,
+                }
+            } else {
+                Compression::Unsupported
+            }
+        }
+
+        _ => Compression::Unsupported,
+    }
+}
+
+fn decode_form(payload: &[u8], location: &str) -> Result<LegacyEventForm, CaptureError> {
+    match serde_urlencoded::from_bytes::<LegacyEventForm>(payload) {
+        Ok(form) => Ok(form),
+
+        Err(e) => {
+            let form_data_snippet = String::from_utf8(payload[..MAX_CHARS_TO_CHECK].to_vec())
+                .unwrap_or(String::from("INVALID_UTF8"));
+            error!(
+                form_data = form_data_snippet,
+                location = location,
+                "failed to decode urlencoded form body: {}",
+                e
+            );
+            Err(CaptureError::RequestDecodingError(String::from(
+                "invalid urlencoded form data",
+            )))
+        }
+    }
+}
+
+// have we decoded sufficiently have a urlencoded data payload of the expected form yet?
+fn is_likely_urlencoded_form(payload: &[u8]) -> bool {
+    [&b"data="[..], &b"ver="[..], &b"compression="[..]]
+        .iter()
+        .any(|target: &&[u8]| payload.starts_with(target))
+}
+
+// relatively cheap check for base64 encoded payload since these can show up at
+// various decoding layers in requests from different PostHog SDKs and versions
+fn is_likely_base64(payload: &[u8]) -> bool {
+    if payload.is_empty() {
+        return false;
+    }
+
+    let all_chars_b64_compatible = payload.iter().take(MAX_CHARS_TO_CHECK).all(|b| {
+        (*b >= b'A' && *b <= b'Z')
+            || (*b >= b'a' && *b <= b'z')
+            || (*b >= b'0' && *b <= b'9')
+            || *b == b'+'
+            || *b == b'/'
+            || *b == b'='
+    });
+
+    let is_b64_aligned = payload.len() % 4 == 0;
+
+    all_chars_b64_compatible && is_b64_aligned
+}
+
+fn decode_base64(payload: &[u8]) -> Result<Vec<u8>, CaptureError> {
+    match base64::engine::general_purpose::STANDARD.decode(payload) {
+        Ok(decoded_payload) => Ok(decoded_payload),
+        Err(e) => {
+            let form_data_snippet = String::from_utf8(payload[..MAX_CHARS_TO_CHECK].to_vec())
+                .unwrap_or(String::from("INVALID_UTF8"));
+            error!(
+                form_data = form_data_snippet,
+                "failed to decode expected base64 data: {}", e
+            );
+            Err(CaptureError::RequestDecodingError(String::from(
+                "missing or invalid payload",
+            )))
+        }
+    }
 }
 
 /// Flexible endpoint that targets wide compatibility with the wide range of requests
@@ -116,28 +344,14 @@ async fn handle_common(
     let content_encoding = headers
         .get("content-encoding")
         .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
+    Span::current().record("user_agent", user_agent);
+    Span::current().record("content_encoding", content_encoding);
 
-    let current_span = Span::current();
-    if state.is_mirror_deploy {
-        // for mirror deploy, temporarily log all headers
-        for entry in headers {
-            let key = entry.0.as_str();
-            let value = entry.1.to_str().unwrap_or("UNKNOWN");
-            current_span.record(key, value);
-        }
-    } else {
-        current_span.record("user_agent", user_agent);
-        current_span.record("content_encoding", content_encoding);
-    }
+    // TODO: improve detection of meta.compression as per handle_legacy, then pass into RawEvent::from_bytes?
 
-    let comp = match meta.compression {
-        None => String::from("unknown"),
-        Some(Compression::Gzip) => String::from("gzip"),
-        Some(Compression::Unsupported) => String::from("unsupported"),
-    };
-
+    let resolved_cmp = format!("{}", meta.compression.unwrap_or_default());
     Span::current().record("version", meta.lib_version.clone());
-    Span::current().record("compression", comp.as_str());
+    Span::current().record("compression", resolved_cmp);
     Span::current().record("method", method.as_str());
     Span::current().record("path", path.as_str().trim_end_matches('/'));
 
@@ -152,29 +366,39 @@ async fn handle_common(
                 error!("failed to decode urlencoded form body: {}", e);
                 CaptureError::RequestDecodingError(String::from("invalid urlencoded form data"))
             })?;
+            if input.data.is_empty() {
+                return Err(CaptureError::EmptyPayload);
+            }
             let payload = base64::engine::general_purpose::STANDARD
                 .decode(&input.data)
                 .map_err(|e| {
-                    if state.is_mirror_deploy {
-                        // get a peek at the headers and a short snip of the payload in mirror
-                        // see which capture.py "kludge warning" these may map to, if any
-                        error!(
-                            data = &input.data[0..input.data.len().min(128)],
-                            "failed to decode mirrored form w/error: {}", e
-                        );
-                    } else {
-                        error!("failed to decode base64 form data: {}", e);
-                    }
+                    error!("failed to decode base64 form data: {}", e);
                     CaptureError::RequestDecodingError(String::from(
                         "missing or invalid data field",
                     ))
                 })?;
-            RawRequest::from_bytes(payload.into(), state.event_size_limit)
+
+            // by setting compression "unsupported" here, we route handle_common
+            // outputs into the old RawRequest hydration behavior, prior to adding
+            // handle_legacy shims. handle_common doesn't extract hints or detect
+            // compression as reliably as it should, given our known-active SDK
+            // formats. we'll circle back after legacy shims ship to deal with it
+            RawRequest::from_bytes(
+                payload.into(),
+                Compression::Unsupported,
+                state.event_size_limit,
+                state.is_mirror_deploy,
+            )
         }
         ct => {
             Span::current().record("content_type", ct);
-
-            RawRequest::from_bytes(body, state.event_size_limit)
+            // compression is ignored this way, as it was in the "/i" only RawEvent handling
+            RawRequest::from_bytes(
+                body,
+                Compression::Unsupported,
+                state.event_size_limit,
+                state.is_mirror_deploy,
+            )
         }
     }?;
 

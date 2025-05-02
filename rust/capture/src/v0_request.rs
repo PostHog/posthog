@@ -7,19 +7,33 @@ use flate2::read::GzDecoder;
 use serde::Deserialize;
 use time::format_description::well_known::Iso8601;
 use time::OffsetDateTime;
-use tracing::instrument;
+use tracing::{error, instrument};
 
-use crate::api::CaptureError;
-use crate::prometheus::report_dropped_events;
-use crate::token::validate_token;
+use crate::{
+    api::CaptureError, prometheus::report_dropped_events, token::validate_token,
+    v0_endpoint::MAX_CHARS_TO_CHECK,
+};
 
-#[derive(Deserialize, Default)]
+#[derive(Deserialize, Default, Clone, Copy, PartialEq, Eq)]
 pub enum Compression {
     #[default]
     Unsupported,
 
     #[serde(rename = "gzip", alias = "gzip-js")]
     Gzip,
+
+    #[serde(rename = "lz64")]
+    LZString,
+}
+
+impl std::fmt::Display for Compression {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Compression::Gzip => write!(f, "gzip"),
+            Compression::LZString => write!(f, "lz64"),
+            Compression::Unsupported => write!(f, "unsupported"),
+        }
+    }
 }
 
 #[derive(Deserialize, Default)]
@@ -54,12 +68,16 @@ impl EventQuery {
     }
 }
 
-#[derive(Debug, Deserialize)]
+// Some SDKs like posthog-js-lite can include metadata in the POST body
+#[derive(Deserialize)]
 pub struct EventFormData {
     pub data: String,
+    pub compression: Option<Compression>,
+    #[serde(alias = "ver")]
+    pub lib_version: Option<String>,
 }
 
-pub static GZIP_MAGIC_NUMBERS: [u8; 3] = [0x1f, 0x8b, 8];
+pub static GZIP_MAGIC_NUMBERS: [u8; 3] = [0x1f, 0x8b, 0x08];
 
 #[derive(Deserialize)]
 #[serde(untagged)]
@@ -88,10 +106,17 @@ impl RawRequest {
     /// Instead of trusting the parameter, we peek at the payload's first three bytes to
     /// detect gzip, fallback to uncompressed utf8 otherwise.
     #[instrument(skip_all)]
-    pub fn from_bytes(bytes: Bytes, limit: usize) -> Result<RawRequest, CaptureError> {
+    pub fn from_bytes(
+        bytes: Bytes,
+        cmp_hint: Compression,
+        limit: usize,
+        is_mirror_deploy: bool,
+    ) -> Result<RawRequest, CaptureError> {
         tracing::debug!(len = bytes.len(), "decoding new event");
 
-        let payload = if bytes.starts_with(&GZIP_MAGIC_NUMBERS) {
+        let payload = if (is_mirror_deploy && cmp_hint == Compression::Gzip)
+            || bytes.starts_with(&GZIP_MAGIC_NUMBERS)
+        {
             let len = bytes.len();
             let mut zipstream = GzDecoder::new(bytes.reader());
             let chunk = &mut [0; 1024];
@@ -128,6 +153,8 @@ impl RawRequest {
                     )));
                 }
             }
+        } else if is_mirror_deploy && cmp_hint == Compression::LZString {
+            decompress_lz64(&bytes, limit)?
         } else {
             let s = String::from_utf8(bytes.into()).map_err(|e| {
                 tracing::error!(
@@ -186,6 +213,53 @@ impl RawRequest {
         }
         None
     }
+}
+
+fn decompress_lz64(payload: &[u8], limit: usize) -> Result<String, CaptureError> {
+    // with lz64 the payload is a Base64 string that must be decoded prior to decompression
+    let b64_payload = std::str::from_utf8(payload).unwrap_or("INVALID_UTF8");
+    let decomp_utf16 = match lz_str::decompress_from_base64(b64_payload) {
+        Some(v) => v,
+        None => {
+            let form_data_snippet = String::from_utf8(payload[..MAX_CHARS_TO_CHECK].to_vec())
+                .unwrap_or(String::from("INVALID_UTF8"));
+            error!(
+                form_data = form_data_snippet,
+                "decompress_lz64: failed decompress to UTF16"
+            );
+            return Err(CaptureError::RequestDecodingError(String::from(
+                "decompress_lz64: failed decompress to UTF16",
+            )));
+        }
+    };
+
+    // the decompressed data is UTF16 so we need to convert it to UTF8 to
+    // obtain the JSON event batch payload we've come to know and love
+    let decompressed = match String::from_utf16(&decomp_utf16) {
+        Ok(result) => result,
+        Err(e) => {
+            error!(
+                "decompress_lz64: failed UTF16 to UTF8 conversion, got: {}",
+                e
+            );
+            return Err(CaptureError::RequestDecodingError(String::from(
+                "decompress_lz64: failed UTF16 to UTF8 conversion",
+            )));
+        }
+    };
+
+    if decompressed.len() >= limit {
+        error!(
+            "lz64 request payload size limit exceeded: {}",
+            decompressed.len()
+        );
+        report_dropped_events("event_too_big", 1);
+        return Err(CaptureError::EventTooBig(String::from(
+            "lz64 request payload size limit exceeded",
+        )));
+    }
+
+    Ok(decompressed)
 }
 
 #[instrument(skip_all, fields(events = events.len()))]
@@ -253,8 +327,7 @@ mod tests {
     use serde_json::Value;
     use uuid::Uuid;
 
-    use super::CaptureError;
-    use super::RawRequest;
+    use super::{CaptureError, Compression, RawRequest};
 
     fn test_deserialize(json: Value) -> Result<Option<Uuid>, serde_json::Error> {
         #[derive(Deserialize)]
@@ -276,9 +349,10 @@ mod tests {
                 .expect("payload is not base64"),
         );
 
-        let events = RawRequest::from_bytes(compressed_bytes, 1024)
-            .expect("failed to parse")
-            .events();
+        let events =
+            RawRequest::from_bytes(compressed_bytes, Compression::Unsupported, 1024, false)
+                .expect("failed to parse")
+                .events();
         assert_eq!(1, events.len());
         assert_eq!(Some("my_token1".to_string()), events[0].extract_token());
         assert_eq!("my_event1".to_string(), events[0].event);
@@ -298,9 +372,10 @@ mod tests {
                 .expect("payload is not base64"),
         );
 
-        let events = RawRequest::from_bytes(compressed_bytes, 2048)
-            .expect("failed to parse")
-            .events();
+        let events =
+            RawRequest::from_bytes(compressed_bytes, Compression::Unsupported, 2048, false)
+                .expect("failed to parse")
+                .events();
         assert_eq!(1, events.len());
         assert_eq!(Some("my_token2".to_string()), events[0].extract_token());
         assert_eq!("my_event2".to_string(), events[0].event);
@@ -315,9 +390,10 @@ mod tests {
     #[test]
     fn extract_distinct_id() {
         let parse_and_extract = |input: &'static str| -> Result<String, CaptureError> {
-            let parsed = RawRequest::from_bytes(input.into(), 2048)
-                .expect("failed to parse")
-                .events();
+            let parsed =
+                RawRequest::from_bytes(input.into(), Compression::Unsupported, 2048, false)
+                    .expect("failed to parse")
+                    .events();
             parsed[0]
                 .extract_distinct_id()
                 .ok_or(CaptureError::MissingDistinctId)
@@ -385,9 +461,14 @@ mod tests {
             "distinct_id": distinct_id
         }]);
 
-        let parsed = RawRequest::from_bytes(input.to_string().into(), 2048)
-            .expect("failed to parse")
-            .events();
+        let parsed = RawRequest::from_bytes(
+            input.to_string().into(),
+            Compression::Unsupported,
+            2048,
+            false,
+        )
+        .expect("failed to parse")
+        .events();
         assert_eq!(
             parsed[0].extract_distinct_id().expect("failed to extract"),
             expected_distinct_id
@@ -397,7 +478,7 @@ mod tests {
     #[test]
     fn extract_and_verify_token() {
         let parse_and_extract = |input: &'static str| -> Result<String, CaptureError> {
-            RawRequest::from_bytes(input.into(), 2048)
+            RawRequest::from_bytes(input.into(), Compression::Unsupported, 2048, false)
                 .expect("failed to parse")
                 .extract_and_verify_token()
         };
