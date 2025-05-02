@@ -351,7 +351,7 @@ pub async fn resolve_issue(
             Some(new)
         } else {
             try_assignment_rules(
-                &mut *txn,
+                &mut txn,
                 &context.team_manager,
                 issue.clone(),
                 event_properties.to_output(issue.id),
