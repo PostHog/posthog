@@ -77,6 +77,9 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
         ],
     }),
     listeners(({ props, values, actions }) => ({
+        setIntegrationSuccess: () => {
+            actions.verifyDomain()
+        },
         submitDomainSuccess: () => {
             // Fetch the DNS records and current verification status
             actions.verifyDomain()
