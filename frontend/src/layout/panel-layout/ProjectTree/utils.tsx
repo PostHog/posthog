@@ -158,6 +158,7 @@ export function convertFileSystemEntryToTreeDataItem({
     // Iterate over each raw project item.
     for (const item of imports) {
         const pathSplit = splitPath(item.path)
+        pathSplit.pop()
         const folderPath = joinPath(pathSplit)
 
         // Start at the root level.
