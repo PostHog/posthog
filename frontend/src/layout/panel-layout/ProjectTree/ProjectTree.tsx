@@ -1,10 +1,10 @@
-import { IconChevronRight, IconFolderPlus, IconSort } from '@posthog/icons'
+import { IconChevronRight, IconFolder, IconFolderPlus, IconSort } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { MoveFilesModal } from 'lib/components/FileSystem/MoveFilesModal'
-// import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-// import { FEATURE_FLAGS } from 'lib/constants'
+import { ResizableDiv } from 'lib/components/ResizeElement/ResizeElement'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { LemonTree, LemonTreeRef, TreeDataItem, TreeMode } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { Tooltip } from 'lib/lemon-ui/Tooltip/Tooltip'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     ContextMenuGroup,
@@ -58,6 +58,8 @@ export function ProjectTree(): JSX.Element {
         checkedItemsArray,
         movingItems,
         sortMethod,
+        treeTableColumnSizes,
+        treeTableTotalWidth,
     } = useValues(projectTreeLogic)
 
     const {
@@ -80,6 +82,7 @@ export function ProjectTree(): JSX.Element {
         setEditingItemId,
         setMovingItems,
         setSortMethod,
+        setTreeTableColumnSizes,
     } = useActions(projectTreeLogic)
 
     const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier, setProjectTreeMode } =
@@ -200,14 +203,17 @@ export function ProjectTree(): JSX.Element {
                                         createFolder(item.record?.path)
                                     }}
                                 >
-                                    <ButtonPrimitive menuItem>Folder</ButtonPrimitive>
+                                    <ButtonPrimitive menuItem>
+                                        <IconFolder />
+                                        Folder
+                                    </ButtonPrimitive>
                                 </MenuItem>
                                 <MenuSeparator />
                                 {treeItemsNew.map((treeItem): JSX.Element => {
                                     if (treeItem.children) {
                                         return (
                                             <MenuSub key={treeItem.id}>
-                                                <MenuSubTrigger asChild>
+                                                <MenuSubTrigger asChild inset>
                                                     <ButtonPrimitive menuItem>
                                                         {treeItem.name ||
                                                             treeItem.id.charAt(0).toUpperCase() + treeItem.id.slice(1)}
@@ -230,6 +236,7 @@ export function ProjectTree(): JSX.Element {
                                                             }}
                                                         >
                                                             <ButtonPrimitive menuItem className="capitalize">
+                                                                {child.icon}
                                                                 {child.name}
                                                             </ButtonPrimitive>
                                                         </MenuItem>
@@ -251,7 +258,10 @@ export function ProjectTree(): JSX.Element {
                                                 treeItem.onClick?.()
                                             }}
                                         >
-                                            <ButtonPrimitive menuItem>{treeItem.name}</ButtonPrimitive>
+                                            <ButtonPrimitive menuItem>
+                                                {treeItem.icon}
+                                                {treeItem.name}
+                                            </ButtonPrimitive>
                                         </MenuItem>
                                     )
                                 })}
@@ -536,6 +546,94 @@ export function ProjectTree(): JSX.Element {
                                 <ButtonPrimitive menuItem>New folder</ButtonPrimitive>
                             </ContextMenuItem>
                         </ContextMenuGroup>
+                    )
+                }}
+                tableModeTotalWidth={treeTableTotalWidth}
+                tableModeHeader={() => {
+                    return (
+                        <>
+                            {/* Headers */}
+                            {treeTableKeys?.headers.map((header, index) => (
+                                <ResizableDiv
+                                    key={header.key}
+                                    defaultWidth={header.width || 0}
+                                    onResize={(width) => {
+                                        setTreeTableColumnSizes([
+                                            ...treeTableColumnSizes.slice(0, index),
+                                            width,
+                                            ...treeTableColumnSizes.slice(index + 1),
+                                        ])
+                                    }}
+                                    className="absolute h-[30px] flex items-center"
+                                    style={{
+                                        transform: `translateX(${header.offset || 0}px)`,
+                                    }}
+                                    aria-label={`Resize handle for column "${header.title}"`}
+                                >
+                                    <ButtonPrimitive
+                                        key={header.key}
+                                        fullWidth
+                                        className="pointer-events-none rounded-none text-secondary font-bold text-xs uppercase flex gap-2 motion-safe:transition-[left] duration-50"
+                                        style={{
+                                            paddingLeft: index === 0 ? '30px' : undefined,
+                                        }}
+                                    >
+                                        <span>{header.title}</span>
+                                    </ButtonPrimitive>
+                                </ResizableDiv>
+                            ))}
+                        </>
+                    )
+                }}
+                tableModeRow={(item, firstColumnOffset) => {
+                    return (
+                        <>
+                            {treeTableKeys?.headers.slice(0).map((header, index) => {
+                                const width = header.width || 0
+                                const offset = header.offset || 0
+                                const value = header.key.split('.').reduce((obj, key) => (obj as any)?.[key], item)
+
+                                const widthAdjusted = width - (index === 0 ? firstColumnOffset : 0)
+                                const offsetAdjusted = index === 0 ? offset : offset - 12
+
+                                return (
+                                    <span
+                                        key={header.key}
+                                        className="text-left flex items-center h-[var(--button-height-base)]"
+                                        // eslint-disable-next-line react/forbid-dom-props
+                                        style={{
+                                            // First we keep relative
+                                            position: index === 0 ? 'relative' : 'absolute',
+                                            transform: `translateX(${offsetAdjusted}px)`,
+                                            // First column we offset for the icons
+                                            width: `${widthAdjusted}px`,
+                                            paddingLeft: index !== 0 ? '6px' : undefined,
+                                        }}
+                                    >
+                                        <Tooltip
+                                            title={
+                                                typeof header.tooltip === 'function'
+                                                    ? header.tooltip(value)
+                                                    : header.tooltip
+                                            }
+                                            placement="top-start"
+                                        >
+                                            <span
+                                                className={cn(
+                                                    'starting:opacity-0 opacity-100 delay-50 motion-safe:transition-opacity duration-100 font-normal truncate',
+                                                    {
+                                                        'font-normal': index > 1,
+                                                        // 'opacity-0': index !== 1 && isEmptyFolder,
+                                                    }
+                                                )}
+                                            >
+                                                {header.formatFunction ? header.formatFunction(value) : value}
+                                            </span>
+                                        </Tooltip>
+                                    </span>
+                                )
+                            })}
+                        </>
                     )
                 }}
             />

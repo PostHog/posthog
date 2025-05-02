@@ -117,7 +117,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: true,
         name: 'Revenue analytics',
         layout: 'app-container',
-        defaultDocsPath: '/docs/revenue-analytics',
+        defaultDocsPath: '/docs/web-analytics/revenue-analytics',
     },
     [Scene.Cohort]: {
         projectBased: true,

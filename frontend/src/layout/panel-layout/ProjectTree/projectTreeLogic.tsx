@@ -62,7 +62,11 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
     })),
     actions({
         loadUnfiledItems: true,
-        addFolder: (folder: string) => ({ folder }),
+        addFolder: (folder: string, editAfter = true, callback?: (folder: string) => void) => ({
+            folder,
+            editAfter,
+            callback,
+        }),
         deleteItem: (item: FileSystemEntry) => ({ item }),
         moveItem: (item: FileSystemEntry, newPath: string, force = false) => ({ item, newPath, force }),
         movedItem: (item: FileSystemEntry, oldPath: string, newPath: string) => ({ item, oldPath, newPath }),
@@ -87,7 +91,11 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         }),
         loadFolderFailure: (folder: string, error: string) => ({ folder, error }),
         rename: (value: string, item: FileSystemEntry) => ({ value, item }),
-        createFolder: (parentPath: string) => ({ parentPath }),
+        createFolder: (parentPath: string, editAfter = true, callback?: (folder: string) => void) => ({
+            parentPath,
+            editAfter,
+            callback,
+        }),
         loadSearchResults: (searchTerm: string, offset = 0) => ({ searchTerm, offset }),
         loadRecentResults: (offset = 0) => ({ offset }),
         assureVisibility: (projectTreeRef: ProjectTreeRef) => ({ projectTreeRef }),
@@ -107,6 +115,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         setEditingItemId: (id: string) => ({ id }),
         setMovingItems: (items: FileSystemEntry[]) => ({ items }),
         setSortMethod: (sortMethod: ProjectTreeSortMethod) => ({ sortMethod }),
+        setTreeTableColumnSizes: (sizes: number[]) => ({ sizes }),
     }),
     loaders(({ actions, values }) => ({
         unfiledItems: [
@@ -529,8 +538,19 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 setSortMethod: (_, { sortMethod }) => sortMethod,
             },
         ],
+        treeTableColumnSizes: [
+            [350, 200, 200] as number[],
+            { persist: true },
+            {
+                setTreeTableColumnSizes: (_, { sizes }) => sizes,
+            },
+        ],
     }),
     selectors({
+        treeTableColumnOffsets: [
+            (s) => [s.treeTableColumnSizes],
+            (sizes): number[] => sizes.map((_, index) => sizes.slice(0, index).reduce((acc, s) => acc + s, 0)),
+        ],
         savedItems: [
             (s) => [s.folders, s.folderStates],
             (folders): FileSystemEntry[] =>
@@ -679,14 +699,21 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
         projectTreeOnlyFolders: [
             (s) => [s.viableItems, s.folderStates, s.checkedItems],
-            (viableItems, folderStates, checkedItems): TreeDataItem[] =>
-                convertFileSystemEntryToTreeDataItem({
-                    imports: viableItems,
-                    folderStates,
-                    checkedItems,
-                    root: 'project',
-                    disabledReason: (item) => (item.type !== 'folder' ? 'Only folders can be selected' : undefined),
-                }),
+            (viableItems, folderStates, checkedItems): TreeDataItem[] => [
+                {
+                    id: '/',
+                    name: '/',
+                    displayName: <>Project root</>,
+                    record: { type: 'folder', path: '' },
+                    children: convertFileSystemEntryToTreeDataItem({
+                        imports: viableItems,
+                        folderStates,
+                        checkedItems,
+                        root: 'project',
+                        disabledReason: (item) => (item.type !== 'folder' ? 'Only folders can be selected' : undefined),
+                    }),
+                },
+            ],
         ],
         groupNodes: [
             (s) => [s.groupTypes, s.groupsAccessStatus, s.aggregationLabel],
@@ -821,21 +848,23 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
         // TODO: use treeData + some other logic to determine the keys
         treeTableKeys: [
-            (s) => [s.sortMethod],
-            (sortMethod): TreeTableViewKeys => ({
+            (s) => [s.treeTableColumnSizes, s.treeTableColumnOffsets, s.sortMethod],
+            (sizes, offsets, sortMethod): TreeTableViewKeys => ({
                 headers: [
                     {
                         key: 'name',
                         title: 'Name',
                         tooltip: (value: string) => value,
-                        width: 350,
+                        width: sizes[0],
+                        offset: offsets[0],
                     },
                     {
                         key: 'record.created_at',
                         title: 'Created at',
                         formatFunction: (value: string) => dayjs(value).format('MMM D, YYYY'),
                         tooltip: (value: string) => dayjs(value).format('MMM D, YYYY HH:mm:ss'),
-                        width: 200,
+                        width: sizes[1],
+                        offset: offsets[1],
                     },
                     ...(sortMethod === 'created_at'
                         ? [
@@ -852,11 +881,13 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         key: 'record.created_by.first_name',
                         title: 'Created by',
                         tooltip: (value: string) => value,
-                        width: 200,
+                        width: sizes[2],
+                        offset: offsets[2],
                     },
                 ],
             }),
         ],
+        treeTableTotalWidth: [(s) => [s.treeTableColumnSizes], (sizes): number => sizes.reduce((acc, s) => acc + s, 0)],
         checkedItemCountNumeric: [
             (s) => [s.checkedItems],
             (checkedItems): number => Object.values(checkedItems).filter((v) => !!v).length,
@@ -1222,7 +1253,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             }
             actions.queueAction({ type: item.type === 'folder' ? 'prepare-delete' : 'delete', item, path: item.path })
         },
-        addFolder: ({ folder }) => {
+        addFolder: ({ folder, editAfter, callback }) => {
             // Like Mac, we don't allow duplicate folder names
             // So we need to increment the folder name until we find a unique one
             let folderName = folder
@@ -1240,9 +1271,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             })
 
             // Always set the editing item ID after a short delay to ensure the folder is in the DOM
-            setTimeout(() => {
-                actions.setEditingItemId(`project-folder/${folderName}`)
-            }, 50)
+            if (editAfter) {
+                setTimeout(() => {
+                    actions.setEditingItemId(`project-folder/${folderName}`)
+                }, 50)
+            }
+            callback?.(folderName)
         },
         toggleFolderOpen: ({ folderId }) => {
             if (values.searchTerm) {
@@ -1275,14 +1309,14 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             if (splits.length > 0) {
                 if (value) {
                     actions.moveItem(item, joinPath([...splits.slice(0, -1), value]))
-                    actions.setEditingItemId(item.id)
+                    actions.setEditingItemId('')
                 }
             }
         },
-        createFolder: ({ parentPath }) => {
+        createFolder: ({ parentPath, editAfter, callback }) => {
             const parentSplits = parentPath ? splitPath(parentPath) : []
             const newPath = joinPath([...parentSplits, 'Untitled folder'])
-            actions.addFolder(newPath)
+            actions.addFolder(newPath, editAfter, callback)
         },
         setSearchTerm: ({ searchTerm }) => {
             actions.loadSearchResults(searchTerm)

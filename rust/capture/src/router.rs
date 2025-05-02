@@ -35,6 +35,7 @@ pub struct State {
     pub token_dropper: Arc<TokenDropper>,
     pub event_size_limit: usize,
     pub historical_cfg: HistoricalConfig,
+    pub is_mirror_deploy: bool,
 }
 
 #[derive(Clone)]
@@ -108,6 +109,7 @@ pub fn router<
     enable_historical_rerouting: bool,
     historical_rerouting_threshold_days: i64,
     historical_tokens_keys: Option<String>,
+    is_mirror_deploy: bool,
 ) -> Router {
     let state = State {
         sink: Arc::new(sink),
@@ -121,6 +123,7 @@ pub fn router<
             historical_rerouting_threshold_days,
             historical_tokens_keys,
         ),
+        is_mirror_deploy,
     };
 
     // Very permissive CORS policy, as old SDK versions
