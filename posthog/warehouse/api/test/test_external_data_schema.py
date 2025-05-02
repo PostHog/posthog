@@ -402,7 +402,7 @@ class TestUpdateExternalDataSchema:
         schedule_desc = describe_schedule(temporal, str(schema.id))
         assert schedule_desc.schedule.state.paused is False
 
-    def test_update_schema_change_should_sync_on_without_sync_type(self, team, user, client: HttpClient):
+    def test_update_schema_change_should_sync_on_without_sync_type(self, team, user, client: HttpClient, temporal):
         """Test that we can turn on a schema that doesn't have a sync type set.
 
         Not sure in which cases this can happen.
@@ -433,7 +433,7 @@ class TestUpdateExternalDataSchema:
 
         assert response.status_code == 400
 
-    def test_update_schema_change_sync_type_with_invalid_type(self, team, user, client: HttpClient):
+    def test_update_schema_change_sync_type_with_invalid_type(self, team, user, client: HttpClient, temporal):
         client.force_login(user)
         source_id = create_external_data_source_ok(client, team.pk)
         schema = ExternalDataSchema.objects.filter(source_id=source_id).first()
