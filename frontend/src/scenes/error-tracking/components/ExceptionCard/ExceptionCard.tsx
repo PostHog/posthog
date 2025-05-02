@@ -1,6 +1,6 @@
 import { IconBox, IconDocument, IconList } from '@posthog/icons'
 import { LemonCard } from '@posthog/lemon-ui'
-import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { errorPropertiesLogic, ErrorPropertiesLogicProps } from 'lib/components/Errors/errorPropertiesLogic'
 import { ErrorProperties } from 'lib/components/Errors/types'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -45,8 +45,8 @@ export function ExceptionCard({ issue, issueLoading, properties, propertiesLoadi
 
 function ExceptionCardContent({ issue, issueLoading }: ExceptionCardContentProps): JSX.Element {
     const { loading, showContext, isExpanded } = useValues(exceptionCardLogic)
-    const propertiesLogic = useMountedLogic(errorPropertiesLogic)
-    const { properties, exceptionAttributes, additionalProperties, timestamp, sessionId } = useValues(propertiesLogic)
+    const { properties, exceptionAttributes, additionalProperties, timestamp, sessionId } =
+        useValues(errorPropertiesLogic)
     return (
         <LemonCard hoverEffect={false} className="group py-2 px-3 relative overflow-hidden">
             <Collapsible isExpanded={isExpanded} className="pb-1 flex w-full" minHeight="calc(var(--spacing) * 12)">
@@ -86,9 +86,8 @@ function ExceptionCardContent({ issue, issueLoading }: ExceptionCardContentProps
 }
 
 function ExceptionCardToggles(): JSX.Element {
-    const logic = useMountedLogic(exceptionCardLogic)
-    const { showDetails, showAllFrames, showContext, showAsText } = useValues(logic)
-    const { setShowDetails, setShowAllFrames, setShowContext, setShowAsText } = useActions(logic)
+    const { showDetails, showAllFrames, showContext, showAsText } = useValues(exceptionCardLogic)
+    const { setShowDetails, setShowAllFrames, setShowContext, setShowAsText } = useActions(exceptionCardLogic)
     return (
         <ButtonGroupPrimitive size="sm">
             <ToggleButtonPrimitive className="px-2" checked={showDetails} onCheckedChange={setShowDetails}>

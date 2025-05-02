@@ -1,5 +1,5 @@
 import { LemonSkeleton } from '@posthog/lemon-ui'
-import { useActions, useMountedLogic, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { stackFrameLogic } from 'lib/components/Errors/stackFrameLogic'
 import { ExceptionHeaderProps } from 'lib/components/Errors/StackTraces'
@@ -16,8 +16,7 @@ export function StacktraceTextDisplay({
     renderEmpty,
     truncateMessage,
 }: StacktraceBaseDisplayProps): JSX.Element {
-    const logic = useMountedLogic(errorPropertiesLogic)
-    const { exceptionList, hasStacktrace } = useValues(logic)
+    const { exceptionList, hasStacktrace } = useValues(errorPropertiesLogic)
     const { loading } = useValues(exceptionCardLogic)
     const renderExceptionHeader = useCallback(
         ({ type, value, loading, part }: ExceptionHeaderProps): JSX.Element => {

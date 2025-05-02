@@ -1,5 +1,5 @@
 import { LemonSkeleton } from '@posthog/lemon-ui'
-import { useMountedLogic, useValues } from 'kea'
+import { useValues } from 'kea'
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { FingerprintRecordPartDisplay } from 'lib/components/Errors/FingerprintRecordPartDisplay'
 import { ChainedStackTraces, ExceptionHeaderProps } from 'lib/components/Errors/StackTraces'
@@ -17,8 +17,7 @@ export function StacktraceGenericDisplay({
     renderLoading,
     renderEmpty,
 }: StacktraceBaseDisplayProps): JSX.Element {
-    const logic = useMountedLogic(errorPropertiesLogic)
-    const { exceptionAttributes, hasStacktrace } = useValues(logic)
+    const { exceptionAttributes, hasStacktrace } = useValues(errorPropertiesLogic)
     const { loading, showAllFrames } = useValues(exceptionCardLogic)
     const { runtime } = exceptionAttributes || {}
     const renderExceptionHeader = useCallback(

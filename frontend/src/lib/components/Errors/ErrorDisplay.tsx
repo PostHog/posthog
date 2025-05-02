@@ -1,5 +1,5 @@
 import { LemonBanner } from '@posthog/lemon-ui'
-import { BindLogic, useMountedLogic, useValues } from 'kea'
+import { BindLogic, useValues } from 'kea'
 import { TitledSnack } from 'lib/components/TitledSnack'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
@@ -26,8 +26,7 @@ export function ErrorDisplay({
 }
 
 export function ErrorDisplayContent(): JSX.Element {
-    const logic = useMountedLogic(errorPropertiesLogic)
-    const { exceptionAttributes, hasStacktrace } = useValues(logic)
+    const { exceptionAttributes, hasStacktrace } = useValues(errorPropertiesLogic)
     const { type, value, sentryUrl, level, ingestionErrors, handled } = exceptionAttributes || {}
     return (
         <div className="flex flex-col deprecated-space-y-2 pb-2">

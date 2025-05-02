@@ -1,15 +1,11 @@
 import { LemonCard } from '@posthog/lemon-ui'
 import { Meta } from '@storybook/react'
-import { BindLogic } from 'kea'
-import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
-import { ErrorProperties } from 'lib/components/Errors/types'
-import { TEST_EVENTS, TestEventName } from 'scenes/error-tracking/__mocks__/events'
+import { ExceptionLogicWrapper, TEST_EVENTS, TestEventName } from 'scenes/error-tracking/__mocks__/events'
 import { sceneLogic } from 'scenes/sceneLogic'
 
 import { mswDecorator } from '~/mocks/browser'
 import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 
-import { exceptionCardLogic } from '../exceptionCardLogic'
 import { HeaderRenderer, StacktraceBaseDisplayProps, StacktraceEmptyDisplay } from './StacktraceBase'
 import { StacktraceGenericDisplay } from './StacktraceGenericDisplay'
 import { StacktraceTextDisplay } from './StacktraceTextDisplay'
@@ -108,10 +104,6 @@ const issue = {
     first_seen: '2022-01-05',
 } as ErrorTrackingRelationalIssue
 
-function getEventProperties(event_name: TestEventName | null): ErrorProperties | null {
-    return event_name ? TEST_EVENTS[event_name].properties : null
-}
-
 function defaultBaseProps(
     overrideProps: Partial<StacktraceBaseDisplayProps> = {},
     issueLoading: boolean = false
@@ -127,25 +119,6 @@ function defaultBaseProps(
         renderEmpty: () => <StacktraceEmptyDisplay />,
         ...overrideProps,
     } as StacktraceBaseDisplayProps
-}
-
-function ExceptionLogicWrapper({
-    eventName,
-    loading = false,
-    children,
-}: {
-    eventName: TestEventName
-    loading?: boolean
-    children: JSX.Element
-}): JSX.Element {
-    const properties = getEventProperties(eventName)
-    return (
-        <BindLogic logic={exceptionCardLogic} props={{ loading }}>
-            <BindLogic logic={errorPropertiesLogic} props={{ properties: properties, id: eventName }}>
-                {children}
-            </BindLogic>
-        </BindLogic>
-    )
 }
 
 function StacktraceWrapperAllEvents({ children }: { children: JSX.Element }): JSX.Element {

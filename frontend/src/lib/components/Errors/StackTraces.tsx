@@ -3,7 +3,7 @@ import './StackTraces.scss'
 import { IconBox } from '@posthog/icons'
 import { LemonCollapse, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { useActions, useMountedLogic, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { MouseEvent, useEffect } from 'react'
 import { cancelEvent } from 'scenes/error-tracking/utils'
@@ -59,9 +59,8 @@ export function ChainedStackTraces({
     embedded?: boolean
     onFrameContextClick?: FrameContextClickHandler
 }): JSX.Element {
-    const logic = useMountedLogic(errorPropertiesLogic)
     const { loadFromRawIds } = useActions(stackFrameLogic)
-    const { exceptionList, getExceptionFingerprint } = useValues(logic)
+    const { exceptionList, getExceptionFingerprint } = useValues(errorPropertiesLogic)
 
     useEffect(() => {
         const frames: ErrorTrackingStackFrame[] = exceptionList.flatMap((e) => {
@@ -152,9 +151,8 @@ function Trace({
 }
 
 export function FrameHeaderDisplay({ frame }: { frame: ErrorTrackingStackFrame }): JSX.Element {
-    const logic = useMountedLogic(errorPropertiesLogic)
     const { raw_id, source, line, column, resolved_name, resolved, resolve_failure, in_app } = frame
-    const { getFrameFingerprint } = useValues(logic)
+    const { getFrameFingerprint } = useValues(errorPropertiesLogic)
     const part = getFrameFingerprint(raw_id)
     return (
         <div className="flex flex-1 justify-between items-center h-full">
