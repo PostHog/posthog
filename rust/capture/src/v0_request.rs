@@ -41,7 +41,7 @@ pub struct EventQuery {
     pub compression: Option<Compression>,
 
     // legacy GET requests can include data as query param
-    pub data: Option<String>,
+    pub data: Option<Vec<u8>>,
 
     #[serde(alias = "ver")]
     pub lib_version: Option<String>,

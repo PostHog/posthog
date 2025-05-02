@@ -56,7 +56,7 @@ struct LegacyEventForm {
 async fn handle_legacy(
     state: &State<router::State>,
     InsecureClientIp(ip): &InsecureClientIp,
-    query_params: &EventQuery,
+    query_params: &mut EventQuery,
     headers: &HeaderMap,
     method: &Method,
     path: &MatchedPath,
@@ -75,20 +75,21 @@ async fn handle_legacy(
     // - GET query params or POST form KVs including:
     //     - data = JSON event/batch payload which may be compressed or base64 encoded or both
     //     - compression = optional hint to how "data" is encoded or compressed
-    let raw_payload: Vec<u8> = match *method {
+    let raw_payload: Bytes = match *method {
         Method::POST => {
             if !body.is_empty() {
                 error!("unexpected missing payload on {} request", *method);
                 return Err(CaptureError::EmptyPayload);
             }
-            Vec::from(body)
+            body
         }
 
         Method::GET => {
             if query_params.data.as_ref().is_some_and(|d| !d.is_empty()) {
-                query_params.data.as_ref().unwrap().bytes().collect()
+                let tmp_vec = std::mem::take(&mut query_params.data);
+                Bytes::from(tmp_vec.unwrap())
             } else if !body.is_empty() {
-                Vec::from(body)
+                body
             } else {
                 error!("unexpected missing payload on {} request", *method);
                 return Err(CaptureError::EmptyPayload);
@@ -96,10 +97,8 @@ async fn handle_legacy(
         }
 
         _ => {
-            return Err(CaptureError::RequestParsingError(format!(
-                "data payload not found on request w/method {:?} - try POST",
-                method
-            )))
+            error!("data payload not found on {:?} request", method);
+            return Err(CaptureError::EmptyPayload);
         }
     };
 
@@ -112,7 +111,7 @@ async fn handle_legacy(
         .unwrap()
     {
         "text/plain" | "application/json" => LegacyEventForm {
-            data: raw_payload,
+            data: Vec::from(raw_payload),
             compression: None,
             lib_version: None,
         },
