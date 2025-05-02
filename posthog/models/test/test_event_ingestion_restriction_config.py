@@ -132,7 +132,7 @@ class TestEventIngestionRestrictionConfig(BaseTest):
         self.assertIsNone(self.redis_client.get(redis_key))
 
     def test_update_config_distinct_ids(self):
-        """Test that updating a config's distinct_ids correctly updates Redis"""
+        """Test that updating a config's distinct_ids correctly updates Redis cache"""
         config = EventIngestionRestrictionConfig.objects.create(
             token="test_token", restriction_type=RestrictionType.SKIP_PERSON_PROCESSING, distinct_ids=["id1", "id2"]
         )
