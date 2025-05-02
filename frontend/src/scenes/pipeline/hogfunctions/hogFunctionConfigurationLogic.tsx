@@ -1058,6 +1058,17 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 return configStr.includes('groups.') || configStr.includes('{groups}')
             },
         ],
+        mightDropEvents: [
+            (s) => [s.configuration, s.type],
+            (configuration, type) => {
+                if (type !== 'transformation') {
+                    return false
+                }
+                const hogCode = configuration.hog || ''
+
+                return mightDropEvents(hogCode)
+            },
+        ],
     })),
 
     listeners(({ actions, values, cache }) => ({

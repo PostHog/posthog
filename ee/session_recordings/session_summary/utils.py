@@ -50,7 +50,7 @@ def load_session_recording_events_from_csv(
         timestamp_index = get_column_index(list(headers_indexes.keys()), "timestamp")
         for raw_row in reader:
             row: list[str | datetime | list[str] | None] = []
-            for header_metadata in headers_indexes.values():
+            for header_index, header_metadata in headers_indexes.items():
                 if len(header_metadata["indexes"]) == 1:
                     raw_row_value = raw_row[header_metadata["indexes"][0]]
                     # Ensure to keep the format for multi-column fields
@@ -62,8 +62,10 @@ def load_session_recording_events_from_csv(
                     else:
                         if header_metadata["multi_column"]:
                             row.append([])
-                        else:
+                        elif header_index in ("$window_id", "$current_url"):
                             row.append(None)
+                        else:
+                            row.append("")
                 # Ensure to combine all values for multi-column fields (like chain texts) into a single list
                 else:
                     # Store only non-empty values
