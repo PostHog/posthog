@@ -120,7 +120,8 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         self.assertEqual(len(response_data["keys"]), 1)
         self.assertEqual(response_data["keys"][0]["name"], "Old Org Key")
         self.assertEqual(
-            response_data["keys"][0]["last_used_at"], old_key.last_used_at.isoformat().replace("+00:00", "Z")
+            response_data["keys"][0]["last_used_at"],
+            old_key.last_used_at.isoformat().replace("+00:00", "Z") if old_key.last_used_at else None,
         )
 
         # Create a key that has been used recently - scoped to team
@@ -157,11 +158,20 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         # Find each key in the response and verify its last_used_at
         for key_data in response_data["keys"]:
             if key_data["name"] == "Old Org Key":
-                self.assertEqual(key_data["last_used_at"], old_key.last_used_at.isoformat().replace("+00:00", "Z"))
+                self.assertEqual(
+                    key_data["last_used_at"],
+                    old_key.last_used_at.isoformat().replace("+00:00", "Z") if old_key.last_used_at else None,
+                )
             elif key_data["name"] == "Team Key":
-                self.assertEqual(key_data["last_used_at"], team_key.last_used_at.isoformat().replace("+00:00", "Z"))
+                self.assertEqual(
+                    key_data["last_used_at"],
+                    team_key.last_used_at.isoformat().replace("+00:00", "Z") if team_key.last_used_at else None,
+                )
             elif key_data["name"] == "Global Key":
-                self.assertEqual(key_data["last_used_at"], global_key.last_used_at.isoformat().replace("+00:00", "Z"))
+                self.assertEqual(
+                    key_data["last_used_at"],
+                    global_key.last_used_at.isoformat().replace("+00:00", "Z") if global_key.last_used_at else None,
+                )
 
         # Create a key with null scoped teams and organizations (also applies to all orgs/teams)
         PersonalAPIKey.objects.create(

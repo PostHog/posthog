@@ -339,7 +339,7 @@ class OrganizationMembership(UUIDModel):
         has_keys = personal_api_keys.exists()
 
         # Check if any keys were used in the last week
-        one_week_ago = timezone.now() - timezone.timedelta(days=7)
+        one_week_ago = timezone.now() - timedelta(days=7)
         keys_active_last_week = personal_api_keys.filter(last_used_at__gte=one_week_ago).exists()
 
         # Get detailed information about each key
