@@ -88,6 +88,11 @@ await buildInParallel(
                             /scenes\/insights\/filters\/ActionFilter/,
                             /lib\/components\/CodeSnippet/,
                             /scenes\/session-recordings\/player/,
+                            /queries\/schema-guard/,
+                            /queries\/schema.json/,
+                            /queries\/QueryEditor\/QueryEditor/,
+                            /scenes\/billing/,
+                            /scenes\/data-warehouse/,
                         ]
 
                         build.onResolve({ filter: /.*/ }, (args) => {
@@ -114,13 +119,13 @@ await buildInParallel(
                                 contents: `
                                 module.exports = new Proxy({}, {
                                     get: function() {
-                                        console.warn('[TOOLBAR] Attempted to use denied module:', ${JSON.stringify(
-                                            args.path
-                                        )});
-                                        return function() { 
-                                            console.warn('[TOOLBAR] Called denied module:', ${JSON.stringify(
+                                        const shouldLog = window?.posthog?.config?.debug
+                                        if (shouldLog) {
+                                            console.warn('[TOOLBAR] Attempted to use denied module:', ${JSON.stringify(
                                                 args.path
                                             )});
+                                        }
+                                        return function() { 
                                             return {} 
                                         }
                                     }
