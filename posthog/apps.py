@@ -7,6 +7,7 @@ from django.apps import AppConfig
 from django.conf import settings
 from posthoganalytics.client import Client
 from posthoganalytics.exception_capture import Integrations
+from django.core.management import call_command
 
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.tasks.tasks import sync_all_organization_available_product_features
@@ -55,10 +56,12 @@ class PostHogConfig(AppConfig):
                     "development server launched",
                     {"git_rev": get_git_commit_short(), "git_branch": get_git_branch()},
                 )
-
         # load feature flag definitions if not already loaded
         if not posthoganalytics.disabled and posthoganalytics.feature_flag_definitions() is None:
             posthoganalytics.load_feature_flags()
+
+        if settings.HOG_FUNCTION_TEMPLATE_SYNC_ENABLED:
+            call_command("sync_hog_function_templates")
 
         from posthog.async_migrations.setup import setup_async_migrations
 
