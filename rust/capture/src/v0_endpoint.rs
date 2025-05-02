@@ -34,7 +34,7 @@ pub const MAX_CHARS_TO_CHECK: usize = 128;
 // flexible form schema to accommodate legacy quirks across SDKs/versions
 #[derive(Deserialize)]
 struct LegacyEventForm {
-    pub data: Vec<u8>,
+    pub data: Vec<u8>, // TODO(eli): this should be Option<Vec<u8>>
     pub compression: Option<Compression>,
     #[serde(alias = "ver")]
     pub lib_version: Option<String>,
