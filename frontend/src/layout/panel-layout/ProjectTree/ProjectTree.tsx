@@ -121,6 +121,7 @@ export function ProjectTree(): JSX.Element {
                         >
                             <ButtonPrimitive menuItem>{checkedItems[item.id] ? 'Deselect' : 'Select'}</ButtonPrimitive>
                         </MenuItem>
+
                         <MenuSeparator />
                     </>
                 ) : null}
@@ -174,12 +175,13 @@ export function ProjectTree(): JSX.Element {
                                 Create {checkedItemsCount} shortcut{checkedItemsCount === '1' ? '' : 's'} here
                             </ButtonPrimitive>
                         </MenuItem>
+
+                        <MenuSeparator />
                     </>
                 ) : null}
 
                 {item.record?.type === 'folder' || item.id?.startsWith('project-folder-empty/') ? (
                     <>
-                        <MenuSeparator />
                         <MenuSub key="new">
                             <MenuSubTrigger asChild>
                                 <ButtonPrimitive menuItem>
@@ -259,6 +261,7 @@ export function ProjectTree(): JSX.Element {
                                 })}
                             </MenuSubContent>
                         </MenuSub>
+
                         <MenuSeparator />
                     </>
                 ) : null}
