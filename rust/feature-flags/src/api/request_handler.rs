@@ -20,10 +20,10 @@ use common_cookieless::{CookielessServerHashMode, EventData, TeamData};
 use common_database::Client;
 use common_geoip::GeoIpClient;
 use common_metrics::inc;
+use common_request::{Compression, FlagsQueryParams, RequestInfo};
 use flate2::read::GzDecoder;
 use limiters::redis::ServiceName;
 use percent_encoding::percent_decode;
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
     collections::{HashMap, HashSet},
@@ -33,63 +33,12 @@ use std::{
 };
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum Compression {
-    #[serde(rename = "gzip", alias = "gzip-js")]
-    Gzip,
-    #[serde(rename = "base64")]
-    Base64,
-    #[default]
-    #[serde(other)]
-    Unsupported,
-}
-
-impl Compression {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Compression::Gzip => "gzip",
-            Compression::Base64 => "base64",
-            Compression::Unsupported => "unsupported",
-        }
-    }
-}
-
-#[derive(Clone, Deserialize, Default)]
-pub struct FlagsQueryParams {
-    /// Optional API version identifier
-    #[serde(alias = "v")]
-    pub version: Option<String>,
-
-    /// Compression type for the incoming request
-    pub compression: Option<Compression>,
-
-    /// Library version (alias: "ver")
-    #[serde(alias = "ver")]
-    pub lib_version: Option<String>,
-
-    /// Optional timestamp indicating when the request was sent
-    #[serde(alias = "_")]
-    pub sent_at: Option<i64>,
-}
 pub struct RequestContext {
     /// Shared state holding services (DB, Redis, GeoIP, etc.)
     pub state: State<router::State>,
 
-    /// Client IP
-    pub ip: IpAddr,
-
-    /// HTTP headers
-    pub headers: HeaderMap,
-
-    /// Query params (contains compression, library version, etc.)
-    pub meta: FlagsQueryParams,
-
-    /// Raw request body
-    pub body: Bytes,
-
-    /// Request ID
-    pub request_id: Uuid,
+    /// Information about the request
+    pub request: RequestInfo,
 }
 
 /// Represents the various property overrides that can be passed around
@@ -111,7 +60,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
     let flag_service = FlagService::new(context.state.redis.clone(), context.state.reader.clone());
 
     let (original_distinct_id, verified_token, request) =
-        parse_and_authenticate_request(&context, &flag_service).await?;
+        parse_and_authenticate_request(&context.request, &flag_service).await?;
 
     // Once we've verified the token, check if the token is billing limited (this will save us from hitting the DB if we have a quota-limited token)
     let billing_limited = context
@@ -126,7 +75,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
             flags: HashMap::new(),
             errors_while_computing_flags: false,
             quota_limited: Some(vec![ServiceName::FeatureFlags.as_string()]),
-            request_id: context.request_id,
+            request_id: context.request.id,
         });
     }
 
@@ -158,7 +107,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
         group_prop_overrides,
         groups,
         hash_key_override,
-        context.request_id,
+        context.request.id,
     )
     .await;
 
@@ -167,22 +116,22 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
 
 /// Parses the request body, extracts the distinct_id and token, then verifies the token.
 async fn parse_and_authenticate_request(
-    context: &RequestContext,
+    request: &RequestInfo,
     flag_service: &FlagService,
 ) -> Result<(String, String, FlagRequest), FlagError> {
-    let RequestContext {
+    let RequestInfo {
         headers,
         body,
         meta,
         ..
-    } = context;
+    } = request;
 
-    let request = decode_request(headers, body.clone(), meta)?;
-    let distinct_id = request.extract_distinct_id()?;
-    let token = request.extract_token()?;
+    let flag_request = decode_request(headers, body.clone(), meta)?;
+    let distinct_id = flag_request.extract_distinct_id()?;
+    let token = flag_request.extract_token()?;
     let verified_token = flag_service.verify_token(&token).await?;
 
-    Ok((distinct_id, verified_token, request))
+    Ok((distinct_id, verified_token, flag_request))
 }
 
 /// Fetches flags from cache/DB and filters them based on requested keys, if any.
@@ -215,7 +164,7 @@ fn prepare_property_overrides(
     let person_property_overrides = get_person_property_overrides(
         geoip_enabled,
         request.person_properties.clone(),
-        &context.ip,
+        &context.request.ip,
         &context.state.geoip,
     );
 
@@ -528,17 +477,20 @@ async fn handle_cookieless_distinct_id(
     distinct_id: String,
 ) -> Result<String, FlagError> {
     let event_data = EventData {
-        ip: &context.ip.to_string(),
+        ip: &context.request.ip.to_string(),
         timestamp_ms: context
+            .request
             .meta
             .sent_at
             .unwrap_or_else(|| chrono::Utc::now().timestamp_millis()) as u64,
         host: context
+            .request
             .headers
             .get(ORIGIN)
             .map(|h| h.to_str().unwrap_or(""))
             .unwrap_or(""),
         user_agent: context
+            .request
             .headers
             .get(USER_AGENT)
             .map(|h| h.to_str().unwrap_or(""))
@@ -566,6 +518,7 @@ async fn handle_cookieless_distinct_id(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::{
         api::types::{
             FlagDetails, FlagDetailsMetadata, FlagEvaluationReason, FlagValue, LegacyFlagsResponse,
@@ -578,9 +531,8 @@ mod tests {
             setup_pg_writer_client,
         },
     };
-
-    use super::*;
     use axum::http::HeaderMap;
+    use common_request::{Compression, FlagsQueryParams};
     use serde_json::{json, Value};
     use std::net::{Ipv4Addr, Ipv6Addr};
 

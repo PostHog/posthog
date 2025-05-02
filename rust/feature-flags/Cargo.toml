@@ -14,6 +14,7 @@ chrono = { workspace = true }
 common-cookieless = { path = "../common/cookieless" }
 common-database = { path = "../common/database" }
 common-redis = { path = "../common/redis" }
+common-request = { path = "../common/request" }
 common-types = { path = "../common/types" }
 envconfig = { workspace = true }
 limiters = { path = "../common/limiters" }

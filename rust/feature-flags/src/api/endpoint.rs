@@ -1,6 +1,6 @@
 use crate::{
     api::errors::FlagError,
-    api::request_handler::{process_request, FlagsQueryParams, RequestContext},
+    api::request_handler::{process_request, RequestContext},
     api::types::{FlagsOptionsResponse, FlagsResponseCode, LegacyFlagsResponse, ServiceResponse},
     router,
 };
@@ -10,6 +10,7 @@ use axum::http::{HeaderMap, Method};
 use axum::{debug_handler, Json};
 use axum_client_ip::InsecureClientIp;
 use bytes::Bytes;
+use common_request::{FlagsQueryParams, RequestInfo};
 use uuid::Uuid;
 
 /// Feature flag evaluation endpoint.
@@ -27,15 +28,19 @@ pub async fn flags(
     let request_id = Uuid::new_v4();
 
     let context = RequestContext {
-        request_id,
+        request: RequestInfo {
+            id: request_id,
+            ip,
+            headers: headers.clone(),
+            meta: query_params.clone(),
+            body,
+            method,
+        },
         state,
-        ip,
-        headers: headers.clone(),
-        meta: query_params.clone(),
-        body,
     };
 
     let version = context
+        .request
         .meta
         .version
         .clone()
@@ -49,7 +54,7 @@ pub async fn flags(
         let _span = create_request_span(
             &headers,
             &query_params,
-            &method,
+            &context.request.method,
             &path,
             &ip.to_string(),
             request_id,
@@ -112,14 +117,13 @@ fn create_request_span(
 
 #[cfg(test)]
 mod tests {
-    use crate::api::request_handler::Compression;
-
     use super::*;
     use axum::{
         body::Body,
         extract::{FromRequest, Request},
         http::Uri,
     };
+    use common_request::{Compression, FlagsQueryParams};
 
     #[tokio::test]
     async fn test_query_param_extraction() {

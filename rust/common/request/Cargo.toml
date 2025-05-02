@@ -1,0 +1,15 @@
+[package]
+name = "common-request"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+tracing = { workspace = true }
+serde = { workspace = true }
+bytes = { workspace = true }
+axum = { workspace = true }
+uuid = { workspace = true }
+
+[lints]
+workspace = true

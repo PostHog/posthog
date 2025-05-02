@@ -9,11 +9,8 @@ use bytes::Bytes;
 use tracing::error;
 use uuid::Uuid;
 
-use crate::api::{
-    errors::FlagError,
-    request_handler::{decode_request, FlagsQueryParams},
-    types::LegacyFlagsResponse,
-};
+use crate::api::{errors::FlagError, request_handler::decode_request, types::LegacyFlagsResponse};
+use common_request::FlagsQueryParams;
 
 // Metrics constants for test endpoint
 pub const REQUEST_SEEN: &str = "flags_test_request_seen";

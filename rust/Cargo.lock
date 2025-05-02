@@ -1500,6 +1500,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-request"
+version = "0.1.0"
+dependencies = [
+ "axum 0.7.5",
+ "bytes",
+ "serde",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "common-types"
 version = "0.1.0"
 dependencies = [
@@ -2249,6 +2260,7 @@ dependencies = [
  "common-geoip",
  "common-metrics",
  "common-redis",
+ "common-request",
  "common-types",
  "dateparser",
  "envconfig",
