@@ -104,8 +104,12 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         parent_param = self.request.query_params.get("parent")
         path_param = self.request.query_params.get("path")
         type_param = self.request.query_params.get("type")
+        not_type_param = self.request.query_params.get("not_type")
         type__startswith_param = self.request.query_params.get("type__startswith")
         ref_param = self.request.query_params.get("ref")
+        order_by_param = self.request.query_params.get("order_by")
+        created_at__gt = self.request.query_params.get("created_at__gt")
+        created_at__lt = self.request.query_params.get("created_at__lt")
 
         if depth_param is not None:
             try:
@@ -113,8 +117,31 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 queryset = queryset.filter(depth=depth_value)
             except ValueError:
                 pass
+        if path_param:
+            queryset = queryset.filter(path=path_param)
+        if parent_param:
+            queryset = queryset.filter(path__startswith=f"{parent_param}/")
+        if type_param:
+            queryset = queryset.filter(type=type_param)
+        if not_type_param:
+            queryset = queryset.exclude(type=not_type_param)
+        if type__startswith_param:
+            queryset = queryset.filter(type__startswith=type__startswith_param)
+        if created_at__gt:
+            queryset = queryset.filter(created_at__gt=created_at__gt)
+        if created_at__lt:
+            queryset = queryset.filter(created_at__lt=created_at__lt)
 
-        if self.action == "list":
+        if self.user_access_control:
+            queryset = self.user_access_control.filter_and_annotate_file_system_queryset(queryset)
+
+        if ref_param:
+            queryset = queryset.filter(ref=ref_param)
+            queryset = queryset.order_by("shortcut")  # override order
+        elif order_by_param:
+            if order_by_param in ["path", "-path", "created_at", "-created_at"]:
+                queryset = queryset.order_by(order_by_param)
+        elif self.action == "list":
             if depth_param is not None:
                 queryset = queryset.order_by(
                     Case(
@@ -126,20 +153,6 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
             else:
                 queryset = queryset.order_by(Lower("path"))
-        if path_param:
-            queryset = queryset.filter(path=path_param)
-        if parent_param:
-            queryset = queryset.filter(path__startswith=f"{parent_param}/")
-        if type_param:
-            queryset = queryset.filter(type=type_param)
-        if type__startswith_param:
-            queryset = queryset.filter(type__startswith=type__startswith_param)
-        if ref_param:
-            queryset = queryset.filter(ref=ref_param)
-            queryset = queryset.order_by("shortcut")  # override order
-
-        if self.user_access_control:
-            queryset = self.user_access_control.filter_and_annotate_file_system_queryset(queryset)
 
         return queryset
 

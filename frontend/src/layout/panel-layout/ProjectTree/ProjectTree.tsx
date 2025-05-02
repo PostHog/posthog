@@ -31,10 +31,14 @@ import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import { PanelLayoutPanel } from '../PanelLayoutPanel'
-import { projectTreeLogic } from './projectTreeLogic'
+import { projectTreeLogic, ProjectTreeSortMethod } from './projectTreeLogic'
 import { calculateMovePath } from './utils'
 
-export function ProjectTree(): JSX.Element {
+export interface ProjectTreeProps {
+    sortMethod: ProjectTreeSortMethod
+}
+
+export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
     const {
         treeData,
         treeTableKeys,
@@ -54,6 +58,7 @@ export function ProjectTree(): JSX.Element {
         movingItems,
         treeTableColumnSizes,
         treeTableTotalWidth,
+        sortMethod: projectSortMethod,
         selectMode,
     } = useValues(projectTreeLogic)
 
@@ -76,6 +81,7 @@ export function ProjectTree(): JSX.Element {
         clearScrollTarget,
         setEditingItemId,
         setMovingItems,
+        setSortMethod,
         setTreeTableColumnSizes,
         setSelectMode,
     } = useActions(projectTreeLogic)
@@ -94,6 +100,12 @@ export function ProjectTree(): JSX.Element {
     useEffect(() => {
         setPanelTreeRef(treeRef)
     }, [treeRef, setPanelTreeRef])
+
+    useEffect(() => {
+        if (projectSortMethod !== sortMethod) {
+            setSortMethod(sortMethod)
+        }
+    }, [sortMethod, projectSortMethod])
 
     // When logic requests a scroll, focus the item and clear the request
     useEffect(() => {
@@ -339,12 +351,14 @@ export function ProjectTree(): JSX.Element {
 
     return (
         <PanelLayoutPanel
-            searchPlaceholder="Search your project"
+            searchPlaceholder={sortMethod === 'recent' ? 'Search recent items' : 'Search your project'}
             panelActions={
                 <>
-                    <ButtonPrimitive onClick={() => createFolder('')} tooltip="New root folder" iconOnly>
-                        <IconFolderPlus className="text-tertiary" />
-                    </ButtonPrimitive>
+                    {sortMethod !== 'recent' ? (
+                        <ButtonPrimitive onClick={() => createFolder('')} tooltip="New root folder" iconOnly>
+                            <IconFolderPlus className="text-tertiary" />
+                        </ButtonPrimitive>
+                    ) : null}
 
                     {selectMode === 'default' && checkedItemCountNumeric === 0 ? (
                         <ButtonPrimitive onClick={() => setSelectMode('multi')} tooltip="Enable multi-select" iconOnly>
@@ -390,6 +404,10 @@ export function ProjectTree(): JSX.Element {
                     />
                 </ButtonPrimitive>
             </FlaggedFeature>
+
+            <div role="status" aria-live="polite" className="sr-only">
+                Sorted {sortMethod === 'recent' ? 'by creation date' : 'alphabetically'}
+            </div>
 
             <LemonTree
                 ref={treeRef}
@@ -441,7 +459,7 @@ export function ProjectTree(): JSX.Element {
                 }}
                 expandedItemIds={searchTerm ? expandedSearchFolders : expandedFolders}
                 onSetExpandedItemIds={searchTerm ? setExpandedSearchFolders : setExpandedFolders}
-                enableDragAndDrop={true}
+                enableDragAndDrop={sortMethod === 'folder'}
                 onDragEnd={(dragEvent) => {
                     const itemToId = (item: FileSystemEntry): string =>
                         item.type === 'folder' ? 'project-folder/' + item.path : 'project/' + item.id

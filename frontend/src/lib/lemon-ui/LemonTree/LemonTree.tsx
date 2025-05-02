@@ -255,8 +255,8 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
 
         return (
             <div
-                className={cn('flex flex-col gap-y-px list-none m-0 p-0 h-full overflow-hidden', className, {
-                    'overflow-x-auto pt-0': mode === 'table' && depth === 0,
+                className={cn('list-none m-0 p-0 h-full w-full', className, {
+                    'overflow-x-auto overflow-y-hidden pt-0': mode === 'table' && depth === 0,
                 })}
             >
                 {data.map((item, index) => {
@@ -557,7 +557,14 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                     // If table and first level, show table headers
                     if (index === 0 && depth === 0 && mode === 'table') {
                         return (
-                            <div className="flex flex-col gap-1 sticky top-0" key={`table-header-${item.id}`}>
+                            <div
+                                className="flex flex-col gap-1"
+                                key={`table-header-${item.id}`}
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{
+                                    width: `${tableModeTotalWidth}px`,
+                                }}
+                            >
                                 <div className="relative h-[30px] opacity-100 border-b border-primary -ml-[3px] motion-safe:transition-[height,display] duration-200 starting:h-0 [transition-behavior:allow-discrete] z-5">
                                     {tableModeHeader?.()}
                                 </div>
