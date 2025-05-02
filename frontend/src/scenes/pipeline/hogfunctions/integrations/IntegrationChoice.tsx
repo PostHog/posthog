@@ -1,11 +1,11 @@
 import { IconExternal, IconX } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { getEmailSetupModal } from 'products/messaging/frontend/EmailSetup/EmailSetupModal'
+import { EmailSetupModal } from 'products/messaging/frontend/EmailSetup/EmailSetupModal'
 import { urls } from 'scenes/urls'
 
 import { HogFunctionInputSchemaType } from '~/types'
@@ -27,8 +27,8 @@ export function IntegrationChoice({
     redirectUrl,
     beforeRedirect,
 }: IntegrationConfigureProps): JSX.Element | null {
-    const { integrationsLoading, integrations } = useValues(integrationsLogic)
-    const { newGoogleCloudKey } = useActions(integrationsLogic)
+    const { integrationsLoading, integrations, isSetupModalOpen } = useValues(integrationsLogic)
+    const { newGoogleCloudKey, openSetupModal, closeSetupModal } = useActions(integrationsLogic)
     const kind = integration
 
     const integrationsOfKind = integrations?.filter((x) => x.kind === kind)
@@ -69,15 +69,21 @@ export function IntegrationChoice({
         input.click()
     }
 
-    function showEmailSetupModal(): void {
-        const modalProps = getEmailSetupModal({
-            onComplete: (integrationId: number) => {
-                onChange?.(integrationId)
-            },
-        })
-
-        if (modalProps) {
-            LemonDialog.open(modalProps)
+    function getSetupModal(): JSX.Element | null {
+        switch (kind) {
+            case 'email':
+                return (
+                    <EmailSetupModal
+                        onComplete={(integrationId?: number) => {
+                            if (integrationId) {
+                                onChange?.(integrationId)
+                            }
+                            closeSetupModal()
+                        }}
+                    />
+                )
+            default:
+                return null
         }
     }
 
@@ -109,7 +115,7 @@ export function IntegrationChoice({
                     ? {
                           items: [
                               {
-                                  onClick: showEmailSetupModal,
+                                  onClick: () => openSetupModal(),
                                   label: 'Configure email sender domain',
                               },
                           ],
@@ -162,6 +168,7 @@ export function IntegrationChoice({
             ) : (
                 button
             )}
+            {isSetupModalOpen && getSetupModal()}
         </>
     )
 }

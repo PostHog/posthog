@@ -43,9 +43,10 @@ export const productScenes: Record<string, () => Promise<any>> = {
     LLMObservabilityUsers: () => import('../../products/llm_observability/frontend/LLMObservabilityUsers'),
     MessagingCampaigns: () => import('../../products/messaging/frontend/Campaigns'),
     MessagingBroadcasts: () => import('../../products/messaging/frontend/Broadcasts'),
-    MessagingLibrary: () => import('../../products/messaging/frontend/library/MessageLibrary'),
-    MessagingLibraryTemplate: () => import('../../products/messaging/frontend/library/MessageTemplate'),
+    MessagingLibrary: () => import('../../products/messaging/frontend/Library/MessageLibrary'),
+    MessagingLibraryTemplate: () => import('../../products/messaging/frontend/Library/MessageTemplate'),
     MessageCampaign: () => import('../../products/messaging/frontend/MessageCampaign'),
+    MessageSenders: () => import('../../products/messaging/frontend/Senders/MessageSenders'),
     RevenueAnalytics: () => import('../../products/revenue_analytics/frontend/RevenueAnalyticsScene'),
 }
 
@@ -74,6 +75,7 @@ export const productRoutes: Record<string, [string, string]> = {
         'MessagingLibraryTemplate',
         'messagingLibraryTemplateFromMessage',
     ],
+    '/messaging/senders': ['MessageSenders', 'messageSenders'],
     '/revenue_analytics': ['RevenueAnalytics', 'revenueAnalytics'],
 }
 
@@ -123,6 +125,7 @@ export const productConfiguration: Record<string, any> = {
     MessagingLibrary: { name: 'Messaging', projectBased: true },
     MessagingLibraryTemplate: { name: 'Messaging', projectBased: true },
     MessageCampaign: { name: 'Messaging', projectBased: true },
+    MessageSenders: { name: 'Messaging', projectBased: true },
     RevenueAnalytics: {
         name: 'Revenue Analytics',
         projectBased: true,
@@ -194,6 +197,7 @@ export const productUrls = {
     messagingLibrary: (): string => '/messaging/library',
     messagingLibraryTemplate: (id?: string): string => `/messaging/library/templates/${id}`,
     messagingLibraryTemplateFromMessage: (id?: string): string => `/messaging/library/templates/new?messageId=${id}`,
+    messageSenders: (): string => '/messaging/senders',
     notebooks: (): string => '/notebooks',
     notebook: (shortId: string): string => `/notebooks/${shortId}`,
     canvas: (): string => `/canvas`,

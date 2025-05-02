@@ -18,17 +18,22 @@ export const manifest: ProductManifest = {
             projectBased: true,
         },
         MessagingLibrary: {
-            import: () => import('./frontend/library/MessageLibrary'),
+            import: () => import('./frontend/Library/MessageLibrary'),
             name: 'Messaging',
             projectBased: true,
         },
         MessagingLibraryTemplate: {
-            import: () => import('./frontend/library/MessageTemplate'),
+            import: () => import('./frontend/Library/MessageTemplate'),
             name: 'Messaging',
             projectBased: true,
         },
         MessageCampaign: {
             import: () => import('./frontend/MessageCampaign'),
+            name: 'Messaging',
+            projectBased: true,
+        },
+        MessageSenders: {
+            import: () => import('./frontend/Senders/MessageSenders'),
             name: 'Messaging',
             projectBased: true,
         },
@@ -50,6 +55,7 @@ export const manifest: ProductManifest = {
             'MessagingLibraryTemplate',
             'messagingLibraryTemplateFromMessage',
         ],
+        '/messaging/senders': ['MessageSenders', 'messageSenders'],
     },
     redirects: {
         '/messaging': '/messaging/broadcasts',
@@ -67,6 +73,7 @@ export const manifest: ProductManifest = {
         messagingLibraryTemplate: (id?: string): string => `/messaging/library/templates/${id}`,
         messagingLibraryTemplateFromMessage: (id?: string): string =>
             `/messaging/library/templates/new?messageId=${id}`,
+        messageSenders: (): string => '/messaging/senders',
     },
     fileSystemTypes: {
         'hog_function/broadcast': {

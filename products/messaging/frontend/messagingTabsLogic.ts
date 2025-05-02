@@ -23,6 +23,7 @@ export const messagingTabsLogic = kea<messagingTabsLogicType>([
                         campaigns: urls.messagingCampaigns(),
                         broadcasts: urls.messagingBroadcasts(),
                         library: urls.messagingLibrary(),
+                        senders: urls.messageSenders(),
                     }[values.currentTab] ?? urls.messagingBroadcasts()
                 )
             }

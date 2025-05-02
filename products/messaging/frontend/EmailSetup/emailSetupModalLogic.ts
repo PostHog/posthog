@@ -4,10 +4,12 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
+import { IntegrationType } from '~/types'
+
 import type { emailSetupModalLogicType } from './emailSetupModalLogicType'
 
 export interface EmailSetupModalLogicProps {
-    onComplete: (integrationId: number) => void
+    onComplete: (integrationId?: number) => void
 }
 
 export interface DnsRecord {
@@ -52,6 +54,7 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
     })),
     loaders(({ values }) => ({
         integration: {
+            setIntegration: (integration: IntegrationType) => integration,
             submitDomain: () => {
                 return api.integrations.create({
                     kind: 'email',

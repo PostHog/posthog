@@ -12,6 +12,7 @@ export function MessagingTabs(): JSX.Element {
         { key: 'broadcasts', label: 'Broadcasts' },
         { key: 'campaigns', label: 'Campaigns' },
         { key: 'library', label: 'Templates' },
+        { key: 'senders', label: 'Senders' },
     ]
 
     return <LemonTabs activeKey={currentTab} onChange={(tab) => setTab(tab as MessagingTab)} tabs={tabs} />
