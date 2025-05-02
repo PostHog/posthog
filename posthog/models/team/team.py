@@ -535,6 +535,7 @@ class Team(UUIDClassicModel):
         setattr(self, field_name, new_token)
         self.save()
         set_team_in_cache(old_token, None)
+        set_team_in_cache(new_token, self)
         log_activity(
             organization_id=self.organization_id,
             team_id=self.pk,
