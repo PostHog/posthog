@@ -1,15 +1,17 @@
 package main
 
 import (
-	"errors"
 	"log"
 	"net/http"
 	"time"
 
-	"github.com/getsentry/sentry-go"
 	"github.com/labstack/echo-contrib/echoprometheus"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+	"github.com/posthog/posthog/livestream/auth"
+	"github.com/posthog/posthog/livestream/events"
+	"github.com/posthog/posthog/livestream/geo"
+	"github.com/posthog/posthog/livestream/handlers"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/viper"
@@ -18,70 +20,61 @@ import (
 func main() {
 	loadConfigs()
 
-	isProd := viper.GetBool("prod")
-
-	err := sentry.Init(sentry.ClientOptions{
-		Dsn:              viper.GetString("sentry.dsn"),
-		Debug:            !isProd,
-		AttachStacktrace: true,
-	})
-	if err != nil {
-		sentry.CaptureException(err)
-		log.Fatalf("sentry.Init: %s", err)
-	}
-	// Flush buffered events before the program terminates.
-	// Set the timeout to the maximum duration the program can afford to wait.
-	defer sentry.Flush(2 * time.Second)
-
+	isDebug := viper.GetBool("debug")
 	mmdb := viper.GetString("mmdb.path")
 	if mmdb == "" {
-		sentry.CaptureException(errors.New("mmdb.path must be set"))
+		// TODO capture error to PostHog
 		log.Fatal("mmdb.path must be set")
 	}
 	brokers := viper.GetString("kafka.brokers")
 	if brokers == "" {
-		sentry.CaptureException(errors.New("kafka.brokers must be set"))
+		// TODO capture error to PostHog
 		log.Fatal("kafka.brokers must be set")
 	}
 	topic := viper.GetString("kafka.topic")
 	if topic == "" {
-		sentry.CaptureException(errors.New("kafka.topic must be set"))
+		// TODO capture error to PostHog
 		log.Fatal("kafka.topic must be set")
 	}
 	groupID := viper.GetString("kafka.group_id")
 	if groupID == "" {
-		sentry.CaptureException(errors.New("kafka.group_id must be set"))
+		// TODO capture error to PostHog
 		log.Fatal("kafka.group_id must be set")
 	}
+	parallelism := viper.GetInt("parallelism")
+	if parallelism == 0 {
+		parallelism = 1
+	}
 
-	geolocator, err := NewMaxMindGeoLocator(mmdb)
+	geolocator, err := geo.NewMaxMindGeoLocator(mmdb)
 	if err != nil {
-		sentry.CaptureException(err)
+		// TODO capture error to PostHog
 		log.Fatalf("Failed to open MMDB: %v", err)
 	}
 
-	stats := newStatsKeeper()
+	stats := events.NewStatsKeeper()
 
-	phEventChan := make(chan PostHogEvent)
-	statsChan := make(chan PostHogEvent)
-	subChan := make(chan Subscription)
-	unSubChan := make(chan Subscription)
+	phEventChan := make(chan events.PostHogEvent, 10000)
+	statsChan := make(chan events.CountEvent, 10000)
+	subChan := make(chan events.Subscription, 10000)
+	unSubChan := make(chan events.Subscription, 10000)
 
-	go stats.keepStats(statsChan)
+	go stats.KeepStats(statsChan)
 
 	kafkaSecurityProtocol := "SSL"
-	if !isProd {
+	if isDebug {
 		kafkaSecurityProtocol = "PLAINTEXT"
 	}
-	consumer, err := NewPostHogKafkaConsumer(brokers, kafkaSecurityProtocol, groupID, topic, geolocator, phEventChan, statsChan)
+	consumer, err := events.NewPostHogKafkaConsumer(brokers, kafkaSecurityProtocol, groupID, topic, geolocator, phEventChan,
+		statsChan, parallelism)
 	if err != nil {
-		sentry.CaptureException(err)
+		// TODO capture error to PostHog
 		log.Fatalf("Failed to create Kafka consumer: %v", err)
 	}
 	defer consumer.Close()
 	go consumer.Consume()
 
-	filter := NewFilter(subChan, unSubChan, phEventChan)
+	filter := events.NewFilter(subChan, unSubChan, phEventChan)
 	go filter.Run()
 
 	// Echo instance
@@ -103,7 +96,7 @@ func main() {
 	}))
 
 	// Routes
-	e.GET("/", index)
+	e.GET("/", handlers.Index)
 
 	// For details why promhttp.Handler won't work: https://github.com/prometheus/client_golang/issues/622
 	e.GET("/metrics", echo.WrapHandler(promhttp.InstrumentMetricHandler(
@@ -111,22 +104,22 @@ func main() {
 		promhttp.HandlerFor(prometheus.DefaultGatherer, promhttp.HandlerOpts{DisableCompression: true}),
 	)))
 
-	e.GET("/served", servedHandler(stats))
+	e.GET("/served", handlers.ServedHandler(stats))
 
-	e.GET("/stats", statsHandler(stats))
+	e.GET("/stats", handlers.StatsHandler(stats))
 
-	e.GET("/events", streamEventsHandler(e.Logger, subChan, filter))
+	e.GET("/events", handlers.StreamEventsHandler(e.Logger, subChan, filter))
 
-	e.GET("/jwt", func(c echo.Context) error {
-		claims, err := getAuth(c.Request().Header)
-		if err != nil {
-			return err
-		}
+	if isDebug {
+		e.GET("/jwt", func(c echo.Context) error {
+			claims, err := auth.GetAuth(c.Request().Header)
+			if err != nil {
+				return err
+			}
 
-		return c.JSON(http.StatusOK, claims)
-	})
+			return c.JSON(http.StatusOK, claims)
+		})
 
-	if !isProd {
 		e.File("/debug", "./index.html")
 		e.GET("/debug/sse", func(c echo.Context) error {
 			e.Logger.Printf("Map client connected, ip: %v", c.RealIP())
@@ -144,7 +137,7 @@ func main() {
 					e.Logger.Printf("SSE client disconnected, ip: %v", c.RealIP())
 					return nil
 				case <-ticker.C:
-					event := Event{
+					event := handlers.Event{
 						Data: []byte("ping: " + time.Now().Format(time.RFC3339Nano)),
 					}
 					if err := event.WriteTo(w); err != nil {

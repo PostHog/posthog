@@ -26,6 +26,7 @@ const BREAKDOWN_TYPE_MAP: Partial<
     [WebStatsBreakdown.InitialUTMMedium]: PropertyFilterType.Session,
     [WebStatsBreakdown.InitialUTMContent]: PropertyFilterType.Session,
     [WebStatsBreakdown.InitialUTMTerm]: PropertyFilterType.Session,
+    [WebStatsBreakdown.FrustrationMetrics]: PropertyFilterType.Event,
 }
 
 /**
@@ -46,6 +47,7 @@ const BREAKDOWN_KEY_MAP: Partial<Record<WebStatsBreakdown, string>> = {
     [WebStatsBreakdown.InitialUTMMedium]: '$entry_utm_medium',
     [WebStatsBreakdown.InitialUTMContent]: '$entry_utm_content',
     [WebStatsBreakdown.InitialUTMTerm]: '$entry_utm_term',
+    [WebStatsBreakdown.FrustrationMetrics]: '$pathname',
 }
 
 interface ReplayButtonProps {

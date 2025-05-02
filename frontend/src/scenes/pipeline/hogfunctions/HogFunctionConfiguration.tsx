@@ -24,6 +24,8 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
+import { HogFunctionBroadcastDelivery } from 'products/messaging/frontend/HogFunctionCustomConfiguration/HogFunctionBroadcastDelivery'
+import { useRef } from 'react'
 import { urls } from 'scenes/urls'
 
 import { AvailableFeature } from '~/types'
@@ -37,7 +39,6 @@ import { HogFunctionStatusIndicator } from './HogFunctionStatusIndicator'
 import { HogFunctionTest } from './HogFunctionTest'
 import { HogFunctionMappings } from './mapping/HogFunctionMappings'
 import { HogFunctionEventEstimates } from './metrics/HogFunctionEventEstimates'
-
 export interface HogFunctionConfigurationProps {
     templateId?: string | null
     id?: string | null
@@ -52,6 +53,7 @@ export interface HogFunctionConfigurationProps {
         showStatus?: boolean
         showEnabled?: boolean
         showTesting?: boolean
+        hideTestingConfiguration?: boolean
         canEditSource?: boolean
         showPersonsCount?: boolean
     }
@@ -86,7 +88,9 @@ export function HogFunctionConfiguration({
         type,
         usesGroups,
         hasGroupsAddon,
+        mightDropEvents,
     } = useValues(logic)
+
     const {
         submitConfiguration,
         resetForm,
@@ -98,6 +102,7 @@ export function HogFunctionConfiguration({
         deleteHogFunction,
     } = useActions(logic)
     const canEditTransformationHogCode = useFeatureFlag('HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED')
+    const sourceCodeRef = useRef<HTMLDivElement>(null)
 
     if (loading && !loaded) {
         return <SpinnerOverlay />
@@ -177,15 +182,24 @@ export function HogFunctionConfiguration({
     const showOverview = !(displayOptions.hideOverview ?? false)
     const showFilters =
         displayOptions.showFilters ??
-        ['destination', 'internal_destination', 'site_destination', 'broadcast'].includes(type)
-    const showExpectedVolume = displayOptions.showExpectedVolume ?? ['destination', 'site_destination'].includes(type)
+        ['destination', 'internal_destination', 'site_destination', 'broadcast', 'email', 'transformation'].includes(
+            type
+        )
+    const showExpectedVolume =
+        displayOptions.showExpectedVolume ?? ['destination', 'site_destination', 'transformation'].includes(type)
     const showStatus =
         displayOptions.showStatus ?? ['destination', 'internal_destination', 'email', 'transformation'].includes(type)
     const showEnabled =
         displayOptions.showEnabled ??
-        ['destination', 'internal_destination', 'email', 'site_destination', 'site_app', 'transformation'].includes(
-            type
-        )
+        [
+            'destination',
+            'internal_destination',
+            'email',
+            'site_destination',
+            'site_app',
+            'transformation',
+            'broadcast',
+        ].includes(type)
     const canEditSource =
         displayOptions.canEditSource ??
         // Never allow editing for legacy plugins
@@ -194,8 +208,7 @@ export function HogFunctionConfiguration({
                 (type === 'transformation' && canEditTransformationHogCode)))
     const showPersonsCount = displayOptions.showPersonsCount ?? ['broadcast'].includes(type)
     const showTesting =
-        displayOptions.showTesting ??
-        ['destination', 'internal_destination', 'transformation', 'broadcast', 'email'].includes(type)
+        displayOptions.showTesting ?? ['destination', 'internal_destination', 'transformation', 'email'].includes(type)
 
     const showLeftPanel = showOverview || showExpectedVolume || showPersonsCount || showFilters
 
@@ -234,7 +247,7 @@ export function HogFunctionConfiguration({
                     formKey="configuration"
                     className="deprecated-space-y-3"
                 >
-                    <div className="flex flex-wrap items-start gap-4">
+                    <div className="flex flex-wrap gap-4 items-start">
                         {showLeftPanel && (
                             <div className="flex flex-col flex-1 gap-4 min-w-100">
                                 <div
@@ -243,7 +256,7 @@ export function HogFunctionConfiguration({
                                         !embedded && 'border rounded'
                                     )}
                                 >
-                                    <div className="flex flex-row items-center gap-2 min-h-16">
+                                    <div className="flex flex-row gap-2 items-center min-h-16">
                                         <LemonField name="icon_url">
                                             {({ value, onChange }) => (
                                                 <HogFunctionIconEditable
@@ -254,7 +267,7 @@ export function HogFunctionConfiguration({
                                             )}
                                         </LemonField>
 
-                                        <div className="flex flex-col items-start justify-start flex-1 py-1">
+                                        <div className="flex flex-col flex-1 justify-start items-start py-1">
                                             <span className="font-semibold">{configuration.name}</span>
                                             {template && <DestinationTag status={template.status} />}
                                         </div>
@@ -297,7 +310,7 @@ export function HogFunctionConfiguration({
                                                         this function is not affected unless you choose to update it.
                                                     </p>
 
-                                                    <div className="flex items-center flex-1 gap-2 pt-2 border-t">
+                                                    <div className="flex flex-1 gap-2 items-center pt-2 border-t">
                                                         <div className="flex-1">
                                                             <LemonButton>Close</LemonButton>
                                                         </div>
@@ -321,8 +334,8 @@ export function HogFunctionConfiguration({
                                                 </div>
                                             }
                                         >
-                                            <div className="text-xs border border-dashed rounded text-secondary">
-                                                <Link subtle className="flex flex-wrap items-center gap-1 p-2">
+                                            <div className="text-xs rounded border border-dashed text-secondary">
+                                                <Link subtle className="flex flex-wrap gap-1 items-center p-2">
                                                     Built from template:
                                                     <span className="font-semibold">{hogFunction?.template.name}</span>
                                                     <DestinationTag status={hogFunction.template.status} />
@@ -338,7 +351,7 @@ export function HogFunctionConfiguration({
                                 {showFilters && <HogFunctionFilters />}
 
                                 {showPersonsCount && (
-                                    <div className="relative p-3 deprecated-space-y-2 border rounded bg-surface-primary">
+                                    <div className="relative p-3 rounded border deprecated-space-y-2 bg-surface-primary">
                                         <div>
                                             <LemonLabel>Matching persons</LemonLabel>
                                         </div>
@@ -350,6 +363,7 @@ export function HogFunctionConfiguration({
                                                         // TODO: swap for a link to the persons page
                                                         combineUrl(urls.activity(), {}, { q: personsListQuery }).url
                                                     }
+                                                    target="_blank"
                                                 >
                                                     <strong>
                                                         {personsCount ?? 0} {personsCount !== 1 ? 'people' : 'person'}
@@ -372,6 +386,15 @@ export function HogFunctionConfiguration({
                         )}
 
                         <div className="deprecated-space-y-4 flex-2 min-w-100">
+                            {mightDropEvents && (
+                                <div>
+                                    <LemonBanner type="info">
+                                        <b>Warning:</b> This transformation can filter out events, dropping them
+                                        irreversibly. Make sure to double check your configuration, and use filters to
+                                        limit the events that this transformation is applied to.
+                                    </LemonBanner>
+                                </div>
+                            )}
                             <div
                                 className={clsx(
                                     'p-3 deprecated-space-y-2 bg-surface-primary',
@@ -381,7 +404,7 @@ export function HogFunctionConfiguration({
                                 <div className="deprecated-space-y-2">
                                     {usesGroups && !hasGroupsAddon ? (
                                         <LemonBanner type="warning">
-                                            <span className="flex items-center gap-2">
+                                            <span className="flex gap-2 items-center">
                                                 This function appears to use Groups but you do not have the Groups
                                                 Analytics addon. Without it, you may see empty values where you use
                                                 templates like {'"{groups.kind.properties}"'}
@@ -425,12 +448,13 @@ export function HogFunctionConfiguration({
 
                             {canEditSource && (
                                 <div
+                                    ref={sourceCodeRef}
                                     className={clsx(
-                                        'border rounded p-3 deprecated-space-y-2',
+                                        'p-3 rounded border deprecated-space-y-2',
                                         showSource ? 'bg-surface-primary' : 'bg-surface-secondary'
                                     )}
                                 >
-                                    <div className="flex items-center justify-end gap-2">
+                                    <div className="flex gap-2 justify-end items-center">
                                         <div className="flex-1 deprecated-space-y-2">
                                             <h2 className="mb-0">Edit source</h2>
                                             {!showSource ? <p>Click here to edit the function's source code</p> : null}
@@ -439,7 +463,15 @@ export function HogFunctionConfiguration({
                                         {!showSource ? (
                                             <LemonButton
                                                 type="secondary"
-                                                onClick={() => setShowSource(true)}
+                                                onClick={() => {
+                                                    setShowSource(true)
+                                                    setTimeout(() => {
+                                                        sourceCodeRef.current?.scrollIntoView({
+                                                            behavior: 'smooth',
+                                                            block: 'start',
+                                                        })
+                                                    }, 100)
+                                                }}
                                                 disabledReason={
                                                     !hasAddon
                                                         ? 'Editing the source code requires the Data Pipelines addon'
@@ -471,6 +503,13 @@ export function HogFunctionConfiguration({
                                                             for more info
                                                         </span>
                                                     ) : null}
+                                                    {mightDropEvents && (
+                                                        <LemonBanner type="warning" className="mt-2">
+                                                            <b>Warning:</b> Returning null or undefined will drop the
+                                                            event. If this is unintentional, return the event object
+                                                            instead.
+                                                        </LemonBanner>
+                                                    )}
                                                     <CodeEditorResizeable
                                                         language={type.startsWith('site_') ? 'typescript' : 'hog'}
                                                         value={value ?? ''}
@@ -496,8 +535,11 @@ export function HogFunctionConfiguration({
                                     ) : null}
                                 </div>
                             )}
-                            {showTesting ? <HogFunctionTest /> : null}
-                            <div className="flex justify-end gap-2">{saveButtons}</div>
+                            {showTesting ? (
+                                <HogFunctionTest configurable={!displayOptions.hideTestingConfiguration} />
+                            ) : null}
+                            {type === 'broadcast' && <HogFunctionBroadcastDelivery />}
+                            <div className="flex gap-2 justify-end">{saveButtons}</div>
                         </div>
                     </div>
                 </Form>

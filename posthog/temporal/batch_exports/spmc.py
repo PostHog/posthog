@@ -67,7 +67,7 @@ class RecordBatchQueue(asyncio.Queue):
         super().__init__(maxsize=max_size_bytes)
         self._bytes_size = 0
         self._schema_set = asyncio.Event()
-        self.record_batch_schema = None
+        self.record_batch_schema: pa.Schema | None = None
         # This is set by `asyncio.Queue.__init__` calling `_init`
         self._queue: collections.deque
 
@@ -99,6 +99,7 @@ class RecordBatchQueue(asyncio.Queue):
         to ensure all record batches have the same schema.
         """
         await self._schema_set.wait()
+        assert self.record_batch_schema is not None
         return self.record_batch_schema
 
     def qsize(self) -> int:
@@ -120,8 +121,8 @@ class TaskNotDoneError(Exception):
 class RecordBatchTaskError(Exception):
     """Raised when an error occurs during consumption of record batches."""
 
-    def __init__(self):
-        super().__init__("The record batch consumer encountered an error during execution")
+    def __init__(self, error_details: str):
+        super().__init__(f"Record batch consumer encountered an error: {error_details}")
 
 
 async def raise_on_task_failure(task: asyncio.Task) -> None:
@@ -139,7 +140,7 @@ async def raise_on_task_failure(task: asyncio.Task) -> None:
     exc = task.exception()
     logger = get_internal_logger()
     await logger.aexception("%s task failed", task.get_name(), exc_info=exc)
-    raise RecordBatchTaskError() from exc
+    raise RecordBatchTaskError(repr(exc)) from exc
 
 
 async def wait_for_schema_or_producer(queue: RecordBatchQueue, producer_task: asyncio.Task) -> pa.Schema | None:
@@ -216,6 +217,7 @@ class Consumer:
 
     def create_consumer_task(
         self,
+        tg: asyncio.TaskGroup,
         queue: RecordBatchQueue,
         producer_task: asyncio.Task,
         max_bytes: int,
@@ -228,7 +230,7 @@ class Consumer:
         **kwargs,
     ) -> asyncio.Task:
         """Create a record batch consumer task."""
-        consumer_task = asyncio.create_task(
+        consumer_task = tg.create_task(
             self.start(
                 queue=queue,
                 producer_task=producer_task,
@@ -242,7 +244,6 @@ class Consumer:
             ),
             name=task_name,
         )
-
         return consumer_task
 
     @abc.abstractmethod
@@ -442,6 +443,9 @@ async def run_consumer(
         nonlocal consumer_tasks_done
         nonlocal consumer_tasks_pending
 
+        if task.cancelled():
+            consumer.logger.debug("Record batch consumer task cancelled")
+
         try:
             records_completed += task.result()
         except:
@@ -452,27 +456,29 @@ async def run_consumer(
 
     await consumer.logger.adebug("Starting record batch consumer")
 
-    consumer_task = consumer.create_consumer_task(
-        queue=queue,
-        producer_task=producer_task,
-        max_bytes=max_bytes,
-        schema=schema,
-        json_columns=json_columns,
-        multiple_files=multiple_files,
-        include_inserted_at=include_inserted_at,
-        max_file_size_bytes=max_file_size_bytes,
-        **writer_file_kwargs or {},
-    )
-    consumer_tasks_pending.add(consumer_task)
-    consumer_task.add_done_callback(consumer_done_callback)
+    # We use a TaskGroup to ensure that if the activity is cancelled, this is propagated to all pending tasks.
+    try:
+        async with asyncio.TaskGroup() as tg:
+            consumer_task = consumer.create_consumer_task(
+                tg=tg,
+                queue=queue,
+                producer_task=producer_task,
+                max_bytes=max_bytes,
+                schema=schema,
+                json_columns=json_columns,
+                multiple_files=multiple_files,
+                include_inserted_at=include_inserted_at,
+                max_file_size_bytes=max_file_size_bytes,
+                **writer_file_kwargs or {},
+            )
+            consumer_task.add_done_callback(consumer_done_callback)
+            consumer_tasks_pending.add(consumer_task)
+    except Exception:
+        if consumer_task.done():
+            consumer_task_exception = consumer_task.exception()
 
-    await asyncio.wait(consumer_tasks_pending)
-
-    if consumer_task.done():
-        consumer_task_exception = consumer_task.exception()
-
-        if consumer_task_exception is not None:
-            raise consumer_task_exception
+            if consumer_task_exception is not None:
+                raise consumer_task_exception
 
     await raise_on_task_failure(producer_task)
     await consumer.logger.adebug("Successfully finished record batch consumer")
@@ -502,7 +508,7 @@ class RecordBatchModel(abc.ABC):
             enable_select_queries=True,
             limit_top_select=False,
         )
-        context.database = await database_sync_to_async(create_hogql_database)(team.id, context.modifiers)
+        context.database = await database_sync_to_async(create_hogql_database)(team=team, modifiers=context.modifiers)
 
         return context
 
@@ -909,6 +915,7 @@ class Producer:
             min_records_batch_per_batch: If slicing a record batch, each slice should contain at least
                 this number of records.
         """
+
         clickhouse_url = None
         # 5 min batch exports should query a single node, which is known to have zero replication lag
         if is_5_min_batch_export(full_range=full_range):
@@ -1088,7 +1095,7 @@ def compose_filters_clause(
         values=values or {},
         modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.DISABLED),
     )
-    context.database = create_hogql_database(team.id, context.modifiers)
+    context.database = create_hogql_database(team=team, modifiers=context.modifiers)
 
     exprs = [property_to_expr(EventPropertyFilter(**filter), team=team) for filter in filters]
     and_expr = ast.And(exprs=exprs)

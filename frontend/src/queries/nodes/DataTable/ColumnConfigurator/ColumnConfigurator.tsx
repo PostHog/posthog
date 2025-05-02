@@ -21,9 +21,15 @@ import { useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 
 import { dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
-import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
-import { isEventsQuery, taxonomicEventFilterToHogQL, trimQuotes } from '~/queries/utils'
-import { PropertyFilterType } from '~/types'
+import { DataTableNode } from '~/queries/schema/schema-general'
+import {
+    isEventsQuery,
+    isGroupsQuery,
+    taxonomicEventFilterToHogQL,
+    taxonomicGroupFilterToHogQL,
+    trimQuotes,
+} from '~/queries/utils'
+import { GroupTypeIndex, PropertyFilterType } from '~/types'
 
 import { defaultDataTableColumns, extractExpressionComment, removeExpressionComment } from '../utils'
 import { columnConfiguratorLogic, ColumnConfiguratorLogicProps } from './columnConfiguratorLogic'
@@ -63,10 +69,23 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
                         select: columns,
                     },
                 })
+            } else if (isGroupsQuery(query.source)) {
+                setQuery?.({
+                    ...query,
+                    source: {
+                        ...query.source,
+                        select: columns,
+                    },
+                })
             } else {
                 setQuery?.({ ...query, columns })
             }
         },
+        context: query.context
+            ? query.context
+            : isGroupsQuery(query.source)
+            ? { type: 'groups', groupTypeIndex: query.source.group_type_index as GroupTypeIndex }
+            : { type: 'team_columns' },
     }
     const { showModal } = useActions(columnConfiguratorLogic(columnConfiguratorLogicProps))
 
@@ -93,6 +112,7 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
     const { modalVisible, columns, saveAsDefault } = useValues(columnConfiguratorLogic)
     const { hideModal, moveColumn, setColumns, selectColumn, unselectColumn, save, toggleSaveAsDefault } =
         useActions(columnConfiguratorLogic)
+    const { context } = useValues(columnConfiguratorLogic)
 
     const onEditColumn = (column: string, index: number): void => {
         const newColumn = window.prompt('Edit column', column)
@@ -100,6 +120,18 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
             setColumns(columns.map((c, i) => (i === index ? newColumn : c)))
         }
     }
+
+    const taxonomicGroupTypes = isGroupsQuery(query.source)
+        ? [
+              `${TaxonomicFilterGroupType.GroupsPrefix}_${query.source.group_type_index}` as TaxonomicFilterGroupType,
+              TaxonomicFilterGroupType.HogQLExpression,
+          ]
+        : [
+              TaxonomicFilterGroupType.EventProperties,
+              TaxonomicFilterGroupType.EventFeatureFlags,
+              TaxonomicFilterGroupType.PersonProperties,
+              ...(isEventsQuery(query.source) ? [TaxonomicFilterGroupType.HogQLExpression] : []),
+          ]
 
     return (
         <LemonModal
@@ -111,7 +143,7 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                     <div className="flex-1">
                         <LemonButton
                             type="secondary"
-                            onClick={() => setColumns(defaultDataTableColumns(NodeKind.EventsQuery))}
+                            onClick={() => setColumns(defaultDataTableColumns(query.source.kind))}
                         >
                             Reset to defaults
                         </LemonButton>
@@ -163,17 +195,12 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                                     <TaxonomicFilter
                                         height={height}
                                         width={width}
-                                        taxonomicGroupTypes={[
-                                            TaxonomicFilterGroupType.EventProperties,
-                                            TaxonomicFilterGroupType.EventFeatureFlags,
-                                            TaxonomicFilterGroupType.PersonProperties,
-                                            ...(isEventsQuery(query.source)
-                                                ? [TaxonomicFilterGroupType.HogQLExpression]
-                                                : []),
-                                        ]}
+                                        taxonomicGroupTypes={taxonomicGroupTypes}
                                         value={undefined}
                                         onChange={(group, value) => {
-                                            const column = taxonomicEventFilterToHogQL(group.type, value)
+                                            const column = isGroupsQuery(query.source)
+                                                ? taxonomicGroupFilterToHogQL(group.type, value)
+                                                : taxonomicEventFilterToHogQL(group.type, value)
                                             if (column !== null) {
                                                 selectColumn(column)
                                             }
@@ -186,17 +213,24 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                         </div>
                     </div>
                 </div>
-                {isEventsQuery(query.source) && query.showPersistentColumnConfigurator ? (
-                    <LemonCheckbox
-                        label="Save as default for all project members"
-                        className="mt-2"
-                        data-attr="events-table-save-columns-as-default-toggle"
-                        bordered
-                        checked={saveAsDefault}
-                        onChange={toggleSaveAsDefault}
-                        disabledReason={restrictionReason}
-                    />
-                ) : null}
+                {(isEventsQuery(query.source) || isGroupsQuery(query.source)) &&
+                    query.showPersistentColumnConfigurator && (
+                        <LemonCheckbox
+                            label={
+                                context?.type === 'groups'
+                                    ? 'Save as default columns for this group type'
+                                    : context?.type === 'event_definition'
+                                    ? 'Save as default columns for this event type'
+                                    : 'Save as default for all project members'
+                            }
+                            className="mt-2"
+                            data-attr="events-table-save-columns-as-default-toggle"
+                            bordered
+                            checked={saveAsDefault}
+                            onChange={toggleSaveAsDefault}
+                            disabledReason={restrictionReason}
+                        />
+                    )}
             </div>
         </LemonModal>
     )

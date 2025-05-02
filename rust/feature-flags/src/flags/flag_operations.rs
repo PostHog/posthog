@@ -1,8 +1,8 @@
 use crate::api::errors::FlagError;
-use crate::client::database::Client as DatabaseClient;
-use crate::cohort::cohort_models::CohortId;
+use crate::cohorts::cohort_models::CohortId;
 use crate::flags::flag_models::*;
 use crate::properties::property_models::PropertyFilter;
+use common_database::Client as DatabaseClient;
 use common_redis::Client as RedisClient;
 use std::sync::Arc;
 use tracing::instrument;
@@ -19,7 +19,10 @@ impl PropertyFilter {
         if !self.is_cohort() {
             return None;
         }
-        self.value.as_i64().map(|id| id as CohortId)
+        self.value
+            .as_ref()
+            .and_then(|value| value.as_i64())
+            .map(|id| id as CohortId)
     }
 }
 
@@ -28,7 +31,7 @@ impl FeatureFlag {
         self.filters.aggregation_group_type_index
     }
 
-    pub fn get_conditions(&self) -> &Vec<FlagGroupType> {
+    pub fn get_conditions(&self) -> &Vec<FlagPropertyGroup> {
         &self.filters.groups
     }
 
@@ -49,12 +52,18 @@ impl FeatureFlag {
 }
 
 impl FeatureFlagList {
-    /// Returns feature flags from redis given a team_id
+    /// Returns feature flags from redis given a project_id
     #[instrument(skip_all)]
     pub async fn from_redis(
         client: Arc<dyn RedisClient + Send + Sync>,
         project_id: i64,
     ) -> Result<FeatureFlagList, FlagError> {
+        tracing::info!(
+            "Attempting to read flags from Redis at key '{}{}'",
+            TEAM_FLAGS_CACHE_PREFIX,
+            project_id
+        );
+
         let serialized_flags = client
             .get(format!("{TEAM_FLAGS_CACHE_PREFIX}{}", project_id))
             .await?;
@@ -62,15 +71,20 @@ impl FeatureFlagList {
         let flags_list: Vec<FeatureFlag> =
             serde_json::from_str(&serialized_flags).map_err(|e| {
                 tracing::error!("failed to parse data to flags list: {}", e);
-                println!("failed to parse data: {}", e);
-
                 FlagError::RedisDataParsingError
             })?;
+
+        tracing::info!(
+            "Successfully read {} flags from Redis at key '{}{}'",
+            flags_list.len(),
+            TEAM_FLAGS_CACHE_PREFIX,
+            project_id
+        );
 
         Ok(FeatureFlagList { flags: flags_list })
     }
 
-    /// Returns feature flags from postgres given a team_id
+    /// Returns feature flags from postgres given a project_id
     #[instrument(skip_all)]
     pub async fn from_pg(
         client: Arc<dyn DatabaseClient + Send + Sync>,
@@ -89,13 +103,14 @@ impl FeatureFlagList {
                   f.filters,
                   f.deleted,
                   f.active,
-                  f.ensure_experience_continuity
+                  f.ensure_experience_continuity,
+                  f.version
               FROM posthog_featureflag AS f
               JOIN posthog_team AS t ON (f.team_id = t.id)
             WHERE t.project_id = $1
               AND f.deleted = false
+              AND f.active = true
         "#;
-
         let flags_row = sqlx::query_as::<_, FeatureFlagRow>(query)
             .bind(project_id)
             .fetch_all(&mut *conn)
@@ -110,7 +125,7 @@ impl FeatureFlagList {
             .map(|row| {
                 let filters = serde_json::from_value(row.filters).map_err(|e| {
                     tracing::error!("Failed to deserialize filters for flag {}: {}", row.key, e);
-                    FlagError::RedisDataParsingError
+                    FlagError::DeserializeFiltersError
                 })?;
 
                 Ok(FeatureFlag {
@@ -122,6 +137,7 @@ impl FeatureFlagList {
                     deleted: row.deleted,
                     active: row.active,
                     ensure_experience_continuity: row.ensure_experience_continuity,
+                    version: row.version,
                 })
             })
             .collect::<Result<Vec<FeatureFlag>, FlagError>>()?;
@@ -138,6 +154,13 @@ impl FeatureFlagList {
             tracing::error!("Failed to serialize flags: {}", e);
             FlagError::RedisDataParsingError
         })?;
+
+        tracing::info!(
+            "Writing flags to Redis at key '{}{}': {} flags",
+            TEAM_FLAGS_CACHE_PREFIX,
+            project_id,
+            flags.flags.len()
+        );
 
         client
             .set(format!("{TEAM_FLAGS_CACHE_PREFIX}{}", project_id), payload)
@@ -256,7 +279,7 @@ mod tests {
             .expect("Properties don't exist on flag")[0];
 
         assert_eq!(property_filter.key, "email");
-        assert_eq!(property_filter.value, "a@b.com");
+        assert_eq!(property_filter.value, Some(json!("a@b.com")));
         assert_eq!(property_filter.operator, None);
         assert_eq!(property_filter.prop_type, "person");
         assert_eq!(property_filter.group_type_index, None);
@@ -290,7 +313,7 @@ mod tests {
         assert_eq!(flag.key, "𝖚𝖙𝖋16_𝖙𝖊𝖘𝖙_𝖋𝖑𝖆𝖌");
         let property = &flag.filters.groups[0].properties.as_ref().unwrap()[0];
         assert_eq!(property.key, "𝖕𝖗𝖔𝖕𝖊𝖗𝖙𝖞");
-        assert_eq!(property.value, json!("𝓿𝓪𝓵𝓾𝓮"));
+        assert_eq!(property.value, Some(json!("𝓿𝓪𝓵𝓾𝓮")));
     }
 
     #[test]
@@ -412,6 +435,7 @@ mod tests {
             deleted: false,
             active: true,
             ensure_experience_continuity: false,
+            version: Some(1),
         };
 
         let flag2 = FeatureFlagRow {
@@ -423,6 +447,7 @@ mod tests {
             deleted: false,
             active: true,
             ensure_experience_continuity: false,
+            version: Some(1),
         };
 
         // Insert multiple flags for the team
@@ -547,6 +572,7 @@ mod tests {
                 deleted: false,
                 active: true,
                 ensure_experience_continuity: false,
+                version: Some(1),
             }),
         )
         .await
@@ -646,6 +672,7 @@ mod tests {
                 deleted: false,
                 active: true,
                 ensure_experience_continuity: false,
+                version: Some(1),
             }),
         )
         .await
@@ -779,6 +806,7 @@ mod tests {
                 deleted: false,
                 active: true,
                 ensure_experience_continuity: false,
+                version: Some(1),
             }),
         )
         .await
@@ -875,6 +903,7 @@ mod tests {
                 deleted: false,
                 active: true,
                 ensure_experience_continuity: false,
+                version: Some(1),
             }),
         )
         .await
@@ -961,6 +990,7 @@ mod tests {
                 deleted: true,
                 active: true,
                 ensure_experience_continuity: false,
+                version: Some(1),
             }),
         )
         .await
@@ -978,6 +1008,7 @@ mod tests {
                 deleted: false,
                 active: false,
                 ensure_experience_continuity: false,
+                version: Some(1),
             }),
         )
         .await
@@ -1000,12 +1031,9 @@ mod tests {
             .await
             .expect("Failed to fetch flags from Postgres");
 
-        assert_eq!(pg_flags.flags.len(), 1);
+        assert_eq!(pg_flags.flags.len(), 0);
         assert!(!pg_flags.flags.iter().any(|f| f.deleted)); // no deleted flags
-        assert!(pg_flags
-            .flags
-            .iter()
-            .any(|f| f.key == "inactive_flag" && !f.active)); // only inactive flag is left
+        assert!(!pg_flags.flags.iter().any(|f| f.active)); // no inactive flags
     }
 
     #[tokio::test]
@@ -1081,6 +1109,7 @@ mod tests {
                 deleted: false,
                 active: true,
                 ensure_experience_continuity: false,
+                version: Some(1),
             }),
         )
         .await
@@ -1160,6 +1189,7 @@ mod tests {
                     deleted: false,
                     active: true,
                     ensure_experience_continuity: false,
+                    version: Some(1),
                 }),
             )
             .await
@@ -1250,6 +1280,7 @@ mod tests {
                     deleted: false,
                     active: true,
                     ensure_experience_continuity: false,
+                    version: Some(1),
                 }),
             )
             .await
@@ -1335,6 +1366,7 @@ mod tests {
                     deleted: false,
                     active: true,
                     ensure_experience_continuity: false,
+                    version: Some(1),
                 }),
             )
             .await
@@ -1448,6 +1480,7 @@ mod tests {
                     deleted: false,
                     active: true,
                     ensure_experience_continuity: false,
+                    version: Some(1),
                 }),
             )
             .await
@@ -1474,5 +1507,28 @@ mod tests {
             assert!(flags.flags.iter().any(|f| f.key == "fractional_percent"
                 && (f.filters.groups[0].rollout_percentage.unwrap() - 33.33).abs() < f64::EPSILON));
         }
+    }
+
+    #[test]
+    fn test_empty_filters_deserialization() {
+        let empty_filters_json = r#"{
+            "id": 1,
+            "team_id": 2,
+            "name": "Empty Filters Flag",
+            "key": "empty_filters",
+            "filters": {},
+            "deleted": false,
+            "active": true
+        }"#;
+
+        let flag: FeatureFlag =
+            serde_json::from_str(empty_filters_json).expect("Should deserialize empty filters");
+
+        assert_eq!(flag.filters.groups.len(), 0);
+        assert!(flag.filters.multivariate.is_none());
+        assert!(flag.filters.aggregation_group_type_index.is_none());
+        assert!(flag.filters.payloads.is_none());
+        assert!(flag.filters.super_groups.is_none());
+        assert!(flag.filters.holdout_groups.is_none());
     }
 }

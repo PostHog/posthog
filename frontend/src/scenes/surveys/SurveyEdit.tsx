@@ -12,7 +12,6 @@ import {
     LemonDivider,
     LemonInput,
     LemonSelect,
-    LemonTag,
     LemonTextArea,
     Link,
     Popover,
@@ -29,7 +28,6 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
-import { getPropertyKey } from 'lib/taxonomy'
 import { formatDate } from 'lib/utils'
 import { useState } from 'react'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
@@ -38,6 +36,7 @@ import { SurveyRepeatSchedule } from 'scenes/surveys/SurveyRepeatSchedule'
 import { SurveyResponsesCollection } from 'scenes/surveys/SurveyResponsesCollection'
 import { SurveyWidgetCustomization } from 'scenes/surveys/SurveyWidgetCustomization'
 
+import { getPropertyKey } from '~/taxonomy/helpers'
 import {
     ActionType,
     LinkSurveyQuestion,
@@ -341,9 +340,9 @@ export default function SurveyEdit(): JSX.Element {
                                                         description="Set up a survey based on your own custom button or our prebuilt feedback tab"
                                                         value={SurveyType.Widget}
                                                     >
-                                                        <LemonTag type="warning" className="uppercase">
-                                                            Beta
-                                                        </LemonTag>
+                                                        <button className="bg-black -rotate-90 py-2 px-3 min-w-[40px] absolute -right-4 -bottom-16">
+                                                            Feedback
+                                                        </button>
                                                     </PresentationTypeCard>
                                                 </div>
                                                 {survey.type === SurveyType.Widget && <SurveyWidgetCustomization />}
@@ -649,6 +648,7 @@ export default function SurveyEdit(): JSX.Element {
                                           <LemonField name="appearance" label="">
                                               {({ value, onChange }) => (
                                                   <Customization
+                                                      type={survey.type}
                                                       appearance={value || defaultSurveyAppearance}
                                                       hasBranchingLogic={hasBranchingLogic}
                                                       deleteBranchingLogic={deleteBranchingLogic}
@@ -974,11 +974,14 @@ export default function SurveyEdit(): JSX.Element {
                                             {surveysEventsAvailable && (
                                                 <LemonField.Pure
                                                     label="User sends events"
-                                                    info="Note that these events are only observed and can trigger this survey within the current user session, but only for events captured using the PostHog SDK."
+                                                    info="It only triggers when the event is captured in the current user session and using the PostHog SDK."
                                                 >
                                                     <>
                                                         <EventSelect
-                                                            filterGroupTypes={[TaxonomicFilterGroupType.CustomEvents]}
+                                                            filterGroupTypes={[
+                                                                TaxonomicFilterGroupType.CustomEvents,
+                                                                TaxonomicFilterGroupType.Events,
+                                                            ]}
                                                             onChange={(includedEvents) => {
                                                                 setSurveyValue('conditions', {
                                                                     ...survey.conditions,

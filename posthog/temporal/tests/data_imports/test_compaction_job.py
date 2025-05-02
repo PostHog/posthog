@@ -113,7 +113,7 @@ async def _run(team: Team):
                     activity_executor=ThreadPoolExecutor(max_workers=50),
                     max_concurrent_activities=50,
                 ):
-                    await activity_environment.client.execute_workflow(  # type: ignore
+                    await activity_environment.client.execute_workflow(
                         DeltalakeCompactionJobWorkflow.run,
                         inputs,
                         id=str(uuid.uuid4()),

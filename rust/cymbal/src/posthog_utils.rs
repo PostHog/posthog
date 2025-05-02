@@ -7,7 +7,6 @@ const ISSUE_REOPENED: &str = "error_tracking_issue_reopened";
 const SYMBOL_SET_SAVED: &str = "error_tracking_symbol_set_saved";
 
 pub fn capture_issue_created(team_id: i32, issue_id: Uuid) {
-    // TODO - @david, anything against using the team id here?
     let mut event = Event::new_anon(ISSUE_CREATED);
     event.insert_prop("team_id", team_id).unwrap();
     event.insert_prop("issue_id", issue_id.to_string()).unwrap();

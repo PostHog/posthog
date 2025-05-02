@@ -15,7 +15,6 @@ from posthog.settings import (
 from posthog.storage.object_storage import (
     health_check,
     read,
-    read_bytes,
     write,
     get_presigned_url,
     list_objects,
@@ -162,39 +161,13 @@ class TestStorage(APIBaseTest):
                 "test_storage_bucket/a_shared_prefix/c",
             ]
 
-    def test_read_bytes_with_byte_range(self):
-        # Setup
+    def test_read_bytes(self):
         mock_client = MagicMock()
         mock_body = MagicMock()
-
-        # For the first test, return a specific content
         mock_body.read.return_value = b"test content"
         mock_client.get_object.return_value = {"Body": mock_body}
         storage = ObjectStorage(mock_client)
 
-        # Test with both first_byte and last_byte
-        storage.read_bytes("test-bucket", "test-key", first_byte=5, last_byte=10)
-        mock_client.get_object.assert_called_with(Bucket="test-bucket", Key="test-key", Range="bytes=5-10")
-
-        # Test with only first_byte
-        storage.read_bytes("test-bucket", "test-key", first_byte=5)
-        mock_client.get_object.assert_called_with(Bucket="test-bucket", Key="test-key", Range="bytes=5-")
-
-        # Test without byte range
-        storage.read_bytes("test-bucket", "test-key")
+        result = storage.read_bytes("test-bucket", "test-key")
         mock_client.get_object.assert_called_with(Bucket="test-bucket", Key="test-key")
-
-    def test_read_specific_byte_range(self):
-        with self.settings(OBJECT_STORAGE_ENABLED=True):
-            # Setup
-            session_id = str(uuid.uuid4())
-            chunk_id = uuid.uuid4()
-            name = f"{session_id}/{0}-{chunk_id}"
-            file_name = f"{TEST_BUCKET}/test_read_specific_byte_range/{name}"
-            content = b"abcdefghij" * 11  # 110 bytes total
-            write(file_name, content)
-
-            result = read_bytes(file_name, first_byte=91, last_byte=101)
-
-            assert result == b"bcdefghijab"
-            assert len(result) == 11
+        assert result == b"test content"

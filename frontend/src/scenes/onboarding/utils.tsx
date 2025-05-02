@@ -1,7 +1,7 @@
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { type AvailableOnboardingProducts, ProductKey } from '~/types'
+import { type AvailableOnboardingProducts, PipelineTab, ProductKey } from '~/types'
 
 export const availableOnboardingProducts: AvailableOnboardingProducts = {
     [ProductKey.PRODUCT_ANALYTICS]: {
@@ -23,8 +23,8 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
         icon: 'IconDatabase',
         iconColor: 'rgb(133 103 255)',
         breadcrumbsName: 'Data Warehouse',
-        url: urls.dataWarehouse(),
-        scene: Scene.DataWarehouse,
+        url: urls.pipeline(PipelineTab.Sources),
+        scene: Scene.Pipeline,
     },
     [ProductKey.SESSION_REPLAY]: {
         name: 'Session Replay',
@@ -55,5 +55,12 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
         iconColor: 'rgb(243 84 84)',
         url: urls.surveys(),
         scene: Scene.Surveys,
+    },
+    [ProductKey.ERROR_TRACKING]: {
+        name: 'Error Tracking',
+        icon: 'IconWarning',
+        iconColor: 'rgb(235 157 42)',
+        url: urls.errorTracking(),
+        scene: Scene.ErrorTracking,
     },
 }

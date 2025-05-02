@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch, sentinel
 import pytest
 from clickhouse_driver import Client
 
-from posthog.clickhouse.client.connection import NodeRole
+from posthog.clickhouse.client.connection import NodeRole, Workload
 from posthog.clickhouse.cluster import (
     AlterTableMutationRunner,
     ClickhouseCluster,
@@ -260,7 +260,7 @@ def test_map_hosts_by_role() -> None:
     bootstrap_client_mock.execute.return_value = [
         ("host1", "9000", "1", "1", "online", "data"),
         ("host2", "9000", "1", "2", "online", "data"),
-        ("host3", "9000", "1", "3", "online", "data"),
+        ("host3", "9000", "1", "3", "offline", "data"),
         ("host4", "9000", "1", "4", "online", "coordinator"),
     ]
 
@@ -289,6 +289,17 @@ def test_map_hosts_by_role() -> None:
         cluster.map_hosts_by_role(lambda _: (), node_role=NodeRole.ALL).result()
         assert times_called[NodeRole.DATA] == 3
         assert times_called[NodeRole.COORDINATOR] == 1
+        times_called.clear()
+
+        cluster.map_hosts_by_role(lambda _: (), node_role=NodeRole.ALL, workload=Workload.OFFLINE).result()
+        assert times_called[NodeRole.DATA] == 1
+        assert times_called[NodeRole.COORDINATOR] == 0
+        times_called.clear()
+
+        cluster.map_hosts_by_role(lambda _: (), node_role=NodeRole.DATA, workload=Workload.ONLINE).result()
+        assert times_called[NodeRole.DATA] == 2
+        assert times_called[NodeRole.COORDINATOR] == 0
+        times_called.clear()
 
 
 def test_lightweight_delete(cluster: ClickhouseCluster) -> None:

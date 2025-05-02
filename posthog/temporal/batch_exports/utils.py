@@ -11,9 +11,7 @@ import pyarrow as pa
 import structlog
 
 from posthog.batch_exports.models import BatchExportRun
-from posthog.batch_exports.service import (
-    aupdate_batch_export_run,
-)
+from posthog.batch_exports.service import aupdate_batch_export_run
 
 T = typing.TypeVar("T")
 logger = structlog.get_logger()
@@ -205,7 +203,7 @@ def cast_record_batch_json_columns(
     intersection = column_names & set(json_columns)
 
     casted_arrays = []
-    for array in record_batch.select(intersection):
+    for array in record_batch.select(intersection):  # type: ignore
         if pa.types.is_string(array.type):
             casted_array = array.cast(JsonType())
             casted_arrays.append(casted_array)

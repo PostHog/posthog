@@ -49,7 +49,11 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
                     const destinationTypes = siteDesinationsEnabled
                         ? props.types
                         : props.types.filter((type) => type !== 'site_destination')
-                    const templates = await api.hogFunctions.listTemplates({ types: destinationTypes })
+                    const dbTemplates = !!values.featureFlags[FEATURE_FLAGS.GET_HOG_TEMPLATES_FROM_DB]
+                    const templates = await api.hogFunctions.listTemplates({
+                        types: destinationTypes,
+                        db_templates: dbTemplates,
+                    })
                     return templates.results.reduce((acc, template) => {
                         acc[template.id] = template
                         return acc
@@ -90,10 +94,9 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
                             description: hogFunction.description,
                             backend: PipelineBackend.HogFunction as const,
                             url: combineUrl(
-                                urls.pipelineNodeNew(
-                                    hogFunctionTypeToPipelineStage(hogFunction.type),
-                                    `hog-${hogFunction.id}`
-                                ),
+                                urls.pipelineNodeNew(hogFunctionTypeToPipelineStage(hogFunction.type), {
+                                    id: `hog-${hogFunction.id}`,
+                                }),
                                 {},
                                 hashParams
                             ).url,
@@ -105,7 +108,7 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
                         name: humanizeBatchExportName(service),
                         description: `${service} batch export`,
                         backend: PipelineBackend.BatchExport as const,
-                        url: urls.pipelineNodeNew(PipelineStage.Destination, `${service}`),
+                        url: urls.pipelineNodeNew(PipelineStage.Destination, { id: service }),
                         free: false,
                     })),
                 ]

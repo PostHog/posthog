@@ -2,8 +2,13 @@ import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
 
-import { CompareFilter, InsightVizNode, NodeKind, QuerySchema, TrendsQuery } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
+import {
+    InsightVizNode,
+    NodeKind,
+    QuerySchema,
+    TrendsQuery,
+    WebPageURLSearchQuery,
+} from '~/queries/schema/schema-general'
 import {
     AnyPropertyFilter,
     BaseMathType,
@@ -29,7 +34,7 @@ import {
     WebTileLayout,
 } from './webAnalyticsLogic'
 
-export interface PageURL {
+export interface PageURLSearchResult {
     url: string
     count: number
 }
@@ -60,9 +65,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
     actions: () => ({
         setPageUrl: (url: string | string[] | null) => ({ url }),
         setPageUrlSearchTerm: (searchTerm: string) => ({ searchTerm }),
-        loadPages: (searchTerm: string = '') => {
-            return { searchTerm }
-        },
+        loadPages: (searchTerm: string = '') => ({ searchTerm }),
         toggleStripQueryParams: () => ({}),
         setTileVisualization: (tileId: TileId, visualization: TileVisualizationOption) => ({
             tileId,
@@ -117,57 +120,22 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
 
     loaders: ({ values }) => ({
         pagesUrls: [
-            [] as PageURL[],
+            [] as PageURLSearchResult[],
             {
                 loadPagesUrls: async ({ searchTerm }: { searchTerm: string }) => {
                     try {
-                        let query: { kind: NodeKind; query: string }
-                        // Simple query using the same pattern as heatmapsLogic
-                        if (searchTerm) {
-                            query = {
-                                kind: NodeKind.HogQLQuery,
-                                query: values.stripQueryParams
-                                    ? hogql`SELECT DISTINCT cutQueryStringAndFragment(properties.$current_url) AS url, count() as count
-                                        FROM events
-                                        WHERE event = '$pageview'
-                                        AND cutQueryStringAndFragment(properties.$current_url) like '%${hogql.identifier(
-                                            searchTerm
-                                        )}%'
-                                        GROUP BY url
-                                        ORDER BY count DESC
-                                        LIMIT 100`
-                                    : hogql`SELECT DISTINCT properties.$current_url AS url, count() as count
-                                        FROM events
-                                        WHERE event = '$pageview'
-                                        AND properties.$current_url like '%${hogql.identifier(searchTerm)}%'
-                                        GROUP BY url
-                                        ORDER BY count DESC
-                                        LIMIT 100`,
-                            }
-                        } else {
-                            query = {
-                                kind: NodeKind.HogQLQuery,
-                                query: values.stripQueryParams
-                                    ? hogql`SELECT DISTINCT cutQueryStringAndFragment(properties.$current_url) AS url, count() as count
-                                        FROM events
-                                        WHERE event = '$pageview'
-                                        GROUP BY url
-                                        ORDER BY count DESC
-                                        LIMIT 100`
-                                    : hogql`SELECT DISTINCT properties.$current_url AS url, count() as count
-                                        FROM events
-                                        WHERE event = '$pageview'
-                                        GROUP BY url
-                                        ORDER BY count DESC
-                                        LIMIT 100`,
-                            }
-                        }
+                        const response = await api.query<WebPageURLSearchQuery>({
+                            kind: NodeKind.WebPageURLSearchQuery,
+                            searchTerm: searchTerm,
+                            stripQueryParams: values.stripQueryParams,
+                            dateRange: {
+                                date_from: values.dateFilter.dateFrom,
+                                date_to: values.dateFilter.dateTo,
+                            },
+                            properties: [],
+                        })
 
-                        const response = await api.query(query)
-                        const res = response as { results: [string, number][] }
-                        const results = res.results?.map((x) => ({ url: x[0], count: x[1] })) as PageURL[]
-
-                        return results
+                        return response.results
                     } catch (error) {
                         console.error('Error loading pages:', error)
                         return []
@@ -184,8 +152,14 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
             (pagesUrlsLoading: boolean, isInitialLoad: boolean) => pagesUrlsLoading || isInitialLoad,
         ],
         queries: [
-            (s) => [s.webAnalyticsTiles, s.pageUrl, s.stripQueryParams],
-            (webAnalyticsTiles: WebAnalyticsTile[], pageUrl: string | null, stripQueryParams: boolean) => {
+            (s) => [s.webAnalyticsTiles, s.pageUrl, s.stripQueryParams, s.dateFilter, s.shouldFilterTestAccounts],
+            (
+                webAnalyticsTiles: WebAnalyticsTile[],
+                pageUrl: string | null,
+                stripQueryParams: boolean,
+                dateFilter: typeof webAnalyticsLogic.values.dateFilter,
+                shouldFilterTestAccounts: boolean
+            ) => {
                 // If we don't have a pageUrl, return empty queries to rendering problems
                 if (!pageUrl) {
                     return {
@@ -202,6 +176,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                         citiesQuery: undefined,
                         timezonesQuery: undefined,
                         languagesQuery: undefined,
+                        topEventsQuery: undefined,
                     }
                 }
 
@@ -224,6 +199,44 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                     return query
                 }
 
+                // Enforcing the type to be QuerySchema so we can build it in a type-safe way
+                const getTopEventsQuery = (): QuerySchema | undefined => ({
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.EventsNode,
+                                event: null,
+                                name: 'All events',
+                                math: BaseMathType.TotalCount,
+                            },
+                        ],
+                        trendsFilter: {},
+                        breakdownFilter: {
+                            breakdowns: [
+                                {
+                                    property: 'event',
+                                    type: 'event_metadata',
+                                },
+                            ],
+                        },
+                        properties: [
+                            ...(pageUrl ? [createUrlPropertyFilter(pageUrl, stripQueryParams)] : []),
+                            {
+                                key: 'event',
+                                value: ['$pageview', '$pageleave'],
+                                operator: PropertyOperator.IsNot,
+                                type: PropertyFilterType.EventMetadata,
+                            },
+                        ],
+                        filterTestAccounts: shouldFilterTestAccounts,
+                        dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+                    },
+                    embedded: true,
+                    hidePersonsModal: true,
+                })
+
                 return {
                     // Path queries
                     entryPathsQuery: getQuery(TileId.PATHS, PathTab.INITIAL_PATH),
@@ -245,6 +258,8 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                     citiesQuery: getQuery(TileId.GEOGRAPHY, GeographyTab.CITIES),
                     timezonesQuery: getQuery(TileId.GEOGRAPHY, GeographyTab.TIMEZONES),
                     languagesQuery: getQuery(TileId.GEOGRAPHY, GeographyTab.LANGUAGES),
+
+                    topEventsQuery: getTopEventsQuery(),
                 }
             },
         ],
@@ -260,10 +275,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
         combinedMetricsQuery: [
             (s) => [s.pageUrl, s.stripQueryParams, s.shouldFilterTestAccounts],
             (pageUrl: string | null, stripQueryParams: boolean, shouldFilterTestAccounts: boolean) =>
-                (
-                    dateFilter: typeof webAnalyticsLogic.values.dateFilter,
-                    compareFilter: CompareFilter
-                ): InsightVizNode<TrendsQuery> => ({
+                (dateFilter: typeof webAnalyticsLogic.values.dateFilter): InsightVizNode<TrendsQuery> => ({
                     kind: NodeKind.InsightVizNode,
                     source: {
                         kind: NodeKind.TrendsQuery,
@@ -296,7 +308,6 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                             display: ChartDisplayType.ActionsLineGraph,
                             showLegend: true,
                         },
-                        compareFilter,
                         filterTestAccounts: shouldFilterTestAccounts,
                         properties: pageUrl ? [createUrlPropertyFilter(pageUrl, stripQueryParams)] : [],
                     },
@@ -305,24 +316,15 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 }),
         ],
         tiles: [
-            (s) => [
-                s.queries,
-                s.pageUrl,
-                s.createInsightProps,
-                s.combinedMetricsQuery,
-                s.dateFilter,
-                () => webAnalyticsLogic.values.compareFilter,
-            ],
+            (s) => [s.queries, s.pageUrl, s.createInsightProps, s.combinedMetricsQuery, s.dateFilter],
             (
                 queries: Record<string, QuerySchema | undefined>,
                 pageUrl: string | null,
                 createInsightProps: (tileId: TileId, tabId?: string) => InsightLogicProps,
                 combinedMetricsQuery: (
-                    dateFilter: typeof webAnalyticsLogic.values.dateFilter,
-                    compareFilter: CompareFilter
+                    dateFilter: typeof webAnalyticsLogic.values.dateFilter
                 ) => InsightVizNode<TrendsQuery>,
-                dateFilter: typeof webAnalyticsLogic.values.dateFilter,
-                compareFilter: CompareFilter
+                dateFilter: typeof webAnalyticsLogic.values.dateFilter
             ): SectionTile[] => {
                 if (!pageUrl) {
                     return []
@@ -347,12 +349,13 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                         showIntervalSelect: false,
                         insightProps: createInsightProps(tileId),
                         layout: layout ?? {
-                            className: '',
+                            className: 'flex flex-col h-full min-h-[400px]',
                         },
                         docs: {
                             title,
                             description,
                         },
+                        canOpenModal: true,
                     }
                 }
 
@@ -360,13 +363,12 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                     {
                         kind: 'section',
                         tileId: TileId.PAGE_REPORTS_COMBINED_METRICS_CHART,
-                        title: '', // Intentionally empty to avoid showing section title + tile title
                         tiles: [
                             {
                                 kind: 'query',
                                 tileId: TileId.PAGE_REPORTS_COMBINED_METRICS_CHART,
                                 title: 'Trends over time',
-                                query: combinedMetricsQuery(dateFilter, compareFilter),
+                                query: combinedMetricsQuery(dateFilter),
                                 showIntervalSelect: true,
                                 insightProps: createInsightProps(
                                     TileId.PAGE_REPORTS_COMBINED_METRICS_CHART,
@@ -388,22 +390,27 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                     {
                         kind: 'section',
                         tileId: TileId.PAGE_REPORTS_PATHS_SECTION,
-                        title: 'Page Paths Analysis',
                         layout: {
-                            className: 'grid-cols-1 md:grid-cols-3 gap-2',
+                            className: 'grid grid-cols-1 md:grid-cols-3 gap-4 mb-8',
                         },
                         tiles: [
                             createQueryTile(
                                 TileId.PAGE_REPORTS_ENTRY_PATHS,
                                 'Entry Paths',
                                 'How users arrive at this page',
-                                queries.entryPathsQuery
+                                queries.entryPathsQuery,
+                                {
+                                    className: 'flex flex-col h-full min-h-[400px]',
+                                }
                             ),
                             createQueryTile(
                                 TileId.PAGE_REPORTS_EXIT_PATHS,
                                 'Exit Paths',
                                 'Where users go after viewing this page',
-                                queries.exitPathsQuery
+                                queries.exitPathsQuery,
+                                {
+                                    className: 'flex flex-col h-full min-h-[400px]',
+                                }
                             ),
                             createQueryTile(
                                 TileId.PAGE_REPORTS_OUTBOUND_CLICKS,
@@ -416,9 +423,8 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                     {
                         kind: 'section',
                         tileId: TileId.PAGE_REPORTS_TRAFFIC_SECTION,
-                        title: 'Traffic Sources',
                         layout: {
-                            className: 'grid-cols-1 md:grid-cols-2 gap-2',
+                            className: 'grid grid-cols-1 md:grid-cols-2 gap-4 mb-8',
                         },
                         tiles: [
                             createQueryTile(
@@ -438,9 +444,8 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                     {
                         kind: 'section',
                         tileId: TileId.PAGE_REPORTS_DEVICE_INFORMATION_SECTION,
-                        title: 'Device Information',
                         layout: {
-                            className: 'grid-cols-1 md:grid-cols-3 gap-2',
+                            className: 'grid grid-cols-1 md:grid-cols-3 gap-4 mb-8',
                         },
                         tiles: [
                             createQueryTile(
@@ -466,9 +471,8 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                     {
                         kind: 'section',
                         tileId: TileId.PAGE_REPORTS_GEOGRAPHY_SECTION,
-                        title: 'Geography',
                         layout: {
-                            className: 'grid-cols-1 md:grid-cols-3 gap-2 gap-y-8',
+                            className: 'grid grid-cols-1 md:grid-cols-3 gap-4 mb-8',
                         },
                         tiles: [
                             createQueryTile(
@@ -503,6 +507,25 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                             ),
                         ].filter(Boolean) as WebAnalyticsTile[],
                     },
+                    {
+                        kind: 'section',
+                        tileId: TileId.PAGE_REPORTS_TOP_EVENTS_SECTION,
+                        title: '',
+                        layout: {
+                            className: 'grid-cols-1 gap-2',
+                        },
+                        tiles: [
+                            createQueryTile(
+                                TileId.PAGE_REPORTS_TOP_EVENTS,
+                                'Top Events',
+                                'Most common events triggered by users on this page, broken down by event type',
+                                queries.topEventsQuery,
+                                {
+                                    className: 'w-full min-h-[300px]',
+                                }
+                            ),
+                        ].filter(Boolean) as WebAnalyticsTile[],
+                    },
                 ]
             },
         ],
@@ -533,14 +556,14 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 actions.setPageUrl(searchParams.pageURL)
             }
 
-            if (searchParams.stripQueryParams !== values.stripQueryParams) {
+            // Only toggle stripQueryParams if it's explicitly present in the URL
+            if ('stripQueryParams' in searchParams && !!searchParams.stripQueryParams !== values.stripQueryParams) {
                 actions.toggleStripQueryParams()
             }
         },
     }),
 
     actionToUrl: ({ values }) => ({
-        // So far we don't need to do anything for dateFilters because webAnalyticsLogic handles it.
         setPageUrl: () => {
             const searchParams = { ...router.values.searchParams }
 
@@ -550,7 +573,10 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 delete searchParams.pageURL
             }
 
-            searchParams.stripQueryParams = values.stripQueryParams
+            // Only include stripQueryParams if it's different from the URL
+            if (!!router.values.searchParams.stripQueryParams !== values.stripQueryParams) {
+                searchParams.stripQueryParams = values.stripQueryParams
+            }
 
             return ['/web/page-reports', searchParams, router.values.hashParams, { replace: true }]
         },

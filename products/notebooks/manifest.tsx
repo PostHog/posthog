@@ -16,9 +16,9 @@ export const manifest: ProductManifest = {
             href: (ref: string) => urls.notebook(ref),
         },
     },
-    treeItems: [
+    treeItemsNew: [
         {
-            path: `Create new/Notebook`,
+            path: `Notebook`,
             type: 'notebook',
             href: () => urls.notebook('new'),
         },

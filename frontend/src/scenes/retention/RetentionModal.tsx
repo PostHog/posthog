@@ -4,7 +4,6 @@ import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
-import { dayjs } from 'lib/dayjs'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { capitalizeFirstLetter, isGroupType, percentage } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -114,7 +113,7 @@ export function RetentionModal(): JSX.Element | null {
                 </div>
             }
             width={isEmpty ? undefined : '90%'}
-            title={`${dayjs.utc(row.date).format('MMMM D, YYYY')} Cohort`}
+            title={`${row.date.format('MMMM D, YYYY')} Cohort`}
         >
             {people && !!people.missing_persons && (
                 <MissingPersonsAlert actorLabel={aggregationTargetLabel} missingActorsCount={people.missing_persons} />

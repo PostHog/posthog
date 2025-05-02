@@ -23,6 +23,7 @@ import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { isDataVisualizationNode } from '~/queries/utils'
 import { ExporterFormat, InsightColor, QueryBasedInsightModel } from '~/types'
 
 import { InsightCardProps } from './InsightCard'
@@ -72,7 +73,7 @@ export function InsightMeta({
     showDetailsControls = true,
     moreButtons,
 }: InsightMetaProps): JSX.Element {
-    const { short_id, name, dashboards, next_allowed_client_refresh: nextAllowedClientRefresh } = insight
+    const { short_id, query, name, dashboards, next_allowed_client_refresh: nextAllowedClientRefresh } = insight
     const { insightProps } = useValues(insightLogic)
     const { exportContext } = useValues(insightDataLogic(insightProps))
     const { samplingFactor } = useValues(insightVizDataLogic(insightProps))
@@ -187,7 +188,14 @@ export function InsightMeta({
                     )}
                     <LemonDivider />
                     {editable && (
-                        <LemonButton to={urls.insightEdit(short_id)} fullWidth>
+                        <LemonButton
+                            to={
+                                isDataVisualizationNode(query)
+                                    ? urls.sqlEditor(undefined, undefined, short_id)
+                                    : urls.insightEdit(short_id)
+                            }
+                            fullWidth
+                        >
                             Edit
                         </LemonButton>
                     )}
@@ -289,7 +297,7 @@ export function InsightMetaContent({
                     title="This insight is queued to check for newer results. It will be updated soon."
                     placement="top-end"
                 >
-                    <span className="text-accent-primary text-sm font-medium ml-1.5">
+                    <span className="text-accent text-sm font-medium ml-1.5">
                         <Spinner className="mr-1.5 text-base" />
                         Refreshing
                     </span>

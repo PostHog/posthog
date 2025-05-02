@@ -7,7 +7,7 @@ from .currencies import SUPPORTED_CURRENCY_CODES
 
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import ReplacingMergeTree
-from posthog.settings import CLICKHOUSE_PASSWORD
+from posthog.settings import CLICKHOUSE_PASSWORD, CLICKHOUSE_USER
 from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 
 
@@ -216,7 +216,7 @@ CREATE DICTIONARY IF NOT EXISTS {exchange_rate_dictionary_name} {on_cluster_clau
     rate Decimal64({decimal_precision})
 )
 PRIMARY KEY currency
-SOURCE(CLICKHOUSE(QUERY '{query}' PASSWORD '{clickhouse_password}'))
+SOURCE(CLICKHOUSE(QUERY '{query}' USER '{clickhouse_user}' PASSWORD '{clickhouse_password}'))
 LIFETIME(MIN 3000 MAX 3600)
 LAYOUT(RANGE_HASHED(range_lookup_strategy 'max'))
 RANGE(MIN start_date MAX end_date)""".format(
@@ -224,6 +224,7 @@ RANGE(MIN start_date MAX end_date)""".format(
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         decimal_precision=EXCHANGE_RATE_DECIMAL_PRECISION,
         query=EXCHANGE_RATE_DICTIONARY_QUERY,
+        clickhouse_user=CLICKHOUSE_USER,
         clickhouse_password=CLICKHOUSE_PASSWORD,
     )
 

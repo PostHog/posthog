@@ -52,9 +52,9 @@ export interface TwoFactorForm {
 
 export const loginLogic = kea<loginLogicType>([
     path(['scenes', 'authentication', 'loginLogic']),
-    connect({
+    connect(() => ({
         values: [preflightLogic, ['preflight'], featureFlagLogic, ['featureFlags']],
-    }),
+    })),
     actions({
         setGeneralError: (code: string, detail: string) => ({ code, detail }),
         clearGeneralError: true,

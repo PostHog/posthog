@@ -1,11 +1,11 @@
 import datetime
 import decimal
 import hashlib
-from ipaddress import IPv4Address, IPv6Address
 import json
 import math
 import uuid
 from collections.abc import Iterator, Sequence
+from ipaddress import IPv4Address, IPv6Address
 from typing import Any, Optional
 
 import deltalake as deltalake
@@ -22,7 +22,11 @@ from dlt.sources import DltResource
 
 from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
-from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionMode, SourceResponse
+from posthog.temporal.data_imports.pipelines.pipeline.typings import (
+    PartitionFormat,
+    PartitionMode,
+    SourceResponse,
+)
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema
 
 DLT_TO_PA_TYPE_MAP = {
@@ -282,14 +286,22 @@ def should_partition_table(
 
 
 def normalize_table_column_names(table: pa.Table) -> pa.Table:
+    used_names = set()
+
     for column_name in table.column_names:
         normalized_column_name = normalize_column_name(column_name)
-        if normalized_column_name != column_name:
+        temp_name = normalized_column_name
+
+        if temp_name != column_name:
+            while temp_name in used_names or temp_name in table.column_names:
+                temp_name = "_" + temp_name
+
             table = table.set_column(
                 table.schema.get_field_index(column_name),
-                normalized_column_name,
+                temp_name,
                 table.column(column_name),  # type: ignore
             )
+            used_names.add(temp_name)
 
     return table
 
@@ -300,6 +312,7 @@ def append_partition_key_to_table(
     partition_size: int,
     partition_keys: list[str],
     partition_mode: PartitionMode | None,
+    partition_format: PartitionFormat | None,
     logger: FilteringBoundLogger,
 ) -> tuple[pa.Table, PartitionMode, list[str]]:
     normalized_partition_keys = [normalize_column_name(key) for key in partition_keys]
@@ -342,11 +355,17 @@ def append_partition_key_to_table(
             elif mode == "datetime":
                 key = normalized_partition_keys[0]
                 date = row[key]
+
+                if partition_format == "day":
+                    date_format = "%Y-%m-%d"
+                else:
+                    date_format = "%Y-%m"
+
                 if isinstance(date, int):
                     date = datetime.datetime.fromtimestamp(date)
-                    partition_array.append(date.strftime("%Y-%m"))
+                    partition_array.append(date.strftime(date_format))
                 elif isinstance(date, datetime.datetime):
-                    partition_array.append(date.strftime("%Y-%m"))
+                    partition_array.append(date.strftime(date_format))
                 else:
                     partition_array.append("1970-01")
             else:
@@ -358,7 +377,7 @@ def append_partition_key_to_table(
     return table.append_column(PARTITION_KEY, new_column), mode, normalized_partition_keys
 
 
-def _update_incremental_state(schema: ExternalDataSchema | None, table: pa.Table, logger: FilteringBoundLogger) -> None:
+def _get_incremental_field_last_value(schema: ExternalDataSchema | None, table: pa.Table) -> Any:
     if schema is None or schema.sync_type != ExternalDataSchema.SyncType.INCREMENTAL:
         return
 
@@ -371,10 +390,7 @@ def _update_incremental_state(schema: ExternalDataSchema | None, table: pa.Table
 
     # TODO(@Gilbert09): support different operations here (e.g. min)
     last_value = numpy_arr.max()
-
-    logger.debug(f"Updating incremental_field_last_value with {last_value}")
-
-    schema.update_incremental_field_last_value(last_value)
+    return last_value
 
 
 def _update_last_synced_at_sync(schema: ExternalDataSchema, job: ExternalDataJob) -> None:
@@ -580,6 +596,15 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
             # Remove any binary columns
             if pa.types.is_binary(field.type):
                 drop_column_names.add(field_name)
+
+            # Ensure duration columns have the correct arrow type
+            col = columnar_table_data[field_name]
+            if (
+                isinstance(col, pa.Array)
+                and pa.types.is_duration(col.type)
+                and not pa.types.is_duration(arrow_schema.field(field_index).type)
+            ):
+                arrow_schema = arrow_schema.set(field_index, arrow_schema.field(field_index).with_type(col.type))
 
         # Convert UUIDs to strings
         if issubclass(py_type, uuid.UUID):

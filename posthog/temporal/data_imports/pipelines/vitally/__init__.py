@@ -31,7 +31,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     "updatedAt": {
                         "type": "incremental",
                         "cursor_path": "updatedAt",
-                        "initial_value": "1970-01-01",  # type: ignore
+                        "initial_value": "1970-01-01",
                         "convert": lambda x: parser.parse(x).timestamp() if not isinstance(x, datetime) else x,
                     }
                     if is_incremental
@@ -60,7 +60,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     "updatedAt": {
                         "type": "incremental",
                         "cursor_path": "updatedAt",
-                        "initial_value": "1970-01-01",  # type: ignore
+                        "initial_value": "1970-01-01",
                         "convert": lambda x: parser.parse(x).timestamp() if not isinstance(x, datetime) else x,
                     }
                     if is_incremental
@@ -88,7 +88,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     "updatedAt": {
                         "type": "incremental",
                         "cursor_path": "updatedAt",
-                        "initial_value": "1970-01-01",  # type: ignore
+                        "initial_value": "1970-01-01",
                         "convert": lambda x: parser.parse(x).timestamp() if not isinstance(x, datetime) else x,
                     }
                     if is_incremental
@@ -116,7 +116,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     "updatedAt": {
                         "type": "incremental",
                         "cursor_path": "updatedAt",
-                        "initial_value": "1970-01-01",  # type: ignore
+                        "initial_value": "1970-01-01",
                         "convert": lambda x: parser.parse(x).timestamp() if not isinstance(x, datetime) else x,
                     }
                     if is_incremental
@@ -144,7 +144,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     "updatedAt": {
                         "type": "incremental",
                         "cursor_path": "updatedAt",
-                        "initial_value": "1970-01-01",  # type: ignore
+                        "initial_value": "1970-01-01",
                         "convert": lambda x: parser.parse(x).timestamp() if not isinstance(x, datetime) else x,
                     }
                     if is_incremental
@@ -172,7 +172,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     "updatedAt": {
                         "type": "incremental",
                         "cursor_path": "updatedAt",
-                        "initial_value": "1970-01-01",  # type: ignore
+                        "initial_value": "1970-01-01",
                         "convert": lambda x: parser.parse(x).timestamp() if not isinstance(x, datetime) else x,
                     }
                     if is_incremental
@@ -200,7 +200,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     "updatedAt": {
                         "type": "incremental",
                         "cursor_path": "updatedAt",
-                        "initial_value": "1970-01-01",  # type: ignore
+                        "initial_value": "1970-01-01",
                         "convert": lambda x: parser.parse(x).timestamp() if not isinstance(x, datetime) else x,
                     }
                     if is_incremental
@@ -228,7 +228,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     "updatedAt": {
                         "type": "incremental",
                         "cursor_path": "updatedAt",
-                        "initial_value": "1970-01-01",  # type: ignore
+                        "initial_value": "1970-01-01",
                         "convert": lambda x: parser.parse(x).timestamp() if not isinstance(x, datetime) else x,
                     }
                     if is_incremental
@@ -256,7 +256,7 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
                     "updatedAt": {
                         "type": "incremental",
                         "cursor_path": "updatedAt",
-                        "initial_value": "1970-01-01",  # type: ignore
+                        "initial_value": "1970-01-01",
                         "convert": lambda x: parser.parse(x).timestamp() if not isinstance(x, datetime) else x,
                     }
                     if is_incremental

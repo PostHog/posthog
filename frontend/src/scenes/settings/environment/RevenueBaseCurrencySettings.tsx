@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
-import { CurrencyDropdown } from 'scenes/data-management/revenue/CurrencyDropdown'
-import { revenueEventsSettingsLogic } from 'scenes/data-management/revenue/revenueEventsSettingsLogic'
+import { CurrencyDropdown } from 'products/revenue_analytics/frontend/settings/CurrencyDropdown'
+import { revenueEventsSettingsLogic } from 'products/revenue_analytics/frontend/settings/revenueEventsSettingsLogic'
 
 import { CurrencyCode } from '~/queries/schema/schema-general'
 

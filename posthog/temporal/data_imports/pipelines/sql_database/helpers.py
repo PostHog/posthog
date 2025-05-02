@@ -161,7 +161,7 @@ class TableLoader:
 
     def _load_rows_connectorx(self, query: SelectAny, backend_kwargs: Optional[dict[str, Any]]) -> Iterator[TDataItem]:
         try:
-            import connectorx as cx  # type: ignore
+            import connectorx as cx
         except ImportError:
             raise MissingDependencyException("Connector X table backend", ["connectorx"])
 
@@ -229,7 +229,7 @@ def table_rows(
         # table was already reflected
         columns = table_to_columns(table, reflection_level, type_adapter_callback)
 
-    yield dlt.mark.materialize_table_schema()  # type: ignore
+    yield dlt.mark.materialize_table_schema()
 
     loader = TableLoader(
         engine,
@@ -297,7 +297,7 @@ def _detect_precision_hints_deprecated(value: Optional[bool]) -> None:
 
 @configspec
 class SqlDatabaseTableConfiguration(BaseConfiguration):
-    incremental: Optional[dlt.sources.incremental] = None  # type: ignore[type-arg]
+    incremental: Optional[dlt.sources.incremental] = None
     included_columns: Optional[list[str]] = None
 
 
@@ -306,7 +306,7 @@ class SqlTableResourceConfiguration(BaseConfiguration):
     credentials: Optional[Union[ConnectionStringCredentials, Engine, str]] = None
     table: Optional[str] = None
     schema: Optional[str] = None
-    incremental: Optional[dlt.sources.incremental] = None  # type: ignore[type-arg]
+    incremental: Optional[dlt.sources.incremental] = None
     chunk_size: int = DEFAULT_CHUNK_SIZE
     backend: TableBackend = "sqlalchemy"
     detect_precision_hints: Optional[bool] = None

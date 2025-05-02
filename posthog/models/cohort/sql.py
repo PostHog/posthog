@@ -54,17 +54,6 @@ WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND version < %(new_ve
 SETTINGS optimize_aggregation_in_order = 1, join_algorithm = 'auto'
 """
 
-# Continually ensure that all previous version rows are deleted and insert persons that match the criteria
-# optimize_aggregation_in_order = 1 is necessary to avoid oom'ing for our biggest clients
-RECALCULATE_COHORT_BY_ID_HOGQL_TEST = """
-INSERT INTO cohortpeople
-SELECT id, %(cohort_id)s as cohort_id, %(team_id)s as team_id, -1 AS sign, %(new_version)s AS version
-FROM (
-    {cohort_filter}
-) as person
-SETTINGS optimize_aggregation_in_order = 1, join_algorithm = 'auto'
-"""
-
 # NOTE: Group by version id to ensure that signs are summed between corresponding rows.
 # Version filtering is not necessary as only positive rows of the latest version will be selected by sum(sign) > 0
 

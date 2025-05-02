@@ -290,6 +290,10 @@ export function removeMilliseconds(timestamp: string): string {
 export function formatLLMEventTitle(event: LLMTrace | LLMTraceEvent): string {
     if (isLLMTraceEvent(event)) {
         if (event.event === '$ai_generation') {
+            const spanName = event.properties.$ai_span_name
+            if (spanName) {
+                return `${spanName}`
+            }
             const title = event.properties.$ai_model || 'Generation'
             if (event.properties.$ai_provider) {
                 return `${title} (${event.properties.$ai_provider})`

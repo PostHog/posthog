@@ -16,7 +16,7 @@ import * as monaco from 'monaco-editor'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { AnyDataNode, HogLanguage, HogQLMetadataResponse } from '~/queries/schema/schema-general'
+import { AnyDataNode, HogLanguage, HogQLMetadataResponse, NodeKind } from '~/queries/schema/schema-general'
 
 if (loader) {
     loader.config({ monaco })
@@ -34,7 +34,7 @@ export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> 
     schema?: Record<string, any> | null
     onMetadata?: (metadata: HogQLMetadataResponse | null) => void
     onMetadataLoading?: (loading: boolean) => void
-    onError?: (error: string | null, isValidView: boolean) => void
+    onError?: (error: string | null) => void
     /** The original value to compare against - renders it in diff mode */
     originalValue?: string
 }
@@ -148,6 +148,7 @@ export function CodeEditor({
         onError,
         onMetadata,
         onMetadataLoading,
+        metadataFilters: sourceQuery?.kind === NodeKind.HogQLQuery ? sourceQuery.filters : undefined,
     })
     useMountedLogic(builtCodeEditorLogic)
 
@@ -276,7 +277,12 @@ export function CodeEditor({
                 loading={<Spinner />}
                 original={originalValue}
                 modified={value}
-                options={editorOptions}
+                options={{
+                    ...editorOptions,
+                    renderSideBySide: false,
+                    acceptSuggestionOnEnter: 'on',
+                    renderGutterMenu: false,
+                }}
                 {...editorProps}
             />
         )

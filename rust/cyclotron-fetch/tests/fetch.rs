@@ -24,7 +24,7 @@ pub async fn test_run_migrations(db: PgPool) {
 #[sqlx::test(migrations = "../cyclotron-core/migrations")]
 pub async fn test_completes_fetch(db: PgPool) {
     let context = Arc::new(get_app_test_context(db.clone()).await);
-    let producer = QueueManager::from_pool(db.clone());
+    let producer = QueueManager::from_pool(db.clone(), true, true);
     let return_worker = Worker::from_pool(db.clone(), Default::default());
     let server = MockServer::start();
 
@@ -61,7 +61,7 @@ pub async fn test_completes_fetch(db: PgPool) {
 #[sqlx::test(migrations = "../cyclotron-core/migrations")]
 pub async fn test_returns_failure_after_retries(db: PgPool) {
     let context = Arc::new(get_app_test_context(db.clone()).await);
-    let producer = QueueManager::from_pool(db.clone());
+    let producer = QueueManager::from_pool(db.clone(), true, true);
     let return_worker = Worker::from_pool(db.clone(), Default::default());
     let server = MockServer::start();
 
@@ -105,7 +105,7 @@ pub async fn test_returns_failure_after_retries(db: PgPool) {
 #[sqlx::test(migrations = "../cyclotron-core/migrations")]
 pub fn fetch_discards_bad_metadata(db: PgPool) {
     let context = Arc::new(get_app_test_context(db.clone()).await);
-    let producer = QueueManager::from_pool(db.clone());
+    let producer = QueueManager::from_pool(db.clone(), true, true);
     let return_worker = Worker::from_pool(db.clone(), Default::default());
     let server = MockServer::start();
 
@@ -143,7 +143,7 @@ pub fn fetch_discards_bad_metadata(db: PgPool) {
 #[sqlx::test(migrations = "../cyclotron-core/migrations")]
 pub fn fetch_with_minimum_params_works(db: PgPool) {
     let context = Arc::new(get_app_test_context(db.clone()).await);
-    let producer = QueueManager::from_pool(db.clone());
+    let producer = QueueManager::from_pool(db.clone(), true, true);
     let return_worker = Worker::from_pool(db.clone(), Default::default());
     let server = MockServer::start();
 
@@ -191,7 +191,7 @@ pub fn fetch_with_minimum_params_works(db: PgPool) {
 #[sqlx::test(migrations = "../cyclotron-core/migrations")]
 pub async fn test_completes_fetch_with_headers(db: PgPool) {
     let context = Arc::new(get_app_test_context(db.clone()).await);
-    let producer = QueueManager::from_pool(db.clone());
+    let producer = QueueManager::from_pool(db.clone(), true, true);
     let return_worker = Worker::from_pool(db.clone(), Default::default());
     let server = MockServer::start();
 
@@ -234,7 +234,7 @@ pub async fn test_completes_fetch_with_headers(db: PgPool) {
 #[sqlx::test(migrations = "../cyclotron-core/migrations")]
 pub async fn test_completes_fetch_with_body(db: PgPool) {
     let context = Arc::new(get_app_test_context(db.clone()).await);
-    let producer = QueueManager::from_pool(db.clone());
+    let producer = QueueManager::from_pool(db.clone(), true, true);
     let return_worker = Worker::from_pool(db.clone(), Default::default());
     let server = MockServer::start();
 
@@ -272,7 +272,7 @@ pub async fn test_completes_fetch_with_body(db: PgPool) {
 #[sqlx::test(migrations = "../cyclotron-core/migrations")]
 pub async fn test_completes_fetch_with_vm_state(db: PgPool) {
     let context = Arc::new(get_app_test_context(db.clone()).await);
-    let producer = QueueManager::from_pool(db.clone());
+    let producer = QueueManager::from_pool(db.clone(), true, true);
     let return_worker = Worker::from_pool(db.clone(), Default::default());
     let server = MockServer::start();
 

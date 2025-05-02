@@ -44,12 +44,12 @@ export function timeoutGuard(
     message: string,
     context?: Record<string, any> | (() => Record<string, any>),
     timeout = defaultConfig.TASK_TIMEOUT * 1000,
-    sendToSentry = true
+    sendException = true
 ): NodeJS.Timeout {
     return setTimeout(() => {
         const ctx = typeof context === 'function' ? context() : context
         logger.warn('⌛', message, ctx)
-        if (sendToSentry) {
+        if (sendException) {
             captureException(message, ctx ? { extra: ctx } : undefined)
         }
     }, timeout)
@@ -103,6 +103,11 @@ export const eventToPersonProperties = new Set([
     '$os_version',
     '$referring_domain',
     '$referrer',
+    '$screen_height',
+    '$screen_width',
+    '$viewport_height',
+    '$viewport_width',
+    '$raw_user_agent',
 
     ...campaignParams,
 ])

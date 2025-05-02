@@ -138,7 +138,7 @@ export function VariantScreenshot({
                             loading={uploading}
                             value={filesToUpload}
                             callToAction={
-                                <div className="flex items-center justify-center w-full h-16 border border-dashed rounded cursor-pointer hover:border-accent-primary">
+                                <div className="flex items-center justify-center w-full h-16 border border-dashed rounded cursor-pointer hover:border-accent">
                                     <span className="text-2xl text-secondary">+</span>
                                 </div>
                             }

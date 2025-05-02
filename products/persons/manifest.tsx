@@ -13,9 +13,9 @@ export const manifest: ProductManifest = {
         persons: (): string => '/persons',
     },
     fileSystemTypes: {},
-    treeItems: [
+    treeItemsExplore: [
         {
-            path: 'Explore/People and groups/People',
+            path: 'People and groups/People',
             icon: <IconPerson />,
             href: () => urls.persons(),
         },

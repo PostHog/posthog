@@ -2,7 +2,7 @@ import json
 from inline_snapshot import snapshot
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
-from posthog.cdp.filters import hog_function_filters_to_expr
+from posthog.cdp.filters import hog_function_filters_to_expr, compile_filters_bytecode
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.models.action.action import Action
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
@@ -79,6 +79,20 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
                 ]
             }
         ) == snapshot(["_H", HOGQL_BYTECODE_VERSION, 29, 3, 0, 4, 2])
+
+    def test_filters_raises_on_select(self):
+        response = compile_filters_bytecode(
+            filters={
+                "properties": [
+                    {
+                        "type": "hogql",
+                        "key": "(select 1)",
+                    }
+                ]
+            },
+            team=self.team,
+        )
+        assert response["bytecode_error"] == "Select queries are not allowed in filters"
 
     def test_filters_events(self):
         bytecode = self.filters_to_bytecode(filters={"events": self.filters["events"]})

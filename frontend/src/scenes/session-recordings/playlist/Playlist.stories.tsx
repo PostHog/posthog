@@ -3,7 +3,7 @@ import { range } from 'lib/utils'
 
 import { SessionRecordingType } from '~/types'
 
-import { Playlist, PlaylistProps } from './Playlist'
+import { Playlist, PlaylistProps } from '../playlist/Playlist'
 
 type Story = StoryObj<typeof Playlist>
 const meta: Meta<typeof Playlist> = {

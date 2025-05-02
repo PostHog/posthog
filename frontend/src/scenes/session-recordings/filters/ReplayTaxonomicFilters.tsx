@@ -5,9 +5,9 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
-import { getFilterLabel } from 'lib/taxonomy'
 import { useState } from 'react'
 
+import { getFilterLabel } from '~/taxonomy/helpers'
 import { PropertyFilterType } from '~/types'
 
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
@@ -52,12 +52,13 @@ export function ReplayTaxonomicFilters({ onChange }: ReplayTaxonomicFiltersProps
         <div className="grid grid-cols-2 gap-4 px-1 pt-1.5 pb-2.5">
             <section>
                 <h5 className="mt-1 mb-0">Replay properties</h5>
-                <ul className="deprecated-space-y-px">
+                <ul className="gap-y-px">
                     {properties.map(({ key, taxonomicFilterGroup, propertyFilterType }) => {
                         const label = getFilterLabel(key, taxonomicFilterGroup)
                         return (
                             <LemonButton
                                 key={key}
+                                data-attr="custom-replay-property"
                                 size="small"
                                 fullWidth
                                 onClick={() => onChange(key, { propertyFilterType: propertyFilterType })}
@@ -84,15 +85,16 @@ const PersonProperties = ({ onChange }: { onChange: ReplayTaxonomicFiltersProps[
     return (
         <section>
             <Tooltip title="Pin person properties to this list to let you quickly filter by the properties you care about. Changes here only affect the list you see.">
-                <h5 className="mt-1 mb-0 flex items-center deprecated-space-x-1">
+                <h5 className="mt-1 mb-0 flex items-center gap-x-1">
                     <IconInfo className="text-lg" />
                     <span>Pinned person properties</span>
                 </h5>
             </Tooltip>
-            <ul className="deprecated-space-y-px">
+            <ul className="gap-y-px">
                 {properties.map((property) => (
                     <LemonButton
                         key={property}
+                        data-attr="pinned-person-property"
                         size="small"
                         fullWidth
                         sideAction={{

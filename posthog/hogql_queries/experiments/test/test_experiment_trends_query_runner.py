@@ -1,6 +1,9 @@
+from pathlib import Path
+
 from django.test import override_settings
 from ee.clickhouse.materialized_columns.columns import get_enabled_materialized_columns, materialize
 from parameterized import parameterized
+from posthog.hogql.errors import QueryError
 from posthog.hogql_queries.experiments.experiment_trends_query_runner import ExperimentTrendsQueryRunner
 from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
@@ -9,6 +12,7 @@ from posthog.models.experiment import Experiment, ExperimentHoldout
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
 from posthog.schema import (
     ActionsNode,
     BaseMathType,
@@ -20,13 +24,6 @@ from posthog.schema import (
     PersonsOnEventsMode,
     PropertyMathType,
     TrendsQuery,
-)
-from posthog.settings import (
-    OBJECT_STORAGE_ACCESS_KEY_ID,
-    OBJECT_STORAGE_BUCKET,
-    OBJECT_STORAGE_ENDPOINT,
-    OBJECT_STORAGE_SECRET_ACCESS_KEY,
-    XDIST_SUFFIX,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -43,35 +40,26 @@ from datetime import datetime, timedelta
 from posthog.test.test_journeys import journeys_for
 from rest_framework.exceptions import ValidationError
 from posthog.constants import ExperimentNoResultsErrorKeys
-import s3fs
-from pyarrow import parquet as pq
-import pyarrow as pa
 import json
 from flaky import flaky
 
-from boto3 import resource
-from botocore.config import Config
-from posthog.warehouse.models.credential import DataWarehouseCredential
 from posthog.warehouse.models.join import DataWarehouseJoin
-from posthog.warehouse.models.table import DataWarehouseTable
 from posthog.hogql.query import execute_hogql_query
 
-TEST_BUCKET = "test_storage_bucket-posthog.hogql.datawarehouse.trendquery" + XDIST_SUFFIX
+TEST_BUCKET = "test_storage_bucket-posthog.hogql.datawarehouse.trendquery"
 
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def teardown_method(self, method) -> None:
-        s3 = resource(
-            "s3",
-            endpoint_url=OBJECT_STORAGE_ENDPOINT,
-            aws_access_key_id=OBJECT_STORAGE_ACCESS_KEY_ID,
-            aws_secret_access_key=OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            config=Config(signature_version="s3v4"),
-            region_name="us-east-1",
-        )
-        bucket = s3.Bucket(OBJECT_STORAGE_BUCKET)
-        bucket.objects.filter(Prefix=TEST_BUCKET).delete()
+        if hasattr(self, "clean_up_data_warehouse_payments_data"):
+            self.clean_up_data_warehouse_payments_data()
+        if hasattr(self, "clean_up_data_warehouse_usage_data"):
+            self.clean_up_data_warehouse_usage_data()
+        if hasattr(self, "clean_up_data_warehouse_subscriptions_data"):
+            self.clean_up_data_warehouse_subscriptions_data()
+        if hasattr(self, "clean_up_data_warehouse_customers_data"):
+            self.clean_up_data_warehouse_customers_data()
 
     def create_feature_flag(self, key="test-experiment"):
         return FeatureFlag.objects.create(
@@ -135,306 +123,99 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         return holdout
 
     def create_data_warehouse_table_with_payments(self):
-        if not OBJECT_STORAGE_ACCESS_KEY_ID or not OBJECT_STORAGE_SECRET_ACCESS_KEY:
-            raise Exception("Missing vars")
-
-        fs = s3fs.S3FileSystem(
-            client_kwargs={
-                "region_name": "us-east-1",
-                "endpoint_url": OBJECT_STORAGE_ENDPOINT,
-                "aws_access_key_id": OBJECT_STORAGE_ACCESS_KEY_ID,
-                "aws_secret_access_key": OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            },
-        )
-
-        path_to_s3_object = "s3://" + OBJECT_STORAGE_BUCKET + f"/{TEST_BUCKET}"
-
-        table_data = [
-            {
-                "id": "1",
-                "dw_timestamp": datetime(2023, 1, 1),
-                "dw_distinct_id": "user_control_0",
-                "amount": 100,
-            },
-            {
-                "id": "2",
-                "dw_timestamp": datetime(2023, 1, 2),
-                "dw_distinct_id": "user_test_1",
-                "amount": 50,
-            },
-            {
-                "id": "3",
-                "dw_timestamp": datetime(2023, 1, 3),
-                "dw_distinct_id": "user_test_2",
-                "amount": 75,
-            },
-            {
-                "id": "4",
-                "dw_timestamp": datetime(2023, 1, 6),
-                "dw_distinct_id": "user_test_3",
-                "amount": 80,
-            },
-            {
-                "id": "5",
-                "dw_timestamp": datetime(2023, 1, 7),
-                "dw_distinct_id": "user_extra",
-                "amount": 90,
-            },
-        ]
-
-        pq.write_to_dataset(
-            pa.Table.from_pylist(table_data),
-            path_to_s3_object,
-            filesystem=fs,
-            use_dictionary=True,
-            compression="snappy",
-        )
-
-        table_name = "payments"
-
-        credential = DataWarehouseCredential.objects.create(
-            access_key=OBJECT_STORAGE_ACCESS_KEY_ID,
-            access_secret=OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            team=self.team,
-        )
-
-        DataWarehouseTable.objects.create(
-            name=table_name,
-            url_pattern=f"http://host.docker.internal:19000/{OBJECT_STORAGE_BUCKET}/{TEST_BUCKET}/*.parquet",
-            format=DataWarehouseTable.TableFormat.Parquet,
-            team=self.team,
-            columns={
+        table, _, _, _, self.clean_up_data_warehouse_payments_data = create_data_warehouse_table_from_csv(
+            csv_path=Path(__file__).parent / "data" / "payments.csv",
+            table_name="payments",
+            table_columns={
                 "id": "String",
                 "dw_timestamp": "DateTime64(3, 'UTC')",
                 "dw_distinct_id": "String",
                 "amount": "Int64",
             },
-            credential=credential,
+            test_bucket=TEST_BUCKET,
+            team=self.team,
         )
 
         DataWarehouseJoin.objects.create(
             team=self.team,
-            source_table_name=table_name,
+            source_table_name=table.name,
             source_table_key="dw_distinct_id",
             joining_table_name="events",
             joining_table_key="distinct_id",
             field_name="events",
             configuration={"experiments_optimized": True, "experiments_timestamp_key": "dw_timestamp"},
         )
-        return table_name
+
+        return table.name
 
     def create_data_warehouse_table_with_usage(self):
-        if not OBJECT_STORAGE_ACCESS_KEY_ID or not OBJECT_STORAGE_SECRET_ACCESS_KEY:
-            raise Exception("Missing vars")
-
-        fs = s3fs.S3FileSystem(
-            client_kwargs={
-                "region_name": "us-east-1",
-                "endpoint_url": OBJECT_STORAGE_ENDPOINT,
-                "aws_access_key_id": OBJECT_STORAGE_ACCESS_KEY_ID,
-                "aws_secret_access_key": OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            },
-        )
-
-        path_to_s3_object = "s3://" + OBJECT_STORAGE_BUCKET + f"/{TEST_BUCKET}"
-
-        table_data = [
-            {"id": "1", "ds": "2023-01-01", "userid": "user_control_0", "usage": 1000},
-            {"id": "2", "ds": "2023-01-02", "userid": "user_test_1", "usage": 500},
-            {"id": "3", "ds": "2023-01-03", "userid": "user_test_2", "usage": 750},
-            {"id": "4", "ds": "2023-01-04", "userid": "internal_test_1", "usage": 100000},
-            {"id": "5", "ds": "2023-01-06", "userid": "user_test_3", "usage": 800},
-            {"id": "6", "ds": "2023-01-07", "userid": "user_extra", "usage": 900},
-        ]
-
-        pq.write_to_dataset(
-            pa.Table.from_pylist(table_data),
-            path_to_s3_object,
-            filesystem=fs,
-            use_dictionary=True,
-            compression="snappy",
-        )
-
-        table_name = "usage"
-
-        credential = DataWarehouseCredential.objects.create(
-            access_key=OBJECT_STORAGE_ACCESS_KEY_ID,
-            access_secret=OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            team=self.team,
-        )
-
-        DataWarehouseTable.objects.create(
-            name=table_name,
-            url_pattern=f"http://host.docker.internal:19000/{OBJECT_STORAGE_BUCKET}/{TEST_BUCKET}/*.parquet",
-            format=DataWarehouseTable.TableFormat.Parquet,
-            team=self.team,
-            columns={
+        table, _, _, _, self.clean_up_data_warehouse_usage_data = create_data_warehouse_table_from_csv(
+            csv_path=Path(__file__).parent / "data" / "usage.csv",
+            table_name="usage",
+            table_columns={
                 "id": "String",
                 "ds": "Date",
                 "userid": "String",
                 "usage": "Int64",
             },
-            credential=credential,
+            test_bucket=TEST_BUCKET,
+            team=self.team,
         )
 
         DataWarehouseJoin.objects.create(
             team=self.team,
-            source_table_name=table_name,
+            source_table_name=table.name,
             source_table_key="userid",
             joining_table_name="events",
             joining_table_key="properties.$user_id",
             field_name="events",
             configuration={"experiments_optimized": True, "experiments_timestamp_key": "ds"},
         )
-        return table_name
+        return table.name
 
     def create_data_warehouse_table_with_subscriptions(self):
-        if not OBJECT_STORAGE_ACCESS_KEY_ID or not OBJECT_STORAGE_SECRET_ACCESS_KEY:
-            raise Exception("Missing vars")
-
-        fs = s3fs.S3FileSystem(
-            client_kwargs={
-                "region_name": "us-east-1",
-                "endpoint_url": OBJECT_STORAGE_ENDPOINT,
-                "aws_access_key_id": OBJECT_STORAGE_ACCESS_KEY_ID,
-                "aws_secret_access_key": OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            },
+        subscriptions_table, source, credential, _, self.clean_up_data_warehouse_subscriptions_data = (
+            create_data_warehouse_table_from_csv(
+                csv_path=Path(__file__).parent / "data" / "subscriptions.csv",
+                table_name="subscriptions",
+                table_columns={
+                    "subscription_id": "String",
+                    "subscription_created_at": "DateTime64(3, 'UTC')",
+                    "subscription_customer_id": "String",
+                    "subscription_amount": "Int64",
+                },
+                test_bucket=TEST_BUCKET,
+                team=self.team,
+            )
         )
 
-        path_to_s3_object = "s3://" + OBJECT_STORAGE_BUCKET + f"/{TEST_BUCKET}"
-
-        credential = DataWarehouseCredential.objects.create(
-            access_key=OBJECT_STORAGE_ACCESS_KEY_ID,
-            access_secret=OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            team=self.team,
-        )
-
-        subscription_table_data = [
-            {
-                "subscription_id": "1",
-                "subscription_created_at": datetime(2023, 1, 2),
-                "subscription_customer_id": "user_control_0",
-                "subscription_amount": 100,
-            },
-            {
-                "subscription_id": "2",
-                "subscription_created_at": datetime(2023, 1, 3),
-                "subscription_customer_id": "user_test_1",
-                "subscription_amount": 50,
-            },
-            {
-                "subscription_id": "3",
-                "subscription_created_at": datetime(2023, 1, 4),
-                "subscription_customer_id": "user_test_2",
-                "subscription_amount": 75,
-            },
-            {
-                "subscription_id": "4",
-                "subscription_created_at": datetime(2023, 1, 5),
-                "subscription_customer_id": "user_test_3",
-                "subscription_amount": 80,
-            },
-            {
-                "subscription_id": "5",
-                "subscription_created_at": datetime(2023, 1, 6),
-                "subscription_customer_id": "user_extra",
-                "subscription_amount": 90,
-            },
-        ]
-
-        pq.write_to_dataset(
-            pa.Table.from_pylist(subscription_table_data),
-            path_to_s3_object,
-            filesystem=fs,
-            use_dictionary=True,
-            compression="snappy",
-        )
-
-        subscription_table_name = "subscriptions"
-
-        DataWarehouseTable.objects.create(
-            name=subscription_table_name,
-            url_pattern=f"http://host.docker.internal:19000/{OBJECT_STORAGE_BUCKET}/{TEST_BUCKET}/*.parquet",
-            format=DataWarehouseTable.TableFormat.Parquet,
-            team=self.team,
-            columns={
-                "subscription_id": "String",
-                "subscription_created_at": "DateTime64(3, 'UTC')",
-                "subscription_customer_id": "String",
-                "subscription_amount": "Int64",
-            },
-            credential=credential,
-        )
-
-        customer_table_data = [
-            {
-                "customer_id": "user_control_0",
-                "customer_created_at": datetime(2023, 1, 1),
-                "customer_name": "John Doe",
-                "customer_email": "john.doe@example.com",
-            },
-            {
-                "customer_id": "user_test_1",
-                "customer_created_at": datetime(2023, 1, 2),
-                "customer_name": "Jane Doe",
-                "customer_email": "jane.doe@example.com",
-            },
-            {
-                "customer_id": "user_test_2",
-                "customer_created_at": datetime(2023, 1, 3),
-                "customer_name": "John Smith",
-                "customer_email": "john.smith@example.com",
-            },
-            {
-                "customer_id": "user_test_3",
-                "customer_created_at": datetime(2023, 1, 6),
-                "customer_name": "Jane Smith",
-                "customer_email": "jane.smith@example.com",
-            },
-            {
-                "customer_id": "user_extra",
-                "customer_created_at": datetime(2023, 1, 7),
-                "customer_name": "John Doe Jr",
-                "customer_email": "john.doejr@example.com",
-            },
-        ]
-
-        pq.write_to_dataset(
-            pa.Table.from_pylist(customer_table_data),
-            path_to_s3_object,
-            filesystem=fs,
-            use_dictionary=True,
-            compression="snappy",
-        )
-
-        customer_table_name = "customers"
-
-        DataWarehouseTable.objects.create(
-            name=customer_table_name,
-            url_pattern=f"http://host.docker.internal:19000/{OBJECT_STORAGE_BUCKET}/{TEST_BUCKET}/*.parquet",
-            format=DataWarehouseTable.TableFormat.Parquet,
-            team=self.team,
-            columns={
+        customers_table, _, _, _, self.clean_up_data_warehouse_customers_data = create_data_warehouse_table_from_csv(
+            csv_path=Path(__file__).parent / "data" / "customers.csv",
+            table_name="customers",
+            table_columns={
                 "customer_id": "String",
                 "customer_created_at": "DateTime64(3, 'UTC')",
                 "customer_name": "String",
                 "customer_email": "String",
             },
+            test_bucket=TEST_BUCKET,
+            team=self.team,
             credential=credential,
+            source=source,
         )
 
         DataWarehouseJoin.objects.create(
             team=self.team,
-            source_table_name=subscription_table_name,
+            source_table_name=subscriptions_table.name,
             source_table_key="subscription_customer_id",
-            joining_table_name=customer_table_name,
+            joining_table_name=customers_table.name,
             joining_table_key="customer_id",
             field_name="subscription_customer",
         )
 
         DataWarehouseJoin.objects.create(
             team=self.team,
-            source_table_name=subscription_table_name,
+            source_table_name=subscriptions_table.name,
             source_table_key="subscription_customer.customer_email",
             joining_table_name="events",
             joining_table_key="person.properties.email",
@@ -442,7 +223,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             configuration={"experiments_optimized": True, "experiments_timestamp_key": "subscription_created_at"},
         )
 
-        return subscription_table_name
+        return subscriptions_table.name
 
     @freeze_time("2020-01-01T12:00:00Z")
     def test_query_runner(self):
@@ -2589,10 +2370,10 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             query=ExperimentTrendsQuery(**experiment.metrics[0]["query"]), team=self.team
         )
         with freeze_time("2023-01-07"):
-            with self.assertRaises(KeyError) as context:
+            with self.assertRaises(QueryError) as context:
                 query_runner.calculate()
 
-        self.assertEqual(str(context.exception), "'invalid_table_name'")
+        assert "invalid_table_name" in str(context.exception)
 
     # Uses the same values as test_query_runner_with_data_warehouse_series_avg_amount for easy comparison
     @freeze_time("2020-01-01T00:00:00Z")

@@ -1,8 +1,5 @@
 import { performance } from 'perf_hooks'
 import { Summary } from 'prom-client'
-import { parse as simdParse } from 'simdjson'
-
-import { defaultConfig } from '../config/config'
 
 const jsonParseDurationMsSummary = new Summary({
     name: 'json_parse_duration_ms',
@@ -13,23 +10,9 @@ const jsonParseDurationMsSummary = new Summary({
 
 export function parseJSON(json: string) {
     const startTime = performance.now()
-    let result
-
-    if (defaultConfig.USE_SIMD_JSON_PARSE) {
-        result = simdParse(json)
-        jsonParseDurationMsSummary.labels('simd').observe(performance.now() - startTime)
-        return result
-    }
     // eslint-disable-next-line no-restricted-syntax
-    result = JSON.parse(json)
+    const result = JSON.parse(json)
     jsonParseDurationMsSummary.labels('native').observe(performance.now() - startTime)
-
-    // Compare both methods when flag is enabled
-    if (defaultConfig.USE_SIMD_JSON_PARSE_FOR_COMPARISON) {
-        const simdStartTime = performance.now()
-        simdParse(json)
-        jsonParseDurationMsSummary.labels('simd').observe(performance.now() - simdStartTime)
-    }
 
     return result
 }

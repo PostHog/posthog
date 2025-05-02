@@ -9,6 +9,7 @@ from posthog.admin.admins import (
     DataColorThemeAdmin,
     InsightAdmin,
     ExperimentAdmin,
+    ExperimentSavedMetricAdmin,
     FeatureFlagAdmin,
     AsyncDeletionAdmin,
     InstanceSettingAdmin,
@@ -23,6 +24,7 @@ from posthog.admin.admins import (
     ProjectAdmin,
     HogFunctionAdmin,
     GroupTypeMappingAdmin,
+    EventIngestionRestrictionConfigAdmin,
 )
 from posthog.models import (
     Organization,
@@ -32,6 +34,7 @@ from posthog.models import (
     DashboardTemplate,
     Insight,
     Experiment,
+    ExperimentSavedMetric,
     DataColorTheme,
     FeatureFlag,
     AsyncDeletion,
@@ -47,6 +50,7 @@ from posthog.models import (
     DataWarehouseTable,
     HogFunction,
     GroupTypeMapping,
+    EventIngestionRestrictionConfig,
 )
 
 admin.site.register(Organization, OrganizationAdmin)
@@ -61,6 +65,7 @@ admin.site.register(GroupTypeMapping, GroupTypeMappingAdmin)
 admin.site.register(DataColorTheme, DataColorThemeAdmin)
 
 admin.site.register(Experiment, ExperimentAdmin)
+admin.site.register(ExperimentSavedMetric, ExperimentSavedMetricAdmin)
 admin.site.register(FeatureFlag, FeatureFlagAdmin)
 
 admin.site.register(AsyncDeletion, AsyncDeletionAdmin)
@@ -77,3 +82,4 @@ admin.site.register(Survey, SurveyAdmin)
 
 admin.site.register(DataWarehouseTable, DataWarehouseTableAdmin)
 admin.site.register(HogFunction, HogFunctionAdmin)
+admin.site.register(EventIngestionRestrictionConfig, EventIngestionRestrictionConfigAdmin)

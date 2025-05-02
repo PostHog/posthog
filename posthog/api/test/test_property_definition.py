@@ -75,6 +75,25 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             )
             self.assertEqual(response_item["is_numerical"], item["is_numerical"])
 
+    def test_list_property_definitions_with_excluded_properties(self):
+        response = self.client.get(
+            f'/api/projects/{self.team.pk}/property_definitions/?excluded_properties=["first_visit"]'
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], len(self.EXPECTED_PROPERTY_DEFINITIONS) - 1)
+
+        self.assertEqual(len(response.json()["results"]), len(self.EXPECTED_PROPERTY_DEFINITIONS) - 1)
+
+    def test_list_property_definitions_with_excluded_core_properties(self):
+        # core property that doesn't start with $
+        PropertyDefinition.objects.get_or_create(team=self.team, name="utm_medium")
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?exclude_core_properties=true")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 6)
+        self.assertEqual(len(response.json()["results"]), 6)
+
     def test_list_numerical_property_definitions(self):
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?is_numerical=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)

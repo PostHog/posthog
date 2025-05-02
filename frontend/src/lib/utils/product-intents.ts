@@ -10,12 +10,20 @@ export enum ProductIntentContext {
 
     // Data Warehouse
     SELECTED_CONNECTOR = 'selected connector',
+    SQL_EDITOR_EMPTY_STATE = 'sql editor empty state',
 
     // Experiments
     EXPERIMENT_CREATED = 'experiment created',
 
     // Feature Flags
     FEATURE_FLAG_CREATED = 'feature flag created',
+
+    // Session Replay
+    SESSION_REPLAY_SET_FILTERS = 'session_replay_set_filters',
+
+    // Error Tracking
+    ERROR_TRACKING_EXCEPTION_AUTOCAPTURE_ENABLED = 'error_tracking_exception_autocapture_enabled',
+    ERROR_TRACKING_DOCS_VIEWED = 'error_tracking_docs_viewed',
 
     /*
     Cross Sells
@@ -31,7 +39,7 @@ export enum ProductIntentContext {
     WEB_ANALYTICS_RECORDINGS = 'web_analytics_recordings',
     WEB_ANALYTICS_ERROR_TRACKING = 'web_analytics_error_tracking',
     WEB_ANALYTICS_ERRORS = 'web_analytics_errors',
-
+    WEB_ANALYTICS_FRUSTRATING_PAGES = 'web_analytics_frustrating_pages',
     // Actions
     ACTION_VIEW_RECORDINGS = 'action_view_recordings',
 

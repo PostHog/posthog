@@ -15,14 +15,14 @@ from posthog.models.integration import Integration
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
 from posthog.temporal.common.shutdown import ShutdownMonitor
-from posthog.temporal.data_imports.pipelines.bigquery import delete_all_temp_destination_tables, delete_table
+from posthog.temporal.data_imports.pipelines.bigquery import (
+    delete_all_temp_destination_tables,
+    delete_table,
+)
 from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
-from posthog.warehouse.models import (
-    ExternalDataJob,
-    ExternalDataSource,
-)
+from posthog.warehouse.models import ExternalDataJob, ExternalDataSource
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
 from posthog.warehouse.types import IncrementalFieldType
@@ -35,6 +35,16 @@ class ImportDataActivityInputs:
     source_id: uuid.UUID
     run_id: str
     reset_pipeline: Optional[bool] = None
+
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        return {
+            "team_id": self.team_id,
+            "schema_id": self.schema_id,
+            "source_id": self.source_id,
+            "run_id": self.run_id,
+            "reset_pipeline": self.reset_pipeline,
+        }
 
 
 def process_incremental_last_value(value: Any | None, field_type: IncrementalFieldType | None) -> Any | None:
@@ -119,8 +129,6 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
         if schema.is_incremental:
             logger.debug(f"Incremental last value being used is: {processed_incremental_last_value}")
 
-        shutdown_monitor.raise_if_is_worker_shutdown()
-
         source: DltSource | SourceResponse
 
         if model.pipeline.source_type == ExternalDataSource.Type.STRIPE:
@@ -168,6 +176,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 api_key=hubspot_access_code,
                 refresh_token=refresh_token,
                 endpoints=tuple(endpoints),
+                logger=logger,
             )
 
             return _run(
@@ -184,9 +193,14 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
             ExternalDataSource.Type.MYSQL,
             ExternalDataSource.Type.MSSQL,
         ]:
+            from posthog.temporal.data_imports.pipelines.mssql.mssql import mssql_source
             from posthog.temporal.data_imports.pipelines.mysql.mysql import mysql_source
-            from posthog.temporal.data_imports.pipelines.postgres.postgres import postgres_source
-            from posthog.temporal.data_imports.pipelines.sql_database import sql_source_for_type
+            from posthog.temporal.data_imports.pipelines.postgres.postgres import (
+                postgres_source,
+            )
+            from posthog.temporal.data_imports.pipelines.sql_database import (
+                sql_source_for_type,
+            )
 
             host = model.pipeline.job_inputs.get("host")
             port = model.pipeline.job_inputs.get("port")
@@ -267,7 +281,33 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                             if schema.is_incremental
                             else None,
                         )
+                    elif (
+                        ExternalDataSource.Type(model.pipeline.source_type) == ExternalDataSource.Type.MSSQL
+                        and str(inputs.team_id) not in settings.OLD_MSSQL_SOURCE_TEAM_IDS
+                    ):
+                        source = mssql_source(
+                            host=tunnel.local_bind_host,
+                            port=int(tunnel.local_bind_port),
+                            user=user,
+                            password=password,
+                            database=database,
+                            schema=pg_schema,
+                            table_names=endpoints,
+                            is_incremental=schema.is_incremental,
+                            logger=logger,
+                            incremental_field=schema.sync_type_config.get("incremental_field")
+                            if schema.is_incremental
+                            else None,
+                            incremental_field_type=schema.sync_type_config.get("incremental_field_type")
+                            if schema.is_incremental
+                            else None,
+                            db_incremental_field_last_value=processed_incremental_last_value
+                            if schema.is_incremental
+                            else None,
+                        )
                     else:
+                        # Old MS SQL Server source
+                        # TODO: remove once all teams have been moved to new source
                         source = sql_source_for_type(
                             source_type=ExternalDataSource.Type(model.pipeline.source_type),
                             host=tunnel.local_bind_host,
@@ -342,7 +382,31 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                     else None,
                     db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
                 )
+            elif (
+                ExternalDataSource.Type(model.pipeline.source_type) == ExternalDataSource.Type.MSSQL
+                and str(inputs.team_id) not in settings.OLD_MSSQL_SOURCE_TEAM_IDS
+            ):
+                source = mssql_source(
+                    host=host,
+                    port=port,
+                    user=user,
+                    password=password,
+                    database=database,
+                    schema=pg_schema,
+                    table_names=endpoints,
+                    is_incremental=schema.is_incremental,
+                    logger=logger,
+                    incremental_field=schema.sync_type_config.get("incremental_field")
+                    if schema.is_incremental
+                    else None,
+                    incremental_field_type=schema.sync_type_config.get("incremental_field_type")
+                    if schema.is_incremental
+                    else None,
+                    db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
+                )
             else:
+                # Old MS SQL Server source
+                # TODO: remove once all teams have been moved to new source
                 source = sql_source_for_type(
                     source_type=ExternalDataSource.Type(model.pipeline.source_type),
                     host=host,
@@ -514,8 +578,12 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 shutdown_monitor=shutdown_monitor,
             )
         elif model.pipeline.source_type == ExternalDataSource.Type.BIGQUERY:
-            from posthog.temporal.data_imports.pipelines.bigquery.source import bigquery_source
-            from posthog.temporal.data_imports.pipelines.sql_database import bigquery_source as sql_bigquery_source
+            from posthog.temporal.data_imports.pipelines.bigquery.source import (
+                bigquery_source,
+            )
+            from posthog.temporal.data_imports.pipelines.sql_database import (
+                bigquery_source as sql_bigquery_source,
+            )
 
             dataset_id = model.pipeline.job_inputs.get("dataset_id")
             project_id = model.pipeline.job_inputs.get("project_id")

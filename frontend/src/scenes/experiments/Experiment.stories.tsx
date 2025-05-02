@@ -2214,16 +2214,13 @@ const EXPERIMENT_QUERY_RESULT_WITH_ASYMMETRIC_INTERVALS: CachedExperimentQueryRe
     kind: NodeKind.ExperimentQuery,
     last_refresh: '2025-02-18T09:14:37.273511Z',
     metric: {
-        inverse: false,
         kind: NodeKind.ExperimentMetric,
-        metric_config: {
+        source: {
+            kind: NodeKind.EventsNode,
             event: 'experiment created',
-            kind: NodeKind.ExperimentEventMetricConfig,
             math: ExperimentMetricMathType.TotalCount,
             math_hogql: undefined,
             math_property: undefined,
-            name: 'experiment created',
-            properties: undefined,
         },
         metric_type: ExperimentMetricType.MEAN,
         name: 'Experiments created',
@@ -2389,6 +2386,10 @@ export const ExperimentV2WithThreeMetrics: StoryFn = () => {
     }, [])
     return <App />
 }
+ExperimentV2WithThreeMetrics.play = async () => {
+    // Add a small delay to ensure charts render completely
+    await new Promise((resolve) => setTimeout(resolve, 500))
+}
 
 export const ExperimentV3WithExperimentQuery: StoryFn = () => {
     useEffect(() => {
@@ -2396,10 +2397,18 @@ export const ExperimentV3WithExperimentQuery: StoryFn = () => {
     }, [])
     return <App />
 }
+ExperimentV3WithExperimentQuery.play = async () => {
+    // Add a small delay to ensure charts render completely
+    await new Promise((resolve) => setTimeout(resolve, 500))
+}
 
 export const ExperimentV3WithAsymmetricIntervals: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.experiment(EXPERIMENT_WITH_ASYMMETRIC_INTERVALS.id))
     }, [])
     return <App />
+}
+ExperimentV3WithAsymmetricIntervals.play = async () => {
+    // Add a small delay to ensure charts render completely
+    await new Promise((resolve) => setTimeout(resolve, 500))
 }

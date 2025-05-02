@@ -10,7 +10,7 @@ from posthoganalytics.exception_capture import Integrations
 
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.tasks.tasks import sync_all_organization_available_product_features
-from posthog.utils import get_machine_id, initialize_self_capture_api_token
+from posthog.utils import get_machine_id, initialize_self_capture_api_token, get_instance_region
 
 logger = structlog.get_logger(__name__)
 
@@ -24,7 +24,9 @@ class PostHogConfig(AppConfig):
         posthoganalytics.personal_api_key = os.environ.get("POSTHOG_PERSONAL_API_KEY")
         posthoganalytics.poll_interval = 90
         posthoganalytics.enable_exception_autocapture = True
+        posthoganalytics.log_captured_exceptions = True
         posthoganalytics.exception_autocapture_integrations = [Integrations.Django]
+        posthoganalytics.super_properties = {"region": get_instance_region()}
 
         if settings.E2E_TESTING:
             posthoganalytics.api_key = "phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO"

@@ -16,10 +16,11 @@ export type ScrollableShadowsProps = {
     ariaActivedescendant?: string
     onKeyDown?: (event: React.KeyboardEvent<HTMLDivElement>) => void
     onBlur?: () => void
+    styledScrollbars?: boolean
 }
 
 export const ScrollableShadows = React.forwardRef<HTMLDivElement, ScrollableShadowsProps>(function ScrollableShadows(
-    { children, direction, className, innerClassName, scrollRef, ...props },
+    { children, direction, className, innerClassName, scrollRef, styledScrollbars = false, ...props },
     ref
 ) {
     const {
@@ -46,7 +47,7 @@ export const ScrollableShadows = React.forwardRef<HTMLDivElement, ScrollableShad
             {...props}
         >
             <div
-                className={clsx('ScrollableShadows__inner', innerClassName)}
+                className={clsx('ScrollableShadows__inner', styledScrollbars && 'styled-scrollbars', innerClassName)}
                 ref={(refValue) => {
                     scrollRefScrollable.current = refValue
                     if (scrollRef) {

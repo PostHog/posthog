@@ -2,31 +2,31 @@ import { DateTime } from 'luxon'
 
 import { TimestampFormat } from '../../../../types'
 import { castTimestampOrNow } from '../../../../utils/utils'
-import { ParsedMessageData } from '../kafka/types'
 import { ConsoleLogLevel, RRWebEventType } from '../rrweb-types'
+import { MessageWithTeam } from '../teams/types'
 import { ConsoleLogEntry, SessionConsoleLogStore } from './session-console-log-store'
 
 const levelMapping: Record<string, ConsoleLogLevel> = {
-    info: ConsoleLogLevel.Log,
-    count: ConsoleLogLevel.Log,
-    timeEnd: ConsoleLogLevel.Log,
+    info: ConsoleLogLevel.Info,
+    count: ConsoleLogLevel.Info,
+    timeEnd: ConsoleLogLevel.Info,
     warn: ConsoleLogLevel.Warn,
     countReset: ConsoleLogLevel.Warn,
     error: ConsoleLogLevel.Error,
     assert: ConsoleLogLevel.Error,
-    // really these should be 'log' but we don't want users to have to think about this
-    log: ConsoleLogLevel.Log,
-    trace: ConsoleLogLevel.Log,
-    dir: ConsoleLogLevel.Log,
-    dirxml: ConsoleLogLevel.Log,
-    group: ConsoleLogLevel.Log,
-    groupCollapsed: ConsoleLogLevel.Log,
-    debug: ConsoleLogLevel.Log,
-    timeLog: ConsoleLogLevel.Log,
+    // really these should be 'info' but we don't want users to have to think about this
+    log: ConsoleLogLevel.Info,
+    trace: ConsoleLogLevel.Info,
+    dir: ConsoleLogLevel.Info,
+    dirxml: ConsoleLogLevel.Info,
+    group: ConsoleLogLevel.Info,
+    groupCollapsed: ConsoleLogLevel.Info,
+    debug: ConsoleLogLevel.Info,
+    timeLog: ConsoleLogLevel.Info,
 }
 
 function safeLevel(level: unknown): ConsoleLogLevel {
-    return levelMapping[typeof level === 'string' ? level : 'info'] || ConsoleLogLevel.Log
+    return levelMapping[typeof level === 'string' ? level : 'info'] || ConsoleLogLevel.Info
 }
 
 function sanitizeForUTF8(input: string): string {
@@ -97,14 +97,18 @@ export class SessionConsoleLogRecorder {
      * @param message - Message containing events for one or more windows
      * @throws If called after end()
      */
-    public async recordMessage(message: ParsedMessageData): Promise<void> {
+    public async recordMessage(message: MessageWithTeam): Promise<void> {
         if (this.ended) {
             throw new Error('Cannot record message after end() has been called')
         }
 
+        if (!message.team.consoleLogIngestionEnabled) {
+            return
+        }
+
         const logsToStore: ConsoleLogEntry[] = []
 
-        for (const events of Object.values(message.eventsByWindowId)) {
+        for (const events of Object.values(message.message.eventsByWindowId)) {
             for (const event of events) {
                 const eventData = event.data as
                     | { plugin?: unknown; payload?: { payload?: unknown; level?: unknown } }
@@ -115,7 +119,7 @@ export class SessionConsoleLogRecorder {
                     const payload: unknown[] = Array.isArray(maybePayload) ? maybePayload : []
                     const message = payloadToSafeString(payload)
 
-                    if (level === ConsoleLogLevel.Log) {
+                    if (level === ConsoleLogLevel.Info) {
                         this.consoleLogCount++
                     } else if (level === ConsoleLogLevel.Warn) {
                         this.consoleWarnCount++

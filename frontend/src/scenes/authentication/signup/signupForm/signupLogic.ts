@@ -36,9 +36,9 @@ export const emailRegex: RegExp =
 
 export const signupLogic = kea<signupLogicType>([
     path(['scenes', 'authentication', 'signupLogic']),
-    connect({
+    connect(() => ({
         values: [preflightLogic, ['preflight'], featureFlagLogic, ['featureFlags']],
-    }),
+    })),
     actions({
         setPanel: (panel: number) => ({ panel }),
     }),

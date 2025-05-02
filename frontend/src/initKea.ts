@@ -9,6 +9,7 @@ import { windowValuesPlugin } from 'kea-window-values'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { identifierToHuman } from 'lib/utils'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
+import posthog from 'posthog-js'
 
 /*
 Actions for which we don't want to show error alerts,
@@ -106,7 +107,7 @@ export function initKea({ routerHistory, routerLocation, beforePlugins }: InitKe
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })
                 }
-                ;(window as any).Sentry?.captureException(error)
+                posthog.captureException(error)
             },
         }),
         subscriptionsPlugin,

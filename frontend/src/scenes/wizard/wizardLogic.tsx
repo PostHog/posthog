@@ -12,9 +12,9 @@ export interface WizardTokenResponseType {
 
 export const wizardLogic = kea<wizardLogicType>([
     path(['scenes', 'wizard', 'wizardLogic']),
-    connect({
+    connect(() => ({
         values: [teamLogic, ['currentTeam']],
-    }),
+    })),
     actions({
         setWizardHash: (wizardHash: string | null) => ({ wizardHash }),
         setView: (view: 'pending' | 'creating' | 'success' | 'invalid') => ({ view }),

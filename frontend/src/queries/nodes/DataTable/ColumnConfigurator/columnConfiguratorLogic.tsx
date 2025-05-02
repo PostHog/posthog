@@ -1,7 +1,12 @@
-import { actions, kea, key, listeners, path, props, propsChanged, reducers } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { groupsModel } from '~/models/groupsModel'
 import { HOGQL_COLUMNS_KEY } from '~/queries/nodes/DataTable/defaultEventsQuery'
+import { GroupTypeIndex } from '~/types'
 
 import type { columnConfiguratorLogicType } from './columnConfiguratorLogicType'
 
@@ -10,12 +15,20 @@ export interface ColumnConfiguratorLogicProps {
     columns: string[]
     setColumns: (columns: string[]) => void
     isPersistent?: boolean
+    context?: {
+        type: 'event_definition' | 'groups' | 'team_columns'
+        eventDefinitionId?: string
+        groupTypeIndex?: GroupTypeIndex
+    }
 }
 
 export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
     props({} as ColumnConfiguratorLogicProps),
     path(['queries', 'nodes', 'DataTable', 'columnConfiguratorLogic']),
     key((props) => props.key),
+    connect(() => ({
+        actions: [eventUsageLogic, ['reportDataTableColumnsUpdated'], groupsModel, ['setDefaultColumns']],
+    })),
     actions({
         showModal: true,
         hideModal: true,
@@ -26,6 +39,12 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
         save: true,
         toggleSaveAsDefault: true,
     }),
+    selectors(() => ({
+        context: [
+            () => [(_, props) => props.context],
+            (context: NonNullable<ColumnConfiguratorLogicProps['context']>) => context,
+        ],
+    })),
     reducers(({ props }) => ({
         saveAsDefault: [
             false,
@@ -62,11 +81,44 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
             actions.setColumns(props.columns)
         }
     }),
-    listeners(({ values, props }) => ({
-        save: () => {
-            if (props.isPersistent && values.saveAsDefault) {
+    listeners(({ actions, values, props }) => ({
+        save: async () => {
+            actions.reportDataTableColumnsUpdated(props.context?.type ?? 'live_events')
+            if (!props.isPersistent || !values.saveAsDefault) {
+                props.setColumns(values.columns)
+                return
+            }
+
+            if (props.context?.type === 'groups' && typeof props.context.groupTypeIndex === 'number') {
+                try {
+                    actions.setDefaultColumns({
+                        groupTypeIndex: props.context.groupTypeIndex,
+                        defaultColumns: values.columns,
+                    })
+                    lemonToast.success('Default columns saved for this group type')
+                } catch (error) {
+                    console.error('Error saving default columns to group type:', error)
+                    lemonToast.error('Failed to save columns to group type')
+                }
+            } else if (props.context?.type === 'event_definition' && props.context.eventDefinitionId) {
+                try {
+                    await api.eventDefinitions.update({
+                        eventDefinitionId: props.context.eventDefinitionId,
+                        eventDefinitionData: {
+                            default_columns: values.columns,
+                        },
+                    })
+                    lemonToast.success('Default columns saved for this event')
+                } catch (error) {
+                    console.error('Error saving default columns to event definition:', error)
+                    lemonToast.error('Failed to save columns to event definition')
+                }
+            } else {
+                // Team-wide default columns
                 teamLogic.actions.updateCurrentTeam({ live_events_columns: [HOGQL_COLUMNS_KEY, ...values.columns] })
             }
+
+            // Always update the columns in the query
             props.setColumns(values.columns)
         },
     })),

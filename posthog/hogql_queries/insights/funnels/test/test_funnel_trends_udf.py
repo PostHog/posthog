@@ -2,10 +2,7 @@ import datetime
 from typing import cast
 from unittest.mock import patch, Mock
 
-from hogql_parser import parse_expr
 from posthog.constants import INSIGHT_FUNNELS, TRENDS_LINEAR, FunnelOrderType
-from posthog.hogql.constants import HogQLGlobalSettings, MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY
-from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.insights.funnels.test.test_funnel_trends import BaseTestFunnelTrends
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
@@ -30,52 +27,6 @@ from posthog.test.test_journeys import journeys_for
 )
 class TestFunnelTrendsUDF(BaseTestFunnelTrends):
     __test__ = True
-
-    def test_redundant_event_filtering(self):
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "date_from": "-14d",
-            "funnel_viz_type": "trends",
-            "interval": "day",
-            "events": [
-                {"id": "$pageview", "order": 1},
-                {"id": "insight viewed", "order": 2},
-            ],
-        }
-
-        _create_person(
-            distinct_ids=["many_other_events"],
-            team_id=self.team.pk,
-            properties={"test": "okay"},
-        )
-        now = datetime.datetime.now()
-        for i in range(10):
-            _create_event(
-                team=self.team,
-                event="$pageview",
-                distinct_id="many_other_events",
-                timestamp=now - datetime.timedelta(days=11 + i),
-            )
-
-        query = cast(FunnelsQuery, filter_to_query(filters))
-        runner = FunnelsQueryRunner(query=query, team=self.team)
-        inner_aggregation_query = runner.funnel_class._inner_aggregation_query()
-        inner_aggregation_query.select.append(
-            parse_expr(f"{runner.funnel_class.udf_event_array_filter()} AS filtered_array")
-        )
-        inner_aggregation_query.having = None
-        response = execute_hogql_query(
-            query_type="FunnelsQuery",
-            query=inner_aggregation_query,
-            team=self.team,
-            settings=HogQLGlobalSettings(
-                # Make sure funnel queries never OOM
-                max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY,
-                allow_experimental_analyzer=True,
-            ),
-        )
-        # Make sure the events have been condensed down to two
-        self.assertEqual(2, len(response.results[0][-1]))
 
     def test_assert_udf_flag_is_working(self):
         filters = {

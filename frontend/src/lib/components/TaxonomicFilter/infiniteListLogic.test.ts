@@ -398,7 +398,39 @@ describe('infiniteListLogic', () => {
         logicWithProps.mount()
 
         await expectLogic(logicWithProps, () => logicWithProps.actions.setSearchQuery('css')).toMatchValues({
-            localItems: { count: 1, results: [{ name: 'selector' }], searchQuery: 'css' },
+            localItems: { count: 1, results: [{ name: 'selector' }], searchQuery: 'css', originalQuery: undefined },
+        })
+    })
+
+    it('swaps in query when url is sent', async () => {
+        const logicWithProps = infiniteListLogic({
+            taxonomicFilterLogicKey: 'test-e-prop',
+            listGroupType: TaxonomicFilterGroupType.EventProperties,
+            taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties],
+            showNumericalPropsOnly: false,
+        })
+        logicWithProps.mount()
+
+        await expectLogic(logicWithProps, () =>
+            logicWithProps.actions.setSearchQuery('http://localhost:8010/project/1/replay/playlists')
+        ).toMatchValues({
+            swappedInQuery: '$current_url',
+        })
+    })
+
+    it('swaps in query when email is sent', async () => {
+        const logicWithProps = infiniteListLogic({
+            taxonomicFilterLogicKey: 'test-e-prop',
+            listGroupType: TaxonomicFilterGroupType.PersonProperties,
+            taxonomicGroupTypes: [TaxonomicFilterGroupType.PersonProperties],
+            showNumericalPropsOnly: false,
+        })
+        logicWithProps.mount()
+
+        await expectLogic(logicWithProps, () =>
+            logicWithProps.actions.setSearchQuery('test@example.com')
+        ).toMatchValues({
+            swappedInQuery: 'email',
         })
     })
 })

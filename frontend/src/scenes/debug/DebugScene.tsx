@@ -29,7 +29,7 @@ export function DebugScene(): JSX.Element {
                             active={query1 === stringifiedExamples.HogQLRaw}
                             onClick={() => setQuery1(stringifiedExamples.HogQLRaw)}
                         >
-                            HogQL Debug
+                            SQL Debug
                         </LemonButton>
                         {featureFlags[FEATURE_FLAGS.HOG] ? (
                             <LemonButton
@@ -43,7 +43,7 @@ export function DebugScene(): JSX.Element {
                             active={query1 === stringifiedExamples.HogQLTable}
                             onClick={() => setQuery1(stringifiedExamples.HogQLTable)}
                         >
-                            HogQL Table
+                            SQL Table
                         </LemonButton>
                         <LemonButton
                             active={query1 === stringifiedExamples.Events}

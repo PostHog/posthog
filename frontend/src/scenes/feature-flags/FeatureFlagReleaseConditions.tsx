@@ -20,11 +20,11 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { getFilterLabel } from 'lib/taxonomy'
 import { capitalizeFirstLetter, dateFilterToText, dateStringToComponents, humanFriendlyNumber } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
+import { getFilterLabel } from '~/taxonomy/helpers'
 import { AnyPropertyFilter, FeatureFlagGroupType, PropertyOperator } from '~/types'
 
 import { featureFlagLogic } from './featureFlagLogic'
@@ -236,7 +236,7 @@ export function FeatureFlagReleaseConditions({
                             These properties aren't immediately available on first page load for unidentified persons.
                             This feature flag requires that at least one event is sent prior to becoming available to
                             your product or website.{' '}
-                            <Link to="https://posthog.com/docs/libraries/js#bootstrapping-flags" target="_blank">
+                            <Link to="https://posthog.com/docs/feature-flags/bootstrapping" target="_blank">
                                 {' '}
                                 Learn more about how to make feature flags available instantly.
                             </Link>

@@ -37,26 +37,29 @@ from .error_tracking import (
     ErrorTrackingStackFrame,
     ErrorTrackingSymbolSet,
     ErrorTrackingIssueAssignment,
+    ErrorTrackingAssignmentRule,
 )
 from .event.event import Event
 from .event_buffer import EventBuffer
 from .event_definition import EventDefinition
 from .event_property import EventProperty
-from .experiment import Experiment
+from .experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric
 from .exported_asset import ExportedAsset
 from .feature_flag import FeatureFlag
 from .surveys.survey import Survey
-from .file_system import FileSystem
+from .file_system.file_system import FileSystem
 from .filters import Filter, RetentionFilter
 from .group import Group
 from .group_type_mapping import GroupTypeMapping
 from .host_definition import HostDefinition
 from .hog_functions import HogFunction
+from .hog_function_template import HogFunctionTemplate
 from .insight import Insight, InsightViewed
 from .insight_caching_state import InsightCachingState
 from .insight_variable import InsightVariable
 from .instance_setting import InstanceSetting
 from .integration import Integration
+from .message_template import MessageTemplate
 from .messaging import MessagingRecord
 from .notebook import Notebook
 from .organization import Organization, OrganizationMembership
@@ -82,7 +85,8 @@ from .sharing_configuration import SharingConfiguration
 from .subscription import Subscription
 from .tag import Tag
 from .tagged_item import TaggedItem
-from .team import Team
+from .team import Team, TeamRevenueAnalyticsConfig
+from .event_ingestion_restriction_config import EventIngestionRestrictionConfig
 from .uploaded_media import UploadedMedia
 from .user import User, UserManager
 from .user_group import UserGroup, UserGroupMembership
@@ -120,11 +124,14 @@ __all__ = [
     "ErrorTrackingStackFrame",
     "ErrorTrackingSymbolSet",
     "ErrorTrackingIssueAssignment",
+    "ErrorTrackingAssignmentRule",
     "Event",
     "EventBuffer",
     "EventDefinition",
     "EventProperty",
     "Experiment",
+    "ExperimentHoldout",
+    "ExperimentSavedMetric",
     "ExportedAsset",
     "FeatureFlag",
     "FileSystem",
@@ -132,6 +139,7 @@ __all__ = [
     "Group",
     "GroupTypeMapping",
     "HogFunction",
+    "HogFunctionTemplate",
     "HostDefinition",
     "Insight",
     "InsightCachingState",
@@ -140,6 +148,7 @@ __all__ = [
     "InstanceSetting",
     "Integration",
     "InviteExpiredException",
+    "MessageTemplate",
     "MessagingRecord",
     "Notebook",
     "MigrationStatus",
@@ -174,7 +183,9 @@ __all__ = [
     "Tag",
     "TaggedItem",
     "Team",
+    "TeamRevenueAnalyticsConfig",
     "Text",
+    "EventIngestionRestrictionConfig",
     "UploadedMedia",
     "User",
     "UserScenePersonalisation",

@@ -16,9 +16,9 @@ export const humanFriendlyTabName = (tab: PipelineTab): string => {
 
 export const pipelineLogic = kea<pipelineLogicType>([
     path(['scenes', 'pipeline', 'pipelineLogic']),
-    connect({
+    connect(() => ({
         values: [userLogic, ['user', 'hasAvailableFeature']],
-    }),
+    })),
     actions({
         setCurrentTab: (tab: PipelineTab = PipelineTab.Destinations) => ({ tab }),
     }),

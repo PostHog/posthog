@@ -14,12 +14,16 @@ from rest_framework.test import APIClient
 from posthog.api.test.test_exports import TestExportMixin
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import FeatureFlag, Person, Action
-from posthog.models.async_deletion.async_deletion import AsyncDeletion, DeletionType
+from posthog.models.async_deletion.async_deletion import AsyncDeletion
 from posthog.models.cohort import Cohort
 from posthog.models.team.team import Team
 from posthog.schema import PropertyOperator, PersonsOnEventsMode
-from posthog.tasks.calculate_cohort import calculate_cohort_ch, calculate_cohort_from_list
-from posthog.tasks.tasks import clickhouse_clear_removed_data
+from posthog.tasks.calculate_cohort import (
+    calculate_cohort_ch,
+    calculate_cohort_from_list,
+    get_cohort_calculation_candidates_queryset,
+    increment_version_and_enqueue_calculate_cohort,
+)
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -27,7 +31,6 @@ from posthog.test.base import (
     _create_event,
     _create_person,
     flush_persons_and_events,
-    snapshot_clickhouse_queries,
 )
 
 
@@ -59,7 +62,48 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
 
         activity: list[dict] = activity_response["results"]
         self.maxDiff = None
+
+        # Sort 'changes' lists for order-insensitive comparison
+        for item in activity:
+            if "detail" in item and "changes" in item["detail"]:
+                item["detail"]["changes"].sort(key=lambda x: x.get("field", ""))
+        for item in expected:
+            if "detail" in item and "changes" in item["detail"]:
+                item["detail"]["changes"].sort(key=lambda x: x.get("field", ""))
+
         assert activity == expected
+
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_increment_cohort(self, mock_calculate_cohort_ch):
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+            name="cohort1",
+            pending_version=None,
+            is_static=False,
+            is_calculating=False,
+            deleted=False,
+        )
+
+        assert cohort1 in get_cohort_calculation_candidates_queryset()
+
+        increment_version_and_enqueue_calculate_cohort(cohort1, initiating_user=None)
+        cohort1.refresh_from_db()
+        assert cohort1.pending_version == 1
+        assert cohort1.is_calculating is True
+        assert cohort1 not in get_cohort_calculation_candidates_queryset()
+
+        increment_version_and_enqueue_calculate_cohort(cohort1, initiating_user=None)
+        cohort1.refresh_from_db()
+        assert cohort1.pending_version == 2
+        assert cohort1.is_calculating is True
+        assert cohort1 not in get_cohort_calculation_candidates_queryset()
+
+        increment_version_and_enqueue_calculate_cohort(cohort1, initiating_user=None)
+        cohort1.refresh_from_db()
+        assert cohort1.pending_version == 3
+        assert cohort1.is_calculating is True
+        assert cohort1 not in get_cohort_calculation_candidates_queryset()
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay", side_effect=calculate_cohort_ch)
@@ -528,7 +572,7 @@ email@example.org,
                     "activity": "created",
                     "scope": "Cohort",
                     "item_id": str(cohort.pk),
-                    "detail": {"changes": None, "trigger": None, "name": "whatever", "short_id": None, "type": None},
+                    "detail": {"changes": [], "trigger": None, "name": "whatever", "short_id": None, "type": None},
                     "created_at": mock.ANY,
                 }
             ],
@@ -590,7 +634,7 @@ email@example.org,
                     "activity": "created",
                     "scope": "Cohort",
                     "item_id": str(cohort.pk),
-                    "detail": {"changes": None, "trigger": None, "name": "whatever", "short_id": None, "type": None},
+                    "detail": {"changes": [], "trigger": None, "name": "whatever", "short_id": None, "type": None},
                     "created_at": mock.ANY,
                 },
             ],
@@ -1560,141 +1604,6 @@ email@example.org,
         self.assertEqual(new_cohort.errors_calculating, 0)
         self.assertEqual(new_cohort.count, 2)
 
-    @snapshot_clickhouse_queries
-    @patch("posthog.api.cohort.report_user_action")
-    def test_async_deletion_of_cohort(self, patch_capture):
-        _create_person(
-            distinct_ids=["p1"],
-            team_id=self.team.pk,
-            properties={"$some_prop": "something"},
-        )
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="p1",
-            timestamp=datetime.now() - timedelta(hours=12),
-        )
-
-        _create_person(
-            distinct_ids=["p2"],
-            team_id=self.team.pk,
-            properties={"$some_prop": "not it"},
-        )
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="p2",
-            timestamp=datetime.now() - timedelta(hours=12),
-        )
-
-        _create_person(
-            distinct_ids=["p3"],
-            team_id=self.team.pk,
-            properties={"$some_prop": "not it"},
-        )
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="p3",
-            timestamp=datetime.now() - timedelta(days=12),
-        )
-
-        flush_persons_and_events()
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/cohorts",
-            data={
-                "name": "cohort A",
-                "filters": {
-                    "properties": {
-                        "type": "OR",
-                        "values": [
-                            {
-                                "key": "$some_prop",
-                                "value": "something",
-                                "type": "person",
-                            },
-                            {
-                                "key": "$pageview",
-                                "event_type": "events",
-                                "time_value": 1,
-                                "time_interval": "day",
-                                "value": "performed_event",
-                                "type": "behavioral",
-                            },
-                        ],
-                    }
-                },
-            },
-        )
-        self.assertEqual(response.status_code, 201, response.content)
-
-        cohort_id = response.json()["id"]
-
-        while response.json()["is_calculating"]:
-            response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}")
-
-        cohort = Cohort.objects.get(pk=cohort_id)
-        self.assertEqual(cohort.count, 2)
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/cohorts/{cohort_id}",
-            data={
-                "filters": {
-                    "properties": {
-                        "type": "OR",
-                        "values": [
-                            {
-                                "key": "$some_prop",
-                                "value": "something",
-                                "type": "person",
-                            },
-                        ],
-                    }
-                },
-            },
-        )
-
-        self.assertEqual(response.status_code, 200, response.content)
-
-        while response.json()["is_calculating"]:
-            response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}")
-
-        updated_cohort = Cohort.objects.get(pk=cohort_id)
-        self.assertEqual(updated_cohort.count, 1)
-
-        self.assertEqual(len(AsyncDeletion.objects.all()), 1)
-        async_deletion = AsyncDeletion.objects.all()[0]
-        self.assertEqual(async_deletion.key, f"{cohort_id}_4")
-        self.assertEqual(async_deletion.deletion_type, DeletionType.Cohort_stale)
-        self.assertEqual(async_deletion.delete_verified_at, None)
-
-        # now let's run async deletions
-        clickhouse_clear_removed_data.delay()
-
-        async_deletion = AsyncDeletion.objects.all()[0]
-        self.assertEqual(async_deletion.key, f"{cohort_id}_4")
-        self.assertEqual(async_deletion.deletion_type, DeletionType.Cohort_stale)
-        self.assertEqual(async_deletion.delete_verified_at, None)
-
-        # optimise cohortpeople table, so all collapsing / replcaing on the merge tree is done
-        sync_execute(f"OPTIMIZE TABLE cohortpeople FINAL SETTINGS mutations_sync = 2")
-
-        # check clickhouse data is gone from cohortpeople table
-        res = sync_execute(
-            "SELECT count() FROM cohortpeople WHERE cohort_id = %(cohort_id)s",
-            {"cohort_id": cohort_id},
-        )
-        self.assertEqual(res[0][0], 1)
-
-        # now let's ensure verification of deletion happens on next run
-        clickhouse_clear_removed_data.delay()
-
-        async_deletion = AsyncDeletion.objects.all()[0]
-        self.assertEqual(async_deletion.key, f"{cohort_id}_4")
-        self.assertEqual(async_deletion.deletion_type, DeletionType.Cohort_stale)
-        self.assertEqual(async_deletion.delete_verified_at is not None, True)
-
     def test_deletion_of_cohort_cancels_async_deletion(self):
         cohort = Cohort.objects.create(
             team=self.team,
@@ -1720,168 +1629,28 @@ email@example.org,
 
         self.assertEqual(len(AsyncDeletion.objects.all()), 0)
 
-    @patch("posthog.api.cohort.report_user_action")
-    def test_async_deletion_of_cohort_with_race_condition_multiple_updates(self, patch_capture):
-        _create_person(
-            distinct_ids=["p1"],
-            team_id=self.team.pk,
-            properties={"$some_prop": "something"},
-        )
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="p1",
-            timestamp=datetime.now() - timedelta(hours=12),
-        )
-
-        _create_person(
-            distinct_ids=["p2"],
-            team_id=self.team.pk,
-            properties={"$some_prop": "not it"},
-        )
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="p2",
-            timestamp=datetime.now() - timedelta(hours=12),
-        )
-
-        _create_person(
-            distinct_ids=["p3"],
-            team_id=self.team.pk,
-            properties={"$some_prop": "not it"},
-        )
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="p3",
-            timestamp=datetime.now() - timedelta(days=12),
-        )
-
-        flush_persons_and_events()
-
+    def test_create_cohort_in_specific_folder(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
             data={
-                "name": "cohort A",
-                "filters": {
-                    "properties": {
-                        "type": "OR",
-                        "values": [
-                            {
-                                "key": "$some_prop",
-                                "value": "something",
-                                "type": "person",
-                            },
-                            {
-                                "key": "$pageview",
-                                "event_type": "events",
-                                "time_value": 1,
-                                "time_interval": "day",
-                                "value": "performed_event",
-                                "type": "behavioral",
-                            },
-                        ],
-                    }
-                },
+                "name": "Test Cohort in folder",
+                "groups": [{"properties": {"prop": "5"}}],
+                "_create_in_folder": "Special Folder/Cohorts",
             },
+            format="json",
         )
-        self.assertEqual(response.status_code, 201, response.content)
+        assert response.status_code == 201, response.json()
 
         cohort_id = response.json()["id"]
+        assert cohort_id is not None
 
-        while response.json()["is_calculating"]:
-            response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}")
+        from posthog.models.file_system.file_system import FileSystem
 
-        cohort = Cohort.objects.get(pk=cohort_id)
-        self.assertEqual(cohort.count, 2)
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/cohorts/{cohort_id}",
-            data={
-                "filters": {
-                    "properties": {
-                        "type": "OR",
-                        "values": [
-                            {
-                                "key": "$some_prop",
-                                "value": "something",
-                                "type": "person",
-                            },
-                        ],
-                    }
-                },
-            },
-        )
-        self.assertEqual(response.status_code, 200, response.content)
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/cohorts/{cohort_id}",
-            data={
-                "filters": {
-                    "properties": {
-                        "type": "OR",
-                        "values": [
-                            {
-                                "key": "$some_prop",
-                                "value": "something2",
-                                "type": "person",
-                            },
-                        ],
-                    }
-                },
-            },
-        )
-        self.assertEqual(response.status_code, 200, response.content)
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/cohorts/{cohort_id}",
-            data={
-                "filters": {
-                    "properties": {
-                        "type": "OR",
-                        "values": [
-                            {"key": "$some_prop", "value": "not it", "type": "person"},
-                        ],
-                    }
-                },
-            },
-        )
-        self.assertEqual(response.status_code, 200, response.content)
-
-        self.assertEqual(len(AsyncDeletion.objects.all()), 3)
-        async_deletion_keys = {async_del.key for async_del in AsyncDeletion.objects.all()}
-        async_deletion_type = {async_del.deletion_type for async_del in AsyncDeletion.objects.all()}
-        self.assertEqual(async_deletion_keys, {f"{cohort_id}_4", f"{cohort_id}_6", f"{cohort_id}_8"})
-        self.assertEqual(async_deletion_type - {DeletionType.Cohort_stale}, set())
-
-        # now let's run async deletions
-        clickhouse_clear_removed_data.delay()
-
-        async_deletion = AsyncDeletion.objects.all()[0]
-        self.assertEqual(async_deletion.key, f"{cohort_id}_4")
-        self.assertEqual(async_deletion.deletion_type, DeletionType.Cohort_stale)
-        self.assertEqual(async_deletion.delete_verified_at, None)
-
-        # optimise cohortpeople table, so all collapsing / replcaing on the merge tree is done
-        sync_execute(f"OPTIMIZE TABLE cohortpeople FINAL SETTINGS mutations_sync = 2")
-
-        # check clickhouse data is gone from cohortpeople table
-        # Without async deletions, this number would've been 5, because of extra random stuff being added to cohortpeople table
-        # due to the racy calls to update cohort
-        res = sync_execute(
-            "SELECT count() FROM cohortpeople WHERE cohort_id = %(cohort_id)s",
-            {"cohort_id": cohort_id},
-        )
-        self.assertEqual(res[0][0], 2)
-
-        # now let's ensure verification of deletion happens on next run
-        clickhouse_clear_removed_data.delay()
-
-        async_deletion = AsyncDeletion.objects.all()[0]
-        self.assertEqual(async_deletion.key, f"{cohort_id}_4")
-        self.assertEqual(async_deletion.deletion_type, DeletionType.Cohort_stale)
-        self.assertEqual(async_deletion.delete_verified_at is not None, True)
+        fs_entry = FileSystem.objects.filter(team=self.team, ref=str(cohort_id), type="cohort").first()
+        assert fs_entry is not None, "A FileSystem entry was not created for this Cohort."
+        assert (
+            "Special Folder/Cohorts" in fs_entry.path
+        ), f"Expected path to include 'Special Folder/Cohorts', got '{fs_entry.path}'."
 
 
 def create_cohort(client: Client, team_id: int, name: str, groups: list[dict[str, Any]]):

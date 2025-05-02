@@ -56,7 +56,7 @@ export function ExposureCriteriaModal(): JSX.Element {
                 <LemonButton
                     className={`trends-metric-form__exposure-button flex-1 cursor-pointer p-4 rounded border ${
                         !experiment.exposure_criteria?.exposure_config
-                            ? 'border-accent-primary bg-accent-primary-highlight'
+                            ? 'border-accent bg-accent-highlight-secondary'
                             : 'border-primary'
                     }`}
                     onClick={() => {
@@ -68,7 +68,7 @@ export function ExposureCriteriaModal(): JSX.Element {
                     <div className="font-semibold flex justify-between items-center">
                         <span>Default</span>
                         {!experiment.exposure_criteria?.exposure_config && (
-                            <IconCheckCircle fontSize={18} color="var(--accent-primary)" />
+                            <IconCheckCircle fontSize={18} color="var(--accent)" />
                         )}
                     </div>
                     <div className="text-secondary text-sm leading-relaxed mt-1">
@@ -80,7 +80,7 @@ export function ExposureCriteriaModal(): JSX.Element {
                 <LemonButton
                     className={`trends-metric-form__exposure-button flex-1 cursor-pointer p-4 rounded border ${
                         experiment.exposure_criteria?.exposure_config
-                            ? 'border-accent-primary bg-accent-primary-highlight'
+                            ? 'border-accent bg-accent-highlight-secondary'
                             : 'border-primary'
                     }`}
                     onClick={() => {
@@ -96,7 +96,7 @@ export function ExposureCriteriaModal(): JSX.Element {
                     <div className="font-semibold flex justify-between items-center">
                         <span>Custom</span>
                         {experiment.exposure_criteria?.exposure_config && (
-                            <IconCheckCircle fontSize={18} color="var(--accent-primary)" />
+                            <IconCheckCircle fontSize={18} color="var(--accent)" />
                         )}
                     </div>
                     <div className="text-secondary text-sm leading-relaxed mt-1">

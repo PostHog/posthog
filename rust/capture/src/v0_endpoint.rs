@@ -8,12 +8,13 @@ use axum::extract::{MatchedPath, Query, State};
 use axum::http::{HeaderMap, Method};
 use axum_client_ip::InsecureClientIp;
 use base64::Engine;
+use chrono::{DateTime, Duration, Utc};
 use common_types::{CapturedEvent, RawEvent};
 use limiters::token_dropper::TokenDropper;
 use metrics::counter;
 use serde_json::json;
 use serde_json::Value;
-use tracing::instrument;
+use tracing::{debug, error, instrument, warn, Span};
 
 use crate::prometheus::report_dropped_events;
 use crate::v0_request::{
@@ -48,40 +49,62 @@ async fn handle_common(
         .get("content-encoding")
         .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
 
+    let current_span = Span::current();
+    if state.is_mirror_deploy {
+        // for mirror deploy, temporarily log all headers
+        for entry in headers {
+            let key = entry.0.as_str();
+            let value = entry.1.to_str().unwrap_or("UNKNOWN");
+            current_span.record(key, value);
+        }
+    } else {
+        current_span.record("user_agent", user_agent);
+        current_span.record("content_encoding", content_encoding);
+    }
+
     let comp = match meta.compression {
         None => String::from("unknown"),
         Some(Compression::Gzip) => String::from("gzip"),
         Some(Compression::Unsupported) => String::from("unsupported"),
     };
 
-    tracing::Span::current().record("user_agent", user_agent);
-    tracing::Span::current().record("content_encoding", content_encoding);
-    tracing::Span::current().record("version", meta.lib_version.clone());
-    tracing::Span::current().record("compression", comp.as_str());
-    tracing::Span::current().record("method", method.as_str());
-    tracing::Span::current().record("path", path.as_str().trim_end_matches('/'));
+    Span::current().record("version", meta.lib_version.clone());
+    Span::current().record("compression", comp.as_str());
+    Span::current().record("method", method.as_str());
+    Span::current().record("path", path.as_str().trim_end_matches('/'));
 
     let request = match headers
         .get("content-type")
         .map_or("", |v| v.to_str().unwrap_or(""))
     {
         "application/x-www-form-urlencoded" => {
-            tracing::Span::current().record("content_type", "application/x-www-form-urlencoded");
+            Span::current().record("content_type", "application/x-www-form-urlencoded");
 
             let input: EventFormData = serde_urlencoded::from_bytes(body.deref()).map_err(|e| {
-                tracing::error!("failed to decode body: {}", e);
-                CaptureError::RequestDecodingError(String::from("invalid form data"))
+                error!("failed to decode urlencoded form body: {}", e);
+                CaptureError::RequestDecodingError(String::from("invalid urlencoded form data"))
             })?;
             let payload = base64::engine::general_purpose::STANDARD
-                .decode(input.data)
+                .decode(&input.data)
                 .map_err(|e| {
-                    tracing::error!("failed to decode form data: {}", e);
-                    CaptureError::RequestDecodingError(String::from("missing data field"))
+                    if state.is_mirror_deploy {
+                        // get a peek at the headers and a short snip of the payload in mirror
+                        // see which capture.py "kludge warning" these may map to, if any
+                        error!(
+                            data = &input.data[0..input.data.len().min(128)],
+                            "failed to decode mirrored form w/error: {}", e
+                        );
+                    } else {
+                        error!("failed to decode base64 form data: {}", e);
+                    }
+                    CaptureError::RequestDecodingError(String::from(
+                        "missing or invalid data field",
+                    ))
                 })?;
             RawRequest::from_bytes(payload.into(), state.event_size_limit)
         }
         ct => {
-            tracing::Span::current().record("content_type", ct);
+            Span::current().record("content_type", ct);
 
             RawRequest::from_bytes(body, state.event_size_limit)
         }
@@ -98,12 +121,12 @@ async fn handle_common(
     let historical_migration = request.historical_migration();
     let events = request.events(); // Takes ownership of request
 
-    tracing::Span::current().record("token", &token);
-    tracing::Span::current().record("historical_migration", historical_migration);
-    tracing::Span::current().record("batch_size", events.len());
+    Span::current().record("token", &token);
+    Span::current().record("historical_migration", historical_migration);
+    Span::current().record("batch_size", events.len());
 
     if events.is_empty() {
-        tracing::log::warn!("rejected empty batch");
+        warn!("rejected empty batch");
         return Err(CaptureError::EmptyBatch);
     }
 
@@ -130,7 +153,7 @@ async fn handle_common(
         return Err(CaptureError::BillingLimit);
     }
 
-    tracing::debug!(context=?context, events=?events, "decoded request");
+    debug!(context=?context, events=?events, "decoded request");
 
     Ok((context, events))
 }
@@ -177,6 +200,7 @@ pub async fn event(
             if let Err(err) = process_events(
                 state.sink.clone(),
                 state.token_dropper.clone(),
+                state.historical_cfg.clone(),
                 &events,
                 &context,
             )
@@ -240,7 +264,7 @@ pub async fn recording(
                     CaptureError::MissingEventName => "missing_event_name",
                     CaptureError::RequestDecodingError(_) => "request_decoding_error",
                     CaptureError::RequestParsingError(_) => "request_parsing_error",
-                    CaptureError::EventTooBig => "event_too_big",
+                    CaptureError::EventTooBig(_) => "event_too_big",
                     CaptureError::NonRetryableSinkError => "sink_error",
                     CaptureError::InvalidSessionId => "invalid_session_id",
                     CaptureError::MissingSnapshotData => "missing_snapshot_data",
@@ -268,6 +292,7 @@ pub async fn options() -> Result<Json<CaptureResponse>, CaptureError> {
 #[instrument(skip_all)]
 pub fn process_single_event(
     event: &RawEvent,
+    historical_cfg: router::HistoricalConfig,
     context: &ProcessingContext,
 ) -> Result<ProcessedEvent, CaptureError> {
     if event.event.is_empty() {
@@ -282,12 +307,23 @@ pub fn process_single_event(
         (_, false) => DataType::AnalyticsMain,
     };
 
+    // only should be used to check if historical topic
+    // rerouting should be applied to this event
+    let raw_event_timestamp =
+        event
+            .timestamp
+            .as_ref()
+            .and_then(|ts| match DateTime::parse_from_rfc3339(ts) {
+                Ok(dt) => Some(dt),
+                Err(_) => None,
+            });
+
     let data = serde_json::to_string(&event).map_err(|e| {
         tracing::error!("failed to encode data field: {}", e);
         CaptureError::NonRetryableSinkError
     })?;
 
-    let metadata = ProcessedEventMetadata {
+    let mut metadata = ProcessedEventMetadata {
         data_type,
         session_id: None,
     };
@@ -306,6 +342,41 @@ pub fn process_single_event(
             .extract_is_cookieless_mode()
             .ok_or(CaptureError::InvalidCookielessMode)?,
     };
+
+    // if this event was historical but not assigned to the right topic
+    // by the submitting user (i.e. no historical prop flag in event)
+    // we should route it there using event#now if older than 1 day
+    let should_reroute_event = if raw_event_timestamp.is_some() {
+        let days_stale = Duration::days(historical_cfg.historical_rerouting_threshold_days);
+        let threshold = Utc::now() - days_stale;
+        let decision = raw_event_timestamp.unwrap().to_utc() <= threshold;
+        if decision {
+            counter!(
+                "capture_events_rerouted_historical",
+                &[("reason", "timestamp")]
+            )
+            .increment(1);
+        }
+        decision
+    } else {
+        let decision = historical_cfg.should_reroute(&event.key());
+        if decision {
+            counter!(
+                "capture_events_rerouted_historical",
+                &[("reason", "key_or_token")]
+            )
+            .increment(1);
+        }
+        decision
+    };
+
+    if metadata.data_type == DataType::AnalyticsMain
+        && historical_cfg.enable_historical_rerouting
+        && should_reroute_event
+    {
+        metadata.data_type = DataType::AnalyticsHistorical;
+    }
+
     Ok(ProcessedEvent { metadata, event })
 }
 
@@ -313,12 +384,13 @@ pub fn process_single_event(
 pub async fn process_events<'a>(
     sink: Arc<dyn sinks::Event + Send + Sync>,
     dropper: Arc<TokenDropper>,
+    historical_cfg: router::HistoricalConfig,
     events: &'a [RawEvent],
     context: &'a ProcessingContext,
 ) -> Result<(), CaptureError> {
     let mut events: Vec<ProcessedEvent> = events
         .iter()
-        .map(|e| process_single_event(e, context))
+        .map(|e| process_single_event(e, historical_cfg.clone(), context))
         .collect::<Result<Vec<ProcessedEvent>, CaptureError>>()?;
 
     events.retain(|e| {
@@ -351,6 +423,26 @@ pub async fn process_replay_events<'a>(
         .properties
         .remove("$session_id")
         .ok_or(CaptureError::MissingSessionId)?;
+
+    // Validate session_id is a valid UUID
+    let session_id_str = session_id.as_str().ok_or(CaptureError::InvalidSessionId)?;
+
+    // Reject session_ids that are too long, or that contains non-alphanumeric characters,
+    // this is a proxy for "not a valid UUID"
+    // we can't just reject non-UUIDv7 strings because
+    // some running versions of PostHog JS in the wild are still pre-version 1.73.0
+    // when we started sending valid UUIDv7 session_ids
+    // at time of writing they are ~4-5% of all sessions
+    // they'll be having a bad time generally but replay probably works a little for them
+    // so we don't drop non-UUID strings, but we use length as a proxy definitely bad UUIDs
+    if session_id_str.len() > 70
+        || !session_id_str
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-')
+    {
+        return Err(CaptureError::InvalidSessionId);
+    }
+
     let window_id = events[0]
         .properties
         .remove("$window_id")
@@ -394,12 +486,7 @@ pub async fn process_replay_events<'a>(
 
     let metadata = ProcessedEventMetadata {
         data_type: DataType::SnapshotMain,
-        session_id: Some(
-            session_id
-                .as_str()
-                .ok_or(CaptureError::InvalidSessionId)?
-                .to_string(),
-        ),
+        session_id: Some(session_id_str.to_string()),
     };
 
     let event = CapturedEvent {

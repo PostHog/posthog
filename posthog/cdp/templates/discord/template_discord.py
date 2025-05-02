@@ -94,25 +94,27 @@ if (res.status >= 400) {
         ),
         HogFunctionSubTemplate(
             name="Post to Discord on issue created",
-            description="",
+            description="Post to a Discord channel when an issue is created",
             id=SUB_TEMPLATE_COMMON["error-tracking-issue-created"].id,
             type=SUB_TEMPLATE_COMMON["error-tracking-issue-created"].type,
             filters=SUB_TEMPLATE_COMMON["error-tracking-issue-created"].filters,
             input_schema_overrides={
                 "content": {
                     "default": "**🔴 {event.properties.name} created:** {event.properties.description}",
+                    "hidden": False,
                 }
             },
         ),
         HogFunctionSubTemplate(
             name="Post to Discord on issue reopened",
-            description="",
+            description="Post to a Discord channel when an issue is reopened",
             id=SUB_TEMPLATE_COMMON["error-tracking-issue-reopened"].id,
             type=SUB_TEMPLATE_COMMON["error-tracking-issue-reopened"].type,
             filters=SUB_TEMPLATE_COMMON["error-tracking-issue-reopened"].filters,
             input_schema_overrides={
                 "content": {
                     "default": "**🔄 {event.properties.name} reopened:** {event.properties.description}",
+                    "hidden": False,
                 }
             },
         ),

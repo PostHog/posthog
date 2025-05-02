@@ -1,5 +1,6 @@
 function print (...args) { console.log(...args.map(__printHogStringOutput)) }
 function like (str, pattern) { return __like(str, pattern, false) }
+function arrayReduce (func, arr, initial) { let result = initial; for (let i = 0; i < arr.length; i++) { result = func(result, arr[i]) } return result }
 function arrayMap (func, arr) { let result = []; for (let i = 0; i < arr.length; i++) { result = arrayPushBack(result, func(arr[i])) } return result }
 function arrayFilter (func, arr) { let result = []; for (let i = 0; i < arr.length; i++) { if (func(arr[i])) { result = arrayPushBack(result, arr[i]) } } return result}
 function arrayPushBack (arr, item) { if (!Array.isArray(arr)) { return [item] } return [...arr, item] }
@@ -64,3 +65,7 @@ print("--- arrayFilter ----");
 print(arrayFilter(__lambda((x) => like(x, "%nana%")), ["apple", "banana", "cherry"]));
 print(arrayFilter(__lambda((x) => like(x, "%e%")), ["apple", "banana", "cherry"]));
 print(arrayFilter(__lambda((x) => like(x, "%boom%")), []));
+print("--- arrayReduce ----");
+print(arrayReduce(__lambda((a, b) => (a + b)), [1, 2, 3, 4, 5], 0));
+print(arrayReduce(__lambda((a, b) => (a + b)), [1, 2, 3, 4, 5], 15));
+print(arrayReduce(__lambda((a, b) => (a - b)), [5, 10], 30));

@@ -266,7 +266,10 @@ export class LegacyPluginExecutorService {
                 const processedEvent: ProcessedPluginEvent = {
                     ...event,
                     ip: null, // convertToOnEventPayload removes this so we should too
-                    properties: event.properties || {},
+                    // NOTE: We want to improve validation of these properties but for now for legacy plugins we just cast
+                    properties: event.properties as ProcessedPluginEvent['properties'],
+                    $set: event.$set as ProcessedPluginEvent['$set'],
+                    $set_once: event.$set_once as ProcessedPluginEvent['$set_once'],
                 }
 
                 const start = performance.now()

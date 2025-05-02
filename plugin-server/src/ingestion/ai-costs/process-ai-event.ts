@@ -1,6 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import bigDecimal from 'js-big-decimal'
 
+import { logger } from '../../utils/logger'
 import { costsByModel } from './providers'
 import { ModelRow } from './providers/types'
 
@@ -12,8 +13,6 @@ export const processAiEvent = (event: PluginEvent): PluginEvent => {
     event = extractCoreModelParams(event)
     return event
 }
-
-//ai_cache_read_input_tokens
 
 const calculateInputCost = (event: PluginEvent, cost: ModelRow) => {
     if (!event.properties) {
@@ -32,15 +31,13 @@ const calculateInputCost = (event: PluginEvent, cost: ModelRow) => {
         const inputTokens = event.properties['$ai_input_tokens'] || 0
         const writeCost = bigDecimal.multiply(bigDecimal.multiply(cost.cost.prompt_token, 1.25), cacheWriteTokens)
         const cacheReadCost = bigDecimal.multiply(bigDecimal.multiply(cost.cost.prompt_token, 0.1), cacheReadTokens)
-        const difference = bigDecimal.subtract(inputTokens, cacheReadTokens)
         const totalCacheCost = bigDecimal.add(writeCost, cacheReadCost)
-        const uncachedCost = bigDecimal.multiply(cost.cost.prompt_token, difference)
+        const uncachedCost = bigDecimal.multiply(cost.cost.prompt_token, inputTokens)
         return bigDecimal.add(totalCacheCost, uncachedCost)
     }
     return bigDecimal.multiply(cost.cost.prompt_token, event.properties['$ai_input_tokens'] || 0)
 }
 
-// ai_reasoning_tokens
 const calculateOutputCost = (event: PluginEvent, cost: ModelRow) => {
     if (!event.properties) {
         return '0'
@@ -141,7 +138,7 @@ const findCostFromModel = (aiModel: string): ModelRow | undefined => {
         cost = Object.values(costsByModel).find((cost) => aiModel.toLowerCase().includes(cost.model.toLowerCase()))
     }
     if (!cost) {
-        console.warn(`No cost found for model: ${aiModel}`)
+        logger.warn(`No cost found for model: ${aiModel}`)
     }
     return cost
 }
