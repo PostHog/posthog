@@ -37,12 +37,16 @@ export type ProjectTreeSortMethod = 'folder' | 'recent'
 
 export interface RecentResults {
     results: FileSystemEntry[]
+    startTime: string | null
+    endTime: string | null
     hasMore: boolean
-    lastCount: number
 }
 
-export interface SearchResults extends RecentResults {
+export interface SearchResults {
     searchTerm: string
+    results: FileSystemEntry[]
+    hasMore: boolean
+    lastCount: number
 }
 
 export const projectTreeLogic = kea<projectTreeLogicType>([
@@ -97,7 +101,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             callback,
         }),
         loadSearchResults: (searchTerm: string, offset = 0) => ({ searchTerm, offset }),
-        loadRecentResults: (offset = 0) => ({ offset }),
+        loadRecentResults: (type: 'start' | 'end') => ({ type }),
         assureVisibility: (projectTreeRef: ProjectTreeRef) => ({ projectTreeRef }),
         setLastNewFolder: (folder: string | null) => ({ folder }),
         onItemChecked: (id: string, checked: boolean, shift: boolean) => ({ id, checked, shift }),
@@ -164,25 +168,43 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             },
         ],
         recentResults: [
-            { results: [], hasMore: false, lastCount: 0 } as RecentResults,
+            { results: [], hasMore: false, startTime: null, endTime: null } as RecentResults,
             {
-                loadRecentResults: async ({ offset }, breakpoint) => {
+                loadRecentResults: async ({ type }, breakpoint) => {
                     await breakpoint(250)
-                    const response = await api.fileSystem.list({
-                        offset,
+                    const params = {
                         orderBy: '-created_at',
                         notType: 'folder',
                         limit: PAGINATION_LIMIT + 1,
-                    })
+                        createdAtGt:
+                            type === 'start' && values.recentResults.startTime
+                                ? values.recentResults.startTime
+                                : undefined,
+                        createdAtLt:
+                            type === 'end' && values.recentResults.endTime ? values.recentResults.endTime : undefined,
+                    }
+                    const response = await api.fileSystem.list(params)
+                    const returnedResults = response.results.slice(0, PAGINATION_LIMIT)
+                    const hasMore = response.results.length > PAGINATION_LIMIT
                     breakpoint()
 
+                    const seenIds = new Set()
+                    const results = [...values.recentResults.results, ...returnedResults]
+                        .filter((item) => {
+                            if (seenIds.has(item.id)) {
+                                return false
+                            }
+                            seenIds.add(item.id)
+                            return true
+                        })
+                        .sort((a, b) => {
+                            return new Date(b.created_at ?? '').getTime() - new Date(a.created_at ?? '').getTime()
+                        })
                     return {
-                        results: [
-                            ...(offset > 0 ? values.recentResults.results : []),
-                            ...response.results.slice(0, PAGINATION_LIMIT),
-                        ],
-                        hasMore: response.results.length > PAGINATION_LIMIT,
-                        lastCount: Math.min(response.results.length, PAGINATION_LIMIT),
+                        results,
+                        hasMore,
+                        startTime: response.results[0]?.created_at ?? null,
+                        endTime: response.results[response.results.length - 1]?.created_at ?? null,
                     }
                 },
             },
@@ -788,7 +810,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         name: 'Load more...',
                         icon: <IconPlus />,
                         disableSelect: true,
-                        onClick: () => projectTreeLogic.actions.loadRecentResults(recentResults.results.length),
+                        onClick: () => projectTreeLogic.actions.loadRecentResults('end'),
                     })
                 }
                 return results
@@ -1330,8 +1352,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             if (values.searchTerm) {
                 actions.loadSearchResults(values.searchTerm, 0)
             }
-            if (sortMethod === 'recent' && !values.recentResultsLoading && values.recentResults.lastCount === 0) {
-                actions.loadRecentResults()
+            if (sortMethod === 'recent' && !values.recentResultsLoading) {
+                actions.loadRecentResults('start')
             }
         },
         assureVisibility: async ({ projectTreeRef }, breakpoint) => {

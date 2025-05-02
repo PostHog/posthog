@@ -1298,6 +1298,8 @@ const api = {
             notType,
             type,
             type__startswith,
+            createdAtGt,
+            createdAtLt,
         }: {
             parent?: string
             path?: string
@@ -1310,6 +1312,8 @@ const api = {
             notType?: string
             type?: string
             type__startswith?: string
+            createdAtGt?: string
+            createdAtLt?: string
         }): Promise<CountedPaginatedResponse<FileSystemEntry>> {
             return await new ApiRequest()
                 .fileSystem()
@@ -1325,6 +1329,8 @@ const api = {
                     not_type: notType,
                     order_by: orderBy,
                     type__startswith,
+                    created_at__gt: createdAtGt,
+                    created_at__lt: createdAtLt,
                 })
                 .get()
         },

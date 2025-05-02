@@ -108,6 +108,8 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         type__startswith_param = self.request.query_params.get("type__startswith")
         ref_param = self.request.query_params.get("ref")
         order_by_param = self.request.query_params.get("order_by")
+        created_at__gt = self.request.query_params.get("created_at__gt")
+        created_at__lt = self.request.query_params.get("created_at__lt")
 
         if depth_param is not None:
             try:
@@ -115,7 +117,6 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 queryset = queryset.filter(depth=depth_value)
             except ValueError:
                 pass
-
         if path_param:
             queryset = queryset.filter(path=path_param)
         if parent_param:
@@ -126,6 +127,10 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             queryset = queryset.exclude(type=not_type_param)
         if type__startswith_param:
             queryset = queryset.filter(type__startswith=type__startswith_param)
+        if created_at__gt:
+            queryset = queryset.filter(created_at__gt=created_at__gt)
+        if created_at__lt:
+            queryset = queryset.filter(created_at__lt=created_at__lt)
 
         if self.user_access_control:
             queryset = self.user_access_control.filter_and_annotate_file_system_queryset(queryset)
