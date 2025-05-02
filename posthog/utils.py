@@ -877,17 +877,12 @@ def is_celery_alive() -> bool:
 
 def is_plugin_server_alive() -> bool:
     try:
-        ping = get_client().get("@posthog-plugin-server/ping")
-        return bool(ping and parser.isoparse(ping) > timezone.now() - relativedelta(seconds=30))
+        from posthog.plugins.plugin_server_api import get_plugin_server_status
+
+        plugin_server_status = get_plugin_server_status()
+        return plugin_server_status.status_code == 200
     except BaseException:
         return False
-
-
-def get_plugin_server_version() -> Optional[str]:
-    cache_key_value = get_client().get("@posthog-plugin-server/version")
-    if cache_key_value:
-        return cache_key_value.decode("utf-8")
-    return None
 
 
 def get_plugin_server_job_queues() -> Optional[list[str]]:
