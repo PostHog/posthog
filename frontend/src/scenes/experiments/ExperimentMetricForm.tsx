@@ -126,6 +126,22 @@ export function ExperimentMetricForm({
                     />
                 )}
             </div>
+            <div>
+                <LemonLabel
+                    className="mb-1"
+                    info={
+                        <>
+                            The preview uses data from the past 14 days to show how the metric will appear.
+                            <br />
+                            For funnel metrics, we simulate experiment exposure by inserting a page-view event at the
+                            start of the funnel. In the experiment evaluation, this will be replaced by the actual
+                            experiment-exposure event.
+                        </>
+                    }
+                >
+                    Preview
+                </LemonLabel>
+            </div>
             {/* :KLUDGE: Query chart type is inferred from the initial state, so need to render Trends and Funnels separately */}
             {metric.metric_type === ExperimentMetricType.MEAN &&
                 metric.source.kind !== NodeKind.ExperimentDataWarehouseNode && (

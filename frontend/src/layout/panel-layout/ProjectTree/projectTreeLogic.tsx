@@ -56,7 +56,11 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
     })),
     actions({
         loadUnfiledItems: true,
-        addFolder: (folder: string) => ({ folder }),
+        addFolder: (folder: string, editAfter = true, callback?: (folder: string) => void) => ({
+            folder,
+            editAfter,
+            callback,
+        }),
         deleteItem: (item: FileSystemEntry) => ({ item }),
         moveItem: (item: FileSystemEntry, newPath: string, force = false) => ({ item, newPath, force }),
         movedItem: (item: FileSystemEntry, oldPath: string, newPath: string) => ({ item, oldPath, newPath }),
@@ -81,7 +85,11 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         }),
         loadFolderFailure: (folder: string, error: string) => ({ folder, error }),
         rename: (value: string, item: FileSystemEntry) => ({ value, item }),
-        createFolder: (parentPath: string) => ({ parentPath }),
+        createFolder: (parentPath: string, editAfter = true, callback?: (folder: string) => void) => ({
+            parentPath,
+            editAfter,
+            callback,
+        }),
         loadSearchResults: (searchTerm: string, offset = 0) => ({ searchTerm, offset }),
         assureVisibility: (projectTreeRef: ProjectTreeRef) => ({ projectTreeRef }),
         setLastNewFolder: (folder: string | null) => ({ folder }),
@@ -264,7 +272,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 loadFolderSuccess: (state, { folder, entries }) => ({ ...state, [folder]: entries }),
                 createSavedItem: (state, { savedItem }) => {
                     const folder = joinPath(splitPath(savedItem.path).slice(0, -1))
-                    return { ...state, [folder]: [...(state[folder] || []), savedItem] }
+                    return {
+                        ...state,
+                        [folder]: (state[folder] || []).find((f) => f.id === savedItem.id)
+                            ? state[folder].map((item) => (item.id === savedItem.id ? savedItem : item))
+                            : [...(state[folder] || []), savedItem],
+                    }
                 },
                 loadSearchResultsSuccess: (state, { searchResults }) => {
                     // Append search results into the loaded state to persist data and help with multi-selection between panels
@@ -328,14 +341,19 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     return newState
                 },
                 updateSyncedFiles: (state, { files }) => {
-                    const filesById: Record<string, FileSystemEntry> = {}
-                    for (const file of files) {
-                        filesById[file.id] = file
-                    }
                     const newState = { ...state }
-                    for (const [folder, filesInFolder] of Object.entries(newState)) {
-                        if (filesInFolder.find((file) => filesById[file.id])) {
-                            newState[folder] = newState[folder].map((f) => filesById[f.id] ?? f)
+                    for (const file of files) {
+                        const folder = joinPath(splitPath(file.path).slice(0, -1))
+                        if (newState[folder]) {
+                            if (newState[folder].find((f) => f.id === file.id)) {
+                                newState[folder] = newState[folder].map((f) =>
+                                    f.id === file.id ? { ...f, ...file } : f
+                                )
+                            } else {
+                                newState[folder] = [...newState[folder], file]
+                            }
+                        } else {
+                            newState[folder] = [file]
                         }
                     }
                     return newState
@@ -623,14 +641,21 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
         projectTreeOnlyFolders: [
             (s) => [s.viableItems, s.folderStates, s.checkedItems],
-            (viableItems, folderStates, checkedItems): TreeDataItem[] =>
-                convertFileSystemEntryToTreeDataItem({
-                    imports: viableItems,
-                    folderStates,
-                    checkedItems,
-                    root: 'project',
-                    disabledReason: (item) => (item.type !== 'folder' ? 'Only folders can be selected' : undefined),
-                }),
+            (viableItems, folderStates, checkedItems): TreeDataItem[] => [
+                {
+                    id: '/',
+                    name: '/',
+                    displayName: <>Project root</>,
+                    record: { type: 'folder', path: '' },
+                    children: convertFileSystemEntryToTreeDataItem({
+                        imports: viableItems,
+                        folderStates,
+                        checkedItems,
+                        root: 'project',
+                        disabledReason: (item) => (item.type !== 'folder' ? 'Only folders can be selected' : undefined),
+                    }),
+                },
+            ],
         ],
         groupNodes: [
             (s) => [s.groupTypes, s.groupsAccessStatus, s.aggregationLabel],
@@ -1133,7 +1158,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             }
             actions.queueAction({ type: item.type === 'folder' ? 'prepare-delete' : 'delete', item, path: item.path })
         },
-        addFolder: ({ folder }) => {
+        addFolder: ({ folder, editAfter, callback }) => {
             // Like Mac, we don't allow duplicate folder names
             // So we need to increment the folder name until we find a unique one
             let folderName = folder
@@ -1151,9 +1176,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             })
 
             // Always set the editing item ID after a short delay to ensure the folder is in the DOM
-            setTimeout(() => {
-                actions.setEditingItemId(`project-folder/${folderName}`)
-            }, 50)
+            if (editAfter) {
+                setTimeout(() => {
+                    actions.setEditingItemId(`project-folder/${folderName}`)
+                }, 50)
+            }
+            callback?.(folderName)
         },
         toggleFolderOpen: ({ folderId }) => {
             if (values.searchTerm) {
@@ -1186,14 +1214,14 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             if (splits.length > 0) {
                 if (value) {
                     actions.moveItem(item, joinPath([...splits.slice(0, -1), value]))
-                    actions.setEditingItemId(item.id)
+                    actions.setEditingItemId('')
                 }
             }
         },
-        createFolder: ({ parentPath }) => {
+        createFolder: ({ parentPath, editAfter, callback }) => {
             const parentSplits = parentPath ? splitPath(parentPath) : []
             const newPath = joinPath([...parentSplits, 'Untitled folder'])
-            actions.addFolder(newPath)
+            actions.addFolder(newPath, editAfter, callback)
         },
         setSearchTerm: ({ searchTerm }) => {
             actions.loadSearchResults(searchTerm)
@@ -1231,41 +1259,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     if (resp.results && resp.results.length > 0) {
                         const result = resp.results[0]
                         path = result.path
-
-                        // TODO: REMOVE THIS OLD LOGIC! ... in favor of directly passing _create_in_folder to the API calls
-                        if (
-                            result.type &&
-                            ([
-                                'dashboard',
-                                'early_access_feature',
-                                'experiment',
-                                'feature_flag',
-                                'session_recording_playlist',
-                                'survey',
-                            ].includes(result.type) ||
-                                result.type.startsWith('hog_function/'))
-                        ) {
-                            // Check if a "new" action was recently initiated for this object type.
-                            // If so, move the item to the new path.
-                            const { lastNewFolder } = values
-                            if (result.path.startsWith('Unfiled/') && typeof lastNewFolder === 'string') {
-                                const newPath = joinPath([
-                                    ...splitPath(lastNewFolder),
-                                    ...splitPath(result.path).slice(-1),
-                                ])
-                                actions.createSavedItem({ ...result, path: newPath })
-                                path = newPath
-                                await api.fileSystem.move(result.id, newPath)
-                            } else {
-                                actions.createSavedItem(result)
-                            }
-                            if (lastNewFolder) {
-                                actions.setLastNewFolder(null)
-                            }
-                            // </TODO>
-                        } else {
-                            actions.createSavedItem(result)
-                        }
+                        actions.createSavedItem(result)
                     }
                 }
 

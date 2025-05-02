@@ -62,6 +62,15 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
 
         activity: list[dict] = activity_response["results"]
         self.maxDiff = None
+
+        # Sort 'changes' lists for order-insensitive comparison
+        for item in activity:
+            if "detail" in item and "changes" in item["detail"]:
+                item["detail"]["changes"].sort(key=lambda x: x.get("field", ""))
+        for item in expected:
+            if "detail" in item and "changes" in item["detail"]:
+                item["detail"]["changes"].sort(key=lambda x: x.get("field", ""))
+
         assert activity == expected
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
@@ -563,7 +572,7 @@ email@example.org,
                     "activity": "created",
                     "scope": "Cohort",
                     "item_id": str(cohort.pk),
-                    "detail": {"changes": None, "trigger": None, "name": "whatever", "short_id": None, "type": None},
+                    "detail": {"changes": [], "trigger": None, "name": "whatever", "short_id": None, "type": None},
                     "created_at": mock.ANY,
                 }
             ],
@@ -625,7 +634,7 @@ email@example.org,
                     "activity": "created",
                     "scope": "Cohort",
                     "item_id": str(cohort.pk),
-                    "detail": {"changes": None, "trigger": None, "name": "whatever", "short_id": None, "type": None},
+                    "detail": {"changes": [], "trigger": None, "name": "whatever", "short_id": None, "type": None},
                     "created_at": mock.ANY,
                 },
             ],
