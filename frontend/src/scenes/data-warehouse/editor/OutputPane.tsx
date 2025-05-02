@@ -555,7 +555,7 @@ const ErrorState = ({ responseError, sourceQuery, queryCancelled, response }: an
                 title={
                     queryCancelled
                         ? 'The query was cancelled'
-                        : response && 'error' in response
+                        : response && 'error' in response && !!response.error
                         ? response.error
                         : responseError
                 }

@@ -149,6 +149,8 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     TASK_TIMEOUT: number // how many seconds until tasks are timed out
     DATABASE_URL: string // Postgres database URL
     DATABASE_READONLY_URL: string // Optional read-only replica to the main Postgres database
+    PERSONS_DATABASE_URL: string // Optional read-write Postgres database for persons
+    PERSONS_READONLY_DATABASE_URL: string // Optional read-only replica to the persons Postgres database
     PLUGIN_STORAGE_DATABASE_URL: string // Optional read-write Postgres database for plugin storage
     POSTGRES_CONNECTION_POOL_SIZE: number
     POSTHOG_DB_NAME: string | null
@@ -325,9 +327,9 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     PROPERTY_DEFS_WRITE_DISABLED: boolean
 
     CDP_HOG_WATCHER_SAMPLE_RATE: number
-
     // for enablement/sampling of expensive person JSONB sizes; value in [0,1]
     PERSON_JSONB_SIZE_ESTIMATE_ENABLE: number
+    USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG: boolean
 }
 
 export interface Hub extends PluginsServerConfig {

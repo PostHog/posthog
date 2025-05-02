@@ -35,6 +35,7 @@ const PRODUCT_THING_NAME = 'revenue'
 
 export function RevenueAnalyticsScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
+    const { allDataWarehouseSources } = useValues(revenueAnalyticsLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
 
     if (!featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS]) {
@@ -60,6 +61,11 @@ export function RevenueAnalyticsScene(): JSX.Element {
                 }
             />
         )
+    }
+
+    // Wait before binding/mounting the logics until we've finished loading the data warehouse sources
+    if (allDataWarehouseSources === null) {
+        return <SpinnerOverlay sceneLevel />
     }
 
     return (
