@@ -13,6 +13,7 @@ axum = { workspace = true }
 axum-client-ip = { workspace = true }
 chrono = { workspace = true }
 common-cookieless = { path = "../common/cookieless" }
+common-database = { path = "../common/database" }
 common-redis = { path = "../common/redis" }
 common-types = { path = "../common/types" }
 envconfig = { workspace = true }

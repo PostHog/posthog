@@ -1,6 +1,5 @@
 use crate::{
     api::errors::FlagError,
-    client::database::Client as DatabaseClient,
     flags::flag_models::FeatureFlagList,
     metrics::consts::{
         DB_FLAG_READS_COUNTER, DB_TEAM_READS_COUNTER, FLAG_CACHE_ERRORS_COUNTER,
@@ -9,6 +8,7 @@ use crate::{
     },
     team::team_models::Team,
 };
+use common_database::Client as DatabaseClient;
 use common_metrics::inc;
 use common_redis::Client as RedisClient;
 use std::sync::Arc;

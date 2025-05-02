@@ -1,6 +1,5 @@
 use crate::{
     api::{errors::FlagError, types::FlagsResponse},
-    client::database::Client,
     cohorts::cohort_cache_manager::CohortCacheManager,
     flags::{
         flag_group_type_mapping::GroupTypeMappingCache, flag_matching::FeatureFlagMatcher,
@@ -18,6 +17,7 @@ use base64::{engine::general_purpose, Engine as _};
 use bytes::Bytes;
 use chrono;
 use common_cookieless::{CookielessServerHashMode, EventData, TeamData};
+use common_database::Client;
 use common_geoip::GeoIpClient;
 use common_metrics::inc;
 use flate2::read::GzDecoder;
