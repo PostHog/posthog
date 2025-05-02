@@ -21,7 +21,7 @@ class Migration(migrations.Migration):
                 null=False,
                 validators=[
                     django.core.validators.MinLengthValidator(
-                        10, "Project's API token must be at least 10 characters long!"
+                        10, "Project's secret API token must be at least 10 characters long!"
                     )
                 ],
             ),
