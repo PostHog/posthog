@@ -106,7 +106,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         type_param = self.request.query_params.get("type")
         type__startswith_param = self.request.query_params.get("type__startswith")
         ref_param = self.request.query_params.get("ref")
-        order_param = self.request.query_params.get("order")
+        order_by_param = self.request.query_params.get("order_by")
 
         if depth_param is not None:
             try:
@@ -130,9 +130,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if ref_param:
             queryset = queryset.filter(ref=ref_param)
             queryset = queryset.order_by("shortcut")  # override order
-        elif order_param:
-            if order_param in ["path", "-path", "created_at", "-created_at"]:
-                queryset = queryset.order_by(order_param)
+        elif order_by_param:
+            if order_by_param in ["path", "-path", "created_at", "-created_at"]:
+                queryset = queryset.order_by(order_by_param)
         elif self.action == "list":
             if depth_param is not None:
                 queryset = queryset.order_by(

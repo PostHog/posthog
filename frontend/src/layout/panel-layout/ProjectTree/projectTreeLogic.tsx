@@ -144,7 +144,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         search: searchTerm,
                         offset,
                         limit: PAGINATION_LIMIT + 1,
-                        order: values.sortMethod === 'recent' ? '-created_at' : undefined,
+                        orderBy: values.sortMethod === 'recent' ? '-created_at' : undefined,
                     })
                     breakpoint()
                     const results = [
@@ -170,7 +170,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     await breakpoint(250)
                     const response = await api.fileSystem.list({
                         offset,
-                        order: '-created_at',
+                        orderBy: '-created_at',
                         limit: PAGINATION_LIMIT + 1,
                     })
                     breakpoint()

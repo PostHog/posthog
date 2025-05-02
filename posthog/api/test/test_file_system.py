@@ -664,7 +664,7 @@ class TestFileSystemAPI(APIBaseTest):
             file_3 = FileSystem.objects.create(team=self.team, path="File_3", type="doc", created_by=self.user)
 
         # Query with descending order
-        url = f"/api/projects/{self.team.id}/file_system/?order=-created_at"
+        url = f"/api/projects/{self.team.id}/file_system/?order_by=-created_at"
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
 
@@ -676,7 +676,7 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual(results[2]["id"], str(file_1.id))
 
         # Query with ascending order
-        url = f"/api/projects/{self.team.id}/file_system/?order=created_at"
+        url = f"/api/projects/{self.team.id}/file_system/?order_by=created_at"
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
 
