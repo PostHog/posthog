@@ -93,7 +93,7 @@ class MSSQLColumn(Column):
     Attributes:
         name: The column's name.
         data_type: The name of the column's data type as described in
-            https://www.postgresql.org/docs/current/datatype.html.
+            https://learn.microsoft.com/en-us/sql/t-sql/data-types/data-types-transact-sql.
         nullable: Whether the column is nullable or not.
         numeric_precision: The number of significant digits. Only used with
             numeric `data_type`s, otherwise `None`.
