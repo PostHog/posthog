@@ -18,16 +18,16 @@ import { InsightLogicProps } from '~/types'
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay } from './components/Assignee/AssigneeDisplay'
 import { AssigneeSelect } from './components/Assignee/AssigneeSelect'
+import { ErrorFilters } from './components/ErrorFilters'
+import { errorIngestionLogic } from './components/ErrorTrackingSetupPrompt/errorIngestionLogic'
+import { ErrorTrackingSetupPrompt } from './components/ErrorTrackingSetupPrompt/ErrorTrackingSetupPrompt'
+import { StatusIndicator } from './components/Indicator'
 import { RuntimeIcon } from './components/RuntimeIcon'
 import { errorTrackingDataNodeLogic } from './errorTrackingDataNodeLogic'
-import { DateRangeFilter, ErrorTrackingFilters, FilterGroup, InternalAccountsFilter } from './ErrorTrackingFilters'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { ErrorTrackingListOptions } from './ErrorTrackingListOptions'
-import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
-import { ErrorTrackingSetupPrompt } from './ErrorTrackingSetupPrompt'
 import { useSparklineData } from './hooks/use-sparkline-data'
-import { StatusIndicator } from './issue/Indicator'
 import { OccurrenceSparkline } from './OccurrenceSparkline'
 
 export const scene: SceneExport = {
@@ -36,7 +36,7 @@ export const scene: SceneExport = {
 }
 
 export function ErrorTrackingScene(): JSX.Element {
-    const { hasSentExceptionEvent, hasSentExceptionEventLoading } = useValues(errorTrackingLogic)
+    const { hasSentExceptionEvent, hasSentExceptionEventLoading } = useValues(errorIngestionLogic)
     const { query } = useValues(errorTrackingSceneLogic)
     const insightProps: InsightLogicProps = {
         dashboardItemId: 'new-ErrorTrackingQuery',
@@ -65,11 +65,11 @@ export function ErrorTrackingScene(): JSX.Element {
             <BindLogic logic={errorTrackingDataNodeLogic} props={{ key: insightVizDataNodeKey(insightProps) }}>
                 <Header />
                 {hasSentExceptionEventLoading || hasSentExceptionEvent ? null : <IngestionStatusCheck />}
-                <ErrorTrackingFilters>
-                    <DateRangeFilter />
-                    <FilterGroup />
-                    <InternalAccountsFilter />
-                </ErrorTrackingFilters>
+                <ErrorFilters.Root>
+                    <ErrorFilters.DateRange />
+                    <ErrorFilters.FilterGroup />
+                    <ErrorFilters.InternalAccounts />
+                </ErrorFilters.Root>
                 <LemonDivider className="mt-2" />
                 <ErrorTrackingListOptions />
                 <Query query={query} context={context} />
