@@ -58,7 +58,7 @@ function ExceptionCardContent({ issue, issueLoading }: ExceptionCardContentProps
                 />
                 <ContextDisplay
                     className={cn(showContext && isExpanded ? 'w-1/3 pl-2' : 'w-0')}
-                    attributes={exceptionAttributes}
+                    attributes={exceptionAttributes ?? undefined}
                     additionalProperties={additionalProperties}
                     loading={loading}
                 />

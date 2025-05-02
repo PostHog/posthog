@@ -98,7 +98,7 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
     }
 }
 
-export function getExceptionList(properties: ErrorProperties): ErrorTrackingException[] | undefined {
+export function getExceptionList(properties: ErrorProperties): ErrorTrackingException[] {
     const { $sentry_exception } = properties
     let exceptionList: ErrorTrackingException[] | undefined = properties.$exception_list
     // exception autocapture sets $exception_list for all exceptions.
@@ -108,7 +108,7 @@ export function getExceptionList(properties: ErrorProperties): ErrorTrackingExce
             exceptionList = $sentry_exception.values
         }
     }
-    return exceptionList
+    return exceptionList || []
 }
 
 export function getFingerprintRecords(properties: ErrorProperties): FingerprintRecordPart[] {
