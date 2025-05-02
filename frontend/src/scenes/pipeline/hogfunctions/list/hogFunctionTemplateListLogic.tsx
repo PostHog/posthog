@@ -3,6 +3,7 @@ import { actions, connect, kea, key, path, props, reducers, selectors } from 'ke
 import { loaders } from 'kea-loaders'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
 import { hogFunctionNewUrl } from 'scenes/pipeline/hogfunctions/urls'
@@ -97,7 +98,7 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
             [] as HogFunctionTemplateType[],
             {
                 loadHogFunctionTemplates: async () => {
-                    const dbTemplates = !!values.featureFlags?.getTemplatesFromDB
+                    const dbTemplates = !!values.featureFlags[FEATURE_FLAGS.GET_TEMPLATES_FROM_DB]
                     return (
                         await api.hogFunctions.listTemplates({
                             types: [props.type],

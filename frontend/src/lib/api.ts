@@ -440,7 +440,7 @@ class ApiRequest {
     }
 
     public hogFunctionTemplate(id: HogFunctionTemplateType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.hogFunctionTemplates(teamId).addPathComponent(id)
+        return this.projectsDetail(teamId).addPathComponent(id)
     }
 
     // # Actions

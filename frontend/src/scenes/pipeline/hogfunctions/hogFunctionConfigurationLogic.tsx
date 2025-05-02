@@ -8,6 +8,7 @@ import { CombinedLocation } from 'kea-router/lib/utils'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { asyncSaveToModal } from 'lib/components/SaveTo/saveToLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils'
@@ -370,7 +371,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         }
                     }
 
-                    const dbTemplates = !!values.featureFlags?.getTemplatesFromDB
+                    const dbTemplates = !!values.featureFlags[FEATURE_FLAGS.GET_TEMPLATES_FROM_DB]
                     const res = await api.hogFunctions.getTemplate(props.templateId, dbTemplates)
 
                     if (!res) {
