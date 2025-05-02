@@ -121,7 +121,7 @@ class PersonFilter(BaseModel, extra="forbid"):
     type: Literal["person"]
     key: str
     operator: str | None = None  # accept any legacy operator
-    value: Any
+    value: Any | None = None  # mostly likely it's list[str], str, or None
     negation: bool = False
 
     @model_validator(mode="after")
