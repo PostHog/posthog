@@ -402,7 +402,6 @@ export interface PluginServerCapabilities {
     cdpCyclotronWorkerFetch?: boolean
     cdpApi?: boolean
     appManagementSingleton?: boolean
-    preflightSchedules?: boolean // Used for instance health checks on hobby deploy, not useful on cloud
     mmdb?: boolean
 }
 
