@@ -1,4 +1,4 @@
-import { captureException } from '@sentry/react'
+import posthog from 'posthog-js'
 
 import { LifecycleToggle } from '~/types'
 
@@ -9,7 +9,7 @@ import { LemonTagType } from './lemon-ui/LemonTag'
  */
 
 /** CSS variable names for the default posthog theme data colors. */
-const dataColorVars = [
+export const dataColorVars = [
     'data-color-1',
     'data-color-2',
     'data-color-3',
@@ -51,7 +51,7 @@ export type DataColorTheme = Partial<Record<DataColorToken, string>> & {
 export function getColorVar(variable: string): string {
     const colorValue = getComputedStyle(document.body).getPropertyValue('--' + variable)
     if (!colorValue) {
-        captureException(new Error(`Couldn't find color variable --${variable}`))
+        posthog.captureException(new Error(`Couldn't find color variable --${variable}`))
         // Fall back to black or white depending on the theme
         return document.body.getAttribute('theme') === 'light' ? '#000' : '#fff'
     }

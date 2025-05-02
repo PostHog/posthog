@@ -12,9 +12,9 @@ import * as zlib from 'zlib'
 
 import { PluginsServerConfig } from '../../../../types'
 import { timeoutGuard } from '../../../../utils/db/utils'
+import { logger } from '../../../../utils/logger'
 import { ObjectStorage } from '../../../../utils/object_storage'
 import { captureException } from '../../../../utils/posthog'
-import { status } from '../../../../utils/status'
 import { asyncTimeoutGuard } from '../../../../utils/timing'
 import { IncomingRecordingMessage } from '../types'
 import { bufferFileDir, convertForPersistence, getLagMultiplier, maxDefined, minDefined, now } from '../utils'
@@ -149,7 +149,7 @@ export class SessionManager {
         if (!this.debug) {
             return
         }
-        status.debug(icon, message, extra)
+        logger.debug(icon, message, extra)
     }
 
     private captureException(error: Error, extra: Record<string, any> = {}): void {
@@ -322,7 +322,7 @@ export class SessionManager {
         }
 
         const flushTimeout = setTimeout(() => {
-            status.error('🧨', '[session-manager] flush timed out', {
+            logger.error('🧨', '[session-manager] flush timed out', {
                 ...this.logContext(),
             })
 
@@ -362,7 +362,7 @@ export class SessionManager {
 
             readStream.on('error', (err) => {
                 // TODO: What should we do here?
-                status.error('🧨', '[session-manager] readstream errored', {
+                logger.error('🧨', '[session-manager] readstream errored', {
                     ...this.logContext(),
                     error: err,
                 })
@@ -409,7 +409,7 @@ export class SessionManager {
             await this.inProgressUpload?.abort()
 
             // TODO: If we fail to write to S3 we should be do something about it
-            status.error('🧨', '[session-manager] failed writing session recording blob to S3', {
+            logger.error('🧨', '[session-manager] failed writing session recording blob to S3', {
                 errorMessage: `${error.name || 'Unknown Error Type'}: ${error.message}`,
                 error,
                 ...this.logContext(),
@@ -466,7 +466,7 @@ export class SessionManager {
             // The compressed file
             pipeline(writeStream, zlib.createGzip(), createWriteStream(file('gz'))).catch((error) => {
                 // TODO: If this actually happens we probably want to destroy the buffer as we will be stuck...
-                status.error('🧨', '[session-manager] writestream errored', {
+                logger.error('🧨', '[session-manager] writestream errored', {
                     ...this.logContext(),
                     error,
                 })
@@ -477,7 +477,7 @@ export class SessionManager {
             // The uncompressed file which we need for realtime playback
             pipeline(writeStream, createWriteStream(file('jsonl'))).catch((error) => {
                 // TODO: If this actually happens we probably want to destroy the buffer as we will be stuck...
-                status.error('🧨', '[session-manager] writestream errored', {
+                logger.error('🧨', '[session-manager] writestream errored', {
                     ...this.logContext(),
                     error,
                 })
@@ -521,7 +521,7 @@ export class SessionManager {
         })
 
         this.realtimeTail.on('error', (error) => {
-            status.error('🧨', '[session-manager][realtime] failed to watch buffer file', {
+            logger.error('🧨', '[session-manager][realtime] failed to watch buffer file', {
                 sessionId: this.sessionId,
                 teamId: this.teamId,
             })
@@ -543,7 +543,7 @@ export class SessionManager {
         this.stopRealtime()
         if (this.inProgressUpload !== null) {
             await this.inProgressUpload.abort().catch((error) => {
-                status.error('🧨', '[session-manager][realtime] failed to abort in progress upload', {
+                logger.error('🧨', '[session-manager][realtime] failed to abort in progress upload', {
                     ...this.logContext(),
                     error,
                 })

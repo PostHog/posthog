@@ -47,7 +47,7 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
             (billing) => {
                 // TODO(@zach): revisit this logic after subscribe to all products is released
                 // There are some features where we want to check the product first
-                const checkProductFirst = [AvailableFeature.ORGANIZATIONS_PROJECTS]
+                const checkProductFirst = [AvailableFeature.ORGANIZATIONS_PROJECTS, AvailableFeature.ENVIRONMENTS]
 
                 let foundProduct: BillingProductV2Type | BillingProductV2AddonType | undefined = undefined
 
@@ -97,7 +97,7 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
             (s) => [s.productWithFeature],
             (productWithFeature) => {
                 const currentPlanIndex = productWithFeature?.plans.findIndex((plan) => plan.current_plan)
-                if (!currentPlanIndex) {
+                if (currentPlanIndex === undefined || currentPlanIndex < 0) {
                     return null
                 }
                 return productWithFeature?.plans[currentPlanIndex + 1]

@@ -3,7 +3,7 @@ import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constant
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { DashboardBasicType } from '~/types'
+import { AccessControlLevel, DashboardBasicType } from '~/types'
 
 import { dashboardsModel, nameCompareFunction } from './dashboardsModel'
 
@@ -54,7 +54,7 @@ const basicDashboard: DashboardBasicType = {
     restriction_level: DashboardRestrictionLevel.EveryoneInProjectCanEdit,
     effective_restriction_level: DashboardRestrictionLevel.EveryoneInProjectCanEdit,
     effective_privilege_level: DashboardPrivilegeLevel.CanEdit,
-    user_access_level: 'editor',
+    user_access_level: AccessControlLevel.Editor,
     access_control_version: 'v1',
 }
 

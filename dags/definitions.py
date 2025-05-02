@@ -70,6 +70,9 @@ defs = dagster.Definitions(
         export_query_logs_to_s3.query_logs_export_schedule,
         person_overrides.squash_schedule,
         backups.full_sharded_backup_schedule,
+        backups.incremental_sharded_backup_schedule,
+        backups.full_non_sharded_backup_schedule,
+        backups.incremental_non_sharded_backup_schedule,
     ],
     sensors=[
         deletes.run_deletes_after_squash,

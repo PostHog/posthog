@@ -21,7 +21,7 @@ $xxl: 1600px;
 //     'warning-highlight': rgba(#f7a501, 0.1),
 //     'warning': #f7a501,
 //     'warning-dark': #e09423,
-//     'highlight': var(--accent-primary),
+//     'highlight': var(--accent),
 //     // #e49f2c, //TODO: remove this
 //     'success-highlight': rgba(#388600, 0.1),
 //     'success-light': #5f9d32,
@@ -38,7 +38,7 @@ $xxl: 1600px;
 //     'border-light': rgb(0 0 0 / 8%),
 //     'border-bold': rgb(0 0 0 / 24%),
 //     'transparent': transparent,
-//     'link': var(--accent-primary),
+//     'link': var(--accent),
 //     // #f54e00, //TODO: remove this
 //     // Colors of the PostHog logo
 //     'brand-blue': #1d4aff,
@@ -51,12 +51,12 @@ $xxl: 1600px;
 //     'text-secondary-3000-light': rgba(#111, 0.7),
 //     'muted-3000-light': rgba(#111, 0.6),
 //     'trace-3000-light': rgba(#111, 0.25),
-//     'primary-3000-light': var(--accent-primary),
+//     'primary-3000-light': var(--accent),
 //     // #f54e01,
 //     'primary-highlight-light': rgba(#f54e01, 0.1),
-//     'primary-3000-hover-light': var(--accent-primary-hover),
+//     'primary-3000-hover-light': var(--accent-hover),
 //     // #f54e01, //TODO: remove this
-//     'primary-3000-active-light': var(--accent-primary-active),
+//     'primary-3000-active-light': var(--accent-active),
 //     // #f54e01, //TODO: remove this
 //     'secondary-3000-light': rgba(#cfd1c2, 0.6),
 //     'secondary-3000-hover-light': #cfd1c2,
@@ -67,7 +67,7 @@ $xxl: 1600px;
 //     'glass-bg-3000-light': #e4e5deb3,
 //     'glass-border-3000-light': #e4e5de,
 
-//     'link-3000-light': var(--accent-primary),
+//     'link-3000-light': var(--accent),
 //     // #f54e00, //TODO: remove this
 //     'primary-3000-frame-bg-light': #eb9d2a,
 //     'primary-3000-button-bg-light': #fff,
@@ -89,9 +89,9 @@ $xxl: 1600px;
 //     'trace-3000-dark': rgba(#fff, 0.25),
 //     'primary-3000-dark': #f7a503,
 //     'primary-highlight-dark': rgba(#f7a503, 0.1),
-//     'primary-3000-hover-dark': var(--accent-primary-hover),
+//     'primary-3000-hover-dark': var(--accent-hover),
 //     // #f7a503, //TODO: remove this
-//     'primary-3000-active-dark': var(--accent-primary-active),
+//     'primary-3000-active-dark': var(--accent-active),
 //     // #f7a503, //TODO: remove this
 //     'primary-alt-highlight-light': #e5e7e0,
 
@@ -103,7 +103,7 @@ $xxl: 1600px;
 //     'border-bold-3000-dark': #3f4046,
 //     'glass-bg-3000-dark': #24262a99,
 //     'glass-border-3000-dark': var(--border-3000-dark),
-//     'link-3000-dark': var(--accent-primary),
+//     'link-3000-dark': var(--accent),
 //     // #f1a82c,
 //     'primary-3000-frame-bg-dark': #926826,
 //     'primary-3000-button-bg-dark': #e0a045,
@@ -129,7 +129,7 @@ $xxl: 1600px;
 //     'text-3000': var(--text-3000),
 //     'text-secondary-3000': var(--text-secondary-3000),
 //     'muted-3000': var(--muted-3000),
-//     'primary-3000': var(--accent-primary),
+//     'primary-3000': var(--accent),
 //     'secondary-3000': var(--secondary-3000),
 //     'secondary-3000-hover': var(--secondary-3000-hover),
 //     'accent-3000': var(--bg-surface-primary),
@@ -233,7 +233,7 @@ $xxl: 1600px;
 //     // which means they aren't available in the toolbar
 //     --toastify-color-dark: var(--accent-3000-dark);
 //     --toastify-color-light: var(--bg-surface-primary);
-//     --toastify-color-info: var(--accent-primary);
+//     --toastify-color-info: var(--accent);
 //     --toastify-color-success: var(--success);
 //     --toastify-color-warning: var(--warning);
 //     --toastify-color-error: var(--danger);
@@ -292,10 +292,10 @@ $xxl: 1600px;
 //     --text-secondary-3000: var(--text-secondary-3000-light);
 //     --muted-3000: var(--muted-3000-light);
 //     --trace-3000: var(--trace-3000-light);
-//     --primary-3000: var(--accent-primary); // var(--primary-3000-light); // TODO: remove this
-//     --primary-highlight: var(--accent-primary-highlight); // var(--primary-highlight-light); // TODO: remove this
-//     --primary-3000-hover: var(--accent-primary-hover); // var(--primary-3000-hover-light); // TODO: remove this
-//     --primary-3000-active: var(--accent-primary-active); // var(--primary-3000-active-light); // TODO: remove this
+//     --primary-3000: var(--accent); // var(--primary-3000-light); // TODO: remove this
+//     --primary-highlight: var(--accent-highlight); // var(--primary-highlight-light); // TODO: remove this
+//     --primary-3000-hover: var(--accent-hover); // var(--primary-3000-hover-light); // TODO: remove this
+//     --primary-3000-active: var(--accent-active); // var(--primary-3000-active-light); // TODO: remove this
 //     --secondary-3000: var(--secondary-3000-light);
 //     --secondary-3000-hover: var(--secondary-3000-hover-light);
 //     --accent-3000: var(--accent-3000-light);
@@ -332,10 +332,10 @@ $xxl: 1600px;
 //     --text-secondary-3000: var(--text-secondary-3000-dark);
 //     --muted-3000: var(--muted-3000-dark);
 //     --trace-3000: var(--trace-3000-dark);
-//     --primary-3000: var(--accent-primary); // var(--primary-3000-dark); // TODO: remove this
-//     --primary-highlight: var(--accent-primary-highlight); // var(--primary-highlight-dark); // TODO: remove this
-//     --primary-3000-hover: var(--accent-primary-hover); // var(--primary-3000-hover-dark); // TODO: remove this
-//     --primary-3000-active: var(--accent-primary-active); // var(--primary-3000-active-dark); // TODO: remove this
+//     --primary-3000: var(--accent); // var(--primary-3000-dark); // TODO: remove this
+//     --primary-highlight: var(--accent-highlight); // var(--primary-highlight-dark); // TODO: remove this
+//     --primary-3000-hover: var(--accent-hover); // var(--primary-3000-hover-dark); // TODO: remove this
+//     --primary-3000-active: var(--accent-active); // var(--primary-3000-active-dark); // TODO: remove this
 //     --secondary-3000: var(--secondary-3000-dark);
 //     --secondary-3000-hover: var(--secondary-3000-hover-dark);
 //     --accent-3000: var(--accent-3000-dark);
@@ -375,7 +375,7 @@ $xxl: 1600px;
 
 // // defined here so that they can be shared with the toolbar
 // @mixin common-variables {
-//     --primary: var(--primary-3000); // Changed to accent-primary
+//     --primary: var(--primary-3000); // Changed to accent
 //     --muted: var(--muted-3000);
 //     --default: var(--text-3000);
 

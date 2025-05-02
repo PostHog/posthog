@@ -9,7 +9,7 @@ import { BarStatus } from './types'
 
 export const actionBarLogic = kea<actionBarLogicType>([
     path(['lib', 'components', 'CommandBar', 'actionBarLogic']),
-    connect({
+    connect(() => ({
         actions: [
             commandBarLogic,
             ['hideCommandBar', 'setCommandBar', 'clearInitialQuery'],
@@ -31,7 +31,7 @@ export const actionBarLogic = kea<actionBarLogicType>([
                 'activeFlow',
             ],
         ],
-    }),
+    })),
     listeners(({ actions }) => ({
         hidePalette: () => {
             // listen on hide action from legacy palette, and hide command bar

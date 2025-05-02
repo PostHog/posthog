@@ -1,6 +1,6 @@
 from typing import Any, Optional
 
-from django.db import models, transaction
+from django.db import models, transaction, connections
 from django.db.models import F, Q
 
 from posthog.models.utils import UUIDT
@@ -9,6 +9,13 @@ from ..team import Team
 from .missing_person import uuidFromDistinctId
 
 MAX_LIMIT_DISTINCT_IDS = 2500
+
+if "persons_db_reader" in connections:
+    READ_DB_FOR_PERSONS = "persons_db_reader"
+elif "replica" in connections:
+    READ_DB_FOR_PERSONS = "replica"
+else:
+    READ_DB_FOR_PERSONS = "default"
 
 
 class PersonManager(models.Manager):
@@ -21,12 +28,9 @@ class PersonManager(models.Manager):
             person._add_distinct_ids(distinct_ids)
             return person
 
-    @staticmethod
-    def distinct_ids_exist(team_id: int, distinct_ids: list[str]) -> bool:
-        return PersonDistinctId.objects.filter(team_id=team_id, distinct_id__in=distinct_ids).exists()
-
 
 class Person(models.Model):
+    id = models.BigAutoField(primary_key=True)
     _distinct_ids: Optional[list[str]]
 
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
@@ -58,10 +62,15 @@ class Person(models.Model):
             return self._distinct_ids
         return [
             id[0]
-            for id in PersonDistinctId.objects.filter(person=self, team_id=self.team_id)
+            for id in PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
+            .filter(person=self, team_id=self.team_id)
             .order_by("id")
             .values_list("distinct_id")
         ]
+
+    @property
+    def email(self) -> Optional[str]:
+        return self.properties.get("email")
 
     # :DEPRECATED: This should happen through the plugin server
     def add_distinct_id(self, distinct_id: str) -> None:
@@ -118,6 +127,7 @@ class Person(models.Model):
 
 
 class PersonDistinctId(models.Model):
+    id = models.BigAutoField(primary_key=True)
     team = models.ForeignKey("Team", on_delete=models.CASCADE, db_index=False)
     person = models.ForeignKey(Person, on_delete=models.CASCADE)
     distinct_id = models.CharField(max_length=400)
@@ -317,12 +327,14 @@ def get_distinct_ids_for_subquery(person: Person | None, team: Team) -> list[str
 
     if person is not None:
         first_ids = (
-            PersonDistinctId.objects.filter(person=person, team=team)
+            PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
+            .filter(person=person, team=team)
             .order_by("id")
             .values_list("distinct_id", flat=True)[:first_ids_limit]
         )
         last_ids = (
-            PersonDistinctId.objects.filter(person=person, team=team)
+            PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
+            .filter(person=person, team=team)
             .order_by("-id")
             .values_list("distinct_id", flat=True)[:last_ids_limit]
         )

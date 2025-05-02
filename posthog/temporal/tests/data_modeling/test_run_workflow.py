@@ -21,6 +21,7 @@ from freezegun.api import freeze_time
 from posthog import constants
 from posthog.hogql.database.database import create_hogql_database
 from posthog.models import Team
+from posthog.warehouse.models.data_modeling_job import DataModelingJob
 from posthog.temporal.data_modeling.run_workflow import (
     BuildDagActivityInputs,
     CreateTableActivityInputs,
@@ -51,7 +52,7 @@ TEST_TIME = dt.datetime.now(dt.UTC)
 @pytest_asyncio.fixture
 async def posthog_tables(ateam):
     team = await database_sync_to_async(Team.objects.get)(id=ateam.pk)
-    hogql_db = await database_sync_to_async(create_hogql_database)(team_id=ateam.pk, team_arg=team)
+    hogql_db = await database_sync_to_async(create_hogql_database)(team=team)
     posthog_tables = hogql_db.get_posthog_tables()
 
     return posthog_tables
@@ -77,9 +78,18 @@ async def posthog_tables(ateam):
 )
 async def test_run_dag_activity_activity_materialize_mocked(activity_environment, ateam, dag, posthog_tables):
     """Test all models are completed with a mocked materialize."""
+    for model_label in dag.keys():
+        if model_label not in posthog_tables:
+            await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
+                team=ateam,
+                name=model_label,
+                query={"query": f"SELECT * FROM events LIMIT 10", "kind": "HogQLQuery"},
+            )
+
     run_dag_activity_inputs = RunDagActivityInputs(team_id=ateam.pk, dag=dag)
 
-    magic_mock = unittest.mock.AsyncMock()
+    magic_mock = unittest.mock.AsyncMock(return_value=("test_key", unittest.mock.MagicMock(), uuid.uuid4()))
+
     with unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.materialize_model", new=magic_mock):
         async with asyncio.timeout(10):
             results = await activity_environment.run(run_dag_activity, run_dag_activity_inputs)
@@ -172,12 +182,22 @@ async def test_run_dag_activity_activity_skips_if_ancestor_failed_mocked(
         make_fail: A sequence of model labels of models that should fail to check they are
             handled properly.
     """
+    # Create the necessary saved queries for the test
+    for model_label in dag.keys():
+        if model_label not in posthog_tables:
+            await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
+                team=ateam,
+                name=model_label,
+                query={"query": f"SELECT * FROM events LIMIT 10", "kind": "HogQLQuery"},
+            )
+
     run_dag_activity_inputs = RunDagActivityInputs(team_id=ateam.pk, dag=dag)
     assert all(model not in posthog_tables for model in make_fail), "PostHog tables cannot fail"
 
     def raise_if_should_make_fail(model_label, *args, **kwargs):
         if model_label in make_fail:
             raise ValueError("Oh no!")
+        return ("test_key", unittest.mock.MagicMock(), uuid.uuid4())
 
     expected_failed = set()
     expected_ancestor_failed = set()
@@ -319,7 +339,18 @@ async def test_materialize_model(ateam, bucket_name, minio_client, pageview_even
             AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials
         ),
     ):
-        key, delta_table = await materialize_model(saved_query.id.hex, ateam)
+        job = await database_sync_to_async(DataModelingJob.objects.create)(
+            team=ateam,
+            status=DataModelingJob.Status.RUNNING,
+            workflow_id="test_workflow",
+        )
+
+        key, delta_table, job_id = await materialize_model(
+            saved_query.id.hex,
+            ateam,
+            saved_query,
+            job,
+        )
 
     s3_objects = await minio_client.list_objects_v2(
         Bucket=bucket_name, Prefix=f"team_{ateam.pk}_model_{saved_query.id.hex}/"
@@ -605,6 +636,18 @@ async def test_run_workflow_with_minio_bucket(
     expected_events_a = [event for event in all_expected_events if event["distinct_id"] == "a"]
     expected_events_b = [event for event in all_expected_events if event["distinct_id"] == "b"]
 
+    for query in saved_queries:
+        attached_table = await DataWarehouseTable.objects.acreate(
+            name=query.name,
+            team=ateam,
+            format="Delta",
+            url_pattern=f"s3://{bucket_name}/team_{ateam.pk}_model_{query.id.hex}",
+            credential=None,
+        )
+        # link the saved query to the table
+        query.table_id = attached_table.id
+        await database_sync_to_async(query.save)()
+
     workflow_id = str(uuid.uuid4())
     inputs = RunWorkflowInputs(team_id=ateam.pk)
 
@@ -678,3 +721,9 @@ async def test_run_workflow_with_minio_bucket(
             assert sorted(table.to_pylist(), key=lambda d: (d["distinct_id"], d["timestamp"])) == expected_data
             assert query.status == DataWarehouseSavedQuery.Status.COMPLETED
             assert query.last_run_at == TEST_TIME
+
+            # Verify row count was updated in the DataWarehouseTable
+            warehouse_table = await DataWarehouseTable.objects.aget(team_id=ateam.pk, id=query.table_id)
+            assert warehouse_table is not None, f"DataWarehouseTable for {query.name} not found"
+            # Match the 50 page_view events defined above
+            assert warehouse_table.row_count == len(expected_data), f"Row count for {query.name} not the expected value"

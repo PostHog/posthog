@@ -1,0 +1,15 @@
+.EditorScene {
+    .LemonTabs__bar {
+        margin-bottom: 1px;
+    }
+
+    .OutputPane {
+        .LemonTabs {
+            align-self: center;
+        }
+
+        .LemonTabs__bar::before {
+            display: none;
+        }
+    }
+}

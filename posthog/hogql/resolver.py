@@ -17,6 +17,7 @@ from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.errors import ImpossibleASTError, QueryError, ResolutionError
+from posthog.hogql.escape_sql import safe_identifier
 from posthog.hogql.functions import find_hogql_posthog_function
 from posthog.hogql.functions.action import matches_action
 from posthog.hogql.functions.cohort import cohort_query_node
@@ -70,16 +71,17 @@ def resolve_constant_data_type(constant: Any) -> ConstantType:
 
 
 def resolve_types_from_table(
-    expr: ast.Expr, table_name: str, context: HogQLContext, dialect: Literal["hogql", "clickhouse"]
+    expr: ast.Expr, table_chain: list[str], context: HogQLContext, dialect: Literal["hogql", "clickhouse"]
 ) -> ast.Expr:
     if context.database is None:
         raise QueryError("Database needs to be defined")
 
-    if not context.database.has_table(table_name):
-        raise QueryError(f'Table "{table_name}" does not exist')
+    if not context.database.has_table(table_chain):
+        raise QueryError(f'Table "{".".join(table_chain)}" does not exist')
 
     select_node = ast.SelectQuery(
-        select=[ast.Field(chain=["*"])], select_from=ast.JoinExpr(table=ast.Field(chain=[table_name]))
+        select=[ast.Field(chain=["*"])],
+        select_from=ast.JoinExpr(table=ast.Field(chain=cast(list[str | int], table_chain))),
     )
     select_node_with_types = cast(ast.SelectQuery, resolve_types(select_node, context, dialect))
     assert select_node_with_types.type is not None
@@ -210,6 +212,10 @@ class Resolver(CloningVisitor):
                 alias = new_expr.type.name
             elif isinstance(new_expr, ast.Alias):
                 alias = new_expr.alias
+            elif isinstance(new_expr.type, ast.CallType):
+                from posthog.hogql.printer import print_prepared_ast
+
+                alias = safe_identifier(print_prepared_ast(node=new_expr, context=self.context, dialect="hogql"))
             else:
                 alias = None
 
@@ -311,12 +317,13 @@ class Resolver(CloningVisitor):
                 return response
 
         if isinstance(node.table, ast.Field):
-            table_name = str(node.table.chain[0])
-            table_alias = node.alias or table_name
+            table_name_chain = [str(n) for n in node.table.chain]
+            table_name_alias = "__".join(table_name_chain)
+            table_alias: str = node.alias or table_name_alias
             if table_alias in scope.tables:
                 raise QueryError(f'Already have joined a table called "{table_alias}". Can\'t redefine.')
 
-            database_table = self.database.get_table(table_name)
+            database_table = self.database.get_table_by_chain(table_name_chain)
 
             if isinstance(database_table, SavedQuery):
                 self.current_view_depth += 1
@@ -343,7 +350,7 @@ class Resolver(CloningVisitor):
 
             # Always add an alias for function call tables. This way `select table.* from table` is replaced with
             # `select table.* from something() as table`, and not with `select something().* from something()`.
-            if table_alias != table_name or isinstance(database_table, FunctionCallTable):
+            if table_alias != table_name_alias or isinstance(database_table, FunctionCallTable):
                 node_type = ast.TableAliasType(alias=table_alias, table_type=node_table_type)
             else:
                 node_type = node_table_type
@@ -479,7 +486,12 @@ class Resolver(CloningVisitor):
             if node.name == "recording_button":
                 return self.visit(recording_button(node=node, args=node.args))
             if node.name == "matchesAction":
-                return self.visit(matches_action(node=node, args=node.args, context=self.context))
+                events_alias, _ = self._get_events_table_current_scope()
+                if events_alias is None:
+                    raise QueryError("matchesAction can only be used with the events table")
+                return self.visit(
+                    matches_action(node=node, args=node.args, context=self.context, events_alias=events_alias)
+                )
 
         node = super().visit_call(node)
         arg_types: list[ast.ConstantType] = []
@@ -774,11 +786,15 @@ class Resolver(CloningVisitor):
 
     def visit_constant(self, node: ast.Constant):
         node = super().visit_constant(node)
+        if node is None:
+            return None
         node.type = resolve_constant_data_type(node.value)
         return node
 
     def visit_and(self, node: ast.And):
         node = super().visit_and(node)
+        if node is None:
+            return None
         node.type = ast.BooleanType(
             nullable=any(expr.type.resolve_constant_type(self.context).nullable for expr in node.exprs)
         )
@@ -786,6 +802,8 @@ class Resolver(CloningVisitor):
 
     def visit_or(self, node: ast.Or):
         node = super().visit_or(node)
+        if node is None:
+            return None
         node.type = ast.BooleanType(
             nullable=any(expr.type.resolve_constant_type(self.context).nullable for expr in node.exprs)
         )
@@ -793,6 +811,8 @@ class Resolver(CloningVisitor):
 
     def visit_not(self, node: ast.Not):
         node = super().visit_not(node)
+        if node is None:
+            return None
         node.type = ast.BooleanType(nullable=node.expr.type.resolve_constant_type(self.context).nullable)
         return node
 
@@ -829,6 +849,21 @@ class Resolver(CloningVisitor):
                 node.op = ast.CompareOperationOp.GlobalNotIn
 
         return node
+
+    # Used to find events table in current scope for action functions
+    def _get_events_table_current_scope(self) -> tuple[Optional[str], Optional[EventsTable]]:
+        scope = self.scopes[-1]
+        for alias, table_type in scope.tables.items():
+            if isinstance(table_type, ast.TableType) and isinstance(table_type.table, EventsTable):
+                return alias, table_type.table
+
+            if isinstance(table_type, ast.TableAliasType):
+                if isinstance(table_type.table_type, ast.TableType) and isinstance(
+                    table_type.table_type.table, EventsTable
+                ):
+                    return alias, table_type.table_type.table
+
+        return None, None
 
     def _is_events_table(self, node: ast.Expr) -> bool:
         while isinstance(node, ast.Alias):

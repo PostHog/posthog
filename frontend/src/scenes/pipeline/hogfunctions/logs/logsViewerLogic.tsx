@@ -78,7 +78,7 @@ const loadGroupedLogs = async (request: GroupedLogEntryRequest): Promise<Grouped
         ORDER BY latest_timestamp DESC`,
     }
 
-    const response = await api.query(query, undefined, undefined, true, {
+    const response = await api.query(query, undefined, undefined, 'force_blocking', {
         date_from: request.date_from ?? '-7d',
         date_to: request.date_to,
     })

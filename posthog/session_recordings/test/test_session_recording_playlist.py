@@ -13,6 +13,7 @@ from rest_framework import status
 
 from posthog import redis
 from posthog.models import SessionRecording, SessionRecordingPlaylistItem, Team
+from posthog.models.file_system.file_system import FileSystem
 from posthog.models.user import User
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.models.session_recording_playlist import (
@@ -127,13 +128,14 @@ class TestSessionRecordingPlaylist(APIBaseTest):
                     "recordings_counts": {
                         "collection": {
                             "count": None,
-                            "watched_count": None,
+                            "watched_count": 0,
                         },
                         "saved_filters": {
                             "count": 2,
                             "has_more": False,
                             "watched_count": 1,
                             "increased": True,
+                            "last_refreshed_at": None,
                         },
                     },
                     "short_id": playlist_two.json()["short_id"],
@@ -173,13 +175,14 @@ class TestSessionRecordingPlaylist(APIBaseTest):
                     "recordings_counts": {
                         "collection": {
                             "count": None,
-                            "watched_count": None,
+                            "watched_count": 0,
                         },
                         "saved_filters": {
                             "count": None,
                             "has_more": None,
                             "watched_count": None,
                             "increased": None,
+                            "last_refreshed_at": None,
                         },
                     },
                     "short_id": playlist_one.json()["short_id"],
@@ -206,13 +209,14 @@ class TestSessionRecordingPlaylist(APIBaseTest):
             "recordings_counts": {
                 "collection": {
                     "count": None,
-                    "watched_count": None,
+                    "watched_count": 0,
                 },
                 "saved_filters": {
                     "count": None,
                     "has_more": None,
                     "watched_count": None,
                     "increased": None,
+                    "last_refreshed_at": None,
                 },
             },
         }
@@ -393,6 +397,52 @@ class TestSessionRecordingPlaylist(APIBaseTest):
 
         assert len(results) == 1
         assert results[0]["short_id"] == playlist3.short_id
+
+    def test_filters_saved_filters_type(self):
+        # Create a playlist with pinned recordings and no filters
+        playlist1 = SessionRecordingPlaylist.objects.create(team=self.team, name="pinned only", created_by=self.user)
+        recording1 = SessionRecording.objects.create(team=self.team, session_id=str(uuid4()))
+        SessionRecordingPlaylistItem.objects.create(playlist=playlist1, recording=recording1)
+
+        # Create a playlist with both pinned recordings and filters
+        playlist2 = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="pinned and filters",
+            created_by=self.user,
+            filters={"events": [{"id": "test"}]},
+        )
+        recording2 = SessionRecording.objects.create(team=self.team, session_id=str(uuid4()))
+        SessionRecordingPlaylistItem.objects.create(playlist=playlist2, recording=recording2)
+
+        # Create a playlist with only filters
+        playlist3 = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="filters only",
+            created_by=self.user,
+            filters={"events": [{"id": "test"}]},
+        )
+
+        # Create a playlist with only deleted pinned items
+        playlist4 = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="deleted pinned only",
+            created_by=self.user,
+        )
+        recording4 = SessionRecording.objects.create(team=self.team, session_id=str(uuid4()))
+        SessionRecordingPlaylistItem.objects.create(playlist=playlist4, recording=recording4)
+        SessionRecordingPlaylistItem.objects.filter(playlist=playlist4, recording=recording4).update(deleted=True)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recording_playlists?type=saved_filters",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+
+        # Should only return the playlist with filters and no pinned recordings
+        # since playlist 4 only has deleted pinned items, then it technically has no pinned
+        # so counts has having 0 pinned items
+        # but it also has no filters, so it should not be included
+        assert [r["name"] for r in results] == [playlist3.name]
 
     @patch("ee.session_recordings.session_recording_extensions.object_storage.copy_objects")
     def test_get_pinned_recordings_for_playlist(self, mock_copy_objects: MagicMock) -> None:
@@ -583,3 +633,24 @@ class TestSessionRecordingPlaylist(APIBaseTest):
             ).count()
             == 0
         )
+
+    def test_create_playlist_in_specific_folder(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists",
+            {
+                "name": "Playlist in folder",
+                "filters": {"events": [{"id": "$pageview"}]},
+                "_create_in_folder": "Special Folder/Session Recordings",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        playlist_id = response.json()["short_id"]
+
+        assert playlist_id is not None
+
+        fs_entry = FileSystem.objects.filter(
+            team=self.team, ref=str(playlist_id), type="session_recording_playlist"
+        ).first()
+        assert fs_entry is not None
+        assert "Special Folder/Session Recordings" in fs_entry.path

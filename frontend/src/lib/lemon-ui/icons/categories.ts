@@ -58,6 +58,17 @@ export const OBJECTS = {
         'IconRabbit',
         'IconTortoise',
         'IconStethoscope',
+        'IconClockRewind',
+        'IconCollapse45Chevrons',
+        'IconDatabaseBolt',
+        'IconExpand45Chevrons',
+        'IconFolderOpenFilled',
+        'IconFolderMove',
+        'IconSquare',
+        'IconTableOfContents',
+        'IconTabletLandscape',
+        'IconTabletPortrait',
+        'IconTextWidthFixed',
     ],
     People: [
         'IconPeople',
@@ -117,6 +128,7 @@ export const TECHNOLOGY = {
         'IconApp',
         'IconFolder',
         'IconFolderOpen',
+        'IconFolderPlus',
     ],
     UI: [
         'IconPassword',
@@ -161,6 +173,7 @@ export const ELEMENTS = {
         'IconFilter',
         'IconArchive',
         'IconSort',
+        'IconSortAlpha',
         'IconExternal',
     ],
     Symbols: [

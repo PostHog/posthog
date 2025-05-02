@@ -8,6 +8,7 @@ import operator
 import os
 import re
 import tempfile
+import typing as t
 import unittest.mock
 import uuid
 from collections import deque
@@ -93,8 +94,8 @@ class FakeSnowflakeCursor:
     """A fake Snowflake cursor that can fail on PUT and COPY queries."""
 
     def __init__(self, *args, failure_mode: str | None = None, **kwargs):
-        self._execute_calls = []
-        self._execute_async_calls = []
+        self._execute_calls: list[dict[str, t.Any]] = []
+        self._execute_async_calls: list[dict[str, t.Any]] = []
         self._sfqid = 1
         self._fail = failure_mode
 
@@ -160,7 +161,7 @@ class FakeSnowflakeConnection:
         failure_mode: str | None = None,
         **kwargs,
     ):
-        self._cursors = []
+        self._cursors: list[FakeSnowflakeCursor] = []
         self._is_running = True
         self.failure_mode = failure_mode
 
@@ -219,7 +220,7 @@ def add_mock_snowflake_api(rsps: responses.RequestsMock, fail: bool | str = Fals
         sql_text = json.loads(gzip.decompress(request.body))["sqlText"]
         queries.append(sql_text)
 
-        rowset = [("test", "LOADED", 456, 192, "NONE", "GZIP", "UPLOADED", "")]
+        rowset: list[tuple[t.Any, ...]] = [("test", "LOADED", 456, 192, "NONE", "GZIP", "UPLOADED", "")]
 
         # If the query is something that looks like `PUT file:///tmp/tmp50nod7v9
         # @%"events"` we extract the /tmp/tmp50nod7v9 and store the file
@@ -1055,6 +1056,7 @@ def snowflake_cursor(snowflake_config):
         warehouse=snowflake_config["warehouse"],
         private_key=private_key,
     ) as connection:
+        connection.telemetry_enabled = False
         cursor = connection.cursor()
         cursor.execute(f'CREATE DATABASE "{snowflake_config["database"]}"')
         cursor.execute(f'CREATE SCHEMA "{snowflake_config["database"]}"."{snowflake_config["schema"]}"')

@@ -36,7 +36,7 @@ export interface RelatedFlagsFilters {
 
 export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
     path(['scenes', 'persons', 'relatedFeatureFlagsLogic']),
-    connect({ values: [projectLogic, ['currentProjectId'], featureFlagsLogic, ['featureFlags']] }),
+    connect(() => ({ values: [projectLogic, ['currentProjectId'], featureFlagsLogic, ['featureFlags']] })),
     props(
         {} as {
             distinctId: string | null

@@ -1138,7 +1138,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         res, q, params = execute(filter, self.team)
-        self.assertEqual({p1.uuid, p2.uuid}, {r[0] for r in res})
+        self.assertCountEqual([p1.uuid, p2.uuid], [r[0] for r in res])
 
     @snapshot_clickhouse_queries
     def test_person_props_only(self):
@@ -3217,6 +3217,196 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         res, q, params = execute(filter, self.team)
 
         self.assertCountEqual([p4.uuid], [r[0] for r in res])
+
+    def test_performed_event_regularly_years_interval(self):
+        # Person 1: Matches the condition - has 2 "Application Opened" events per year
+        p1 = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p1"],
+            properties={"name": "test1", "email": "test1@posthog.com"},
+        )
+        _create_event(
+            team=self.team,
+            event="Application Opened",
+            properties={},
+            distinct_id="p1",
+            timestamp=datetime.now() - timedelta(days=2),
+        )
+        _create_event(
+            team=self.team,
+            event="Application Opened",
+            properties={},
+            distinct_id="p1",
+            timestamp=datetime.now() - timedelta(days=1),
+        )
+        _create_event(
+            team=self.team,
+            event="Application Opened",
+            properties={},
+            distinct_id="p1",
+            timestamp=datetime.now() - timedelta(days=400),
+        )
+        _create_event(
+            team=self.team,
+            event="Application Opened",
+            properties={},
+            distinct_id="p1",
+            timestamp=datetime.now() - timedelta(days=401),
+        )
+
+        # Person 2: Doesn't match - has only 1 "Application Opened" event
+        p2 = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p2"],
+            properties={"name": "test2", "email": "test2@posthog.com"},
+        )
+        _create_event(
+            team=self.team,
+            event="Application Opened",
+            properties={},
+            distinct_id="p2",
+            timestamp=datetime.now() - timedelta(days=1),
+        )
+
+        # Person 3: Doesn't match - only has 1 Application opened last year
+        p3 = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p3"],
+            properties={"name": "test3", "email": "test3@posthog.com"},
+        )
+        _create_event(
+            team=self.team,
+            event="Application Opened",
+            properties={},
+            distinct_id="p3",
+            timestamp=datetime.now() - timedelta(days=2),
+        )
+        _create_event(
+            team=self.team,
+            event="Application Opened",
+            properties={},
+            distinct_id="p3",
+            timestamp=datetime.now() - timedelta(days=1),
+        )
+        _create_event(
+            team=self.team,
+            event="Application Opened",
+            properties={},
+            distinct_id="p3",
+            timestamp=datetime.now() - timedelta(days=400),
+        )
+        _create_event(
+            team=self.team,
+            event="Other",
+            properties={},
+            distinct_id="p3",
+            timestamp=datetime.now() - timedelta(days=401),
+        )
+
+        flush_persons_and_events()
+
+        # "Application Opened" gte 2 times per 1 year for at least 2 of the last 2 years
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "key": "Application Opened",
+                                    "type": "behavioral",
+                                    "value": "performed_event_regularly",
+                                    "negation": False,
+                                    "operator": "gte",
+                                    "event_type": "events",
+                                    "time_value": 1,
+                                    "min_periods": 2,
+                                    "time_interval": "year",
+                                    "total_periods": 2,
+                                    "operator_value": 2,
+                                }
+                            ],
+                        }
+                    ],
+                }
+            }
+        )
+
+        # Execute the filter
+        res, q, params = execute(filter, self.team)
+
+        # Only person 1 should match
+        self.assertEqual(len(res), 1)
+        self.assertEqual(res[0][0], p1.uuid)
+        self.assertNotIn(p2.uuid, [r[0] for r in res])
+        self.assertNotIn(p3.uuid, [r[0] for r in res])
+
+    def test_person_property_with_value_list(self):
+        # Create people with different email values
+        p1 = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p1"],
+            properties={"email": "test1@example.com"},
+        )
+        p2 = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p2"],
+            properties={"email": "test2@example.com"},
+        )
+        p3 = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p3"],
+            properties={"email": "other@example.com"},
+        )
+        flush_persons_and_events()
+
+        # Create cohort with email list using "in" operator
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="users with specific emails",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": ["test1@example.com", "test2@example.com"],
+                                    "operator": "in",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+            groups=[],  # Empty groups
+        )
+
+        # Create filter using the cohort
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"key": "id", "value": cohort.pk, "type": "cohort"}],
+                }
+            },
+            team=self.team,
+        )
+
+        # Execute the filter
+        res, q, params = execute(filter, self.team)
+
+        # Person 1 and 2 should match because their emails are in the list
+        self.assertEqual(len(res), 2)
+        result_uuids = [r[0] for r in res]
+        self.assertIn(p1.uuid, result_uuids)
+        self.assertIn(p2.uuid, result_uuids)
+        self.assertNotIn(p3.uuid, result_uuids)
 
 
 class TestCohortNegationValidation(BaseTest):

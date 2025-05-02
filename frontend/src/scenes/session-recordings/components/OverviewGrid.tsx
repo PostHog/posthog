@@ -25,7 +25,7 @@ export type OverviewItem = TextOverviewItem | PropertyOverviewItem
 export function OverviewGrid({ children }: { children: ReactNode }): JSX.Element {
     return (
         <div className="@container/og">
-            <div className="grid grid-cols-1 place-items-center gap-4 px-2 py-1 @xs/og:grid-cols-2 @lg/og:grid-cols-3">
+            <div className="grid grid-cols-1 place-items-center gap-4 px-2 py-1 @md/og:grid-cols-2 @2xl/og:grid-cols-3">
                 {children}
             </div>
         </div>

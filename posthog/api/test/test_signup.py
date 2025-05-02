@@ -1,10 +1,9 @@
-import datetime
 import uuid
+from datetime import datetime, timedelta
 from typing import Optional, cast
 from unittest import mock
 from unittest.mock import ANY, patch
 from zoneinfo import ZoneInfo
-from datetime import timedelta
 
 import pytest
 from django.core import mail
@@ -272,7 +271,7 @@ class TestSignupAPI(APIBaseTest):
             super(LicenseManager, cast(LicenseManager, License.objects)).create(
                 key="key_123",
                 plan="enterprise",
-                valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7),
+                valid_until=datetime(2038, 1, 19, 3, 14, 7),
             )
 
             Organization.objects.create(name="name")
@@ -524,7 +523,7 @@ class TestSignupAPI(APIBaseTest):
             super(LicenseManager, cast(LicenseManager, License.objects)).create(
                 key="key_123",
                 plan="enterprise",
-                valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7),
+                valid_until=datetime(2038, 1, 19, 3, 14, 7),
             )
 
             with self.settings(
@@ -560,7 +559,7 @@ class TestSignupAPI(APIBaseTest):
             super(LicenseManager, cast(LicenseManager, License.objects)).create(
                 key="key_123",
                 plan="enterprise",
-                valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7),
+                valid_until=datetime(2038, 1, 19, 3, 14, 7),
             )
 
             with self.settings(
@@ -1042,7 +1041,7 @@ class TestInviteSignupAPI(APIBaseTest):
         invite: OrganizationInvite = OrganizationInvite.objects.create(
             target_email="test+59@posthog.com", organization=self.organization
         )
-        invite.created_at = datetime.datetime(2020, 12, 1, tzinfo=ZoneInfo("UTC"))
+        invite.created_at = datetime(2020, 12, 1, tzinfo=ZoneInfo("UTC"))
         invite.save()
 
         response = self.client.get(f"/api/signup/{invite.id}/")
@@ -1344,7 +1343,7 @@ class TestInviteSignupAPI(APIBaseTest):
             super(LicenseManager, cast(LicenseManager, License.objects)).create(
                 key="key_123",
                 plan="enterprise",
-                valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7),
+                valid_until=datetime(2038, 1, 19, 3, 14, 7),
             )
 
         with self.is_cloud(True):
@@ -1556,7 +1555,7 @@ class TestInviteSignupAPI(APIBaseTest):
         invite: OrganizationInvite = OrganizationInvite.objects.create(
             target_email="test+799@posthog.com", organization=self.organization
         )
-        invite.created_at = datetime.datetime(2020, 3, 3, tzinfo=ZoneInfo("UTC"))
+        invite.created_at = datetime(2020, 3, 3, tzinfo=ZoneInfo("UTC"))
         invite.save()
 
         response = self.client.post(

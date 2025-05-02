@@ -6,7 +6,7 @@ from clickhouse_driver import Client
 
 from dags.deletes import (
     deletes_job,
-    PendingPersonEventDeletesTable,
+    PendingDeletesTable,
     PendingDeletesDictionary,
 )
 
@@ -90,7 +90,7 @@ def test_full_job(cluster: ClickhouseCluster):
 
     # Run the deletion job
     deletes_job.execute_in_process(
-        run_config={"ops": {"create_pending_person_deletions_table": {"config": {"timestamp": timestamp.isoformat()}}}},
+        run_config={"ops": {"create_pending_deletions_table": {"config": {"timestamp": timestamp.isoformat()}}}},
         resources={"cluster": cluster},
     )
 
@@ -121,11 +121,11 @@ def test_full_job(cluster: ClickhouseCluster):
     assert not all(deletion.delete_verified_at is not None for deletion in post_override_deletions)
 
     # Verify the temporary tables were cleaned up
-    table = PendingPersonEventDeletesTable(timestamp=timestamp)
+    table = PendingDeletesTable(timestamp=timestamp)
     assert not any(cluster.map_all_hosts(table.exists).result().values())
     deletes_dict = PendingDeletesDictionary(source=table)
     assert not any(cluster.map_all_hosts(deletes_dict.exists).result().values())
-    report_table = PendingPersonEventDeletesTable(timestamp=timestamp, is_reporting=True)
+    report_table = PendingDeletesTable(timestamp=timestamp, is_reporting=True)
     assert all(cluster.map_all_hosts(report_table.exists).result().values())
 
     # clean up the reporting table

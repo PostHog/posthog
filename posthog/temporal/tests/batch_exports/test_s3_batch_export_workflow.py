@@ -6,7 +6,9 @@ import io
 import json
 import os
 import re
+import typing as t
 import uuid
+from collections.abc import Collection
 from dataclasses import asdict
 from unittest import mock
 from unittest.mock import patch
@@ -2344,11 +2346,11 @@ async def test_insert_into_s3_activity_executes_the_expected_query_for_events_mo
                     ("person_properties", pa.string()),  # JSON string
                     ("set", pa.string()),  # JSON string
                     ("set_once", pa.string()),  # JSON string
-                ]
+                ]  # type: ignore
             )
 
             now = dt.datetime.now(dt.UTC)
-            arrays = [
+            arrays: Collection[pa.Array[t.Any]] = [
                 pa.array([1]),  # team_id
                 pa.array([now]),  # timestamp
                 pa.array(["test_event"]),  # event

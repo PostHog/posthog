@@ -1,3 +1,4 @@
+from typing import Literal
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
@@ -13,7 +14,7 @@ from posthog.warehouse.models.table import DataWarehouseTable
 
 class TestS3Table(BaseTest):
     def _init_database(self):
-        self.database = create_hogql_database(self.team.pk)
+        self.database = create_hogql_database(team=self.team)
         self.database.add_warehouse_tables(
             aapl_stock=create_aapl_stock_s3_table(), aapl_stock_2=create_aapl_stock_s3_table(name="aapl_stock_2")
         )
@@ -24,7 +25,7 @@ class TestS3Table(BaseTest):
             modifiers=create_default_modifiers_for_team(self.team),
         )
 
-    def _select(self, query: str, dialect: str = "clickhouse") -> str:
+    def _select(self, query: str, dialect: Literal["hogql", "clickhouse"] = "clickhouse") -> str:
         return print_ast(parse_select(query), self.context, dialect=dialect)
 
     def test_s3_table_select(self):

@@ -504,7 +504,7 @@ def serializedATN():
         1227,1228,1,0,0,0,1228,1229,1,0,0,0,1229,1230,5,152,0,0,1230,143,
         1,0,0,0,1231,1232,3,148,74,0,1232,1233,5,123,0,0,1233,1235,1,0,0,
         0,1234,1231,1,0,0,0,1234,1235,1,0,0,0,1235,1236,1,0,0,0,1236,1237,
-        3,164,82,0,1237,145,1,0,0,0,1238,1243,3,122,61,0,1239,1240,5,119,
+        3,138,69,0,1237,145,1,0,0,0,1238,1243,3,122,61,0,1239,1240,5,119,
         0,0,1240,1242,3,122,61,0,1241,1239,1,0,0,0,1242,1245,1,0,0,0,1243,
         1241,1,0,0,0,1243,1244,1,0,0,0,1244,1247,1,0,0,0,1245,1243,1,0,0,
         0,1246,1248,5,119,0,0,1247,1246,1,0,0,0,1247,1248,1,0,0,0,1248,147,
@@ -9000,8 +9000,8 @@ class HogQLParser ( Parser ):
             super().__init__(parent, invokingState)
             self.parser = parser
 
-        def identifier(self):
-            return self.getTypedRuleContext(HogQLParser.IdentifierContext,0)
+        def nestedIdentifier(self):
+            return self.getTypedRuleContext(HogQLParser.NestedIdentifierContext,0)
 
 
         def databaseIdentifier(self):
@@ -9040,7 +9040,7 @@ class HogQLParser ( Parser ):
 
 
             self.state = 1236
-            self.identifier()
+            self.nestedIdentifier()
         except RecognitionException as re:
             localctx.exception = re
             self._errHandler.reportError(self, re)

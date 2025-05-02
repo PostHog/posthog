@@ -13,6 +13,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     _get_max_decimal_type,
     should_partition_table,
     table_from_py_list,
+    normalize_table_column_names,
 )
 
 
@@ -378,3 +379,22 @@ def test_should_partition_table_with_table_and_key():
 
     res = should_partition_table(delta_table, schema, source)
     assert res is True
+
+
+def test_normalize_table_column_names_prevents_collisions():
+    # Create a table with columns that would collide when normalized
+    table = pa.table({"foo___bar": ["value1"], "foo_bar": ["value2"], "another___field": ["value3"]})
+
+    normalized_table = normalize_table_column_names(table)
+
+    # First column gets normalized
+    assert "foo_bar" in normalized_table.column_names
+    # Second column that would collide gets underscore prefix
+    assert "_foo_bar" in normalized_table.column_names
+    # Non-colliding column gets normalized
+    assert "another_field" in normalized_table.column_names
+
+    # Verify the data is preserved
+    assert normalized_table.column("foo_bar").to_pylist() == ["value2"]
+    assert normalized_table.column("_foo_bar").to_pylist() == ["value1"]
+    assert normalized_table.column("another_field").to_pylist() == ["value3"]

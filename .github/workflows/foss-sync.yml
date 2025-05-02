@@ -1,4 +1,4 @@
-name: Sync PostHog FOSS
+name: PostHog FOSS Sync
 
 on:
     push:
@@ -27,7 +27,7 @@ jobs:
                   destination_repo: 'https://posthog-bot:${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}@github.com/posthog/posthog-foss.git'
                   destination_branch: 'refs/tags/*'
             - name: Checkout posthog-foss
-              uses: actions/checkout@v3
+              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
               with:
                   repository: 'posthog/posthog-foss'
                   ref: master
@@ -42,7 +42,7 @@ jobs:
                   ls | grep -v foss-release-image-publish.yml | xargs rm
 
             - name: Commit "Sync and remove all non-FOSS parts"
-              uses: EndBug/add-and-commit@v9
+              uses: EndBug/add-and-commit@a94899bca583c204427a224a7af87c02f9b325d5 # v9
               with:
                   message: 'Sync and remove all non-FOSS parts'
                   remove: '["-r ee/"]'

@@ -3,6 +3,7 @@ import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { groupsModel } from '~/models/groupsModel'
+import { MathType } from '~/queries/schema/schema-general'
 import { BaseMathType, CountPerActorMathType, FunnelMathType, HogQLMathType, PropertyMathType } from '~/types'
 
 import type { mathsLogicType } from './mathsLogicType'
@@ -103,10 +104,14 @@ export const BASE_MATH_DEFINITIONS: Record<BaseMathType, MathDefinition> = {
         shortName: 'WAUs',
         description: (
             <>
-                Users active in the past week (7 days).
+                <b>Users active in the past week (7 days).</b>
+                <br />
                 <br />
                 This is a trailing count that aggregates distinct users in the past 7 days for each day in the time
-                series
+                series.
+                <br />
+                <br />
+                If the group by interval is a week or longer, this is the same as "Unique User" math.
             </>
         ),
         category: MathCategory.ActorCount,
@@ -116,10 +121,14 @@ export const BASE_MATH_DEFINITIONS: Record<BaseMathType, MathDefinition> = {
         shortName: 'MAUs',
         description: (
             <>
-                Users active in the past month (30 days).
+                <b>Users active in the past month (30 days).</b>
+                <br />
                 <br />
                 This is a trailing count that aggregates distinct users in the past 30 days for each day in the time
                 series
+                <br />
+                <br />
+                If the group by interval is a month or longer, this is the same as "Unique User" math.
             </>
         ),
         category: MathCategory.ActorCount,
@@ -379,7 +388,7 @@ export function apiValueToMathType(math: string | undefined, groupTypeIndex: num
 
 export const mathsLogic = kea<mathsLogicType>([
     path(['scenes', 'trends', 'mathsLogic']),
-    connect({
+    connect(() => ({
         values: [
             groupsModel,
             ['groupTypes', 'aggregationLabel'],
@@ -388,12 +397,12 @@ export const mathsLogic = kea<mathsLogicType>([
             featureFlagLogic,
             ['featureFlags'],
         ],
-    }),
+    })),
     selectors({
         mathDefinitions: [
             (s) => [s.groupsMathDefinitions],
-            (groupsMathDefinitions): Record<string, MathDefinition> => {
-                const allMathDefinitions: Record<string, MathDefinition> = {
+            (groupsMathDefinitions): Partial<Record<MathType, MathDefinition>> => {
+                const allMathDefinitions: Partial<Record<MathType, MathDefinition>> = {
                     ...BASE_MATH_DEFINITIONS,
                     ...groupsMathDefinitions,
                     ...PROPERTY_MATH_DEFINITIONS,
@@ -405,8 +414,8 @@ export const mathsLogic = kea<mathsLogicType>([
         ],
         funnelMathDefinitions: [
             () => [],
-            (): Record<string, MathDefinition> => {
-                const funnelMathDefinitions: Record<string, MathDefinition> = {
+            (): Partial<Record<MathType, MathDefinition>> => {
+                const funnelMathDefinitions: Partial<Record<MathType, MathDefinition>> = {
                     ...FUNNEL_MATH_DEFINITIONS,
                 }
                 return funnelMathDefinitions
@@ -415,8 +424,8 @@ export const mathsLogic = kea<mathsLogicType>([
         // Static means the options do not have nested selectors (like math function)
         staticMathDefinitions: [
             (s) => [s.groupsMathDefinitions, s.needsUpgradeForGroups],
-            (groupsMathDefinitions, needsUpgradeForGroups): Record<string, MathDefinition> => {
-                const staticMathDefinitions: Record<string, MathDefinition> = {
+            (groupsMathDefinitions, needsUpgradeForGroups): Partial<Record<MathType, MathDefinition>> => {
+                const staticMathDefinitions: Partial<Record<MathType, MathDefinition>> = {
                     ...BASE_MATH_DEFINITIONS,
                     ...(!needsUpgradeForGroups ? groupsMathDefinitions : {}),
                 }
@@ -425,18 +434,18 @@ export const mathsLogic = kea<mathsLogicType>([
         ],
         staticActorsOnlyMathDefinitions: [
             (s) => [s.staticMathDefinitions],
-            (staticMathDefinitions): Record<string, MathDefinition> => {
+            (staticMathDefinitions): Partial<Record<MathType, MathDefinition>> => {
                 return Object.fromEntries(
                     Object.entries(staticMathDefinitions).filter(
                         ([, mathDefinition]) => mathDefinition.category === MathCategory.ActorCount
                     )
-                )
+                ) as Partial<Record<MathType, MathDefinition>>
             },
         ],
         // Definitions based on group types present in the project
         groupsMathDefinitions: [
             (s) => [s.groupTypes, s.aggregationLabel],
-            (groupTypes, aggregationLabel) =>
+            (groupTypes, aggregationLabel): Partial<Record<MathType, MathDefinition>> =>
                 Object.fromEntries(
                     Array.from(groupTypes.values())
                         .map((groupType) => [

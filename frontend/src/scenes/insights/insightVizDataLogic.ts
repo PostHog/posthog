@@ -12,6 +12,7 @@ import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils'
 import posthog from 'posthog-js'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
+import { getClampedFunnelStepRange } from 'scenes/funnels/funnelUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -28,12 +29,14 @@ import {
     DataWarehouseNode,
     DateRange,
     FunnelExclusionSteps,
+    FunnelsFilter,
     FunnelsQuery,
     InsightFilter,
     InsightQueryNode,
     Node,
     NodeKind,
     TrendsFilter,
+    TrendsFormulaNode,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
 import {
@@ -43,6 +46,7 @@ import {
     getCompareFilter,
     getDisplay,
     getFormula,
+    getFormulaNodes,
     getFormulas,
     getGoalLines,
     getInterval,
@@ -192,6 +196,18 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (s) => [s.querySource],
             (querySource: InsightQueryNode | null) => (querySource ? getFormulas(querySource) : null),
         ],
+        formulaNodes: [
+            (s) => [s.querySource],
+            (querySource: InsightQueryNode | null) => {
+                const formula = getFormula(querySource)
+                const formulas = getFormulas(querySource)
+
+                return querySource
+                    ? getFormulaNodes(querySource) ||
+                          (formulas ? formulas.map((f) => ({ formula: f })) : formula ? [{ formula }] : [])
+                    : []
+            },
+        ],
         series: [(s) => [s.querySource], (q) => (q ? getSeries(q) : null)],
         interval: [(s) => [s.querySource], (q) => (q ? getInterval(q) : null)],
         properties: [(s) => [s.querySource], (q) => (q ? q.properties : null)],
@@ -328,16 +344,12 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
 
         hasFormula: [
-            (s) => [s.formula, s.formulas, s.isFormulaModeOpenedExplicitly],
-            (
-                formula: string | undefined,
-                formulas: string[] | undefined,
-                isFormulaModeOpenedExplicitly: boolean
-            ): boolean => {
+            (s) => [s.formulaNodes, s.isFormulaModeOpenedExplicitly],
+            (formulaNodes: TrendsFormulaNode[], isFormulaModeOpenedExplicitly: boolean): boolean => {
                 if (isFormulaModeOpenedExplicitly) {
                     return true
                 }
-                return formula !== undefined || (formulas !== undefined && formulas.length > 0)
+                return formulaNodes.length > 0
             },
         ],
 
@@ -579,7 +591,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         toggleFormulaMode: () => {
             // Only if formula mode is already open should we trigger a query.
             if (values.hasFormula) {
-                actions.updateInsightFilter({ formula: undefined, formulas: undefined })
+                actions.updateInsightFilter({ formula: undefined, formulas: undefined, formulaNodes: [] })
             }
         },
     })),
@@ -641,6 +653,19 @@ const handleQuerySourceUpdateSideEffects = (
                 `Switched to grouping by week, because "${BASE_MATH_DEFINITIONS[maybeChangedActiveUsersMath].name}" does not support grouping by ${interval}.`
             )
             ;(mergedUpdate as TrendsQuery).interval = 'week'
+        }
+    }
+
+    // clamp the funnel steps
+    if (
+        maybeChangedSeries &&
+        isFunnelsQuery(currentState) &&
+        ((insightFilter as FunnelsFilter)?.funnelFromStep != null ||
+            (insightFilter as FunnelsFilter)?.funnelToStep != null)
+    ) {
+        ;(mergedUpdate as FunnelsQuery).funnelsFilter = {
+            ...(insightFilter as FunnelsFilter),
+            ...getClampedFunnelStepRange(insightFilter as FunnelsFilter, maybeChangedSeries),
         }
     }
 

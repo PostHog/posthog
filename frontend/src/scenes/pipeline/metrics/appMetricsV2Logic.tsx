@@ -10,12 +10,27 @@ export type AppMetricsV2LogicProps = {
     id: string
 }
 
-export type MetricsFilters = Pick<AppMetricsV2RequestParams, 'before' | 'after' | 'interval'>
+export type MetricsFilters = Pick<AppMetricsV2RequestParams, 'before' | 'after' | 'interval' | 'name'>
+
+export const ALL_METRIC_TYPES = [
+    { label: 'Succeeded', value: 'succeeded' },
+    { label: 'Failed', value: 'failed' },
+    { label: 'Filtered', value: 'filtered' },
+    { label: 'Disabled temporarily', value: 'disabled_temporarily' },
+    { label: 'Disabled permanently', value: 'disabled_permanently' },
+    { label: 'Masked', value: 'masked' },
+    { label: 'Filtering failed', value: 'filtering_failed' },
+    { label: 'Inputs failed', value: 'inputs_failed' },
+    { label: 'Fetch', value: 'fetch' },
+]
 
 const DEFAULT_FILTERS: MetricsFilters = {
     before: undefined,
     after: '-7d',
     interval: 'day',
+    name: ALL_METRIC_TYPES.filter(({ value }) => value !== 'filtered')
+        .map(({ value }) => value)
+        .join(','),
 }
 
 export const appMetricsV2Logic = kea<appMetricsV2LogicType>([
@@ -34,7 +49,12 @@ export const appMetricsV2Logic = kea<appMetricsV2LogicType>([
                         ...values.filters,
                         breakdown_by: 'name',
                     }
-                    return await api.hogFunctions.metrics(props.id, params)
+                    const result = await api.hogFunctions.metrics(props.id, params)
+                    // Clear the series if no filters have been selected
+                    if (values.filters.name === '') {
+                        result.series = []
+                    }
+                    return result
                 },
             },
         ],
@@ -44,8 +64,10 @@ export const appMetricsV2Logic = kea<appMetricsV2LogicType>([
             {
                 loadMetricsTotals: async () => {
                     const params: AppMetricsV2RequestParams = {
+                        ...values.filters,
                         breakdown_by: 'name',
                     }
+                    delete params.name
                     return await api.hogFunctions.metricsTotals(props.id, params)
                 },
             },
@@ -63,6 +85,7 @@ export const appMetricsV2Logic = kea<appMetricsV2LogicType>([
         setFilters: async (_, breakpoint) => {
             await breakpoint(100)
             actions.loadMetrics()
+            actions.loadMetricsTotals()
         },
     })),
 ])

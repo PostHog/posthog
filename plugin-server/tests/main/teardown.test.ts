@@ -1,10 +1,12 @@
 // eslint-disable-next-line simple-import-sort/imports
-import { getProducedKafkaMessagesForTopic } from '../helpers/mocks/producer.mock'
+import { mockProducerObserver } from '../../tests/helpers/mocks/producer.mock'
 
 import { PluginEvent } from '@posthog/plugin-scaffold'
+
 import { PluginServer } from '../../src/server'
 import { Hub, LogLevel, PluginLogEntrySource, PluginLogEntryType, PluginServerMode } from '../../src/types'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
+import { MeasuringPersonsStoreForDistinctIdBatch } from '../../src/worker/ingestion/persons/measuring-person-store'
 import { resetTestDatabase } from '../helpers/sql'
 
 jest.setTimeout(10000)
@@ -37,7 +39,14 @@ describe('teardown', () => {
     })
 
     const processEvent = async (hub: Hub, event: PluginEvent) => {
-        const result = await new EventPipelineRunner(hub, event).runEventPipeline(event)
+        const personsStoreForDistinctId = new MeasuringPersonsStoreForDistinctIdBatch(
+            hub.db,
+            String(event.team_id),
+            event.distinct_id
+        )
+        const result = await new EventPipelineRunner(hub, event, null, [], personsStoreForDistinctId).runEventPipeline(
+            event
+        )
         const resultEvent = result.args[0]
         return resultEvent
     }
@@ -45,14 +54,14 @@ describe('teardown', () => {
     it('teardown code runs when stopping', async () => {
         const server = new PluginServer({
             PLUGIN_SERVER_MODE: PluginServerMode.ingestion_v2,
-            LOG_LEVEL: LogLevel.Log,
+            LOG_LEVEL: LogLevel.Info,
         })
         await server.start()
 
         await processEvent(server.hub!, defaultEvent)
         await server.stop()
 
-        const logEntries = getProducedKafkaMessagesForTopic('plugin_log_entries_test')
+        const logEntries = mockProducerObserver.getProducedKafkaMessagesForTopic('plugin_log_entries_test')
 
         const systemErrors = logEntries.filter(
             (logEntry) =>
@@ -72,12 +81,12 @@ describe('teardown', () => {
     it('no need to tear down if plugin was never setup', async () => {
         const server = new PluginServer({
             PLUGIN_SERVER_MODE: PluginServerMode.ingestion_v2,
-            LOG_LEVEL: LogLevel.Log,
+            LOG_LEVEL: LogLevel.Info,
         })
         await server.start()
         await server.stop()
 
-        const logEntries = getProducedKafkaMessagesForTopic('plugin_log_entries_test')
+        const logEntries = mockProducerObserver.getProducedKafkaMessagesForTopic('plugin_log_entries_test')
 
         // verify the teardownPlugin code runs -- since we're reading from
         // ClickHouse, we need to give it a bit of time to have consumed from

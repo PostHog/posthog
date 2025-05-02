@@ -79,7 +79,7 @@ test.concurrent('consumer produces ingest warnings for messages over 1MB', async
                 return details.eventUuid === personEventUuid && details.distinctId === distinctId
             }
         })
-        expect(message).toBeDefined()
+        expect(message).toBeTruthy()
         return message
     })
 })

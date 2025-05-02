@@ -4,19 +4,20 @@ import temporalio.converter
 from asgiref.sync import async_to_sync
 from django.conf import settings
 from temporalio.client import Client, TLSConfig
+from temporalio.runtime import Runtime
 
 from posthog.temporal.common.codec import EncryptionCodec
 
 
 async def connect(
-    host,
-    port,
-    namespace,
-    server_root_ca_cert=None,
-    client_cert=None,
-    client_key=None,
-    runtime=None,
-):
+    host: str,
+    port: int | str,
+    namespace: str,
+    server_root_ca_cert: str | None = None,
+    client_cert: str | None = None,
+    client_key: str | None = None,
+    runtime: Runtime | None = None,
+) -> Client:
     tls: TLSConfig | bool = False
     if server_root_ca_cert and client_cert and client_key:
         tls = TLSConfig(

@@ -7,11 +7,12 @@ __pycache__/
 # Assistant Evaluation with Deepeval
 .deepeval
 .deepeval_telemtry.txt
+.deepeval_telemetry.txt
 .deepeval-cache.json
 .dlt
 .dmypy.json
 .DS_Store
-.env
+.env*
 .eslintcache
 .idea
 .mypy_cache
@@ -99,3 +100,9 @@ playwright/test-results/
 
 .dagster_home/*
 !.dagster_home/.gitkeep
+
+# Dist release target dir
+target/*
+
+# Ignore user's Cursor rules
+.cursor/**/user*.mdc

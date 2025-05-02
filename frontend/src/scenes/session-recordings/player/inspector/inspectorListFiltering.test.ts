@@ -1,3 +1,4 @@
+import { InspectorListItemPerformance } from 'scenes/session-recordings/apm/performanceEventDataLogic'
 import { filterInspectorListItems } from 'scenes/session-recordings/player/inspector/inspectorListFiltering'
 import { SharedListMiniFilter } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 import {
@@ -29,6 +30,7 @@ describe('filtering inspector list items', () => {
                 showOnlyMatching: false,
                 allowMatchingEventsFilter: false,
                 trackedWindow: null,
+                hasEventsToDisplay: false,
             })
         ).toHaveLength(0)
     })
@@ -55,6 +57,7 @@ describe('filtering inspector list items', () => {
                 showOnlyMatching: false,
                 allowMatchingEventsFilter: false,
                 trackedWindow: null,
+                hasEventsToDisplay: true,
             }).map((item) => item.type)
         ).toEqual(['browser-visibility', 'offline-status', 'comment', 'events'])
     })
@@ -73,6 +76,7 @@ describe('filtering inspector list items', () => {
             showOnlyMatching: false,
             allowMatchingEventsFilter: false,
             trackedWindow: null,
+            hasEventsToDisplay: true,
         })
         expect(filteredItems).toHaveLength(expectedLength)
     })
@@ -96,6 +100,7 @@ describe('filtering inspector list items', () => {
                 showOnlyMatching: false,
                 allowMatchingEventsFilter: false,
                 trackedWindow: 'a different window',
+                hasEventsToDisplay: true,
             })
         ).toHaveLength(1)
     })
@@ -113,6 +118,7 @@ describe('filtering inspector list items', () => {
                 showOnlyMatching: false,
                 allowMatchingEventsFilter: false,
                 trackedWindow: null,
+                hasEventsToDisplay: true,
             })
         ).toHaveLength(0)
     })
@@ -133,7 +139,35 @@ describe('filtering inspector list items', () => {
                 showOnlyMatching: false,
                 allowMatchingEventsFilter: false,
                 trackedWindow: null,
+                hasEventsToDisplay: true,
             })
         ).toHaveLength(expectedLength)
+    })
+
+    it('only shows matching events when show matching events is true', () => {
+        expect(
+            filterInspectorListItems({
+                allItems: [
+                    {
+                        type: FilterableInspectorListItemTypes.EVENTS,
+                        data: { event: '$exception' } as unknown as PerformanceEvent,
+                        highlightColor: 'primary',
+                    } as unknown as InspectorListItemEvent,
+                    {
+                        type: FilterableInspectorListItemTypes.NETWORK,
+                        data: { event: '$pageview' } as unknown as PerformanceEvent,
+                    } as unknown as InspectorListItemPerformance,
+                    {
+                        type: FilterableInspectorListItemTypes.DOCTOR,
+                        data: { event: '$pageview' } as unknown as PerformanceEvent,
+                    } as unknown as InspectorListItemDoctor,
+                ],
+                miniFiltersByKey: { 'events-exceptions': { enabled: true } as unknown as SharedListMiniFilter },
+                showOnlyMatching: true,
+                allowMatchingEventsFilter: true,
+                trackedWindow: null,
+                hasEventsToDisplay: true,
+            })
+        ).toHaveLength(1)
     })
 })

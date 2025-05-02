@@ -3,8 +3,8 @@ import * as schedule from 'node-schedule'
 import { Action, Hook, PluginsServerConfig, RawAction, Team } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { parseJSON } from '../../utils/json-parse'
+import { logger } from '../../utils/logger'
 import { PubSub } from '../../utils/pubsub'
-import { status } from '../../utils/status'
 
 export type ActionMap = Record<Action['id'], Action>
 type ActionCache = Record<Team['id'], ActionMap>
@@ -45,7 +45,7 @@ export class ActionManager {
         // every 5 minutes all ActionManager caches are reloaded for eventual consistency
         this.refreshJob = schedule.scheduleJob('*/5 * * * *', async () => {
             await this.reloadAllActions().catch((error) => {
-                status.error('🍿', 'Error reloading actions:', error)
+                logger.error('🍿', 'Error reloading actions:', error)
             })
         })
         this.ready = true
@@ -68,7 +68,7 @@ export class ActionManager {
 
     public async reloadAllActions(): Promise<void> {
         this.actionCache = await fetchAllActionsGroupedByTeam(this.postgres)
-        status.info('🍿', 'Fetched all actions from DB anew')
+        logger.info('🍿', 'Fetched all actions from DB anew')
     }
 
     public async reloadAction(teamId: Team['id'], actionId: Action['id']): Promise<void> {
@@ -83,7 +83,7 @@ export class ActionManager {
         }
 
         if (refetchedAction) {
-            status.debug(
+            logger.debug(
                 '🍿',
                 wasCachedAlready
                     ? `Refetched action ID ${actionId} (team ID ${teamId}) from DB`
@@ -99,10 +99,10 @@ export class ActionManager {
         const wasCachedAlready = !!this.actionCache?.[teamId]?.[actionId]
 
         if (wasCachedAlready) {
-            status.info('🍿', `Deleted action ID ${actionId} (team ID ${teamId}) from cache`)
+            logger.info('🍿', `Deleted action ID ${actionId} (team ID ${teamId}) from cache`)
             delete this.actionCache[teamId][actionId]
         } else {
-            status.info(
+            logger.info(
                 '🍿',
                 `Tried to delete action ID ${actionId} (team ID ${teamId}) from cache, but it wasn't found in cache, so did nothing instead`
             )

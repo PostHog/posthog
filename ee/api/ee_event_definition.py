@@ -27,6 +27,7 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
     last_calculated_at = serializers.DateTimeField(read_only=True)
     last_updated_at = serializers.DateTimeField(read_only=True)
     post_to_slack = serializers.BooleanField(default=False)
+    default_columns = serializers.ListField(child=serializers.CharField(), required=False)
 
     class Meta:
         model = EnterpriseEventDefinition
@@ -52,6 +53,7 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             "last_calculated_at",
             "created_by",
             "post_to_slack",
+            "default_columns",
         )
         read_only_fields = [
             "id",
@@ -151,6 +153,11 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
         representation["owner"] = (
             UserBasicSerializer(instance=instance.owner).data if hasattr(instance, "owner") and instance.owner else None
         )
+
+        # Ensure default_columns is always an array
+        if representation.get("default_columns") is None:
+            representation["default_columns"] = []
+
         return representation
 
     def get_is_action(self, obj):

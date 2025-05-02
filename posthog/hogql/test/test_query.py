@@ -140,8 +140,10 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 pretty=False,
             )
-            self.assertTrue(isinstance(response.timings, list) and len(response.timings) > 0)
-            self.assertTrue(isinstance(response.timings[0], QueryTiming))
+            assert response.timings is not None
+            assert isinstance(response.timings, list)
+            assert len(response.timings) > 0
+            assert isinstance(response.timings[0], QueryTiming)
             self.assertEqual(response.timings[-1].k, ".")
 
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -242,7 +244,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.results[0][0], "bla")
             self.assertEqual(
                 response.results[0][1],
-                datetime.datetime(2020, 1, 10, 0, 0, tzinfo=timezone.utc),
+                datetime.datetime(2020, 1, 10, 0, 0, tzinfo=datetime.UTC),
             )
 
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -1021,7 +1023,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 f"FROM events "
                 f"WHERE and(equals(events.team_id, {self.team.pk}), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_46)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_47)s), 0)) "
                 f"LIMIT 100 "
-                f"SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0",
+                f"SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295",
                 response.clickhouse,
             )
             self.assertEqual(response.results[0], tuple(random_uuid for x in alternatives))
@@ -1058,17 +1060,17 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             [
                 (
                     (
-                        datetime.datetime(2020, 1, 1, 0, 0, tzinfo=timezone.utc),
-                        datetime.datetime(2020, 1, 2, 0, 0, tzinfo=timezone.utc),
+                        datetime.datetime(2020, 1, 1, 0, 0, tzinfo=datetime.UTC),
+                        datetime.datetime(2020, 1, 2, 0, 0, tzinfo=datetime.UTC),
                     ),
-                    datetime.datetime(2020, 1, 1, 0, 0, tzinfo=timezone.utc),
-                    datetime.datetime(2020, 1, 2, 0, 0, tzinfo=timezone.utc),
+                    datetime.datetime(2020, 1, 1, 0, 0, tzinfo=datetime.UTC),
+                    datetime.datetime(2020, 1, 2, 0, 0, tzinfo=datetime.UTC),
                     (
-                        datetime.datetime(2019, 12, 31, 0, 0, tzinfo=timezone.utc),
-                        datetime.datetime(2020, 1, 2, 0, 0, tzinfo=timezone.utc),
+                        datetime.datetime(2019, 12, 31, 0, 0, tzinfo=datetime.UTC),
+                        datetime.datetime(2020, 1, 2, 0, 0, tzinfo=datetime.UTC),
                     ),
-                    datetime.datetime(2019, 12, 31, 0, 0, tzinfo=timezone.utc),
-                    datetime.datetime(2020, 1, 2, 0, 0, tzinfo=timezone.utc),
+                    datetime.datetime(2019, 12, 31, 0, 0, tzinfo=datetime.UTC),
+                    datetime.datetime(2020, 1, 2, 0, 0, tzinfo=datetime.UTC),
                 )
             ],
         )

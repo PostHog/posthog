@@ -1,1 +1,1 @@
-0688_update_default_version
+0720_add_hog_function_template_model

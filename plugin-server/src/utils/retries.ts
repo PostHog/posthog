@@ -1,4 +1,4 @@
-import { status } from '../utils/status'
+import { logger } from '../utils/logger'
 import { sleep } from './utils'
 
 // Simple retries in our code
@@ -16,11 +16,11 @@ export async function promiseRetry<T>(
     previousError?: Error
 ): Promise<T> {
     if (retries <= 0) {
-        status.error('🚨', `Final retry failure for ${name}`, { previousError })
+        logger.error('🚨', `Final retry failure for ${name}`, { previousError })
         return Promise.reject(previousError)
     }
     return fn().catch(async (error) => {
-        status.debug('🔁', `failed ${name}, retrying`, { error })
+        logger.debug('🔁', `failed ${name}, retrying`, { error })
         await new Promise((resolve) => setTimeout(resolve, retryIntervalMillis))
         return promiseRetry(fn, name, retries - 1, 2 * retryIntervalMillis, error)
     })

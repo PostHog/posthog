@@ -8,8 +8,21 @@ from posthog.hogql.errors import ResolutionError, SyntaxError
 from posthog.hogql.visitor import clone_expr
 
 
-def lookup_field_by_name(scope: ast.SelectQueryType, name: str, context: HogQLContext) -> Optional[ast.Type]:
+def lookup_field_by_name(
+    scope: ast.SelectQueryType | ast.SelectSetQueryType, name: str, context: HogQLContext
+) -> Optional[ast.Type]:
     """Looks for a field in the scope's list of aliases and children for each joined table."""
+
+    if isinstance(scope, ast.SelectSetQueryType):
+        field: Optional[ast.Type] = None
+        for type in scope.types:
+            new_field = lookup_field_by_name(type, name, context)
+            if new_field:
+                if field:
+                    raise ResolutionError(f"Ambiguous query. Found multiple sources for field: {name}")
+                field = new_field
+        return field
+
     if name in scope.aliases:
         return scope.aliases[name]
     else:

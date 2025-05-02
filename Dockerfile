@@ -42,6 +42,9 @@ RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
 
 COPY frontend/ frontend/
 RUN bin/turbo --filter=@posthog/frontend build
+# KLUDGE: to get the image-bitmap-data-url-worker-*.js.map files into the dist folder
+# KLUDGE: rrweb thinks they're alongside and the django's collectstatic fails 🤷
+RUN cp frontend/node_modules/@posthog/rrweb/dist/image-bitmap-data-url-worker-*.js.map frontend/dist/ || true
 
 #
 # ---------------------------------------------------------
@@ -53,7 +56,7 @@ SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 # Compile and install Python dependencies.
 # We install those dependencies on a custom folder that we will
 # then copy to the last image.
-COPY requirements.txt ./
+COPY pyproject.toml uv.lock ./
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     "build-essential" \
@@ -66,7 +69,8 @@ RUN apt-get update && \
     "pkg-config" \
     && \
     rm -rf /var/lib/apt/lists/* && \
-    PIP_NO_BINARY=lxml,xmlsec pip install -r requirements.txt --compile --no-cache-dir --target=/python-runtime
+    pip install uv~=0.6.11 --no-cache-dir && \
+    UV_PROJECT_ENVIRONMENT=/python-runtime uv sync --frozen --no-dev --no-cache --compile-bytecode --no-binary-package lxml --no-binary-package xmlsec
 
 ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/python-runtime

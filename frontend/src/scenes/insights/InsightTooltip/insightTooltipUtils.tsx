@@ -106,7 +106,7 @@ export function invertDataSource(
     breakdownFilter: BreakdownFilter | null | undefined
 ): InvertedSeriesDatum[] {
     // NOTE: Assuming these logics are mounted elsewhere, and we're not interested in tracking changes.
-    const cohorts = cohortsModel.findMounted()?.values?.cohorts
+    const cohorts = cohortsModel.findMounted()?.values?.allCohorts
     const formatPropertyValueForDisplay = propertyDefinitionsModel.findMounted()?.values?.formatPropertyValueForDisplay
     const flattenedData: Record<string, InvertedSeriesDatum> = {}
     seriesData.forEach((s) => {

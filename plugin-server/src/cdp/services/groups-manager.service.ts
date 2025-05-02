@@ -32,7 +32,7 @@ export class GroupsManagerService {
     private async filterTeamsWithGroups(teams: Team['id'][]): Promise<Team['id'][]> {
         const teamIds = await Promise.all(
             teams.map(async (teamId) => {
-                if (await this.hub.organizationManager.hasAvailableFeature(teamId, 'group_analytics')) {
+                if (await this.hub.teamManager.hasAvailableFeature(teamId, 'group_analytics')) {
                     return teamId
                 }
             })
@@ -133,11 +133,21 @@ export class GroupsManagerService {
         const groupsByTeamTypeId: Record<string, Group> = {}
 
         itemsNeedingGroups.forEach((item) => {
-            const groupsProperty: Record<string, string> = item.event.properties['$groups'] || {}
+            // TODO: In the future move this kind of validation to Zod
+            const validGroupsProperty: Record<string, string> = {}
+            const groupsProperty = item.event.properties['$groups']
+
+            if (typeof groupsProperty === 'object' && groupsProperty !== null) {
+                Object.entries(groupsProperty).forEach(([groupType, groupKey]) => {
+                    if (typeof groupType === 'string' && typeof groupKey === 'string') {
+                        validGroupsProperty[groupType] = groupKey
+                    }
+                })
+            }
             const groups: HogFunctionInvocationGlobals['groups'] = {}
 
             // Add the base group info without properties
-            Object.entries(groupsProperty).forEach(([groupType, groupKey]) => {
+            Object.entries(validGroupsProperty).forEach(([groupType, groupKey]) => {
                 const groupIndex = byTeamType[`${item.project.id}:${groupType}`]
 
                 if (typeof groupIndex === 'number') {

@@ -5,11 +5,11 @@ def test_clear_tag():
     clear_tag("some")
     reset_query_tags()
     assert get_query_tags() == {}
-    tag_queries(qaas=True)
-    assert get_query_tags() == {"qaas": True}
+    tag_queries(another=True)
+    assert get_query_tags() == {"another": True}
     clear_tag("some")
-    assert get_query_tags() == {"qaas": True}
-    clear_tag("qaas")
+    assert get_query_tags() == {"another": True}
+    clear_tag("another")
     assert get_query_tags() == {}
 
 

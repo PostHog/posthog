@@ -153,9 +153,8 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             {} as Record<string, BatchExportConfiguration>,
             {
                 loadBatchExports: async () => {
-                    const results = await api.loadPaginatedResults<BatchExportConfiguration>(
-                        `api/projects/${values.currentProjectId}/batch_exports`
-                    )
+                    const response = await api.batchExports.list()
+                    const results = response.results
                     return Object.fromEntries(results.map((batchExport) => [batchExport.id, batchExport]))
                 },
                 toggleNodeBatchExport: async ({ destination, enabled }) => {
@@ -190,7 +189,12 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                     const destinationTypes = siteDesinationsEnabled
                         ? props.types
                         : props.types.filter((type) => type !== 'site_destination')
-                    return (await api.hogFunctions.list({ types: destinationTypes })).results
+                    return (
+                        await api.hogFunctions.list({
+                            types: destinationTypes,
+                            excludeKinds: ['messaging_campaign'],
+                        })
+                    ).results
                 },
                 saveTransformationsOrder: async ({ newOrders }) => {
                     const response = await api.update(`api/projects/@current/hog_functions/rearrange`, {

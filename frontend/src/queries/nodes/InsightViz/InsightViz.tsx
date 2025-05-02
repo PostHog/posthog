@@ -55,14 +55,16 @@ export function InsightViz({
     variablesOverride,
 }: InsightVizProps): JSX.Element {
     const [key] = useState(() => `InsightViz.${uniqueKey || uniqueNode++}`)
-    const insightProps: InsightLogicProps = context?.insightProps || {
-        dashboardItemId: `new-AdHoc.${key}`,
-        query,
-        setQuery,
-        dataNodeCollectionId: key,
-        filtersOverride,
-        variablesOverride,
-    }
+    const insightProps =
+        context?.insightProps ||
+        ({
+            dashboardItemId: `new-AdHoc.${key}`,
+            query,
+            setQuery,
+            dataNodeCollectionId: key,
+            filtersOverride,
+            variablesOverride,
+        } as InsightLogicProps<InsightVizNode>)
 
     if (!insightProps.setQuery && setQuery) {
         insightProps.setQuery = setQuery
@@ -113,7 +115,7 @@ export function InsightViz({
     )
 
     return (
-        <ErrorBoundary tags={{ feature: 'InsightViz' }}>
+        <ErrorBoundary exceptionProps={{ feature: 'InsightViz' }}>
             <BindLogic logic={insightLogic} props={insightProps}>
                 <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
                     <BindLogic logic={insightVizDataLogic} props={insightProps}>

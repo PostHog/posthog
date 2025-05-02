@@ -5,6 +5,7 @@ import {
     GoogleAdsCustomerIdPicker,
 } from 'lib/integrations/GoogleAdsIntegrationHelpers'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { LinearTeamPicker } from 'lib/integrations/LinearIntegrationHelpers'
 import {
     LinkedInAdsAccountIdPicker,
     LinkedInAdsConversionRulePicker,
@@ -121,6 +122,9 @@ export function HogFunctionInputIntegrationField({
                 integration={integration}
             />
         )
+    }
+    if (schema.integration_field === 'linear_team') {
+        return <LinearTeamPicker value={value} onChange={(x) => onChange?.(x)} integration={integration} />
     }
     return (
         <div className="text-danger">

@@ -7,7 +7,6 @@ from celery.schedules import crontab
 from django.conf import settings
 
 from posthog.caching.warming import schedule_warming_for_teams_task
-from posthog.utils import get_instance_region
 from posthog.tasks.alerts.checks import (
     alerts_backlog_task,
     check_alerts_task,
@@ -34,6 +33,7 @@ from posthog.tasks.tasks import (
     clickhouse_send_license_usage,
     delete_expired_exported_assets,
     ee_persist_finished_recordings,
+    ee_persist_finished_recordings_v2,
     find_flags_with_enriched_analytics,
     graphile_worker_queue_size,
     ingestion_lag,
@@ -51,11 +51,11 @@ from posthog.tasks.tasks import (
     stop_surveys_reached_target,
     sync_all_organization_available_product_features,
     update_event_partitions,
-    run_quota_limiting,
     update_survey_adaptive_sampling,
     update_survey_iteration,
     verify_persons_data_in_sync,
-    ee_count_items_in_playlists,
+    count_items_in_playlists,
+    sync_hog_function_templates_task,
 )
 from posthog.utils import get_crontab
 
@@ -115,25 +115,10 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     # Send all instance usage to the Billing service
-    region = get_instance_region()
-    if region == "EU":
-        # Shift EU reports by 30 minutes to lighten the load
-        sender.add_periodic_task(
-            crontab(hour="3", minute="45"),
-            send_org_usage_reports.s(),
-            name="send instance usage report",
-        )
-    else:
-        sender.add_periodic_task(
-            crontab(hour="4", minute="15"),
-            send_org_usage_reports.s(),
-            name="send instance usage report",
-        )
-
     sender.add_periodic_task(
-        crontab(hour="*", minute="30"),
-        run_quota_limiting.s(),
-        name="run quota limiting",
+        crontab(hour="3", minute="45"),
+        send_org_usage_reports.s(),
+        name="send instance usage report",
     )
 
     # Send all periodic digest reports
@@ -326,15 +311,22 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
             )
 
         sender.add_periodic_task(crontab(hour="*", minute="55"), schedule_all_subscriptions.s())
+
         sender.add_periodic_task(
             crontab(hour="2", minute=str(randrange(0, 40))),
             ee_persist_finished_recordings.s(),
+            name="persist finished recordings",
+        )
+        sender.add_periodic_task(
+            crontab(hour="2", minute=str(randrange(0, 40))),
+            ee_persist_finished_recordings_v2.s(),
+            name="persist finished recordings v2",
         )
 
         add_periodic_task_with_expiry(
             sender,
             settings.PLAYLIST_COUNTER_PROCESSING_SCHEDULE_SECONDS or TWENTY_FOUR_HOURS,
-            ee_count_items_in_playlists.s(),
+            count_items_in_playlists.s(),
             "ee_count_items_in_playlists",
         )
 
@@ -376,4 +368,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="0", minute=str(randrange(0, 40))),
         sync_all_remote_configs.s(),
         name="sync all remote configs",
+    )
+
+    # Every 20 minutes, sync hog function templates
+    add_periodic_task_with_expiry(
+        sender,
+        20 * 60,  # 20 minutes in seconds
+        sync_hog_function_templates_task.s(),
+        name="sync hog function templates",
     )

@@ -30,26 +30,7 @@ export function PersonsTree({ mainRef }: { mainRef: React.RefObject<HTMLElement>
 
     return (
         <PanelLayoutPanel searchPlaceholder="Search for people">
-            <LemonTree
-                ref={treeRef}
-                contentRef={mainRef}
-                className="px-0 py-1"
-                data={treeData}
-                // onNodeClick={(node) => {
-                // if (node?.record?.path) {
-                //     setLastViewedId(node?.id || '')
-                //     if (!isLayoutPanelPinned) {
-                //         showLayoutPanel(false)
-                //     }
-                // }
-                // if (node?.id.startsWith('project-load-more/')) {
-                //     const path = node.id.split('/').slice(1).join('/')
-                //     if (path) {
-                //         loadFolder(path)
-                //     }
-                // }
-                // }}
-            />
+            <LemonTree ref={treeRef} contentRef={mainRef} className="px-0 py-1" data={treeData} />
         </PanelLayoutPanel>
     )
 }

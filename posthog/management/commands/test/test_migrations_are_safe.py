@@ -20,7 +20,7 @@ COMMIT;
     assert should_fail is True
 
 
-def test_new_tables_can_have_int64_ids() -> None:
+def test_new_tables_must_not_have_int64_ids() -> None:
     sql_for_model_with_int64 = """
 BEGIN;
 --
@@ -36,4 +36,23 @@ CREATE TABLE "posthog_strawman" ("id" bigserial NOT NULL PRIMARY KEY, "name" var
 COMMIT;
     """
     should_fail = validate_migration_sql(sql_for_model_with_int64)
+    assert should_fail is True
+
+
+def test_new_tables_can_have_uuid_ids() -> None:
+    sql_for_model_with_uuid = """
+BEGIN;
+--
+-- Create model StrawMan
+--
+CREATE TABLE "posthog_strawman" ("id" uuid NOT NULL PRIMARY KEY, "name" varchar(400) NULL);
+COMMIT;
+BEGIN;
+--
+-- Create model StrawMan
+--
+CREATE TABLE "posthog_strawman" ("id" uuid NOT NULL PRIMARY KEY, "name" varchar(400) NULL);
+COMMIT;
+    """
+    should_fail = validate_migration_sql(sql_for_model_with_uuid)
     assert should_fail is False

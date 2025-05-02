@@ -4,7 +4,7 @@ import { createPluginConfigVM, TimeoutError } from '../../src/worker/vm/vm'
 import { pluginConfig39 } from '../helpers/plugins'
 import { resetTestDatabase } from '../helpers/sql'
 
-jest.mock('../../src/utils/status')
+jest.mock('../../src/utils/logger')
 
 const defaultEvent = {
     uuid: '7e98a694-96e8-454e-b99b-2775cb44fa4f',

@@ -145,7 +145,7 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                     <LemonButton
                                         className={`trends-metric-form__exposure-button flex-1 cursor-pointer p-4 rounded border ${
                                             !currentMetric.exposure_query
-                                                ? 'border-accent-primary bg-accent-primary-highlight'
+                                                ? 'border-accent bg-accent-highlight-secondary'
                                                 : 'border-primary'
                                         }`}
                                         onClick={() => {
@@ -163,7 +163,7 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                         <div className="font-semibold flex justify-between items-center">
                                             <span>Default</span>
                                             {!currentMetric.exposure_query && (
-                                                <IconCheckCircle fontSize={18} color="var(--accent-primary)" />
+                                                <IconCheckCircle fontSize={18} color="var(--accent)" />
                                             )}
                                         </div>
                                         <div className="text-secondary text-sm leading-relaxed mt-1">
@@ -176,7 +176,7 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                     <LemonButton
                                         className={`trends-metric-form__exposure-button flex-1 cursor-pointer p-4 rounded border ${
                                             currentMetric.exposure_query
-                                                ? 'border-accent-primary bg-accent-primary-highlight'
+                                                ? 'border-accent bg-accent-highlight-secondary'
                                                 : 'border-primary'
                                         }`}
                                         disabledReason={
@@ -226,7 +226,7 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                         <div className="font-semibold flex justify-between items-center">
                                             <span>Custom</span>
                                             {currentMetric.exposure_query && (
-                                                <IconCheckCircle fontSize={18} color="var(--accent-primary)" />
+                                                <IconCheckCircle fontSize={18} color="var(--accent)" />
                                             )}
                                         </div>
                                         <div className="text-secondary text-sm leading-relaxed mt-1">

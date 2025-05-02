@@ -9,6 +9,7 @@ import {
     IconNotebook,
     IconPerson,
     IconPieChart,
+    IconPiggyBank,
     IconRewindPlay,
     IconRocket,
     IconTestTube,
@@ -16,6 +17,7 @@ import {
 } from '@posthog/icons'
 import { combineUrl } from 'kea-router'
 import { AlertType } from 'lib/components/Alerts/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { toParams } from 'lib/utils'
 import { Params } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -26,9 +28,11 @@ import {
     HogQLFilters,
     HogQLVariable,
     Node,
+    NodeKind,
 } from '~/queries/schema/schema-general'
 
-import { DashboardType, InsightShortId, InsightType, RecordingUniversalFilters, ReplayTabs } from './types'
+import { isDataTableNode, isDataVisualizationNode, isHogQLQuery } from './queries/utils'
+import { ActionType, DashboardType, InsightShortId, InsightType, RecordingUniversalFilters, ReplayTabs } from './types'
 
 /** This const is auto-generated, as is the whole file */
 export const productScenes: Record<string, () => Promise<any>> = {
@@ -37,8 +41,11 @@ export const productScenes: Record<string, () => Promise<any>> = {
     LLMObservability: () => import('../../products/llm_observability/frontend/LLMObservabilityScene'),
     LLMObservabilityTrace: () => import('../../products/llm_observability/frontend/LLMObservabilityTraceScene'),
     LLMObservabilityUsers: () => import('../../products/llm_observability/frontend/LLMObservabilityUsers'),
+    MessagingCampaigns: () => import('../../products/messaging/frontend/Campaigns'),
     MessagingBroadcasts: () => import('../../products/messaging/frontend/Broadcasts'),
-    MessagingProviders: () => import('../../products/messaging/frontend/Providers'),
+    MessagingLibrary: () => import('../../products/messaging/frontend/library/MessageLibrary'),
+    MessagingLibraryTemplate: () => import('../../products/messaging/frontend/library/MessageTemplate'),
+    RevenueAnalytics: () => import('../../products/revenue_analytics/frontend/RevenueAnalyticsScene'),
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -51,13 +58,20 @@ export const productRoutes: Record<string, [string, string]> = {
     '/llm-observability/traces': ['LLMObservability', 'llmObservabilityTraces'],
     '/llm-observability/traces/:id': ['LLMObservabilityTrace', 'llmObservability'],
     '/llm-observability/users': ['LLMObservability', 'llmObservabilityUsers'],
-    '/messaging/providers': ['MessagingProviders', 'messagingProviders'],
-    '/messaging/providers/:id': ['MessagingProviders', 'messagingProvider'],
-    '/messaging/providers/new': ['MessagingProviders', 'messagingProviderNew'],
-    '/messaging/providers/new/*': ['MessagingProviders', 'messagingProviderNew'],
+    '/messaging/campaigns': ['MessagingCampaigns', 'messagingCampaigns'],
+    '/messaging/campaigns/:id': ['MessagingCampaigns', 'messagingCampaign'],
+    '/messaging/campaigns/new': ['MessagingCampaigns', 'messagingCampaignNew'],
     '/messaging/broadcasts': ['MessagingBroadcasts', 'messagingBroadcasts'],
     '/messaging/broadcasts/:id': ['MessagingBroadcasts', 'messagingBroadcast'],
     '/messaging/broadcasts/new': ['MessagingBroadcasts', 'messagingBroadcastNew'],
+    '/messaging/library': ['MessagingLibrary', 'messagingLibrary'],
+    '/messaging/library/templates/:id': ['MessagingLibraryTemplate', 'messagingLibraryTemplate'],
+    '/messaging/library/templates/new': ['MessagingLibraryTemplate', 'messagingLibraryTemplate'],
+    '/messaging/library/templates/new?messageId=:messageId': [
+        'MessagingLibraryTemplate',
+        'messagingLibraryTemplateFromMessage',
+    ],
+    '/revenue_analytics': ['RevenueAnalytics', 'revenueAnalytics'],
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -101,12 +115,27 @@ export const productConfiguration: Record<string, any> = {
         layout: 'app-container',
         defaultDocsPath: '/docs/ai-engineering/observability',
     },
+    MessagingCampaigns: { name: 'Messaging', projectBased: true },
     MessagingBroadcasts: { name: 'Messaging', projectBased: true },
-    MessagingProviders: { name: 'Messaging', projectBased: true },
+    MessagingLibrary: { name: 'Messaging', projectBased: true },
+    MessagingLibraryTemplate: { name: 'Messaging', projectBased: true },
+    RevenueAnalytics: {
+        name: 'Revenue Analytics',
+        projectBased: true,
+        defaultDocsPath: '/docs/web-analytics/revenue-analytics',
+        activityScope: 'RevenueAnalytics',
+    },
 }
 
 /** This const is auto-generated, as is the whole file */
 export const productUrls = {
+    createAction: (): string => `/data-management/actions/new`,
+    duplicateAction: (action: ActionType | null): string => {
+        const queryParams = action ? `?copy=${encodeURIComponent(JSON.stringify(action))}` : ''
+        return `/data-management/actions/new/${queryParams}`
+    },
+    action: (id: string | number): string => `/data-management/actions/${id}`,
+    actions: (): string => '/data-management/actions',
     dashboards: (): string => '/dashboard',
     dashboard: (id: string | number, highlightInsightId?: string): string =>
         combineUrl(`/dashboard/${id}`, highlightInsightId ? { highlightInsightId } : {}).url,
@@ -150,12 +179,15 @@ export const productUrls = {
         return `/llm-observability/traces/${id}${stringifiedParams ? `?${stringifiedParams}` : ''}`
     },
     llmObservabilityUsers: (): string => '/llm-observability/users',
+    messagingCampaigns: (): string => '/messaging/campaigns',
+    messagingCampaign: (id?: string): string => `/messaging/campaigns/${id}`,
+    messagingCampaignNew: (): string => '/messaging/campaigns/new',
     messagingBroadcasts: (): string => '/messaging/broadcasts',
     messagingBroadcast: (id?: string): string => `/messaging/broadcasts/${id}`,
     messagingBroadcastNew: (): string => '/messaging/broadcasts/new',
-    messagingProviders: (): string => '/messaging/providers',
-    messagingProvider: (id?: string): string => `/messaging/providers/${id}`,
-    messagingProviderNew: (template?: string): string => '/messaging/providers/new' + (template ? `/${template}` : ''),
+    messagingLibrary: (): string => '/messaging/library',
+    messagingLibraryTemplate: (id?: string): string => `/messaging/library/templates/${id}`,
+    messagingLibraryTemplateFromMessage: (id?: string): string => `/messaging/library/templates/new?messageId=${id}`,
     notebooks: (): string => '/notebooks',
     notebook: (shortId: string): string => `/notebooks/${shortId}`,
     canvas: (): string => `/canvas`,
@@ -173,17 +205,22 @@ export const productUrls = {
         type?: InsightType
         dashboardId?: DashboardType['id'] | null
         query?: Node
-    } = {}): string =>
-        combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
+    } = {}): string => {
+        if (isHogQLQuery(query)) {
+            return urls.sqlEditor(query.query)
+        }
+        if ((isDataVisualizationNode(query) || isDataTableNode(query)) && isHogQLQuery(query.source)) {
+            return urls.sqlEditor(query.source.query)
+        }
+        return combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
             ...(type ? { insight: type } : {}),
             ...(query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}),
-        }).url,
+        }).url
+    },
     insightNewHogQL: ({ query, filters }: { query: string; filters?: HogQLFilters }): string =>
-        combineUrl(
-            `/data-warehouse`,
-            {},
-            { q: JSON.stringify({ kind: 'DataTableNode', full: true, source: { kind: 'HogQLQuery', query, filters } }) }
-        ).url,
+        urls.insightNew({
+            query: { kind: NodeKind.DataTableNode, source: { kind: 'HogQLQuery', query, filters } } as any,
+        }),
     insightEdit: (id: InsightShortId): string => `/insights/${id}/edit`,
     insightView: (
         id: InsightShortId,
@@ -223,57 +260,63 @@ export const productUrls = {
     replayPlaylist: (id: string): string => `/replay/playlists/${id}`,
     replaySingle: (id: string): string => `/replay/${id}`,
     replayFilePlayback: (): string => '/replay/file-playback',
+    replaySettings: (sectionId?: string): string => `/replay/settings${sectionId ? `?sectionId=${sectionId}` : ''}`,
+    revenueAnalytics: (): string => '/revenue_analytics',
     webAnalytics: (): string => `/web`,
     webAnalyticsWebVitals: (): string => `/web/web-vitals`,
+    webAnalyticsPageReports: (): string => `/web/page-reports`,
 }
 
 /** This const is auto-generated, as is the whole file */
 export const fileSystemTypes = {
-    broadcast: { icon: <IconMegaphone />, href: (ref: string) => urls.messagingBroadcast(ref) },
+    action: { icon: <IconRocket />, href: (ref: string) => urls.action(ref) },
     dashboard: { icon: <IconDashboard />, href: (ref: string) => urls.dashboard(ref) },
+    early_access_feature: { icon: <IconRocket />, href: (ref: string) => urls.earlyAccessFeature(ref) },
     experiment: { icon: <IconTestTube />, href: (ref: string) => urls.experiment(ref) },
     feature_flag: { icon: <IconToggle />, href: (ref: string) => urls.featureFlag(ref) },
+    'hog_function/broadcast': { icon: <IconMegaphone />, href: (ref: string) => urls.messagingBroadcast(ref) },
+    'hog_function/campaign': { icon: <IconMegaphone />, href: (ref: string) => urls.messagingCampaign(ref) },
     insight: { icon: <IconGraph />, href: (ref: string) => urls.insightView(ref as InsightShortId) },
     notebook: { icon: <IconNotebook />, href: (ref: string) => urls.notebook(ref) },
+    session_recording_playlist: { icon: <IconRewindPlay />, href: (ref: string) => urls.replayPlaylist(ref) },
 }
 
 /** This const is auto-generated, as is the whole file */
-export const treeItems = [
-    { path: `Create new/Broadcast`, type: 'broadcast', href: () => urls.messagingBroadcastNew() },
-    { path: `Create new/Dashboard`, type: 'dashboard', href: () => urls.dashboards() + '#newDashboard=modal' },
-    { path: `Create new/Experiment`, type: 'experiment', href: () => urls.experiment('new') },
-    { path: `Create new/Feature flag`, type: 'feature_flag', href: () => urls.featureFlag('new') },
-    { path: `Create new/Insight/Funnels`, type: 'insight', href: () => urls.insightNew({ type: InsightType.FUNNELS }) },
+export const treeItemsNew = [
+    { type: 'action', path: 'Action', icon: <IconRocket />, href: () => urls.createAction() },
     {
-        path: `Create new/Insight/Lifecycle`,
-        type: 'insight',
-        href: () => urls.insightNew({ type: InsightType.LIFECYCLE }),
+        path: `Broadcast`,
+        type: 'hog_function/broadcast',
+        href: () => urls.messagingBroadcastNew(),
+        flag: FEATURE_FLAGS.MESSAGING,
     },
     {
-        path: `Create new/Insight/Retention`,
-        type: 'insight',
-        href: () => urls.insightNew({ type: InsightType.RETENTION }),
+        path: `Campaign`,
+        type: 'hog_function/campaign',
+        href: () => urls.messagingCampaignNew(),
+        flag: FEATURE_FLAGS.MESSAGING_AUTOMATION,
     },
-    {
-        path: `Create new/Insight/Stickiness`,
-        type: 'insight',
-        href: () => urls.insightNew({ type: InsightType.STICKINESS }),
-    },
-    { path: `Create new/Insight/Trends`, type: 'insight', href: () => urls.insightNew({ type: InsightType.TRENDS }) },
-    {
-        path: `Create new/Insight/User paths`,
-        type: 'insight',
-        href: () => urls.insightNew({ type: InsightType.PATHS }),
-    },
-    { path: `Create new/Notebook`, type: 'notebook', href: () => urls.notebook('new') },
-    { path: 'Explore/Early access features', icon: <IconRocket />, href: () => urls.earlyAccessFeatures() },
-    { path: 'Explore/People and groups/People', icon: <IconPerson />, href: () => urls.persons() },
-    { path: 'Explore/Recordings/Playlists', href: () => urls.replay(ReplayTabs.Playlists), icon: <IconRewindPlay /> },
-    { path: 'Explore/Recordings/Recordings', href: () => urls.replay(ReplayTabs.Home), icon: <IconRewindPlay /> },
-    {
-        path: 'Explore/Recordings/What to watch',
-        href: () => urls.replay(ReplayTabs.Templates),
-        icon: <IconRewindPlay />,
-    },
-    { path: 'Explore/Web Analytics', icon: <IconPieChart />, href: () => urls.webAnalytics() },
+    { path: `Dashboard`, type: 'dashboard', href: () => urls.dashboards() + '#newDashboard=modal' },
+    { path: `Experiment`, type: 'experiment', href: () => urls.experiment('new') },
+    { path: `Feature flag`, type: 'feature_flag', href: () => urls.featureFlag('new') },
+    { path: `Insight/Funnel`, type: 'insight', href: () => urls.insightNew({ type: InsightType.FUNNELS }) },
+    { path: `Insight/Lifecycle`, type: 'insight', href: () => urls.insightNew({ type: InsightType.LIFECYCLE }) },
+    { path: `Insight/Retention`, type: 'insight', href: () => urls.insightNew({ type: InsightType.RETENTION }) },
+    { path: `Insight/Stickiness`, type: 'insight', href: () => urls.insightNew({ type: InsightType.STICKINESS }) },
+    { path: `Insight/Trends`, type: 'insight', href: () => urls.insightNew({ type: InsightType.TRENDS }) },
+    { path: `Insight/User paths`, type: 'insight', href: () => urls.insightNew({ type: InsightType.PATHS }) },
+    { path: `Notebook`, type: 'notebook', href: () => urls.notebook('new') },
+    { path: `Replay playlist`, type: 'session_recording_playlist', href: () => urls.replayPlaylist('new') },
+]
+
+/** This const is auto-generated, as is the whole file */
+export const treeItemsExplore = [
+    { path: 'Early access features', icon: <IconRocket />, href: () => urls.earlyAccessFeatures() },
+    { path: 'Explore/Revenue analytics', icon: <IconPiggyBank />, href: () => urls.revenueAnalytics() },
+    { path: 'People and groups/People', icon: <IconPerson />, href: () => urls.persons() },
+    { path: 'Recordings/Playlists', href: () => urls.replay(ReplayTabs.Playlists), icon: <IconRewindPlay /> },
+    { path: 'Recordings/Recordings', href: () => urls.replay(ReplayTabs.Home), icon: <IconRewindPlay /> },
+    { path: 'Recordings/Settings', href: () => urls.replay(ReplayTabs.Settings), icon: <IconRewindPlay /> },
+    { path: 'Recordings/What to watch', href: () => urls.replay(ReplayTabs.Templates), icon: <IconRewindPlay /> },
+    { path: 'Web Analytics', icon: <IconPieChart />, href: () => urls.webAnalytics() },
 ]

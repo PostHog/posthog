@@ -35,6 +35,7 @@ const convertToTransformationEvent = (result: any): HogTransformationEvent => {
     // We don't want to use these values given they will change in the test invocation
     delete properties.$transformations_failed
     delete properties.$transformations_succeeded
+    delete properties.$transformations_skipped
     return {
         event: result.event,
         uuid: result.uuid,
@@ -47,6 +48,7 @@ const convertToTransformationEvent = (result: any): HogTransformationEvent => {
 const convertFromTransformationEvent = (result: HogTransformationEvent): Record<string, any> => {
     delete result.properties.$transformations_failed
     delete result.properties.$transformations_succeeded
+    delete result.properties.$transformations_skipped
     return {
         event: result.event,
         uuid: result.uuid,
@@ -285,8 +287,28 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                 // Set the response somewhere
 
                 if (values.configurationHasErrors) {
-                    lemonToast.error('Please fix the configuration errors before testing.')
-                    // TODO: How to get the form to show errors without submitting?
+                    // Get the configuration logic instance
+                    const configLogic = hogFunctionConfigurationLogic(props)
+                    const inputErrors = configLogic.values.inputFormErrors?.inputs || {}
+
+                    // Create a simple list of errors
+                    const errorMessages = Object.entries(inputErrors).map(([key, error]) => {
+                        const errorText = typeof error === 'string' ? error : 'Invalid format'
+                        return `${key}: ${errorText}`
+                    })
+
+                    // Show the error message
+                    const message =
+                        errorMessages.length > 0
+                            ? `Please fix the following errors:\n${errorMessages.join('\n')}`
+                            : 'Please fix the configuration errors before testing.'
+
+                    lemonToast.error(message, {
+                        toastId: 'hogfunction-validation-error',
+                    })
+
+                    // Show the errors in the UI
+                    configLogic.actions.touchConfigurationField && configLogic.actions.touchConfigurationField('inputs')
                     return
                 }
 

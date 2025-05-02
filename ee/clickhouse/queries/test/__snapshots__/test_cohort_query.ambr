@@ -570,28 +570,6 @@
            AND (has(['test3@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', ''))))) SETTINGS optimize_aggregation_in_order = 1
   '''
 # ---
-# name: TestCohortQuery.test_person_props_only.1
-  '''
-  
-  SELECT id
-  FROM person
-  WHERE team_id = 99999
-    AND id IN
-      (SELECT id
-       FROM person
-       WHERE team_id = 99999
-         AND (((has(['test1@posthog.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '')))
-               OR (has(['test2@posthog.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))))
-              OR ((has(['test3'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', '')))
-                  AND (has(['test3@posthog.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))))) )
-  GROUP BY id
-  HAVING max(is_deleted) = 0
-  AND (((has(['test1@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '')))
-        OR (has(['test2@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', ''))))
-       OR ((has(['test3'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))
-           AND (has(['test3@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', ''))))) SETTINGS optimize_aggregation_in_order = 1
-  '''
-# ---
 # name: TestCohortQuery.test_precalculated_cohort_filter_with_extra_filters
   '''
   
@@ -614,51 +592,7 @@
 # ---
 # name: TestCohortQuery.test_precalculated_cohort_filter_with_extra_filters.2
   '''
-  
-  SELECT id
-  FROM person
-  WHERE team_id = 99999
-    AND id IN
-      (SELECT id
-       FROM person
-       WHERE team_id = 99999
-         AND ((((has(['test'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', '')))))
-              OR (has(['test2'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', '')))) )
-  GROUP BY id
-  HAVING max(is_deleted) = 0
-  AND ((((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))))
-       OR (has(['test2'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1
-  '''
-# ---
-# name: TestCohortQuery.test_precalculated_cohort_filter_with_extra_filters.3
-  '''
-  SELECT persons.id AS id
-  FROM
-    (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', ''), person.version) AS properties___name,
-            person.id AS id
-     FROM person
-     WHERE and(equals(person.team_id, 99999), in(id,
-                                                   (SELECT where_optimization.id AS id
-                                                    FROM person AS where_optimization
-                                                    WHERE and(equals(where_optimization.team_id, 99999), or(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', ''), 'test'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', ''), 'test2'), 0))))))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
-  WHERE or(ifNull(equals(persons.properties___name, 'test'), 0), ifNull(equals(persons.properties___name, 'test2'), 0))
-  ORDER BY persons.id ASC
-  LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
-                     join_algorithm='auto',
-                     readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
-  '''
-# ---
-# name: TestCohortQuery.test_precalculated_cohort_filter_with_extra_filters.4
-  '''
-  
+  /* cohort_calculation: */
   SELECT id
   FROM person
   WHERE team_id = 99999

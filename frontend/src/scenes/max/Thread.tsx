@@ -15,7 +15,6 @@ import { useActions, useValues } from 'kea'
 import { BreakdownSummary, PropertiesSummary, SeriesSummary } from 'lib/components/Cards/InsightCard/InsightDetails'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import posthog from 'posthog-js'
 import React, { useMemo, useState } from 'react'
 import { urls } from 'scenes/urls'
@@ -26,15 +25,19 @@ import { Query } from '~/queries/Query/Query'
 import {
     AssistantForm,
     AssistantMessage,
+    AssistantToolCallMessage,
     FailureMessage,
     VisualizationMessage,
 } from '~/queries/schema/schema-assistant-messages'
-import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { isHogQLQuery } from '~/queries/utils'
 
+import { MarkdownMessage } from './MarkdownMessage'
 import { maxLogic, MessageStatus, ThreadMessage } from './maxLogic'
 import {
     castAssistantQuery,
     isAssistantMessage,
+    isAssistantToolCallMessage,
     isFailureMessage,
     isHumanMessage,
     isReasoningMessage,
@@ -98,10 +101,17 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                                 type="human"
                                 boxClassName={message.status === 'error' ? 'border-danger' : undefined}
                             >
-                                <LemonMarkdown>{message.content || '*No text.*'}</LemonMarkdown>
+                                <MarkdownMessage
+                                    content={message.content || '*No text.*'}
+                                    id={message.id || 'no-text'}
+                                />
                             </MessageTemplate>
                         )
-                    } else if (isAssistantMessage(message) || isFailureMessage(message)) {
+                    } else if (
+                        isAssistantMessage(message) ||
+                        isAssistantToolCallMessage(message) ||
+                        isFailureMessage(message)
+                    ) {
                         return (
                             <TextAnswer
                                 key={key}
@@ -120,12 +130,12 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                                     <Spinner className="text-xl" />
                                 </div>
                                 {message.substeps?.map((substep, substepIndex) => (
-                                    <LemonMarkdown
+                                    <MarkdownMessage
                                         key={substepIndex}
+                                        id={message.id || messageIndex.toString()}
                                         className="mt-1.5 leading-6 px-1 text-[0.6875rem] font-semibold bg-surface-secondary rounded w-fit"
-                                    >
-                                        {substep}
-                                    </LemonMarkdown>
+                                        content={substep}
+                                    />
                                 ))}
                             </MessageTemplate>
                         )
@@ -181,7 +191,7 @@ const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateProps>(f
 })
 
 interface TextAnswerProps {
-    message: (AssistantMessage | FailureMessage) & ThreadMessage
+    message: (AssistantMessage | FailureMessage | AssistantToolCallMessage) & ThreadMessage
     interactable?: boolean
     isFinalGroup?: boolean
 }
@@ -226,9 +236,10 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
             ref={ref}
             action={action}
         >
-            <LemonMarkdown>
-                {message.content || '*Max has failed to generate an answer. Please try again.*'}
-            </LemonMarkdown>
+            <MarkdownMessage
+                content={message.content || '*Max has failed to generate an answer. Please try again.*'}
+                id={message.id || 'error'}
+            />
         </MessageTemplate>
     )
 })
@@ -268,13 +279,13 @@ function VisualizationAnswer({
 }): JSX.Element | null {
     const [isSummaryShown, setIsSummaryShown] = useState(false)
 
-    const query = useMemo<InsightVizNode | null>(() => {
+    const query = useMemo<InsightVizNode | DataVisualizationNode | null>(() => {
         if (message.answer) {
-            return {
-                kind: NodeKind.InsightVizNode,
-                source: castAssistantQuery(message.answer),
-                showHeader: true,
+            const source = castAssistantQuery(message.answer)
+            if (isHogQLQuery(source)) {
+                return { kind: NodeKind.DataVisualizationNode, source: source } satisfies DataVisualizationNode
             }
+            return { kind: NodeKind.InsightVizNode, source, showHeader: true } satisfies InsightVizNode
         }
 
         return null
@@ -310,10 +321,12 @@ function VisualizationAnswer({
                       {isSummaryShown && (
                           <>
                               <SeriesSummary query={query.source} heading={null} />
-                              <div className="flex flex-wrap gap-4 mt-1 *:grow">
-                                  <PropertiesSummary properties={query.source.properties} />
-                                  <BreakdownSummary query={query.source} />
-                              </div>
+                              {!isHogQLQuery(query.source) && (
+                                  <div className="flex flex-wrap gap-4 mt-1 *:grow">
+                                      <PropertiesSummary properties={query.source.properties} />
+                                      <BreakdownSummary query={query.source} />
+                                  </div>
+                              )}
                           </>
                       )}
                   </MessageTemplate>

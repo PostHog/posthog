@@ -7,7 +7,7 @@ import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/
 import { UnwatchedIndicator } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 import { urls } from 'scenes/urls'
 
-import { EventType, MatchedRecording } from '~/types'
+import { MatchedRecording } from '~/types'
 
 import { sessionRecordingViewedLogic } from './sessionRecordingViewedLogic'
 
@@ -19,7 +19,7 @@ export default function ViewRecordingButton({
     checkIfViewed = false,
     matchingEvents,
     ...props
-}: Pick<LemonButtonProps, 'size' | 'type' | 'data-attr' | 'fullWidth' | 'className' | 'disabledReason'> & {
+}: Pick<LemonButtonProps, 'size' | 'type' | 'data-attr' | 'fullWidth' | 'className' | 'disabledReason' | 'loading'> & {
     sessionId: string | undefined
     timestamp?: string | Dayjs
     // whether to open in a modal or navigate to the replay page
@@ -76,10 +76,10 @@ export default function ViewRecordingButton({
     )
 }
 
-export const mightHaveRecording = (properties: EventType['properties']): boolean => {
+export const mightHaveRecording = (properties: { $session_id?: string; $recording_status?: string }): boolean => {
     return properties.$session_id
         ? properties.$recording_status
-            ? properties.$recording_status === 'active'
+            ? ['active', 'sampled'].includes(properties.$recording_status)
             : true
         : false
 }

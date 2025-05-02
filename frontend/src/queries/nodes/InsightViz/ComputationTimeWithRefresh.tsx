@@ -7,10 +7,12 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { shouldQueryBeAsync } from '~/queries/utils'
+
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 
 export function ComputationTimeWithRefresh({ disableRefresh }: { disableRefresh?: boolean }): JSX.Element | null {
-    const { lastRefresh, response } = useValues(dataNodeLogic)
+    const { lastRefresh, response, query } = useValues(dataNodeLogic)
 
     const { insightProps } = useValues(insightLogic)
     const { getInsightRefreshButtonDisabledReason } = useValues(insightDataLogic(insightProps))
@@ -41,7 +43,7 @@ export function ComputationTimeWithRefresh({ disableRefresh }: { disableRefresh?
                         }
                     >
                         <Link
-                            onClick={() => loadData(true)}
+                            onClick={() => loadData(shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')}
                             className={disabledReason ? 'opacity-50' : ''}
                             disabledReason={canBypassRefreshDisabled ? '' : disabledReason}
                         >

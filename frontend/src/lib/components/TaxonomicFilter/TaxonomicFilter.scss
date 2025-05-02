@@ -1,11 +1,11 @@
 .taxonomic-filter {
     display: flex;
     flex-direction: column;
-    width: 550px;
+    width: 650px;
     max-width: calc(100vw - 40px);
 
     &.force-minimum-width {
-        min-width: 300px;
+        min-width: 350px;
     }
 
     &.one-taxonomic-tab {

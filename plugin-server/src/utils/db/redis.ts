@@ -2,7 +2,7 @@ import { createPool } from 'generic-pool'
 import Redis, { RedisOptions } from 'ioredis'
 
 import { PluginsServerConfig, RedisPool } from '../../types'
-import { status } from '../../utils/status'
+import { logger } from '../../utils/logger'
 import { killGracefully } from '../../utils/utils'
 import { captureException } from '../posthog'
 
@@ -75,15 +75,15 @@ export async function createRedisClient(url: string, options?: RedisOptions): Pr
             errorCounter++
             captureException(error)
             if (errorCounter > REDIS_ERROR_COUNTER_LIMIT) {
-                status.error('😡', 'Redis error encountered! Enough of this, I quit!\n', error)
+                logger.error('😡', 'Redis error encountered! Enough of this, I quit!\n', error)
                 killGracefully()
             } else {
-                status.error('🔴', 'Redis error encountered! Trying to reconnect...\n', error)
+                logger.error('🔴', 'Redis error encountered! Trying to reconnect...\n', error)
             }
         })
         .on('ready', () => {
             if (process.env.NODE_ENV !== 'test') {
-                status.info('✅', 'Connected to Redis!')
+                logger.info('✅', 'Connected to Redis!')
             }
         })
     await redis.info()

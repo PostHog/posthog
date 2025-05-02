@@ -1,8 +1,7 @@
 import { DateTime } from 'luxon'
 
-import { LogLevel } from '../../../../types'
-import { ParsedMessageData } from '../kafka/types'
 import { ConsoleLogLevel, RRWebEventType } from '../rrweb-types'
+import { MessageWithTeam } from '../teams/types'
 import { SessionConsoleLogRecorder } from './session-console-log-recorder'
 import { SessionConsoleLogStore } from './session-console-log-store'
 
@@ -42,25 +41,31 @@ describe('SessionConsoleLogRecorder', () => {
     const createMessage = (
         windowId: string,
         events: any[],
-        { sessionId = 'session_id', distinctId = 'distinct_id' } = {}
-    ): ParsedMessageData => ({
-        distinct_id: distinctId,
-        session_id: sessionId,
-        eventsByWindowId: {
-            [windowId]: events,
+        { sessionId = 'session_id', distinctId = 'distinct_id', teamId = 1, consoleLogIngestionEnabled = true } = {}
+    ): MessageWithTeam => ({
+        team: {
+            teamId,
+            consoleLogIngestionEnabled,
         },
-        eventsRange: {
-            start: DateTime.fromMillis(events[0]?.timestamp || 0),
-            end: DateTime.fromMillis(events[events.length - 1]?.timestamp || 0),
-        },
-        snapshot_source: null,
-        snapshot_library: null,
-        metadata: {
-            partition: 1,
-            topic: 'test',
-            offset: 0,
-            timestamp: 0,
-            rawSize: 0,
+        message: {
+            distinct_id: distinctId,
+            session_id: sessionId,
+            eventsByWindowId: {
+                [windowId]: events,
+            },
+            eventsRange: {
+                start: DateTime.fromMillis(events[0]?.timestamp || 0),
+                end: DateTime.fromMillis(events[events.length - 1]?.timestamp || 0),
+            },
+            snapshot_source: null,
+            snapshot_library: null,
+            metadata: {
+                partition: 1,
+                topic: 'test',
+                offset: 0,
+                timestamp: 0,
+                rawSize: 0,
+            },
         },
     })
 
@@ -232,7 +237,7 @@ describe('SessionConsoleLogRecorder', () => {
                 {
                     team_id: 1,
                     message: 'First message',
-                    level: LogLevel.Info,
+                    level: ConsoleLogLevel.Info,
                     log_source: 'session_replay',
                     log_source_id: 'test_session_id',
                     instance_id: null,
@@ -245,7 +250,7 @@ describe('SessionConsoleLogRecorder', () => {
                 {
                     team_id: 1,
                     message: 'Second message',
-                    level: LogLevel.Warn,
+                    level: ConsoleLogLevel.Warn,
                     log_source: 'session_replay',
                     log_source_id: 'test_session_id',
                     instance_id: null,
@@ -282,7 +287,7 @@ describe('SessionConsoleLogRecorder', () => {
                 {
                     team_id: 1,
                     message: 'Message with multiple strings',
-                    level: LogLevel.Info,
+                    level: ConsoleLogLevel.Info,
                     log_source: 'session_replay',
                     log_source_id: 'test_session_id',
                     instance_id: null,
@@ -295,23 +300,13 @@ describe('SessionConsoleLogRecorder', () => {
 
     describe('Error handling', () => {
         it('should throw error when recording after end', async () => {
-            const message = createMessage(
-                'window1',
-                [
-                    {
-                        type: RRWebEventType.Plugin,
-                        timestamp: 1000,
-                        data: {
-                            plugin: 'rrweb/console@1',
-                            payload: {
-                                level: ConsoleLogLevel.Log,
-                                content: ['Test message'],
-                            },
-                        },
-                    },
-                ],
-                { sessionId: 'session_error_handling_1', distinctId: 'user_7' }
-            )
+            const message = createMessage('window1', [
+                createConsoleLogEvent({
+                    level: 'info',
+                    payload: ['Test message'],
+                    timestamp: 1000,
+                }),
+            ])
 
             await recorder.recordMessage(message)
             recorder.end()
@@ -322,23 +317,13 @@ describe('SessionConsoleLogRecorder', () => {
         })
 
         it('should throw error when calling end multiple times', async () => {
-            const message = createMessage(
-                'window1',
-                [
-                    {
-                        type: RRWebEventType.Plugin,
-                        timestamp: 1000,
-                        data: {
-                            plugin: 'rrweb/console@1',
-                            payload: {
-                                level: ConsoleLogLevel.Log,
-                                content: ['Test message'],
-                            },
-                        },
-                    },
-                ],
-                { sessionId: 'session_error_handling_2', distinctId: 'user_8' }
-            )
+            const message = createMessage('window1', [
+                createConsoleLogEvent({
+                    level: 'info',
+                    payload: ['Test message'],
+                    timestamp: 1000,
+                }),
+            ])
 
             await recorder.recordMessage(message)
             recorder.end()
@@ -349,41 +334,21 @@ describe('SessionConsoleLogRecorder', () => {
 
     describe('Multiple windows', () => {
         it('should count console events from multiple windows', async () => {
-            const message1 = createMessage(
-                'window1',
-                [
-                    {
-                        type: RRWebEventType.Plugin,
-                        timestamp: 1000,
-                        data: {
-                            plugin: 'rrweb/console@1',
-                            payload: {
-                                level: ConsoleLogLevel.Log,
-                                content: ['Window 1 log'],
-                            },
-                        },
-                    },
-                ],
-                { sessionId: 'session_multi_window_1', distinctId: 'user_9' }
-            )
+            const message1 = createMessage('window1', [
+                createConsoleLogEvent({
+                    level: 'info',
+                    payload: ['Window 1 log'],
+                    timestamp: 1000,
+                }),
+            ])
 
-            const message2 = createMessage(
-                'window2',
-                [
-                    {
-                        type: RRWebEventType.Plugin,
-                        timestamp: 2000,
-                        data: {
-                            plugin: 'rrweb/console@1',
-                            payload: {
-                                level: ConsoleLogLevel.Error,
-                                content: ['Window 2 error'],
-                            },
-                        },
-                    },
-                ],
-                { sessionId: 'session_multi_window_1', distinctId: 'user_9' }
-            )
+            const message2 = createMessage('window2', [
+                createConsoleLogEvent({
+                    level: 'error',
+                    payload: ['Window 2 error'],
+                    timestamp: 2000,
+                }),
+            ])
 
             await recorder.recordMessage(message1)
             await recorder.recordMessage(message2)
@@ -398,23 +363,23 @@ describe('SessionConsoleLogRecorder', () => {
     describe('Log level mapping', () => {
         const testCases = [
             // Info level mappings
-            { input: 'info', expected: LogLevel.Info },
-            { input: 'log', expected: LogLevel.Info },
-            { input: 'debug', expected: LogLevel.Info },
-            { input: 'trace', expected: LogLevel.Info },
-            { input: 'dir', expected: LogLevel.Info },
-            { input: 'dirxml', expected: LogLevel.Info },
-            { input: 'group', expected: LogLevel.Info },
-            { input: 'groupCollapsed', expected: LogLevel.Info },
-            { input: 'count', expected: LogLevel.Info },
-            { input: 'timeEnd', expected: LogLevel.Info },
-            { input: 'timeLog', expected: LogLevel.Info },
+            { input: 'info', expected: ConsoleLogLevel.Info },
+            { input: 'log', expected: ConsoleLogLevel.Info },
+            { input: 'debug', expected: ConsoleLogLevel.Info },
+            { input: 'trace', expected: ConsoleLogLevel.Info },
+            { input: 'dir', expected: ConsoleLogLevel.Info },
+            { input: 'dirxml', expected: ConsoleLogLevel.Info },
+            { input: 'group', expected: ConsoleLogLevel.Info },
+            { input: 'groupCollapsed', expected: ConsoleLogLevel.Info },
+            { input: 'count', expected: ConsoleLogLevel.Info },
+            { input: 'timeEnd', expected: ConsoleLogLevel.Info },
+            { input: 'timeLog', expected: ConsoleLogLevel.Info },
             // Warn level mappings
-            { input: 'warn', expected: LogLevel.Warn },
-            { input: 'countReset', expected: LogLevel.Warn },
+            { input: 'warn', expected: ConsoleLogLevel.Warn },
+            { input: 'countReset', expected: ConsoleLogLevel.Warn },
             // Error level mappings
-            { input: 'error', expected: LogLevel.Error },
-            { input: 'assert', expected: LogLevel.Error },
+            { input: 'error', expected: ConsoleLogLevel.Error },
+            { input: 'assert', expected: ConsoleLogLevel.Error },
         ]
 
         test.each(testCases)('maps browser level $input to $expected', async ({ input, expected }) => {
@@ -441,11 +406,11 @@ describe('SessionConsoleLogRecorder', () => {
 
         it('handles edge cases', async () => {
             const edgeCases = [
-                { level: 'unknown', expected: LogLevel.Info },
-                { level: '', expected: LogLevel.Info },
-                { level: undefined, expected: LogLevel.Info },
-                { level: null, expected: LogLevel.Info },
-                { level: 123, expected: LogLevel.Info },
+                { level: 'unknown', expected: ConsoleLogLevel.Info },
+                { level: '', expected: ConsoleLogLevel.Info },
+                { level: undefined, expected: ConsoleLogLevel.Info },
+                { level: null, expected: ConsoleLogLevel.Info },
+                { level: 123, expected: ConsoleLogLevel.Info },
             ]
 
             for (const { level, expected } of edgeCases) {
@@ -494,7 +459,7 @@ describe('SessionConsoleLogRecorder', () => {
             expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenCalledTimes(1)
             expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenCalledWith([
                 expect.objectContaining({
-                    level: LogLevel.Info,
+                    level: ConsoleLogLevel.Info,
                     message: 'Duplicate message',
                 }),
             ])
@@ -526,15 +491,15 @@ describe('SessionConsoleLogRecorder', () => {
             expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenCalledTimes(1)
             expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenCalledWith([
                 expect.objectContaining({
-                    level: LogLevel.Info,
+                    level: ConsoleLogLevel.Info,
                     message: 'Same message',
                 }),
                 expect.objectContaining({
-                    level: LogLevel.Warn,
+                    level: ConsoleLogLevel.Warn,
                     message: 'Same message',
                 }),
                 expect.objectContaining({
-                    level: LogLevel.Error,
+                    level: ConsoleLogLevel.Error,
                     message: 'Same message',
                 }),
             ])
@@ -554,7 +519,7 @@ describe('SessionConsoleLogRecorder', () => {
             )
 
             // Add events from window2 to the same message
-            message.eventsByWindowId['window2'] = [
+            message.message.eventsByWindowId['window2'] = [
                 createConsoleLogEvent({
                     level: 'info',
                     payload: ['Duplicate message'],
@@ -567,7 +532,7 @@ describe('SessionConsoleLogRecorder', () => {
             expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenCalledTimes(1)
             expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenCalledWith([
                 expect.objectContaining({
-                    level: LogLevel.Info,
+                    level: ConsoleLogLevel.Info,
                     message: 'Duplicate message',
                 }),
             ])
@@ -619,15 +584,15 @@ describe('SessionConsoleLogRecorder', () => {
             expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenCalledTimes(1)
             expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenCalledWith([
                 expect.objectContaining({
-                    level: LogLevel.Info,
+                    level: ConsoleLogLevel.Info,
                     message: 'Duplicate info',
                 }),
                 expect.objectContaining({
-                    level: LogLevel.Warn,
+                    level: ConsoleLogLevel.Warn,
                     message: 'Duplicate warn',
                 }),
                 expect.objectContaining({
-                    level: LogLevel.Error,
+                    level: ConsoleLogLevel.Error,
                     message: 'Duplicate error',
                 }),
             ])
@@ -659,18 +624,49 @@ describe('SessionConsoleLogRecorder', () => {
             expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenCalledTimes(1)
             expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenCalledWith([
                 expect.objectContaining({
-                    level: LogLevel.Info,
+                    level: ConsoleLogLevel.Info,
                     message: 'First unique message',
                 }),
                 expect.objectContaining({
-                    level: LogLevel.Info,
+                    level: ConsoleLogLevel.Info,
                     message: 'Second unique message',
                 }),
                 expect.objectContaining({
-                    level: LogLevel.Info,
+                    level: ConsoleLogLevel.Info,
                     message: 'Third unique message',
                 }),
             ])
+        })
+
+        it('should not record logs when consoleLogIngestionEnabled is false', async () => {
+            const now = DateTime.now()
+            const message = createMessage(
+                'window1',
+                [
+                    {
+                        timestamp: now.toMillis(),
+                        type: RRWebEventType.Plugin,
+                        data: {
+                            plugin: 'rrweb/console@1',
+                            payload: {
+                                level: 'log',
+                                payload: ['test message'],
+                            },
+                        },
+                    },
+                ],
+                { consoleLogIngestionEnabled: false }
+            )
+
+            await recorder.recordMessage(message)
+            expect(mockConsoleLogStore.storeSessionConsoleLogs).not.toHaveBeenCalled()
+
+            const result = recorder.end()
+            expect(result).toEqual({
+                consoleLogCount: 0,
+                consoleWarnCount: 0,
+                consoleErrorCount: 0,
+            })
         })
     })
 })

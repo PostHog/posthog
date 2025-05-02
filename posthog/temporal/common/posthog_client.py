@@ -1,6 +1,7 @@
 from dataclasses import is_dataclass
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
+import structlog
 from posthoganalytics import api_key, capture_exception
 from temporalio import activity, workflow
 from temporalio.worker import (
@@ -11,6 +12,23 @@ from temporalio.worker import (
     WorkflowInboundInterceptor,
     WorkflowInterceptorClassInput,
 )
+
+logger = structlog.get_logger()
+
+
+async def _add_inputs_to_properties(
+    properties: dict[str, Any],
+    input: ExecuteActivityInput | ExecuteWorkflowInput,
+    execution_type: Literal["activity", "workflow"],
+):
+    try:
+        if len(input.args) == 1 and is_dataclass(input.args[0]) and hasattr(input.args[0], "properties_to_log"):
+            properties.update(input.args[0].properties_to_log)
+    except Exception as e:
+        await logger.awarning(
+            "Failed to add inputs to properties for class %s", type(input.args[0]).__name__, exc_info=e
+        )
+        capture_exception(e, properties=properties)
 
 
 class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
@@ -31,13 +49,12 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
                 "temporal.workflow.run_id": activity_info.workflow_run_id,
                 "temporal.workflow.type": activity_info.workflow_type,
             }
-            if len(input.args) == 1 and is_dataclass(input.args[0]):
-                team_id = getattr(input.args[0], "team_id", None)
-                if team_id:
-                    properties["team_id"] = team_id
-
+            await _add_inputs_to_properties(properties, input, "activity")
             if api_key:
-                capture_exception(e, properties=properties)
+                try:
+                    capture_exception(e, properties=properties)
+                except Exception as capture_error:
+                    await logger.awarning("Failed to capture exception", exc_info=capture_error)
             raise
 
 
@@ -56,14 +73,13 @@ class _PostHogClientWorkflowInterceptor(WorkflowInboundInterceptor):
                 "temporal.workflow.type": workflow_info.workflow_type,
                 "temporal.workflow.id": workflow_info.workflow_id,
             }
-            if len(input.args) == 1 and is_dataclass(input.args[0]):
-                team_id = getattr(input.args[0], "team_id", None)
-                if team_id:
-                    properties["team_id"] = team_id
-
+            await _add_inputs_to_properties(properties, input, "workflow")
             if api_key and not workflow.unsafe.is_replaying():
                 with workflow.unsafe.sandbox_unrestricted():
-                    capture_exception(e, properties=properties)
+                    try:
+                        capture_exception(e, properties=properties)
+                    except Exception as capture_error:
+                        await logger.awarning("Failed to capture exception", exc_info=capture_error)
             raise
 
 

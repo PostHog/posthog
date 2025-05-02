@@ -5,7 +5,7 @@ module.exports = {
     testEnvironment: 'node',
     clearMocks: true,
     coverageProvider: 'v8',
-    setupFilesAfterEnv: ['./jest.setup.fetch-mock.js'],
+    setupFilesAfterEnv: ['./jest.setup.js'],
     testMatch: ['<rootDir>/tests/**/*.test.ts', '<rootDir>/src/**/*.test.ts'],
     testTimeout: 60000,
     modulePathIgnorePatterns: ['<rootDir>/.tmp/'],

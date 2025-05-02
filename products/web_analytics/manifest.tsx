@@ -8,11 +8,12 @@ export const manifest: ProductManifest = {
     urls: {
         webAnalytics: (): string => `/web`,
         webAnalyticsWebVitals: (): string => `/web/web-vitals`,
+        webAnalyticsPageReports: (): string => `/web/page-reports`,
     },
     fileSystemTypes: {},
-    treeItems: [
+    treeItemsExplore: [
         {
-            path: 'Explore/Web Analytics',
+            path: 'Web Analytics',
             icon: <IconPieChart />,
             href: () => urls.webAnalytics(),
         },

@@ -1,6 +1,5 @@
 import 'chartjs-adapter-dayjs-3'
 
-import * as Sentry from '@sentry/react'
 import { LegendOptions, ScaleOptions } from 'chart.js'
 import { DeepPartial } from 'chart.js/dist/types/utils'
 import annotationPlugin from 'chartjs-plugin-annotation'
@@ -28,6 +27,7 @@ import { getBarColorFromStatus, getGraphColors } from 'lib/colors'
 import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
+import posthog from 'posthog-js'
 import { useEffect, useRef, useState } from 'react'
 import { createRoot, Root } from 'react-dom/client'
 import { formatAggregationAxisValue, formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
@@ -44,6 +44,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { hexToRGBA, lightenDarkenColor } from '~/lib/utils'
 import { groupsModel } from '~/models/groupsModel'
 import { GoalLine, TrendsFilter } from '~/queries/schema/schema-general'
+import { isInsightVizNode } from '~/queries/utils'
 import { GraphDataset, GraphPoint, GraphPointPayload, GraphType } from '~/types'
 
 let tooltipRoot: Root
@@ -62,6 +63,13 @@ export function ensureTooltip(): [Root, HTMLElement] {
         tooltipRoot = createRoot(tooltipEl)
     }
     return [tooltipRoot, tooltipEl]
+}
+
+export function hideTooltip(): void {
+    const tooltipEl = document.getElementById('InsightTooltipWrapper')
+    if (tooltipEl) {
+        tooltipEl.style.opacity = '0'
+    }
 }
 
 function truncateString(str: string, num: number): string {
@@ -270,7 +278,7 @@ export interface LineGraphProps {
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
     return (
-        <ErrorBoundary tags={{ feature: 'LineGraph' }}>
+        <ErrorBoundary exceptionProps={{ feature: 'LineGraph' }}>
             {props.type === GraphType.Pie ? <PieChart {...props} /> : <LineGraph_ {...props} />}
         </ErrorBoundary>
     )
@@ -317,11 +325,13 @@ export function LineGraph_({
     const { isDarkModeOn } = useValues(themeLogic)
 
     const { insightProps, insight } = useValues(insightLogic)
-    const { timezone, isTrends, breakdownFilter } = useValues(insightVizDataLogic(insightProps))
+    const { timezone, isTrends, breakdownFilter, query } = useValues(insightVizDataLogic(insightProps))
     const { theme, getTrendsColor } = useValues(trendsDataLogic(insightProps))
 
+    const hideTooltipOnScroll = isInsightVizNode(query) ? query.hideTooltipOnScroll : undefined
+
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
-    const [myLineChart, setMyLineChart] = useState<Chart<ChartType, any, string>>()
+    const [lineChart, setLineChart] = useState<Chart<ChartType, any, string>>()
 
     // Relying on useResizeObserver instead of Chart's onResize because the latter was not reliable
     const { width: chartWidth, height: chartHeight } = useResizeObserver({ ref: canvasRef })
@@ -338,6 +348,27 @@ export function LineGraph_({
     const isPercentStackView = !!supportsPercentStackView && !!showPercentStackView
     const showAnnotations = isTrends && !isHorizontal && !hideAnnotations
     const isLog10 = yAxisScaleType === 'log10' // Currently log10 is the only logarithmic scale supported
+
+    // Add scrollend event on main element to hide tooltips when scrolling
+    useEffect(() => {
+        if (!hideTooltipOnScroll) {
+            return
+        }
+
+        // Scroll events happen on the main element due to overflow-y: scroll
+        // but we need to make sure it exists before adding the event listener,
+        // e.g: it does not exist in the shared pages
+        const main = document.getElementsByTagName('main')[0]
+        if (main) {
+            main.addEventListener('scrollend', hideTooltip)
+        }
+
+        return () => {
+            if (main) {
+                main.removeEventListener('scrollend', hideTooltip)
+            }
+        }
+    }, [hideTooltipOnScroll])
 
     // Remove tooltip element on unmount
     useEffect(() => {
@@ -366,7 +397,7 @@ export function LineGraph_({
                     console.error(event)
                 }
 
-                Sentry.captureException(event)
+                posthog.captureException(event)
             }
 
             canvas.addEventListener('contextlost', handleEvent)
@@ -478,9 +509,10 @@ export function LineGraph_({
     ): Record<string, ScaleOptions<'linear' | 'logarithmic'>> {
         const defaultYAxisConfig = {
             display: !hideYAxis,
-            ...(isLog10 ? { type: 'logarithmic' as const } : { type: 'linear' as const }),
+            ...(isLog10
+                ? { type: 'logarithmic' as const, min: Math.pow(10, Math.ceil(Math.log10(seriesNonZeroMin)) - 1) }
+                : { type: 'linear' as const }),
             beginAtZero: true,
-            min: isLog10 ? Math.pow(10, Math.ceil(Math.log10(seriesNonZeroMin)) - 1) : undefined,
             stacked: showPercentStackView || isArea,
             ticks: {
                 ...tickOptions,
@@ -556,7 +588,7 @@ export function LineGraph_({
 
         const seriesNonZeroMax = Math.max(...datasets.flatMap((d) => d.data).filter((n) => !!n && n !== LOG_ZERO))
         const seriesNonZeroMin = Math.min(...datasets.flatMap((d) => d.data).filter((n) => !!n && n !== LOG_ZERO))
-        const precision = seriesNonZeroMax < 5 ? 1 : seriesNonZeroMax < 2 ? 2 : 0
+        const precision = seriesNonZeroMax < 2 ? 2 : seriesNonZeroMax < 5 ? 1 : 0
         const goalLines = _goalLines || []
         const goalLinesY = goalLines.map((a) => a.value)
         const goalLinesWithColor = goalLines.filter((goalLine) => Boolean(goalLine.borderColor))
@@ -564,7 +596,7 @@ export function LineGraph_({
         const tickOptions: Partial<TickOptions> = {
             color: colors.axisLabel as Color,
             font: {
-                family: '-apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"',
+                family: '"Emoji Flags Polyfill", -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"',
                 size: 12,
                 weight: 'normal',
             },
@@ -977,14 +1009,17 @@ export function LineGraph_({
         }
         Chart.register(ChartjsPluginStacked100)
         Chart.register(annotationPlugin)
-        const newChart = new Chart(canvasRef.current?.getContext('2d') as ChartItem, {
+
+        const chart = new Chart(canvasRef.current?.getContext('2d') as ChartItem, {
             type: (isBar ? GraphType.Bar : type) as ChartType,
             data: { labels, datasets },
             options,
             plugins: [ChartDataLabels],
         })
-        setMyLineChart(newChart)
-        return () => newChart.destroy()
+
+        setLineChart(chart)
+
+        return () => chart.destroy()
     }, [
         datasets,
         hiddenLegendIndexes,
@@ -1001,9 +1036,9 @@ export function LineGraph_({
     return (
         <div className={clsx('LineGraph w-full grow relative overflow-hidden')} data-attr={dataAttr}>
             <canvas ref={canvasRef} />
-            {showAnnotations && myLineChart && chartWidth && chartHeight ? (
+            {showAnnotations && lineChart && chartWidth && chartHeight ? (
                 <AnnotationsOverlay
-                    chart={myLineChart}
+                    chart={lineChart}
                     dates={datasets[0]?.days || []}
                     chartWidth={chartWidth}
                     chartHeight={chartHeight}

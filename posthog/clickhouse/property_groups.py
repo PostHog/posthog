@@ -2,8 +2,6 @@ import dataclasses
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 
-from posthog import settings
-
 
 TableName = str
 PropertySourceColumnName = str
@@ -139,6 +137,9 @@ ignore_custom_properties = [
     "igshid",  # instagram
     "ttclid",  # tiktok
     "rdt_cid",  # reddit
+    "epik",  # pinterest
+    "qclid",  # quora
+    "sccid",  # snapchat
     "irclid",  # impact
     "_kx",  # klaviyo
 ]
@@ -160,7 +161,6 @@ event_property_group_definitions = {
         "custom": PropertyGroupDefinition(
             f"key NOT LIKE '$%'",
             lambda key: not key.startswith("$"),
-            hidden=not settings.USE_PERSON_PROPERTIES_MAP_CUSTOM,
         ),
     },
 }

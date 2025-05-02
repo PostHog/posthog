@@ -15,9 +15,9 @@ export const sidePanelDiscussionLogic = kea<sidePanelDiscussionLogicType>([
         loadCommentCount: true,
         resetCommentCount: true,
     }),
-    connect({
+    connect(() => ({
         values: [featureFlagLogic, ['featureFlags'], sidePanelContextLogic, ['sceneSidePanelContext']],
-    }),
+    })),
     loaders(({ values }) => ({
         commentCount: [
             0,

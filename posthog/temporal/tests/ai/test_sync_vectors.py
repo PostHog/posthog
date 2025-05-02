@@ -114,6 +114,18 @@ def mock_flag(ateam):
         yield mock
 
 
+@pytest.fixture
+def cohere_mock():
+    with patch(
+        "posthog.temporal.ai.sync_vectors.get_async_cohere_client", return_value=cohere.AsyncClientV2(api_key="test")
+    ) as mock:
+        yield mock
+
+
+def _query_pg_embeddings() -> list[tuple]:
+    return sync_execute("SELECT * FROM pg_embeddings ORDER BY id")
+
+
 @pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_get_actions_qs(mock_flag, actions):
@@ -135,6 +147,32 @@ async def test_get_actions_qs(mock_flag, actions):
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
+async def test_get_actions_qs_with_deleted_actions(mock_flag, actions):
+    start_dt = timezone.now()
+
+    # Never summarized and deleted
+    action_1, action_2, action_3 = actions
+    action_1.deleted = True
+    await action_1.asave()
+
+    # Updated after last summarization
+    action_2.updated_at = start_dt - timedelta(hours=1)
+    action_2.last_summarized_at = start_dt - timedelta(hours=2)
+    await action_2.asave()
+
+    # Deleted but updated after last summarization
+    action_3.updated_at = start_dt - timedelta(hours=2)
+    action_3.last_summarized_at = start_dt - timedelta(hours=1)
+    action_3.deleted = True
+    await action_3.asave()
+
+    qs = await get_actions_qs(start_dt + timedelta(hours=1))
+    assert await qs.acount() == 2
+    assert {a async for a in qs.values_list("id", flat=True)} == {action_2.id, action_3.id}
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
 async def test_get_actions_qs_with_unapproved_organization(mock_flag, aorganization):
     aorganization.is_ai_data_processing_approved = False
     await aorganization.asave()
@@ -151,9 +189,8 @@ async def test_get_approximate_actions_count(mock_flag, actions):
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_basic_batch_summarization(mock_flag, actions):
+async def test_basic_batch_summarization(mock_flag, cohere_mock, actions):
     with (
-        patch("posthog.temporal.ai.sync_vectors.get_cohere_client", return_value=cohere.AsyncClientV2(api_key="test")),
         patch("posthog.temporal.ai.sync_vectors.abatch_summarize_actions") as summarize_mock,
     ):
         summarize_mock.return_value = ["Test1"]
@@ -193,10 +230,9 @@ async def test_basic_batch_summarization(mock_flag, actions):
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_batch_summarize_with_errors(mock_flag, actions: tuple[Action]):
+async def test_batch_summarize_with_errors(mock_flag, cohere_mock, actions: tuple[Action], ateam):
     with (
         patch("posthog.temporal.ai.sync_vectors.abatch_summarize_actions") as summarize_mock,
-        patch("posthog.temporal.ai.sync_vectors.get_cohere_client", return_value=cohere.AsyncClientV2(api_key="test")),
     ):
         summarize_mock.return_value = ["Test1", "Test2", ValueError()]
 
@@ -204,7 +240,7 @@ async def test_batch_summarize_with_errors(mock_flag, actions: tuple[Action]):
         await batch_summarize_actions(
             BatchSummarizeActionsInputs(offset=0, batch_size=96, start_dt=start_dt.isoformat())
         )
-        updated_actions = [action async for action in Action.objects.order_by("id").all()]
+        updated_actions = [action async for action in Action.objects.filter(team=ateam).order_by("id")]
         assert len(updated_actions) == 3
         assert updated_actions[0].summary == "Test1"
         assert updated_actions[1].summary == "Test2"
@@ -229,7 +265,7 @@ async def test_batch_summarize_with_errors(mock_flag, actions: tuple[Action]):
         assert summarize_mock.call_count == 1
         assert len(summarize_mock.call_args[0][0]) == 1
 
-        updated_actions = [action async for action in Action.objects.order_by("id").all()]
+        updated_actions = [action async for action in Action.objects.filter(team=ateam).order_by("id")]
         assert len(updated_actions) == 3
         assert ("Test1", "Test2", "Test3") == tuple(action.summary for action in updated_actions)
         assert [start_dt, start_dt, new_start_dt] == [action.last_summarized_at for action in updated_actions]
@@ -237,9 +273,8 @@ async def test_batch_summarize_with_errors(mock_flag, actions: tuple[Action]):
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_batch_embedding(mock_flag, actions):
+async def test_batch_embedding(mock_flag, cohere_mock, actions):
     with (
-        patch("posthog.temporal.ai.sync_vectors.get_cohere_client", return_value=cohere.AsyncClientV2(api_key="test")),
         patch("cohere.AsyncClientV2.embed") as embeddings_mock,
     ):
         # batch_size=1, one call
@@ -286,7 +321,6 @@ async def test_batch_embedding(mock_flag, actions):
         ]
 
 
-@patch("posthog.temporal.ai.sync_vectors.get_cohere_client", return_value=cohere.AsyncClientV2(api_key="test"))
 @pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_batch_embedding_with_errors(cohere_mock, mock_flag, actions: tuple[Action]):
@@ -353,7 +387,7 @@ async def test_clickhouse_sync_single_batch(mock_flag, summarized_actions, summa
     async with get_client() as client:
         await sync_action_vectors(client, summarized_actions_with_embeddings, 10, start_dt)
 
-        embeddings = sync_execute("SELECT * FROM pg_embeddings ORDER BY id")
+        embeddings = _query_pg_embeddings()
         assert len(embeddings) == 3
 
         expected_result = [
@@ -388,7 +422,7 @@ async def test_clickhouse_sync_multiple_batches(
     async with get_client() as client:
         await sync_action_vectors(client, summarized_actions_with_embeddings, 1, start_dt)
 
-        embeddings = sync_execute("SELECT * FROM pg_embeddings ORDER BY id")
+        embeddings = _query_pg_embeddings()
         assert len(embeddings) == 3
 
         expected_result = [
@@ -414,7 +448,6 @@ async def test_clickhouse_sync_multiple_batches(
             assert mock.call_count == 3
 
 
-@patch("posthog.temporal.ai.sync_vectors.get_cohere_client", return_value=cohere.AsyncClientV2(api_key="test"))
 @pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_batch_embed_and_sync_actions(cohere_mock, mock_flag, summarized_actions, ateam):
@@ -436,7 +469,7 @@ async def test_batch_embed_and_sync_actions(cohere_mock, mock_flag, summarized_a
         )
         assert result.has_more is True
 
-        rows = sync_execute("SELECT * FROM pg_embeddings ORDER BY id")
+        rows = _query_pg_embeddings()
         assert len(rows) == 3
 
         expected_result = [
@@ -462,11 +495,10 @@ async def test_batch_embed_and_sync_actions(cohere_mock, mock_flag, summarized_a
             )
         )
         assert result.has_more is False
-        rows = sync_execute("SELECT * FROM pg_embeddings ORDER BY id")
+        rows = _query_pg_embeddings()
         assert len(rows) == 3
 
 
-@patch("posthog.temporal.ai.sync_vectors.get_cohere_client", return_value=cohere.AsyncClientV2(api_key="test"))
 @pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_batch_embed_and_sync_actions_in_batches(cohere_mock, mock_flag, summarized_actions, ateam):
@@ -489,7 +521,7 @@ async def test_batch_embed_and_sync_actions_in_batches(cohere_mock, mock_flag, s
         )
         assert result.has_more is True
 
-        rows = sync_execute("SELECT * FROM pg_embeddings ORDER BY id")
+        rows = _query_pg_embeddings()
         assert len(rows) == 2
 
         result = await batch_embed_and_sync_actions(
@@ -502,7 +534,7 @@ async def test_batch_embed_and_sync_actions_in_batches(cohere_mock, mock_flag, s
         )
         assert result.has_more is True
 
-        rows = sync_execute("SELECT * FROM pg_embeddings ORDER BY id")
+        rows = _query_pg_embeddings()
         assert len(rows) == 3
 
         result = await batch_embed_and_sync_actions(
@@ -528,12 +560,11 @@ async def test_batch_embed_and_sync_actions_in_batches(cohere_mock, mock_flag, s
             for action, embedding in zip(summarized_actions, cycle(embeddings))
         ]
 
-        rows = sync_execute("SELECT * FROM pg_embeddings ORDER BY id")
+        rows = _query_pg_embeddings()
         assert len(rows) == 3
         assert expected_result == parse_records(rows)
 
 
-@patch("posthog.temporal.ai.sync_vectors.get_cohere_client", return_value=cohere.AsyncClientV2(api_key="test"))
 @pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_batch_embed_and_sync_actions_filters_out_actions(cohere_mock, mock_flag, ateam):
@@ -576,7 +607,7 @@ async def test_batch_embed_and_sync_actions_filters_out_actions(cohere_mock, moc
             )
             assert result.has_more is expected_has_more
 
-        rows = sync_execute("SELECT * FROM pg_embeddings ORDER BY id")
+        rows = _query_pg_embeddings()
         assert len(rows) == 3
 
         assert {str(actions[0].id), str(actions[1].id), str(actions[2].id)} == {
@@ -606,8 +637,75 @@ async def test_batch_embed_and_sync_actions_filters_out_actions_with_no_summary(
         )
     )
     assert result.has_more is False
-    rows = sync_execute("SELECT * FROM pg_embeddings ORDER BY id")
+    rows = _query_pg_embeddings()
     assert len(rows) == 0
+
+
+async def _create_actions_with_embedding_version(ateam, start_dt):
+    # Create actions with different last_summarized_at values
+    actions = [
+        Action(
+            team=ateam,
+            name="Before start 1",
+            last_summarized_at=start_dt - timedelta(days=1),
+            embedding_last_synced_at=start_dt - timedelta(hours=8),  # shouldn't be included by time filters
+            summary="Test1",
+            embedding_version=None,
+        ),  # Should be included
+        Action(
+            team=ateam,
+            name="Before start 2",
+            last_summarized_at=start_dt - timedelta(days=1),
+            embedding_last_synced_at=start_dt - timedelta(hours=8),  # shouldn't be included by time filters
+            summary="Test2",
+            embedding_version=1,
+        ),  # Should be included
+        Action(
+            team=ateam,
+            name="Before start 2",
+            last_summarized_at=start_dt - timedelta(days=1),
+            embedding_last_synced_at=start_dt - timedelta(days=2),
+            summary="Test2",
+            embedding_version=2,  # Should not be included by the version filter
+        ),  # Should be included
+    ]
+    await Action.objects.abulk_create(actions)
+    return actions
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_batch_embed_and_sync_actions_embedding_version(cohere_mock, mock_flag, ateam):
+    start_dt = timezone.now()
+    embeddings = [[0.1, 0.1], [0.2, 0.2], [0.3, 0.3]]
+
+    actions = await _create_actions_with_embedding_version(ateam, start_dt)
+
+    with patch("cohere.AsyncClientV2.embed") as embeddings_mock:
+        embeddings_mock.return_value = EmbeddingsByTypeEmbedResponse(
+            embeddings={"float_": embeddings},
+            id="test",
+            texts=["Test1", "Test2", "Test3"],
+        )
+
+        for expected_has_more in (True, False):
+            result = await batch_embed_and_sync_actions(
+                BatchEmbedAndSyncActionsInputs(
+                    start_dt=start_dt.isoformat(),
+                    insert_batch_size=1000,
+                    embeddings_batch_size=96,
+                    max_parallel_requests=4,
+                    embedding_version=2,
+                )
+            )
+            assert result.has_more is expected_has_more
+
+        rows = _query_pg_embeddings()
+        assert len(rows) == 3
+
+        assert {str(actions[0].id), str(actions[1].id), str(actions[2].id)} == {
+            action.id for action in parse_records(rows)
+        }
 
 
 @pytest.mark.asyncio
@@ -755,3 +853,46 @@ async def test_actions_workflow_cancels():
                     task_queue=settings.TEMPORAL_TASK_QUEUE,
                 )
             assert call_count == [3, 0, 0]
+
+
+@patch("cohere.AsyncClientV2.embed")
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_updates_embedding_version(embeddings_mock, cohere_mock, ateam):
+    start_dt = timezone.now()
+    actions = await _create_actions_with_embedding_version(ateam, start_dt)
+
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        embeddings_mock.return_value = EmbeddingsByTypeEmbedResponse(
+            embeddings={"float_": [[0.1, 0.1], [0.2, 0.2], [0.3, 0.3]]},
+            id="test",
+            texts=["Test1", "Test2", "Test3"],
+        )
+
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[SyncVectorsWorkflow],
+            activities=[
+                get_approximate_actions_count,
+                batch_summarize_actions,
+                batch_embed_and_sync_actions,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            await activity_environment.client.execute_workflow(
+                SyncVectorsWorkflow.run,
+                SyncVectorsInputs(start_dt=start_dt.isoformat(), delay_between_batches=0, embedding_version=2),
+                id=str(uuid.uuid4()),
+                task_queue=settings.TEMPORAL_TASK_QUEUE,
+            )
+
+            rows = _query_pg_embeddings()
+            assert len(rows) == 3
+            assert {str(actions[0].id), str(actions[1].id), str(actions[2].id)} == {
+                action.id for action in parse_records(rows)
+            }
+
+            for action in actions:
+                await action.arefresh_from_db()
+                assert action.embedding_version == 2

@@ -23,7 +23,7 @@ from clickhouse_driver import Client
 from clickhouse_pool import ChPool
 
 from posthog import settings
-from posthog.clickhouse.client.connection import NodeRole, _make_ch_pool, default_client
+from posthog.clickhouse.client.connection import NodeRole, Workload, _make_ch_pool, default_client
 from posthog.settings import CLICKHOUSE_PER_TEAM_SETTINGS
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 
@@ -185,6 +185,16 @@ class ClickhouseCluster:
 
         return task
 
+    def __hosts_by_role(
+        self, hosts: set[HostInfo], node_role: NodeRole, workload: Workload = Workload.DEFAULT
+    ) -> set[HostInfo]:
+        return {
+            host
+            for host in hosts
+            if (host.host_cluster_role == node_role.value.lower() or node_role == NodeRole.ALL)
+            and (host.host_cluster_type == workload.value.lower() or workload == Workload.DEFAULT)
+        }
+
     @property
     def __hosts(self) -> set[HostInfo]:
         """Set containing all hosts in the cluster."""
@@ -202,13 +212,15 @@ class ClickhouseCluster:
             host = next(iter(self.__hosts))
             return executor.submit(self.__get_task_function(host, fn))
 
-    def any_host_by_role(self, fn: Callable[[Client], T], node_role: NodeRole) -> Future[T]:
+    def any_host_by_role(
+        self, fn: Callable[[Client], T], node_role: NodeRole, workload: Workload = Workload.DEFAULT
+    ) -> Future[T]:
         """
         Execute the callable once for any host with the given node role.
         """
         with ThreadPoolExecutor() as executor:
             try:
-                host = next(host for host in self.__hosts if host.host_cluster_role == node_role.value.lower())
+                host = next(iter(self.__hosts_by_role(self.__hosts, node_role, workload)))
             except StopIteration:
                 raise ValueError(f"No hosts found with role {node_role.value}")
             return executor.submit(self.__get_task_function(host, fn))
@@ -227,6 +239,7 @@ class ClickhouseCluster:
         fn: Callable[[Client], T],
         node_role: NodeRole,
         concurrency: int | None = None,
+        workload: Workload = Workload.DEFAULT,
     ) -> FuturesMap[HostInfo, T]:
         """
         Execute the callable once for each host in the cluster with the given node role.
@@ -238,8 +251,7 @@ class ClickhouseCluster:
             return FuturesMap(
                 {
                     host: executor.submit(self.__get_task_function(host, fn))
-                    for host in self.__hosts
-                    if host.host_cluster_role == node_role.value.lower() or node_role == NodeRole.ALL
+                    for host in self.__hosts_by_role(self.__hosts, node_role, workload)
                 }
             )
 
@@ -252,13 +264,34 @@ class ClickhouseCluster:
         The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
         default limit of the executor.
         """
+        return self.map_hosts_in_shard_by_role(shard_num, fn, concurrency, NodeRole.ALL, Workload.DEFAULT)
+
+    def map_hosts_in_shard_by_role(
+        self,
+        shard_num: int,
+        fn: Callable[[Client], T],
+        concurrency: int | None = None,
+        node_role: NodeRole = NodeRole.ALL,
+        workload: Workload = Workload.DEFAULT,
+    ) -> FuturesMap[HostInfo, T]:
+        """
+        Execute the callable once for each host in the specified shard and role.
+
+        The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
+        default limit of the executor.
+        """
         with ThreadPoolExecutor(max_workers=concurrency) as executor:
             return FuturesMap(
-                {host: executor.submit(self.__get_task_function(host, fn)) for host in self.__shards[shard_num]}
+                {
+                    host: executor.submit(self.__get_task_function(host, fn))
+                    for host in self.__hosts_by_role(self.__shards[shard_num], node_role, workload)
+                }
             )
 
     def map_all_hosts_in_shards(
-        self, shard_fns: dict[int, Callable[[Client], T]], concurrency: int | None = None
+        self,
+        shard_fns: dict[int, Callable[[Client], T]],
+        concurrency: int | None = None,
     ) -> FuturesMap[HostInfo, T]:
         """
         Execute the callable once for each host in the specified shards.
@@ -287,10 +320,35 @@ class ClickhouseCluster:
         The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
         default limit of the executor.
         """
+        return self.map_any_host_in_shards_by_role(
+            shard_fns,
+            concurrency=concurrency,
+            node_role=NodeRole.ALL,
+            workload=Workload.DEFAULT,
+        )
+
+    def map_any_host_in_shards_by_role(
+        self,
+        shard_fns: dict[int, Callable[[Client], T]],
+        concurrency: int | None = None,
+        node_role: NodeRole = NodeRole.ALL,
+        workload: Workload = Workload.DEFAULT,
+    ) -> FuturesMap[HostInfo, T]:
+        """
+        Execute the callable on one host for each of the specified shards and role.
+
+        The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
+        default limit of the executor.
+        """
         shard_host_fns = {}
         for shard, fn in shard_fns.items():
-            host = next(iter(self.__shards[shard]))
-            shard_host_fns[host] = fn
+            try:
+                host = next(iter(self.__hosts_by_role(self.__shards[shard], node_role, workload)))
+                shard_host_fns[host] = fn
+            except StopIteration:
+                raise ValueError(
+                    f"No hosts found with role {node_role.value} and workload {workload.value} in shard {shard}"
+                )
 
         with ThreadPoolExecutor(max_workers=concurrency) as executor:
             return FuturesMap(
@@ -473,6 +531,7 @@ class MutationRunner(abc.ABC):
             mutations_running = self.find_existing_mutations(client, expected_commands)
             if mutations_running.keys() == expected_commands:
                 return MutationWaiter(self.table, set(mutations_running.values()))
+            time.sleep(1.0)
 
         raise Exception(
             f"unable to find mutation for {expected_commands - mutations_running.keys()!r} after {time.time() - start:0.2f}s!"

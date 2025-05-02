@@ -3,7 +3,7 @@ import { Upload } from '@aws-sdk/lib-storage'
 import { randomBytes } from 'crypto'
 import { PassThrough } from 'stream'
 
-import { status } from '../../../../utils/status'
+import { logger } from '../../../../utils/logger'
 import { SessionBatchFileStorage, SessionBatchFileWriter, WriteSessionResult } from './session-batch-file-storage'
 
 class S3SessionBatchFileWriter implements SessionBatchFileWriter {
@@ -24,7 +24,7 @@ class S3SessionBatchFileWriter implements SessionBatchFileWriter {
         this.stream = new PassThrough()
         this.key = this.generateKey()
 
-        status.debug('🔄', 's3_session_batch_writer_opening_stream', { key: this.key })
+        logger.debug('🔄', 's3_session_batch_writer_opening_stream', { key: this.key })
 
         const upload = new Upload({
             client: this.s3,
@@ -46,7 +46,7 @@ class S3SessionBatchFileWriter implements SessionBatchFileWriter {
         }, this.timeout)
 
         this.uploadPromise = upload.done().catch((error) => {
-            status.error('🔄', 's3_session_batch_writer_upload_error', { key: this.key, error })
+            logger.error('🔄', 's3_session_batch_writer_upload_error', { key: this.key, error })
             this.handleError(error)
             throw error
         })
@@ -122,7 +122,7 @@ class S3SessionBatchFileWriter implements SessionBatchFileWriter {
                     this.timeoutId = null
                 }
             } catch (error) {
-                status.error('🔄', 's3_session_batch_writer_upload_error', { key: this.key, error })
+                logger.error('🔄', 's3_session_batch_writer_upload_error', { key: this.key, error })
                 throw error
             }
         })
@@ -142,7 +142,7 @@ export class S3SessionBatchFileStorage implements SessionBatchFileStorage {
         private readonly prefix: string,
         private readonly timeout: number = 5000
     ) {
-        status.debug('🔁', 's3_session_batch_writer_created', { bucket, prefix })
+        logger.debug('🔁', 's3_session_batch_writer_created', { bucket, prefix })
     }
 
     public newBatch(): SessionBatchFileWriter {
@@ -155,7 +155,7 @@ export class S3SessionBatchFileStorage implements SessionBatchFileStorage {
             await this.s3.send(command)
             return true
         } catch (error) {
-            status.error('🔁', 's3_session_batch_writer_healthcheck_error', {
+            logger.error('🔁', 's3_session_batch_writer_healthcheck_error', {
                 bucket: this.bucket,
                 error,
             })
