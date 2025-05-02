@@ -219,6 +219,9 @@ export type KafkaConfig = Pick<
     | 'KAFKA_SASL_MECHANISM'
     | 'KAFKA_SASL_USER'
     | 'KAFKA_SASL_PASSWORD'
+    | 'KAFKA_CDP_PRODUCER_HOSTS'
+    | 'KAFKA_CDP_PRODUCER_SECURITY_PROTOCOL'
+    | 'KAFKA_CDP_PRODUCER_CLIENT_ID'
 >
 
 export function createKafkaClient({
