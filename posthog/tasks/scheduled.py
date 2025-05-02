@@ -371,8 +371,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     # Every 20 minutes, sync hog function templates
-    sender.add_periodic_task(
-        crontab(minute="*/20"),
+    add_periodic_task_with_expiry(
+        sender,
+        20 * 60,  # 20 minutes in seconds
         sync_hog_function_templates_task.s(),
         name="sync hog function templates",
     )
