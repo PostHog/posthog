@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0717_errortrackingassignmentrule_role_and_more"),
+        ("posthog", "0720_add_hog_function_template_model"),
     ]
 
     operations = [
