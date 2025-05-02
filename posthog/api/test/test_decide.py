@@ -1049,7 +1049,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "metadata": {
                     "id": bf.id,
                     "version": 1,
-                    "description": "Beta feature",
+                    "description": None,
                     "payload": None,
                 },
             },
@@ -1068,7 +1068,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "metadata": {
                     "id": mvFlag.id,
                     "version": 42,
-                    "description": "This is a feature flag with multiple variants.",
+                    "description": None,
                     "payload": {"color": "blue"},
                 },
             },
