@@ -245,6 +245,12 @@ class ProjectSecretAPIKeyUser:
         self.is_authenticated = True
         self.pk = 0
 
+    def has_perm(self, perm, obj=None):
+        return False
+
+    def has_module_perms(self, app_label):
+        return False
+
 
 class TemporaryTokenAuthentication(authentication.BaseAuthentication):
     def authenticate(self, request: Request):
