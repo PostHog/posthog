@@ -21,7 +21,6 @@ from django.db.models import Count
 from posthog.models import HogFunction
 from django.core.cache import cache
 from posthog.models.hog_function_template import HogFunctionTemplate as DBHogFunctionTemplate
-from django.conf import settings
 
 
 logger = structlog.get_logger(__name__)
@@ -142,31 +141,20 @@ class PublicHogFunctionTemplateViewSet(viewsets.GenericViewSet):
     permission_classes = [permissions.AllowAny]
     serializer_class = HogFunctionTemplateSerializer
 
-    def get_team(self):
-        """Helper method to get team from request if authenticated"""
-        try:
-            if hasattr(self.request, "user") and self.request.user and self.request.user.is_authenticated:
-                return self.request.user.team
-            return None
-        except Exception:
-            logger.debug("Failed to get team for public hog function template view")
-            return None
-
     def list(self, request: Request, *args, **kwargs):
-        team = self.get_team()
         types = ["destination"]
         sub_template_id = request.GET.get("sub_template_id")
+        use_db_templates = request.GET.get("dbTemplates") == "true"
 
         if "type" in request.GET:
             types = [self.request.GET.get("type", "destination")]
         elif "types" in request.GET:
             types = self.request.GET.get("types", "destination").split(",")
 
-        allowed_teams = [int(team_id) for team_id in settings.USE_DB_TEMPLATES_FOR_TEAMS]
         if sub_template_id:
-            # Always use in-memory sub_templates, for all teams
+            # Always use in-memory sub_templates
             templates_list = HogFunctionTemplates.sub_templates()
-        elif team and team.id in allowed_teams:
+        elif use_db_templates:
             templates_list = HogFunctionTemplates.templates_from_db()
         else:
             templates_list = HogFunctionTemplates.templates()
@@ -216,10 +204,10 @@ class PublicHogFunctionTemplateViewSet(viewsets.GenericViewSet):
         return self.get_paginated_response(serializer.data)
 
     def retrieve(self, request: Request, *args, **kwargs):
-        team = self.get_team()
-        allowed_teams = [int(team_id) for team_id in settings.USE_DB_TEMPLATES_FOR_TEAMS]
+        use_db_templates = request.GET.get("dbTemplates") == "true"
         template_id = kwargs["pk"]
-        if team and team.id in allowed_teams:
+
+        if use_db_templates:
             item = HogFunctionTemplates.template_from_db(template_id)
             if not item and template_id in HogFunctionTemplates._cached_sub_templates_by_id:
                 item = HogFunctionTemplates._cached_sub_templates_by_id[template_id]
