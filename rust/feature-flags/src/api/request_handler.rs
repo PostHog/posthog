@@ -168,7 +168,6 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
 
     // bill the flag request
     if filtered_flags
-        .clone()
         .flags
         .iter()
         .all(|f| !f.key.starts_with(SURVEY_TARGETING_FLAG_PREFIX))
