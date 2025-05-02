@@ -399,7 +399,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2022-01-10T12:11:00")
     @snapshot_clickhouse_queries
-    def test_user_group_assignee(self):
+    def test_role_assignee(self):
         issue_id = "e9ac529f-ac1c-4a96-bd3a-107034368d64"
         self.create_events_and_issue(
             issue_id=issue_id,
@@ -407,7 +407,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
             distinct_ids=[self.distinct_id_one],
         )
         flush_persons_and_events()
-        role = Role.objects.create(team=self.team, name="Test Team")
+        role = Role.objects.create(name="Test Team", organization=self.organization)
         ErrorTrackingIssueAssignment.objects.create(issue_id=issue_id, role=role)
 
         results = self._calculate(assignee={"type": "role", "id": str(role.id)})["results"]

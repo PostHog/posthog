@@ -33,7 +33,7 @@ export type RoleAssignee = {
 
 export type Assignee = UserAssignee | GroupAssignee | RoleAssignee | null
 
-interface RolesFuse extends Fuse<RoleType> {}
+export interface RolesFuse extends Fuse<RoleType> {}
 
 export const assigneeSelectLogic = kea<assigneeSelectLogicType>([
     path(['scenes', 'error-tracking', 'assigneeSelectLogic']),
@@ -89,7 +89,7 @@ export const assigneeSelectLogic = kea<assigneeSelectLogicType>([
         ],
         filteredRoles: [
             (s) => [s.roles, s.rolesFuse, s.search],
-            (roles, rolesFuse, search): UserGroup[] =>
+            (roles, rolesFuse, search): RoleType[] =>
                 search ? rolesFuse.search(search).map((result) => result.item) : roles ?? [],
         ],
 
