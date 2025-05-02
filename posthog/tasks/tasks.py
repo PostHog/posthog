@@ -2,6 +2,7 @@ import time
 from typing import Optional
 from uuid import UUID
 
+import posthoganalytics
 import requests
 from celery import shared_task
 from django.conf import settings
@@ -10,6 +11,7 @@ from django.utils import timezone
 from prometheus_client import Gauge
 from redis import Redis
 from structlog import get_logger
+from django.core.management import call_command
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_concurrency
 from posthog.clickhouse.query_tagging import tag_queries
@@ -897,20 +899,20 @@ def ee_persist_finished_recordings_v2() -> None:
         persist_finished_recordings_v2()
 
 
-# @shared_task(
-#     ignore_result=True,
-#     queue=CeleryQueue.SESSION_REPLAY_GENERAL.value,
-# )
-# def ee_count_items_in_playlists() -> None:
-#     try:
-#         from ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters import (
-#             enqueue_recordings_that_match_playlist_filters,
-#         )
-#     except ImportError as ie:
-#         posthoganalytics.capture_exception(ie, properties={"posthog_feature": "session_replay_playlist_counters"})
-#         logger.exception("Failed to import task to count items in playlists", error=ie)
-#     else:
-#         enqueue_recordings_that_match_playlist_filters()
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.SESSION_REPLAY_GENERAL.value,
+)
+def count_items_in_playlists() -> None:
+    try:
+        from ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters import (
+            enqueue_recordings_that_match_playlist_filters,
+        )
+    except ImportError as ie:
+        posthoganalytics.capture_exception(ie, properties={"posthog_feature": "session_replay_playlist_counters"})
+        logger.exception("Failed to import task to count items in playlists", error=ie)
+    else:
+        enqueue_recordings_that_match_playlist_filters()
 
 
 @shared_task(ignore_result=True)
@@ -921,3 +923,8 @@ def calculate_external_data_rows_synced() -> None:
         pass
     else:
         capture_external_data_rows_synced()
+
+
+@shared_task(ignore_result=True)
+def sync_hog_function_templates_task() -> None:
+    call_command("sync_hog_function_templates")

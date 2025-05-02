@@ -17,7 +17,6 @@ export function BulkActions(): JSX.Element {
     const { setSelectedIssueIds } = useActions(errorTrackingSceneLogic)
     const { results } = useValues(errorTrackingDataNodeLogic)
 
-    const hasAtLeastOneIssue = selectedIssueIds.length > 0
     const hasAtLeastTwoIssues = selectedIssueIds.length >= 2
 
     const currentStatus = results
@@ -34,8 +33,8 @@ export function BulkActions(): JSX.Element {
             return acc
         }, null)
 
-    return hasAtLeastOneIssue ? (
-        <>
+    return (
+        <div className="flex gap-x-2">
             <LemonButton
                 disabledReason={!hasAtLeastTwoIssues ? 'Select at least two issues to merge' : null}
                 type="secondary"
@@ -95,16 +94,12 @@ export function BulkActions(): JSX.Element {
                 }}
             />
             <AssigneeSelect assignee={null} onChange={(assignee) => assignIssues(selectedIssueIds, assignee)}>
-                {(displayAssignee) => {
-                    return (
-                        <LemonButton type="secondary" size="small">
-                            <AssigneeLabelDisplay assignee={displayAssignee} placeholder="Assign" />
-                        </LemonButton>
-                    )
-                }}
+                {(displayAssignee) => (
+                    <LemonButton type="secondary" size="small">
+                        <AssigneeLabelDisplay assignee={displayAssignee} placeholder="Assign" />
+                    </LemonButton>
+                )}
             </AssigneeSelect>
-        </>
-    ) : (
-        <></>
+        </div>
     )
 }

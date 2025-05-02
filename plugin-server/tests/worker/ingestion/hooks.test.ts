@@ -35,9 +35,7 @@ describe('hooks', () => {
             hookCommander = new HookCommander(
                 {} as any,
                 {} as any,
-                {} as any,
-                // @ts-expect-error - we don't need the whole Hook object
-                { enqueueIfEnabledForTeam: async () => Promise.resolve(false) },
+                { enqueueIfEnabledForTeam: async () => Promise.resolve(false) } as any,
                 { queueError: () => Promise.resolve(), queueMetric: () => Promise.resolve() } as unknown as AppMetrics,
                 20000
             )
@@ -53,6 +51,7 @@ describe('hooks', () => {
                 [
                   "https://example.com/",
                   {
+                    "agent": false,
                     "body": "{
                     "hook": {
                         "id": "id",
@@ -103,6 +102,7 @@ describe('hooks', () => {
                 [
                   "https://example.com/",
                   {
+                    "agent": false,
                     "body": "{
                     "hook": {
                         "id": "id",

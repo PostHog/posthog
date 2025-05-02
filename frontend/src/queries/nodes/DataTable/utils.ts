@@ -4,7 +4,7 @@ import { DataNode, DataTableNode, EventsQuery, HogQLExpression, NodeKind } from 
 export const defaultDataTableEventColumns: HogQLExpression[] = [
     '*',
     'event',
-    'person',
+    'person_display_name -- Person',
     'coalesce(properties.$current_url, properties.$screen_name) -- Url / Screen',
     'properties.$lib',
     'timestamp',

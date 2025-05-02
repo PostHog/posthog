@@ -1134,8 +1134,7 @@ async fn it_limits_non_batch_endpoints_to_2mb() -> Result<()> {
     });
 
     let res = server.capture_events(ok_event.to_string()).await;
-    // The events are too large to go in kafka, so we get a maximum event size exceeded error, but that's ok, because that's a 400, not a 413
-    assert_eq!(StatusCode::BAD_REQUEST, res.status());
+    assert_eq!(StatusCode::PAYLOAD_TOO_LARGE, res.status());
 
     let res = server.capture_events(nok_event.to_string()).await;
     assert_eq!(StatusCode::PAYLOAD_TOO_LARGE, res.status());
@@ -1175,8 +1174,7 @@ async fn it_limits_batch_endpoints_to_20mb() -> Result<()> {
     });
 
     let res = server.capture_to_batch(ok_event.to_string()).await;
-    // The events are too large to go in kafka, so we get a maximum event size exceeded error, but that's ok, because that's a 400, not a 413
-    assert_eq!(StatusCode::BAD_REQUEST, res.status());
+    assert_eq!(StatusCode::PAYLOAD_TOO_LARGE, res.status());
     let res = server.capture_to_batch(nok_event.to_string()).await;
     assert_eq!(StatusCode::PAYLOAD_TOO_LARGE, res.status());
 

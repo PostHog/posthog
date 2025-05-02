@@ -5,6 +5,10 @@ from langchain_core.runnables.base import RunnableLike
 from langgraph.graph.state import StateGraph
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
+from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
+from ee.hogai.utils.types import AssistantNodeName, AssistantState
+from posthog.models.team.team import Team
+
 from .funnels.nodes import (
     FunnelGeneratorNode,
     FunnelGeneratorToolsNode,
@@ -28,20 +32,18 @@ from .retention.nodes import (
     RetentionPlannerToolsNode,
 )
 from .root.nodes import RootNode, RootNodeTools
-from .trends.nodes import (
-    TrendsGeneratorNode,
-    TrendsGeneratorToolsNode,
-    TrendsPlannerNode,
-    TrendsPlannerToolsNode,
-)
 from .sql.nodes import (
     SQLGeneratorNode,
     SQLGeneratorToolsNode,
     SQLPlannerNode,
     SQLPlannerToolsNode,
 )
-from ee.hogai.utils.types import AssistantNodeName, AssistantState
-from posthog.models.team.team import Team
+from .trends.nodes import (
+    TrendsGeneratorNode,
+    TrendsGeneratorToolsNode,
+    TrendsPlannerNode,
+    TrendsPlannerToolsNode,
+)
 
 checkpointer = DjangoCheckpointer()
 
@@ -400,9 +402,20 @@ class AssistantGraph(BaseAssistantGraph):
         )
         return self
 
+    def add_title_generator(self, end_node: AssistantNodeName = AssistantNodeName.END):
+        builder = self._graph
+        self._has_start_node = True
+
+        title_generator = TitleGeneratorNode(self._team)
+        builder.add_node(AssistantNodeName.TITLE_GENERATOR, title_generator)
+        builder.add_edge(AssistantNodeName.START, AssistantNodeName.TITLE_GENERATOR)
+        builder.add_edge(AssistantNodeName.TITLE_GENERATOR, end_node)
+        return self
+
     def compile_full_graph(self):
         return (
-            self.add_memory_initializer()
+            self.add_title_generator()
+            .add_memory_initializer()
             .add_memory_collector()
             .add_memory_collector_tools()
             .add_root()

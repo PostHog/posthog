@@ -105,7 +105,7 @@ exports[`LegacyPluginExecutorService smoke tests should run the transformation p
 } 1`] = `
 [
   "(Event: $pageview) URL: https://posthog.com, Referrer: undefined, Referring domain: undefined",
-  "Plugin execution failed: Cannot read properties of undefined (reading 'indexOf')",
+  "(SNOWPLOW) Medium: unknown, Source: unknown, Term: undefined",
 ]
 `;
 

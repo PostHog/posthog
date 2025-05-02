@@ -146,6 +146,8 @@ export interface BasicListItem {
     ref?: React.MutableRefObject<HTMLElement | null>
     /** If this item is inside an accordion, this is the depth of the accordion. */
     depth?: number
+    /** Element to render at the end of the row */
+    endElement?: string | JSX.Element
 }
 
 export type ExtraListItemContext = string | Dayjs

@@ -8,7 +8,7 @@ import { allOperatorsMapping } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import React, { useState } from 'react'
 import { QUESTION_TYPE_ICON_MAP, SURVEY_RESPONSE_PROPERTY, SurveyQuestionLabel } from 'scenes/surveys/constants'
-import { getSurveyResponseKey } from 'scenes/surveys/utils'
+import { getSurveyIdBasedResponseKey } from 'scenes/surveys/utils'
 
 import {
     EventPropertyFilter,
@@ -31,6 +31,7 @@ const OPERATOR_OPTIONS: Record<SurveyQuestionType, OperatorOption[]> = {
         { label: allOperatorsMapping[PropertyOperator.Regex], value: PropertyOperator.Regex },
         { label: allOperatorsMapping[PropertyOperator.NotRegex], value: PropertyOperator.NotRegex },
         { label: allOperatorsMapping[PropertyOperator.Exact], value: PropertyOperator.Exact },
+        { label: allOperatorsMapping[PropertyOperator.IsNot], value: PropertyOperator.IsNot },
     ],
     [SurveyQuestionType.Rating]: [
         { label: allOperatorsMapping[PropertyOperator.Exact], value: PropertyOperator.Exact },
@@ -44,6 +45,7 @@ const OPERATOR_OPTIONS: Record<SurveyQuestionType, OperatorOption[]> = {
         { label: allOperatorsMapping[PropertyOperator.Regex], value: PropertyOperator.Regex },
         { label: allOperatorsMapping[PropertyOperator.NotRegex], value: PropertyOperator.NotRegex },
         { label: allOperatorsMapping[PropertyOperator.Exact], value: PropertyOperator.Exact },
+        { label: allOperatorsMapping[PropertyOperator.IsNot], value: PropertyOperator.IsNot },
     ],
     [SurveyQuestionType.MultipleChoice]: [
         { label: allOperatorsMapping[PropertyOperator.IContains], value: PropertyOperator.IContains },
@@ -67,13 +69,18 @@ function CopyResponseKeyButton({ questionId }: { questionId: string }): JSX.Elem
 }
 
 function _SurveyResponseFilters(): JSX.Element {
-    const { survey, answerFilters, propertyFilters } = useValues(surveyLogic)
+    const { survey, answerFilters, propertyFilters, defaultAnswerFilters } = useValues(surveyLogic)
     const { setAnswerFilters, setPropertyFilters } = useActions(surveyLogic)
     const [sqlHelperOpen, setSqlHelperOpen] = useState(false)
 
-    const handleUpdateFilter = (questionIndex: number, field: 'operator' | 'value', value: any): void => {
+    const handleResetFilters = (): void => {
+        setAnswerFilters(defaultAnswerFilters)
+        setPropertyFilters([])
+    }
+
+    const handleUpdateFilter = (questionId: string, field: 'operator' | 'value', value: any): void => {
         const newFilters = [...answerFilters]
-        const filterIndex = newFilters.findIndex((f) => f.key === getSurveyResponseKey(questionIndex))
+        const filterIndex = newFilters.findIndex((f) => f.key === getSurveyIdBasedResponseKey(questionId))
 
         if (filterIndex >= 0) {
             // Ensure we're working with an EventPropertyFilter
@@ -86,7 +93,7 @@ function _SurveyResponseFilters(): JSX.Element {
         } else {
             // Create new filter if one doesn't exist
             newFilters.push({
-                key: getSurveyResponseKey(questionIndex),
+                key: getSurveyIdBasedResponseKey(questionId),
                 type: PropertyFilterType.Event,
                 operator: PropertyOperator.Exact,
                 [field]: value,
@@ -95,23 +102,16 @@ function _SurveyResponseFilters(): JSX.Element {
         setAnswerFilters(newFilters)
     }
 
-    const getFilterForQuestion = (questionIndex: number): EventPropertyFilter | undefined => {
-        const filter = answerFilters.find((f) => f.key === getSurveyResponseKey(questionIndex))
+    const getFilterForQuestion = (questionId: string): EventPropertyFilter | undefined => {
+        const filter = answerFilters.find((f) => f.key === getSurveyIdBasedResponseKey(questionId))
         return filter
     }
 
     // Get the list of questions that have filters applied
-    const questionWithFiltersAvailable = (survey as Survey).questions
-        .map((question, index) => {
-            return {
-                ...question,
-                questionIndex: index,
-            }
-        })
-        .filter((question) => {
-            const operators = OPERATOR_OPTIONS[question.type] || []
-            return operators.length > 0
-        })
+    const questionWithFiltersAvailable = (survey as Survey).questions.filter((question) => {
+        const operators = OPERATOR_OPTIONS[question.type] || []
+        return operators.length > 0
+    })
 
     return (
         <div className="deprecated-space-y-2">
@@ -130,11 +130,15 @@ function _SurveyResponseFilters(): JSX.Element {
                     </div>
                     <div>
                         {questionWithFiltersAvailable.map((question, index) => {
-                            const currentFilter = getFilterForQuestion(question.questionIndex)
+                            if (!question.id) {
+                                return null
+                            }
+
+                            const currentFilter = getFilterForQuestion(question.id)
                             const operators = OPERATOR_OPTIONS[question.type] || []
 
                             return (
-                                <React.Fragment key={question.id ?? question.questionIndex}>
+                                <React.Fragment key={question.id}>
                                     {index > 0 && <LemonDivider className="my-0" label={FilterLogicalOperator.And} />}
                                     <div className="grid grid-cols-6 gap-2 p-2 items-center hover:bg-bg-light transition-all">
                                         <div className="col-span-3">
@@ -151,7 +155,7 @@ function _SurveyResponseFilters(): JSX.Element {
                                             <LemonSelect
                                                 value={currentFilter?.operator}
                                                 onChange={(val) =>
-                                                    handleUpdateFilter(question.questionIndex, 'operator', val)
+                                                    handleUpdateFilter(question.id ?? '', 'operator', val)
                                                 }
                                                 options={operators as LemonSelectOptions<PropertyOperator>}
                                                 className="w-full"
@@ -168,7 +172,7 @@ function _SurveyResponseFilters(): JSX.Element {
                                                         operator={currentFilter.operator}
                                                         value={currentFilter.value || []}
                                                         onSet={(value: any) =>
-                                                            handleUpdateFilter(question.questionIndex, 'value', value)
+                                                            handleUpdateFilter(question.id ?? '', 'value', value)
                                                         }
                                                         placeholder={
                                                             question.type === SurveyQuestionType.Rating
@@ -186,13 +190,22 @@ function _SurveyResponseFilters(): JSX.Element {
                     </div>
                 </div>
             )}
-            <div className="w-fit">
+            <div className="flex gap-2 justify-between">
                 <PropertyFilters
                     propertyFilters={propertyFilters}
                     onChange={setPropertyFilters}
                     pageKey="survey-results"
                     buttonText={questionWithFiltersAvailable.length > 1 ? 'More filters' : 'Add filters'}
                 />
+                <LemonButton
+                    size="small"
+                    type="secondary"
+                    icon={<IconCode />}
+                    onClick={handleResetFilters}
+                    className="self-start"
+                >
+                    Reset all filters
+                </LemonButton>
             </div>
 
             <SurveySQLHelper isOpen={sqlHelperOpen} onClose={() => setSqlHelperOpen(false)} />

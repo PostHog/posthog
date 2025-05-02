@@ -7,7 +7,10 @@ import { beforeUnload, router } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
+import { asyncSaveToModal } from 'lib/components/SaveTo/saveToLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import posthog from 'posthog-js'
@@ -284,6 +287,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             ['groupTypes'],
             userLogic,
             ['hasAvailableFeature'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [pipelineNodeLogic({ id: `hog-${id}`, stage: PipelineStage.Destination }), ['setBreadcrumbTitle']],
     })),
@@ -366,7 +371,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         }
                     }
 
-                    const res = await api.hogFunctions.getTemplate(props.templateId)
+                    const dbTemplates = !!values.featureFlags[FEATURE_FLAGS.GET_HOG_TEMPLATES_FROM_DB]
+                    const res = await api.hogFunctions.getTemplate(props.templateId, dbTemplates)
 
                     if (!res) {
                         throw new Error('Template not found')
@@ -596,6 +602,12 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     delete payload.inputs_schema
                 }
 
+                if (!props.id || props.id === 'new') {
+                    const folder = await asyncSaveToModal({})
+                    if (typeof folder === 'string') {
+                        payload._create_in_folder = folder
+                    }
+                }
                 await asyncActions.upsertHogFunction(payload as HogFunctionConfigurationType)
             },
         },
@@ -1049,6 +1061,17 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 // NOTE: Bit hacky but works good enough...
                 const configStr = JSON.stringify(configuration)
                 return configStr.includes('groups.') || configStr.includes('{groups}')
+            },
+        ],
+        mightDropEvents: [
+            (s) => [s.configuration, s.type],
+            (configuration, type) => {
+                if (type !== 'transformation') {
+                    return false
+                }
+                const hogCode = configuration.hog || ''
+
+                return mightDropEvents(hogCode)
             },
         ],
     })),

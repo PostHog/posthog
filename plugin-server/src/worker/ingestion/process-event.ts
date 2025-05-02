@@ -1,6 +1,5 @@
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
-import { MessageHeader } from 'node-rdkafka'
 import { Counter, Summary } from 'prom-client'
 
 import { KafkaProducerWrapper } from '../../kafka/producer'
@@ -25,11 +24,11 @@ import { MessageSizeTooLarge } from '../../utils/db/error'
 import { safeClickhouseString, sanitizeEventName, timeoutGuard } from '../../utils/db/utils'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
+import { TeamManager } from '../../utils/team-manager'
 import { castTimestampOrNow } from '../../utils/utils'
 import { GroupTypeManager, MAX_GROUP_TYPES_PER_TEAM } from './group-type-manager'
 import { addGroupProperties } from './groups'
 import { upsertGroup } from './properties-updater'
-import { TeamManager } from './team-manager'
 import { captureIngestionWarning } from './utils'
 
 // for e.g. internal events we don't want to be available for users in the UI
@@ -85,7 +84,7 @@ export class EventsProcessor {
             // We know `normalizeEvent` has been called here.
             const properties: Properties = data.properties!
 
-            const team = await this.teamManager.fetchTeam(teamId)
+            const team = await this.teamManager.getTeam(teamId)
             if (!team) {
                 throw new Error(`No team found with ID ${teamId}. Can't ingest event.`)
             }
@@ -258,14 +257,14 @@ export class EventsProcessor {
     }
 
     emitEvent(rawEvent: RawKafkaEvent, breadcrumbs: KafkaConsumerBreadcrumb[]): Promise<void> {
-        const headers: MessageHeader[] = []
-        headers.push({ 'kafka-consumer-breadcrumbs': Buffer.from(JSON.stringify(breadcrumbs)) })
         return this.kafkaProducer
             .produce({
                 topic: this.hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
                 key: rawEvent.uuid,
                 value: Buffer.from(JSON.stringify(rawEvent)),
-                headers: headers,
+                headers: {
+                    'kafka-consumer-breadcrumbs': JSON.stringify(breadcrumbs),
+                },
             })
             .catch(async (error) => {
                 // Some messages end up significantly larger than the original

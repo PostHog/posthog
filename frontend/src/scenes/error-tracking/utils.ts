@@ -3,15 +3,14 @@ import { ErrorTrackingException, ErrorTrackingRuntime } from 'lib/components/Err
 import { getRuntimeFromLib } from 'lib/components/Errors/utils'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { componentsToDayJs, dateStringToComponents, isStringDateRegex, objectsEqual } from 'lib/utils'
+import { Properties } from 'posthog-js'
 import { MouseEvent } from 'react'
 import { Params } from 'scenes/sceneTypes'
 
 import { DateRange, ErrorTrackingIssue } from '~/queries/schema/schema-general'
+import { isPostHogProperty } from '~/taxonomy/taxonomy'
 
 import { DEFAULT_ERROR_TRACKING_DATE_RANGE, DEFAULT_ERROR_TRACKING_FILTER_GROUP } from './errorTrackingLogic'
-
-export const ERROR_TRACKING_LOGIC_KEY = 'errorTracking'
-const THIRD_PARTY_SCRIPT_ERROR = 'Script error.'
 
 export const SEARCHABLE_EXCEPTION_PROPERTIES = [
     '$exception_types',
@@ -19,6 +18,14 @@ export const SEARCHABLE_EXCEPTION_PROPERTIES = [
     '$exception_sources',
     '$exception_functions',
 ]
+export const INTERNAL_EXCEPTION_PROPERTY_KEYS = [
+    '$exception_list',
+    '$exception_fingerprint_record',
+    '$exception_proposed_fingerprint',
+    ...SEARCHABLE_EXCEPTION_PROPERTIES,
+]
+export const ERROR_TRACKING_LOGIC_KEY = 'errorTracking'
+const THIRD_PARTY_SCRIPT_ERROR = 'Script error.'
 
 const volumePeriods: ('volumeRange' | 'volumeDay')[] = ['volumeRange', 'volumeDay']
 const sumVolumes = (...arrays: number[][]): number[] =>
@@ -68,24 +75,27 @@ export const mergeIssues = (
 export type ExceptionAttributes = {
     ingestionErrors?: string[]
     exceptionList: ErrorTrackingException[]
-    fingerprintRecords?: FingerprintRecordPart[]
+    fingerprintRecords: FingerprintRecordPart[]
     runtime: ErrorTrackingRuntime
     type?: string
     value?: string
     synthetic?: boolean
-    library?: string
+    lib?: string
+    libVersion?: string
     browser?: string
+    browserVersion?: string
     os?: string
+    osVersion?: string
     sentryUrl?: string
     level?: string
     url?: string
-    unhandled: boolean
+    handled: boolean
 }
 
 export function getExceptionAttributes(properties: Record<string, any>): ExceptionAttributes {
     const {
-        $lib,
-        $lib_version,
+        $lib: lib,
+        $lib_version: libVersion,
         $browser: browser,
         $browser_version: browserVersion,
         $os: os,
@@ -122,24 +132,35 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
     }
 
     const handled = exceptionList?.[0]?.mechanism?.handled ?? false
-    const runtime: ErrorTrackingRuntime = getRuntimeFromLib($lib)
+    const runtime: ErrorTrackingRuntime = getRuntimeFromLib(lib)
 
     return {
         type,
         value,
         synthetic,
         runtime,
-        library: $lib && $lib_version ? `${$lib} ${$lib_version}` : undefined,
-        browser: browser ? `${browser} ${browserVersion}` : undefined,
-        os: os ? `${os} ${osVersion}` : undefined,
-        url: url,
+        lib,
+        libVersion,
+        browser,
+        browserVersion,
+        os,
+        osVersion,
+        url,
         sentryUrl,
         exceptionList: exceptionList || [],
-        fingerprintRecords: fingerprintRecords,
-        unhandled: !handled,
+        fingerprintRecords: fingerprintRecords || [],
+        handled,
         level,
         ingestionErrors,
     }
+}
+
+export function getAdditionalProperties(properties: Properties, isCloudOrDev: boolean | undefined): Properties {
+    return Object.fromEntries(
+        Object.entries(properties).filter(([key]) => {
+            return !isPostHogProperty(key, isCloudOrDev)
+        })
+    )
 }
 
 export function getSessionId(properties: Record<string, any>): string | undefined {

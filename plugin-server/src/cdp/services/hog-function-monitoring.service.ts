@@ -15,7 +15,7 @@ import {
 import { fixLogDeduplication } from '../utils'
 import { convertToCaptureEvent } from '../utils'
 
-export const counterHogFunctionMetric = new Counter({
+const counterHogFunctionMetric = new Counter({
     name: 'cdp_hog_function_metric',
     help: 'A function invocation was evaluated with an outcome',
     labelNames: ['metric_kind', 'metric_name'],
@@ -122,7 +122,7 @@ export class HogFunctionMonitoringService {
                         delete result.capturedPostHogEvents
 
                         for (const event of capturedEvents ?? []) {
-                            const team = await this.hub.teamManager.fetchTeam(event.team_id)
+                            const team = await this.hub.teamManager.getTeam(event.team_id)
                             if (!team) {
                                 continue
                             }

@@ -928,11 +928,17 @@ def serialize_database(
             url_pattern=warehouse_table.url_pattern,
             schema=schema,
             source=source,
+            row_count=warehouse_table.row_count,
         )
 
     # Fetch all views in a single query
     all_views = (
-        DataWarehouseSavedQuery.objects.exclude(deleted=True).filter(team_id=context.team_id).all() if views else []
+        DataWarehouseSavedQuery.objects.select_related("table")
+        .exclude(deleted=True)
+        .filter(team_id=context.team_id)
+        .all()
+        if views
+        else []
     )
 
     # Process views using prefetched data
@@ -963,11 +969,16 @@ def serialize_database(
         if not saved_query:
             continue
 
+        row_count: int | None = None
+        if saved_query.table:
+            row_count = saved_query.table.row_count
+
         tables[view_name] = DatabaseSchemaViewTable(
             fields=fields_dict,
             id=str(saved_query.pk),
             name=view_name,
             query=HogQLQuery(query=saved_query.query["query"]),
+            row_count=row_count,
         )
 
     return tables

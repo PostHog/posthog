@@ -1,3 +1,5 @@
+from typing import Any
+
 from django.core.files.uploadedfile import UploadedFile
 import structlog
 import hashlib
@@ -11,23 +13,31 @@ from django.http import JsonResponse
 from django.conf import settings
 from django.db import transaction
 
+from common.hogvm.python.operation import Operation
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
+
 from posthog.api.utils import action
 from posthog.models.error_tracking import (
     ErrorTrackingIssue,
     ErrorTrackingSymbolSet,
+    ErrorTrackingAssignmentRule,
     ErrorTrackingStackFrame,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
 )
 from posthog.models.activity_logging.activity_log import log_activity, Detail, Change, load_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
+from posthog.models.error_tracking.hogvm_stl import RUST_HOGVM_STL
 from posthog.models.utils import uuid7
 from posthog.storage import object_storage
 from loginas.utils import is_impersonated_session
+from posthog.hogql.property import property_to_expr
+from posthog.hogql import ast
 
 from posthog.tasks.email import send_error_tracking_issue_assigned
+from posthog.hogql.compiler.bytecode import create_bytecode
+from posthog.schema import PropertyGroupFilterValue
 
 ONE_GIGABYTE = 1024 * 1024 * 1024
 JS_DATA_MAGIC = b"posthog_error_tracking"
@@ -50,10 +60,10 @@ class ErrorTrackingIssueAssignmentSerializer(serializers.ModelSerializer):
         fields = ["id", "type"]
 
     def get_id(self, obj):
-        return obj.user_id or obj.user_group_id
+        return obj.user_id or obj.user_group_id or obj.role_id
 
     def get_type(self, obj):
-        return "user_group" if obj.user_group else "user"
+        return "user_group" if obj.user_group else "role" if obj.role else "user"
 
 
 class ErrorTrackingIssueSerializer(serializers.ModelSerializer):
@@ -142,11 +152,26 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
 
         return Response({"success": True})
 
+    @action(methods=["GET"], detail=False)
+    def values(self, request: request.Request, **kwargs):
+        queryset = self.get_queryset()
+        value = request.GET.get("value", None)
+        key = request.GET.get("key")
+
+        issue_values = []
+        if key and value:
+            if key == "name":
+                issue_values = queryset.filter(name__icontains=value).values_list("name", flat=True)
+            elif key == "issue_description":
+                issue_values = queryset.filter(description__icontains=value).values_list("description", flat=True)
+
+        return Response([{"name": value} for value in issue_values])
+
     @action(methods=["POST"], detail=False)
     def bulk(self, request, **kwargs):
         action = request.data.get("action")
         status = request.data.get("status")
-        issues = self.queryset.filter(id__in=request.data.get("ids", []))
+        issues = self.get_queryset().filter(id__in=request.data.get("ids", []))
 
         with transaction.atomic():
             if action == "set_status":
@@ -235,8 +260,9 @@ def assign_issue(issue: ErrorTrackingIssue, assignee, organization, user, team_i
         assignment_after, _ = ErrorTrackingIssueAssignment.objects.update_or_create(
             issue_id=issue.id,
             defaults={
-                "user_id": None if assignee["type"] == "user_group" else assignee["id"],
-                "user_group_id": None if assignee["type"] == "user" else assignee["id"],
+                "user_id": None if assignee["type"] != "user" else assignee["id"],
+                "user_group_id": None if assignee["type"] != "user_group" else assignee["id"],
+                "role_id": None if assignee["type"] != "role" else assignee["id"],
             },
         )
 
@@ -381,6 +407,75 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         return Response({"ok": True}, status=status.HTTP_201_CREATED)
 
 
+class ErrorTrackingAssignmentRuleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ErrorTrackingAssignmentRule
+        fields = ["id", "filters"]
+        read_only_fields = ["team_id"]
+
+
+class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    scope_object = "error_tracking"
+    queryset = ErrorTrackingAssignmentRule.objects.all()
+    serializer_class = ErrorTrackingAssignmentRuleSerializer
+
+    def safely_get_queryset(self, queryset):
+        return queryset.filter(team_id=self.team.id)
+
+    def update(self, request, *args, **kwargs) -> Response:
+        assignment_rule = self.get_object()
+        assignee = request.data.get("assignee")
+        json_filters = request.data.get("filters")
+
+        if json_filters:
+            parsed_filters = PropertyGroupFilterValue(**json_filters)
+            assignment_rule.filters = json_filters
+            assignment_rule.bytecode = self.generate_byte_code(parsed_filters)
+
+        if assignee:
+            assignment_rule.user_id = None if assignee["type"] != "user" else assignee["id"]
+            assignment_rule.user_group_id = None if assignee["type"] != "user_group" else assignee["id"]
+            assignment_rule.role_id = None if assignee["type"] != "role" else assignee["id"]
+
+        assignment_rule.save()
+
+        return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
+
+    def create(self, request, *args, **kwargs) -> Response:
+        json_filters = request.data.get("filters")
+        assignee = request.data.get("assignee", None)
+
+        if not json_filters:
+            return Response({"error": "Filters are required"}, status=status.HTTP_400_BAD_REQUEST)
+        if not assignee:
+            return Response({"error": "Assignee is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        parsed_filters = PropertyGroupFilterValue(**json_filters)
+
+        bytecode = self.generate_byte_code(parsed_filters)
+
+        assignment_rule = ErrorTrackingAssignmentRule.objects.create(
+            team=self.team,
+            filters=json_filters,
+            bytecode=bytecode,
+            order_key=0,
+            user_id=None if assignee["type"] != "user" else assignee["id"],
+            user_group_id=None if assignee["type"] != "user_group" else assignee["id"],
+            role_id=None if assignee["type"] != "role" else assignee["id"],
+        )
+
+        serializer = ErrorTrackingAssignmentRuleSerializer(assignment_rule)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    def generate_byte_code(self, props: PropertyGroupFilterValue):
+        expr = property_to_expr(props, self.team, strict=True)
+        # The rust HogVM expects a return statement, so we wrap the compiled filter expression in one
+        with_return = ast.ReturnStatement(expr=expr)
+        bytecode = create_bytecode(with_return).bytecode
+        validate_bytecode(bytecode)
+        return bytecode
+
+
 def upload_symbol_set(minified: UploadedFile, source_map: UploadedFile) -> tuple[str, str]:
     js_data = construct_js_data_object(minified.read(), source_map.read())
     return upload_content(js_data)
@@ -423,3 +518,15 @@ def construct_js_data_object(minified: bytes, source_map: bytes) -> bytearray:
     data.extend(len(sm_bytes).to_bytes(8, "little"))
     data.extend(sm_bytes)
     return data
+
+
+def validate_bytecode(bytecode: list[Any]) -> None:
+    for i, op in enumerate(bytecode):
+        if not isinstance(op, Operation):
+            continue
+        if op == Operation.CALL_GLOBAL:
+            name = bytecode[i + 1]
+            if not isinstance(name, str):
+                raise ValidationError(f"Expected string for global function name, got {type(name)}")
+            if name not in RUST_HOGVM_STL:
+                raise ValidationError(f"Unknown global function: {name}")
