@@ -16,7 +16,7 @@ from posthog.schema import (
     PersonPropertyFilter,
     PropertyOperator,
 )
-from posthog.models.user_group import UserGroup
+from ee.models.rbac.role import Role
 from posthog.models.error_tracking import (
     ErrorTrackingIssue,
     ErrorTrackingIssueFingerprintV2,
@@ -407,10 +407,10 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
             distinct_ids=[self.distinct_id_one],
         )
         flush_persons_and_events()
-        user_group = UserGroup.objects.create(team=self.team, name="Test Team")
-        ErrorTrackingIssueAssignment.objects.create(issue_id=issue_id, user_group=user_group)
+        role = Role.objects.create(team=self.team, name="Test Team")
+        ErrorTrackingIssueAssignment.objects.create(issue_id=issue_id, role=role)
 
-        results = self._calculate(assignee={"type": "user_group", "id": str(user_group.id)})["results"]
+        results = self._calculate(assignee={"type": "role", "id": str(role.id)})["results"]
         self.assertEqual([x["id"] for x in results], [issue_id])
 
     @freeze_time("2020-01-12")
