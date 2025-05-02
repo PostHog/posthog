@@ -121,9 +121,9 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                     "values": [{
                         "key": "promoCodes",
                         "type": "person",
-                        "value": "",
+                        "value": ["1234567890"],
                         "negation": false,
-                        "operator": "icontains"
+                        "operator": "exact"
                     }]
                 }]
             }
