@@ -2,8 +2,12 @@ use crate::{
     api::{errors::FlagError, types::FlagsResponse},
     cohorts::cohort_cache_manager::CohortCacheManager,
     flags::{
-        flag_group_type_mapping::GroupTypeMappingCache, flag_matching::FeatureFlagMatcher,
-        flag_models::FeatureFlagList, flag_request::FlagRequest, flag_service::FlagService,
+        flag_analytics::{increment_request_count, SURVEY_TARGETING_FLAG_PREFIX},
+        flag_group_type_mapping::GroupTypeMappingCache,
+        flag_matching::FeatureFlagMatcher,
+        flag_models::FeatureFlagList,
+        flag_request::{FlagRequest, FlagRequestType},
+        flag_service::FlagService,
     },
     metrics::consts::FLAG_REQUEST_KLUDGE_COUNTER,
     router,
@@ -153,7 +157,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
         team_id,
         project_id,
         distinct_id,
-        filtered_flags,
+        filtered_flags.clone(),
         person_prop_overrides,
         group_prop_overrides,
         groups,
@@ -161,6 +165,29 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
         context.request_id,
     )
     .await;
+
+    // bill the flag request
+    if filtered_flags
+        .flags
+        .iter()
+        .all(|f| !f.key.starts_with(SURVEY_TARGETING_FLAG_PREFIX))
+    // NB don't charge if all the flags are survey targeting flags
+    {
+        if let Err(e) = increment_request_count(
+            context.state.redis.clone(),
+            team_id,
+            1,
+            FlagRequestType::Decide,
+        )
+        .await
+        {
+            inc(
+                "flag_request_redis_error",
+                &[("error".to_string(), e.to_string())],
+                1,
+            );
+        }
+    }
 
     Ok(response)
 }
