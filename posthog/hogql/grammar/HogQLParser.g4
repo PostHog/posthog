@@ -50,9 +50,7 @@ kvPair: expression ':' expression ;
 kvPairList: kvPair (COMMA kvPair)* COMMA?;
 
 
-// SQL statements
-
-// SELECT statement and its variants
+// SELECT statement
 select: (selectSetStmt | selectStmt | hogqlxTagElement) EOF;
 
 // CREATE statement 
