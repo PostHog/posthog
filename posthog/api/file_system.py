@@ -104,6 +104,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         parent_param = self.request.query_params.get("parent")
         path_param = self.request.query_params.get("path")
         type_param = self.request.query_params.get("type")
+        not_type_param = self.request.query_params.get("not_type")
         type__startswith_param = self.request.query_params.get("type__startswith")
         ref_param = self.request.query_params.get("ref")
         order_by_param = self.request.query_params.get("order_by")
@@ -121,6 +122,8 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             queryset = queryset.filter(path__startswith=f"{parent_param}/")
         if type_param:
             queryset = queryset.filter(type=type_param)
+        if not_type_param:
+            queryset = queryset.exclude(type=not_type_param)
         if type__startswith_param:
             queryset = queryset.filter(type__startswith=type__startswith_param)
 

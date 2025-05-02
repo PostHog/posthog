@@ -515,6 +515,14 @@ class TestFileSystemAPI(APIBaseTest):
         # Expecting 2 items with type starting with 'd'
         self.assertEqual(data["count"], 2)
 
+        # Filter by type 'doc'
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/?not_type=doc")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        # Expecting 1 items with type 'img'
+        self.assertEqual(data["count"], 1)
+        self.assertEqual(data["results"][0]["type"], "img")
+
     def test_link_file_endpoint(self):
         """
         Test linking a file creates a new file with an updated path and that missing parent folders are auto-created.

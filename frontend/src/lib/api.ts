@@ -1295,6 +1295,7 @@ const api = {
             orderBy,
             search,
             ref,
+            notType,
             type,
             type__startswith,
         }: {
@@ -1306,6 +1307,7 @@ const api = {
             orderBy?: string
             search?: string
             ref?: string
+            notType?: string
             type?: string
             type__startswith?: string
         }): Promise<CountedPaginatedResponse<FileSystemEntry>> {
@@ -1320,6 +1322,7 @@ const api = {
                     search,
                     ref,
                     type,
+                    not_type: notType,
                     order_by: orderBy,
                     type__startswith,
                 })

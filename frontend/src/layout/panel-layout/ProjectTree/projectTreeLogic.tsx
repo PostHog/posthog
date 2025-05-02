@@ -171,6 +171,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     const response = await api.fileSystem.list({
                         offset,
                         orderBy: '-created_at',
+                        notType: 'folder',
                         limit: PAGINATION_LIMIT + 1,
                     })
                     breakpoint()
