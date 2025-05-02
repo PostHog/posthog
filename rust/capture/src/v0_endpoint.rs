@@ -71,12 +71,13 @@ async fn handle_legacy(
         .get("user-agent")
         .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
 
-    // extract the raw payload from the request which may include:
-    // - GZIP or lz64 compressed blob representing ANY of the below options :)
-    // - POST body: "raw" JSON which we can hydrate into the event/batch shape we expect
-    // - GET query params or POST form KVs including:
-    //     - data = JSON event/batch payload which may be compressed or base64 encoded or both
+    // extract the raw payload from the request which may include
+    // GZIP or lz64 compressed blob representing ANY of the below options:
+    // 1. JSON POST body that may itself be base64 encoded
+    // 2. GET query params or POST form KVs including:
+    //     - data        = JSON payload which may itself be compressed or base64 encoded or both
     //     - compression = optional hint to how "data" is encoded or compressed
+    //     - lib_version = optional SDK version that submitted this request
     let raw_payload: Bytes = match *method {
         Method::POST => {
             if !body.is_empty() {
@@ -138,15 +139,19 @@ async fn handle_legacy(
             }
         }
 
-        // TODO(eli): check capture.py wrt details here or add best-effort path
-        // can always observe these with rich logging from mirror then figure how
-        // to best classify them based on per-SDK quirks we see
+        // TODO(eli): circle back after more SDK research
         unexpected_ct => {
-            error!("unexpected content-type");
-            return Err(CaptureError::RequestParsingError(format!(
-                "unsupported Content-Type: {}",
+            // headers should be included in this log already to see what happened
+            warn!(
+                "handle_legacy: unexpected req Content-Type {}, applying best-effort processing",
                 unexpected_ct
-            )));
+            );
+            // make a best-effort attempt to get this parsed downstream
+            LegacyEventForm {
+                data: Vec::from(raw_payload),
+                compression: None,
+                lib_version: None,
+            }
         }
     };
 
@@ -154,8 +159,8 @@ async fn handle_legacy(
     let compression = extract_compression(method, &form, query_params, headers);
     Span::current().record("compression", format!("{}", compression));
 
-    let lib_version = extract_lib_version(&form, query_params); // TODO(eli): check headers here too?
-    Span::current().record("lib_version", lib_version);
+    let lib_version = extract_lib_version(&form, query_params);
+    Span::current().record("lib_version", &lib_version);
 
     // TODO(eli): Add is_mirror_deploy to error logging in RawRequest::from_bytes
     let request = RawRequest::from_bytes(
@@ -187,9 +192,8 @@ async fn handle_legacy(
 
     counter!("capture_events_received_total", &[("legacy", "true")]).increment(events.len() as u64);
 
-    // TODO(eli): implement extract_lib_version with more flexible approach!
     let context = ProcessingContext {
-        lib_version: query_params.lib_version.clone(),
+        lib_version,
         sent_at,
         token,
         now: state.timesource.current_time(),
@@ -215,17 +219,18 @@ async fn handle_legacy(
     Ok((context, events))
 }
 
-fn extract_lib_version(form: &LegacyEventForm, params: &EventQuery) -> String {
+// TODO(eli): confirm in SDK code we shouldn't fall back to req headers if all else fails here
+fn extract_lib_version(form: &LegacyEventForm, params: &EventQuery) -> Option<String> {
     let form_lv = form.lib_version.as_ref();
     let params_lv = params.lib_version.as_ref();
     if form_lv.is_some_and(|lv| !lv.is_empty()) {
-        return form_lv.unwrap().clone();
+        return Some(form_lv.unwrap().clone());
     }
     if params_lv.is_some_and(|lv| !lv.is_empty()) {
-        return params_lv.unwrap().clone();
+        return Some(params_lv.unwrap().clone());
     }
 
-    String::from("")
+    None
 }
 
 // the compression hint can be tucked away any number of places depending on the SDK submitting the request...
@@ -402,9 +407,9 @@ async fn handle_common(
 
             // by setting compression "unsupported" here, we route handle_common
             // outputs into the old RawRequest hydration behavior, prior to adding
-            // handle_legacy shims. handle_common doesn't extract hints or detect
-            // compression as reliably as it should, given our known-active SDK
-            // formats. we'll circle back after legacy shims ship to deal with it
+            // handle_legacy shims. handle_common doesn't extract compression hints
+            // as reliably as it should, and is probably losing some data due to
+            // this. We'll circle back once the legacy shims ship
             RawRequest::from_bytes(
                 payload.into(),
                 Compression::Unsupported,
@@ -414,7 +419,7 @@ async fn handle_common(
         }
         ct => {
             Span::current().record("content_type", ct);
-            // compression is ignored this way, as it was in the "/i" only RawEvent handling
+            // see above for details
             RawRequest::from_bytes(
                 body,
                 Compression::Unsupported,
@@ -500,12 +505,8 @@ pub async fn event_legacy(
 
     match handle_legacy(&state, &ip, &mut params, &headers, &method, &path, body).await {
         Err(CaptureError::BillingLimit) => {
-            // for v0 we want to just return ok 🙃
-            // this is because the clients are pretty dumb and will just retry over and over and
-            // over...
-            //
-            // for v1, we'll return a meaningful error code and error, so that the clients can do
-            // something meaningful with that error
+            // Short term: return OK here to avoid clients retrying over and over
+            // Long term: v1 endpoints will return richer errors, sync w/SDK behavior
             Ok(Json(CaptureResponse {
                 status: CaptureResponseCode::Ok,
                 quota_limited: None,
