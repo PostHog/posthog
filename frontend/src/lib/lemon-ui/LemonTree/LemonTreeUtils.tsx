@@ -56,9 +56,9 @@ export const TreeNodeDisplayIconWrapper = ({
                         onItemChecked?.(item.id, checked, shift)
                     }}
                     className={cn('absolute z-2', {
-                        // Apply hidden class only when hovering the (conditional)group and there are no checked items
+                        // Hide checkboxwhen select mode is default/folder only
                         'hidden group-hover/lemon-tree-icon-wrapper:block transition-all duration-50':
-                            selectMode === 'default',
+                            selectMode === 'default' || selectMode === 'folder-only',
                     })}
                     style={{
                         left: `${defaultOffset}px`,
