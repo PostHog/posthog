@@ -172,11 +172,13 @@ async def test_get_sync_schedule(external_data_source, team, sync_frequency_inte
     schedule_start = _get_expected_start_time(external_data_schema, sync_time, now)
     expected_runs = [schedule_start + i * external_data_schema.sync_frequency_interval for i in range(len(next_runs))]
 
-    # For some reason, Temporal will not schedule the first run more than 10 or 11 days in the future
-    # so we need to handle this case separately. We don't care too much about this since we will always create the
-    # schedule using `trigger_immediately=True` and we don't want the tests to be flaky, so we just check the first
-    # run is within an expected range and the interval is correct.
-    if external_data_schema.sync_frequency_interval > dt.timedelta(days=7):
+    # For some reason, Temporal does not always reliably schedule the first run when the interval is more than 1 day
+    # so we need to handle this case separately. For example for weekly schedules it will sometimes schedule the first
+    # run in 6 days time, and for monthly intervals it often schedules the first run for only 10 days in the future. We
+    # don't care too much about this since we will always create the schedule using `trigger_immediately=True` and we
+    # don't want the tests to be flaky, so we just check the first run is within an expected range and the interval is
+    # correct.
+    if external_data_schema.sync_frequency_interval > dt.timedelta(days=1):
         next_run = next_runs[0]
         assert next_run < schedule_start + external_data_schema.sync_frequency_interval
         # Check interval between runs
