@@ -21,7 +21,7 @@ class HobbyTester:
         name=None,
         region="sfo3",
         image="ubuntu-22-04-x64",
-        size="s-4vcpu-8gb",
+        size="s-8vcpu-16gb",
         release_tag="latest-release",
         branch=None,
         hostname=None,
