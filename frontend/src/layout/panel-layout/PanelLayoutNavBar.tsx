@@ -169,6 +169,18 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             tooltip: isLayoutPanelVisible ? 'Close project tree' : 'Open project tree',
         },
         {
+            identifier: 'Recent',
+            id: 'Recent',
+            icon: <IconClock className="stroke-[1.2]" />,
+            onClick: (e?: React.KeyboardEvent) => {
+                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
+                    handlePanelTriggerClick('Recent')
+                }
+            },
+            showChevron: true,
+            tooltip: isLayoutPanelVisible ? 'Close recent' : 'Open recent',
+        },
+        {
             identifier: 'Dashboards',
             id: 'Dashboards',
             icon: <IconDashboard />,
@@ -290,7 +302,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                 data-attr={`menu-item-${item.identifier.toString().toLowerCase()}`}
                                                 buttonProps={{
                                                     menuItem: !isLayoutNavCollapsed,
-                                                    active: item.id === 'Project' && isLayoutPanelVisible,
+                                                    active: activePanelIdentifier === item.id,
                                                     className: 'group',
                                                     iconOnly: isLayoutNavCollapsed,
                                                 }}
@@ -310,7 +322,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                 {!isLayoutNavCollapsed && (
                                                     <>
                                                         <span className="truncate">{item.id}</span>
-                                                        {item.id === 'Project' && (
+                                                        {item.showChevron && (
                                                             <span className="ml-auto">
                                                                 <IconChevronRight className="size-3 text-secondary" />
                                                             </span>

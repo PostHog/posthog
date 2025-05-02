@@ -1,4 +1,4 @@
-import { IconChevronRight, IconFolder, IconFolderPlus, IconSort } from '@posthog/icons'
+import { IconChevronRight, IconFolder, IconFolderPlus } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { MoveFilesModal } from 'lib/components/FileSystem/MoveFilesModal'
 import { ResizableDiv } from 'lib/components/ResizeElement/ResizeElement'
@@ -15,19 +15,12 @@ import {
     ContextMenuSubTrigger,
 } from 'lib/ui/ContextMenu/ContextMenu'
 import {
-    DropdownMenu,
-    DropdownMenuContent,
     DropdownMenuGroup,
     DropdownMenuItem,
-    DropdownMenuItemIndicator,
-    DropdownMenuLabel,
-    DropdownMenuRadioGroup,
-    DropdownMenuRadioItem,
     DropdownMenuSeparator,
     DropdownMenuSub,
     DropdownMenuSubContent,
     DropdownMenuSubTrigger,
-    DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
 import { RefObject, useEffect, useRef } from 'react'
@@ -39,7 +32,11 @@ import { PanelLayoutPanel } from '../PanelLayoutPanel'
 import { projectTreeLogic, ProjectTreeSortMethod } from './projectTreeLogic'
 import { calculateMovePath } from './utils'
 
-export function ProjectTree(): JSX.Element {
+export interface ProjectTreeProps {
+    sortMethod: ProjectTreeSortMethod
+}
+
+export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
     const {
         treeData,
         treeTableKeys,
@@ -57,9 +54,9 @@ export function ProjectTree(): JSX.Element {
         editingItemId,
         checkedItemsArray,
         movingItems,
-        sortMethod,
         treeTableColumnSizes,
         treeTableTotalWidth,
+        sortMethod: projectSortMethod,
     } = useValues(projectTreeLogic)
 
     const {
@@ -99,6 +96,12 @@ export function ProjectTree(): JSX.Element {
     useEffect(() => {
         setPanelTreeRef(treeRef)
     }, [treeRef, setPanelTreeRef])
+
+    useEffect(() => {
+        if (projectSortMethod !== sortMethod) {
+            setSortMethod(sortMethod)
+        }
+    }, [sortMethod, projectSortMethod])
 
     // When logic requests a scroll, focus the item and clear the request
     useEffect(() => {
@@ -339,61 +342,20 @@ export function ProjectTree(): JSX.Element {
 
     return (
         <PanelLayoutPanel
-            searchPlaceholder="Search your project"
+            searchPlaceholder={sortMethod === 'recent' ? 'Search recent items' : 'Search your project'}
             panelActions={
                 <>
-                    <ButtonPrimitive onClick={() => createFolder('')} tooltip="New root folder">
-                        <IconFolderPlus className="text-tertiary" />
-                    </ButtonPrimitive>
+                    {sortMethod !== 'recent' ? (
+                        <ButtonPrimitive onClick={() => createFolder('')} tooltip="New root folder">
+                            <IconFolderPlus className="text-tertiary" />
+                        </ButtonPrimitive>
+                    ) : null}
                     {checkedItemCountNumeric > 0 && checkedItemsCount !== '0+' ? (
                         <ButtonPrimitive onClick={() => setCheckedItems({})} tooltip="Clear">
                             <LemonTag type="highlight">{checkedItemsCount} selected</LemonTag>
                         </ButtonPrimitive>
                     ) : null}
                 </>
-            }
-            panelFilters={
-                <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                        <ButtonPrimitive
-                            className="max-w-[210px]"
-                            iconOnly
-                            tooltip={
-                                sortMethod === 'created_at'
-                                    ? 'Currently sorted by creation date'
-                                    : 'Currently sorted alphabetically'
-                            }
-                            aria-label={
-                                sortMethod === 'created_at'
-                                    ? 'Currently sorted by creation date'
-                                    : 'Currently sorted alphabetically'
-                            }
-                        >
-                            <IconSort className="text-tertiary" />
-                        </ButtonPrimitive>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent loop align="end" className="w-[180px]">
-                        <DropdownMenuLabel inset>Sort by</DropdownMenuLabel>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuRadioGroup
-                            value={sortMethod}
-                            onValueChange={(value) => setSortMethod(value as ProjectTreeSortMethod)}
-                        >
-                            <DropdownMenuRadioItem value="alphabetical" asChild>
-                                <ButtonPrimitive menuItem>
-                                    <DropdownMenuItemIndicator intent="radio" />
-                                    Folder
-                                </ButtonPrimitive>
-                            </DropdownMenuRadioItem>
-                            <DropdownMenuRadioItem value="created_at" asChild>
-                                <ButtonPrimitive menuItem>
-                                    <DropdownMenuItemIndicator intent="radio" />
-                                    Recent
-                                </ButtonPrimitive>
-                            </DropdownMenuRadioItem>
-                        </DropdownMenuRadioGroup>
-                    </DropdownMenuContent>
-                </DropdownMenu>
             }
         >
             {/* Does not work locally ??? */}
