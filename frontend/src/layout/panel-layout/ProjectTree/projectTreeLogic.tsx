@@ -108,6 +108,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         setEditingItemId: (id: string) => ({ id }),
         setMovingItems: (items: FileSystemEntry[]) => ({ items }),
         setSelectMode: (selectMode: LemonTreeSelectMode) => ({ selectMode }),
+        setTreeTableColumnSizes: (sizes: number[]) => ({ sizes }),
     }),
     loaders(({ actions, values }) => ({
         unfiledItems: [
@@ -498,8 +499,19 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 setSelectMode: (_, { selectMode }) => selectMode,
             },
         ],
+        treeTableColumnSizes: [
+            [350, 200, 200] as number[],
+            { persist: true },
+            {
+                setTreeTableColumnSizes: (_, { sizes }) => sizes,
+            },
+        ],
     }),
     selectors({
+        treeTableColumnOffsets: [
+            (s) => [s.treeTableColumnSizes],
+            (sizes): number[] => sizes.map((_, index) => sizes.slice(0, index).reduce((acc, s) => acc + s, 0)),
+        ],
         savedItems: [
             (s) => [s.folders, s.folderStates],
             (folders): FileSystemEntry[] =>
@@ -775,31 +787,35 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
         // TODO: use treeData + some other logic to determine the keys
         treeTableKeys: [
-            () => [],
-            (): TreeTableViewKeys => ({
+            (s) => [s.treeTableColumnSizes, s.treeTableColumnOffsets],
+            (sizes, offsets): TreeTableViewKeys => ({
                 headers: [
                     {
                         key: 'name',
                         title: 'Name',
                         tooltip: (value: string) => value,
-                        width: 350,
+                        width: sizes[0],
+                        offset: offsets[0],
                     },
                     {
                         key: 'record.created_at',
                         title: 'Created at',
                         formatFunction: (value: string) => dayjs(value).format('MMM D, YYYY'),
                         tooltip: (value: string) => dayjs(value).format('MMM D, YYYY HH:mm:ss'),
-                        width: 200,
+                        width: sizes[1],
+                        offset: offsets[1],
                     },
                     {
                         key: 'record.created_by.first_name',
                         title: 'Created by',
                         tooltip: (value: string) => value,
-                        width: 200,
+                        width: sizes[2],
+                        offset: offsets[2],
                     },
                 ],
             }),
         ],
+        treeTableTotalWidth: [(s) => [s.treeTableColumnSizes], (sizes): number => sizes.reduce((acc, s) => acc + s, 0)],
         checkedItemCountNumeric: [
             (s) => [s.checkedItems],
             (checkedItems): number => Object.values(checkedItems).filter((v) => !!v).length,
