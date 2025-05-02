@@ -173,7 +173,7 @@ class TeamMemberAccessPermission(BasePermission):
         if isinstance(request.user, ProjectSecretAPIKeyUser):
             # NOTE: If the user is a ProjectSecretAPIKeyUser then we've already checked that they have access to the team
             # and that this request is for the local_evaluation endpoint.
-            return True
+            return request.resolver_match and request.resolver_match.view_name == "featureflag-local-evaluation"
 
         # NOTE: The naming here is confusing - "current_team" refers to the team that the user_permissions was initialized with
         # - not the "current_team" property of the user
@@ -506,7 +506,7 @@ class AccessControlPermission(ScopeBasePermission):
         if isinstance(request.user, ProjectSecretAPIKeyUser):
             # NOTE: If the user is a ProjectSecretAPIKeyUser then we've already checked that they have access to the team
             # and that this request is for the local_evaluation endpoint.
-            return True
+            return request.resolver_match and request.resolver_match.view_name == "featureflag-local-evaluation"
 
         uac = self._get_user_access_control(request, view)
         scope_object = self._get_scope_object(request, view)
