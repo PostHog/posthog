@@ -330,7 +330,7 @@ class TestErrorTracking(APIBaseTest):
         issue_two = self.create_issue()
 
         ErrorTrackingIssueAssignment.objects.create(issue=issue_one, user=self.user)
-        role = Role.objects.create(team=self.team, name="Team group")
+        role = Role.objects.create(name="Team role", organization=self.organization)
         role.members.set([self.user])
 
         self.client.post(
