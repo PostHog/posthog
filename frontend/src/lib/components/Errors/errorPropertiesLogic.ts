@@ -21,7 +21,7 @@ export interface ErrorPropertiesLogicProps {
 export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
     path((key) => ['components', 'Errors', 'errorPropertiesLogic', key]),
     props({} as ErrorPropertiesLogicProps),
-    key((props) => props.id || 'error'),
+    key((props) => props.id),
 
     connect(() => ({
         values: [preflightLogic, ['isCloudOrDev']],

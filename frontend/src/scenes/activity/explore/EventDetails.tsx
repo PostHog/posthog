@@ -138,7 +138,11 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
             label: 'Exception',
             content: (
                 <div className="mx-3">
-                    <ErrorDisplay eventProperties={event.properties} eventId={event.uuid} />
+                    <ErrorDisplay
+                        eventProperties={event.properties}
+                        // fallback on timestamp as uuid is optional
+                        eventId={event.uuid ?? event.timestamp ?? 'error'}
+                    />
                 </div>
             ),
         })
