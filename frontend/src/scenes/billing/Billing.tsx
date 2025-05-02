@@ -9,10 +9,12 @@ import { JudgeHog } from 'lib/components/hedgehogs'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { toSentenceCase } from 'lib/utils'
 import { useEffect } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -48,6 +50,7 @@ export function Billing(): JSX.Element {
     const { reportBillingShown } = useActions(billingLogic)
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const restrictionReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
@@ -163,7 +166,7 @@ export function Billing(): JSX.Element {
                 </LemonBanner>
             ) : null}
 
-            {(showBillingSummary || showCreditCTAHero || showBillingHero) && (
+            {(showBillingSummary || showCreditCTAHero || showBillingHero) && !!size && (
                 <div
                     className={clsx(
                         'flex gap-6 max-w-300',
@@ -195,6 +198,15 @@ export function Billing(): JSX.Element {
             {!showBillingSummary && <StripePortalButton />}
 
             <LemonDivider className="mt-6 mb-8" />
+
+            {featureFlags[FEATURE_FLAGS.BILLING_FORECASTING_ISSUES] && (
+                <div className="flex mt-6 gap-6 max-w-300 flex-col-reverse">
+                    <LemonBanner type="warning">
+                        <strong>Note:</strong> Our forecasting engine is experiencing an issue. The projected amounts
+                        may appear incorrect. We're working on a fix and it should be resolved soon.
+                    </LemonBanner>
+                </div>
+            )}
 
             <div className="flex justify-between mt-4">
                 <h2>Products</h2>

@@ -1,5 +1,14 @@
 import { IconCalendar } from '@posthog/icons'
-import { LemonSelect, LemonSkeleton, Popover, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonCheckbox,
+    LemonDropdown,
+    LemonSelect,
+    LemonSkeleton,
+    Popover,
+    SpinnerOverlay,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Chart, ChartDataset, ChartItem } from 'lib/Chart'
 import { getColorVar } from 'lib/colors'
@@ -8,7 +17,8 @@ import { humanFriendlyNumber, inStorybookTestRunner } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 
-import { appMetricsV2Logic, AppMetricsV2LogicProps } from './appMetricsV2Logic'
+import { hogFunctionConfigurationLogic } from '../hogfunctions/hogFunctionConfigurationLogic'
+import { ALL_METRIC_TYPES, appMetricsV2Logic, AppMetricsV2LogicProps } from './appMetricsV2Logic'
 
 const METRICS_INFO = {
     succeeded: 'Total number of events processed successfully',
@@ -24,6 +34,7 @@ export function AppMetricsV2({ id }: AppMetricsV2LogicProps): JSX.Element {
     const logic = appMetricsV2Logic({ id })
 
     const { filters } = useValues(logic)
+    const { type } = useValues(hogFunctionConfigurationLogic({ id }))
     const { setFilters, loadMetrics, loadMetricsTotals } = useActions(logic)
 
     useEffect(() => {
@@ -39,6 +50,51 @@ export function AppMetricsV2({ id }: AppMetricsV2LogicProps): JSX.Element {
                 <div className="flex items-center gap-2">
                     <h2 className="mb-0">Delivery trends</h2>
                     <div className="flex-1" />
+                    <LemonDropdown
+                        closeOnClickInside={false}
+                        matchWidth={false}
+                        placement="right-end"
+                        overlay={
+                            <div className="deprecated-space-y-2 overflow-hidden max-w-100">
+                                {ALL_METRIC_TYPES.filter(
+                                    ({ value }) => value !== 'fetch' || type !== 'transformation'
+                                ).map(({ label, value }) => {
+                                    return (
+                                        <LemonButton
+                                            key={value}
+                                            fullWidth
+                                            icon={
+                                                <LemonCheckbox
+                                                    checked={filters?.name?.split(',').includes(value)}
+                                                    className="pointer-events-none"
+                                                />
+                                            }
+                                            onClick={() => {
+                                                setFilters({
+                                                    name: filters?.name?.split(',').includes(value)
+                                                        ? filters.name
+                                                              .split(',')
+                                                              .filter((t) => t != value)
+                                                              .join(',')
+                                                        : filters.name + ',' + value,
+                                                })
+                                            }}
+                                        >
+                                            {label}
+                                        </LemonButton>
+                                    )
+                                })}
+                            </div>
+                        }
+                    >
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            tooltip="Filtering for any log groups containing any of the selected levels"
+                        >
+                            Filters
+                        </LemonButton>
+                    </LemonDropdown>
                     <LemonSelect
                         options={[
                             { label: 'Hourly', value: 'hour' },

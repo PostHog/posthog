@@ -20,9 +20,6 @@ from posthog.models.utils import (
     create_with_slug,
     sane_repr,
 )
-from posthog.plugins.plugin_server_api import (
-    reset_available_product_features_cache_on_workers,
-)
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -41,6 +38,7 @@ class OrganizationUsageResource(TypedDict):
 # as well as for enforcing limits.
 class OrganizationUsageInfo(TypedDict):
     events: Optional[OrganizationUsageResource]
+    exceptions: Optional[OrganizationUsageResource]
     recordings: Optional[OrganizationUsageResource]
     rows_synced: Optional[OrganizationUsageResource]
     feature_flag_requests: Optional[OrganizationUsageResource]
@@ -140,6 +138,8 @@ class Organization(UUIDModel):
 
     ## Managed by Billing
     customer_id = models.CharField(max_length=200, null=True, blank=True)
+
+    # looking for feature? check: is_feature_available, get_available_feature
     available_product_features = ArrayField(models.JSONField(blank=False), null=True, blank=True)
     # Managed by Billing, cached here for usage controls
     # Like {
@@ -221,9 +221,15 @@ class Organization(UUIDModel):
 
         return self.available_product_features
 
+    def get_available_feature(self, feature: Union[AvailableFeature, str]) -> Optional[dict]:
+        vals: list[dict[str, Any]] = self.available_product_features or []
+        return next(
+            filter(lambda f: f and f.get("key") == feature, vals),
+            None,
+        )
+
     def is_feature_available(self, feature: Union[AvailableFeature, str]) -> bool:
-        available_product_feature_keys = [feature["key"] for feature in self.available_product_features or []]
-        return feature in available_product_feature_keys
+        return bool(self.get_available_feature(feature))
 
     @property
     def active_invites(self) -> QuerySet:
@@ -243,18 +249,6 @@ def organization_about_to_be_created(sender, instance: Organization, raw, using,
         instance.update_available_product_features()
         if not is_cloud():
             instance.plugins_access_level = Organization.PluginsAccessLevel.ROOT
-
-
-@receiver(models.signals.post_save, sender=Organization)
-def ensure_available_product_features_sync(sender, instance: Organization, **kwargs):
-    updated_fields = kwargs.get("update_fields") or []
-    if "available_product_features" in updated_fields:
-        logger.info(
-            "Notifying plugin-server to reset available product features cache.",
-            {"organization_id": instance.id},
-        )
-
-        reset_available_product_features_cache_on_workers(organization_id=str(instance.id))
 
 
 class OrganizationMembership(UUIDModel):

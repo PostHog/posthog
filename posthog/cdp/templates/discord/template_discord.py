@@ -101,6 +101,7 @@ if (res.status >= 400) {
             input_schema_overrides={
                 "content": {
                     "default": "**🔴 {event.properties.name} created:** {event.properties.description}",
+                    "hidden": False,
                 }
             },
         ),
@@ -113,6 +114,7 @@ if (res.status >= 400) {
             input_schema_overrides={
                 "content": {
                     "default": "**🔄 {event.properties.name} reopened:** {event.properties.description}",
+                    "hidden": False,
                 }
             },
         ),

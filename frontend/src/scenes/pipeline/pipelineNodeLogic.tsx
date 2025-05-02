@@ -1,11 +1,11 @@
 import { actions, kea, key, path, props, reducers, selectors } from 'kea'
-import { actionToUrl, urlToAction } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import { ActivityScope, Breadcrumb, PipelineNodeTab, PipelineStage } from '~/types'
+import { ActivityScope, Breadcrumb, PipelineNodeTab, PipelineStage, ProjectTreeRef } from '~/types'
 
 import type { pipelineNodeLogicType } from './pipelineNodeLogicType'
 import { NODE_STAGE_TO_PIPELINE_TAB } from './pipelineNodeNewLogic'
@@ -51,6 +51,7 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
     actions({
         setCurrentTab: (tab: PipelineNodeTab = PipelineNodeTab.Configuration) => ({ tab }),
         setBreadcrumbTitle: (title: string) => ({ title }),
+        setProjectTreeRef: (projectTreeRef: ProjectTreeRef) => ({ projectTreeRef }),
     }),
     reducers(() => ({
         currentTab: [
@@ -63,6 +64,12 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
             '',
             {
                 setBreadcrumbTitle: (_, { title }) => title,
+            },
+        ],
+        projectTreeRef: [
+            null as ProjectTreeRef | null,
+            {
+                setProjectTreeRef: (_, { projectTreeRef }) => projectTreeRef,
             },
         ],
     })),
@@ -151,6 +158,19 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
         [urls.pipelineNode(props.stage as PipelineStage, props.id, ':nodeTab')]: ({ nodeTab }) => {
             if (nodeTab !== values.currentTab && Object.values(PipelineNodeTab).includes(nodeTab as PipelineNodeTab)) {
                 actions.setCurrentTab(nodeTab as PipelineNodeTab)
+            }
+
+            // Set the project tree ref from the URL
+            // Use the wildcard 'hog/' type format to match against all possible types without a mapping from the URL
+            const path = router.values.location.pathname
+            const match = path.match(/\/pipeline\/([^/]+)\/hog-([^/]+)\/?/)
+            if (match) {
+                const { projectTreeRef } = values
+                const type = 'hog_function/'
+                const ref = match[2]
+                if (!projectTreeRef || projectTreeRef.type !== type || projectTreeRef.ref !== ref) {
+                    actions.setProjectTreeRef({ type, ref })
+                }
             }
         },
     })),

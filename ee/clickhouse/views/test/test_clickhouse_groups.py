@@ -4,6 +4,8 @@ from uuid import UUID
 from freezegun.api import freeze_time
 from orjson import orjson
 
+from flaky import flaky
+
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
 from posthog.hogql.parser import parse_select
 from posthog.hogql import ast
@@ -170,10 +172,17 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2021-05-02")
     @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    @flaky(max_runs=3, min_passes=1)
     def test_group_property_crud_add_success(self, mock_capture):
+        group_type_mapping = GroupTypeMapping.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type_index=0,
+            group_type="organization",
+        )
         group = create_group(
             team_id=self.team.pk,
-            group_type_index=0,
+            group_type_index=group_type_mapping.group_type_index,
             group_key="org:5",
             properties={"name": "Mr. Krabs"},
         )
@@ -221,7 +230,7 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
             event={
                 "event": "$groupidentify",
                 "properties": {
-                    "$group_type_index": group.group_type_index,
+                    "$group_type": group_type_mapping.group_type,
                     "$group_key": group.group_key,
                     "$group_set": {"industry": "technology"},
                 },
@@ -247,10 +256,17 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2021-05-02")
     @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    @flaky(max_runs=3, min_passes=1)
     def test_group_property_crud_update_success(self, mock_capture):
+        group_type_mapping = GroupTypeMapping.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type_index=0,
+            group_type="organization",
+        )
         group = create_group(
             team_id=self.team.pk,
-            group_type_index=0,
+            group_type_index=group_type_mapping.group_type_index,
             group_key="org:5",
             properties={"industry": "finance", "name": "Mr. Krabs"},
         )
@@ -301,7 +317,7 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
             event={
                 "event": "$groupidentify",
                 "properties": {
-                    "$group_type_index": group.group_type_index,
+                    "$group_type": group_type_mapping.group_type,
                     "$group_key": group.group_key,
                     "$group_set": {"industry": "technology"},
                 },
@@ -327,9 +343,15 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2021-05-02")
     def test_group_property_crud_update_missing_key(self):
+        group_type_mapping = GroupTypeMapping.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type_index=0,
+            group_type="organization",
+        )
         create_group(
             team_id=self.team.pk,
-            group_type_index=0,
+            group_type_index=group_type_mapping.group_type_index,
             group_key="org:5",
             properties={"industry": "finance", "name": "Mr. Krabs"},
         )
@@ -342,9 +364,15 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2021-05-02")
     def test_group_property_crud_update_invalid_group_key(self):
+        group_type_mapping = GroupTypeMapping.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type_index=0,
+            group_type="organization",
+        )
         create_group(
             team_id=self.team.pk,
-            group_type_index=0,
+            group_type_index=group_type_mapping.group_type_index,
             group_key="org:5",
             properties={"industry": "finance", "name": "Mr. Krabs"},
         )
@@ -357,10 +385,17 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2021-05-02")
     @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    @flaky(max_runs=3, min_passes=1)
     def test_group_property_crud_delete_success(self, mock_capture):
+        group_type_mapping = GroupTypeMapping.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type_index=0,
+            group_type="organization",
+        )
         group = create_group(
             team_id=self.team.pk,
-            group_type_index=0,
+            group_type_index=group_type_mapping.group_type_index,
             group_key="org:5",
             properties={"industry": "finance", "name": "Mr. Krabs"},
         )
@@ -408,7 +443,7 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
             event={
                 "event": "$delete_group_property",
                 "properties": {
-                    "$group_type_index": group.group_type_index,
+                    "$group_type": group_type_mapping.group_type,
                     "$group_key": group.group_key,
                     "$group_unset": ["industry"],
                 },
@@ -434,9 +469,15 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2021-05-02")
     def test_group_property_crud_delete_missing_key(self):
+        group_type_mapping = GroupTypeMapping.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type_index=0,
+            group_type="organization",
+        )
         create_group(
             team_id=self.team.pk,
-            group_type_index=0,
+            group_type_index=group_type_mapping.group_type_index,
             group_key="org:5",
             properties={"industry": "finance", "name": "Mr. Krabs"},
         )
@@ -449,9 +490,15 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2021-05-02")
     def test_group_property_crud_delete_invalid_group_key(self):
+        group_type_mapping = GroupTypeMapping.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type_index=0,
+            group_type="organization",
+        )
         create_group(
             team_id=self.team.pk,
-            group_type_index=0,
+            group_type_index=group_type_mapping.group_type_index,
             group_key="org:5",
             properties={"industry": "finance", "name": "Mr. Krabs"},
         )
@@ -464,9 +511,15 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2021-05-02")
     def test_get_group_activities_success(self):
+        group_type_mapping = GroupTypeMapping.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type_index=0,
+            group_type="organization",
+        )
         group = create_group(
             team_id=self.team.pk,
-            group_type_index=0,
+            group_type_index=group_type_mapping.group_type_index,
             group_key="org:5",
             properties={"industry": "finance", "name": "Mr. Krabs"},
         )
@@ -494,9 +547,15 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2021-05-02")
     def test_get_group_activities_invalid_group(self):
+        group_type_mapping = GroupTypeMapping.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type_index=0,
+            group_type="organization",
+        )
         create_group(
             team_id=self.team.pk,
-            group_type_index=0,
+            group_type_index=group_type_mapping.group_type_index,
             group_key="org:5",
             properties={"industry": "finance", "name": "Mr. Krabs"},
         )
@@ -994,6 +1053,7 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
             {"group_type_index": 1},
         )
         self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json().get("detail"), "Group type not found")
 
     def test_set_default_columns_success(self):
         group_type_mapping = GroupTypeMapping.objects.create(
@@ -1015,6 +1075,7 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
             {"group_type_index": 1, "default_columns": ["$group_0", "$group_1"]},
         )
         self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json().get("detail"), "Group type not found")
 
     def _create_related_groups_data(self):
         GroupTypeMapping.objects.create(

@@ -1,8 +1,8 @@
 import time
 from typing import Optional
 from uuid import UUID
-import posthoganalytics
 
+import posthoganalytics
 import requests
 from celery import shared_task
 from django.conf import settings
@@ -11,8 +11,9 @@ from django.utils import timezone
 from prometheus_client import Gauge
 from redis import Redis
 from structlog import get_logger
+from django.core.management import call_command
 
-from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_concurrency, get_api_personal_rate_limiter
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_concurrency
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
@@ -72,20 +73,19 @@ def process_query_task(
     Kick off query
     Once complete save results to redis
     """
-    with get_api_personal_rate_limiter().run(is_api=is_query_service, team_id=team_id, task_id=query_id):
-        from posthog.clickhouse.client import execute_process_query
+    from posthog.clickhouse.client import execute_process_query
 
-        if is_query_service:
-            tag_queries(chargeable=1)
+    if is_query_service:
+        tag_queries(chargeable=1)
 
-        execute_process_query(
-            team_id=team_id,
-            user_id=user_id,
-            query_id=query_id,
-            query_json=query_json,
-            limit_context=limit_context,
-            is_query_service=is_query_service,
-        )
+    execute_process_query(
+        team_id=team_id,
+        user_id=user_id,
+        query_id=query_id,
+        query_json=query_json,
+        limit_context=limit_context,
+        is_query_service=is_query_service,
+    )
 
 
 @shared_task(ignore_result=True)
@@ -672,13 +672,6 @@ def process_scheduled_changes() -> None:
 
 
 @shared_task(ignore_result=True)
-def validate_proxy_domains() -> None:
-    from posthog.tasks.validate_proxy_domains import validate_proxy_domains
-
-    validate_proxy_domains()
-
-
-@shared_task(ignore_result=True)
 def sync_insight_cache_states_task() -> None:
     from posthog.caching.insight_caching_state import sync_insight_cache_states
 
@@ -896,11 +889,21 @@ def ee_persist_finished_recordings() -> None:
         persist_finished_recordings()
 
 
+@shared_task(ignore_result=True)
+def ee_persist_finished_recordings_v2() -> None:
+    try:
+        from ee.session_recordings.persistence_tasks import persist_finished_recordings_v2
+    except ImportError:
+        pass
+    else:
+        persist_finished_recordings_v2()
+
+
 @shared_task(
     ignore_result=True,
     queue=CeleryQueue.SESSION_REPLAY_GENERAL.value,
 )
-def ee_count_items_in_playlists() -> None:
+def count_items_in_playlists() -> None:
     try:
         from ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters import (
             enqueue_recordings_that_match_playlist_filters,
@@ -920,3 +923,8 @@ def calculate_external_data_rows_synced() -> None:
         pass
     else:
         capture_external_data_rows_synced()
+
+
+@shared_task(ignore_result=True)
+def sync_hog_function_templates_task() -> None:
+    call_command("sync_hog_function_templates")

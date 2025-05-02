@@ -20,11 +20,12 @@ export const manifest: ProductManifest = {
             href: (ref: string) => urls.action(ref),
         },
     },
-    treeItems: [
+    treeItemsNew: [
         {
-            path: 'Explore/Data management/Actions',
+            type: 'action',
+            path: 'Action',
             icon: <IconRocket />,
-            href: () => urls.actions(),
+            href: () => urls.createAction(),
         },
     ],
 }

@@ -1,6 +1,8 @@
-import { LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { ErrorTrackingAlerting } from 'scenes/error-tracking/configuration/alerting/ErrorTrackingAlerting'
+import { ErrorTrackingAutoAssignment } from 'scenes/error-tracking/configuration/auto-assignment/ErrorTrackingAutoAssignment'
 import { ErrorTrackingSymbolSets } from 'scenes/error-tracking/configuration/symbol-sets/ErrorTrackingSymbolSets'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
@@ -26,6 +28,7 @@ import {
 import { CorrelationConfig } from './environment/CorrelationConfig'
 import { DataAttributes } from './environment/DataAttributes'
 import { DataColorThemes } from './environment/DataColorThemes'
+import { ErrorTrackingIntegrations } from './environment/ErrorTrackingIntegrations'
 import { FeatureFlagSettings } from './environment/FeatureFlagSettings'
 import { GroupAnalyticsConfig } from './environment/GroupAnalyticsConfig'
 import { HeatmapsSettings } from './environment/HeatmapsSettings'
@@ -37,7 +40,6 @@ import { OtherIntegrations } from './environment/OtherIntegrations'
 import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConfig'
 import { PersonDisplayNameProperties } from './environment/PersonDisplayNameProperties'
 import { RevenueBaseCurrencySettings } from './environment/RevenueBaseCurrencySettings'
-import { SessionRecordingIngestionSettings } from './environment/SessionRecordingIngestionSettings'
 import {
     NetworkCaptureSettings,
     ReplayAISettings,
@@ -246,7 +248,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'revenue-base-currency',
                 title: 'Revenue base currency',
                 component: <RevenueBaseCurrencySettings />,
-                flag: 'WEB_REVENUE_TRACKING',
             },
             {
                 id: 'cookieless-server-hash-mode',
@@ -305,11 +306,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <ReplayTriggers />,
             },
             {
-                id: 'replay-ingestion',
-                title: 'Ingestion controls',
-                component: <SessionRecordingIngestionSettings />,
-            },
-            {
                 id: 'replay-ai-config',
                 title: 'AI recording summary',
                 component: <ReplayAISettings />,
@@ -345,7 +341,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'environment',
         id: 'environment-error-tracking',
         title: 'Error tracking',
-        flag: 'ERROR_TRACKING',
         settings: [
             {
                 id: 'error-tracking-exception-autocapture',
@@ -357,6 +352,18 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'User groups',
                 description: 'Allow collections of users to be assigned to issues',
                 component: <UserGroups />,
+            },
+            {
+                id: 'error-tracking-integrations',
+                title: 'Integrations',
+                component: <ErrorTrackingIntegrations />,
+                flag: 'ERROR_TRACKING_INTEGRATIONS',
+            },
+            {
+                id: 'error-tracking-auto-assignment',
+                title: 'Auto assignment',
+                component: <ErrorTrackingAutoAssignment />,
+                flag: 'ERROR_TRACKING_ALERT_ROUTING',
             },
             {
                 id: 'error-tracking-symbol-sets',
@@ -380,7 +387,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'core-memory',
                 title: 'Memory',
                 description:
-                    'Max automatically remembers details about your company and product. This context helps our AI assistant provide relevant answers and suggestions. If there are any details you don’t want Max to remember, you can edit or remove them below.',
+                    "Max automatically remembers details about your company and product. This context helps our AI assistant provide relevant answers and suggestions. If there are any details you don't want Max to remember, you can edit or remove them below.",
                 component: <MaxMemorySettings />,
                 hideOn: [Realm.SelfHostedClickHouse, Realm.SelfHostedPostgres],
             },
@@ -400,6 +407,12 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'integration-slack',
                 title: 'Slack integration',
                 component: <SlackIntegration />,
+            },
+            {
+                id: 'integration-error-tracking',
+                title: 'Error tracking integrations',
+                component: <ErrorTrackingIntegrations />,
+                flag: 'ERROR_TRACKING_INTEGRATIONS',
             },
             {
                 id: 'integration-other',
@@ -599,6 +612,16 @@ export const SETTINGS_MAP: SettingSection[] = [
         to: urls.organizationBilling(),
         settings: [],
     },
+    {
+        level: 'organization',
+        id: 'organization-startup-program',
+        hideSelfHost: true,
+        title: 'Startup program',
+        to: urls.startups(),
+        settings: [],
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+        flag: 'STARTUP_PROGRAM_INTENT',
+    },
 
     // USER
     {
@@ -660,6 +683,19 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'hedgehog-mode',
                 title: 'Hedgehog mode',
                 component: <HedgehogModeSettings />,
+            },
+            {
+                id: 'customization-irl',
+                title: 'Customization IRL',
+                component: (
+                    <div>
+                        Grab some{' '}
+                        <Link to="https://posthog.com/merch" target="_blank">
+                            PostHog merch
+                        </Link>{' '}
+                        to customize yourself outside of the app
+                    </div>
+                ),
             },
         ],
     },

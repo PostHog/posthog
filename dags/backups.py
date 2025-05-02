@@ -263,8 +263,10 @@ def check_latest_backup_status(
 
     def map_hosts(func: Callable[[Client], Any]):
         if latest_backup.shard:
-            return cluster.map_all_hosts_in_shard(fn=func, shard_num=latest_backup.shard)
-        return cluster.map_all_hosts(fn=func)
+            return cluster.map_hosts_in_shard_by_role(
+                fn=func, shard_num=latest_backup.shard, node_role=NodeRole.DATA, workload=Workload.ONLINE
+            )
+        return cluster.map_hosts_by_role(fn=func, node_role=NodeRole.DATA, workload=Workload.ONLINE)
 
     is_done = map_hosts(latest_backup.is_done).result().values()
     if not all(is_done):
@@ -340,8 +342,10 @@ def wait_for_backup(
 
     def map_hosts(func: Callable[[Client], Any]):
         if backup.shard:
-            return cluster.map_all_hosts_in_shard(fn=func, shard_num=backup.shard)
-        return cluster.map_all_hosts(fn=func)
+            return cluster.map_hosts_in_shard_by_role(
+                fn=func, shard_num=backup.shard, node_role=NodeRole.DATA, workload=Workload.ONLINE
+            )
+        return cluster.map_hosts_by_role(fn=func, node_role=NodeRole.DATA, workload=Workload.ONLINE)
 
     if backup:
         map_hosts(backup.wait).result().values()

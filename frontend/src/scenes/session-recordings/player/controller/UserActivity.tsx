@@ -6,7 +6,6 @@ import { MutableRefObject, useMemo, useRef } from 'react'
 import useIsHovering from '~/lib/hooks/useIsHovering'
 
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
-import { seekbarLogic } from './seekbarLogic'
 
 interface ActivityPoint {
     x: number
@@ -14,23 +13,19 @@ interface ActivityPoint {
 }
 
 export function UserActivity({ hoverRef }: { hoverRef: MutableRefObject<HTMLDivElement | null> }): JSX.Element {
-    const { activityPerSecond, logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { endTimeMs: durationMs } = useValues(seekbarLogic(logicProps))
+    const { activityPerSecond } = useValues(sessionRecordingPlayerLogic)
 
     const seekBarRef = useRef<HTMLDivElement | null>(null)
     const [width, height] = useSize(seekBarRef)
-    const durationInSeconds = durationMs / 1000
 
     const isHovering = useIsHovering(hoverRef)
 
     const points: ActivityPoint[] = useMemo(() => {
-        const maxY = Math.max(...Object.values(activityPerSecond).map((activity) => activity.y))
-
-        return Object.entries(activityPerSecond).map(([second, activity]) => ({
-            x: (parseInt(second, 10) / durationInSeconds) * width,
-            y: height - (Math.log(activity.y + 1) / Math.log(maxY + 1)) * height,
+        return Object.entries(activityPerSecond.smoothedPoints).map(([second, activity]) => ({
+            x: (parseInt(second, 10) / activityPerSecond.durationSeconds) * width,
+            y: height - (Math.log(activity.y + 1) / Math.log(activityPerSecond.maxY + 1)) * height,
         }))
-    }, [activityPerSecond, durationInSeconds, width, height])
+    }, [activityPerSecond, width, height])
 
     const hasPoints = points.length > 0
 

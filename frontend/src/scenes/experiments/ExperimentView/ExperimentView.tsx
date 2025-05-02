@@ -36,7 +36,7 @@ const ResultsTab = (): JSX.Element => {
 
     return (
         <>
-            {!hasSomeResults && !metricResultsLoading && (
+            {!experiment.start_date && !metricResultsLoading && (
                 <>
                     {experiment.type === 'web' ? (
                         <WebExperimentImplementationDetails experiment={experiment} />

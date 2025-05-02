@@ -2,16 +2,24 @@ import { actions, BuiltLogic, connect, kea, listeners, path, props, reducers, se
 import { router, urlToAction } from 'kea-router'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
-import { TeamMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import posthog from 'posthog-js'
 import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations } from 'scenes/scenes'
-import { LoadedScene, Params, Scene, SceneConfig, SceneExport, SceneParams } from 'scenes/sceneTypes'
+import {
+    LoadedScene,
+    Params,
+    Scene,
+    SceneConfig,
+    SceneExport,
+    SceneParams,
+    sceneToAccessControlResourceType,
+} from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { PipelineTab, ProductKey } from '~/types'
+import { AccessControlLevel, PipelineTab, ProductKey } from '~/types'
 
 import { handleLoginRedirect } from './authentication/loginLogic'
 import { billingLogic } from './billing/billingLogic'
@@ -32,6 +40,21 @@ export const productUrlMapping: Partial<Record<ProductKey, string[]>> = {
     [ProductKey.DATA_WAREHOUSE]: [urls.sqlEditor(), urls.pipeline(PipelineTab.Sources)],
     [ProductKey.WEB_ANALYTICS]: [urls.webAnalytics()],
 }
+
+const pathPrefixesOnboardingNotRequiredFor = [
+    urls.onboarding(''),
+    urls.products(),
+    '/settings',
+    urls.organizationBilling(),
+    urls.billingAuthorizationStatus(),
+    urls.wizard(),
+    '/instance',
+    urls.moveToPostHogCloud(),
+    urls.unsubscribe(),
+    urls.debugHog(),
+    urls.debugQuery(),
+    urls.activity(),
+]
 
 export const sceneLogic = kea<sceneLogicType>([
     props(
@@ -143,6 +166,20 @@ export const sceneLogic = kea<sceneLogicType>([
         activeScene: [
             (s) => [s.scene, teamLogic.selectors.isCurrentTeamUnavailable],
             (scene, isCurrentTeamUnavailable) => {
+                const resourceAccessControl = window.POSTHOG_APP_CONTEXT?.resource_access_control
+
+                // Get the access control resource type for the current scene
+                const sceneAccessControlResource = scene ? sceneToAccessControlResourceType[scene as Scene] : null
+
+                // Check if the user has access to this resource
+                if (
+                    sceneAccessControlResource &&
+                    resourceAccessControl &&
+                    resourceAccessControl[sceneAccessControlResource] === AccessControlLevel.None
+                ) {
+                    return Scene.ErrorAccessDenied
+                }
+
                 return isCurrentTeamUnavailable && scene && sceneConfigurations[scene]?.projectBased
                     ? Scene.ErrorProjectUnavailable
                     : scene
@@ -248,13 +285,9 @@ export const sceneLogic = kea<sceneLogicType>([
                     } else if (
                         teamLogic.values.currentTeam &&
                         !teamLogic.values.currentTeam.is_demo &&
-                        ![
-                            urls.onboarding(''),
-                            urls.products(),
-                            '/settings',
-                            urls.organizationBilling(),
-                            urls.wizard(),
-                        ].some((path) => removeProjectIdIfPresent(location.pathname).startsWith(path))
+                        !pathPrefixesOnboardingNotRequiredFor.some((path) =>
+                            removeProjectIdIfPresent(location.pathname).startsWith(path)
+                        )
                     ) {
                         const allProductUrls = Object.values(productUrlMapping).flat()
                         if (
@@ -430,7 +463,7 @@ export const sceneLogic = kea<sceneLogicType>([
             }
         },
     })),
-    urlToAction(({ actions }) => {
+    urlToAction(({ actions, values }) => {
         const mapping: Record<
             string,
             (
@@ -452,8 +485,17 @@ export const sceneLogic = kea<sceneLogicType>([
             }
         }
         for (const [path, [scene, sceneKey]] of Object.entries(routes)) {
-            mapping[path] = (params, searchParams, hashParams, { method }) =>
-                actions.openScene(scene, sceneKey, { params, searchParams, hashParams }, method)
+            if (
+                values.featureFlags[FEATURE_FLAGS.B2B_ANALYTICS] &&
+                scene === Scene.PersonsManagement &&
+                path === urls.groups(':groupTypeIndex')
+            ) {
+                mapping[path] = (params, searchParams, hashParams, { method }) =>
+                    actions.openScene(Scene.Groups, 'groups', { params, searchParams, hashParams }, method)
+            } else {
+                mapping[path] = (params, searchParams, hashParams, { method }) =>
+                    actions.openScene(scene, sceneKey, { params, searchParams, hashParams }, method)
+            }
         }
 
         mapping['/*'] = (_, __, { method }) => {

@@ -3,7 +3,6 @@ import uuid
 from typing import TYPE_CHECKING, Optional
 
 import orjson as json
-import sentry_sdk
 import structlog
 from prometheus_client import Histogram
 from pydantic import BaseModel
@@ -18,17 +17,25 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.renderers import SafeJSONRenderer
 from posthog.schema import ClickhouseQueryProgress, QueryStatus
 from posthog.tasks.tasks import process_query_task
-
+from posthog.exceptions_capture import capture_exception
 
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
 
 logger = structlog.get_logger(__name__)
 
+CUSTOM_BUCKETS = (0.05, 0.1, 0.5, 1.0, 2.5, 5.0, 7.5, 10.0, 20, 30, 60, 120, 300, 600, float("inf"))
+
 QUERY_WAIT_TIME = Histogram(
-    "query_wait_time_seconds", "Time from query creation to pick-up", labelnames=["team", "mode"]
+    "query_wait_time_seconds",
+    "Time from query creation to pick-up",
+    labelnames=["team", "mode"],
+    buckets=Histogram.DEFAULT_BUCKETS[2:-1] + (20, 30, 60, 120, 300, 600, float("inf")),
 )
-QUERY_PROCESS_TIME = Histogram("query_process_time_seconds", "Time from query pick-up to result", labelnames=["team"])
+
+QUERY_PROCESS_TIME = Histogram(
+    "query_process_time_seconds", "Time from query pick-up to result", labelnames=["team"], buckets=CUSTOM_BUCKETS
+)
 
 
 class QueryNotFoundError(NotFound):
@@ -148,7 +155,7 @@ def execute_process_query(
     from posthog.models.user import User
 
     team = Team.objects.get(pk=team_id)
-    sentry_sdk.set_tag("team_id", team_id)
+    tag_queries(team_id=team_id)
 
     is_staff_user = False
 
@@ -156,7 +163,7 @@ def execute_process_query(
     if user_id:
         user = User.objects.only("email", "is_staff").get(pk=user_id)
         is_staff_user = user.is_staff
-        sentry_sdk.set_user({"email": user.email, "id": user_id, "username": user.email})
+        tag_queries(user_email=user.email)
 
     query_status = manager.get_query_status()
 
@@ -206,7 +213,7 @@ def execute_process_query(
             # We can only expose the error message if it's a known safe error OR if the user is PostHog staff
             query_status.error_message = str(err)
         logger.exception("Error processing query async", team_id=team_id, query_id=query_id, exc_info=True)
-        sentry_sdk.capture_exception(err)
+        capture_exception(err)
         # Do not raise here, the task itself did its job and we cannot recover
     finally:
         query_status.end_time = datetime.datetime.now(datetime.UTC)

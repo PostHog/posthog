@@ -34,23 +34,33 @@ export interface ExtraDatabaseRows {
 }
 
 // Reset the tables with some truncated first if we have issues regarding foreign keys
-export const POSTGRES_DELETE_TABLES_QUERY = `
-DO $$ 
-DECLARE
-    r RECORD;
+export const POSTGRES_DELETE_PERSON_TABLES_QUERY = `
+DO $$
 BEGIN
-    -- Delete from tables in order of dependencies
+    DELETE FROM posthog_persondistinctid CASCADE;
+    DELETE FROM posthog_person CASCADE;
+END $$;
+`
+
+export const POSTGRES_DELETE_PRE_PERSON_TABLES_QUERY = `
+DO $$
+BEGIN
     DELETE FROM posthog_featureflaghashkeyoverride CASCADE;
     DELETE FROM posthog_cohortpeople CASCADE;
     DELETE FROM posthog_cohort CASCADE;
     DELETE FROM posthog_featureflag CASCADE;
-    DELETE FROM posthog_persondistinctid CASCADE;
-    DELETE FROM posthog_person CASCADE;
-    
+END $$;
+`
+
+export const POSTGRES_DELETE_OTHER_TABLES_QUERY = `
+DO $$
+DECLARE
+    r RECORD;
+BEGIN
     -- Then handle remaining tables
     FOR r IN (
-        SELECT tablename 
-        FROM pg_tables 
+        SELECT tablename
+        FROM pg_tables
         WHERE schemaname = current_schema()
         AND tablename NOT IN ('posthog_persondistinctid', 'posthog_person')
     ) LOOP
@@ -67,10 +77,30 @@ export async function resetTestDatabase(
 ): Promise<void> {
     const config = { ...defaultConfig, ...extraServerConfig, POSTGRES_CONNECTION_POOL_SIZE: 1 }
     const db = new PostgresRouter(config)
-    await db.query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_TABLES_QUERY, undefined, 'delete-tables').catch((e) => {
-        console.error('Error deleting tables', e)
-        throw e
-    })
+
+    // Delete pre-person tables using COMMON_WRITE
+    await db
+        .query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_PRE_PERSON_TABLES_QUERY, undefined, 'delete-pre-person-tables')
+        .catch((e) => {
+            console.error('Error deleting pre-person tables', e)
+            throw e
+        })
+
+    // Delete person tables using PERSONS_WRITE
+    await db
+        .query(PostgresUse.PERSONS_WRITE, POSTGRES_DELETE_PERSON_TABLES_QUERY, undefined, 'delete-person-tables')
+        .catch((e) => {
+            console.error('Error deleting person tables', e)
+            throw e
+        })
+
+    // Delete other tables using COMMON_WRITE
+    await db
+        .query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_OTHER_TABLES_QUERY, undefined, 'delete-other-tables')
+        .catch((e) => {
+            console.error('Error deleting other tables', e)
+            throw e
+        })
 
     const mocks = makePluginObjects(code)
     const teamIds = mocks.pluginConfigRows.map((c) => c.team_id)
@@ -293,6 +323,11 @@ export async function getTeams(hub: Hub): Promise<Team[]> {
     return selectResult.rows
 }
 
+export async function getTeam(hub: Hub, teamId: Team['id']): Promise<Team | null> {
+    const teams = await getTeams(hub)
+    return teams.find((team) => team.id === teamId) ?? null
+}
+
 export async function getFirstTeam(hub: Hub): Promise<Team> {
     return (await getTeams(hub))[0]
 }
@@ -436,7 +471,7 @@ export const createOrganizationMembership = async (pg: PostgresRouter, organizat
 
 export async function fetchPostgresPersons(db: DB, teamId: number) {
     const query = `SELECT * FROM posthog_person WHERE team_id = ${teamId} ORDER BY id`
-    return (await db.postgres.query(PostgresUse.COMMON_READ, query, undefined, 'persons')).rows.map(
+    return (await db.postgres.query(PostgresUse.PERSONS_READ, query, undefined, 'persons')).rows.map(
         // NOTE: we map to update some values here to maintain
         // compatibility with `hub.db.fetchPersons`.
         // TODO: remove unnecessary property translation operation.

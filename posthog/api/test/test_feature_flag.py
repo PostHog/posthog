@@ -1094,6 +1094,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(feature_flag.version, 3)
             self.assertEqual(feature_flag.name, "Yet another updated name")
 
+    def test_remote_config_returns_not_found_for_unknown_flag(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/nonexistent_key/remote_config")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
     def test_get_conflicting_changes(self):
         feature_flag = FeatureFlag.objects.create(
             team=self.team,
@@ -3954,6 +3958,50 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertTrue(len(response_data["flags"]) > 0)
             self.assertNotIn("quotaLimited", response_data)
 
+    @patch("posthog.api.feature_flag.settings.DECIDE_FEATURE_FLAG_QUOTA_CHECK", False)
+    def test_local_evaluation_only_survey_targeting_flags(self):
+        FeatureFlag.objects.all().delete()
+
+        client = redis.get_client()
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
+
+        with freeze_time("2022-05-07 12:23:07"):
+
+            def make_request_and_assert_requests_recorded(expected_requests=None):
+                response = self.client.get(
+                    f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
+                    HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+                )
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                self.assertEqual(
+                    client.hgetall(f"posthog:local_evaluation_requests:{self.team.pk}"),
+                    expected_requests or {},
+                )
+
+            # No requests should be recorded if there are no flags
+            make_request_and_assert_requests_recorded()
+
+            FeatureFlag.objects.create(
+                name="Survey Targeting Flag",
+                key="survey-targeting-flag",
+                team=self.team,
+                filters={"properties": [{"key": "survey-targeting-property", "value": "survey-targeting-value"}]},
+            )
+
+            # No requests should be recorded if the only flags are survey targeting flags
+            make_request_and_assert_requests_recorded()
+
+            # Requests should be recorded if there is one regular feature flag
+            FeatureFlag.objects.create(
+                name="Regular Feature Flag",
+                key="regular-feature-flag",
+                team=self.team,
+                filters={"properties": [{"key": "regular-property", "value": "regular-value"}]},
+            )
+            make_request_and_assert_requests_recorded({b"13766051": b"1"})
+
     @patch("posthog.api.feature_flag.report_user_action")
     def test_evaluation_reasons(self, mock_capture):
         FeatureFlag.objects.all().delete()
@@ -5294,6 +5342,29 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
         )
 
+    def test_create_feature_flag_in_specific_folder(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={
+                "key": "my-test-flag-in-folder",
+                "name": "Test Flag in Folder",
+                "filters": {"groups": [{"properties": [], "rollout_percentage": 50}]},
+                "_create_in_folder": "Special Folder/Flags",
+            },
+            format="json",
+        )
+        assert response.status_code == 201, response.json()
+        flag_id = response.json()["id"]
+        assert flag_id is not None
+
+        from posthog.models.file_system.file_system import FileSystem
+
+        fs_entry = FileSystem.objects.filter(team=self.team, ref=str(flag_id), type="feature_flag").first()
+        assert fs_entry, "No FileSystem entry found for this feature flag."
+        assert (
+            "Special Folder/Flags" in fs_entry.path
+        ), f"Expected 'Special Folder/Flags' in path, got: '{fs_entry.path}'"
+
 
 class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_creating_static_cohort_with_deleted_flag(self):
@@ -5503,7 +5574,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # TODO: Ensure server-side cursors are disabled, since in production we use this with pgbouncer
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(16):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(15):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
 
         cohort.refresh_from_db()
@@ -5556,7 +5627,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # Extra queries because each batch adds its own queries
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(21):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(19):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk, batchsize=2)
 
         cohort.refresh_from_db()
@@ -5567,7 +5638,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(len(response.json()["results"]), 3, response)
 
         # if the batch is big enough, it's fewer queries
-        with self.assertNumQueries(13):
+        with self.assertNumQueries(12):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk, batchsize=10)
 
         cohort.refresh_from_db()
@@ -5630,7 +5701,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(13):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(12):
             # no queries to evaluate flags, because all evaluated using override properties
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
 
@@ -5647,7 +5718,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort2",
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(13):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(12):
             # person3 doesn't match filter conditions so is pre-filtered out
             get_cohort_actors_for_feature_flag(cohort2.pk, "some-feature-new", self.team.pk)
 
@@ -5740,7 +5811,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(30):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(29):
             # forced to evaluate flags by going to db, because cohorts need db query to evaluate
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature-new", self.team.pk)
 

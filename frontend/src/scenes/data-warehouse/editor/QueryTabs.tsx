@@ -17,19 +17,21 @@ interface QueryTabsProps {
 
 export function QueryTabs({ models, onClear, onClick, onAdd, onRename, activeModelUri }: QueryTabsProps): JSX.Element {
     return (
-        <div className="flex flex-row w-full overflow-scroll hide-scrollbar h-10">
-            {models.map((model: QueryTab) => (
-                <QueryTabComponent
-                    key={model.uri.path}
-                    model={model}
-                    onClear={models.length > 1 ? onClear : undefined}
-                    onClick={onClick}
-                    active={activeModelUri?.uri.path === model.uri.path}
-                    onRename={onRename}
-                />
-            ))}
-            <LemonButton onClick={() => onAdd()} icon={<IconPlus fontSize={14} />} />
-        </div>
+        <>
+            <div className="flex flex-row overflow-scroll hide-scrollbar h-10">
+                {models.map((model: QueryTab) => (
+                    <QueryTabComponent
+                        key={model.uri.path}
+                        model={model}
+                        onClear={models.length > 1 ? onClear : undefined}
+                        onClick={onClick}
+                        active={activeModelUri?.uri.path === model.uri.path}
+                        onRename={onRename}
+                    />
+                ))}
+            </div>
+            <LemonButton className="rounded-none" onClick={() => onAdd()} icon={<IconPlus fontSize={14} />} />
+        </>
     )
 }
 

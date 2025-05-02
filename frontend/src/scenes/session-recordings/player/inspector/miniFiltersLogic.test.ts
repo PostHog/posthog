@@ -1,16 +1,16 @@
 import { expectLogic } from 'kea-test-utils'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { miniFiltersLogic } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
+import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 
 import { initKeaTests } from '~/test/init'
 
 describe('miniFiltersLogic', () => {
     let logic: ReturnType<typeof miniFiltersLogic.build>
-    let eventLogic: ReturnType<typeof eventUsageLogic.build>
+    let eventLogic: ReturnType<typeof sessionRecordingEventUsageLogic.build>
 
     beforeEach(() => {
         initKeaTests()
-        eventLogic = eventUsageLogic()
+        eventLogic = sessionRecordingEventUsageLogic()
         eventLogic.mount()
         logic = miniFiltersLogic()
         logic.mount()

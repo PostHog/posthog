@@ -319,3 +319,25 @@ export const DISABLED_CURRENCIES: { [key in CurrencyCode]?: string } = {
     [CurrencyCode.LVL]: 'Replaced by the Euro on Jan 1st 2014',
     [CurrencyCode.MTL]: 'Replaced by the Euro on Jan 1st 2008',
 }
+
+/** Get the currency symbol and whether it's a prefix or suffix.
+ *
+ * @param currency - The currency to get the symbol for.
+ * @returns The currency symbol and whether it's a prefix or suffix.
+ *
+ * Example:
+ * getCurrencySymbol('USD') // { symbol: '$', isPrefix: true }
+ * getCurrencySymbol('GBP') // { symbol: '£', isPrefix: true }
+ */
+export const getCurrencySymbol = (currency: string): { symbol: string; isPrefix: boolean } => {
+    const formatter = new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: currency,
+    })
+    const parts = formatter.formatToParts(0)
+    const symbol = parts.find((part) => part.type === 'currency')?.value
+
+    const isPrefix = symbol ? parts[0].type === 'currency' : true
+
+    return { symbol: symbol ?? currency, isPrefix }
+}

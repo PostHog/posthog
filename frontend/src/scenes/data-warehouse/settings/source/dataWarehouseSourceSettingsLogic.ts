@@ -24,6 +24,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
         setSourceId: (id: string) => ({ id }),
         reloadSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
         resyncSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
+        deleteTable: (schema: ExternalDataSourceSchema) => ({ schema }),
         setCanLoadMoreJobs: (canLoadMoreJobs: boolean) => ({ canLoadMoreJobs }),
         setIsProjectTime: (isProjectTime: boolean) => ({ isProjectTime }),
     }),
@@ -218,6 +219,32 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                     lemonToast.error(e.message)
                 } else {
                     lemonToast.error('Cant refresh schema at this time')
+                }
+            }
+        },
+        deleteTable: async ({ schema }) => {
+            // Optimistic UI updates before sending updates to the backend
+            const clonedSource = JSON.parse(JSON.stringify(values.source)) as ExternalDataSource
+            const schemaIndex = clonedSource.schemas.findIndex((n) => n.id === schema.id)
+            if (schemaIndex === -1) {
+                lemonToast.error('Schema not found')
+                return
+            }
+            clonedSource.schemas[schemaIndex].table = undefined
+            clonedSource.schemas[schemaIndex].status = undefined
+            clonedSource.schemas[schemaIndex].last_synced_at = undefined
+            actions.loadSourceSuccess(clonedSource)
+
+            try {
+                await api.externalDataSchemas.delete_data(schema.id)
+
+                posthog.capture('schema data deleted', { sourceType: clonedSource.source_type })
+                lemonToast.success(`Data for ${schema.name} has been deleted`)
+            } catch (e: any) {
+                if (e.message) {
+                    lemonToast.error(e.message)
+                } else {
+                    lemonToast.error("Can't delete data at this time")
                 }
             }
         },

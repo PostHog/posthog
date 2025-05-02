@@ -7,6 +7,7 @@ from typing import Optional
 from prometheus_client import Counter
 from rest_framework.throttling import SimpleRateThrottle, BaseThrottle, UserRateThrottle
 from rest_framework.request import Request
+
 from posthog.exceptions_capture import capture_exception
 from statshog.defaults.django import statsd
 from posthog.auth import PersonalAPIKeyAuthentication
@@ -320,10 +321,32 @@ class AISustainedRateThrottle(UserRateThrottle):
     rate = "40/day"
 
 
+class EditorProxyBurstRateThrottle(UserRateThrottle):
+    scope = "editor_proxy_burst"
+    rate = "30/minute"
+
+
+class EditorProxySustainedRateThrottle(UserRateThrottle):
+    # Throttle class that's very aggressive and is used specifically on endpoints that hit OpenAI
+    # Intended to block slower but sustained bursts of requests, per user
+    scope = "editor_proxy_sustained"
+    rate = "500/hour"
+
+
 class HogQLQueryThrottle(PersonalApiKeyRateThrottle):
     # Lower rate limit for HogQL queries
     scope = "query"
     rate = "120/hour"
+
+
+class APIQueriesBurstThrottle(PersonalApiKeyRateThrottle):
+    scope = "api_queries_burst"
+    rate = "120/minute"
+
+
+class APIQueriesSustainedThrottle(PersonalApiKeyRateThrottle):
+    scope = "api_queries_sustained"
+    rate = "1200/hour"
 
 
 class UserPasswordResetThrottle(UserOrEmailRateThrottle):

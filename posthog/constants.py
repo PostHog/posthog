@@ -39,6 +39,7 @@ class AvailableFeature(StrEnum):
     DATA_PIPELINES = "data_pipelines"
     ALERTS = "alerts"
     DATA_COLOR_THEMES = "data_color_themes"
+    API_QUERIES_CONCURRENCY = "api_queries_concurrency"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"

@@ -50,7 +50,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
     props({} as BillingProductLogicProps),
     key((props) => props.product.type),
     path(['scenes', 'billing', 'billingProductLogic']),
-    connect({
+    connect(() => ({
         values: [
             billingLogic,
             ['billing', 'isUnlicensedDebug', 'scrollToProductKey', 'unsubscribeError'],
@@ -70,7 +70,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 'deactivateProductSuccess',
             ],
         ],
-    }),
+    })),
     actions({
         setIsEditingBillingLimit: (isEditingBillingLimit: boolean) => ({ isEditingBillingLimit }),
         setBillingLimitInput: (billingLimitInput: number | null) => ({ billingLimitInput }),

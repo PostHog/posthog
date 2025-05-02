@@ -19,9 +19,9 @@ export const schemaLogLogic = kea<schemaLogLogicType>([
     path(['scenes', 'data-warehouse', 'settings', 'source', 'schemaLogLogic']),
     props({} as SchemaLogLogicProps),
     key(({ job }) => job.id),
-    connect({
+    connect(() => ({
         values: [userLogic, ['user']],
-    }),
+    })),
     actions({
         clearBackgroundLogs: true,
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),

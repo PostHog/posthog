@@ -51,15 +51,17 @@ const getSaveDisabledReason = (
 }
 
 export const SyncMethodForm = ({ schema, onClose, onSave, saveButtonIsLoading }: SyncMethodFormProps): JSX.Element => {
-    const [radioValue, setRadioValue] = useState(schema.sync_type ?? undefined)
+    const incrementalSyncSupported = getIncrementalSyncSupported(schema)
+
+    const [radioValue, setRadioValue] = useState(
+        schema.sync_type ?? (incrementalSyncSupported ? 'incremental' : undefined)
+    )
     const [incrementalFieldValue, setIncrementalFieldValue] = useState(schema.incremental_field ?? null)
 
     useEffect(() => {
-        setRadioValue(schema.sync_type ?? undefined)
+        setRadioValue(schema.sync_type ?? (incrementalSyncSupported ? 'incremental' : undefined))
         setIncrementalFieldValue(schema.incremental_field ?? null)
     }, [schema.table])
-
-    const incrementalSyncSupported = getIncrementalSyncSupported(schema)
 
     return (
         <>

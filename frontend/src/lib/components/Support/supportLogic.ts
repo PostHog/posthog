@@ -1,5 +1,3 @@
-import { captureException } from '@sentry/react'
-import * as Sentry from '@sentry/react'
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { urlToAction } from 'kea-router'
@@ -29,8 +27,7 @@ export function getPublicSupportSnippet(
     return (
         (includeCurrentLocation ? getCurrentLocationLink() : '') +
         getSessionReplayLink() +
-        `\nAdmin: http://go/adminOrg${cloudRegion}/${currentOrganization?.id} (project ID ${currentTeam?.id})` +
-        getSentryLink(cloudRegion, currentTeam)
+        `\nAdmin: http://go/adminOrg${cloudRegion}/${currentOrganization?.id} (project ID ${currentTeam?.id})`
     ).trimStart()
 }
 
@@ -87,13 +84,6 @@ function getBillingAdminLink(currentOrganization: OrganizationBasicType | null):
         return ''
     }
     return `\nBilling admin: http://go/billing/${currentOrganization.id}`
-}
-
-function getSentryLink(cloudRegion: Region | null | undefined, currentTeam: TeamPublicType | null): string {
-    if (!cloudRegion || !currentTeam) {
-        return ''
-    }
-    return `\nSentry: http://go/sentry${cloudRegion}/${currentTeam.id}`
 }
 
 const SUPPORT_TICKET_KIND_TO_TITLE: Record<SupportTicketKind, string> = {
@@ -526,7 +516,6 @@ export const supportLogic = kea<supportLogicType>([
                             (target_area === 'billing' || target_area === 'login' || target_area === 'onboarding'
                                 ? getBillingAdminLink(organizationLogic.values.currentOrganization)
                                 : '') +
-                            getSentryLink(cloudRegion, teamLogic.values.currentTeam) +
                             (cloudRegion && teamLogic.values.currentTeam
                                 ? '\nPersons-on-events mode for project: ' +
                                   (teamLogic.values.currentTeam.modifiers?.personsOnEventsMode ??
@@ -558,9 +547,9 @@ export const supportLogic = kea<supportLogicType>([
                             body_size: body?.length,
                         },
                     }
-                    captureException(error, {
-                        extra,
-                        contexts,
+                    posthog.captureException(error, {
+                        ...extra,
+                        ...contexts,
                     })
                     lemonToast.error(`There was an error sending the message.`)
                     return
@@ -579,20 +568,9 @@ export const supportLogic = kea<supportLogicType>([
                     zendesk_ticket_link,
                 }
                 posthog.capture('support_ticket', properties)
-                Sentry.captureMessage('User submitted Zendesk ticket', {
-                    tags: {
-                        zendesk_ticket_uuid,
-                        zendesk_ticket_link,
-                        support_request_kind: kind,
-                        support_request_area: target_area,
-                        team_id: teamLogic.values.currentTeamId,
-                    },
-                    extra: properties,
-                    level: 'log',
-                })
                 lemonToast.success("Got the message! If we have follow-up information for you, we'll reply via email.")
             } catch (e) {
-                captureException(e)
+                posthog.captureException(e)
                 lemonToast.error(`There was an error sending the message.`)
             }
         },

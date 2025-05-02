@@ -30,8 +30,6 @@ jobs:
             - uses: actions/setup-python@65d7f2d534ac1bc67fcd62888c5f4f3d2cb2b236 # v4
               with:
                   python-version: '3.8'
-                  cache: 'pip' # caching pip dependencies
-                  cache-dependency-path: '**/requirements*.txt'
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
             - name: Get python deps
               run: pip install python-digitalocean==1.17.0 requests==2.28.1

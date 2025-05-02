@@ -48,10 +48,10 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
     path(['queries', 'nodes', 'DataVisualization', 'Components', 'seriesBreakdownLogic']),
     key((props) => props.key),
     props({ key: '' } as SeriesBreakdownLogicProps),
-    connect({
+    connect(() => ({
         actions: [dataVisualizationLogic, ['clearAxis', 'setQuery']],
         values: [dataVisualizationLogic, ['query', 'response', 'columns', 'selectedXAxis', 'selectedYAxis']],
-    }),
+    })),
     actions(({ values }) => ({
         addSeriesBreakdown: (columnName: string | null) => ({ columnName, response: values.response }),
         deleteSeriesBreakdown: () => ({}),

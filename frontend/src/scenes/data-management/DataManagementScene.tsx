@@ -10,11 +10,11 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { RevenueEventsSettings } from 'products/revenue_analytics/frontend/settings/RevenueEventsSettings'
 import React from 'react'
 import { NewActionButton } from 'scenes/actions/NewActionButton'
 import { Annotations } from 'scenes/annotations'
 import { NewAnnotationButton } from 'scenes/annotations/AnnotationModal'
-import { RevenueEventsSettings } from 'scenes/data-management/revenue/RevenueEventsSettings'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -43,12 +43,14 @@ const tabs: Record<
         content: JSX.Element
         buttons?: React.ReactNode
         flag?: FeatureFlagKey
+        tooltipDocLink?: string
     }
 > = {
     [DataManagementTab.EventDefinitions]: {
         url: urls.eventDefinitions(),
         label: 'Events',
         content: <EventDefinitionsTable />,
+        tooltipDocLink: 'https://posthog.com/docs/data/events',
     },
     [DataManagementTab.Actions]: {
         url: urls.actions(),
@@ -65,6 +67,7 @@ const tabs: Record<
         ),
         buttons: <NewActionButton />,
         content: <ActionsTable />,
+        tooltipDocLink: 'https://posthog.com/docs/data/actions',
     },
     [DataManagementTab.PropertyDefinitions]: {
         url: urls.propertyDefinitions(),
@@ -80,12 +83,14 @@ const tabs: Record<
             </TitleWithIcon>
         ),
         content: <PropertyDefinitionsTable />,
+        tooltipDocLink: 'https://posthog.com/docs/new-to-posthog/understand-posthog#properties',
     },
     [DataManagementTab.Annotations]: {
         url: urls.annotations(),
         content: <Annotations />,
         label: 'Annotations',
         buttons: <NewAnnotationButton />,
+        tooltipDocLink: 'https://posthog.com/docs/data/annotations',
     },
     [DataManagementTab.History]: {
         url: urls.dataManagementHistory(),
@@ -96,9 +101,10 @@ const tabs: Record<
                 caption="Only actions taken in the UI are captured in History. Automatic creation of definitions by ingestion is not shown here."
             />
         ),
+        tooltipDocLink: 'https://posthog.com/docs/data#history',
     },
     [DataManagementTab.Revenue]: {
-        url: urls.revenue(),
+        url: urls.revenueSettings(),
         label: (
             <>
                 Revenue{' '}
@@ -108,21 +114,21 @@ const tabs: Record<
             </>
         ),
         content: <RevenueEventsSettings />,
-        flag: FEATURE_FLAGS.WEB_REVENUE_TRACKING,
     },
     [DataManagementTab.IngestionWarnings]: {
         url: urls.ingestionWarnings(),
         label: 'Ingestion warnings',
         content: <IngestionWarningsView />,
         flag: FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED,
+        tooltipDocLink: 'https://posthog.com/docs/data/ingestion-warnings',
     },
 }
 
 const dataManagementSceneLogic = kea<dataManagementSceneLogicType>([
     path(['scenes', 'events', 'dataManagementSceneLogic']),
-    connect({
+    connect(() => ({
         values: [featureFlagLogic, ['featureFlags']],
-    }),
+    })),
     actions({
         setTab: (tab: DataManagementTab) => ({ tab }),
     }),
@@ -197,6 +203,7 @@ export function DataManagementScene(): JSX.Element {
         key: key as DataManagementTab,
         label: <span data-attr={`data-management-${key}-tab`}>{tabs[key].label}</span>,
         content: tabs[key].content,
+        tooltipDocLink: tabs[key].tooltipDocLink,
     }))
 
     return (

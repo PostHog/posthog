@@ -47,8 +47,30 @@ pub fn match_property(
 
     let key = &property.key;
     let operator = property.operator.unwrap_or(OperatorType::Exact);
-    let value = &property.value;
     let match_value = matching_property_values.get(key);
+
+    // first match operators that don't require a value
+    match operator {
+        OperatorType::IsSet => return Ok(matching_property_values.contains_key(key)),
+        OperatorType::IsNotSet => {
+            return if partial_props {
+                if matching_property_values.contains_key(key) {
+                    Ok(false)
+                } else {
+                    Err(FlagMatchingError::InconclusiveOperatorMatch)
+                }
+            } else {
+                Ok(!matching_property_values.contains_key(key))
+            }
+        }
+        _ => {}
+    }
+
+    // For all other operators, we need a value
+    let value = match &property.value {
+        Some(v) => v,
+        None => return Ok(false), // No value means no match for value-requiring operators
+    };
 
     match operator {
         OperatorType::Exact | OperatorType::IsNot => {
@@ -130,10 +152,9 @@ pub fn match_property(
             }
             let pattern = match Regex::new(&to_string_representation(value)) {
                 Ok(pattern) => pattern,
-                Err(_) => return Ok(false),
-                //TODO: Should we return Err here and handle elsewhere?
-                //Err(FlagMatchingError::InvalidRegexPattern)
-                // python just returns false here
+                Err(_) => {
+                    return Ok(false);
+                }
             };
             let haystack = to_string_representation(match_value.unwrap_or(&Value::Null));
             let match_ = pattern.find(&haystack);
@@ -299,7 +320,7 @@ mod test_match_properties {
     fn test_match_properties_exact_with_partial_props() {
         let property_a = PropertyFilter {
             key: "key".to_string(),
-            value: json!("value"),
+            value: Some(json!("value")),
             operator: None,
             prop_type: "person".to_string(),
             group_type_index: None,
@@ -353,7 +374,7 @@ mod test_match_properties {
 
         let property_b = PropertyFilter {
             key: "key".to_string(),
-            value: json!("value"),
+            value: Some(json!("value")),
             operator: Some(OperatorType::Exact),
             prop_type: "person".to_string(),
             group_type_index: None,
@@ -376,7 +397,7 @@ mod test_match_properties {
 
         let property_c = PropertyFilter {
             key: "key".to_string(),
-            value: json!(["value1", "value2", "value3"]),
+            value: Some(json!(["value1", "value2", "value3"])),
             operator: Some(OperatorType::Exact),
             prop_type: "person".to_string(),
             group_type_index: None,
@@ -421,7 +442,7 @@ mod test_match_properties {
     fn test_match_properties_is_not() {
         let property_a = PropertyFilter {
             key: "key".to_string(),
-            value: json!("value"),
+            value: Some(json!("value")),
             operator: Some(OperatorType::IsNot),
             prop_type: "person".to_string(),
             group_type_index: None,
@@ -459,7 +480,7 @@ mod test_match_properties {
 
         let property_c = PropertyFilter {
             key: "key".to_string(),
-            value: json!(["value1", "value2", "value3"]),
+            value: Some(json!(["value1", "value2", "value3"])),
             operator: Some(OperatorType::IsNot),
             prop_type: "person".to_string(),
             group_type_index: None,
@@ -534,7 +555,7 @@ mod test_match_properties {
     fn test_match_properties_is_set() {
         let property_a = PropertyFilter {
             key: "key".to_string(),
-            value: json!("value"),
+            value: Some(json!("value")),
             operator: Some(OperatorType::IsSet),
             prop_type: "person".to_string(),
             group_type_index: None,
@@ -583,7 +604,7 @@ mod test_match_properties {
     fn test_match_properties_icontains() {
         let property_a = PropertyFilter {
             key: "key".to_string(),
-            value: json!("valUe"),
+            value: Some(json!("valUe")),
             operator: Some(OperatorType::Icontains),
             prop_type: "person".to_string(),
             group_type_index: None,
@@ -641,7 +662,7 @@ mod test_match_properties {
 
         let property_b = PropertyFilter {
             key: "key".to_string(),
-            value: json!("3"),
+            value: Some(json!("3")),
             operator: Some(OperatorType::Icontains),
             prop_type: "person".to_string(),
             group_type_index: None,
@@ -681,7 +702,7 @@ mod test_match_properties {
     fn test_match_properties_regex() {
         let property_a = PropertyFilter {
             key: "key".to_string(),
-            value: json!(r"\.com$"),
+            value: Some(json!(r"\.com$")),
             operator: Some(OperatorType::Regex),
             prop_type: "person".to_string(),
             group_type_index: None,
@@ -722,7 +743,7 @@ mod test_match_properties {
 
         let property_b = PropertyFilter {
             key: "key".to_string(),
-            value: json!("3"),
+            value: Some(json!("3")),
             operator: Some(OperatorType::Regex),
             prop_type: "person".to_string(),
             group_type_index: None,
@@ -757,7 +778,7 @@ mod test_match_properties {
         // invalid regex
         let property_c = PropertyFilter {
             key: "key".to_string(),
-            value: json!(r"?*"),
+            value: Some(json!(r"?*")),
             operator: Some(OperatorType::Regex),
             prop_type: "person".to_string(),
             group_type_index: None,
@@ -780,7 +801,7 @@ mod test_match_properties {
         // non string value
         let property_d = PropertyFilter {
             key: "key".to_string(),
-            value: json!(4),
+            value: Some(json!(4)),
             operator: Some(OperatorType::Regex),
             prop_type: "person".to_string(),
             group_type_index: None,
@@ -811,7 +832,7 @@ mod test_match_properties {
     fn test_match_properties_math_operators() {
         let property_a = PropertyFilter {
             key: "key".to_string(),
-            value: json!(1),
+            value: Some(json!(1)),
             operator: Some(OperatorType::Gt),
             prop_type: "person".to_string(),
             group_type_index: None,
@@ -854,7 +875,7 @@ mod test_match_properties {
 
         let property_b = PropertyFilter {
             key: "key".to_string(),
-            value: json!(1),
+            value: Some(json!(1)),
             operator: Some(OperatorType::Lt),
             prop_type: "person".to_string(),
             group_type_index: None,
@@ -901,7 +922,7 @@ mod test_match_properties {
 
         let property_c = PropertyFilter {
             key: "key".to_string(),
-            value: json!(1),
+            value: Some(json!(1)),
             operator: Some(OperatorType::Gte),
             prop_type: "person".to_string(),
             group_type_index: None,
@@ -943,7 +964,7 @@ mod test_match_properties {
 
         let property_d = PropertyFilter {
             key: "key".to_string(),
-            value: json!("43"),
+            value: Some(json!("43")),
             operator: Some(OperatorType::Lt),
             prop_type: "person".to_string(),
             group_type_index: None,
@@ -990,7 +1011,7 @@ mod test_match_properties {
 
         let property_e = PropertyFilter {
             key: "key".to_string(),
-            value: json!("30"),
+            value: Some(json!("30")),
             operator: Some(OperatorType::Lt),
             prop_type: "person".to_string(),
             group_type_index: None,
@@ -1070,7 +1091,7 @@ mod test_match_properties {
     fn test_none_property_value_with_all_operators() {
         let property_a = PropertyFilter {
             key: "key".to_string(),
-            value: json!("null"),
+            value: Some(json!("null")),
             operator: Some(OperatorType::IsNot),
             prop_type: "person".to_string(),
             group_type_index: None,
@@ -1092,7 +1113,7 @@ mod test_match_properties {
 
         let property_b = PropertyFilter {
             key: "key".to_string(),
-            value: json!(null),
+            value: Some(json!(null)),
             operator: Some(OperatorType::IsSet),
             prop_type: "person".to_string(),
             group_type_index: None,
@@ -1108,7 +1129,7 @@ mod test_match_properties {
 
         let property_c = PropertyFilter {
             key: "key".to_string(),
-            value: json!("nu"),
+            value: Some(json!("nu")),
             operator: Some(OperatorType::Icontains),
             prop_type: "person".to_string(),
             group_type_index: None,
@@ -1130,7 +1151,7 @@ mod test_match_properties {
 
         let property_d = PropertyFilter {
             key: "key".to_string(),
-            value: json!("Nu"),
+            value: Some(json!("Nu")),
             operator: Some(OperatorType::Regex),
             prop_type: "person".to_string(),
             group_type_index: None,
@@ -1146,7 +1167,7 @@ mod test_match_properties {
 
         let property_d_upper_case = PropertyFilter {
             key: "key".to_string(),
-            value: json!("Nu"),
+            value: Some(json!("Nu")),
             operator: Some(OperatorType::Regex),
             prop_type: "person".to_string(),
             group_type_index: None,
@@ -1180,7 +1201,7 @@ mod test_match_properties {
     fn test_match_properties_all_operators_with_full_props() {
         let property_a = PropertyFilter {
             key: "key".to_string(),
-            value: json!("value"),
+            value: Some(json!("value")),
             operator: None,
             prop_type: "person".to_string(),
             group_type_index: None,
@@ -1200,7 +1221,7 @@ mod test_match_properties {
 
         let property_exact = PropertyFilter {
             key: "key".to_string(),
-            value: json!(["value1", "value2", "value3"]),
+            value: Some(json!(["value1", "value2", "value3"])),
             operator: Some(OperatorType::Exact),
             prop_type: "person".to_string(),
             group_type_index: None,
@@ -1216,7 +1237,7 @@ mod test_match_properties {
 
         let property_is_set = PropertyFilter {
             key: "key".to_string(),
-            value: json!("value"),
+            value: Some(json!("value")),
             operator: Some(OperatorType::IsSet),
             prop_type: "person".to_string(),
             group_type_index: None,
@@ -1232,7 +1253,7 @@ mod test_match_properties {
 
         let property_is_not_set = PropertyFilter {
             key: "key".to_string(),
-            value: json!(null),
+            value: Some(json!(null)),
             operator: Some(OperatorType::IsNotSet),
             prop_type: "person".to_string(),
             group_type_index: None,
@@ -1269,7 +1290,7 @@ mod test_match_properties {
 
         let property_icontains = PropertyFilter {
             key: "key".to_string(),
-            value: json!("valUe"),
+            value: Some(json!("valUe")),
             operator: Some(OperatorType::Icontains),
             prop_type: "person".to_string(),
             group_type_index: None,
@@ -1285,7 +1306,7 @@ mod test_match_properties {
 
         let property_not_icontains = PropertyFilter {
             key: "key".to_string(),
-            value: json!("valUe"),
+            value: Some(json!("valUe")),
             operator: Some(OperatorType::NotIcontains),
             prop_type: "person".to_string(),
             group_type_index: None,
@@ -1301,7 +1322,7 @@ mod test_match_properties {
 
         let property_regex = PropertyFilter {
             key: "key".to_string(),
-            value: json!(r"\.com$"),
+            value: Some(json!(r"\.com$")),
             operator: Some(OperatorType::Regex),
             prop_type: "person".to_string(),
             group_type_index: None,
@@ -1317,7 +1338,7 @@ mod test_match_properties {
 
         let property_not_regex = PropertyFilter {
             key: "key".to_string(),
-            value: json!(r"\.com$"),
+            value: Some(json!(r"\.com$")),
             operator: Some(OperatorType::NotRegex),
             prop_type: "person".to_string(),
             group_type_index: None,
@@ -1333,7 +1354,7 @@ mod test_match_properties {
 
         let property_gt = PropertyFilter {
             key: "key".to_string(),
-            value: json!(1),
+            value: Some(json!(1)),
             operator: Some(OperatorType::Gt),
             prop_type: "person".to_string(),
             group_type_index: None,
@@ -1349,7 +1370,7 @@ mod test_match_properties {
 
         let property_gte = PropertyFilter {
             key: "key".to_string(),
-            value: json!(1),
+            value: Some(json!(1)),
             operator: Some(OperatorType::Gte),
             prop_type: "person".to_string(),
             group_type_index: None,
@@ -1365,7 +1386,7 @@ mod test_match_properties {
 
         let property_lt = PropertyFilter {
             key: "key".to_string(),
-            value: json!(1),
+            value: Some(json!(1)),
             operator: Some(OperatorType::Lt),
             prop_type: "person".to_string(),
             group_type_index: None,
@@ -1381,7 +1402,7 @@ mod test_match_properties {
 
         let property_lte = PropertyFilter {
             key: "key".to_string(),
-            value: json!(1),
+            value: Some(json!(1)),
             operator: Some(OperatorType::Lte),
             prop_type: "person".to_string(),
             group_type_index: None,
@@ -1398,7 +1419,7 @@ mod test_match_properties {
         // TODO: Handle date operators
         let property_is_date_before = PropertyFilter {
             key: "key".to_string(),
-            value: json!("2021-01-01"),
+            value: Some(json!("2021-01-01")),
             operator: Some(OperatorType::IsDateBefore),
             prop_type: "person".to_string(),
             group_type_index: None,
@@ -1415,7 +1436,7 @@ mod test_match_properties {
         // Test IsDateAfter with different date formats
         let property_is_date_after = PropertyFilter {
             key: "joined_at".to_string(),
-            value: json!("2023-06-04"), // Simple date format in filter
+            value: Some(json!("2023-06-04")), // Simple date format in filter
             operator: Some(OperatorType::IsDateAfter),
             prop_type: "person".to_string(),
             group_type_index: None,
@@ -1450,7 +1471,7 @@ mod test_match_properties {
         let exact_date = "2024-03-21T00:00:00Z"; // Define the exact date we want to test
         let property_exact = PropertyFilter {
             key: "date".to_string(),
-            value: json!(exact_date),
+            value: Some(json!(exact_date)),
             operator: Some(OperatorType::IsDateExact),
             prop_type: "person".to_string(),
             group_type_index: None,

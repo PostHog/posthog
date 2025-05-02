@@ -6,9 +6,7 @@ import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getCoreFilterDefinition } from 'lib/taxonomy'
 import { eventToDescription, humanizeBytes, objectsEqual, toParams } from 'lib/utils'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import {
     InspectorListItemPerformance,
     performanceEventDataLogic,
@@ -22,8 +20,10 @@ import {
     convertUniversalFiltersToRecordingsQuery,
     MatchingEventsMatchType,
 } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
+import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 
 import { RecordingsQuery } from '~/queries/schema/schema-general'
+import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import {
     FilterableInspectorListItemTypes,
     MatchedRecordingEvent,
@@ -220,7 +220,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         actions: [
             miniFiltersLogic,
             ['setMiniFilter', 'setSearchQuery'],
-            eventUsageLogic,
+            sessionRecordingEventUsageLogic,
             ['reportRecordingInspectorItemExpanded'],
             sessionRecordingDataLogic(props),
             ['loadFullEventData', 'setTrackedWindow'],
@@ -753,13 +753,21 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
 
         filteredItems: [
-            (s) => [s.allItems, s.miniFiltersByKey, s.showOnlyMatching, s.allowMatchingEventsFilter, s.trackedWindow],
+            (s) => [
+                s.allItems,
+                s.miniFiltersByKey,
+                s.showOnlyMatching,
+                s.allowMatchingEventsFilter,
+                s.trackedWindow,
+                s.hasEventsToDisplay,
+            ],
             (
                 allItems,
                 miniFiltersByKey,
                 showOnlyMatching,
                 allowMatchingEventsFilter,
-                trackedWindow
+                trackedWindow,
+                hasEventsToDisplay
             ): InspectorListItem[] => {
                 const filteredItems = filterInspectorListItems({
                     allItems,
@@ -767,7 +775,9 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     allowMatchingEventsFilter,
                     showOnlyMatching,
                     trackedWindow,
+                    hasEventsToDisplay,
                 })
+
                 // need to collapse adjacent inactivity items
                 // they look werong next to each other
                 return filteredItems.reduce((acc, item, index) => {
@@ -791,13 +801,15 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 s.showOnlyMatching,
                 s.allowMatchingEventsFilter,
                 s.trackedWindow,
+                s.hasEventsToDisplay,
             ],
             (
                 allItems,
                 miniFiltersForTypeByKey,
                 showOnlyMatching,
                 allowMatchingEventsFilter,
-                trackedWindow
+                trackedWindow,
+                hasEventsToDisplay
             ): (InspectorListItemEvent | InspectorListItemComment)[] => {
                 const eventFilteredItems = filterInspectorListItems({
                     allItems,
@@ -805,6 +817,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     allowMatchingEventsFilter,
                     showOnlyMatching,
                     trackedWindow,
+                    hasEventsToDisplay,
                 })
 
                 let items: (InspectorListItemEvent | InspectorListItemComment)[] = eventFilteredItems.filter(
@@ -1002,7 +1015,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         setItemExpanded: ({ index, expanded }) => {
             if (expanded) {
                 const item = values.items[index]
-                eventUsageLogic.actions.reportRecordingInspectorItemExpanded(item.type, index)
+                actions.reportRecordingInspectorItemExpanded(item.type, index)
 
                 if (item.type === FilterableInspectorListItemTypes.EVENTS) {
                     actions.loadFullEventData(item.data)

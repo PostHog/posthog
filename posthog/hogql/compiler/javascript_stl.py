@@ -458,6 +458,10 @@ function isIPAddressInRange(address, prefix) {
         """function arrayMap (func, arr) { let result = []; for (let i = 0; i < arr.length; i++) { result = arrayPushBack(result, func(arr[i])) } return result }""",
         ["arrayPushBack"],
     ],
+    "arrayReduce": [
+        """function arrayReduce (func, arr, initial) { let result = initial; for (let i = 0; i < arr.length; i++) { result = func(result, arr[i]) } return result }""",
+        [],
+    ],
     "has": [
         """function has (arr, elem) { if (!Array.isArray(arr) || arr.length === 0) { return false } return arr.includes(elem) }""",
         [],

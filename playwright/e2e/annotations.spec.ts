@@ -7,7 +7,7 @@ test.describe('Annotations', () => {
     })
 
     test('Annotations loaded', async ({ page }) => {
-        await expect(page.locator('text=Create your first annotation')).toBeVisible()
+        await expect(page.getByTestId('product-introduction-annotation')).toBeVisible()
         await expect(page.locator('[data-attr="product-introduction-docs-link"]')).toContainText('Learn more')
     })
 

@@ -3,15 +3,14 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use common_database::get_pool;
 use common_geoip::GeoIpClient;
 use common_redis::RedisClient;
 use health::{HealthHandle, HealthRegistry};
 use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, QUOTA_LIMITER_CACHE_KEY};
 use tokio::net::TcpListener;
 
-use crate::client::database::get_pool;
-
-use crate::cohort::cohort_cache_manager::CohortCacheManager;
+use crate::cohorts::cohort_cache_manager::CohortCacheManager;
 use crate::config::Config;
 use crate::router;
 use common_cookieless::CookielessManager;

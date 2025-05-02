@@ -3,7 +3,8 @@ import { useActions, useValues } from 'kea'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
-import { AssigneeSelect } from '../AssigneeSelect'
+import { AssigneeLabelDisplay } from '../components/Assignee/AssigneeDisplay'
+import { AssigneeSelect } from '../components/Assignee/AssigneeSelect'
 import { errorTrackingDataNodeLogic } from '../errorTrackingDataNodeLogic'
 import { errorTrackingSceneLogic } from '../errorTrackingSceneLogic'
 import { GenericSelect } from './GenericSelect'
@@ -16,7 +17,6 @@ export function BulkActions(): JSX.Element {
     const { setSelectedIssueIds } = useActions(errorTrackingSceneLogic)
     const { results } = useValues(errorTrackingDataNodeLogic)
 
-    const hasAtLeastOneIssue = selectedIssueIds.length > 0
     const hasAtLeastTwoIssues = selectedIssueIds.length >= 2
 
     const currentStatus = results
@@ -33,8 +33,8 @@ export function BulkActions(): JSX.Element {
             return acc
         }, null)
 
-    return hasAtLeastOneIssue ? (
-        <>
+    return (
+        <div className="flex gap-x-2">
             <LemonButton
                 disabledReason={!hasAtLeastTwoIssues ? 'Select at least two issues to merge' : null}
                 type="secondary"
@@ -93,17 +93,13 @@ export function BulkActions(): JSX.Element {
                     }
                 }}
             />
-            <AssigneeSelect
-                type="secondary"
-                size="small"
-                showName
-                showIcon={false}
-                unassignedLabel="Assign"
-                assignee={null}
-                onChange={(assignee) => assignIssues(selectedIssueIds, assignee)}
-            />
-        </>
-    ) : (
-        <></>
+            <AssigneeSelect assignee={null} onChange={(assignee) => assignIssues(selectedIssueIds, assignee)}>
+                {(displayAssignee) => (
+                    <LemonButton type="secondary" size="small">
+                        <AssigneeLabelDisplay assignee={displayAssignee} placeholder="Assign" />
+                    </LemonButton>
+                )}
+            </AssigneeSelect>
+        </div>
     )
 }

@@ -11,14 +11,14 @@ import { Sidebar } from '~/layout/navigation-3000/components/Sidebar'
 import { SidebarNavbarItem } from '~/layout/navigation-3000/types'
 
 import { editorSceneLogic } from '../editorSceneLogic'
-import { editorSidebarLogic } from '../editorSidebarLogic'
+import { queryDatabaseLogic } from './queryDatabaseLogic'
 
 export const QueryDatabase = ({ isOpen }: { isOpen: boolean }): JSX.Element => {
     const navBarItem: SidebarNavbarItem = {
         identifier: Scene.SQLEditor,
         label: 'SQL editor',
         icon: <IconServer />,
-        logic: editorSidebarLogic,
+        logic: editorSceneLogic,
     }
 
     return (
@@ -27,7 +27,7 @@ export const QueryDatabase = ({ isOpen }: { isOpen: boolean }): JSX.Element => {
 }
 const EditorSidebarOverlay = (): JSX.Element => {
     const { setSidebarOverlayOpen } = useActions(editorSceneLogic)
-    const { sidebarOverlayTreeItems, selectedSchema } = useValues(editorSceneLogic)
+    const { sidebarOverlayTreeItems, selectedSchema } = useValues(queryDatabaseLogic)
     const { toggleJoinTableModal, selectSourceTable } = useActions(viewLinkLogic)
 
     const copy = (): void => {
@@ -59,23 +59,26 @@ const EditorSidebarOverlay = (): JSX.Element => {
                             onClick={() => copy()}
                         />
                     )}
-                    <LemonMenu
-                        items={[
-                            {
-                                label: 'Add join',
-                                onClick: () => {
-                                    if (selectedSchema) {
-                                        selectSourceTable(selectedSchema.name)
-                                        toggleJoinTableModal()
-                                    }
+
+                    {selectedSchema && 'type' in selectedSchema && selectedSchema.type !== 'managed_view' && (
+                        <LemonMenu
+                            items={[
+                                {
+                                    label: 'Add join',
+                                    onClick: () => {
+                                        if (selectedSchema) {
+                                            selectSourceTable(selectedSchema.name)
+                                            toggleJoinTableModal()
+                                        }
+                                    },
                                 },
-                            },
-                        ]}
-                    >
-                        <div>
-                            <LemonButton size="small" noPadding icon={<IconEllipsis />} />
-                        </div>
-                    </LemonMenu>
+                            ]}
+                        >
+                            <div>
+                                <LemonButton size="small" noPadding icon={<IconEllipsis />} />
+                            </div>
+                        </LemonMenu>
+                    )}
                 </div>
             </header>
             <div className="overflow-y-auto flex-1">

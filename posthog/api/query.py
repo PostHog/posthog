@@ -3,6 +3,8 @@ import uuid
 import json
 import time
 import asyncio
+
+from django.core.cache import cache
 from django.http import JsonResponse, StreamingHttpResponse
 from drf_spectacular.utils import OpenApiResponse
 from pydantic import BaseModel
@@ -10,11 +12,12 @@ from rest_framework import status, viewsets
 from rest_framework.exceptions import NotAuthenticated, ValidationError, Throttled
 from rest_framework.request import Request
 from rest_framework.response import Response
-from sentry_sdk import set_tag
 from asgiref.sync import sync_to_async
 from concurrent.futures import ThreadPoolExecutor
 
+from posthog import settings
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
 from posthog.api.documentation import extend_schema
 from posthog.api.mixins import PydanticModelMixin
@@ -43,6 +46,8 @@ from posthog.models.user import User
 from posthog.rate_limit import (
     AIBurstRateThrottle,
     AISustainedRateThrottle,
+    APIQueriesBurstThrottle,
+    APIQueriesSustainedThrottle,
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
     HogQLQueryThrottle,
@@ -53,7 +58,6 @@ from posthog.schema import (
     QueryStatusResponse,
 )
 from typing import cast
-
 
 # Create a dedicated thread pool for query processing
 # Setting max_workers to ensure we don't overwhelm the system
@@ -102,10 +106,25 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     def get_throttles(self):
         if self.action == "draft_sql":
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]
+        if self.team_id in settings.API_QUERIES_PER_TEAM or (
+            settings.API_QUERIES_ENABLED and self.check_team_api_queries_concurrency()
+        ):
+            return [APIQueriesBurstThrottle(), APIQueriesSustainedThrottle()]
         if query := self.request.data.get("query"):
             if isinstance(query, dict) and query.get("kind") == "HogQLQuery":
                 return [HogQLQueryThrottle()]
         return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
+
+    def check_team_api_queries_concurrency(self):
+        cache_key = f"team/{self.team_id}/feature/{AvailableFeature.API_QUERIES_CONCURRENCY}"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+        if self.team:
+            new_val = self.team.organization.is_feature_available(AvailableFeature.API_QUERIES_CONCURRENCY)
+            cache.set(cache_key, new_val)
+            return new_val
+        return False
 
     @extend_schema(
         request=QueryRequest,
@@ -114,9 +133,8 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         },
     )
     @monitor(feature=Feature.QUERY, endpoint="query", method="POST")
-    def create(self, request, *args, **kwargs) -> Response:
+    def create(self, request: Request, *args, **kwargs) -> Response:
         data = self.get_model(request.data, QueryRequest)
-
         try:
             query, client_query_id, execution_mode = _process_query_request(
                 data, self.team, data.client_query_id, request.user
@@ -128,7 +146,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 query,
                 execution_mode=execution_mode,
                 query_id=client_query_id,
-                user=request.user,
+                user=request.user,  # type: ignore[arg-type]
                 is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
             )
             if isinstance(result, BaseModel):
@@ -230,7 +248,6 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             return
 
         tag_queries(client_query_id=query_id)
-        set_tag("client_query_id", query_id)
 
 
 MAX_QUERY_TIMEOUT = 600

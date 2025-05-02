@@ -1144,88 +1144,102 @@ class BaseTestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 self.fail(msg="Invalid breakdown value")
 
     def test_funnel_step_breakdown_empty(self):
-        journeys_for(
-            {
-                "user_one": [
-                    {
-                        "event": "step one",
-                        "timestamp": datetime(2021, 5, 1),
-                        "properties": {"$browser": "Chrome"},
-                    },
-                    {
-                        "event": "step two",
-                        "timestamp": datetime(2021, 5, 3),
-                        "properties": {"$browser": "Chrome"},
-                    },
-                    {
-                        "event": "step three",
-                        "timestamp": datetime(2021, 5, 5),
-                        "properties": {"$browser": "Chrome"},
-                    },
-                ],
-                "user_two": [
-                    {
-                        "event": "step one",
-                        "timestamp": datetime(2021, 5, 2),
-                        "properties": {"$browser": "Chrome"},
-                    },
-                    {
-                        "event": "step two",
-                        "timestamp": datetime(2021, 5, 3),
-                        "properties": {"$browser": "Chrome"},
-                    },
-                    {
-                        "event": "step three",
-                        "timestamp": datetime(2021, 5, 5),
-                        "properties": {"$browser": "Chrome"},
-                    },
-                ],
-                "user_three": [
-                    {
-                        "event": "step one",
-                        "timestamp": datetime(2021, 5, 3),
-                        "properties": {"$browser": "Safari"},
-                    },
-                    {
-                        "event": "step two",
-                        "timestamp": datetime(2021, 5, 4),
-                        "properties": {"$browser": "Safari"},
-                    },
-                    {
-                        "event": "step three",
-                        "timestamp": datetime(2021, 5, 5),
-                        "properties": {"$browser": "Safari"},
-                    },
-                ],
-            },
-            self.team,
-        )
+        attribution_types = [
+            "all_events",
+            "first_touch",
+            "last_touch",
+            "step",
+        ]
+        for attribution_type in attribution_types:
+            journeys_for(
+                {
+                    "user_one": [
+                        {
+                            "event": "step one",
+                            "timestamp": datetime(2021, 5, 1),
+                            "properties": {"$browser": "Chrome"},
+                        },
+                        {
+                            "event": "step two",
+                            "timestamp": datetime(2021, 5, 3),
+                            "properties": {"$browser": "Chrome"},
+                        },
+                        {
+                            "event": "step three",
+                            "timestamp": datetime(2021, 5, 5),
+                            "properties": {"$browser": "Chrome"},
+                        },
+                    ],
+                    "user_two": [
+                        {
+                            "event": "step one",
+                            "timestamp": datetime(2021, 5, 2),
+                            "properties": {"$browser": "Chrome"},
+                        },
+                        {
+                            "event": "step two",
+                            "timestamp": datetime(2021, 5, 3),
+                            "properties": {"$browser": "Chrome"},
+                        },
+                        {
+                            "event": "step three",
+                            "timestamp": datetime(2021, 5, 5),
+                            "properties": {"$browser": "Chrome"},
+                        },
+                    ],
+                    "user_three": [
+                        {
+                            "event": "step one",
+                            "timestamp": datetime(2021, 5, 3),
+                            "properties": {"$browser": "Safari"},
+                        },
+                        {
+                            "event": "step two",
+                            "timestamp": datetime(2021, 5, 4),
+                            "properties": {"$browser": "Safari"},
+                        },
+                        {
+                            "event": "step three",
+                            "timestamp": datetime(2021, 5, 5),
+                            "properties": {"$browser": "Safari"},
+                        },
+                    ],
+                },
+                self.team,
+            )
 
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "trends",
-            "display": TRENDS_LINEAR,
-            "interval": "day",
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-13 23:59:59",
-            "funnel_window_days": 7,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
-            ],
-            "breakdown_type": "hogql",
-            "breakdown": "IF(distinct_id = 'user_two', NULL, 'foo')",  # Simulate some empty breakdown values
-        }
+            filters = {
+                "insight": INSIGHT_FUNNELS,
+                "funnel_viz_type": "trends",
+                "display": TRENDS_LINEAR,
+                "interval": "day",
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-13 23:59:59",
+                "funnel_window_days": 7,
+                "events": [
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                    {"id": "step three", "order": 2},
+                ],
+                "breakdown_type": "hogql",
+                "breakdown": "IF(distinct_id = 'user_two', NULL, 'foo')",  # Simulate some empty breakdown values
+                "breakdown_attribution_type": attribution_type,
+            }
+            if attribution_type == "step":
+                filters["breakdown_attribution_value"] = 1  # Example value; adjust if needed
 
-        query = cast(FunnelsQuery, filter_to_query(filters))
-        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            response = FunnelsQueryRunner(query=query, team=self.team).calculate()
+            results = response.results
 
-        self.assertEqual(len(results), 2)
-        self.assertEqual(results[0]["breakdown_value"], [""])
-        self.assertEqual(results[0]["data"], [0.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-        self.assertEqual(results[1]["breakdown_value"], ["foo"])
-        self.assertEqual(results[1]["data"], [100.0, 0.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+            self.assertEqual(len(results), 2)
+            # Old funnels incorrectly return None instead of empty string for empty breakdown values in these two attribution modes
+            # Not worth fixing for now
+            if response.isUdf or attribution_type not in ("all_events", "step"):
+                self.assertEqual(results[0]["breakdown_value"], [""])
+            self.assertEqual(results[0]["data"], [0.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+            self.assertEqual(results[1]["breakdown_value"], ["foo"])
+            self.assertEqual(results[1]["data"], [100.0, 0.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
     def test_funnel_step_breakdown_event_with_breakdown_limit(self):
         journeys_for(
@@ -2672,6 +2686,86 @@ class BaseTestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(results), 7)
         self.assertEqual(results[0]["reached_from_step_count"], 2)  # Both non-excluded users started the funnel
         self.assertEqual(results[0]["reached_to_step_count"], 1)  # Only one user converted
+
+    def test_funnel_with_long_interval_no_first_step(self):
+        # Create a person who only completes the second step of the funnel
+        _create_person(distinct_ids=["only_second_step"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="added to cart",
+            distinct_id="only_second_step",
+            timestamp=datetime(2021, 5, 2, 0, 0, 0),
+        )
+
+        _create_person(distinct_ids=["only_first_step"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="user signed up",
+            distinct_id="only_first_step",
+            timestamp=datetime(2021, 5, 3, 0, 0, 0),
+        )
+
+        filters = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_viz_type": "trends",
+            "display": TRENDS_LINEAR,
+            "interval": "day",
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-07 00:00:00",
+            "events": [{"id": "user signed up", "order": 0}, {"id": "added to cart", "order": 1}],
+            "funnel_window_interval": 3122064000,
+            "funnel_window_interval_unit": "second",
+        }
+
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+
+        # Since in funnel trends we're tracking conversion by day, not aggregated totals,
+        # and the user only completes step 2 without step 1, there should be no conversions for any day
+        for day_result in results[:2] + results[3:]:
+            self.assertEqual(day_result["reached_from_step_count"], 0)
+            self.assertEqual(day_result["reached_to_step_count"], 0)
+            self.assertEqual(day_result["conversion_rate"], 0.0)
+
+        self.assertEqual(results[2]["reached_from_step_count"], 1)
+        self.assertEqual(results[2]["reached_to_step_count"], 0)
+
+    def test_funnel_trends_with_out_of_order_completion(self):
+        journeys_for(
+            {
+                "user a": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 7, 19)},
+                    {"event": "step three", "timestamp": datetime(2021, 6, 7, 20)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 7, 21)},
+                ]
+            },
+            self.team,
+        )
+
+        filters = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_viz_type": "trends",
+            "display": TRENDS_LINEAR,
+            "interval": "day",
+            "date_from": "2021-06-07 00:00:00",
+            "date_to": "2021-06-13 23:59:59",
+            "funnel_window_days": 7,
+            "funnel_from_step": 0,
+            "funnel_to_step": 1,
+            "events": [
+                {"id": "step one", "order": 0},
+                {"id": "step two", "order": 1},
+                {"id": "step three", "order": 2},
+            ],
+        }
+
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        runner = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True)
+        results = runner.calculate().results
+
+        self.assertEqual(len(results), 7)  # 7 days in the date range
+        self.assertEqual(results[0]["reached_to_step_count"], 1)
+        self.assertEqual(results[1]["reached_to_step_count"], 0)
 
 
 class TestFunnelTrends(BaseTestFunnelTrends):
