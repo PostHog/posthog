@@ -3,6 +3,7 @@ import { FetchError, RequestInit } from 'node-fetch'
 
 import { PluginsServerConfig } from '../../types'
 import { trackedFetch } from '../../utils/fetch'
+import { logger } from '../../utils/logger'
 import {
     CyclotronFetchFailureInfo,
     CyclotronFetchFailureKind,
@@ -39,6 +40,14 @@ export class FetchExecutorService {
             )
 
             const nextScheduledAt = DateTime.utc().plus({ milliseconds: backoffMs })
+
+            logger.info(`[FetchExecutorService] Scheduling retry`, {
+                hogFunctionId: invocation.hogFunction.id,
+                status: failure.status,
+                backoffMs,
+                nextScheduledAt: nextScheduledAt.toISO(),
+                retryCount: updatedMetadata.tries,
+            })
 
             return {
                 invocation: {
@@ -94,6 +103,7 @@ export class FetchExecutorService {
             if (!['GET', 'HEAD'].includes(method) && params.body) {
                 fetchParams.body = params.body
             }
+
             const fetchResponse = await trackedFetch(params.url, fetchParams)
 
             responseBody = await fetchResponse.text()
