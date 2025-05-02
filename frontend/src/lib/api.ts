@@ -436,8 +436,7 @@ class ApiRequest {
     }
 
     public hogFunctionTemplates(teamId?: TeamType['id'], db_templates?: boolean): ApiRequest {
-        const req = this.projectsDetail(teamId).addPathComponent('hog_function_templates')
-        return db_templates !== undefined ? req.withQueryString({ db_templates }) : req
+        return this.projectsDetail(teamId).addPathComponent('hog_function_templates').withQueryString({ db_templates })
     }
 
     public hogFunctionTemplate(
@@ -445,8 +444,10 @@ class ApiRequest {
         teamId?: TeamType['id'],
         db_templates?: boolean
     ): ApiRequest {
-        const req = this.hogFunctionTemplates(teamId).addPathComponent(id)
-        return db_templates !== undefined ? req.withQueryString({ db_templates }) : req
+        return this.projectsDetail(teamId)
+            .addPathComponent('hog_function_templates')
+            .addPathComponent(id)
+            .withQueryString({ db_templates })
     }
 
     // # Actions
