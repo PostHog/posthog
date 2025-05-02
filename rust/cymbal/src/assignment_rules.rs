@@ -257,7 +257,5 @@ pub async fn try_assignment_rules(
 
     timing.label("outcome", "no_match").fin();
 
-    // If none of the rules matched, grab the existing assignment, in case one exists,
-    // and return that (or None)
     Ok(None)
 }

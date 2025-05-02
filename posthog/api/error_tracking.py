@@ -472,7 +472,7 @@ class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelV
 
 class ErrorTrackingGroupingRuleSerializer(serializers.ModelSerializer):
     class Meta:
-        model = ErrorTrackingAssignmentRule
+        model = ErrorTrackingGroupingRule
         fields = ["id", "filters"]
         read_only_fields = ["team_id"]
 
@@ -494,7 +494,7 @@ class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelVie
         if json_filters:
             parsed_filters = PropertyGroupFilterValue(**json_filters)
             grouping_rule.filters = json_filters
-            grouping_rule.bytecode = self.generate_byte_code(parsed_filters)
+            grouping_rule.bytecode = generate_byte_code(self.team, parsed_filters)
 
         if assignee:
             grouping_rule.user_id = None if assignee["type"] != "user" else assignee["id"]

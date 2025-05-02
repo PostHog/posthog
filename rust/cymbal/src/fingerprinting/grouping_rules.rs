@@ -139,7 +139,7 @@ pub async fn try_grouping_rules(
     con: &mut PgConnection,
     team_id: TeamId,
     team_manager: &TeamManager,
-    exception_properties: RawErrProps,
+    exception_properties: &RawErrProps,
 ) -> Result<Option<GroupingRule>, UnhandledError> {
     let timing = common_metrics::timing_guard(GROUPING_RULES_PROCESSING_TIME, &[]);
 

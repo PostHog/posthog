@@ -21,8 +21,7 @@ pub async fn resolve_fingerprint(
 ) -> Result<Fingerprint, UnhandledError> {
     let mut conn = context.pool.acquire().await?;
 
-    if let Some(rule) =
-        try_grouping_rules(&mut conn, team_id, &context.team_manager, props.clone()).await?
+    if let Some(rule) = try_grouping_rules(&mut conn, team_id, &context.team_manager, props).await?
     {
         Ok(Fingerprint::from_rule(rule))
     } else {
