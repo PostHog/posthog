@@ -195,7 +195,7 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
     ) -> Optional[str]:
         """Try to find project secret API key in request and return it"""
         if "HTTP_AUTHORIZATION" in request.META:
-            authorization_match = re.match(rf"^Bearer\s+(phs_.+)$", request.META["HTTP_AUTHORIZATION"])
+            authorization_match = re.match(rf"^Bearer\s+(phs_[a-zA-Z0-9]+)$", request.META["HTTP_AUTHORIZATION"])
             if authorization_match:
                 return authorization_match.group(1).strip()
 
