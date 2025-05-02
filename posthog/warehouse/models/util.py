@@ -1,6 +1,7 @@
 import re
 
 from posthog.hogql.database.models import (
+    UUIDDatabaseField,
     BooleanDatabaseField,
     DateDatabaseField,
     DateTimeDatabaseField,
@@ -70,7 +71,7 @@ def clean_type(column_type: str) -> str:
 
 
 CLICKHOUSE_HOGQL_MAPPING = {
-    "UUID": StringDatabaseField,
+    "UUID": UUIDDatabaseField,
     "String": StringDatabaseField,
     "Nothing": UnknownDatabaseField,
     "DateTime64": DateTimeDatabaseField,
