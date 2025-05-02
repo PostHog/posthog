@@ -480,6 +480,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         })
                         return { ...state, results: newResults }
                     }
+                    return state
                 },
             },
         ],
