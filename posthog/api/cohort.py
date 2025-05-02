@@ -6,7 +6,7 @@ from loginas.utils import is_impersonated_session
 from sentry_sdk import start_span
 import structlog
 
-from posthog.models.activity_logging.activity_log import log_activity, Detail, changes_between, load_activity
+from posthog.models.activity_logging.activity_log import log_activity, Detail, dict_changes_between, load_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.feature_flag.flag_matching import (
     FeatureFlagMatcher,
@@ -514,28 +514,41 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
     def perform_create(self, serializer):
         serializer.save()
+        instance = cast(Cohort, serializer.instance)
+
+        # Although there are no changes when creating a Cohort, we synthesize one here because
+        # it is helpful to show the list of people in the cohort when looking at the activity log.
+        people = instance.to_dict()["people"]
+        changes = dict_changes_between(
+            "Cohort", previous={"people": []}, new={"people": people}, use_field_exclusions=True
+        )
+
         log_activity(
             organization_id=self.organization.id,
             team_id=self.team_id,
             user=serializer.context["request"].user,
             was_impersonated=is_impersonated_session(serializer.context["request"]),
-            item_id=serializer.instance.id,
+            item_id=instance.id,
             scope="Cohort",
             activity="created",
-            detail=Detail(name=serializer.instance.name),
+            detail=Detail(changes=changes, name=instance.name),
         )
 
     def perform_update(self, serializer):
-        instance_id = serializer.instance.id
+        instance = cast(Cohort, serializer.instance)
+        instance_id = instance.id
 
         try:
-            before_update = Cohort.objects.get(pk=instance_id)
+            # Using to_dict() here serializer.save() was changing the instance in memory,
+            # so we need to get the before state in a "detached" manner that won't be
+            # affected by the serializer.save() call.
+            before_update = Cohort.objects.get(pk=instance_id).to_dict()
         except Cohort.DoesNotExist:
-            before_update = None
+            before_update = {}
 
         serializer.save()
 
-        changes = changes_between("Cohort", previous=before_update, current=serializer.instance)
+        changes = dict_changes_between("Cohort", previous=before_update, new=instance.to_dict())
 
         log_activity(
             organization_id=self.organization.id,
@@ -545,7 +558,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             item_id=instance_id,
             scope="Cohort",
             activity="updated",
-            detail=Detail(changes=changes, name=serializer.instance.name),
+            detail=Detail(changes=changes, name=instance.name),
         )
 
 

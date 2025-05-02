@@ -144,6 +144,8 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     TASK_TIMEOUT: number // how many seconds until tasks are timed out
     DATABASE_URL: string // Postgres database URL
     DATABASE_READONLY_URL: string // Optional read-only replica to the main Postgres database
+    PERSONS_DATABASE_URL: string // Optional read-write Postgres database for persons
+    PERSONS_READONLY_DATABASE_URL: string // Optional read-only replica to the persons Postgres database
     PLUGIN_STORAGE_DATABASE_URL: string // Optional read-write Postgres database for plugin storage
     POSTGRES_CONNECTION_POOL_SIZE: number
     POSTHOG_DB_NAME: string | null
@@ -400,7 +402,6 @@ export interface PluginServerCapabilities {
     cdpCyclotronWorkerFetch?: boolean
     cdpApi?: boolean
     appManagementSingleton?: boolean
-    preflightSchedules?: boolean // Used for instance health checks on hobby deploy, not useful on cloud
     mmdb?: boolean
 }
 
