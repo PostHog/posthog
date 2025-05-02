@@ -326,7 +326,7 @@ def mysql_source(
             table = _get_table(cursor, schema, table_name)
             partition_settings = _get_partition_settings(cursor, schema, table_name) if is_incremental else None
 
-            # Falback on checking for an `id` field on the table
+            # Fallback on checking for an `id` field on the table
             if primary_keys is None and "id" in table:
                 primary_keys = ["id"]
 

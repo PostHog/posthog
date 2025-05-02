@@ -331,7 +331,7 @@ def postgres_source(
             chunk_size = _get_table_chunk_size(cursor, inner_query, schema, table_name, logger)
             partition_settings = _get_partition_settings(cursor, schema, table_name) if is_incremental else None
 
-            # Falback on checking for an `id` field on the table
+            # Fallback on checking for an `id` field on the table
             if primary_keys is None and "id" in table:
                 primary_keys = ["id"]
 
