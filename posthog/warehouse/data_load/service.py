@@ -41,7 +41,7 @@ if TYPE_CHECKING:
     from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 
 
-def get_sync_schedule(external_data_schema: "ExternalDataSchema"):
+def get_sync_schedule(external_data_schema: "ExternalDataSchema", should_sync: bool = True):
     inputs = ExternalDataWorkflowInputs(
         team_id=external_data_schema.team_id,
         external_data_schema_id=external_data_schema.id,
@@ -66,11 +66,18 @@ def get_sync_schedule(external_data_schema: "ExternalDataSchema"):
         minute_of_hour=minute,
         sync_frequency=sync_frequency,
         jitter=jitter,
+        should_sync=should_sync,
     )
 
 
 def to_temporal_schedule(
-    external_data_schema, inputs, hour_of_day=0, minute_of_hour=0, sync_frequency=timedelta(hours=6), jitter=None
+    external_data_schema,
+    inputs,
+    hour_of_day=0,
+    minute_of_hour=0,
+    sync_frequency=timedelta(hours=6),
+    jitter=None,
+    should_sync=True,
 ):
     action = ScheduleActionStartWorkflow(
         "external-data-job",
@@ -105,7 +112,10 @@ def to_temporal_schedule(
     return Schedule(
         action=action,
         spec=spec,
-        state=ScheduleState(note=f"Schedule for external data schema: {external_data_schema.pk}"),
+        state=ScheduleState(
+            paused=not should_sync,
+            note=f"Schedule for external data schema: {external_data_schema.pk}",
+        ),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
 
@@ -120,11 +130,11 @@ def get_sync_frequency(external_data_schema: "ExternalDataSchema") -> tuple[time
 
 
 def sync_external_data_job_workflow(
-    external_data_schema: "ExternalDataSchema", create: bool = False
+    external_data_schema: "ExternalDataSchema", create: bool = False, should_sync: bool = True
 ) -> "ExternalDataSchema":
     temporal = sync_connect()
 
-    schedule = get_sync_schedule(external_data_schema)
+    schedule = get_sync_schedule(external_data_schema, should_sync=should_sync)
 
     if create:
         create_schedule(temporal, id=str(external_data_schema.id), schedule=schedule, trigger_immediately=True)
@@ -135,11 +145,11 @@ def sync_external_data_job_workflow(
 
 
 async def a_sync_external_data_job_workflow(
-    external_data_schema: "ExternalDataSchema", create: bool = False
+    external_data_schema: "ExternalDataSchema", create: bool = False, should_sync: bool = True
 ) -> "ExternalDataSchema":
     temporal = await async_connect()
 
-    schedule = get_sync_schedule(external_data_schema)
+    schedule = get_sync_schedule(external_data_schema, should_sync=should_sync)
 
     if create:
         await a_create_schedule(temporal, id=str(external_data_schema.id), schedule=schedule, trigger_immediately=True)
