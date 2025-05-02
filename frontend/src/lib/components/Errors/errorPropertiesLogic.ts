@@ -1,5 +1,10 @@
 import { connect, kea, key, path, props, selectors } from 'kea'
-import { ErrorId, ErrorProperties, ErrorTrackingException, FingerprintRecordPart } from 'lib/components/Errors/types'
+import {
+    ErrorEventId,
+    ErrorEventProperties,
+    ErrorTrackingException,
+    FingerprintRecordPart,
+} from 'lib/components/Errors/types'
 import {
     getAdditionalProperties,
     getExceptionAttributes,
@@ -14,8 +19,8 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import type { errorPropertiesLogicType } from './errorPropertiesLogicType'
 
 export interface ErrorPropertiesLogicProps {
-    properties?: ErrorProperties
-    id: ErrorId
+    properties?: ErrorEventProperties
+    id: ErrorEventId
 }
 
 export const errorPropertiesLogic = kea<errorPropertiesLogicType>([

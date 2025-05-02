@@ -8,15 +8,15 @@ import { useState } from 'react'
 
 import { errorPropertiesLogic } from './errorPropertiesLogic'
 import { ChainedStackTraces } from './StackTraces'
-import { ErrorId, ErrorProperties } from './types'
+import { ErrorEventId, ErrorEventProperties } from './types'
 import { concatValues } from './utils'
 
 export function ErrorDisplay({
     eventProperties,
     eventId,
 }: {
-    eventProperties: ErrorProperties
-    eventId: ErrorId
+    eventProperties: ErrorEventProperties
+    eventId: ErrorEventId
 }): JSX.Element {
     return (
         <BindLogic logic={errorPropertiesLogic} props={{ properties: eventProperties, id: eventId }}>

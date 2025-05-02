@@ -101,5 +101,5 @@ export interface ExceptionAttributes {
 
 export type SymbolSetStatus = 'valid' | 'invalid'
 export type SymbolSetStatusFilter = SymbolSetStatus | 'all'
-export type ErrorProperties = EventType['properties']
-export type ErrorId = string
+export type ErrorEventProperties = EventType['properties']
+export type ErrorEventId = NonNullable<EventType['uuid']>
