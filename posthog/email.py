@@ -14,6 +14,7 @@ from django.utils import timezone
 from django.utils.module_loading import import_string
 from decimal import Decimal
 import requests
+import uuid
 
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.messaging import MessagingRecord
@@ -241,7 +242,7 @@ def sanitize_email_properties(properties: dict[str, Any] | None) -> dict[str, An
     skip_sanitization_keys = ["utm_tags"]
 
     # Supported types (besides containers like dict and list)
-    supported_types = (str, int, float, bool, type(None), Decimal)
+    supported_types = (str, int, float, bool, type(None), Decimal, uuid.UUID)
 
     def sanitize_value(value: Any) -> Any:
         if isinstance(value, str):
@@ -250,6 +251,9 @@ def sanitize_email_properties(properties: dict[str, Any] | None) -> dict[str, An
             return {k: sanitize_value(v) for k, v in value.items()}
         elif isinstance(value, list):
             return [sanitize_value(item) for item in value]
+        elif isinstance(value, uuid.UUID):
+            # Handle UUID by converting to string and escaping
+            return html.escape(str(value))
         elif hasattr(value, "_meta") and hasattr(value, "pk"):
             # Handle Django models by converting to string and escaping
             return html.escape(str(value))
