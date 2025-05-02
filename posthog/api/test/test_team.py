@@ -607,7 +607,9 @@ def team_api_test_factory():
 
             self._assert_activity_log_is_empty()
 
-            self.team.api_token = "xyz"
+            # Set the secret API token
+            secret_api_token = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
+            self.team.secret_api_token = secret_api_token
             self.team.save()
 
             response = self.client.patch(f"/api/environments/{self.team.id}/reset_secret_token/")
@@ -615,9 +617,9 @@ def team_api_test_factory():
 
             self.team.refresh_from_db()
             self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertNotEqual(response_data["secret_api_token"], "xyz")
+            self.assertNotEqual(response_data["secret_api_token"], secret_api_token)
             self.assertEqual(response_data["secret_api_token"], self.team.secret_api_token)
-            self.assertTrue(response_data["secret_api_token"].startswith("phc_"))
+            self.assertTrue(response_data["secret_api_token"].startswith("phs_"))
 
             self._assert_activity_log(
                 [
@@ -650,11 +652,13 @@ def team_api_test_factory():
             )
 
         def test_reset_secret_token_insufficient_priviledges(self):
-            self.team.secret_api_token = "xyz"
+            self.team.secret_api_token = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
             self.team.save()
 
             response = self.client.patch(f"/api/environments/{self.team.id}/reset_secret_token/")
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+            # Make sure it's unchanged
+            self.assertEqual(self.team.secret_api_token, "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C")
 
         def test_update_primary_dashboard(self):
             d = Dashboard.objects.create(name="Test", team=self.team)
