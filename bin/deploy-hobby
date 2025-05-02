@@ -145,7 +145,7 @@ rm -rf compose
 mkdir -p compose
 cat > compose/start <<EOF
 #!/bin/bash
-/compose/wait
+./compose/wait
 ./bin/migrate
 ./bin/docker-server
 EOF
