@@ -869,17 +869,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         width: sizes[1],
                         offset: offsets[1],
                     },
-                    ...(sortMethod === 'recent'
-                        ? [
-                              {
-                                  key: 'record.path',
-                                  title: 'Path',
-                                  formatFunction: (value: string) => value,
-                                  tooltip: (value: string) => value,
-                                  width: 300,
-                              },
-                          ]
-                        : []),
                     {
                         key: 'record.created_by.first_name',
                         title: 'Created by',
@@ -887,6 +876,18 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         width: sizes[2],
                         offset: offsets[2],
                     },
+                    ...(sortMethod === 'recent'
+                        ? [
+                              {
+                                  key: 'record.path',
+                                  title: 'Path',
+                                  formatFunction: (value: string) => value,
+                                  tooltip: (value: string) => value,
+                                  width: sizes[3],
+                                  offset: offsets[3],
+                              },
+                          ]
+                        : []),
                 ],
             }),
         ],
