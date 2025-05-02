@@ -5,7 +5,7 @@ import { dayjs } from 'lib/dayjs'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
-import { RecentResults } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import {RecentResults, SearchResults} from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
 
 import { iconForType } from './defaultTree'
@@ -360,12 +360,13 @@ export function calculateMovePath(
 }
 
 export function appendResultsToFolders(
-    { results, lastCount }: RecentResults,
+    results: RecentResults | SearchResults,
     folders: Record<string, FileSystemEntry[]>
 ): Record<string, FileSystemEntry[]> {
     // Append search results into the loaded state to persist data and help with multi-selection between panels
     const newState: Record<string, FileSystemEntry[]> = { ...folders }
-    for (const result of results.slice(-1 * lastCount)) {
+    const newResults = 'lastCount' in results ? results.results.slice(-1 * results.lastCount) : results.results
+    for (const result of newResults) {
         const folder = joinPath(splitPath(result.path).slice(0, -1))
         if (newState[folder]) {
             const existingItem = newState[folder].find((item) => item.id === result.id)

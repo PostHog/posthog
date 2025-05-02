@@ -446,7 +446,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             },
         ],
         recentResults: [
-            { results: [], hasMore: false, lastCount: 0 } as RecentResults,
+            { results: [], hasMore: false, startTime: null, endTime: null } as RecentResults,
             {
                 movedItem: (state, { newPath, item }) => {
                     if (state.results.length > 0) {
@@ -466,6 +466,19 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         return { ...state, results: newResults }
                     }
                     return state
+                },
+                createSavedItem: (state, { savedItem }) => {
+                    if (state.results.find((result) => result.id === savedItem.id)) {
+                        return {
+                            ...state,
+                            results: state.results.map((result) => (result.id === savedItem.id ? savedItem : result)),
+                        }
+                    } else if (savedItem.created_at && savedItem.type !== 'folder') {
+                        const newResults = [...state.results, savedItem].sort((a, b) => {
+                            return new Date(b.created_at ?? '').getTime() - new Date(a.created_at ?? '').getTime()
+                        })
+                        return { ...state, results: newResults }
+                    }
                 },
             },
         ],
