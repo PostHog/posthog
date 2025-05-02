@@ -371,7 +371,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         }
                     }
 
-                    const dbTemplates = !!values.featureFlags[FEATURE_FLAGS.GET_TEMPLATES_FROM_DB]
+                    const dbTemplates = !!values.featureFlags[FEATURE_FLAGS.GET_HOG_TEMPLATES_FROM_DB]
                     const res = await api.hogFunctions.getTemplate(props.templateId, dbTemplates)
 
                     if (!res) {

@@ -98,7 +98,7 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
             [] as HogFunctionTemplateType[],
             {
                 loadHogFunctionTemplates: async () => {
-                    const dbTemplates = !!values.featureFlags[FEATURE_FLAGS.GET_TEMPLATES_FROM_DB]
+                    const dbTemplates = !!values.featureFlags[FEATURE_FLAGS.GET_HOG_TEMPLATES_FROM_DB]
                     return (
                         await api.hogFunctions.listTemplates({
                             types: [props.type],
