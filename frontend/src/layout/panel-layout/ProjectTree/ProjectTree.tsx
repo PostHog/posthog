@@ -375,7 +375,7 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
             {/*</FlaggedFeature>*/}
 
             <div role="status" aria-live="polite" className="sr-only">
-                Sorted {sortMethod === 'created_at' ? 'by creation date' : 'alphabetically'}
+                Sorted {sortMethod === 'recent' ? 'by creation date' : 'alphabetically'}
             </div>
 
             <LemonTree
