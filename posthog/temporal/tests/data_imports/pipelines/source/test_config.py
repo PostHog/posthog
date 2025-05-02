@@ -1,11 +1,22 @@
 from posthog.temporal.data_imports.pipelines.source import config
 
 
+def test_empty_config():
+    """Test `config.to_config` with an empty class."""
+
+    @config.config
+    class TestConfig(config.Config):
+        pass
+
+    cfg = TestConfig.from_dict({})
+    assert cfg
+
+
 def test_basic_to_config():
     """Test `config.to_config` with a basic class."""
 
     @config.config
-    class TestConfig:
+    class TestConfig(config.Config):
         a: str
         b: int = 0
         c: str | None = None
@@ -26,7 +37,7 @@ def test_basic_to_config_converters():
     """Test `config.to_config` can convert using converters."""
 
     @config.config
-    class TestConfig:
+    class TestConfig(config.Config):
         a: int = config.value(converter=int)
         b: bool = config.value(converter=config.str_to_bool)
         c: bool = config.value(converter=config.str_to_bool)
@@ -62,7 +73,7 @@ def test_nested_to_config_with_flat_dict():
         a: TestConfigA = config.value(prefix="a")
 
     @config.config
-    class TestConfigC:
+    class TestConfigC(config.Config):
         a: TestConfigA = config.value(prefix="a")
         b: TestConfigB = config.value(prefix="b")
         d: bool = False
@@ -105,7 +116,7 @@ def test_nested_to_config_with_nested_dict():
         a: TestConfigA
 
     @config.config
-    class TestConfigC:
+    class TestConfigC(config.Config):
         a: TestConfigA
         b: TestConfigB
         d: bool = False
@@ -156,7 +167,7 @@ def test_nested_to_config_with_flat_dict_default_prefix():
         a: A
 
     @config.config
-    class C:
+    class C(config.Config):
         a: A
         b: B
         d: bool = False
@@ -182,7 +193,7 @@ def test_nested_to_config_with_flat_dict_default_prefix():
     assert cfg.d is True
 
 
-def test_to_config_override_lookup_name():
+def test_to_config_override_alias():
     """Test `config.to_config` with overriden lookup names.
 
     Lookup names in the flat dictionary can be specified when using
@@ -190,10 +201,10 @@ def test_to_config_override_lookup_name():
     """
 
     @config.config
-    class TestConfig:
-        a: str = config.value(lookup_name="not_a")
-        b: int = config.value(lookup_name="not_b")
-        c: str | None = config.value(lookup_name="not_c")
+    class TestConfig(config.Config):
+        a: str = config.value(alias="not_a")
+        b: int = config.value(alias="not_b")
+        c: str | None = config.value(alias="not_c")
 
     config_dict = {
         "not_a": "test",

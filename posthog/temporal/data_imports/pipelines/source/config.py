@@ -1,39 +1,64 @@
 import dataclasses
 import typing
 
+META_KEY = "_SOURCE_CONFIG_META"
+
 _T = typing.TypeVar("_T")
 
 
+class _Dataclass(typing.Protocol):
+    __dataclass_fields__: typing.ClassVar[dict[str, typing.Any]]
+
+
+class Config(_Dataclass, typing.Protocol):
+    """Protocol for config dataclasses.
+
+    Unfortunately, we cannot convince type checkers that the classes we decorate
+    include additional synthesized methods (i.e. `from_dict`). So, if you use
+    any of the methods, add this protocol to your config's parent classes as a
+    way to tell type checkers everything is fine.
+
+    Finally, a `Config` is also a dataclass, which is useful if you are going to
+    keep passing this around.
+
+    Examples:
+        This works but mypy and other type checkers will complain:
+
+        >>> @config
+        ... class MyConfig: pass
+        >>> MyConfig.from_dict({})
+        MyConfig()
+
+        Subclass from this protocol as an offering to the type gods:
+
+        >>> @config
+        ... class MyConfig(Config): pass
+        >>> MyConfig.from_dict({})
+        MyConfig()
+
+        Obviously, you can also tell them to shut up with a type: ignore
+        comment.
+    """
+
+    @classmethod
+    def from_dict(cls: type[_T], d: dict[str, typing.Any]) -> _T: ...
+
+
 def _noop_convert(x: typing.Any) -> typing.Any:
+    """No-op function used as a default converter."""
     return x
 
 
 @dataclasses.dataclass
-class MetaConfiguration:
+class MetaConfig:
     """Class used to store metadata used for config."""
 
     prefix: str | None = None
-    lookup_name: str | None = None
+    alias: str | None = None
     converter: typing.Callable[[typing.Any], typing.Any] = _noop_convert
 
 
-class ConfigInstance(typing.Protocol):
-    __dataclass_fields__: typing.ClassVar[dict[str, dataclasses.Field[typing.Any]]]
-    __source_config_meta: typing.ClassVar[MetaConfiguration]
-
-    @classmethod
-    def from_dict(cls, d: dict[str, typing.Any]) -> typing.Self: ...
-
-
-_ConfigT = typing.TypeVar("_ConfigT", bound="ConfigInstance")
-
-
-META_KEY = "_SOURCE_CONFIG_META"
-
-
-def to_config(
-    config_cls: type[_ConfigT], d: dict[str, typing.Any], prefixes: tuple[str, ...] | None = None
-) -> _ConfigT:
+def to_config(config_cls: type[Config], d: dict[str, typing.Any], prefixes: tuple[str, ...] | None = None) -> Config:
     """Initialize a class from dict.
 
     This function recursively initializes any nested classes.
@@ -63,7 +88,7 @@ def to_config(
             field_type = field.type
 
         try:
-            field_type_metadata: MetaConfiguration | None = field_type.__source_config_meta
+            field_type_metadata: MetaConfig | None = field_type.__source_config_meta
         except AttributeError:
             field_type_metadata = None
 
@@ -132,8 +157,8 @@ def _get_key(field: dataclasses.Field[typing.Any], prefixes: tuple[str, ...]) ->
         return "_".join((*prefixes, field.name))
 
     name = field.name
-    if metadata.lookup_name is not None:
-        name = metadata.lookup_name
+    if metadata.alias is not None:
+        name = metadata.alias
 
     prefixes = prefixes
     if metadata.prefix is not None:
@@ -207,11 +232,11 @@ def value(
     compare: bool = True,
     kw_only: bool = False,
     prefix: str | None = None,
-    lookup_name: str | None = None,
+    alias: str | None = None,
     converter: typing.Callable[[typing.Any], typing.Any] = _noop_convert,
 ) -> _T:
     """Wrapper for config fields to enable additional functionality."""
-    metadata = {META_KEY: MetaConfiguration(prefix=prefix, lookup_name=lookup_name, converter=converter)}
+    metadata = {META_KEY: MetaConfig(prefix=prefix, alias=alias, converter=converter)}
 
     if default:
         return dataclasses.field(
@@ -246,20 +271,17 @@ def value(
 
 @typing.overload
 @typing.dataclass_transform()
-def config(
-    maybe_cls: None = ..., *, prefix: str | None = None
-) -> typing.Callable[[type[_T]], type[ConfigInstance]]: ...
+def config(maybe_cls: None = ..., *, prefix: str | None = None) -> typing.Callable[[type[_T]], type[_T]]: ...
 
 
 @typing.overload
 @typing.dataclass_transform()
-def config(maybe_cls: type[_T], *, prefix: str | None = None) -> type[ConfigInstance]: ...
+def config(maybe_cls: type[_T], *, prefix: str | None = None) -> type[_T]: ...
 
 
-@typing.dataclass_transform()
 def config(
     maybe_cls: type[_T] | None = None, *, prefix: str | None = None
-) -> type[ConfigInstance] | typing.Callable[[type[_T]], type[ConfigInstance]]:
+) -> type[_T] | typing.Callable[[type[_T]], type[_T]]:
     """Wrap a class to mark it as a config.
 
     A config class will include a `from_dict` `classmethod` to initialize
@@ -269,8 +291,8 @@ def config(
         prefix: Optionally override the default prefix for this class.
     """
 
-    def wrap(cls: type[_T]) -> type[ConfigInstance]:
-        def from_dict(cls: type[ConfigInstance], d: dict[str, typing.Any]) -> ConfigInstance:
+    def wrap(cls: type[_T]) -> type[_T]:
+        def from_dict(cls, d: dict[str, typing.Any]):
             if prefix:
                 prefixes = (prefix,)
             else:
@@ -278,12 +300,11 @@ def config(
 
             return to_config(cls, d, prefixes=prefixes)
 
-        new_cls = typing.cast(type[ConfigInstance], cls)
+        cls = dataclasses.dataclass(cls)
+        setattr(cls, "from_dict", classmethod(from_dict))  # noqa: B010
+        setattr(cls, "__source_config_meta", MetaConfig(prefix=prefix))  # noqa: B010
 
-        new_cls.from_dict = classmethod(from_dict)  # type: ignore
-        new_cls.__source_config_meta = MetaConfiguration(prefix=prefix)
-
-        return dataclasses.dataclass(new_cls)
+        return cls
 
     if maybe_cls is not None:
         return wrap(maybe_cls)
