@@ -254,6 +254,7 @@ export const FEATURE_FLAGS = {
     ACTIVE_HOURS_HEATMAP: 'active-hours-heatmap', // owner: @jabahamondes #team-web-analytics
     BILLING_FORECASTING_ISSUES: 'billing-forecasting-issues', // owner: @pato
     STARTUP_PROGRAM_INTENT: 'startup-program-intent', // owner: @pawel-cebula #team-billing
+    SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES: 'web-analytics-pre-aggregated-tables', // owner: @lricoy #team-web-analytics
     SHOW_NEW_EXPERIMENTATION_ENGINE_BANNER: 'show-new-experimentation-engine-banner', // owner: @andehen #team-experiments
     WEB_ANALYTICS_FRUSTRATING_PAGES_TILE: 'web-analytics-frustrating-pages-tile', // owner: @lricoy #team-web-analytics
     SQL_EDITOR_AI_ERROR_FIXER: 'sql-editor-ai-error-fixer', // owner: @Gilbert09 #team-data-warehouse
