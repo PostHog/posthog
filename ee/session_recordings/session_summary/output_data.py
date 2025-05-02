@@ -228,7 +228,8 @@ def _calculate_segment_events_count(
     start_event_id: str, end_event_id: str, event_index_index: int, simplified_events_mapping: dict[str, list[Any]]
 ) -> tuple[int, float]:
     start_event, end_event = simplified_events_mapping[start_event_id], simplified_events_mapping[end_event_id]
-    events_count = end_event[event_index_index] - start_event[event_index_index]
+    # Events from the start to the end event (inclusive)
+    events_count = end_event[event_index_index] - start_event[event_index_index] + 1
     events_percentage = events_count / len(simplified_events_mapping)
     return events_count, events_percentage
 
@@ -247,26 +248,33 @@ def _calculate_segment_meta(
     start_event_id = raw_segment.get("start_event_id")
     end_event_id = raw_segment.get("end_event_id")
     segment_meta_data: dict[str, Any] = {}
-    if segment_index is None or start_event_id is None or end_event_id is None:
+    if (
+        segment_index is None
+        or start_event_id is None
+        or end_event_id is None
+        # All the proper event IDs are 8 characters long
+        # If shorter - could still not fully streamed yet
+        or len(start_event_id) != 8
+        or len(end_event_id) != 8
+    ):
         # If segment index, start, or end event ID aren't generated yet - return empty meta
         return SegmentMetaSerializer(data=segment_meta_data)
-    if start_event_id not in simplified_events_mapping or end_event_id not in simplified_events_mapping:
-        # If event id is found, but not in mapping, it's a hallucination
-        raise ValueError(
-            f"Mapping data for start_event_id {start_event_id} or end_event_id {end_event_id} not found "
-            f"when preparing segment summary meta for session_id {session_id} (probably a hallucination): {raw_segment}"
-        )
     # Calculate duration of the segment
     if not session_metadata.duration:
         raise ValueError(f"Session duration is not set when summarizing session_id {session_id}")
-    duration, duration_percentage = _calculate_segment_duration(
-        start_event_id=start_event_id,
-        end_event_id=end_event_id,
-        timestamp_index=timestamp_index,
-        simplified_events_mapping=simplified_events_mapping,
-        session_total_duration=session_metadata.duration,
-    )
-    # If the end event is before the start event - avoid enriching the segment, for now
+    # If both events aren't hallucinated - calculate the meta
+    if start_event_id in simplified_events_mapping and end_event_id in simplified_events_mapping:
+        duration, duration_percentage = _calculate_segment_duration(
+            start_event_id=start_event_id,
+            end_event_id=end_event_id,
+            timestamp_index=timestamp_index,
+            simplified_events_mapping=simplified_events_mapping,
+            session_total_duration=session_metadata.duration,
+        )
+    # If hallucinated - avoid calculating it now and hope for the fallback from the key actions
+    else:
+        duration, duration_percentage = 0, 0.0
+    # If the end event is before the start event (or start/end event ids are hallucinated) - avoid enriching the segment, for now
     # The goal is to fill it later from the key actions (better have part of the data than none)
     if duration <= 0:
         segment_meta_data["duration"] = 0
@@ -325,8 +333,21 @@ def _calculate_segment_meta(
     # Calculate key action count and failure count
     fallback_start_event_id = key_group_events[0].get("event_id")
     fallback_end_event_id = key_group_events[-1].get("event_id")
-    if fallback_start_event_id is None or fallback_end_event_id is None:
+    if (
+        fallback_start_event_id is None
+        or fallback_end_event_id is None
+        # All the proper event IDs are 8 characters long
+        # If shorter - could still not fully streamed yet
+        or len(fallback_start_event_id) != 8
+        or len(fallback_end_event_id) != 8
+    ):
         # If event ids aren't generated yet
+        return SegmentMetaSerializer(data=segment_meta_data)
+    if (
+        fallback_start_event_id not in simplified_events_mapping
+        or fallback_end_event_id not in simplified_events_mapping
+    ):
+        # If event ids are hallucinated and fallback can't be calculated also
         return SegmentMetaSerializer(data=segment_meta_data)
     fallback_duration, fallback_duration_percentage = _calculate_segment_duration(
         start_event_id=fallback_start_event_id,

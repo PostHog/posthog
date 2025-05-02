@@ -75,7 +75,7 @@ export interface ActionFilterProps {
     propertiesTaxonomicGroupTypes?: TaxonomicFilterGroupType[]
     /** Whether properties shown should be limited to just numerical types */
     showNumericalPropsOnly?: boolean
-    hideDeleteBtn?: boolean
+    hideDeleteBtn?: boolean | ((filter: LocalFilter, index: number) => boolean)
     readOnly?: boolean
     renderRow?: ({
         seriesIndicator,
@@ -178,7 +178,6 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         actionsTaxonomicGroupTypes,
         propertiesTaxonomicGroupTypes,
         propertyFiltersPopover,
-        hideDeleteBtn,
         disabled,
         readOnly,
         renderRow,
@@ -237,6 +236,11 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                                     showNestedArrow={showNestedArrow}
                                     singleFilter={singleFilter}
                                     hideFilter={hideFilter || readOnly}
+                                    hideDeleteBtn={
+                                        typeof hideDeleteBtn === 'function'
+                                            ? hideDeleteBtn(filter, index)
+                                            : hideDeleteBtn
+                                    }
                                     {...commonProps}
                                 />
                             ))}
