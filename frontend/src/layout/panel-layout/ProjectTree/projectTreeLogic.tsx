@@ -144,17 +144,19 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         search: searchTerm,
                         offset,
                         limit: PAGINATION_LIMIT + 1,
+                        order: values.sortMethod === 'created_at' ? '-created_at' : undefined,
                     })
                     breakpoint()
+                    const results = [
+                        ...(offset > 0 && searchTerm === values.searchResults.searchTerm
+                            ? values.searchResults.results
+                            : []),
+                        ...response.results.slice(0, PAGINATION_LIMIT),
+                    ]
 
                     return {
                         searchTerm,
-                        results: [
-                            ...(offset > 0 && searchTerm === values.searchResults.searchTerm
-                                ? values.searchResults.results
-                                : []),
-                            ...response.results.slice(0, PAGINATION_LIMIT),
-                        ].sort(sortFilesAndFolders),
+                        results: values.sortMethod === 'created_at' ? results : results.sort(sortFilesAndFolders),
                         hasMore: response.results.length > PAGINATION_LIMIT,
                         lastCount: Math.min(response.results.length, PAGINATION_LIMIT),
                     }
@@ -177,7 +179,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         results: [
                             ...(offset > 0 ? values.recentResults.results : []),
                             ...response.results.slice(0, PAGINATION_LIMIT),
-                        ].sort(sortFilesAndFolders),
+                        ],
                         hasMore: response.results.length > PAGINATION_LIMIT,
                         lastCount: Math.min(response.results.length, PAGINATION_LIMIT),
                     }
@@ -792,8 +794,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             },
         ],
         searchedTreeItems: [
-            (s) => [s.searchResults, s.searchResultsLoading, s.folderStates, s.checkedItems],
-            (searchResults, searchResultsLoading, folderStates, checkedItems): TreeDataItem[] => {
+            (s) => [s.searchResults, s.searchResultsLoading, s.folderStates, s.checkedItems, s.sortMethod],
+            (searchResults, searchResultsLoading, folderStates, checkedItems, sortMethod): TreeDataItem[] => {
                 const results = convertFileSystemEntryToTreeDataItem({
                     imports: searchResults.results,
                     folderStates,
@@ -801,6 +803,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     root: 'project',
                     searchTerm: searchResults.searchTerm,
                     disableFolderSelect: true,
+                    flat: sortMethod === 'created_at',
                 })
                 if (searchResultsLoading) {
                     results.push({
@@ -1322,7 +1325,10 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             actions.loadSearchResults(searchTerm)
         },
         setSortMethod: ({ sortMethod }) => {
-            if (sortMethod === 'created_at') {
+            if (values.searchTerm) {
+                actions.loadSearchResults(values.searchTerm, 0)
+            }
+            if (sortMethod === 'created_at' && !values.recentResultsLoading && values.recentResults.lastCount === 0) {
                 actions.loadRecentResults()
             }
         },
