@@ -146,8 +146,8 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                 )}
             >
                 <PanelLayoutNavBar>
-                    {activePanelIdentifier === 'Project' && <ProjectTree />}
-                    {/* {activePanelIdentifier === 'persons' && <PersonsTree />} */}
+                    {activePanelIdentifier === 'Project' && <ProjectTree sortMethod="folder" />}
+                    {activePanelIdentifier === 'Recent' && <ProjectTree sortMethod="recent" />}
                 </PanelLayoutNavBar>
             </div>
 

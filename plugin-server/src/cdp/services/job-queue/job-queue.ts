@@ -88,11 +88,14 @@ export class CyclotronJobQueue {
         // We only need to connect to the queue targets that are configured
         const targets = new Set<CyclotronJobQueueKind>(Object.values(this.producerMapping).map((x) => x.target))
 
-        if (targets.has('postgres')) {
+        // If any target is a non-100% then we need both producers ready
+        const anySplitRouting = Object.values(this.producerMapping).some((x) => x.percentage < 1)
+
+        if (anySplitRouting || targets.has('postgres')) {
             await this.jobQueuePostgres.startAsProducer()
         }
 
-        if (targets.has('kafka')) {
+        if (anySplitRouting || targets.has('kafka')) {
             await this.jobQueueKafka.startAsProducer()
         }
     }
@@ -246,10 +249,8 @@ export function getProducerMapping(stringMapping: string): CyclotronJobQueueRout
 
         if (percentageString) {
             const parsedPercentage = parseFloat(percentageString)
-            if (isNaN(parsedPercentage) || parsedPercentage < 0 || parsedPercentage > 1) {
-                throw new Error(
-                    `Invalid mapping: ${part} - percentage ${percentageString} must be a number between 0 and 1`
-                )
+            if (isNaN(parsedPercentage) || parsedPercentage <= 0 || parsedPercentage > 1) {
+                throw new Error(`Invalid mapping: ${part} - percentage ${percentageString} must be 0 < x <= 1`)
             }
             percentage = parsedPercentage
         }

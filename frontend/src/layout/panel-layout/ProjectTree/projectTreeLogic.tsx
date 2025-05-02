@@ -21,6 +21,7 @@ import { getDefaultTreeExplore, getDefaultTreeNew } from './defaultTree'
 import type { projectTreeLogicType } from './projectTreeLogicType'
 import { FolderState, ProjectTreeAction } from './types'
 import {
+    appendResultsToFolders,
     convertFileSystemEntryToTreeDataItem,
     findInProjectTree,
     joinPath,
@@ -31,6 +32,15 @@ import {
 const PAGINATION_LIMIT = 100
 const MOVE_ALERT_LIMIT = 50
 const DELETE_ALERT_LIMIT = 0
+
+export type ProjectTreeSortMethod = 'folder' | 'recent'
+
+export interface RecentResults {
+    results: FileSystemEntry[]
+    startTime: string | null
+    endTime: string | null
+    hasMore: boolean
+}
 
 export interface SearchResults {
     searchTerm: string
@@ -91,6 +101,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             callback,
         }),
         loadSearchResults: (searchTerm: string, offset = 0) => ({ searchTerm, offset }),
+        loadRecentResults: (type: 'start' | 'end') => ({ type }),
         assureVisibility: (projectTreeRef: ProjectTreeRef) => ({ projectTreeRef }),
         setLastNewFolder: (folder: string | null) => ({ folder }),
         onItemChecked: (id: string, checked: boolean, shift: boolean) => ({ id, checked, shift }),
@@ -107,6 +118,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         clearScrollTarget: true,
         setEditingItemId: (id: string) => ({ id }),
         setMovingItems: (items: FileSystemEntry[]) => ({ items }),
+        setSortMethod: (sortMethod: ProjectTreeSortMethod) => ({ sortMethod }),
         setSelectMode: (selectMode: LemonTreeSelectMode) => ({ selectMode }),
         setTreeTableColumnSizes: (sizes: number[]) => ({ sizes }),
     }),
@@ -137,19 +149,64 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         search: searchTerm,
                         offset,
                         limit: PAGINATION_LIMIT + 1,
+                        orderBy: values.sortMethod === 'recent' ? '-created_at' : undefined,
+                        notType: values.sortMethod === 'recent' ? 'folder' : undefined,
                     })
                     breakpoint()
+                    const results = [
+                        ...(offset > 0 && searchTerm === values.searchResults.searchTerm
+                            ? values.searchResults.results
+                            : []),
+                        ...response.results.slice(0, PAGINATION_LIMIT),
+                    ]
 
                     return {
                         searchTerm,
-                        results: [
-                            ...(offset > 0 && searchTerm === values.searchResults.searchTerm
-                                ? values.searchResults.results
-                                : []),
-                            ...response.results.slice(0, PAGINATION_LIMIT),
-                        ].sort(sortFilesAndFolders),
+                        results: values.sortMethod === 'recent' ? results : results.sort(sortFilesAndFolders),
                         hasMore: response.results.length > PAGINATION_LIMIT,
                         lastCount: Math.min(response.results.length, PAGINATION_LIMIT),
+                    }
+                },
+            },
+        ],
+        recentResults: [
+            { results: [], hasMore: false, startTime: null, endTime: null } as RecentResults,
+            {
+                loadRecentResults: async ({ type }, breakpoint) => {
+                    await breakpoint(250)
+                    const params = {
+                        orderBy: '-created_at',
+                        notType: 'folder',
+                        limit: PAGINATION_LIMIT + 1,
+                        createdAtGt:
+                            type === 'start' && values.recentResults.startTime
+                                ? values.recentResults.startTime
+                                : undefined,
+                        createdAtLt:
+                            type === 'end' && values.recentResults.endTime ? values.recentResults.endTime : undefined,
+                    }
+                    const response = await api.fileSystem.list(params)
+                    const returnedResults = response.results.slice(0, PAGINATION_LIMIT)
+                    const hasMore = response.results.length > PAGINATION_LIMIT
+                    breakpoint()
+
+                    const seenIds = new Set()
+                    const results = [...values.recentResults.results, ...returnedResults]
+                        .filter((item) => {
+                            if (seenIds.has(item.id)) {
+                                return false
+                            }
+                            seenIds.add(item.id)
+                            return true
+                        })
+                        .sort((a, b) => {
+                            return new Date(b.created_at ?? '').getTime() - new Date(a.created_at ?? '').getTime()
+                        })
+                    return {
+                        results,
+                        hasMore,
+                        startTime: response.results[0]?.created_at ?? null,
+                        endTime: response.results[response.results.length - 1]?.created_at ?? null,
                     }
                 },
             },
@@ -282,25 +339,10 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     }
                 },
                 loadSearchResultsSuccess: (state, { searchResults }) => {
-                    // Append search results into the loaded state to persist data and help with multi-selection between panels
-                    const { results, lastCount } = searchResults
-                    const newState: Record<string, FileSystemEntry[]> = { ...state }
-                    for (const result of results.slice(-1 * lastCount)) {
-                        const folder = joinPath(splitPath(result.path).slice(0, -1))
-                        if (newState[folder]) {
-                            const existingItem = newState[folder].find((item) => item.id === result.id)
-                            if (existingItem) {
-                                newState[folder] = newState[folder].map((file) =>
-                                    file.id === result.id ? result : file
-                                )
-                            } else {
-                                newState[folder] = [...newState[folder], result]
-                            }
-                        } else {
-                            newState[folder] = [result]
-                        }
-                    }
-                    return newState
+                    return appendResultsToFolders(searchResults, state)
+                },
+                loadRecentResultsSuccess: (state, { recentResults }) => {
+                    return appendResultsToFolders(recentResults, state)
                 },
                 deleteSavedItem: (state, { savedItem }) => {
                     const folder = joinPath(splitPath(savedItem.path).slice(0, -1))
@@ -405,6 +447,44 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 },
             },
         ],
+        recentResults: [
+            { results: [], hasMore: false, startTime: null, endTime: null } as RecentResults,
+            {
+                movedItem: (state, { newPath, item }) => {
+                    if (state.results.length > 0) {
+                        const newResults = state.results.map((result) => {
+                            if (result.id === item.id) {
+                                return { ...item, path: newPath }
+                            }
+                            return result
+                        })
+                        return { ...state, results: newResults }
+                    }
+                    return state
+                },
+                deleteSavedItem: (state, { savedItem }) => {
+                    if (state.results.length > 0) {
+                        const newResults = state.results.filter((result) => result.id !== savedItem.id)
+                        return { ...state, results: newResults }
+                    }
+                    return state
+                },
+                createSavedItem: (state, { savedItem }) => {
+                    if (state.results.find((result) => result.id === savedItem.id)) {
+                        return {
+                            ...state,
+                            results: state.results.map((result) => (result.id === savedItem.id ? savedItem : result)),
+                        }
+                    } else if (savedItem.created_at && savedItem.type !== 'folder') {
+                        const newResults = [...state.results, savedItem].sort((a, b) => {
+                            return new Date(b.created_at ?? '').getTime() - new Date(a.created_at ?? '').getTime()
+                        })
+                        return { ...state, results: newResults }
+                    }
+                    return state
+                },
+            },
+        ],
         lastNewFolder: [
             null as string | null,
             {
@@ -491,6 +571,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             '',
             {
                 setEditingItemId: (_, { id }) => id,
+            },
+        ],
+        sortMethod: [
+            'alphabetical' as ProjectTreeSortMethod,
+            {
+                setSortMethod: (_, { sortMethod }) => sortMethod,
             },
         ],
         selectMode: [
@@ -706,7 +792,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             (s) => [s.featureFlags, s.folderStates],
             (featureFlags, folderStates): TreeDataItem[] =>
                 convertFileSystemEntryToTreeDataItem({
-                    imports: getDefaultTreeNew().filter((f) => !f.flag || featureFlags[f.flag]),
+                    imports: getDefaultTreeNew().filter(
+                        (f) => !f.flag || (featureFlags as Record<string, boolean>)[f.flag]
+                    ),
                     checkedItems: {},
                     folderStates,
                     root: 'new',
@@ -716,15 +804,47 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             (s) => [s.featureFlags, s.groupNodes, s.folderStates],
             (featureFlags, groupNodes: FileSystemImport[], folderStates): TreeDataItem[] =>
                 convertFileSystemEntryToTreeDataItem({
-                    imports: getDefaultTreeExplore(groupNodes).filter((f) => !f.flag || featureFlags[f.flag]),
+                    imports: getDefaultTreeExplore(groupNodes).filter(
+                        (f) => !f.flag || (featureFlags as Record<string, boolean>)[f.flag]
+                    ),
                     checkedItems: {},
                     folderStates,
                     root: 'explore',
                 }),
         ],
+        recentTreeItems: [
+            (s) => [s.recentResults, s.recentResultsLoading, s.folderStates, s.checkedItems],
+            (recentResults, recentResultsLoading, folderStates, checkedItems): TreeDataItem[] => {
+                const results = convertFileSystemEntryToTreeDataItem({
+                    imports: recentResults.results,
+                    folderStates,
+                    checkedItems,
+                    root: 'project',
+                    disableFolderSelect: true,
+                    recent: true,
+                })
+                if (recentResultsLoading) {
+                    results.push({
+                        id: `recent-loading/`,
+                        name: 'Loading...',
+                        icon: <Spinner />,
+                        disableSelect: true,
+                    })
+                } else if (recentResults.hasMore) {
+                    results.push({
+                        id: `recent-load-more/`,
+                        name: 'Load more...',
+                        icon: <IconPlus />,
+                        disableSelect: true,
+                        onClick: () => projectTreeLogic.actions.loadRecentResults('end'),
+                    })
+                }
+                return results
+            },
+        ],
         searchedTreeItems: [
-            (s) => [s.searchResults, s.searchResultsLoading, s.folderStates, s.checkedItems],
-            (searchResults, searchResultsLoading, folderStates, checkedItems): TreeDataItem[] => {
+            (s) => [s.searchResults, s.searchResultsLoading, s.folderStates, s.checkedItems, s.sortMethod],
+            (searchResults, searchResultsLoading, folderStates, checkedItems, sortMethod): TreeDataItem[] => {
                 const results = convertFileSystemEntryToTreeDataItem({
                     imports: searchResults.results,
                     folderStates,
@@ -732,46 +852,39 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     root: 'project',
                     searchTerm: searchResults.searchTerm,
                     disableFolderSelect: true,
+                    recent: sortMethod === 'recent',
                 })
-                if (searchResults.hasMore) {
-                    if (searchResultsLoading) {
-                        results.push({
-                            id: `search-loading/`,
-                            name: 'Loading...',
-                            icon: <Spinner />,
-                            disableSelect: true,
-                        })
-                    } else {
-                        results.push({
-                            id: `search-load-more/${searchResults.searchTerm}`,
-                            name: 'Load more...',
-                            icon: <IconPlus />,
-                            disableSelect: true,
-                            onClick: () =>
-                                projectTreeLogic.actions.loadSearchResults(
-                                    searchResults.searchTerm,
-                                    searchResults.results.length
-                                ),
-                        })
-                    }
+                if (searchResultsLoading) {
+                    results.push({
+                        id: `search-loading/`,
+                        name: 'Loading...',
+                        icon: <Spinner />,
+                        disableSelect: true,
+                    })
+                } else if (searchResults.hasMore) {
+                    results.push({
+                        id: `search-load-more/${searchResults.searchTerm}`,
+                        name: 'Load more...',
+                        icon: <IconPlus />,
+                        disableSelect: true,
+                        onClick: () =>
+                            projectTreeLogic.actions.loadSearchResults(
+                                searchResults.searchTerm,
+                                searchResults.results.length
+                            ),
+                    })
                 }
                 return results
             },
         ],
         treeData: [
-            (s) => [s.searchTerm, s.searchedTreeItems, s.projectTree, s.loadingPaths, s.searchResultsLoading],
-            (searchTerm, searchedTreeItems, projectTree, loadingPaths, searchResultsLoading): TreeDataItem[] => {
+            (s) => [s.searchTerm, s.searchedTreeItems, s.projectTree, s.loadingPaths, s.recentTreeItems, s.sortMethod],
+            (searchTerm, searchedTreeItems, projectTree, loadingPaths, recentTreeItems, sortMethod): TreeDataItem[] => {
                 if (searchTerm) {
-                    if (searchResultsLoading && searchedTreeItems.length === 0) {
-                        return [
-                            {
-                                id: `search-loading/`,
-                                name: 'Loading...',
-                                icon: <Spinner />,
-                            },
-                        ]
-                    }
                     return searchedTreeItems
+                }
+                if (sortMethod === 'recent') {
+                    return recentTreeItems
                 }
                 if (loadingPaths[''] && projectTree.length === 0) {
                     return [
@@ -787,8 +900,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
         // TODO: use treeData + some other logic to determine the keys
         treeTableKeys: [
-            (s) => [s.treeTableColumnSizes, s.treeTableColumnOffsets],
-            (sizes, offsets): TreeTableViewKeys => ({
+            (s) => [s.treeTableColumnSizes, s.treeTableColumnOffsets, s.sortMethod],
+            (sizes, offsets, sortMethod): TreeTableViewKeys => ({
                 headers: [
                     {
                         key: 'name',
@@ -812,6 +925,18 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         width: sizes[2],
                         offset: offsets[2],
                     },
+                    ...(sortMethod === 'recent'
+                        ? [
+                              {
+                                  key: 'record.path',
+                                  title: 'Path',
+                                  formatFunction: (value: string) => value,
+                                  tooltip: (value: string) => value,
+                                  width: sizes[3],
+                                  offset: offsets[3],
+                              },
+                          ]
+                        : []),
                 ],
             }),
         ],
@@ -1016,14 +1141,26 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             ])
         },
         onItemChecked: ({ id, checked, shift }) => {
-            const { sortedItems, searchResults, viableItemsById, lastCheckedItem, checkedItems: prevChecked } = values
+            const {
+                sortedItems,
+                searchResults,
+                sortMethod,
+                recentResults,
+                viableItemsById,
+                lastCheckedItem,
+                checkedItems: prevChecked,
+            } = values
             const clickedItem = viableItemsById[id]
             if (!clickedItem) {
                 // should never happen
                 return
             }
             const isSearching = !!values.searchTerm
-            const shownItems = isSearching ? searchResults.results : sortedItems
+            const shownItems = isSearching
+                ? searchResults.results
+                : sortMethod === 'recent'
+                ? recentResults.results
+                : sortedItems
 
             const checkedItems = { ...prevChecked }
 
@@ -1254,6 +1391,14 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         },
         setSearchTerm: ({ searchTerm }) => {
             actions.loadSearchResults(searchTerm)
+        },
+        setSortMethod: ({ sortMethod }) => {
+            if (values.searchTerm) {
+                actions.loadSearchResults(values.searchTerm, 0)
+            }
+            if (sortMethod === 'recent' && !values.recentResultsLoading) {
+                actions.loadRecentResults('start')
+            }
         },
         assureVisibility: async ({ projectTreeRef }, breakpoint) => {
             if (projectTreeRef) {

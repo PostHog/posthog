@@ -786,7 +786,7 @@ class ApiRequest {
     }
 
     public errorTrackingIssues(teamId?: TeamType['id']): ApiRequest {
-        return this.errorTracking(teamId).addPathComponent('issue')
+        return this.errorTracking(teamId).addPathComponent('issues')
     }
 
     public errorTrackingIssue(id: ErrorTrackingIssue['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1292,24 +1292,46 @@ const api = {
             depth,
             limit,
             offset,
+            orderBy,
             search,
             ref,
+            notType,
             type,
             type__startswith,
+            createdAtGt,
+            createdAtLt,
         }: {
             parent?: string
             path?: string
             depth?: number
             limit?: number
             offset?: number
+            orderBy?: string
             search?: string
             ref?: string
+            notType?: string
             type?: string
             type__startswith?: string
+            createdAtGt?: string
+            createdAtLt?: string
         }): Promise<CountedPaginatedResponse<FileSystemEntry>> {
             return await new ApiRequest()
                 .fileSystem()
-                .withQueryString({ parent, path, depth, limit, offset, search, ref, type, type__startswith })
+                .withQueryString({
+                    parent,
+                    path,
+                    depth,
+                    limit,
+                    offset,
+                    search,
+                    ref,
+                    type,
+                    not_type: notType,
+                    order_by: orderBy,
+                    type__startswith,
+                    created_at__gt: createdAtGt,
+                    created_at__lt: createdAtLt,
+                })
                 .get()
         },
         async unfiled(type?: string): Promise<CountedPaginatedResponse<FileSystemEntry>> {

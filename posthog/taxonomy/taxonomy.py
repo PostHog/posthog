@@ -1808,7 +1808,9 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
     },
     "error_tracking_issues": {
-        "assignee": {"label": "Assignee", "description": "The current assignee of an issue."},
+        "assignee": {"label": "Issue assignee", "description": "The current assignee of an issue."},
+        "name": {"label": "Issue name", "description": "The name of an issue."},
+        "issue_description": {"label": "Issue description", "description": "The description of an issue."},
     },
     "error_tracking_issue_properties": {
         "$exception_types": {"label": "Exception type", "description": "The type of the exception."},

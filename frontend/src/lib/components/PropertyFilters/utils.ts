@@ -225,6 +225,9 @@ export function isLogEntryPropertyFilter(filter?: AnyFilterLike | null): filter 
 export function isGroupPropertyFilter(filter?: AnyFilterLike | null): filter is GroupPropertyFilter {
     return filter?.type === PropertyFilterType.Group
 }
+export function isErrorTrackingIssuePropertyFilter(filter?: AnyFilterLike | null): filter is GroupPropertyFilter {
+    return filter?.type === PropertyFilterType.ErrorTrackingIssue
+}
 export function isDataWarehousePropertyFilter(filter?: AnyFilterLike | null): filter is DataWarehousePropertyFilter {
     return filter?.type === PropertyFilterType.DataWarehouse
 }
@@ -251,7 +254,8 @@ export function isAnyPropertyfilter(filter?: AnyFilterLike | null): filter is An
         isRecordingPropertyFilter(filter) ||
         isLogEntryPropertyFilter(filter) ||
         isFeaturePropertyFilter(filter) ||
-        isGroupPropertyFilter(filter)
+        isGroupPropertyFilter(filter) ||
+        isErrorTrackingIssuePropertyFilter(filter)
     )
 }
 
@@ -307,6 +311,8 @@ const propertyFilterMapping: Partial<Record<PropertyFilterType, TaxonomicFilterG
     [PropertyFilterType.Session]: TaxonomicFilterGroupType.SessionProperties,
     [PropertyFilterType.HogQL]: TaxonomicFilterGroupType.HogQLExpression,
     [PropertyFilterType.Recording]: TaxonomicFilterGroupType.Replay,
+    [PropertyFilterType.ErrorTrackingIssue]: TaxonomicFilterGroupType.ErrorTrackingIssues,
+    [PropertyFilterType.ErrorTrackingIssueProperty]: TaxonomicFilterGroupType.ErrorTrackingIssueProperties,
 }
 
 export const filterToTaxonomicFilterType = (

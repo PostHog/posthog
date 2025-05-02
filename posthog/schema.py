@@ -2789,6 +2789,7 @@ class HogQLQueryModifiers(BaseModel):
     sessionsV2JoinMode: Optional[SessionsV2JoinMode] = None
     useMaterializedViews: Optional[bool] = None
     usePresortedEventsTable: Optional[bool] = None
+    useWebAnalyticsPreAggregatedTables: Optional[bool] = None
 
 
 class HogQuery(BaseModel):

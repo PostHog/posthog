@@ -14,6 +14,7 @@ from posthog.schema import (
     PropertyGroupFilter,
     PropertyGroupFilterValue,
     PersonPropertyFilter,
+    ErrorTrackingIssueFilter,
     PropertyOperator,
 )
 from posthog.models.user_group import UserGroup
@@ -37,6 +38,8 @@ from posthog.test.base import snapshot_clickhouse_queries
 class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
     distinct_id_one = "user_1"
     distinct_id_two = "user_2"
+    issue_name_one = "TypeError"
+    issue_name_two = "ReferenceError"
     issue_id_one = "01936e7f-d7ff-7314-b2d4-7627981e34f0"
     issue_id_two = "01936e80-5e69-7e70-b837-871f5cdad28b"
     issue_id_three = "01936e80-aa51-746f-aec4-cdf16a5c5332"
@@ -48,15 +51,22 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.pk, fingerprint=fingerprint, issue_id=issue_id, version=version
         )
 
-    def create_issue(self, issue_id, fingerprint, status=ErrorTrackingIssue.Status.ACTIVE):
-        issue = ErrorTrackingIssue.objects.create(id=issue_id, team=self.team, status=status)
+    def create_issue(self, issue_id, fingerprint, name=None, status=ErrorTrackingIssue.Status.ACTIVE):
+        issue = ErrorTrackingIssue.objects.create(id=issue_id, team=self.team, status=status, name=name)
         ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint=fingerprint)
         return issue
 
     def create_events_and_issue(
-        self, issue_id, fingerprint, distinct_ids, timestamp=None, exception_list=None, additional_properties=None
+        self,
+        issue_id,
+        fingerprint,
+        distinct_ids,
+        timestamp=None,
+        exception_list=None,
+        additional_properties=None,
+        issue_name=None,
     ):
-        self.create_issue(issue_id, fingerprint)
+        self.create_issue(issue_id, fingerprint, name=issue_name)
 
         event_properties = {"$exception_issue_id": issue_id, "$exception_fingerprint": fingerprint}
         if exception_list:
@@ -92,12 +102,14 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
             self.create_events_and_issue(
                 issue_id=self.issue_id_one,
+                issue_name=self.issue_name_one,
                 fingerprint="issue_one_fingerprint",
                 distinct_ids=[self.distinct_id_one, self.distinct_id_two],
                 timestamp=now() - relativedelta(hours=3),
             )
             self.create_events_and_issue(
                 issue_id=self.issue_id_two,
+                issue_name=self.issue_name_two,
                 fingerprint="issue_two_fingerprint",
                 distinct_ids=[self.distinct_id_one],
                 timestamp=now() - relativedelta(hours=2),
@@ -396,6 +408,26 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         results = self._calculate(assignee={"type": "user", "id": self.user.pk})["results"]
         self.assertEqual([x["id"] for x in results], [issue_id])
+
+    @freeze_time("2022-01-10T12:11:00")
+    @snapshot_clickhouse_queries
+    def test_issue_filters(self):
+        results = self._calculate(
+            filterGroup=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            ErrorTrackingIssueFilter(
+                                key="name", value=[self.issue_name_one], operator=PropertyOperator.EXACT
+                            ),
+                        ],
+                    )
+                ],
+            )
+        )["results"]
+        self.assertEqual(len(results), 1)
 
     @freeze_time("2022-01-10T12:11:00")
     @snapshot_clickhouse_queries
