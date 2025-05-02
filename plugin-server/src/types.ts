@@ -20,6 +20,7 @@ import { z } from 'zod'
 
 import { EncryptedFields } from './cdp/encryption-utils'
 import { LegacyOneventCompareService } from './cdp/services/legacy-onevent-compare.service'
+import { CyclotronJobQueueKind } from './cdp/types'
 import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import { KafkaProducerWrapper } from './kafka/producer'
 import { Celery } from './utils/db/celery'
@@ -104,12 +105,16 @@ export type CdpConfig = {
     CDP_WATCHER_DISABLED_TEMPORARY_TTL: number // How long a function should be temporarily disabled for
     CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT: number // How many times a function can be disabled before it is disabled permanently
     CDP_HOG_FILTERS_TELEMETRY_TEAMS: string
+    CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: CyclotronJobQueueKind
+    CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING: string // A comma-separated list of queue to mode like `hog:kafka,fetch:postgres,*:kafka` with * being the default
+
     CDP_CYCLOTRON_BATCH_SIZE: number
     CDP_CYCLOTRON_BATCH_DELAY_MS: number
     CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: number
     CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: boolean
     CDP_CYCLOTRON_COMPRESS_VM_STATE: boolean
     CDP_CYCLOTRON_USE_BULK_COPY_JOB: boolean
+    CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: boolean
     CDP_REDIS_HOST: string
     CDP_REDIS_PORT: number
     CDP_REDIS_PASSWORD: string
@@ -119,6 +124,9 @@ export type CdpConfig = {
     CDP_FETCH_RETRIES: number
     CDP_FETCH_BACKOFF_BASE_MS: number
     CDP_FETCH_BACKOFF_MAX_MS: number
+    KAFKA_CDP_PRODUCER_HOSTS?: string
+    KAFKA_CDP_PRODUCER_SECURITY_PROTOCOL?: KafkaSecurityProtocol
+    KAFKA_CDP_PRODUCER_CLIENT_ID?: string
 }
 
 export type IngestionConsumerConfig = {
@@ -144,6 +152,8 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     TASK_TIMEOUT: number // how many seconds until tasks are timed out
     DATABASE_URL: string // Postgres database URL
     DATABASE_READONLY_URL: string // Optional read-only replica to the main Postgres database
+    PERSONS_DATABASE_URL: string // Optional read-write Postgres database for persons
+    PERSONS_READONLY_DATABASE_URL: string // Optional read-only replica to the persons Postgres database
     PLUGIN_STORAGE_DATABASE_URL: string // Optional read-write Postgres database for plugin storage
     POSTGRES_CONNECTION_POOL_SIZE: number
     POSTHOG_DB_NAME: string | null
@@ -400,7 +410,6 @@ export interface PluginServerCapabilities {
     cdpCyclotronWorkerFetch?: boolean
     cdpApi?: boolean
     appManagementSingleton?: boolean
-    preflightSchedules?: boolean // Used for instance health checks on hobby deploy, not useful on cloud
     mmdb?: boolean
 }
 

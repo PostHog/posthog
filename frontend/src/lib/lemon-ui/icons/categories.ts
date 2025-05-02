@@ -63,6 +63,7 @@ export const OBJECTS = {
         'IconDatabaseBolt',
         'IconExpand45Chevrons',
         'IconFolderOpenFilled',
+        'IconFolderMove',
         'IconSquare',
         'IconTableOfContents',
         'IconTabletLandscape',
@@ -173,6 +174,7 @@ export const ELEMENTS = {
         'IconFilter',
         'IconArchive',
         'IconSort',
+        'IconSortAlpha',
         'IconExternal',
     ],
     Symbols: [

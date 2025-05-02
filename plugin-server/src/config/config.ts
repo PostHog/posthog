@@ -23,6 +23,12 @@ export function getDefaultConfig(): PluginsServerConfig {
             : '',
         DATABASE_READONLY_URL: '',
         PLUGIN_STORAGE_DATABASE_URL: '',
+        PERSONS_DATABASE_URL: isTestEnv()
+            ? 'postgres://posthog:posthog@localhost:5432/test_posthog'
+            : isDevEnv()
+            ? 'postgres://posthog:posthog@localhost:5432/posthog'
+            : '',
+        PERSONS_READONLY_DATABASE_URL: '',
         POSTGRES_CONNECTION_POOL_SIZE: 10,
         POSTHOG_DB_NAME: null,
         POSTHOG_DB_USER: 'postgres',
@@ -186,10 +192,13 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_CYCLOTRON_BATCH_DELAY_MS: 50,
         CDP_CYCLOTRON_BATCH_SIZE: 300,
         CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: '',
+        CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'postgres',
+        CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING: '*:postgres',
         CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 100,
         CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: true,
         CDP_CYCLOTRON_COMPRESS_VM_STATE: isProdEnv() ? false : true,
         CDP_CYCLOTRON_USE_BULK_COPY_JOB: isProdEnv() ? false : true,
+        CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: isProdEnv() ? false : true,
         CDP_HOG_WATCHER_SAMPLE_RATE: 0, // default is off
         CDP_FETCH_TIMEOUT_MS: 10 * 1000, // 10 seconds
         CDP_FETCH_RETRIES: 3,

@@ -4,6 +4,7 @@ import {
     KafkaConsumer as RdKafkaConsumer,
     LibrdKafkaError,
     Message,
+    MessageHeader,
     Metadata,
     PartitionMetadata,
     TopicPartitionOffset,
@@ -374,4 +375,19 @@ export class KafkaConsumer {
             logger.info('📝', 'Disconnected consumer!')
         }
     }
+}
+
+export const parseKafkaHeaders = (headers?: MessageHeader[]): Record<string, string> => {
+    // Kafka headers come from librdkafka as an array of objects with keys value pairs per header.
+    // It's a confusing format so we simplify it to a record.
+
+    const result: Record<string, string> = {}
+
+    headers?.forEach((header) => {
+        Object.keys(header).forEach((key) => {
+            result[key] = header[key].toString()
+        })
+    })
+
+    return result
 }

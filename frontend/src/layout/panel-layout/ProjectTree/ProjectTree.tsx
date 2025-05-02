@@ -2,7 +2,7 @@ import { IconCheckbox, IconChevronRight, IconFolder, IconFolderPlus, IconX } fro
 import { useActions, useValues } from 'kea'
 import { MoveFilesModal } from 'lib/components/FileSystem/MoveFilesModal'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-// import { ResizableDiv } from 'lib/components/ResizeElement/ResizeElement'
+import { ResizableDiv } from 'lib/components/ResizeElement/ResizeElement'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { LemonTree, LemonTreeRef, TreeDataItem, TreeMode } from 'lib/lemon-ui/LemonTree/LemonTree'
@@ -52,9 +52,9 @@ export function ProjectTree(): JSX.Element {
         editingItemId,
         checkedItemsArray,
         movingItems,
-        selectMode,
-        // treeTableColumnSizes,
+        treeTableColumnSizes,
         treeTableTotalWidth,
+        selectMode,
     } = useValues(projectTreeLogic)
 
     const {
@@ -76,8 +76,8 @@ export function ProjectTree(): JSX.Element {
         clearScrollTarget,
         setEditingItemId,
         setMovingItems,
+        setTreeTableColumnSizes,
         setSelectMode,
-        // setTreeTableColumnSizes
     } = useActions(projectTreeLogic)
 
     const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier, setProjectTreeMode } =
@@ -525,40 +525,40 @@ export function ProjectTree(): JSX.Element {
                 }}
                 tableModeTotalWidth={treeTableTotalWidth}
                 tableModeHeader={() => {
-                    // return (
-                    //     <>
-                    //         {/* Headers */}
-                    //         {treeTableKeys?.headers.map((header, index) => (
-                    //             <ResizableDiv
-                    //                 key={header.key}
-                    //                 defaultWidth={header.width || 0}
-                    //                 onResize={(width) => {
-                    //                     setTreeTableColumnSizes([
-                    //                         ...treeTableColumnSizes.slice(0, index),
-                    //                         width,
-                    //                         ...treeTableColumnSizes.slice(index + 1),
-                    //                     ])
-                    //                 }}
-                    //                 className="absolute h-[30px] flex items-center"
-                    //                 style={{
-                    //                     transform: `translateX(${header.offset || 0}px)`,
-                    //                 }}
-                    //                 aria-label={`Resize handle for column "${header.title}"`}
-                    //             >
-                    //                 <ButtonPrimitive
-                    //                     key={header.key}
-                    //                     fullWidth
-                    //                     className="pointer-events-none rounded-none text-secondary font-bold text-xs uppercase flex gap-2 motion-safe:transition-[left] duration-50"
-                    //                     style={{
-                    //                         paddingLeft: index === 0 ? '30px' : undefined,
-                    //                     }}
-                    //                 >
-                    //                     <span>{header.title}</span>
-                    //                 </ButtonPrimitive>
-                    //             </ResizableDiv>
-                    //         ))}
-                    //     </>
-                    // )
+                    return (
+                        <>
+                            {/* Headers */}
+                            {treeTableKeys?.headers.map((header, index) => (
+                                <ResizableDiv
+                                    key={header.key}
+                                    defaultWidth={header.width || 0}
+                                    onResize={(width) => {
+                                        setTreeTableColumnSizes([
+                                            ...treeTableColumnSizes.slice(0, index),
+                                            width,
+                                            ...treeTableColumnSizes.slice(index + 1),
+                                        ])
+                                    }}
+                                    className="absolute h-[30px] flex items-center"
+                                    style={{
+                                        transform: `translateX(${header.offset || 0}px)`,
+                                    }}
+                                    aria-label={`Resize handle for column "${header.title}"`}
+                                >
+                                    <ButtonPrimitive
+                                        key={header.key}
+                                        fullWidth
+                                        className="pointer-events-none rounded-none text-secondary font-bold text-xs uppercase flex gap-2 motion-safe:transition-[left] duration-50"
+                                        style={{
+                                            paddingLeft: index === 0 ? '30px' : undefined,
+                                        }}
+                                    >
+                                        <span>{header.title}</span>
+                                    </ButtonPrimitive>
+                                </ResizableDiv>
+                            ))}
+                        </>
+                    )
                 }}
                 tableModeRow={(item, firstColumnOffset) => {
                     return (

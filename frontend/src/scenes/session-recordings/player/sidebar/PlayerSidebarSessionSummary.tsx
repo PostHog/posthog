@@ -1,6 +1,8 @@
 import {
     IconAIText,
     IconClock,
+    IconCollapse,
+    IconExpand,
     IconKeyboard,
     IconMagicWand,
     IconPointer,
@@ -8,13 +10,17 @@ import {
     IconThumbsUp,
     IconWarning,
 } from '@posthog/icons'
-import { LemonBanner, LemonCollapse, LemonDivider, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonDivider, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { useEffect, useState } from 'react'
+import { ReactNode, useEffect, useState } from 'react'
+import { Transition } from 'react-transition-group'
+import { ENTERED, ENTERING } from 'react-transition-group/Transition'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import useResizeObserver from 'use-resize-observer'
 
 import { playerInspectorLogic } from '../inspector/playerInspectorLogic'
 import {
@@ -77,6 +83,66 @@ function LoadingTimer({ operation }: { operation?: string }): JSX.Element {
     return <span className="font-mono text-xs text-muted">{elapsedSeconds}s</span>
 }
 
+interface SessionSegmentCollapseProps {
+    header: ReactNode
+    content: ReactNode
+    actionsPresent?: boolean
+    className?: string
+    isFailed?: boolean
+}
+
+function SessionSegmentCollapse({
+    header,
+    content,
+    actionsPresent,
+    className,
+    isFailed,
+}: SessionSegmentCollapseProps): JSX.Element {
+    const [isExpanded, setIsExpanded] = useState(false)
+    const { height: contentHeight, ref: contentRef } = useResizeObserver({ box: 'border-box' })
+
+    return (
+        <div className={clsx('LemonCollapse', className)}>
+            <div className="LemonCollapsePanel" aria-expanded={isExpanded}>
+                <LemonButton
+                    fullWidth
+                    className={clsx(
+                        'LemonCollapsePanel__header hover:bg-primary-alt-highlight border-l-[5px]',
+                        !actionsPresent && 'LemonCollapsePanel__header--disabled',
+                        isFailed && 'border-l-danger'
+                    )}
+                    onClick={actionsPresent ? () => setIsExpanded(!isExpanded) : undefined}
+                    icon={isExpanded ? <IconCollapse /> : <IconExpand />}
+                    size="medium"
+                    disabled={!actionsPresent}
+                >
+                    {header}
+                </LemonButton>
+                <Transition in={isExpanded} timeout={200} mountOnEnter unmountOnExit>
+                    {(status) => (
+                        <div
+                            className="LemonCollapsePanel__body"
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={
+                                status === ENTERING || status === ENTERED
+                                    ? {
+                                          height: contentHeight,
+                                      }
+                                    : undefined
+                            }
+                            aria-busy={status.endsWith('ing')}
+                        >
+                            <div className="LemonCollapsePanel__content" ref={contentRef}>
+                                {content}
+                            </div>
+                        </div>
+                    )}
+                </Transition>
+            </div>
+        </div>
+    )
+}
+
 function SegmentMetaTable({ meta }: SegmentMetaProps): JSX.Element | null {
     if (!meta) {
         return null
@@ -85,7 +151,7 @@ function SegmentMetaTable({ meta }: SegmentMetaProps): JSX.Element | null {
     return (
         <div className="grid grid-cols-2 gap-2 text-xs mt-2">
             <div className="flex items-center gap-1">
-                <IconKeyboard />
+                <IconKeyboard className={meta.key_action_count && meta.key_action_count > 0 ? 'text-success' : ''} />
                 <span className="text-muted">Key actions:</span>
                 {isValidMetaNumber(meta.key_action_count) && <span>{meta.key_action_count}</span>}
             </div>
@@ -99,8 +165,13 @@ function SegmentMetaTable({ meta }: SegmentMetaProps): JSX.Element | null {
                 <span className="text-muted">Duration:</span>
                 {isValidMetaNumber(meta.duration) && isValidMetaNumber(meta.duration_percentage) && (
                     <span>
-                        {formatMsIntoTime(meta.duration * 1000 || 0)} (
-                        {((meta.duration_percentage || 0) * 100).toFixed(2)}%)
+                        {meta.duration === 0 ? (
+                            <span className="text-muted">...</span>
+                        ) : (
+                            `${formatMsIntoTime(meta.duration * 1000)} (${(
+                                (meta.duration_percentage || 0) * 100
+                            ).toFixed(2)}%)`
+                        )}
                     </span>
                 )}
             </div>
@@ -109,7 +180,11 @@ function SegmentMetaTable({ meta }: SegmentMetaProps): JSX.Element | null {
                 <span className="text-muted">Events:</span>
                 {isValidMetaNumber(meta.events_count) && isValidMetaNumber(meta.events_percentage) && (
                     <span>
-                        {meta.events_count} ({((meta.events_percentage || 0) * 100).toFixed(2)}%)
+                        {meta.events_count === 0 ? (
+                            <span className="text-muted">...</span>
+                        ) : (
+                            `${meta.events_count} (${((meta.events_percentage || 0) * 100).toFixed(2)}%)`
+                        )}
                     </span>
                 )}
             </div>
@@ -132,90 +207,107 @@ function SessionSegmentView({
 }: SessionSegmentViewProps): JSX.Element {
     return (
         <div key={segment.name} className="mb-4">
-            <LemonCollapse
-                size="medium"
-                className={`border-b cursor-pointer py-2 px-2 hover:bg-primary-alt-highlight ${
-                    segmentOutcome && Object.keys(segmentOutcome).length > 0 && segmentOutcome.success === false
-                        ? 'bg-danger-highlight'
-                        : ''
-                }`}
-                panels={[
-                    {
-                        key: 'previous',
-                        header: (
-                            <div className="py-2">
-                                <div className="flex flex-row gap-2">
-                                    <h3 className="mb-1">{segment.name}</h3>
-                                    {segmentOutcome && Object.keys(segmentOutcome).length > 0 ? (
-                                        <div>
-                                            {segmentOutcome.success ? null : (
-                                                <LemonTag size="small" type="default">
-                                                    failed
-                                                </LemonTag>
-                                            )}
-                                        </div>
-                                    ) : (
-                                        <Spinner />
+            <SessionSegmentCollapse
+                className="cursor-pointer"
+                actionsPresent={keyActions && keyActions.length > 0}
+                isFailed={segmentOutcome && Object.keys(segmentOutcome).length > 0 && segmentOutcome.success === false}
+                header={
+                    <div className="py-2">
+                        <div className="flex flex-row gap-2">
+                            <h3 className="mb-1">{segment.name}</h3>
+                            {segmentOutcome && Object.keys(segmentOutcome).length > 0 ? (
+                                <div>
+                                    {segmentOutcome.success ? null : (
+                                        <LemonTag size="small" type="default">
+                                            failed
+                                        </LemonTag>
                                     )}
                                 </div>
-                                {segmentOutcome && (
-                                    <>
-                                        <p className="text-sm font-normal mb-0">{segmentOutcome.summary}</p>
-                                    </>
-                                )}
-                                <SegmentMetaTable
-                                    meta={segment.meta && Object.keys(segment.meta).length > 0 ? segment.meta : null}
-                                />
-                            </div>
-                        ),
-                        content: (
+                            ) : (
+                                <Spinner />
+                            )}
+                        </div>
+                        {segmentOutcome && (
+                            <>
+                                <p className="text-sm font-normal mb-0">{segmentOutcome.summary}</p>
+                            </>
+                        )}
+                        <SegmentMetaTable
+                            meta={segment.meta && Object.keys(segment.meta).length > 0 ? segment.meta : null}
+                        />
+                    </div>
+                }
+                content={
+                    <>
+                        {keyActions && keyActions.length > 0 ? (
                             <>
                                 {keyActions?.map((keyAction) =>
-                                    keyAction.events?.map((event: SessionKeyAction, eventIndex: number) =>
-                                        isValidTimestamp(event.milliseconds_since_start) ? (
-                                            <div
-                                                key={`${segment.name}-${eventIndex}`}
-                                                className={`border-b cursor-pointer py-2 px-2 hover:bg-primary-alt-highlight ${
-                                                    event.failure ? 'bg-danger-highlight' : ''
-                                                }`}
-                                                onClick={() => {
-                                                    if (!isValidTimestamp(event.milliseconds_since_start)) {
-                                                        return
-                                                    }
-                                                    onSeekToTime(event.milliseconds_since_start)
-                                                }}
-                                            >
-                                                <div className="flex flex-row gap-2">
-                                                    <span className="text-muted-alt shrink-0 min-w-[4rem] font-mono text-xs">
-                                                        {formatMsIntoTime(event.milliseconds_since_start)}
-                                                        <div className="flex flex-row gap-2 mt-1">
-                                                            {event.current_url ? (
-                                                                <Link to={event.current_url} target="_blank">
-                                                                    <Tooltip title={event.current_url} placement="top">
-                                                                        <span className="font-mono text-xs text-muted-alt">
-                                                                            url
-                                                                        </span>
-                                                                    </Tooltip>
-                                                                </Link>
-                                                            ) : null}
-                                                            <Tooltip title={formatEventMetaInfo(event)} placement="top">
-                                                                <span className="font-mono text-xs text-muted-alt">
-                                                                    meta
-                                                                </span>
-                                                            </Tooltip>
-                                                        </div>
-                                                    </span>
+                                    keyAction.events?.map(
+                                        (event: SessionKeyAction, eventIndex: number, events: SessionKeyAction[]) =>
+                                            isValidTimestamp(event.milliseconds_since_start) ? (
+                                                <div
+                                                    key={`${segment.name}-${eventIndex}`}
+                                                    className={clsx(
+                                                        'cursor-pointer py-2 px-2 hover:bg-primary-alt-highlight',
+                                                        // Avoid adding a border to the last event
+                                                        eventIndex !== events.length - 1 && 'border-b',
+                                                        event.failure && 'bg-danger-highlight'
+                                                    )}
+                                                    onClick={() => {
+                                                        if (!isValidTimestamp(event.milliseconds_since_start)) {
+                                                            return
+                                                        }
+                                                        onSeekToTime(event.milliseconds_since_start)
+                                                    }}
+                                                >
+                                                    <div className="flex flex-row gap-2">
+                                                        <span className="text-muted-alt shrink-0 min-w-[4rem] font-mono text-xs">
+                                                            {formatMsIntoTime(event.milliseconds_since_start)}
+                                                            <div className="flex flex-row gap-2 mt-1">
+                                                                {event.current_url ? (
+                                                                    <Link to={event.current_url} target="_blank">
+                                                                        <Tooltip
+                                                                            title={event.current_url}
+                                                                            placement="top"
+                                                                        >
+                                                                            <span className="font-mono text-xs text-muted-alt">
+                                                                                url
+                                                                            </span>
+                                                                        </Tooltip>
+                                                                    </Link>
+                                                                ) : null}
+                                                                <Tooltip
+                                                                    title={formatEventMetaInfo(event)}
+                                                                    placement="top"
+                                                                >
+                                                                    <span className="font-mono text-xs text-muted-alt">
+                                                                        meta
+                                                                    </span>
+                                                                </Tooltip>
+                                                            </div>
+                                                        </span>
 
-                                                    <span className="text-xs break-words">{event.description}</span>
+                                                        <span className="text-xs break-words">
+                                                            {event.description}&nbsp;{' '}
+                                                            {event.milliseconds_since_start === 0 && (
+                                                                <LemonTag size="small" type="default">
+                                                                    before start
+                                                                </LemonTag>
+                                                            )}
+                                                        </span>
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        ) : null
+                                            ) : null
                                     )
                                 )}
                             </>
-                        ),
-                    },
-                ]}
+                        ) : (
+                            <div className="text-muted-alt">
+                                Waiting for key actions... <Spinner />
+                            </div>
+                        )}
+                    </>
+                }
             />
         </div>
     )
@@ -432,7 +524,18 @@ function LoadSessionSummaryButton(): JSX.Element {
     const { items: inspectorItems } = useValues(inspectorLogic)
     const { summarizeSession } = useActions(playerMetaLogic(logicProps))
 
-    const hasEnoughEvents = inspectorItems && inspectorItems.length > 0
+    // We need $autocapture events to be able to generate a summary
+    const hasEvents = inspectorItems && inspectorItems.length > 0
+    const hasEnoughEvents =
+        hasEvents &&
+        inspectorItems?.some(
+            (item) =>
+                'data' in item &&
+                item.data &&
+                typeof item.data === 'object' &&
+                'event' in item.data &&
+                item.data.event === '$autocapture'
+        )
 
     return (
         <div className="space-y-2">
@@ -455,10 +558,21 @@ function LoadSessionSummaryButton(): JSX.Element {
                 </div>
             ) : (
                 !hasEnoughEvents && (
-                    <div className="text-sm">
-                        Session events not available for summary yet.
-                        <br />
-                        Please, try again in a few minutes.
+                    <div>
+                        {hasEvents ? (
+                            <>
+                                <h4>No autocapture events found for this session</h4>
+                                <p className="text-sm mb-1">
+                                    Please, ensure that Autocapture is enabled in project's settings, or try again in a
+                                    few minutes.
+                                </p>
+                            </>
+                        ) : (
+                            <>
+                                <h4>Session events are not available for summary yet</h4>
+                                <p className="text-sm mb-1">Please, try again in a few minutes.</p>
+                            </>
+                        )}
                     </div>
                 )
             )}
