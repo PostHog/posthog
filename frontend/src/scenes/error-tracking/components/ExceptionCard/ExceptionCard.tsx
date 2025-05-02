@@ -48,7 +48,7 @@ function ExceptionCardContent({ issue, issueLoading }: ExceptionCardContentProps
     const propertiesLogic = useMountedLogic(errorPropertiesLogic)
     const { properties, exceptionAttributes, additionalProperties, timestamp, sessionId } = useValues(propertiesLogic)
     return (
-        <LemonCard hoverEffect={false} className="p-0 group p-2 px-3 relative overflow-hidden">
+        <LemonCard hoverEffect={false} className="group py-2 px-3 relative overflow-hidden">
             <Collapsible isExpanded={isExpanded} className="pb-1 flex w-full" minHeight="calc(var(--spacing) * 12)">
                 <StacktraceIssueDisplay
                     className={cn('flex-grow', showContext && isExpanded ? 'w-2/3' : 'w-full')}
