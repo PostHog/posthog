@@ -337,22 +337,34 @@ export function ProjectTree(): JSX.Element {
                     <ButtonPrimitive onClick={() => createFolder('')} tooltip="New root folder" iconOnly>
                         <IconFolderPlus className="text-tertiary" />
                     </ButtonPrimitive>
-                    <ButtonPrimitive
-                        onClick={() => setSelectMode(selectMode === 'default' ? 'multi' : 'default')}
-                        tooltip={selectMode === 'default' ? 'Enable multi-select' : 'Disable multi-select'}
-                        iconOnly
-                    >
-                        {selectMode === 'default' ? (
+
+                    {selectMode === 'default' && checkedItemCountNumeric === 0 ? (
+                        <ButtonPrimitive onClick={() => setSelectMode('multi')} tooltip="Enable multi-select" iconOnly>
                             <IconCheckbox className="text-tertiary size-4" />
-                        ) : (
-                            <IconX className="text-tertiary size-3" />
-                        )}
-                    </ButtonPrimitive>
-                    {checkedItemCountNumeric > 0 && checkedItemsCount !== '0+' ? (
-                        <ButtonPrimitive onClick={() => setCheckedItems({})} tooltip="Clear selected">
-                            <LemonTag type="highlight">{checkedItemsCount} selected</LemonTag>
                         </ButtonPrimitive>
-                    ) : null}
+                    ) : (
+                        <>
+                            {checkedItemCountNumeric > 0 && checkedItemsCount !== '0+' ? (
+                                <ButtonPrimitive
+                                    onClick={() => {
+                                        setCheckedItems({})
+                                        setSelectMode('default')
+                                    }}
+                                    tooltip="Clear selected and disable multi-select"
+                                >
+                                    <LemonTag type="highlight">{checkedItemsCount} selected</LemonTag>
+                                </ButtonPrimitive>
+                            ) : (
+                                <ButtonPrimitive
+                                    onClick={() => setSelectMode('default')}
+                                    tooltip="Disable multi-select"
+                                    iconOnly
+                                >
+                                    <IconX className="text-tertiary size-4" />
+                                </ButtonPrimitive>
+                            )}
+                        </>
+                    )}
                 </>
             }
         >
