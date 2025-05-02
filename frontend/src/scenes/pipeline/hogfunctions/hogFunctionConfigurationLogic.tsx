@@ -9,6 +9,7 @@ import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { asyncSaveToModal } from 'lib/components/SaveTo/saveToLogic'
 import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import posthog from 'posthog-js'
@@ -285,6 +286,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             ['groupTypes'],
             userLogic,
             ['hasAvailableFeature'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [pipelineNodeLogic({ id: `hog-${id}`, stage: PipelineStage.Destination }), ['setBreadcrumbTitle']],
     })),
@@ -367,7 +370,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         }
                     }
 
-                    const dbTemplates = posthog.isFeatureEnabled('getTemplatesFromDB')
+                    const dbTemplates = !!values.featureFlags?.getTemplatesFromDB
                     const res = await api.hogFunctions.getTemplate(props.templateId, dbTemplates)
 
                     if (!res) {
