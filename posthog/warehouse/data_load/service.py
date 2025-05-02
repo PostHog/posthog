@@ -86,7 +86,7 @@ def to_temporal_schedule(
     )
 
     sync_time = time(hour_of_day, minute_of_hour)
-    schedule_start = datetime.combine(datetime.today(), sync_time, tzinfo=UTC)
+    schedule_start = datetime.combine(datetime.now(UTC).date(), sync_time, tzinfo=UTC)
 
     # Create the spec for the schedule based on the sync frequency and sync time
     # The sync time is applied using a combination of the offset and the start_at time
