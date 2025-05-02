@@ -17,7 +17,6 @@ type TreeNodeDisplayIconWrapperProps = {
     selectMode: LemonTreeSelectMode
     defaultOffset: number
     multiSelectionOffset: number
-    checkedItemCount?: number
     onItemChecked?: (id: string, checked: boolean, shift: boolean) => void
     isEmptyFolder: boolean
 }
@@ -28,7 +27,6 @@ export const TreeNodeDisplayIconWrapper = ({
     defaultNodeIcon,
     handleClick,
     selectMode,
-    checkedItemCount,
     onItemChecked,
     defaultOffset,
     multiSelectionOffset,
@@ -46,8 +44,8 @@ export const TreeNodeDisplayIconWrapper = ({
                     'absolute flex items-center justify-center bg-transparent flex-shrink-0 h-[var(--button-height-base)] z-3',
                     {
                         // Apply group class only when there are no checked items
-                        'group/lemon-tree-icon-wrapper':
-                            checkedItemCount === 0 && selectMode !== 'folder-only' && !isEmptyFolder,
+                        // 'group/lemon-tree-icon-wrapper':
+                        //     checkedItemCount === 0 && selectMode !== 'folder-only' && !isEmptyFolder,
                         'cursor-default': isEmptyFolder,
                     }
                 )}
@@ -60,7 +58,7 @@ export const TreeNodeDisplayIconWrapper = ({
                     className={cn('absolute z-2', {
                         // Apply hidden class only when hovering the (conditional)group and there are no checked items
                         'hidden group-hover/lemon-tree-icon-wrapper:block transition-all duration-50':
-                            checkedItemCount === 0 || selectMode === 'folder-only',
+                            selectMode === 'default',
                     })}
                     style={{
                         left: `${defaultOffset}px`,
@@ -116,11 +114,14 @@ export const TreeNodeDisplayCheckbox = ({
         >
             <div className={ICON_CLASSES}>
                 <LemonCheckbox
-                    className={cn('size-5 ml-[2px]', {
-                        // Hide the checkbox if the item is disabled from being checked and is a folder
-                        // When searching we disable folders from being checked
-                        hidden: item.disableSelect && item.record?.type === 'folder',
-                    })}
+                    className={cn(
+                        'size-5 ml-[2px] starting:opacity-0 starting:-translate-x-2 translate-x-0 opacity-100 motion-safe:transition-all [transition-behavior:allow-discrete] duration-100',
+                        {
+                            // Hide the checkbox if the item is disabled from being checked and is a folder
+                            // When searching we disable folders from being checked
+                            hidden: item.disableSelect && item.record?.type === 'folder',
+                        }
+                    )}
                     checked={isChecked ?? false}
                     onChange={(checked, event) => {
                         // Just in case

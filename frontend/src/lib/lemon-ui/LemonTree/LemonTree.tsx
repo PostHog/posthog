@@ -526,7 +526,6 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                     selectMode={selectMode}
                                                     defaultOffset={iconWrapperOffset}
                                                     multiSelectionOffset={iconWrapperOffsetMultiSelection}
-                                                    checkedItemCount={checkedItemCount}
                                                     onItemChecked={onItemChecked}
                                                     isEmptyFolder={isEmptyFolder}
                                                 />
