@@ -519,7 +519,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         SELECT
                             JSONExtractString(properties, '${SurveyEventProperties.SURVEY_ITERATION}') AS survey_iteration,
                             getSurveyResponse(${questionIndex}, '${question?.id}') AS survey_response,
-                            COUNT(survey_response),
+                            COUNT(survey_response)
                         FROM events
                         WHERE event = '${SurveyEventName.SENT}'
                             AND properties.${SurveyEventProperties.SURVEY_ID} = '${survey.id}'
