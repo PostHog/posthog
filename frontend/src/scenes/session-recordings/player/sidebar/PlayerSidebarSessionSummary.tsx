@@ -205,6 +205,9 @@ function SessionSegmentView({
     keyActions,
     onSeekToTime,
 }: SessionSegmentViewProps): JSX.Element {
+    // Scroll 4 seconds before the event to make it easier to notice when watching the replay
+    const timeToSeeekTo = (ms: number): number => Math.max(ms - 4000, 0)
+
     return (
         <div key={segment.name} className="mb-4">
             <SessionSegmentCollapse
@@ -254,10 +257,11 @@ function SessionSegmentView({
                                                         event.failure && 'bg-danger-highlight'
                                                     )}
                                                     onClick={() => {
+                                                        // Excessive check, required for type safety
                                                         if (!isValidTimestamp(event.milliseconds_since_start)) {
                                                             return
                                                         }
-                                                        onSeekToTime(event.milliseconds_since_start)
+                                                        onSeekToTime(timeToSeeekTo(event.milliseconds_since_start))
                                                     }}
                                                 >
                                                     <div className="flex flex-row gap-2">

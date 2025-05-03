@@ -286,20 +286,30 @@ class TestEnrichRawSessionSummary:
     ) -> None:
         # Remove one event from mapping (segment end id)
         del mock_events_mapping["vbgs1287"]
-        session_id = "test_session"
-        with pytest.raises(
-            ValueError,
-            match=f"Mapping data for start_event_id abcd1234 or end_event_id vbgs1287 not found when preparing segment summary meta for session_id {session_id}",
-        ):
-            enrich_raw_session_summary_with_meta(
-                mock_raw_session_summary,
-                mock_events_mapping,
-                mock_events_columns,
-                mock_url_mapping_reversed,
-                mock_window_mapping_reversed,
-                mock_session_metadata,
-                session_id,
-            )
+        # Should not raise an error anymore, but use fallback from key actions
+        result = enrich_raw_session_summary_with_meta(
+            mock_raw_session_summary,
+            mock_events_mapping,
+            mock_events_columns,
+            mock_url_mapping_reversed,
+            mock_window_mapping_reversed,
+            mock_session_metadata,
+            "test_session",
+        )
+        # Verify the result has segments and the missing event was handled
+        assert result.data["segments"] is not None
+        assert len(result.data["segments"]) > 0
+        # The segment with missing event should have duration and events count processed properly
+        segment_with_missing_end_id = next(
+            (s for s in result.data["segments"] if s["end_event_id"] == "vbgs1287"),
+            None,
+        )
+        assert segment_with_missing_end_id is not None
+        assert segment_with_missing_end_id["meta"] is not None
+        assert segment_with_missing_end_id["meta"]["duration"] == 4
+        assert segment_with_missing_end_id["meta"]["events_count"] == 2
+        assert segment_with_missing_end_id["meta"]["duration_percentage"] == 0.0007514559458951719
+        assert segment_with_missing_end_id["meta"]["events_percentage"] == 0.33333333333333333
 
     def test_enrich_raw_session_summary_invalid_schema(
         self,

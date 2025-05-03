@@ -12,15 +12,20 @@ import { isPostHogProperty } from '~/taxonomy/taxonomy'
 
 import { DEFAULT_ERROR_TRACKING_DATE_RANGE, DEFAULT_ERROR_TRACKING_FILTER_GROUP } from './errorTrackingLogic'
 
-export const ERROR_TRACKING_LOGIC_KEY = 'errorTracking'
-const THIRD_PARTY_SCRIPT_ERROR = 'Script error.'
-
 export const SEARCHABLE_EXCEPTION_PROPERTIES = [
     '$exception_types',
     '$exception_values',
     '$exception_sources',
     '$exception_functions',
 ]
+export const INTERNAL_EXCEPTION_PROPERTY_KEYS = [
+    '$exception_list',
+    '$exception_fingerprint_record',
+    '$exception_proposed_fingerprint',
+    ...SEARCHABLE_EXCEPTION_PROPERTIES,
+]
+export const ERROR_TRACKING_LOGIC_KEY = 'errorTracking'
+const THIRD_PARTY_SCRIPT_ERROR = 'Script error.'
 
 const volumePeriods: ('volumeRange' | 'volumeDay')[] = ['volumeRange', 'volumeDay']
 const sumVolumes = (...arrays: number[][]): number[] =>

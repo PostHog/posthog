@@ -138,6 +138,10 @@ export const buttonPrimitiveVariants = cva({
             true: '',
             false: 'gap-1.5',
         },
+        active: {
+            true: 'button-primitive--active',
+            false: '',
+        },
         menuItem: {
             true: 'w-full justify-start', // @TODO this isn't working
             false: '',
