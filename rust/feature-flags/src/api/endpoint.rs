@@ -10,7 +10,7 @@ use axum::http::{HeaderMap, Method};
 use axum::{debug_handler, Json};
 use axum_client_ip::InsecureClientIp;
 use bytes::Bytes;
-use common_request::{FlagsQueryParams, RequestInfo};
+use common_request::{create_request_span, FlagsQueryParams, RequestInfo};
 use uuid::Uuid;
 
 /// Feature flag evaluation endpoint.
@@ -51,15 +51,7 @@ pub async fn flags(
     // so that the span is closed before the await (otherwise it will
     // be closed when the function returns, which won't compile)
     {
-        let _span = create_request_span(
-            &headers,
-            &query_params,
-            &context.request.method,
-            &path,
-            &ip.to_string(),
-            request_id,
-        )
-        .entered();
+        let _span = create_request_span(&context.request, &path).entered();
     }
 
     let response = process_request(context).await?;
@@ -78,41 +70,6 @@ pub async fn options() -> Result<Json<FlagsOptionsResponse>, FlagError> {
     Ok(Json(FlagsOptionsResponse {
         status: FlagsResponseCode::Ok,
     }))
-}
-
-fn create_request_span(
-    headers: &HeaderMap,
-    query_params: &FlagsQueryParams,
-    method: &Method,
-    path: &MatchedPath,
-    ip: &str,
-    request_id: Uuid,
-) -> tracing::Span {
-    let user_agent = headers
-        .get("user-agent")
-        .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
-    let content_encoding = query_params
-        .compression
-        .as_ref()
-        .map_or("none", |c| c.as_str());
-    let content_type = headers
-        .get("content-type")
-        .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
-
-    tracing::info_span!(
-        "request",
-        user_agent = %user_agent,
-        content_encoding = %content_encoding,
-        content_type = %content_type,
-        version = %query_params.version.as_deref().unwrap_or("unknown"),
-        lib_version = %query_params.lib_version.as_deref().unwrap_or("unknown"),
-        compression = %query_params.compression.as_ref().map_or("none", |c| c.as_str()),
-        method = %method.as_str(),
-        path = %path.as_str().trim_end_matches('/'),
-        ip = %ip,
-        sent_at = %query_params.sent_at.unwrap_or(0).to_string(),
-        request_id = %request_id
-    )
 }
 
 #[cfg(test)]
