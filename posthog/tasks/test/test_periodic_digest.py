@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta
 from unittest.mock import ANY, MagicMock, patch
 from uuid import uuid4
+import json
+from parameterized import parameterized
 
 from django.utils.timezone import now
 from freezegun import freeze_time
@@ -161,10 +163,14 @@ class TestPeriodicDigestReport(APIBaseTest):
                             {
                                 "name": "Test Playlist",
                                 "id": playlist.short_id,
+                                "count": None,
+                                "has_more_available": False,
                             },
                             {
                                 "name": "Derived Playlist",
                                 "id": derived_playlist.short_id,
+                                "count": None,
+                                "has_more_available": False,
                             },
                         ],
                         "new_experiments_launched": [
@@ -578,3 +584,35 @@ class TestPeriodicDigestReport(APIBaseTest):
                 # Second user should see team 1 and team 2
                 assert len(properties["teams"]) == 2
                 assert any(team["team_id"] == team_2.id for team in properties["teams"])
+
+    @parameterized.expand(
+        [
+            ("no_redis_value", [None], None, False),
+            ("count_no_more", [json.dumps({"session_ids": ["a", "b"], "has_more": False})], 2, False),
+            ("count_with_more", [json.dumps({"session_ids": ["a"], "has_more": True})], 1, True),
+        ]
+    )
+    @patch("posthog.tasks.periodic_digest.get_client")
+    @patch("posthog.tasks.periodic_digest.SessionRecordingPlaylist")
+    def test_get_teams_with_new_playlists_counts(
+        self, desc, redis_values, expected_count, expected_has_more, mock_playlist, mock_get_client
+    ) -> None:
+        # Setup playlist queryset
+        playlist_obj = MagicMock()
+        playlist_obj.values.return_value = [{"team_id": 1, "name": "Test", "short_id": "abc", "derived_name": None}]
+        mock_playlist.objects.filter.return_value.exclude.return_value.exclude.return_value.values.return_value = (
+            playlist_obj.values.return_value
+        )
+
+        # Patch redis client
+        mock_redis = MagicMock()
+        mock_redis.mget.return_value = redis_values if redis_values is not None else []
+        mock_get_client.return_value = mock_redis
+
+        from posthog.tasks.periodic_digest import get_teams_with_new_playlists
+
+        result = get_teams_with_new_playlists(datetime.now(), datetime.now() - timedelta(days=1))
+
+        playlist = result[0]
+        assert playlist.count == expected_count, f"{desc}: count"
+        assert playlist.has_more_available == expected_has_more, f"{desc}: has_more"

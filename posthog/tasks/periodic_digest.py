@@ -2,6 +2,8 @@ import dataclasses
 from datetime import datetime, timedelta
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
+import json
+from collections import defaultdict
 
 import structlog
 from celery import shared_task
@@ -9,7 +11,7 @@ from dateutil import parser
 from django.db.models import QuerySet
 from django.utils import timezone
 from posthog.exceptions_capture import capture_exception
-
+from posthog.redis import get_client
 from posthog.models.dashboard import Dashboard
 from posthog.models.event_definition import EventDefinition
 from posthog.models.experiment import Experiment
@@ -46,6 +48,16 @@ class periodicDigestReport:
     new_feature_flags: list[dict[str, str]]
 
 
+@dataclasses.dataclass
+class CountedPlaylist:
+    team_id: int
+    name: str
+    short_id: str
+    derived_name: str | None
+    count: int | None
+    has_more_available: bool
+
+
 def get_teams_for_digest() -> list[Team]:
     from django.db.models import Q
 
@@ -68,8 +80,16 @@ def get_teams_with_new_event_definitions(end: datetime, begin: datetime) -> Quer
     return EventDefinition.objects.filter(created_at__gt=begin, created_at__lte=end).values("team_id", "name", "id")
 
 
-def get_teams_with_new_playlists(end: datetime, begin: datetime) -> QuerySet:
-    return (
+def get_teams_with_new_playlists(end: datetime, begin: datetime) -> list[CountedPlaylist]:
+    try:
+        from ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters import (
+            PLAYLIST_COUNT_REDIS_PREFIX,
+        )
+        # use this key as the probe to check if EE features (and so playlist counting) are available
+    except ImportError:
+        PLAYLIST_COUNT_REDIS_PREFIX = None
+
+    qs = (
         SessionRecordingPlaylist.objects.filter(
             created_at__gt=begin,
             created_at__lte=end,
@@ -84,6 +104,51 @@ def get_teams_with_new_playlists(end: datetime, begin: datetime) -> QuerySet:
         )
         .values("team_id", "name", "short_id", "derived_name")
     )
+
+    playlists = list(qs)
+    if PLAYLIST_COUNT_REDIS_PREFIX:
+        redis = get_client()
+        keys = [f"{PLAYLIST_COUNT_REDIS_PREFIX}{p['short_id']}" for p in playlists]
+        counts = redis.mget(keys)
+        results = []
+        for playlist, count in zip(playlists, counts):
+            if count is not None:
+                try:
+                    data = json.loads(count)
+                    playlist_count = len(data.get("session_ids", []))
+                    has_more = data.get("has_more", False)
+                except Exception:
+                    playlist_count = None
+                    has_more = False
+            else:
+                playlist_count = None
+                has_more = False
+
+            results.append(
+                CountedPlaylist(
+                    team_id=playlist["team_id"],
+                    name=playlist["name"],
+                    short_id=playlist["short_id"],
+                    derived_name=playlist["derived_name"],
+                    count=playlist_count,
+                    has_more_available=has_more,
+                )
+            )
+        results.sort(key=lambda p: (p.count is None, p.count if p.count is not None else -1), reverse=True)
+        return results
+    else:
+        # Fallback: no counts available, but still return CountedPlaylist objects
+        return [
+            CountedPlaylist(
+                team_id=playlist["team_id"],
+                name=playlist["name"],
+                short_id=playlist["short_id"],
+                derived_name=playlist["derived_name"],
+                count=None,
+                has_more_available=False,
+            )
+            for playlist in playlists
+        ]
 
 
 def get_teams_with_new_experiments_launched(end: datetime, begin: datetime) -> QuerySet:
@@ -131,8 +196,18 @@ def get_teams_with_new_feature_flags(end: datetime, begin: datetime) -> QuerySet
     )
 
 
-def convert_team_digest_items_to_dict(items: QuerySet) -> dict[int, QuerySet]:
-    return {team_id: items.filter(team_id=team_id) for team_id in items.values_list("team_id", flat=True).distinct()}
+def convert_team_digest_items_to_dict(items):
+    if hasattr(items, "filter") and hasattr(items, "values_list"):
+        # QuerySet path (old)
+        return {
+            team_id: items.filter(team_id=team_id) for team_id in items.values_list("team_id", flat=True).distinct()
+        }
+    else:
+        # List path (CountedPlaylist)
+        grouped = defaultdict(list)
+        for item in items:
+            grouped[item.team_id].append(item)
+        return dict(grouped)
 
 
 def count_non_zero_digest_items(report: periodicDigestReport) -> int:
@@ -171,7 +246,12 @@ def get_periodic_digest_report(all_digest_data: dict[str, Any], team: Team) -> p
             for event_definition in all_digest_data["teams_with_new_event_definitions"].get(team.id, [])
         ],
         new_playlists=[
-            {"name": playlist.get("name") or playlist.get("derived_name", "Untitled"), "id": playlist.get("short_id")}
+            {
+                "name": playlist.name or playlist.derived_name or "Untitled",
+                "id": playlist.short_id,
+                "count": playlist.count,
+                "has_more_available": playlist.has_more_available,
+            }
             for playlist in all_digest_data["teams_with_new_playlists"].get(team.id, [])
         ],
         new_experiments_launched=[
