@@ -2935,6 +2935,12 @@ export enum SurveyEventName {
     SENT = 'survey sent',
 }
 
+export enum SurveyEventProperties {
+    SURVEY_ID = '$survey_id',
+    SURVEY_RESPONSE = '$survey_response',
+    SURVEY_ITERATION = '$survey_iteration',
+}
+
 export interface SurveyEventStats {
     total_count: number
     total_count_only_seen: number

@@ -13,8 +13,6 @@ import {
     SurveyWidgetType,
 } from '~/types'
 
-export const SURVEY_EVENT_NAME = 'survey sent'
-export const SURVEY_RESPONSE_PROPERTY = '$survey_response'
 export const SURVEY_PAGE_SIZE = 100
 
 export const SurveyQuestionLabel: Record<SurveyQuestionType, string> = {
