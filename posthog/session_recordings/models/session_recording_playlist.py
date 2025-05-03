@@ -72,7 +72,7 @@ class SessionRecordingPlaylist(FileSystemSyncMixin, models.Model):
 
 
 class SessionRecordingPlaylistViewed(models.Model):
-    viewed_at = models.DateTimeField(auto_now_add=True)
+    viewed_at = models.DateTimeField(default=timezone.now, editable=False)
     user = models.ForeignKey("User", on_delete=models.CASCADE)
     playlist = models.ForeignKey("SessionRecordingPlaylist", on_delete=models.CASCADE)
     team = models.ForeignKey("Team", on_delete=models.CASCADE)

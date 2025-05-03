@@ -2,16 +2,14 @@ import dataclasses
 from datetime import datetime, timedelta
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
-import json
 from collections import defaultdict
 
 import structlog
 from celery import shared_task
 from dateutil import parser
-from django.db.models import QuerySet, Count
+from django.db.models import QuerySet, Q
 from django.utils import timezone
 from posthog.exceptions_capture import capture_exception
-from posthog.redis import get_client
 from posthog.models.dashboard import Dashboard
 from posthog.models.event_definition import EventDefinition
 from posthog.models.experiment import Experiment
@@ -20,11 +18,13 @@ from posthog.models.surveys.survey import Survey
 from posthog.models.messaging import MessagingRecord
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
-from posthog.session_recordings.models.session_recording_playlist import (
-    SessionRecordingPlaylist,
-)
-from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLIST_NAMES
+
 from posthog.tasks.email import NotificationSetting, NotificationSettingType
+from posthog.tasks.periodic_digest.playlist_digests import (
+    CountedPlaylist,
+    get_teams_with_new_playlists,
+    get_teams_with_interesting_playlists,
+)
 from posthog.tasks.report_utils import (
     OrgDigestReport,
     TeamDigestReport,
@@ -49,19 +49,7 @@ class periodicDigestReport:
     new_feature_flags: list[dict[str, str]]
 
 
-@dataclasses.dataclass
-class CountedPlaylist:
-    team_id: int
-    name: str
-    short_id: str
-    derived_name: str | None
-    count: int | None
-    has_more_available: bool
-
-
 def get_teams_for_digest() -> list[Team]:
-    from django.db.models import Q
-
     return list(
         Team.objects.select_related("organization")
         .exclude(Q(organization__for_internal_metrics=True) | Q(is_demo=True))
@@ -79,91 +67,6 @@ def get_teams_with_new_dashboards(end: datetime, begin: datetime) -> QuerySet:
 
 def get_teams_with_new_event_definitions(end: datetime, begin: datetime) -> QuerySet:
     return EventDefinition.objects.filter(created_at__gt=begin, created_at__lte=end).values("team_id", "name", "id")
-
-
-def get_teams_with_new_playlists(end: datetime, begin: datetime) -> list[CountedPlaylist]:
-    playlist_count_redis_prefix: str | None = None
-    try:
-        from ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters import (
-            PLAYLIST_COUNT_REDIS_PREFIX,
-        )
-
-        # use this key as the probe to check if EE features (and so playlist counting) are available
-        playlist_count_redis_prefix = PLAYLIST_COUNT_REDIS_PREFIX
-    except ImportError:
-        pass
-
-    # soon playlists will have a type and we can explicitly count saved_filters and colletions separately
-    # but for now saved_filters are playlists without pinned items - they are counted in redis
-    # collections are playlists with pinned items - they are counted in postgres
-    qs = (
-        SessionRecordingPlaylist.objects.filter(
-            created_at__gt=begin,
-            created_at__lte=end,
-        )
-        .exclude(
-            name__isnull=True,
-            derived_name__isnull=True,
-        )
-        .exclude(
-            name="",
-            derived_name=None,
-        )
-        .exclude(deleted=True)
-        .exclude(name__in=DEFAULT_PLAYLIST_NAMES)
-        .annotate(pinned_item_count=Count("playlist_items"))
-        .values("team_id", "name", "short_id", "derived_name", "pinned_item_count")
-    )
-
-    results = []
-    playlists = list(qs)
-    if playlist_count_redis_prefix:
-        redis = get_client()
-        keys = [f"{playlist_count_redis_prefix}{p['short_id']}" for p in playlists]
-        counts = redis.mget(keys)
-        for playlist, count in zip(playlists, counts):
-            # Use pinned_item_count if > 0, else try redis
-            if playlist.get("pinned_item_count", 0) > 0:
-                playlist_count = playlist["pinned_item_count"]
-                has_more = False
-            elif count is not None:
-                try:
-                    data = json.loads(count)
-                    playlist_count = len(data.get("session_ids", []))
-                    has_more = data.get("has_more", False)
-                except Exception:
-                    playlist_count = None
-                    has_more = False
-            else:
-                playlist_count = None
-                has_more = False
-
-            results.append(
-                CountedPlaylist(
-                    team_id=playlist["team_id"],
-                    name=playlist["name"],
-                    short_id=playlist["short_id"],
-                    derived_name=playlist["derived_name"],
-                    count=playlist_count,
-                    has_more_available=has_more,
-                )
-            )
-    else:
-        # Fallback: no counts available, but still return CountedPlaylist objects
-        results = [
-            CountedPlaylist(
-                team_id=playlist["team_id"],
-                name=playlist["name"],
-                short_id=playlist["short_id"],
-                derived_name=playlist["derived_name"],
-                count=playlist["pinned_item_count"] or None,
-                has_more_available=False,
-            )
-            for playlist in playlists
-        ]
-
-    results.sort(key=lambda p: (p.count is None, -(p.count or 0)))
-    return results
 
 
 def get_teams_with_new_experiments_launched(end: datetime, begin: datetime) -> QuerySet:
@@ -242,6 +145,7 @@ def _get_all_digest_data(period_start: datetime, period_end: datetime) -> dict[s
         "teams_with_new_dashboards": get_teams_with_new_dashboards(period_end, period_start),
         "teams_with_new_event_definitions": get_teams_with_new_event_definitions(period_end, period_start),
         "teams_with_new_playlists": get_teams_with_new_playlists(period_end, period_start),
+        "teams_with_interesting_playlists": get_teams_with_interesting_playlists(period_end),
         "teams_with_new_experiments_launched": get_teams_with_new_experiments_launched(period_end, period_start),
         "teams_with_new_experiments_completed": get_teams_with_new_experiments_completed(period_end, period_start),
         "teams_with_new_external_data_sources": get_teams_with_new_external_data_sources(period_end, period_start),

@@ -20,11 +20,13 @@ from posthog.models.messaging import MessagingRecord
 from posthog.models.organization import OrganizationMembership
 from posthog.session_recordings.models.session_recording_playlist import (
     SessionRecordingPlaylist,
+    SessionRecordingPlaylistViewed,
 )
 from posthog.session_recordings.models.session_recording_playlist_item import SessionRecordingPlaylistItem
-from posthog.tasks.periodic_digest import send_all_periodic_digest_reports
+from posthog.tasks.periodic_digest.periodic_digest import send_all_periodic_digest_reports
 from posthog.test.base import APIBaseTest
 from posthog.warehouse.models import ExternalDataSource
+from posthog.tasks.periodic_digest.playlist_digests import get_teams_with_interesting_playlists
 
 
 @freeze_time("2024-01-01T00:01:00Z")  # A Monday
@@ -34,7 +36,7 @@ class TestPeriodicDigestReport(APIBaseTest):
         self.distinct_id = str(uuid4())
 
     @freeze_time("2024-01-20T00:01:00Z")
-    @patch("posthog.tasks.periodic_digest.capture_event")
+    @patch("posthog.tasks.periodic_digest.periodic_digest.capture_event")
     def test_periodic_digest_report(self, mock_capture: MagicMock) -> None:
         # Create test data from "last week"
         with freeze_time("2024-01-15T00:01:00Z"):
@@ -247,12 +249,12 @@ class TestPeriodicDigestReport(APIBaseTest):
             timestamp=None,
         )
 
-    @patch("posthog.tasks.periodic_digest.capture_event")
+    @patch("posthog.tasks.periodic_digest.periodic_digest.capture_event")
     def test_periodic_digest_report_dry_run(self, mock_capture: MagicMock) -> None:
         send_all_periodic_digest_reports(dry_run=True)
         mock_capture.assert_not_called()
 
-    @patch("posthog.tasks.periodic_digest.capture_event")
+    @patch("posthog.tasks.periodic_digest.periodic_digest.capture_event")
     def test_periodic_digest_report_custom_dates(self, mock_capture: MagicMock) -> None:
         # Create test data
         with freeze_time("2024-01-15T00:01:00Z"):
@@ -334,7 +336,7 @@ class TestPeriodicDigestReport(APIBaseTest):
         )
 
     @freeze_time("2024-01-20T00:01:00Z")
-    @patch("posthog.tasks.periodic_digest.capture_event")
+    @patch("posthog.tasks.periodic_digest.periodic_digest.capture_event")
     def test_periodic_digest_report_idempotency(self, mock_capture: MagicMock) -> None:
         # Create test data
         with freeze_time("2024-01-15T00:01:00Z"):
@@ -364,7 +366,7 @@ class TestPeriodicDigestReport(APIBaseTest):
         self.assertEqual(MessagingRecord.objects.count(), 1)
 
     @freeze_time("2024-01-20T00:01:00Z")
-    @patch("posthog.tasks.periodic_digest.capture_event")
+    @patch("posthog.tasks.periodic_digest.periodic_digest.capture_event")
     def test_periodic_digest_different_periods(self, mock_capture: MagicMock) -> None:
         # Create test data
         with freeze_time("2024-01-15T00:01:00Z"):
@@ -391,7 +393,7 @@ class TestPeriodicDigestReport(APIBaseTest):
         self.assertEqual(campaign_keys, ["periodic_digest_2024-01-20_30d", "periodic_digest_2024-01-20_7d"])
 
     @freeze_time("2024-01-20T00:01:00Z")
-    @patch("posthog.tasks.periodic_digest.capture_event")
+    @patch("posthog.tasks.periodic_digest.periodic_digest.capture_event")
     def test_periodic_digest_empty_report_no_record(self, mock_capture: MagicMock) -> None:
         # Run without any data (empty digest)
         send_all_periodic_digest_reports()
@@ -401,7 +403,7 @@ class TestPeriodicDigestReport(APIBaseTest):
         self.assertEqual(MessagingRecord.objects.count(), 0)
 
     @freeze_time("2024-01-20T00:01:00Z")
-    @patch("posthog.tasks.periodic_digest.capture_event")
+    @patch("posthog.tasks.periodic_digest.periodic_digest.capture_event")
     def test_periodic_digest_dry_run_no_record(self, mock_capture: MagicMock) -> None:
         # Create test data
         Dashboard.objects.create(
@@ -417,7 +419,7 @@ class TestPeriodicDigestReport(APIBaseTest):
         self.assertEqual(MessagingRecord.objects.count(), 0)
 
     @freeze_time("2024-01-20T00:01:00Z")
-    @patch("posthog.tasks.periodic_digest.capture_event")
+    @patch("posthog.tasks.periodic_digest.periodic_digest.capture_event")
     def test_periodic_digest_excludes_playlists_without_names_and_derived_names(self, mock_capture: MagicMock) -> None:
         # Create test data from "last week"
         with freeze_time("2024-01-15T00:01:00Z"):
@@ -454,7 +456,7 @@ class TestPeriodicDigestReport(APIBaseTest):
         assert playlists[0]["id"] == valid_playlist.short_id
 
     @freeze_time("2024-01-20T00:01:00Z")
-    @patch("posthog.tasks.periodic_digest.capture_event")
+    @patch("posthog.tasks.periodic_digest.periodic_digest.capture_event")
     def test_periodic_digest_respects_team_notification_settings(self, mock_capture: MagicMock) -> None:
         # Create test data
         with freeze_time("2024-01-15T00:01:00Z"):
@@ -484,7 +486,7 @@ class TestPeriodicDigestReport(APIBaseTest):
         self.assertEqual(call_args["distinct_id"], str(self.user.distinct_id))
 
     @freeze_time("2024-01-20T00:01:00Z")
-    @patch("posthog.tasks.periodic_digest.capture_event")
+    @patch("posthog.tasks.periodic_digest.periodic_digest.capture_event")
     def test_periodic_digest_report_multiple_teams(self, mock_capture: MagicMock) -> None:
         # Create a second team in the same organization
         team_2 = Team.objects.create(organization=self.organization, name="Second Team")
@@ -542,7 +544,7 @@ class TestPeriodicDigestReport(APIBaseTest):
         assert team_2_data["report"]["new_feature_flags"][0]["name"] == "Team 2 Flag"
 
     @freeze_time("2024-01-20T00:01:00Z")
-    @patch("posthog.tasks.periodic_digest.capture_event")
+    @patch("posthog.tasks.periodic_digest.periodic_digest.capture_event")
     def test_periodic_digest_report_respects_team_access(self, mock_capture: MagicMock) -> None:
         # Create a second team in the same organization
         team_2 = Team.objects.create(organization=self.organization, name="Second Team")
@@ -594,7 +596,7 @@ class TestPeriodicDigestReport(APIBaseTest):
             ("count_with_more", [json.dumps({"session_ids": ["a"], "has_more": True})], 1, True),
         ]
     )
-    @patch("posthog.tasks.periodic_digest.get_client")
+    @patch("posthog.tasks.periodic_digest.playlist_digests.get_client")
     def test_get_teams_with_new_playlists_counts(
         self,
         desc: str,
@@ -614,7 +616,7 @@ class TestPeriodicDigestReport(APIBaseTest):
         mock_redis.mget.return_value = redis_values if redis_values is not None else []
         mock_get_client.return_value = mock_redis
 
-        from posthog.tasks.periodic_digest import get_teams_with_new_playlists
+        from posthog.tasks.periodic_digest.periodic_digest import get_teams_with_new_playlists
 
         result = get_teams_with_new_playlists(datetime.now(), datetime.now() - timedelta(days=1))
 
@@ -623,7 +625,7 @@ class TestPeriodicDigestReport(APIBaseTest):
         assert playlist_result.has_more_available == expected_has_more, f"{desc}: has_more"
 
     @freeze_time("2024-01-20T00:01:00Z")
-    @patch("posthog.tasks.periodic_digest.capture_event")
+    @patch("posthog.tasks.periodic_digest.periodic_digest.capture_event")
     def test_get_teams_with_new_playlists_only_with_pinned_items(self, _mock_capture: MagicMock) -> None:
         playlist_with_item = SessionRecordingPlaylist.objects.create(
             team=self.team,
@@ -646,12 +648,12 @@ class TestPeriodicDigestReport(APIBaseTest):
         )
 
         # Patch redis
-        with patch("posthog.tasks.periodic_digest.get_client") as mock_get_client:
+        with patch("posthog.tasks.periodic_digest.playlist_digests.get_client") as mock_get_client:
             mock_redis = MagicMock()
             mock_redis.mget.return_value = [None, None]
             mock_get_client.return_value = mock_redis
 
-            from posthog.tasks.periodic_digest import get_teams_with_new_playlists
+            from posthog.tasks.periodic_digest.periodic_digest import get_teams_with_new_playlists
 
             result = get_teams_with_new_playlists(datetime.now(), datetime.now() - timedelta(days=1))
 
@@ -659,7 +661,7 @@ class TestPeriodicDigestReport(APIBaseTest):
         assert [{p.name: p.count} for p in result] == [{"With Item": 1}, {"No Item": None}]
 
     @freeze_time("2024-01-20T00:01:00Z")
-    @patch("posthog.tasks.periodic_digest.capture_event")
+    @patch("posthog.tasks.periodic_digest.periodic_digest.capture_event")
     def test_periodic_digest_excludes_default_named_playlists(self, mock_capture: MagicMock) -> None:
         # need to type ignore here, because mypy insists this returns a list but it does not
         default_name: str = random.choice(DEFAULT_PLAYLIST_NAMES)  # type: ignore
@@ -689,3 +691,59 @@ class TestPeriodicDigestReport(APIBaseTest):
         assert len(playlists) == 1
         assert playlists[0]["name"] == "Custom Playlist"
         assert playlists[0]["id"] == custom_playlist.short_id
+
+    @freeze_time("2024-01-20T00:01:00Z")
+    def test_interesting_playlists_sorted_by_views(self) -> None:
+        playlist1 = SessionRecordingPlaylist.objects.create(team=self.team, name="Playlist 1")
+        playlist2 = SessionRecordingPlaylist.objects.create(team=self.team, name="Playlist 2")
+        playlist3 = SessionRecordingPlaylist.objects.create(team=self.team, name="Playlist 3")
+
+        # Simulate views: playlist2 > playlist1 > playlist3
+        for i in range(5):
+            vad = datetime(2024, 1, 1 + i, 12 + i, i, i)
+            SessionRecordingPlaylistViewed.objects.create(
+                user=self.user, viewed_at=vad, team=self.team, playlist=playlist2
+            )
+
+        for i in range(3):
+            vad = datetime(2024, 1, 1 + i, 12 + i, i, i)
+            SessionRecordingPlaylistViewed.objects.create(
+                user=self.user, viewed_at=vad, team=self.team, playlist=playlist1
+            )
+
+        SessionRecordingPlaylistViewed.objects.create(
+            user=self.user, viewed_at=datetime(2024, 1, 1, 12, 0, 0), team=self.team, playlist=playlist3
+        )
+
+        results = get_teams_with_interesting_playlists(datetime(2024, 1, 20))
+        names = [p.name for p in results if p.name in {"Playlist 1", "Playlist 2", "Playlist 3"}]
+
+        assert names == ["Playlist 2", "Playlist 1", "Playlist 3"]
+        assert results[0].view_count == 5
+        assert results[1].view_count == 3
+        assert results[2].view_count == 1
+
+    @freeze_time("2024-01-20T00:01:00Z")
+    def test_interesting_playlists_sorted_by_user_count(self) -> None:
+        playlist1 = SessionRecordingPlaylist.objects.create(team=self.team, name="Playlist 1")
+        playlist2 = SessionRecordingPlaylist.objects.create(team=self.team, name="Playlist 2")
+
+        # playlist1: 5 views from 1 user
+        for i in range(5):
+            vad = datetime(2024, 1, 1 + i, 12 + i, i, i)
+            SessionRecordingPlaylistViewed.objects.create(
+                user=self.user, viewed_at=vad, team=self.team, playlist=playlist1
+            )
+
+        # playlist2: 5 views from 5 different users
+        for i in range(5):
+            user = self._create_user(f"user{i}{i}@posthog.com")
+            vad = datetime(2024, 1, 1 + i, 12 + i, i, i)
+            SessionRecordingPlaylistViewed.objects.create(user=user, viewed_at=vad, team=self.team, playlist=playlist2)
+
+        results = get_teams_with_interesting_playlists(datetime(2024, 1, 20))
+        names = [p.name for p in results if p.name in {"Playlist 1", "Playlist 2"}]
+
+        assert names[0] == "Playlist 2"  # More unique users, so comes first
+        assert results[0].user_count == 5
+        assert results[1].user_count == 1
