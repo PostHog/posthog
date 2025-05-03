@@ -8,7 +8,7 @@ from collections import defaultdict
 import structlog
 from celery import shared_task
 from dateutil import parser
-from django.db.models import QuerySet
+from django.db.models import QuerySet, Count
 from django.utils import timezone
 from posthog.exceptions_capture import capture_exception
 from posthog.redis import get_client
@@ -81,14 +81,20 @@ def get_teams_with_new_event_definitions(end: datetime, begin: datetime) -> Quer
 
 
 def get_teams_with_new_playlists(end: datetime, begin: datetime) -> list[CountedPlaylist]:
+    playlist_count_redis_prefix: str | None = None
     try:
         from ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters import (
             PLAYLIST_COUNT_REDIS_PREFIX,
         )
-        # use this key as the probe to check if EE features (and so playlist counting) are available
-    except ImportError:
-        PLAYLIST_COUNT_REDIS_PREFIX = None
 
+        # use this key as the probe to check if EE features (and so playlist counting) are available
+        playlist_count_redis_prefix = PLAYLIST_COUNT_REDIS_PREFIX
+    except ImportError:
+        pass
+
+    # soon playlists will have a type and we can explicitly count saved_filters and colletions separately
+    # but for now saved_filters are playlists without pinned items - they are counted in redis
+    # collections are playlists with pinned items - they are counted in postgres
     qs = (
         SessionRecordingPlaylist.objects.filter(
             created_at__gt=begin,
@@ -102,17 +108,23 @@ def get_teams_with_new_playlists(end: datetime, begin: datetime) -> list[Counted
             name="",
             derived_name=None,
         )
-        .values("team_id", "name", "short_id", "derived_name")
+        .exclude(deleted=True)
+        .annotate(pinned_item_count=Count("playlist_items"))
+        .values("team_id", "name", "short_id", "derived_name", "pinned_item_count")
     )
 
+    results = []
     playlists = list(qs)
-    if PLAYLIST_COUNT_REDIS_PREFIX:
+    if playlist_count_redis_prefix:
         redis = get_client()
-        keys = [f"{PLAYLIST_COUNT_REDIS_PREFIX}{p['short_id']}" for p in playlists]
+        keys = [f"{playlist_count_redis_prefix}{p['short_id']}" for p in playlists]
         counts = redis.mget(keys)
-        results = []
         for playlist, count in zip(playlists, counts):
-            if count is not None:
+            # Use pinned_item_count if > 0, else try redis
+            if playlist.get("pinned_item_count", 0) > 0:
+                playlist_count = playlist["pinned_item_count"]
+                has_more = False
+            elif count is not None:
                 try:
                     data = json.loads(count)
                     playlist_count = len(data.get("session_ids", []))
@@ -134,21 +146,22 @@ def get_teams_with_new_playlists(end: datetime, begin: datetime) -> list[Counted
                     has_more_available=has_more,
                 )
             )
-        results.sort(key=lambda p: (p.count is None, p.count if p.count is not None else -1), reverse=True)
-        return results
     else:
         # Fallback: no counts available, but still return CountedPlaylist objects
-        return [
+        results = [
             CountedPlaylist(
                 team_id=playlist["team_id"],
                 name=playlist["name"],
                 short_id=playlist["short_id"],
                 derived_name=playlist["derived_name"],
-                count=None,
+                count=playlist["pinned_item_count"] or None,
                 has_more_available=False,
             )
             for playlist in playlists
         ]
+
+    results.sort(key=lambda p: (p.count is None, -(p.count or 0)))
+    return results
 
 
 def get_teams_with_new_experiments_launched(end: datetime, begin: datetime) -> QuerySet:
@@ -196,14 +209,14 @@ def get_teams_with_new_feature_flags(end: datetime, begin: datetime) -> QuerySet
     )
 
 
-def convert_team_digest_items_to_dict(items):
+def convert_team_digest_items_to_dict(items: list[CountedPlaylist] | QuerySet) -> dict[int, Any]:
     if hasattr(items, "filter") and hasattr(items, "values_list"):
-        # QuerySet path (old)
+        # it's a queryset
         return {
             team_id: items.filter(team_id=team_id) for team_id in items.values_list("team_id", flat=True).distinct()
         }
     else:
-        # List path (CountedPlaylist)
+        # it's a list of CountedPlaylist objects
         grouped = defaultdict(list)
         for item in items:
             grouped[item.team_id].append(item)

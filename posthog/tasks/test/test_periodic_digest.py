@@ -20,6 +20,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.session_recordings.models.session_recording_playlist import (
     SessionRecordingPlaylist,
 )
+from posthog.session_recordings.models.session_recording_playlist_item import SessionRecordingPlaylistItem
 from posthog.tasks.periodic_digest import send_all_periodic_digest_reports
 from posthog.test.base import APIBaseTest
 from posthog.warehouse.models import ExternalDataSource
@@ -593,18 +594,21 @@ class TestPeriodicDigestReport(APIBaseTest):
         ]
     )
     @patch("posthog.tasks.periodic_digest.get_client")
-    @patch("posthog.tasks.periodic_digest.SessionRecordingPlaylist")
     def test_get_teams_with_new_playlists_counts(
-        self, desc, redis_values, expected_count, expected_has_more, mock_playlist, mock_get_client
+        self,
+        desc: str,
+        redis_values: list[str],
+        expected_count: int,
+        expected_has_more: bool,
+        mock_get_client: MagicMock,
     ) -> None:
-        # Setup playlist queryset
-        playlist_obj = MagicMock()
-        playlist_obj.values.return_value = [{"team_id": 1, "name": "Test", "short_id": "abc", "derived_name": None}]
-        mock_playlist.objects.filter.return_value.exclude.return_value.exclude.return_value.values.return_value = (
-            playlist_obj.values.return_value
+        SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="Test",
+            short_id="abc",
+            derived_name=None,
         )
 
-        # Patch redis client
         mock_redis = MagicMock()
         mock_redis.mget.return_value = redis_values if redis_values is not None else []
         mock_get_client.return_value = mock_redis
@@ -613,6 +617,42 @@ class TestPeriodicDigestReport(APIBaseTest):
 
         result = get_teams_with_new_playlists(datetime.now(), datetime.now() - timedelta(days=1))
 
-        playlist = result[0]
-        assert playlist.count == expected_count, f"{desc}: count"
-        assert playlist.has_more_available == expected_has_more, f"{desc}: has_more"
+        playlist_result = result[0]
+        assert playlist_result.count == expected_count, f"{desc}: count"
+        assert playlist_result.has_more_available == expected_has_more, f"{desc}: has_more"
+
+    @freeze_time("2024-01-20T00:01:00Z")
+    @patch("posthog.tasks.periodic_digest.capture_event")
+    def test_get_teams_with_new_playlists_only_with_pinned_items(self, _mock_capture: MagicMock) -> None:
+        playlist_with_item = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="With Item",
+            short_id="abc",
+            derived_name=None,
+            deleted=False,
+        )
+        SessionRecordingPlaylistItem.objects.create(
+            playlist=playlist_with_item,
+            session_id="s1",
+        )
+
+        _playlist_without_item = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="No Item",
+            short_id="def",
+            derived_name=None,
+            deleted=False,
+        )
+
+        # Patch redis
+        with patch("posthog.tasks.periodic_digest.get_client") as mock_get_client:
+            mock_redis = MagicMock()
+            mock_redis.mget.return_value = [None, None]
+            mock_get_client.return_value = mock_redis
+
+            from posthog.tasks.periodic_digest import get_teams_with_new_playlists
+
+            result = get_teams_with_new_playlists(datetime.now(), datetime.now() - timedelta(days=1))
+
+        # Only the playlist with a pinned item should be present
+        assert [{p.name: p.count} for p in result] == [{"With Item": 1}, {"No Item": None}]
