@@ -6,7 +6,8 @@ from parameterized import parameterized
 
 from django.utils.timezone import now
 from freezegun import freeze_time
-
+import random
+from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLIST_NAMES
 from posthog.models import (
     Dashboard,
     EventDefinition,
@@ -656,3 +657,35 @@ class TestPeriodicDigestReport(APIBaseTest):
 
         # Only the playlist with a pinned item should be present
         assert [{p.name: p.count} for p in result] == [{"With Item": 1}, {"No Item": None}]
+
+    @freeze_time("2024-01-20T00:01:00Z")
+    @patch("posthog.tasks.periodic_digest.capture_event")
+    def test_periodic_digest_excludes_default_named_playlists(self, mock_capture: MagicMock) -> None:
+        # need to type ignore here, because mypy insists this returns a list but it does not
+        default_name: str = random.choice(DEFAULT_PLAYLIST_NAMES)  # type: ignore
+        with freeze_time("2024-01-15T00:01:00Z"):
+            # Playlist with a default name should be excluded
+            SessionRecordingPlaylist.objects.create(
+                team=self.team,
+                name=default_name,
+                derived_name=None,
+            )
+            # Playlist with a custom name should be included
+            custom_playlist = SessionRecordingPlaylist.objects.create(
+                team=self.team,
+                name="Custom Playlist",
+                derived_name=None,
+            )
+
+        send_all_periodic_digest_reports()
+
+        call_args = mock_capture.call_args
+        self.assertIsNotNone(call_args)
+        properties = call_args[1]["properties"]
+        team_data = next(team for team in properties["teams"] if team["team_id"] == self.team.id)
+        playlists = team_data["report"]["new_playlists"]
+
+        # Only the custom playlist should be included
+        assert len(playlists) == 1
+        assert playlists[0]["name"] == "Custom Playlist"
+        assert playlists[0]["id"] == custom_playlist.short_id
