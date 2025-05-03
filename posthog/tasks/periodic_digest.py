@@ -23,6 +23,7 @@ from posthog.models.team.team import Team
 from posthog.session_recordings.models.session_recording_playlist import (
     SessionRecordingPlaylist,
 )
+from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLIST_NAMES
 from posthog.tasks.email import NotificationSetting, NotificationSettingType
 from posthog.tasks.report_utils import (
     OrgDigestReport,
@@ -109,6 +110,7 @@ def get_teams_with_new_playlists(end: datetime, begin: datetime) -> list[Counted
             derived_name=None,
         )
         .exclude(deleted=True)
+        .exclude(name__in=DEFAULT_PLAYLIST_NAMES)
         .annotate(pinned_item_count=Count("playlist_items"))
         .values("team_id", "name", "short_id", "derived_name", "pinned_item_count")
     )
