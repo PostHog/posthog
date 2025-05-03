@@ -83,7 +83,6 @@ func main() {
 	// Middleware
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
-	e.Use(middleware.RequestID())
 	e.Use(middleware.GzipWithConfig(middleware.GzipConfig{
 		Level: 9, // Set compression level to maximum
 	}))
@@ -104,13 +103,13 @@ func main() {
 		promhttp.HandlerFor(prometheus.DefaultGatherer, promhttp.HandlerOpts{DisableCompression: true}),
 	)))
 
-	e.GET("/served", handlers.ServedHandler(stats))
-
 	e.GET("/stats", handlers.StatsHandler(stats))
 
 	e.GET("/events", handlers.StreamEventsHandler(e.Logger, subChan, filter))
 
 	if isDebug {
+		e.GET("/served", handlers.ServedHandler(stats))
+
 		e.GET("/jwt", func(c echo.Context) error {
 			claims, err := auth.GetAuth(c.Request().Header)
 			if err != nil {
