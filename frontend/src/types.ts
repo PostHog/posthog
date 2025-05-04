@@ -1539,6 +1539,7 @@ export interface SessionRecordingPlaylistType {
      * marked as has more if the filters count onoy matched one page and there are more available
      */
     recordings_counts?: PlaylistRecordingsCounts
+    _create_in_folder?: string | null
 }
 
 export interface SessionRecordingSegmentType {
@@ -2934,6 +2935,12 @@ export enum SurveyEventName {
     SENT = 'survey sent',
 }
 
+export enum SurveyEventProperties {
+    SURVEY_ID = '$survey_id',
+    SURVEY_RESPONSE = '$survey_response',
+    SURVEY_ITERATION = '$survey_iteration',
+}
+
 export interface SurveyEventStats {
     total_count: number
     total_count_only_seen: number
@@ -2992,6 +2999,7 @@ export interface Survey {
     response_sampling_limit?: number | null
     response_sampling_daily_limits?: string[] | null
     enable_partial_responses?: boolean | null
+    _create_in_folder?: string | null
 }
 
 export enum SurveyMatchType {
@@ -3198,6 +3206,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     is_remote_configuration: boolean
     has_encrypted_payloads: boolean
     status: 'ACTIVE' | 'INACTIVE' | 'STALE' | 'DELETED' | 'UNKNOWN'
+    _create_in_folder?: string | null
 }
 
 export interface OrganizationFeatureFlag {
@@ -3277,6 +3286,7 @@ export interface EarlyAccessFeatureType {
     /** Documentation URL. Can be empty. */
     documentation_url: string
     created_at: string
+    _create_in_folder?: string | null
 }
 
 export interface NewEarlyAccessFeatureType extends Omit<EarlyAccessFeatureType, 'id' | 'created_at' | 'feature_flag'> {
@@ -3585,6 +3595,7 @@ export interface Experiment {
     stats_config?: {
         version?: number
     }
+    _create_in_folder?: string | null
 }
 
 export interface FunnelExperimentVariant {
@@ -3889,6 +3900,7 @@ export enum GroupMathType {
 export enum ExperimentMetricMathType {
     TotalCount = 'total',
     Sum = 'sum',
+    UniqueSessions = 'unique_session',
 }
 
 export enum ActorGroupType {
@@ -5084,6 +5096,7 @@ export type HogFunctionConfigurationType = Omit<
 > & {
     hog?: HogFunctionType['hog'] // In the config it can be empty if using a template
     sub_template_id?: HogFunctionSubTemplateIdType
+    _create_in_folder?: string | null
 }
 
 export type HogFunctionSubTemplateType = Pick<HogFunctionType, 'filters' | 'inputs' | 'masking' | 'mappings'> & {

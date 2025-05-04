@@ -1,4 +1,5 @@
 import pytest
+from freezegun import freeze_time
 from rest_framework import status
 from posthog.test.base import APIBaseTest
 from posthog.models import User, FeatureFlag, Dashboard, Experiment, Insight, Notebook
@@ -514,6 +515,14 @@ class TestFileSystemAPI(APIBaseTest):
         # Expecting 2 items with type starting with 'd'
         self.assertEqual(data["count"], 2)
 
+        # Filter by type 'doc'
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/?not_type=doc")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        # Expecting 1 items with type 'img'
+        self.assertEqual(data["count"], 1)
+        self.assertEqual(data["results"][0]["type"], "img")
+
     def test_link_file_endpoint(self):
         """
         Test linking a file creates a new file with an updated path and that missing parent folders are auto-created.
@@ -652,6 +661,39 @@ class TestFileSystemAPI(APIBaseTest):
         paths = [item["path"] for item in resp.json()["results"]]
         # Pure case-insensitive alphabetical order, regardless of type
         self.assertEqual(paths, ["Afile.txt", "alpha", "beta", "bFile.txt"])
+
+    def test_list_order_by_created_at(self):
+        # Create items in chronological order
+        with freeze_time("2020-01-01 10:00:00"):
+            file_1 = FileSystem.objects.create(team=self.team, path="File_1", type="doc", created_by=self.user)
+        with freeze_time("2020-01-02 10:00:00"):
+            file_2 = FileSystem.objects.create(team=self.team, path="File_2", type="doc", created_by=self.user)
+        with freeze_time("2020-01-03 10:00:00"):
+            file_3 = FileSystem.objects.create(team=self.team, path="File_3", type="doc", created_by=self.user)
+
+        # Query with descending order
+        url = f"/api/projects/{self.team.id}/file_system/?order_by=-created_at"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        results = response.json()["results"]
+        # Expect the newest (file_3) first, then file_2, then file_1
+        self.assertEqual(len(results), 3)
+        self.assertEqual(results[0]["id"], str(file_3.id))
+        self.assertEqual(results[1]["id"], str(file_2.id))
+        self.assertEqual(results[2]["id"], str(file_1.id))
+
+        # Query with ascending order
+        url = f"/api/projects/{self.team.id}/file_system/?order_by=created_at"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        results = response.json()["results"]
+        # Expect the oldest (file_1) first, then file_2, then file_3
+        self.assertEqual(len(results), 3)
+        self.assertEqual(results[0]["id"], str(file_1.id))
+        self.assertEqual(results[1]["id"], str(file_2.id))
+        self.assertEqual(results[2]["id"], str(file_3.id))
 
 
 @pytest.mark.ee  # Mark these tests to run only if EE code is available (for AccessControl)
@@ -829,3 +871,54 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         # staff user sees everything
         self.assertIn("Docs/FileA", paths)
         self.assertIn("Docs/FileB", paths)
+
+    def test_created_at_filters(self):
+        """
+        Verify we can filter by created_at greater-than and less-than.
+        """
+        # Create 3 files with different timestamps.
+        with freeze_time("2020-01-01T10:00:00Z"):
+            FileSystem.objects.create(team=self.team, path="OldFile", type="doc", created_by=self.user)
+        with freeze_time("2020-01-02T10:00:00Z"):
+            FileSystem.objects.create(team=self.team, path="MidFile", type="doc", created_by=self.user)
+        with freeze_time("2020-01-03T10:00:00Z"):
+            FileSystem.objects.create(team=self.team, path="NewFile", type="doc", created_by=self.user)
+
+        # 1) Filter with ?created_at__gt=2020-01-01T12:00:00Z
+        #    => should exclude anything created on or before 2020-01-01T12:00:00Z
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/?created_at__gt=2020-01-01T12:00:00Z")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        data = response.json()
+        paths = [item["path"] for item in data["results"]]
+
+        # Expect OldFile (created at 10:00) to be excluded
+        self.assertIn("MidFile", paths)
+        self.assertIn("NewFile", paths)
+        self.assertNotIn("OldFile", paths)
+
+        # 2) Filter with ?created_at__lt=2020-01-02T10:00:00Z
+        #    => should include only items created before 2020-01-02T10:00:00Z
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/?created_at__lt=2020-01-02T10:00:00Z")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        data = response.json()
+        paths = [item["path"] for item in data["results"]]
+
+        # Expect only OldFile (created at 2020-01-01T10:00:00Z)
+        self.assertIn("OldFile", paths)
+        self.assertNotIn("MidFile", paths)
+        self.assertNotIn("NewFile", paths)
+
+        # 3) Combine both ?created_at__gt=... & ?created_at__lt=...
+        #    => only items between these two timestamps
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/file_system/"
+            f"?created_at__gt=2020-01-01T12:00:00Z&created_at__lt=2020-01-03T00:00:00Z"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        data = response.json()
+        paths = [item["path"] for item in data["results"]]
+
+        # Only MidFile (created at 2020-01-02T10:00:00Z) matches this range
+        self.assertIn("MidFile", paths)
+        self.assertNotIn("OldFile", paths)
+        self.assertNotIn("NewFile", paths)

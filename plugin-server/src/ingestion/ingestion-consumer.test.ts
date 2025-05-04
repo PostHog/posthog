@@ -1,16 +1,13 @@
+// eslint-disable-next-line simple-import-sort/imports
+import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
+
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
 import { insertHogFunction as _insertHogFunction } from '~/src/cdp/_tests/fixtures'
 import { template as geoipTemplate } from '~/src/cdp/templates/_transformations/geoip/geoip.template'
 import { compileHog } from '~/src/cdp/templates/compiler'
-import {
-    DecodedKafkaMessage,
-    getProducedKafkaMessages,
-    getProducedKafkaMessagesForTopic,
-    getProducedKafkaMessagesWithHeadersForTopic,
-    mockProducer,
-} from '~/tests/helpers/mocks/producer.mock'
+import { DecodedKafkaMessage } from '~/tests/helpers/mocks/producer.spy'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
@@ -99,14 +96,13 @@ describe('IngestionConsumer', () => {
         await resetTestDatabase()
         hub = await createHub()
 
-        hub.kafkaProducer = mockProducer
+        // hub.kafkaProducer = mockProducer
         team = await getFirstTeam(hub)
         const team2Id = await createTeam(hub.db.postgres, team.organization_id)
         team2 = (await getTeam(hub, team2Id))!
     })
 
     afterEach(async () => {
-        jest.restoreAllMocks()
         if (ingester) {
             await ingester.stop()
         }
@@ -133,7 +129,7 @@ describe('IngestionConsumer', () => {
         it('should process a standard event', async () => {
             await ingester.handleKafkaBatch(createKafkaMessages([createEvent()]))
 
-            expect(forSnapshot(getProducedKafkaMessages())).toMatchSnapshot()
+            expect(forSnapshot(mockProducerObserver.getProducedKafkaMessages())).toMatchSnapshot()
         })
 
         it('should merge existing kafka_consumer_breadcrumbs in message header with new ones', async () => {
@@ -154,18 +150,16 @@ describe('IngestionConsumer', () => {
             ]
             await ingester.handleKafkaBatch(messages)
 
-            const producedMessages = getProducedKafkaMessagesWithHeadersForTopic('clickhouse_events_json_test')
+            const producedMessages =
+                mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
             expect(producedMessages.length).toBe(1)
 
-            const headers = producedMessages[0].headers || []
-            const breadcrumbHeader = headers.find((h) => 'kafka-consumer-breadcrumbs' in h)
+            const headers = producedMessages[0].headers || {}
+            const breadcrumbHeader = headers['kafka-consumer-breadcrumbs']
 
             expect(breadcrumbHeader).toBeDefined()
 
-            const value = breadcrumbHeader?.['kafka-consumer-breadcrumbs'] as Buffer
-            expect(value).toBeInstanceOf(Buffer)
-
-            const parsedBreadcrumbs = parseJSON(value.toString())
+            const parsedBreadcrumbs = parseJSON(breadcrumbHeader.toString())
             expect(Array.isArray(parsedBreadcrumbs)).toBe(true)
             expect(parsedBreadcrumbs.length).toBe(2)
 
@@ -191,10 +185,16 @@ describe('IngestionConsumer', () => {
                 ingester['overflowRateLimiter'].consume(`${team.api_token}:overflow-distinct-id`, 1000, now())
                 const overflowMessages = createKafkaMessages([createEvent({ distinct_id: 'overflow-distinct-id' })])
                 await ingester.handleKafkaBatch(overflowMessages)
-                expect(getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(0)
-                expect(getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test')).toHaveLength(1)
                 expect(
-                    forSnapshot(getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test'))
+                    mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
+                ).toHaveLength(0)
+                expect(
+                    mockProducerObserver.getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test')
+                ).toHaveLength(1)
+                expect(
+                    forSnapshot(
+                        mockProducerObserver.getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test')
+                    )
                 ).toMatchSnapshot()
             })
 
@@ -205,8 +205,12 @@ describe('IngestionConsumer', () => {
                 const overflowMessages = createKafkaMessages([createEvent({ distinct_id: 'overflow-distinct-id' })])
                 await ingester.handleKafkaBatch(overflowMessages)
 
-                expect(getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test')).toHaveLength(0)
-                expect(getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(1)
+                expect(
+                    mockProducerObserver.getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test')
+                ).toHaveLength(0)
+                expect(
+                    mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
+                ).toHaveLength(1)
             })
 
             describe('force overflow', () => {
@@ -228,12 +232,19 @@ describe('IngestionConsumer', () => {
                     await ingester.handleKafkaBatch(messages)
 
                     // Only the matching token:distinct_id event should be routed to overflow
-                    expect(getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test')).toHaveLength(1)
-                    expect(getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(2)
+                    expect(
+                        mockProducerObserver.getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test')
+                    ).toHaveLength(1)
+                    expect(
+                        mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
+                    ).toHaveLength(2)
 
                     // Verify the right event went to overflow and the right events were processed normally
-                    const overflowMessages = getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test')
-                    const normalMessages = getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
+                    const overflowMessages = mockProducerObserver.getProducedKafkaMessagesForTopic(
+                        'events_plugin_ingestion_overflow_test'
+                    )
+                    const normalMessages =
+                        mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
 
                     expect(overflowMessages[0].value.distinct_id).toEqual('team1-user')
                     expect(overflowMessages[0].value.token).toEqual(team.api_token)
@@ -260,12 +271,19 @@ describe('IngestionConsumer', () => {
                     await ingester.handleKafkaBatch(messages)
 
                     // Both matching token:distinct_id pairs should be routed to overflow
-                    expect(getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test')).toHaveLength(2)
-                    expect(getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(2)
+                    expect(
+                        mockProducerObserver.getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test')
+                    ).toHaveLength(2)
+                    expect(
+                        mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
+                    ).toHaveLength(2)
 
                     // Verify both matching events went to overflow
-                    const overflowMessages = getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test')
-                    const normalMessages = getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
+                    const overflowMessages = mockProducerObserver.getProducedKafkaMessagesForTopic(
+                        'events_plugin_ingestion_overflow_test'
+                    )
+                    const normalMessages =
+                        mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
 
                     // Sort messages by distinct_id to make the test deterministic
                     const sortedOverflowMessages = [...overflowMessages].sort((a, b) =>
@@ -335,7 +353,9 @@ describe('IngestionConsumer', () => {
                     ])
                     addMessageHeaders(messages[0], team.api_token, 'distinct-id-to-ignore')
                     await ingester.handleKafkaBatch(messages)
-                    expect(getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(0)
+                    expect(
+                        mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
+                    ).toHaveLength(0)
                     expectDropLogs([[team.api_token, 'distinct-id-to-ignore']])
                 })
 
@@ -348,7 +368,9 @@ describe('IngestionConsumer', () => {
                     ])
                     addMessageHeaders(messages[0], team2.api_token, 'distinct-id-to-ignore')
                     await ingester.handleKafkaBatch(messages)
-                    expect(getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).not.toHaveLength(0)
+                    expect(
+                        mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
+                    ).not.toHaveLength(0)
                     expectDropLogs([])
                 })
 
@@ -360,7 +382,9 @@ describe('IngestionConsumer', () => {
                     ])
                     addMessageHeaders(messages[0], team.api_token, 'not-ignored')
                     await ingester.handleKafkaBatch(messages)
-                    expect(getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).not.toHaveLength(0)
+                    expect(
+                        mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
+                    ).not.toHaveLength(0)
                     expectDropLogs([])
                 })
             })
@@ -381,7 +405,9 @@ describe('IngestionConsumer', () => {
                     ])
                     addMessageHeaders(messages[0], team.api_token, distinct_id_to_drop)
                     await ingester.handleKafkaBatch(messages)
-                    expect(getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(0)
+                    expect(
+                        mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
+                    ).toHaveLength(0)
                     expectDropLogs([[team.api_token, distinct_id_to_drop]])
                 })
 
@@ -395,7 +421,9 @@ describe('IngestionConsumer', () => {
                     ])
                     addMessageHeaders(messages[0], team.api_token, unlisted_distinct_id)
                     await ingester.handleKafkaBatch(messages)
-                    expect(getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).not.toHaveLength(0)
+                    expect(
+                        mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
+                    ).not.toHaveLength(0)
                     expectDropLogs([])
                 })
 
@@ -417,7 +445,9 @@ describe('IngestionConsumer', () => {
                     addMessageHeaders(messages[1], team2.api_token, other_distinct_id)
 
                     await ingester.handleKafkaBatch(messages)
-                    expect(getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(0)
+                    expect(
+                        mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
+                    ).toHaveLength(0)
                     expectDropLogs([
                         [team2.api_token, any_distinct_id],
                         [team2.api_token, other_distinct_id],
@@ -476,9 +506,7 @@ describe('IngestionConsumer', () => {
             jest.spyOn(logger, 'error').mockImplementation(() => {})
         })
 
-        afterEach(() => {
-            jest.restoreAllMocks()
-        })
+        afterEach(() => {})
 
         it('should handle explicitly non retriable errors by sending to DLQ', async () => {
             // NOTE: I don't think this makes a lot of sense but currently is just mimicing existing behavior for the migration
@@ -496,7 +524,7 @@ describe('IngestionConsumer', () => {
 
             expect(jest.mocked(logger.error)).toHaveBeenCalledWith('🔥', 'Error processing message', expect.any(Object))
 
-            expect(forSnapshot(getProducedKafkaMessages())).toMatchSnapshot()
+            expect(forSnapshot(mockProducerObserver.getProducedKafkaMessages())).toMatchSnapshot()
         })
 
         it.each([undefined, true])('should throw if isRetriable is set to %s', async (isRetriable) => {
@@ -719,7 +747,9 @@ describe('IngestionConsumer', () => {
                 return `${value.topic}:${value.team_id}:${value.distinct_id}:${value.properties}`
             }
 
-            const sortedMessages = getProducedKafkaMessages().sort((a, b) => sortingKey(a).localeCompare(sortingKey(b)))
+            const sortedMessages = mockProducerObserver
+                .getProducedKafkaMessages()
+                .sort((a, b) => sortingKey(a).localeCompare(sortingKey(b)))
 
             expect(forSnapshot(sortedMessages)).toMatchSnapshot()
         })
@@ -840,7 +870,8 @@ describe('IngestionConsumer', () => {
                 await ingester.handleKafkaBatch(messages)
 
                 // Verify metrics were published
-                const metricsMessages = getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
+                const metricsMessages =
+                    mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
                 expect(metricsMessages).toEqual([
                     {
                         key: expect.any(String),
@@ -858,7 +889,7 @@ describe('IngestionConsumer', () => {
                 ])
 
                 // Verify log entries were published
-                const logMessages = getProducedKafkaMessagesForTopic('log_entries_test')
+                const logMessages = mockProducerObserver.getProducedKafkaMessagesForTopic('log_entries_test')
                 expect(logMessages).toEqual([
                     {
                         key: expect.any(String),
@@ -918,7 +949,8 @@ describe('IngestionConsumer', () => {
                 await ingester.handleKafkaBatch(messages)
 
                 // Verify metrics were published
-                const metricsMessages = getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
+                const metricsMessages =
+                    mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
                 expect(metricsMessages).toEqual([
                     {
                         key: expect.any(String),
@@ -936,7 +968,7 @@ describe('IngestionConsumer', () => {
                 ])
 
                 // Verify log entries were published
-                const logMessages = getProducedKafkaMessagesForTopic('log_entries_test')
+                const logMessages = mockProducerObserver.getProducedKafkaMessagesForTopic('log_entries_test')
                 expect(logMessages).toEqual([
                     {
                         key: expect.any(String),
@@ -993,9 +1025,10 @@ describe('IngestionConsumer', () => {
             const messages = createKafkaMessages([createEvent()])
             await ingester.handleKafkaBatch(messages)
 
-            expect(forSnapshot(getProducedKafkaMessages())).toMatchInlineSnapshot(`
+            expect(forSnapshot(mockProducerObserver.getProducedKafkaMessages())).toMatchInlineSnapshot(`
                 [
                   {
+                    "headers": {},
                     "key": "THIS IS NOT A TOKEN FOR TEAM 2:user-1",
                     "topic": "testing_topic",
                     "value": {

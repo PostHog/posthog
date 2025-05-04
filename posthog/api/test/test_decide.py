@@ -1049,7 +1049,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "metadata": {
                     "id": bf.id,
                     "version": 1,
-                    "description": "Beta feature",
+                    "description": None,
                     "payload": None,
                 },
             },
@@ -1068,7 +1068,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "metadata": {
                     "id": mvFlag.id,
                     "version": 42,
-                    "description": "This is a feature flag with multiple variants.",
+                    "description": None,
                     "payload": {"color": "blue"},
                 },
             },
@@ -2876,11 +2876,11 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=5)
+        response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=1)
         self.assertEqual(response.json()["featureFlags"], {})
         self.assertEqual(response.json()["errorsWhileComputingFlags"], True)
 
-        response = self._post_decide(api_version=3, distinct_id="another_id", assert_num_queries=5)
+        response = self._post_decide(api_version=3, distinct_id="another_id", assert_num_queries=1)
         self.assertEqual(response.json()["featureFlags"], {})
         self.assertEqual(response.json()["errorsWhileComputingFlags"], True)
 

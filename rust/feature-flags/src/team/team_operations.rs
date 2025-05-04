@@ -1,8 +1,8 @@
 use crate::{
     api::errors::FlagError,
-    client::database::Client as DatabaseClient,
     team::team_models::{Team, TEAM_TOKEN_CACHE_PREFIX},
 };
+use common_database::Client as DatabaseClient;
 use common_redis::Client as RedisClient;
 use std::sync::Arc;
 use tracing::instrument;
