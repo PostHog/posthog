@@ -98,7 +98,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         Supported token formats
         -----------------------
         • <field>:<value>      → field-specific search
-            • folder:<txt>   → match any parent-folder segment (substring)
+            • path:<txt>     → match any parent-folder segment (substring)
             • name:<txt>     → match the basename (substring)
             • user:<txt>     → matches creator full-name or e-mail (use **user:me** as a shortcut)
             • type:<txt>     → exact match (or use an ending “/” for prefix match)
@@ -133,7 +133,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 if (value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'")):
                     value = value[1:-1]
 
-                if field == "folder":
+                if field == "path":
                     # ────────────────────────────────────────────────────────────
                     # substring search in ANY *parent* segment (everything before
                     # the last segment).  We look for a segment that *contains*
@@ -156,7 +156,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     regex = rf"(^|(?<!\\)/)([^/]|\\.)*{re.escape(value)}([^/]|\\.)*$"
                     q = Q(path__iregex=regex)
 
-                elif field in ("user", "author"):  # “author” kept for B/C
+                elif field in "user":
                     #  user:me  → files created by the current user
                     if value.lower() == "me" and self.request.user.is_authenticated:
                         q = Q(created_by=self.request.user)

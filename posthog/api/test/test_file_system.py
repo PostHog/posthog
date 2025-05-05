@@ -693,14 +693,14 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual(results[1]["id"], str(file_2.id))
         self.assertEqual(results[2]["id"], str(file_3.id))
 
-    def test_search_folder_token(self):
+    def test_search_path_token(self):
         """
-        `folder:<txt>` must match items whose *parent* segment contains <txt>.
+        `path:<txt>` must match items whose *parent* segment contains <txt>.
         """
         FileSystem.objects.create(team=self.team, path="Analytics/Reports/Q1.txt", type="doc", created_by=self.user)
         FileSystem.objects.create(team=self.team, path="Analytics/Other/Q2.txt", type="doc", created_by=self.user)
 
-        url = f"/api/projects/{self.team.id}/file_system/?search=folder:Reports"
+        url = f"/api/projects/{self.team.id}/file_system/?search=path:Reports"
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.json())
         self.assertEqual(resp.json()["count"], 1)
@@ -755,12 +755,12 @@ class TestFileSystemAPI(APIBaseTest):
 
     def test_search_negation_and_combination(self):
         """
-        Negated tokens (`-folder:` etc.) must exclude matches and AND-combine with positives.
+        Negated tokens (`-path:` etc.) must exclude matches and AND-combine with positives.
         """
         FileSystem.objects.create(team=self.team, path="Current/Reports/Now.txt", type="doc", created_by=self.user)
         FileSystem.objects.create(team=self.team, path="Old/Reports/Old.txt", type="doc", created_by=self.user)
 
-        url = f"/api/projects/{self.team.id}/file_system/?search=folder:Reports+-folder:Old"
+        url = f"/api/projects/{self.team.id}/file_system/?search=path:Reports+-folder:Old"
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.json())
         self.assertEqual(resp.json()["count"], 1)
