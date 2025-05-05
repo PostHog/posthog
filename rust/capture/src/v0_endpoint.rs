@@ -95,7 +95,7 @@ async fn handle_legacy(
     //     - lib_version = optional SDK version that submitted this request
     let raw_payload: Bytes = match *method {
         Method::POST => {
-            if !body.is_empty() {
+            if body.is_empty() {
                 error!("unexpected missing payload on {:?} request", method);
                 return Err(CaptureError::EmptyPayload);
             }
@@ -141,9 +141,9 @@ async fn handle_legacy(
                 let decoded = decode_base64(&raw_payload)?;
                 decode_form(&decoded, "form_after_b64_unwrap")?
             } else {
-                let form_data_snippet =
-                    String::from_utf8(raw_payload[..MAX_CHARS_TO_CHECK].to_vec())
-                        .unwrap_or(String::from("INVALID_UTF8"));
+                let max_chars = std::cmp::min(raw_payload.len(), MAX_CHARS_TO_CHECK);
+                let form_data_snippet = String::from_utf8(raw_payload[..max_chars].to_vec())
+                    .unwrap_or(String::from("INVALID_UTF8"));
                 error!(
                     form_data = form_data_snippet,
                     "invalid expected form in request payload"
@@ -171,7 +171,7 @@ async fn handle_legacy(
     };
 
     // extract the "compression" param; location varies depending on SDK/version etc.
-    let compression = extract_compression(method, &form, query_params, headers);
+    let compression = extract_compression(&form, query_params, headers);
     Span::current().record("compression", format!("{}", compression));
 
     let lib_version = extract_lib_version(&form, query_params);
@@ -234,7 +234,6 @@ async fn handle_legacy(
     Ok((context, events))
 }
 
-// TODO(eli): confirm in SDK code we shouldn't fall back to req headers if all else fails here
 fn extract_lib_version(form: &LegacyEventForm, params: &EventQuery) -> Option<String> {
     let form_lv = form.lib_version.as_ref();
     let params_lv = params.lib_version.as_ref();
@@ -250,51 +249,28 @@ fn extract_lib_version(form: &LegacyEventForm, params: &EventQuery) -> Option<St
 
 // the compression hint can be tucked away any number of places depending on the SDK submitting the request...
 fn extract_compression(
-    method: &Method,
     form: &LegacyEventForm,
     params: &EventQuery,
     headers: &HeaderMap,
 ) -> Compression {
-    match *method {
-        Method::GET => {
-            if params.compression.is_some() {
-                params.compression.unwrap()
-            } else if form
-                .compression
-                .is_some_and(|c| c != Compression::Unsupported)
-            {
-                form.compression.unwrap()
-            } else if let Some(ct) = headers.get("content-encoding") {
-                match ct.to_str().unwrap_or("UNKNOWN") {
-                    "gzip" | "gzip-js" => Compression::Gzip,
-                    "lz64" | "lz-string" => Compression::LZString,
-                    _ => Compression::Unsupported,
-                }
-            } else {
-                Compression::Unsupported
-            }
+    if params
+        .compression
+        .is_some_and(|c| c != Compression::Unsupported)
+    {
+        params.compression.unwrap()
+    } else if form
+        .compression
+        .is_some_and(|c| c != Compression::Unsupported)
+    {
+        form.compression.unwrap()
+    } else if let Some(ct) = headers.get("content-encoding") {
+        match ct.to_str().unwrap_or("UNKNOWN") {
+            "gzip" | "gzip-js" => Compression::Gzip,
+            "lz64" | "lz-string" => Compression::LZString,
+            _ => Compression::Unsupported,
         }
-
-        Method::POST => {
-            if form
-                .compression
-                .is_some_and(|c| c != Compression::Unsupported)
-            {
-                form.compression.unwrap()
-            } else if params.compression.is_some() {
-                params.compression.unwrap()
-            } else if let Some(ct) = headers.get("content-encoding") {
-                match ct.to_str().unwrap_or("UNKNOWN") {
-                    "gzip" | "gzip-js" => Compression::Gzip,
-                    "lz64" | "lz-string" => Compression::LZString,
-                    _ => Compression::Unsupported,
-                }
-            } else {
-                Compression::Unsupported
-            }
-        }
-
-        _ => Compression::Unsupported,
+    } else {
+        Compression::Unsupported
     }
 }
 
@@ -303,7 +279,8 @@ fn decode_form(payload: &[u8], location: &str) -> Result<LegacyEventForm, Captur
         Ok(form) => Ok(form),
 
         Err(e) => {
-            let form_data_snippet = String::from_utf8(payload[..MAX_CHARS_TO_CHECK].to_vec())
+            let max_chars = std::cmp::min(payload.len(), MAX_CHARS_TO_CHECK);
+            let form_data_snippet = String::from_utf8(payload[..max_chars].to_vec())
                 .unwrap_or(String::from("INVALID_UTF8"));
             error!(
                 form_data = form_data_snippet,
@@ -350,7 +327,8 @@ fn decode_base64(payload: &[u8]) -> Result<Vec<u8>, CaptureError> {
     match base64::engine::general_purpose::STANDARD.decode(payload) {
         Ok(decoded_payload) => Ok(decoded_payload),
         Err(e) => {
-            let form_data_snippet = String::from_utf8(payload[..MAX_CHARS_TO_CHECK].to_vec())
+            let max_chars = std::cmp::min(payload.len(), MAX_CHARS_TO_CHECK);
+            let form_data_snippet = String::from_utf8(payload[..max_chars].to_vec())
                 .unwrap_or(String::from("INVALID_UTF8"));
             error!(
                 form_data = form_data_snippet,
