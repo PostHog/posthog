@@ -614,7 +614,6 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
 
         // Scrollable container
         const containerRef = useRef<HTMLDivElement>(null)
-        const tableModeHeaderRef = useRef<HTMLDivElement>(null)
         // Current state (when matching defaultSelectedFolderOrNodeId)
         const [selectedId, setSelectedId] = useState<string | undefined>(defaultSelectedFolderOrNodeId)
         const [hasFocusedContent, setHasFocusedContent] = useState(false)
@@ -1228,7 +1227,6 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                     {mode === 'table' && (
                         <div
                             className="h-[30px] sticky top-0 z-20 border-b border-primary bg-surface-secondary"
-                            ref={tableModeHeaderRef}
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{
                                 width: mode === 'table' ? `${tableModeTotalWidth}px` : undefined,
