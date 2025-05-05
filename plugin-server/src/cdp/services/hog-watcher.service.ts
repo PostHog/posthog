@@ -59,6 +59,14 @@ export class HogWatcherService {
                 cost: this.hub.CDP_WATCHER_COST_TIMING,
             },
         }
+
+        for (const [kind, mapping] of Object.entries(this.costsMapping)) {
+            if (mapping.lowerBound >= this.hub.CDP_WATCHER_COST_TIMING_UPPER_MS) {
+                throw new Error(
+                    `Lower bound of ${mapping.lowerBound}ms for kind ${kind} is greater than upper bound of ${mapping.upperBound}ms. This is a configuration error.`
+                )
+            }
+        }
     }
 
     private async onStateChange(id: HogFunctionType['id'], state: HogWatcherState) {
