@@ -32,7 +32,7 @@ const createResult = (options: {
             teamId: 2,
             timings: [
                 {
-                    kind: 'async_function',
+                    kind: 'hog',
                     duration_ms: options.duration ?? 0,
                 },
             ],
@@ -150,7 +150,7 @@ describe('HogWatcher', () => {
             // Replace the default timing with multiple timings
             result.invocation.timings = [
                 { kind: 'hog', duration_ms: 100 }, // Below threshold, should have minimal cost
-                { kind: 'async_function', duration_ms: 100 }, // Below threshold, should have minimal cost
+                { kind: 'hog', duration_ms: 100 }, // Below threshold, should have minimal cost
                 { kind: 'hog', duration_ms: 100 }, // Below threshold, should have minimal cost
             ]
 
