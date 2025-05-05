@@ -279,7 +279,7 @@ fn decode_form(payload: &[u8], location: &str) -> Result<LegacyEventForm, Captur
         Ok(form) => Ok(form),
 
         Err(e) => {
-            let max_chars = std::cmp::min(payload.len(), MAX_CHARS_TO_CHECK);
+            let max_chars: usize = std::cmp::min(payload.len(), MAX_CHARS_TO_CHECK);
             let form_data_snippet = String::from_utf8(payload[..max_chars].to_vec())
                 .unwrap_or(String::from("INVALID_UTF8"));
             error!(

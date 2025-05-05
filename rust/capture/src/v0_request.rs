@@ -226,7 +226,8 @@ fn decompress_lz64(payload: &[u8], limit: usize) -> Result<String, CaptureError>
     let decomp_utf16 = match lz_str::decompress_from_base64(b64_payload) {
         Some(v) => v,
         None => {
-            let form_data_snippet = String::from_utf8(payload[..MAX_CHARS_TO_CHECK].to_vec())
+            let max_chars: usize = std::cmp::min(payload.len(), MAX_CHARS_TO_CHECK);
+            let form_data_snippet = String::from_utf8(payload[..max_chars].to_vec())
                 .unwrap_or(String::from("INVALID_UTF8"));
             error!(
                 form_data = form_data_snippet,
