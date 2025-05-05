@@ -2,31 +2,19 @@ import equal from 'fast-deep-equal'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
 import { DEFAULT_MDE, experimentLogic } from 'scenes/experiments/experimentLogic'
 
 import { performQuery } from '~/queries/query'
 import {
     ExperimentMetric,
     ExperimentMetricType,
-    FunnelsQuery,
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
-    NodeKind,
-    TrendsQuery,
     TrendsQueryResponse,
 } from '~/queries/schema/schema-general'
-import {
-    AnyPropertyFilter,
-    BaseMathType,
-    CountPerActorMathType,
-    Experiment,
-    ExperimentMetricMathType,
-    FunnelVizType,
-    PropertyMathType,
-} from '~/types'
+import { AnyPropertyFilter, Experiment, ExperimentMetricMathType } from '~/types'
 
+import { getFunnelQuery, getSumQuery, getTotalCountQuery } from './metricQueryUtils'
 import type { runningTimeCalculatorLogicType } from './runningTimeCalculatorLogicType'
 
 export const TIMEFRAME_HISTORICAL_DATA_DAYS = 14
@@ -36,132 +24,6 @@ export const VARIANCE_SCALING_FACTOR_SUM = 0.25
 export enum ConversionRateInputType {
     MANUAL = 'manual',
     AUTOMATIC = 'automatic',
-}
-
-const getKindField = (metric: ExperimentMetric): NodeKind => {
-    if (isExperimentFunnelMetric(metric)) {
-        return NodeKind.EventsNode
-    }
-
-    if (isExperimentMeanMetric(metric)) {
-        const { kind } = metric.source
-        // For most sources, we can return the kind directly
-        if ([NodeKind.EventsNode, NodeKind.ActionsNode, NodeKind.ExperimentDataWarehouseNode].includes(kind)) {
-            return kind
-        }
-    }
-
-    return NodeKind.EventsNode
-}
-
-const getEventField = (metric: ExperimentMetric): string | number | null | undefined => {
-    if (isExperimentMeanMetric(metric)) {
-        const { source } = metric
-        return source.kind === NodeKind.ExperimentDataWarehouseNode
-            ? source.table_name
-            : source.kind === NodeKind.EventsNode
-            ? source.event
-            : source.kind === NodeKind.ActionsNode
-            ? source.id
-            : null
-    }
-
-    if (isExperimentFunnelMetric(metric)) {
-        /**
-         * For multivariate funnels, we select the last step
-         * Although we know that the last step is always an EventsNode, TS infers that the last step might be undefined
-         * so we use the non-null assertion operator (!) to tell TS that we know the last step is always an EventsNode
-         */
-        const step = metric.series.at(-1)!
-        return step.kind === NodeKind.EventsNode ? step.event : step.kind === NodeKind.ActionsNode ? step.id : null
-    }
-
-    return null
-}
-
-const getTotalCountQuery = (metric: ExperimentMetric, experiment: Experiment): TrendsQuery => {
-    return {
-        kind: NodeKind.TrendsQuery,
-        series: [
-            {
-                kind: getKindField(metric),
-                event: getEventField(metric),
-                math: BaseMathType.UniqueUsers,
-            },
-            {
-                kind: getKindField(metric),
-                event: getEventField(metric),
-                math: CountPerActorMathType.Average,
-            },
-        ],
-        trendsFilter: {},
-        filterTestAccounts: experiment.exposure_criteria?.filterTestAccounts === true,
-        dateRange: {
-            date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
-            date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
-            explicitDate: true,
-        },
-    } as TrendsQuery
-}
-
-const getSumQuery = (metric: ExperimentMetric, experiment: Experiment): TrendsQuery => {
-    return {
-        kind: NodeKind.TrendsQuery,
-        series: [
-            {
-                kind: getKindField(metric),
-                event: getEventField(metric),
-                math: BaseMathType.UniqueUsers,
-            },
-            {
-                kind: getKindField(metric),
-                event: getEventField(metric),
-                math: PropertyMathType.Sum,
-                math_property_type: TaxonomicFilterGroupType.NumericalEventProperties,
-                ...(metric.metric_type === ExperimentMetricType.MEAN && {
-                    math_property: metric.source.math_property,
-                }),
-            },
-        ],
-        trendsFilter: {},
-        filterTestAccounts: experiment.exposure_criteria?.filterTestAccounts === true,
-        dateRange: {
-            date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
-            date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
-            explicitDate: true,
-        },
-    } as TrendsQuery
-}
-
-const getFunnelQuery = (
-    metric: ExperimentMetric,
-    eventConfig: EventConfig | null,
-    experiment: Experiment
-): FunnelsQuery => {
-    return {
-        kind: NodeKind.FunnelsQuery,
-        series: [
-            {
-                kind: NodeKind.EventsNode,
-                event: eventConfig?.event ?? '$pageview',
-                properties: eventConfig?.properties ?? [],
-            },
-            {
-                kind: getKindField(metric),
-                event: getEventField(metric),
-            },
-        ],
-        funnelsFilter: {
-            funnelVizType: FunnelVizType.Steps,
-        },
-        filterTestAccounts: experiment.exposure_criteria?.filterTestAccounts === true,
-        dateRange: {
-            date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
-            date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
-            explicitDate: true,
-        },
-        interval: 'day',
-    } as FunnelsQuery
 }
 
 export interface RunningTimeCalculatorLogicProps {
@@ -207,6 +69,7 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
         values: [experimentLogic({ experimentId }), ['experiment']],
     })),
     actions({
+        setExposureEstimateConfig: (value: ExposureEstimateConfig) => ({ value }),
         setMetricIndex: (value: number) => ({ value }),
         setMetricResult: (value: {
             uniqueUsers: number
@@ -216,7 +79,6 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
         }) => ({ value }),
         setConversionRateInputType: (value: string) => ({ value }),
         setManualConversionRate: (value: number) => ({ value }),
-        setExposureEstimateConfig: (value: ExposureEstimateConfig) => ({ value }),
         setMinimumDetectableEffect: (value: number) => ({ value }),
     }),
     reducers({
