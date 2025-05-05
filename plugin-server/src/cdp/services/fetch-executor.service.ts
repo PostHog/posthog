@@ -145,7 +145,7 @@ export class FetchExecutorService {
         } catch (err) {
             let kind: CyclotronFetchFailureKind = 'requesterror'
 
-            if (err.message.includes('timeout')) {
+            if (err.message.toLowerCase().includes('timeout')) {
                 kind = 'timeout'
             }
 
