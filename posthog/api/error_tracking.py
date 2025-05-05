@@ -227,7 +227,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
 
         item_id = kwargs["pk"]
         if not ErrorTrackingIssue.objects.filter(id=item_id, team_id=self.team_id).exists():
-            return Response("", status=status.HTTP_404_NOT_FOUND)
+            return Response(status=status.HTTP_404_NOT_FOUND)
 
         activity_page = load_activity(
             scope="ErrorTrackingIssue",
