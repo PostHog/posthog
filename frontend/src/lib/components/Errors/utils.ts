@@ -112,8 +112,8 @@ export function getExceptionList(properties: ErrorEventProperties): ErrorTrackin
 }
 
 export function getFingerprintRecords(properties: ErrorEventProperties): FingerprintRecordPart[] {
-    const { $fingerprint_records } = properties
-    return $fingerprint_records || []
+    const { $exception_fingerprint_record } = properties
+    return $exception_fingerprint_record || []
 }
 
 export function getAdditionalProperties(
