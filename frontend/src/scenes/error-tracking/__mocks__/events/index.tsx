@@ -1,6 +1,6 @@
 import { BindLogic } from 'kea'
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
-import { ErrorProperties } from 'lib/components/Errors/types'
+import { ErrorEventProperties } from 'lib/components/Errors/types'
 import { exceptionCardLogic } from 'scenes/error-tracking/components/ExceptionCard/exceptionCardLogic'
 
 import javascript_empty from './javascript_empty.json'
@@ -21,7 +21,7 @@ export const TEST_EVENTS = {
 
 export type TestEventName = keyof typeof TEST_EVENTS
 
-export function getEventProperties(eventName: TestEventName): ErrorProperties {
+export function getEventProperties(eventName: TestEventName): ErrorEventProperties {
     return TEST_EVENTS[eventName].properties
 }
 

@@ -2,7 +2,7 @@ import { actions, connect, defaults, kea, key, listeners, path, props, reducers,
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router } from 'kea-router'
 import api from 'lib/api'
-import { ErrorProperties } from 'lib/components/Errors/types'
+import { ErrorEventProperties } from 'lib/components/Errors/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { objectsEqual } from 'lib/utils'
 import { posthog } from 'posthog-js'
@@ -54,7 +54,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     defaults({
         issue: null as ErrorTrackingRelationalIssue | null,
         summary: null as ErrorTrackingIssueSummary | null,
-        properties: null as ErrorProperties | null,
+        properties: null as ErrorEventProperties | null,
         volumeResolution: 50,
         lastSeen: null as Dayjs | null,
     }),
