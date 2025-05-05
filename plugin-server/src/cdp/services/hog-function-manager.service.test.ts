@@ -34,9 +34,6 @@ describe('HogFunctionManager', () => {
         hogFunctions = []
         integrations = []
 
-        const hogCode = 'return event'
-        const bytecode = await compileHog(hogCode)
-
         integrations.push(
             await insertIntegration(hub.postgres, teamId1, {
                 kind: 'slack',
@@ -79,7 +76,6 @@ describe('HogFunctionManager', () => {
 
         hogFunctions.push(
             await insertHogFunction(hub.postgres, teamId2, {
-                bytecode: bytecode,
                 name: 'Test Hog Function team 2',
                 inputs_schema: [
                     {

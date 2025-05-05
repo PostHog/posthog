@@ -24,6 +24,8 @@ export const createHogFunction = (hogFunction: Partial<HogFunctionType>) => {
         name: 'Hog Function',
         team_id: 1,
         enabled: true,
+        hog: 'return event',
+        bytecode: ['_H', 1, 32, 'event', 1, 1, 38],
         ...hogFunction,
     } as HogFunctionType
 
