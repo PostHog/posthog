@@ -64,6 +64,8 @@ def create_or_update_file(
         existing.depth = len(segments)
         existing.href = href
         existing.meta = meta
+        if meta.get("created_at"):
+            existing.created_at = meta["created_at"]
         existing.save()
 
     if not has_existing:
@@ -76,6 +78,7 @@ def create_or_update_file(
             ref=ref,
             href=href,
             meta=meta,
+            created_at=meta.get("created_at"),
             created_by=created_by,
             shortcut=False,
         )
