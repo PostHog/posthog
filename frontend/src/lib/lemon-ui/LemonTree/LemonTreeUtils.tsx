@@ -7,7 +7,7 @@ import { CSSProperties, useEffect, useRef } from 'react'
 import { LemonCheckbox } from '../LemonCheckbox'
 import { LemonTreeSelectMode, TreeDataItem } from './LemonTree'
 
-export const ICON_CLASSES = 'text-tertiary size-5 flex items-center justify-center'
+export const ICON_CLASSES = 'text-tertiary flex items-center justify-center'
 
 type TreeNodeDisplayIconWrapperProps = {
     item: TreeDataItem
@@ -182,6 +182,20 @@ export const TreeNodeDisplayIcon = ({
                     <IconChevronRight className={cn('transition-transform size-4', isOpen ? 'rotate-90' : '')} />
                 </div>
             )}
+            {item.preIcon ? (
+                <div
+                    className={cn(
+                        ICON_CLASSES,
+                        {
+                            'text-tertiary': item.disabledReason,
+                            'group-hover/lemon-tree-button-group:opacity-0': isFolder,
+                        },
+                        'transition-opacity duration-150'
+                    )}
+                >
+                    {item.preIcon}
+                </div>
+            ) : null}
             <div
                 className={cn(
                     ICON_CLASSES,

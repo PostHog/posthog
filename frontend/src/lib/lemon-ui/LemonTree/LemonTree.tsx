@@ -43,6 +43,8 @@ export type TreeDataItem = {
     itemSideAction?: (item: TreeDataItem) => SideAction
     /** The icon to use for the item. */
     icon?: React.ReactNode
+    /** The icon to use before the item. */
+    preIcon?: React.ReactNode
     /** The children of the item. */
     children?: TreeDataItem[]
     /** Disabled: The reason the item is disabled. */
@@ -51,8 +53,6 @@ export type TreeDataItem = {
     disableSelect?: boolean
     /** Is the item selected */
     checked?: boolean | 'indeterminate'
-    /** The icon to use for the side action. */
-    sideIcon?: React.ReactNode
 
     /** The type of item.
      *
@@ -359,7 +359,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                 className="h-full bg-transparent pointer-events-none flex-shrink-0 transition-[width] duration-50"
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={{
-                                    width: `${firstColumnOffset}px`,
+                                    width: `${firstColumnOffset + (item.preIcon ? 24 : 0)}px`,
                                 }}
                             />
 
