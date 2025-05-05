@@ -10,7 +10,7 @@ import { range } from 'lodash'
 
 import { fetch, raiseIfUserProvidedUrlUnsafe, SecureRequestError } from './request'
 
-describe('secureRequest', () => {
+describe('fetch', () => {
     beforeEach(() => {
         jest.setTimeout(1000)
         jest.mocked(dns.lookup).mockImplementation(realDnsLookup)

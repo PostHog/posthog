@@ -1,6 +1,6 @@
 // eslint-disable-next-line simple-import-sort/imports
 import '../../tests/helpers/mocks/producer.mock'
-import { mockSecureRequest } from '../../tests/helpers/mocks/request.mock'
+import { mockFetch } from '../../tests/helpers/mocks/request.mock'
 
 import express from 'express'
 import supertest from 'supertest'
@@ -63,7 +63,7 @@ describe('CDP API', () => {
         app.use(express.json())
         app.use('/', api.router())
 
-        mockSecureRequest.mockClear()
+        mockFetch.mockClear()
 
         hogFunction = await insertHogFunction({
             ...HOG_EXAMPLES.simple_fetch,
@@ -152,11 +152,12 @@ describe('CDP API', () => {
     })
 
     it('can invoke a function via the API with real fetch', async () => {
-        mockSecureRequest.mockImplementationOnce(() =>
+        mockFetch.mockImplementationOnce(() =>
             Promise.resolve({
                 status: 201,
-                body: JSON.stringify({ real: true }),
                 headers: { 'Content-Type': 'application/json' },
+                json: () => Promise.resolve({ real: true }),
+                text: () => Promise.resolve(JSON.stringify({ real: true })),
             })
         )
 
@@ -194,11 +195,12 @@ describe('CDP API', () => {
     })
 
     it('includes enriched values in the request', async () => {
-        mockSecureRequest.mockImplementationOnce(() => {
+        mockFetch.mockImplementationOnce(() => {
             return Promise.resolve({
                 status: 201,
-                body: JSON.stringify({ real: true }),
                 headers: { 'Content-Type': 'application/json' },
+                json: () => Promise.resolve({ real: true }),
+                text: () => Promise.resolve(JSON.stringify({ real: true })),
             })
         })
 
@@ -212,7 +214,7 @@ describe('CDP API', () => {
             .post(`/api/projects/${hogFunction.team_id}/hog_functions/${hogFunction.id}/invocations`)
             .send({ globals, mock_async_functions: false })
 
-        expect(mockSecureRequest).toHaveBeenCalledWith(
+        expect(mockFetch).toHaveBeenCalledWith(
             'https://googleads.googleapis.com/',
             expect.objectContaining({
                 headers: expect.objectContaining({
