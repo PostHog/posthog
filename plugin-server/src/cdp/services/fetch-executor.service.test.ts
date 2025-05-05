@@ -11,19 +11,27 @@ import {
 import { FetchExecutorService } from './fetch-executor.service'
 
 describe('FetchExecutorService', () => {
-    jest.setTimeout(1000)
+    jest.setTimeout(10000)
     let server: any
     let baseUrl: string
     let service: FetchExecutorService
     let mockRequest = jest.fn()
 
-    beforeAll(() => {
+    let timeoutHandle: NodeJS.Timeout | undefined
+
+    beforeAll(async () => {
         server = createServer((req, res) => {
             mockRequest(req, res)
-        }).listen(0) // Random available port
+        })
+
+        await promisifyCallback<void>((cb) => server.listen(0, cb))
         const address = server.address() as AddressInfo
         baseUrl = `http://localhost:${address.port}`
         service = new FetchExecutorService(defaultConfig)
+    })
+
+    afterEach(() => {
+        clearTimeout(timeoutHandle)
     })
 
     afterAll(async () => {
@@ -139,7 +147,8 @@ describe('FetchExecutorService', () => {
     it('handles timeouts', async () => {
         mockRequest.mockImplementation((_req: any, res: any) => {
             // Never send response
-            setTimeout(() => res.end(), 10000)
+            clearTimeout(timeoutHandle)
+            timeoutHandle = setTimeout(() => res.end(), 10000)
         })
 
         const invocation = createInvocation({
