@@ -390,7 +390,7 @@ export const surveyLogic = kea<surveyLogicType>([
                             AND (
                                 event != '${SurveyEventName.DISMISSED}'
                                 OR
-                                COALESCE(JSONExtractBool(properties, '$survey_partially_completed'), False) = False
+                                COALESCE(JSONExtractBool(properties, '${SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED}'), False) = False
                             )
                             AND (
                                 -- Include non-'sent' events directly
@@ -446,7 +446,7 @@ export const surveyLogic = kea<surveyLogicType>([
                               AND (
                                 event != '${SurveyEventName.DISMISSED}'
                                 OR
-                                COALESCE(JSONExtractBool(properties, '$survey_partially_completed'), False) = False
+                                COALESCE(JSONExtractBool(properties, '${SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED}'), False) = False
                               )
                               AND {filters} -- Apply property filters here to reduce initial events
                             GROUP BY person_id
@@ -1341,7 +1341,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 const startDate = getSurveyStartDateForQuery(survey)
                 const endDate = getSurveyEndDateForQuery(survey)
 
-                const where = [`event == 'survey sent'`, `uniqueSurveySubmissionsFilter('${survey.id}')`]
+                const where = [`event == '${SurveyEventName.SENT}'`, `uniqueSurveySubmissionsFilter('${survey.id}')`]
 
                 if (answerFilterHogQLExpression !== '') {
                     // skip the 'AND ' prefix
