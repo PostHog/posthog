@@ -18,7 +18,7 @@ operations = [
     # 2. Drop the Kafka table
     run_sql_with_exceptions(DROP_KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL()),
     # 3. Sharded table (physical storage)
-    run_sql_with_exceptions(ADD_BLOCK_COLUMNS_SESSION_REPLAY_EVENTS_TABLE_SQL()),
+    run_sql_with_exceptions(ADD_BLOCK_COLUMNS_SESSION_REPLAY_EVENTS_TABLE_SQL(), sharded=True),
     # 4. Writable table (for writing to sharded table)
     run_sql_with_exceptions(ADD_BLOCK_COLUMNS_WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL()),
     # 5. Distributed table (for reading)
