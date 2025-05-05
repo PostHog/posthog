@@ -1,6 +1,8 @@
 from datetime import datetime
 import re
 from typing import Optional, cast
+import os
+from clickhouse_driver import Client
 
 from ee.session_recordings.session_summary.utils import (
     get_column_index,
@@ -16,17 +18,20 @@ EXTRA_SUMMARY_EVENT_FIELDS = ["elements_chain_ids", "elements_chain"]
 
 def _get_production_session_metadata_locally(
     events_obj: SessionReplayEvents, session_id: str, team: Team, recording_start_time: Optional[datetime] = None
-) -> RecordingMetadata:
+) -> RecordingMetadata | None:
     query = events_obj.get_metadata_query(recording_start_time)
-    # replay_response: list[tuple] = sync_execute(
-    #     query,
-    #     {
-    #         "team_id": team.pk,
-    #         "session_id": session_id,
-    #         "recording_start_time": recording_start_time,
-    #     },
-    # )
-    replay_response = []
+    host = os.environ["LOCAL_READS_PROD_CLICKHOUSE_US_HOST"]
+    user = os.environ["LOCAL_READS_PROD_CLICKHOUSE_US_USER"]
+    password = os.environ["LOCAL_READS_PROD_CLICKHOUSE_US_PASSWORD"]
+    client = Client(host=host, user=user, password=password, secure=True)
+    replay_response = client.execute(
+        query,
+        {
+            "team_id": team.pk,
+            "session_id": session_id,
+            "recording_start_time": recording_start_time,
+        },
+    )
     recording_metadata = events_obj.build_recording_metadata(session_id, replay_response)
     return recording_metadata
 
