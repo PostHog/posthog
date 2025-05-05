@@ -14,6 +14,8 @@ describe('secureRequest', () => {
     beforeEach(() => {
         jest.setTimeout(1000)
         jest.mocked(dns.lookup).mockImplementation(realDnsLookup)
+        // NOTE: We are testing production-only features hence the override
+        process.env.NODE_ENV = 'production'
     })
     describe('raiseIfUserProvidedUrlUnsafe', () => {
         it.each([

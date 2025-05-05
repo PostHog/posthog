@@ -104,7 +104,7 @@ export class FetchExecutorService {
             }
             const fetchResponse = await secureRequest(params.url, fetchParams)
 
-            responseBody = fetchResponse.body ?? ''
+            responseBody = fetchResponse.body
 
             const duration = performance.now() - start
 

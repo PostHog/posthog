@@ -26,7 +26,7 @@ export type SecureRequestOptions = {
 export type SecureResponse = {
     status: number
     headers: Record<string, string>
-    body: string | null
+    body: string
 }
 
 export class SecureRequestError extends errors.UndiciError {
@@ -44,10 +44,11 @@ function validateUrl(url: string): URL {
     } catch (err) {
         throw new SecureRequestError('Invalid URL')
     }
-    if (!parsedUrl.hostname) {
+    const { hostname, protocol } = parsedUrl
+    if (!hostname) {
         throw new SecureRequestError('No hostname')
     }
-    if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+    if (!['http:', 'https:'].includes(protocol)) {
         throw new SecureRequestError('Scheme must be either HTTP or HTTPS')
     }
     return parsedUrl

@@ -154,7 +154,7 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
                       "version": "v=1.0.0",
                     },
                     "method": "POST",
-                    "timeout": 10000,
+                    "timeoutMs": 10000,
                   },
                 ]
             `)
@@ -243,7 +243,7 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
             ])
         })
 
-        it.only('should handle fetch failures with retries', async () => {
+        it('should handle fetch failures with retries', async () => {
             mockSecureRequest.mockRejectedValue(new errors.ConnectTimeoutError())
 
             const invocations = await eventsConsumer.processBatch([globals])
