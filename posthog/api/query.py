@@ -149,9 +149,12 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 query_id=client_query_id,
                 user=request.user,  # type: ignore[arg-type]
                 is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
-                limit_context=LimitContext.APP_INSIGHT_QUERY
-                if is_insight_query(query) and get_query_tag_value("access_method") != "personal_api_key"
-                else LimitContext.QUERY,
+                limit_context=(
+                    # QUERY_ASYNC provides extended max execution time for insight queries
+                    LimitContext.QUERY_ASYNC
+                    if is_insight_query(query) and get_query_tag_value("access_method") != "personal_api_key"
+                    else None
+                ),
             )
             if isinstance(result, BaseModel):
                 result = result.model_dump(by_alias=True)

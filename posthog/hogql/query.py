@@ -175,7 +175,6 @@ class HogQLQueryExecutor:
             LimitContext.COHORT_CALCULATION,
             LimitContext.QUERY_ASYNC,
             LimitContext.SAVED_QUERY,
-            LimitContext.APP_INSIGHT_QUERY,
         ):
             settings.max_execution_time = max(settings.max_execution_time or 0, HOGQL_INCREASED_MAX_EXECUTION_TIME)
         try:
@@ -217,9 +216,9 @@ class HogQLQueryExecutor:
                 has_joins="JOIN" in self.clickhouse_sql,
                 has_json_operations="JSONExtract" in self.clickhouse_sql or "JSONHas" in self.clickhouse_sql,
                 timings=timings_dict,
-                modifiers={k: v for k, v in self.modifiers.model_dump().items() if v is not None}
-                if self.modifiers
-                else {},
+                modifiers=(
+                    {k: v for k, v in self.modifiers.model_dump().items() if v is not None} if self.modifiers else {}
+                ),
             )
 
             try:

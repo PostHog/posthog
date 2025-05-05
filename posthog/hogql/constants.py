@@ -52,7 +52,6 @@ BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES = 300
 class LimitContext(StrEnum):
     QUERY = "query"
     QUERY_ASYNC = "query_async"
-    APP_INSIGHT_QUERY = "app_insight_query"
     EXPORT = "export"
     COHORT_CALCULATION = "cohort_calculation"
     HEATMAPS = "heatmaps"
@@ -64,7 +63,6 @@ def get_max_limit_for_context(limit_context: LimitContext) -> int:
         LimitContext.EXPORT,
         LimitContext.QUERY,
         LimitContext.QUERY_ASYNC,
-        LimitContext.APP_INSIGHT_QUERY,
     ):
         return MAX_SELECT_RETURNED_ROWS  # 50k
     elif limit_context == LimitContext.HEATMAPS:
@@ -81,7 +79,7 @@ def get_default_limit_for_context(limit_context: LimitContext) -> int:
     """Limit used if no limit is provided"""
     if limit_context == LimitContext.EXPORT:
         return MAX_SELECT_RETURNED_ROWS  # 50k
-    elif limit_context in (LimitContext.QUERY, LimitContext.QUERY_ASYNC, LimitContext.APP_INSIGHT_QUERY):
+    elif limit_context in (LimitContext.QUERY, LimitContext.QUERY_ASYNC):
         return DEFAULT_RETURNED_ROWS  # 100
     elif limit_context == LimitContext.HEATMAPS:
         return MAX_SELECT_HEATMAPS_LIMIT  # 1M
