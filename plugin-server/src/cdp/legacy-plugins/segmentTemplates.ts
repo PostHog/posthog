@@ -47,6 +47,12 @@ const translateInputs = (defaultVal: any) => {
         if (modifiedVal.includes('event.context.traits')) {
             modifiedVal = modifiedVal.replaceAll('event.context.traits', 'person.properties')
         }
+        if (modifiedVal.includes('event.type')) {
+            modifiedVal = modifiedVal.replaceAll(
+                'event.type',
+                `event.event == '$pageview' ? 'page' : event.event == '$screen' ? 'screen' : event.event == '$groupidentify' ? 'group' : event.event in ('$identify', '$set') ? 'identify' : event.event == '$alias' ? 'alias' : 'track'`
+            )
+        }
         if (modifiedVal.includes('context.device.type')) {
             modifiedVal = modifiedVal.replaceAll('context.device.type', 'properties.$device_type')
         }
@@ -305,7 +311,7 @@ const translateInputsSchema = (inputs_schema: Record<string, any> | undefined): 
         })) as HogFunctionInputSchemaType[]
 }
 
-const APPROVED_DESTINATIONS = ['segment-mixpanel', 'segment-amplitude', 'segment-launchdarkly']
+const APPROVED_DESTINATIONS = ['segment-mixpanel', 'segment-amplitude', 'segment-launchdarkly', 'segment-canny']
 
 const HIDDEN_DESTINATIONS = [
     'segment-snap-conversions',
@@ -325,6 +331,9 @@ const HIDDEN_DESTINATIONS = [
     'segment-slack',
     'segment-webhook-extensible',
     'segment-gleap-cloud-actions',
+    'segment-adjust',
+    'segment-apolloio',
+    'segment-attio',
 ]
 
 export const SEGMENT_DESTINATIONS = Object.entries(destinations)
@@ -372,6 +381,9 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations)
                             } else if (options?.body && options.body instanceof URLSearchParams) {
                                 body = options.body
                                 headers['Content-Type'] = 'application/x-www-form-urlencoded'
+                            } else if (options?.body && typeof options.body === 'string') {
+                                body = options.body
+                                headers['Content-Type'] = 'application/json'
                             }
 
                             await fetch(endpoint, {
