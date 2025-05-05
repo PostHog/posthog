@@ -1147,11 +1147,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$survey_completed": {
             "description": "If a survey was fully completed (all questions answered), this will be true.",
-            "label": "Survey completed"
+            "label": "Survey completed",
         },
         "$survey_partially_completed": {
             "description": "If a survey was partially completed (some questions answered) on dismissal, this will be true.",
-            "label": "Survey partially completed"
+            "label": "Survey partially completed",
         },
         "$device": {
             "label": "Device",
