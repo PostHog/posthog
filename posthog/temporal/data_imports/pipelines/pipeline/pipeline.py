@@ -4,6 +4,7 @@ from typing import Any
 
 import deltalake as deltalake
 import pyarrow as pa
+from django.db.models import F
 from dlt.sources import DltSource
 
 from posthog.exceptions_capture import capture_exception
@@ -12,6 +13,7 @@ from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.deltalake_compaction_job import (
     trigger_compaction_job,
 )
+from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
     DeltaTableHelper,
 )
@@ -21,15 +23,13 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     _append_debug_column_to_pyarrows_table,
     _evolve_pyarrow_schema,
     _get_column_hints,
-    _get_incremental_field_last_value,
     _get_primary_keys,
     _handle_null_columns_with_definitions,
     _notify_revenue_analytics_that_sync_has_completed,
     _update_job_row_count,
     append_partition_key_to_table,
+    normalize_column_name,
     normalize_table_column_names,
-    should_partition_table,
-    supports_partial_data_loading,
     table_from_py_list,
 )
 from posthog.temporal.data_imports.pipelines.pipeline_sync import (
@@ -361,3 +361,59 @@ class PipelineNonDLT:
             row_count=row_count,
             table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
         )
+
+
+def _update_last_synced_at_sync(schema: ExternalDataSchema, job: ExternalDataJob) -> None:
+    schema.last_synced_at = job.created_at
+    schema.save()
+
+
+def _update_job_row_count(job_id: str, count: int, logger: FilteringBoundLogger) -> None:
+    logger.debug(f"Updating rows_synced with +{count}")
+    ExternalDataJob.objects.filter(id=job_id).update(rows_synced=F("rows_synced") + count)
+
+
+def _get_incremental_field_last_value(schema: ExternalDataSchema | None, table: pa.Table) -> Any:
+    if schema is None or schema.sync_type != ExternalDataSchema.SyncType.INCREMENTAL:
+        return
+
+    incremental_field_name: str | None = schema.sync_type_config.get("incremental_field")
+    if incremental_field_name is None:
+        return
+
+    column = table[normalize_column_name(incremental_field_name)]
+    numpy_arr = column.combine_chunks().to_pandas().dropna().to_numpy()
+
+    # TODO(@Gilbert09): support different operations here (e.g. min)
+    last_value = numpy_arr.max()
+    return last_value
+
+
+def should_partition_table(
+    delta_table: deltalake.DeltaTable | None, schema: ExternalDataSchema, source: SourceResponse
+) -> bool:
+    if not schema.is_incremental:
+        return False
+
+    if schema.partitioning_enabled and schema.partition_count is not None and schema.partitioning_keys is not None:
+        return True
+
+    if source.partition_count is None:
+        return False
+
+    if delta_table is None:
+        return True
+
+    delta_schema = delta_table.schema().to_pyarrow()
+    if PARTITION_KEY in delta_schema.names:
+        return True
+
+    return False
+
+
+def supports_partial_data_loading(schema: ExternalDataSchema) -> bool:
+    """
+    We should be able to roll this out to all source types but initially we only support it for Stripe so we can verify
+    the approach.
+    """
+    return schema.source.source_type == ExternalDataSource.Type.STRIPE

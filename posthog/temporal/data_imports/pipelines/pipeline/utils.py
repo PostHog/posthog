@@ -15,7 +15,6 @@ import posthoganalytics
 import pyarrow as pa
 import pyarrow.compute as pc
 from dateutil import parser
-from django.db.models import F
 from dlt.common.data_types.typing import TDataType
 from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
 from dlt.common.normalizers.naming.snake_case import NamingConvention
@@ -270,28 +269,6 @@ def _append_debug_column_to_pyarrows_table(table: pa.Table, load_id: int) -> pa.
 
     column = pa.array([debug_info] * table.num_rows, type=pa.string())
     return table.append_column("_ph_debug", column)
-
-
-def should_partition_table(
-    delta_table: deltalake.DeltaTable | None, schema: ExternalDataSchema, source: SourceResponse
-) -> bool:
-    if not schema.is_incremental:
-        return False
-
-    if schema.partitioning_enabled and schema.partition_count is not None and schema.partitioning_keys is not None:
-        return True
-
-    if source.partition_count is None:
-        return False
-
-    if delta_table is None:
-        return True
-
-    delta_schema = delta_table.schema().to_pyarrow()
-    if PARTITION_KEY in delta_schema.names:
-        return True
-
-    return False
 
 
 def normalize_table_column_names(table: pa.Table) -> pa.Table:
@@ -777,11 +754,3 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
                 arrow_schema = arrow_schema.remove(arrow_schema.get_field_index(str(column)))
 
     return pa.Table.from_pydict(columnar_table_data, schema=arrow_schema)
-
-
-def supports_partial_data_loading(schema: ExternalDataSchema) -> bool:
-    """
-    We should be able to roll this out to all source types but initially we only support it for Stripe so we can verify
-    the approach.
-    """
-    return schema.source.source_type == ExternalDataSource.Type.STRIPE

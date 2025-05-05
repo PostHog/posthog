@@ -1,33 +1,42 @@
-from collections import defaultdict
+import uuid
 from datetime import datetime, timedelta
-import tempfile
-import os
-from typing import Any, Optional
+from typing import Any
+
+import numpy
+import psycopg2
+from django.conf import settings
 from django.db import models
 from django_deprecate_fields import deprecate_field
-import numpy
-import snowflake.connector
-from django.conf import settings
-from posthog.models.team import Team
-from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDModel, UpdatedMetaFields, sane_repr
-import uuid
-import psycopg2
+from dlt.common.normalizers.naming.snake_case import NamingConvention
 from psycopg2 import sql
-import pymysql
 
+from posthog.models.team import Team
+from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDModel, sane_repr
+from posthog.temporal.data_imports.pipelines.mssql import (
+    MSSQLSourceConfig,
+    get_schemas as get_mssql_schemas,
+)
+from posthog.temporal.data_imports.pipelines.mysql import (
+    MySQLSourceConfig,
+    get_schemas as get_mysql_schemas,
+)
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode
-from posthog.warehouse.s3 import get_s3_client
-from .external_data_source import ExternalDataSource
+from posthog.temporal.data_imports.pipelines.postgres.postgres import (
+    PostgreSQLSourceConfig,
+    get_schemas as get_postgres_schemas,
+)
 from posthog.warehouse.data_load.service import (
     external_data_workflow_exists,
     pause_external_data_schedule,
     sync_external_data_job_workflow,
     unpause_external_data_schedule,
 )
-from posthog.warehouse.types import IncrementalFieldType
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
+from posthog.warehouse.s3 import get_s3_client
+from posthog.warehouse.types import IncrementalFieldType
 from posthog.warehouse.util import database_sync_to_async
-from dlt.common.normalizers.naming.snake_case import NamingConvention
+
+from .external_data_source import ExternalDataSource
 
 
 class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, DeletedMetaFields):
@@ -362,65 +371,6 @@ def filter_snowflake_incremental_fields(columns: list[tuple[str, str]]) -> list[
     return results
 
 
-def get_snowflake_schemas(
-    account_id: str,
-    database: str,
-    warehouse: str,
-    user: Optional[str],
-    password: Optional[str],
-    passphrase: Optional[str],
-    private_key: Optional[str],
-    auth_type: str,
-    schema: str,
-    role: Optional[str] = None,
-) -> dict[str, list[tuple[str, str]]]:
-    auth_connect_args: dict[str, str | None] = {}
-    file_name: str | None = None
-
-    if auth_type == "keypair" and private_key is not None:
-        with tempfile.NamedTemporaryFile(delete=False) as tf:
-            tf.write(private_key.encode("utf-8"))
-            file_name = tf.name
-
-        auth_connect_args = {
-            "user": user,
-            "private_key_file": file_name,
-            "private_key_file_pwd": passphrase,
-        }
-    else:
-        auth_connect_args = {
-            "password": password,
-            "user": user,
-        }
-
-    with snowflake.connector.connect(
-        account=account_id,
-        warehouse=warehouse,
-        database=database,
-        schema="information_schema",
-        role=role,
-        **auth_connect_args,
-    ) as connection:
-        with connection.cursor() as cursor:
-            if cursor is None:
-                raise Exception("Can't create cursor to Snowflake")
-
-            cursor.execute(
-                "SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_schema = %(schema)s ORDER BY table_name ASC",
-                {"schema": schema},
-            )
-            result = cursor.fetchall()
-
-            schema_list = defaultdict(list)
-            for row in result:
-                schema_list[row[0]].append((row[1], row[2]))
-
-    if file_name is not None:
-        os.unlink(file_name)
-
-    return schema_list
-
-
 def filter_postgres_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str, IncrementalFieldType]]:
     results: list[tuple[str, IncrementalFieldType]] = []
     for column_name, type in columns:
@@ -546,57 +496,6 @@ def filter_mysql_incremental_fields(columns: list[tuple[str, str]]) -> list[tupl
     return results
 
 
-def get_mysql_schemas(
-    host: str,
-    port: str,
-    database: str,
-    user: str,
-    password: str,
-    schema: str,
-    using_ssl: bool,
-    ssh_tunnel: SSHTunnel,
-) -> dict[str, list[tuple[str, str]]]:
-    def get_schemas(mysql_host: str, mysql_port: int):
-        ssl_ca: str | None = None
-
-        if using_ssl:
-            ssl_ca = "/etc/ssl/cert.pem" if settings.DEBUG else "/etc/ssl/certs/ca-certificates.crt"
-
-        connection = pymysql.connect(
-            host=mysql_host,
-            port=mysql_port,
-            database=database,
-            user=user,
-            password=password,
-            connect_timeout=5,
-            ssl_ca=ssl_ca,
-        )
-
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_schema = %(schema)s ORDER BY table_name ASC",
-                {"schema": schema},
-            )
-            result = cursor.fetchall()
-
-            schema_list = defaultdict(list)
-            for row in result:
-                schema_list[row[0]].append((row[1], row[2]))
-
-        connection.close()
-
-        return schema_list
-
-    if ssh_tunnel.enabled:
-        with ssh_tunnel.get_tunnel(host, int(port)) as tunnel:
-            if tunnel is None:
-                raise Exception("Can't open tunnel to SSH server")
-
-            return get_schemas(tunnel.local_bind_host, tunnel.local_bind_port)
-
-    return get_schemas(host, int(port))
-
-
 def filter_mssql_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str, IncrementalFieldType]]:
     results: list[tuple[str, IncrementalFieldType]] = []
     for column_name, type in columns:
@@ -611,65 +510,15 @@ def filter_mssql_incremental_fields(columns: list[tuple[str, str]]) -> list[tupl
     return results
 
 
-def get_mssql_schemas(
-    host: str, port: str, database: str, user: str, password: str, schema: str, ssh_tunnel: SSHTunnel
-) -> dict[str, list[tuple[str, str]]]:
-    def get_schemas(mssql_host: str, mssql_port: int):
-        # Importing pymssql requires mssql drivers to be installed locally - see posthog/warehouse/README.md
-        import pymssql
-
-        connection = pymssql.connect(
-            server=mssql_host,
-            port=str(mssql_port),
-            database=database,
-            user=user,
-            password=password,
-            login_timeout=5,
-        )
-
-        with connection.cursor(as_dict=False) as cursor:
-            cursor.execute(
-                "SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_schema = %(schema)s ORDER BY table_name ASC",
-                {"schema": schema},
-            )
-
-            schema_list = defaultdict(list)
-
-            for row in cursor:
-                if row:
-                    schema_list[row[0]].append((row[1], row[2]))
-
-        connection.close()
-
-        return schema_list
-
-    if ssh_tunnel.enabled:
-        with ssh_tunnel.get_tunnel(host, int(port)) as tunnel:
-            if tunnel is None:
-                raise Exception("Can't open tunnel to SSH server")
-
-            return get_schemas(tunnel.local_bind_host, tunnel.local_bind_port)
-
-    return get_schemas(host, int(port))
-
-
 def get_sql_schemas_for_source_type(
-    source_type: ExternalDataSource.Type,
-    host: str,
-    port: str,
-    database: str,
-    user: str,
-    password: str,
-    schema: str,
-    ssh_tunnel: SSHTunnel,
-    using_ssl: bool = True,
+    source_type: ExternalDataSource.Type, job_inputs: dict[str, Any]
 ) -> dict[str, list[tuple[str, str]]]:
     if source_type == ExternalDataSource.Type.POSTGRES:
-        schemas = get_postgres_schemas(host, port, database, user, password, schema, ssh_tunnel)
+        schemas = get_postgres_schemas(PostgreSQLSourceConfig.from_dict(job_inputs))
     elif source_type == ExternalDataSource.Type.MYSQL:
-        schemas = get_mysql_schemas(host, port, database, user, password, schema, using_ssl, ssh_tunnel)
+        schemas = get_mysql_schemas(MySQLSourceConfig.from_dict(job_inputs))
     elif source_type == ExternalDataSource.Type.MSSQL:
-        schemas = get_mssql_schemas(host, port, database, user, password, schema, ssh_tunnel)
+        schemas = get_mssql_schemas(MSSQLSourceConfig.from_dict(job_inputs))
     else:
         raise Exception("Unsupported source_type")
 
