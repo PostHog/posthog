@@ -1,7 +1,6 @@
 import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { RetryError } from '@posthog/plugin-scaffold'
 
-import { parseJSON } from '../../../../utils/json-parse'
 import type { FetchResponse } from '../../../../utils/request'
 import { LegacyDestinationPluginMeta } from '../../types'
 
@@ -68,13 +67,13 @@ async function callCustomerIoApi(
     }
     const responseStatusClass = Math.floor(response.status / 100)
     if (response.status === 401 || response.status === 403) {
-        const responseData = parseJSON(response.body ?? '{}')
+        const responseData = await response.json()
         throw new Error(
             `Customer.io Site ID or API Key invalid! Response ${response.status}: ${JSON.stringify(responseData)}`
         )
     }
     if (response.status === 408 || response.status === 429 || responseStatusClass === 5) {
-        const responseData = parseJSON(response.body ?? '{}')
+        const responseData = await response.json()
         throw new RetryError(
             `Received a potentially intermittent error from the Customer.io API. Response ${
                 response.status
@@ -82,7 +81,7 @@ async function callCustomerIoApi(
         )
     }
     if (responseStatusClass !== 2) {
-        const responseData = parseJSON(response.body ?? '{}')
+        const responseData = await response.json()
         throw new Error(
             `Received an unexpected error from the Customer.io API. Response ${response.status}: ${JSON.stringify(
                 responseData
