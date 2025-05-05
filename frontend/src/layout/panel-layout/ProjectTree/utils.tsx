@@ -1,5 +1,5 @@
 import { IconArrowUpRight, IconPlus } from '@posthog/icons'
-import { Spinner } from '@posthog/lemon-ui'
+import { ProfilePicture, Spinner } from '@posthog/lemon-ui'
 import { router } from 'kea-router'
 import { dayjs } from 'lib/dayjs'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
@@ -7,6 +7,7 @@ import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
 import { RecentResults, SearchResults } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
+import { UserBasicType } from '~/types'
 
 import { iconForType } from './defaultTree'
 import { FolderState } from './types'
@@ -20,6 +21,7 @@ export interface ConvertProps {
     disableFolderSelect?: boolean
     disabledReason?: (item: FileSystemImport | FileSystemEntry) => string | undefined
     recent?: boolean
+    users?: Record<string, UserBasicType>
 }
 
 export function getItemId(item: FileSystemImport | FileSystemEntry, root: string = 'project'): string {
@@ -62,22 +64,28 @@ export function convertFileSystemEntryToTreeDataItem({
     disableFolderSelect,
     disabledReason,
     recent,
+    users,
 }: ConvertProps): TreeDataItem[] {
     function itemToTreeDataItem(item: FileSystemImport | FileSystemEntry): TreeDataItem {
         const pathSplit = splitPath(item.path)
         const itemName = pathSplit.pop()!
         const nodeId = getItemId(item)
         const displayName = <SearchHighlightMultiple string={itemName} substring={searchTerm ?? ''} />
+        const user: UserBasicType | undefined = item.meta?.created_by ? users?.[item.meta.created_by] : undefined
+
         const node: TreeDataItem = {
             id: nodeId,
             name: itemName,
-            displayName: recent ? (
+            displayName: (
                 <>
-                    {displayName}{' '}
-                    <span className="text-muted text-xs font-normal">- {dayjs(item.created_at).fromNow()}</span>
+                    {displayName}
+                    {recent && item.meta?.created_at ? (
+                        <span className="text-muted text-xs font-normal ml-1">
+                            - {dayjs(item.meta?.created_at).fromNow()}
+                        </span>
+                    ) : null}
+                    {user ? <ProfilePicture user={user} size="sm" className="ml-1" /> : null}
                 </>
-            ) : (
-                <>{displayName}</>
             ),
             icon: item._loading ? (
                 <Spinner />
