@@ -146,6 +146,11 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         ]
         self.organization.save()
 
+        template = HogFunctionTemplates.template_from_db("template-webhook")
+        import sys
+
+        sys.stdout.write(str(template))
+
         response = self._create_slack_function(
             {
                 "name": "Webhook",
