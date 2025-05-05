@@ -11,7 +11,7 @@ import {
 import { FetchExecutorService } from './fetch-executor.service'
 
 describe('FetchExecutorService', () => {
-    jest.setTimeout(10000)
+    jest.setTimeout(1000)
     let server: any
     let baseUrl: string
     let service: FetchExecutorService
