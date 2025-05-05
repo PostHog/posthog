@@ -13,6 +13,7 @@ from google.cloud import bigquery
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Team
+from posthog.temporal.data_imports.pipelines.bigquery.source import bigquery_source
 from posthog.temporal.data_imports.workflow_activities.import_data_sync import (
     ImportDataActivityInputs,
     import_data_activity_sync,
@@ -630,3 +631,75 @@ def test_bigquery_source_incremental_timestamp(
 
     schema = ExternalDataSchema.objects.get(name=bigquery_table_timestamp.table_id)
     assert schema.sync_type_config["incremental_field_last_value"] == "2025-01-03T00:00:00"
+
+
+@SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS
+@pytest.mark.django_db(transaction=True)
+def test_bigquery_source_number_of_partitions(
+    activity_environment,
+    team,
+    bigquery_client,
+    bigquery_config,
+    bigquery_dataset,
+    bigquery_table_timestamp,
+    bucket_name,
+    minio_client,
+):
+    """Test BigQuery source computes the right number of partitions.
+
+    We override the partition size in bytes to 1, so we can expect the source to
+    calculate 1 row per partition, and the total partition count to be equal to
+    the number of rows. All of this assuming that 1 row will be larger than 1
+    byte, which seems very reasonable.
+
+    We insert a new value and run the assertions again as a sort of induction
+    step.
+    """
+    _ = setup_bigquery(team, bigquery_config, bigquery_dataset, bigquery_table_timestamp, is_incremental=True)
+
+    source = bigquery_source(
+        project_id=bigquery_config["project_id"],
+        dataset_id=bigquery_table_timestamp.dataset_id,
+        table_name=bigquery_table_timestamp.table_id,
+        private_key=bigquery_config["private_key"],
+        private_key_id=bigquery_config["private_key_id"],
+        client_email=bigquery_config["client_email"],
+        token_uri=bigquery_config["token_uri"],
+        is_incremental=True,
+        bq_destination_table_id="some_destination_table",
+        db_incremental_field_last_value=None,
+        incremental_field="id",
+        incremental_field_type=IncrementalFieldType.Timestamp,
+        partition_size_bytes=1,
+    )
+
+    table = bigquery_client.get_table(bigquery_table_timestamp)
+    assert source.partition_count is not None
+    assert source.partition_count == table.num_rows > 0
+    assert source.partition_size == 1
+
+    previous_partition_count = source.partition_count
+
+    now = dt.datetime(2025, 1, 3, tzinfo=dt.UTC)
+    job = bigquery_client.query(
+        f"INSERT INTO {bigquery_table_timestamp.dataset_id}.{bigquery_table_timestamp.table_id} (id, value) VALUES ('{now.isoformat()}', 'c')"
+    )
+    _ = job.result()
+
+    source = bigquery_source(
+        project_id=bigquery_config["project_id"],
+        dataset_id=bigquery_table_timestamp.dataset_id,
+        table_name=bigquery_table_timestamp.table_id,
+        private_key=bigquery_config["private_key"],
+        private_key_id=bigquery_config["private_key_id"],
+        client_email=bigquery_config["client_email"],
+        token_uri=bigquery_config["token_uri"],
+        is_incremental=True,
+        bq_destination_table_id="some_destination_table",
+        db_incremental_field_last_value=None,
+        incremental_field="id",
+        incremental_field_type=IncrementalFieldType.Timestamp,
+        partition_size_bytes=1,
+    )
+
+    assert source.partition_count == previous_partition_count + 1
