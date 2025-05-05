@@ -23,7 +23,16 @@ import { SurveyStatsSummary } from 'scenes/surveys/SurveyStatsSummary'
 
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { ActivityScope, PropertyFilterType, PropertyOperator, Survey, SurveyQuestionType, SurveyType } from '~/types'
+import {
+    ActivityScope,
+    PropertyFilterType,
+    PropertyOperator,
+    Survey,
+    SurveyEventName,
+    SurveyEventProperties,
+    SurveyQuestionType,
+    SurveyType,
+} from '~/types'
 
 import {
     NPS_DETRACTOR_LABEL,
@@ -32,7 +41,6 @@ import {
     NPS_PASSIVE_VALUES,
     NPS_PROMOTER_LABEL,
     NPS_PROMOTER_VALUES,
-    SURVEY_EVENT_NAME,
 } from './constants'
 import { SurveysDisabledBanner } from './SurveySettings'
 import {
@@ -298,12 +306,12 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                             filters={{
                                                 events: [
                                                     {
-                                                        id: 'survey sent',
+                                                        id: SurveyEventName.SENT,
                                                         type: 'events',
                                                         order: 0,
                                                         properties: [
                                                             {
-                                                                key: '$survey_id',
+                                                                key: SurveyEventProperties.SURVEY_ID,
                                                                 type: PropertyFilterType.Event,
                                                                 value: id,
                                                                 operator: PropertyOperator.Exact,
@@ -454,7 +462,7 @@ function createNPSTrendSeries(
     }>
 } {
     return {
-        event: SURVEY_EVENT_NAME,
+        event: SurveyEventName.SENT,
         kind: NodeKind.EventsNode,
         custom_name: label,
         properties: [
@@ -561,7 +569,7 @@ function SurveyNPSResults({
                             properties: [
                                 {
                                     type: PropertyFilterType.Event,
-                                    key: '$survey_id',
+                                    key: SurveyEventProperties.SURVEY_ID,
                                     operator: PropertyOperator.Exact,
                                     value: survey.id,
                                 },

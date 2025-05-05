@@ -2,7 +2,8 @@ from datetime import timedelta
 import json
 from unittest import mock
 from unittest.mock import MagicMock, call, patch
-
+import random
+from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLIST_NAMES
 from freezegun import freeze_time
 from ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters import (
     DEFAULT_RECORDING_FILTERS,
@@ -22,6 +23,7 @@ from posthog.session_recordings.models.session_recording_playlist import Session
 from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
 from posthog.test.base import APIBaseTest, snapshot_postgres_queries, QueryMatchingTest
 from django.utils import timezone
+from posthog.session_recordings.models.session_recording_playlist_item import SessionRecordingPlaylistItem
 
 
 class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
@@ -447,3 +449,46 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
         assert stored_data["refreshed_at"] > last_count_time.isoformat()
 
         mock_capture_exception.assert_not_called()
+
+    @patch("posthoganalytics.capture_exception")
+    @patch("ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query")
+    @patch(
+        "ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters.count_recordings_that_match_playlist_filters"
+    )
+    def test_excludes_default_template_playlists(
+        self, mock_count_task: MagicMock, _mock_list_recordings_from_query: MagicMock, mock_capture_exception: MagicMock
+    ):
+        # need to type ignore here, because mypy insists this returns a list but it does not
+        default_name: str = random.choice(DEFAULT_PLAYLIST_NAMES)  # type: ignore
+        playlist = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name=default_name,
+            last_counted_at=None,
+            filters={"date_from": "-21d"},
+        )
+        enqueue_recordings_that_match_playlist_filters()
+        # Should not be called for default filter playlist
+        assert playlist.id not in [call_args[0][0] for call_args in mock_count_task.delay.call_args_list]
+
+    @patch("posthoganalytics.capture_exception")
+    @patch("ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query")
+    @patch(
+        "ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters.count_recordings_that_match_playlist_filters"
+    )
+    def test_excludes_playlists_with_pinned_items(
+        self, mock_count_task: MagicMock, _mock_list_recordings_from_query: MagicMock, mock_capture_exception: MagicMock
+    ):
+        playlist = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="has pinned",
+            filters={"date_from": "-21d"},
+            last_counted_at=None,
+        )
+        # Add a pinned item
+        SessionRecordingPlaylistItem.objects.create(
+            playlist=playlist,
+            session_id="123",
+        )
+        enqueue_recordings_that_match_playlist_filters()
+        # Should not be called for playlist with pinned items
+        assert playlist.id not in [call_args[0][0] for call_args in mock_count_task.delay.call_args_list]

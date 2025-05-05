@@ -1139,7 +1139,7 @@ When set, the specified dashboard's filters and date range override will be appl
 
         item_id = kwargs["pk"]
         if not Insight.objects.filter(id=item_id, team__project_id=self.team.project_id).exists():
-            return Response("", status=status.HTTP_404_NOT_FOUND)
+            return Response(status=status.HTTP_404_NOT_FOUND)
 
         activity_page = load_activity(
             scope="Insight",

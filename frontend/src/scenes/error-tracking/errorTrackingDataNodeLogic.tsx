@@ -20,8 +20,8 @@ export const errorTrackingDataNodeLogic = kea<errorTrackingDataNodeLogicType>([
     connect(({ key, query }: ErrorTrackingDataNodeLogicProps) => {
         const nodeLogic = dataNodeLogic({ key, query, refresh: 'blocking' })
         return {
-            values: [nodeLogic, ['response']],
-            actions: [nodeLogic, ['setResponse', 'loadData']],
+            values: [nodeLogic, ['response', 'responseLoading']],
+            actions: [nodeLogic, ['setResponse', 'loadData', 'cancelQuery']],
         }
     }),
 
