@@ -24,6 +24,7 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     QueryMatchingTest,
     _create_event,
+    flush_persons_and_events,
     snapshot_clickhouse_queries,
     snapshot_postgres_queries,
 )
@@ -3425,32 +3426,32 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
                 "event": "survey shown",
                 "distinct_id": user_1.distinct_ids[0],
                 "timestamp": "2024-06-10 09:00:00",
-                "properties": {"$survey_id": survey.id},
+                "properties": {"$survey_id": str(survey.id)},
             },
             {
                 "event": "survey shown",
                 "distinct_id": user_2.distinct_ids[0],
                 "timestamp": "2024-06-10 09:01:00",
-                "properties": {"$survey_id": survey.id},
+                "properties": {"$survey_id": str(survey.id)},
             },
             {
                 "event": "survey shown",
                 "distinct_id": user_3.distinct_ids[0],
                 "timestamp": "2024-06-10 09:01:00",
-                "properties": {"$survey_id": survey.id},
+                "properties": {"$survey_id": str(survey.id)},
             },
             {
                 "event": "survey dismissed",
                 "distinct_id": user_3.distinct_ids[0],
                 "timestamp": "2024-06-10 09:02:00",
-                "properties": {"$survey_id": survey.id},
+                "properties": {"$survey_id": str(survey.id)},
             },
             # Legacy submission (no submission_id)
             {
                 "event": "survey sent",
                 "distinct_id": user_1.distinct_ids[0],
                 "timestamp": "2024-06-10 09:05:00",
-                "properties": {"$survey_id": survey.id, "$survey_response_question_id": "ok"},
+                "properties": {"$survey_id": str(survey.id), "$survey_response_question_id": "ok"},
             },
             # Partial submission 1, first event
             {
@@ -3458,7 +3459,7 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
                 "distinct_id": user_1.distinct_ids[0],
                 "timestamp": "2024-06-10 09:10:00",
                 "properties": {
-                    "$survey_id": survey.id,
+                    "$survey_id": str(survey.id),
                     "$survey_submission_id": sub_id_1,
                     "$survey_response_question_id": "good",
                 },
@@ -3469,7 +3470,7 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
                 "distinct_id": user_1.distinct_ids[0],
                 "timestamp": "2024-06-10 09:11:00",
                 "properties": {
-                    "$survey_id": survey.id,
+                    "$survey_id": str(survey.id),
                     "$survey_submission_id": sub_id_1,
                     "$survey_response_question_id": "great",
                 },
@@ -3480,7 +3481,7 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
                 "distinct_id": user_2.distinct_ids[0],
                 "timestamp": "2024-06-10 09:15:00",
                 "properties": {
-                    "$survey_id": survey.id,
+                    "$survey_id": str(survey.id),
                     "$survey_submission_id": sub_id_2,
                     "$survey_response_question_id": "fine",
                 },
@@ -3497,6 +3498,7 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
             )
 
         response = self.client.get(f"/api/projects/{self.team.id}/surveys/{survey.id}/stats/")
+        flush_persons_and_events()
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         data: dict[str, Any] = response.json()
