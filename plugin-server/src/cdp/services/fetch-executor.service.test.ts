@@ -2,14 +2,13 @@ import { createServer } from 'http'
 import { AddressInfo } from 'net'
 
 import { defaultConfig } from '../../config/config'
+import { promisifyCallback } from '../../utils/utils'
 import {
     HogFunctionInvocation,
     HogFunctionQueueParametersFetchRequest,
     HogFunctionQueueParametersFetchResponse,
 } from '../types'
 import { FetchExecutorService } from './fetch-executor.service'
-
-jest.unmock('node-fetch')
 
 describe('FetchExecutorService', () => {
     jest.setTimeout(1000)
@@ -21,16 +20,14 @@ describe('FetchExecutorService', () => {
     beforeAll(() => {
         server = createServer((req, res) => {
             mockRequest(req, res)
-        })
-
-        server.listen(0) // Random available port
+        }).listen(0) // Random available port
         const address = server.address() as AddressInfo
         baseUrl = `http://localhost:${address.port}`
         service = new FetchExecutorService(defaultConfig)
     })
 
-    afterAll((done) => {
-        server.close(done)
+    afterAll(async () => {
+        await promisifyCallback<void>((cb) => server.close(cb))
     })
 
     beforeEach(() => {

@@ -8,6 +8,7 @@ import { type HeadersInit, Agent, errors, request } from 'undici'
 import { URL } from 'url'
 
 import { defaultConfig } from '../config/config'
+import { isProdEnv } from './env-utils'
 
 const unsafeRequestCounter = new Counter({
     name: 'node_request_unsafe',
@@ -89,8 +90,12 @@ async function staticLookupAsync(hostname: string): Promise<LookupAddress> {
         if (!isIPv4(parsed)) {
             continue
         }
+
+        // TRICKY: We need this for tests and local dev
+        const allowUnsafe = process.env.NODE_ENV?.includes('functional-tests') || !isProdEnv()
+
         // Check if the IPv4 address is global
-        if (!isGlobalIPv4(parsed)) {
+        if (!allowUnsafe && !isGlobalIPv4(parsed)) {
             unsafeRequestCounter.inc({ reason: 'internal_hostname' })
             throw new SecureRequestError('Internal hostname')
         }

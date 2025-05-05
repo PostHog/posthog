@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { PluginsServerConfig } from '../../types'
+import { logger } from '../../utils/logger'
 import { secureRequest, SecureRequestOptions } from '../../utils/request'
 import {
     CyclotronFetchFailureInfo,
