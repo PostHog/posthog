@@ -2833,6 +2833,9 @@ const api = {
         async run(viewId: DataWarehouseSavedQuery['id']): Promise<void> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).withAction('run').create()
         },
+        async cancel(viewId: DataWarehouseSavedQuery['id']): Promise<void> {
+            return await new ApiRequest().dataWarehouseSavedQuery(viewId).withAction('cancel').create()
+        },
         async ancestors(viewId: DataWarehouseSavedQuery['id'], level?: number): Promise<Record<string, string[]>> {
             return await new ApiRequest()
                 .dataWarehouseSavedQuery(viewId)
