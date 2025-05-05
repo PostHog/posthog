@@ -23,7 +23,7 @@ describe('Patterns: onEvent', () => {
                 webhookUrl: testWebhookUrl,
             },
             global: {},
-            request: mockRequest as unknown,
+            fetch: mockRequest as unknown,
         } as PatternsMeta
         void setupPlugin(meta)
         const event1 = createEvent({ event: '$pageView' })
@@ -46,7 +46,7 @@ describe('Patterns: onEvent', () => {
                 allowedEventTypes: '$pageView, $autoCapture, $customEvent1',
             },
             global: {},
-            request: mockRequest as unknown,
+            fetch: mockRequest as unknown,
         } as PatternsMeta
         void setupPlugin(meta)
 

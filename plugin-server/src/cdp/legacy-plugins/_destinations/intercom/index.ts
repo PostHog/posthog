@@ -1,7 +1,7 @@
 import { ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
 
 import { parseJSON } from '~/src/utils/json-parse'
-import { SecureResponse } from '~/src/utils/request'
+import { FetchResponse } from '~/src/utils/request'
 
 import { LegacyDestinationPluginMeta } from '../../types'
 type IntercomMeta = LegacyDestinationPluginMeta & {
@@ -74,7 +74,7 @@ async function searchForContactInIntercom(meta: IntercomMeta, url: string, apiKe
         },
         'POST'
     )
-    const searchContactResponseJson = parseJSON(searchContactResponse.body ?? '{}')
+    const searchContactResponseJson = await searchContactResponse.json()
 
     if (!statusOk(searchContactResponse) || searchContactResponseJson.errors) {
         const errorMessage = searchContactResponseJson.errors ? searchContactResponseJson.errors[0].message : ''
@@ -120,7 +120,7 @@ async function sendEventToIntercom(
     if (!statusOk(sendEventResponse)) {
         let errorMessage = ''
         try {
-            const sendEventResponseJson = parseJSON(sendEventResponse.body ?? '{}')
+            const sendEventResponseJson = await sendEventResponse.json()
             errorMessage = sendEventResponseJson.errors ? sendEventResponseJson.errors[0].message : ''
         } catch {}
         meta.logger.error(
@@ -131,16 +131,16 @@ async function sendEventToIntercom(
     }
 }
 
-async function fetchWithRetry(meta: IntercomMeta, url: string, options = {}, method = 'GET'): Promise<SecureResponse> {
+async function fetchWithRetry(meta: IntercomMeta, url: string, options = {}, method = 'GET'): Promise<FetchResponse> {
     try {
-        const res = await meta.request(url, { method: method, ...options })
+        const res = await meta.fetch(url, { method: method, ...options })
         return res
     } catch {
         throw new RetryError('Service is down, retry later')
     }
 }
 
-function statusOk(res: SecureResponse) {
+function statusOk(res: FetchResponse) {
     return String(res.status)[0] === '2'
 }
 

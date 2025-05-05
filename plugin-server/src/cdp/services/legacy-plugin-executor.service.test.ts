@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 
-import { SecureResponse } from '~/src/utils/request'
-import { secureRequest } from '~/src/utils/request'
+import { FetchResponse } from '~/src/utils/request'
+import { fetch } from '~/src/utils/request'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
@@ -35,7 +35,7 @@ describe('LegacyPluginExecutorService', () => {
     let team: Team
     let globals: HogFunctionInvocationGlobalsWithInputs
     let fn: HogFunctionType
-    let mockRequest: jest.Mock<Promise<SecureResponse>, Parameters<typeof secureRequest>>
+    let mockFetch: jest.Mock<Promise<FetchResponse>, Parameters<typeof fetch>>
     let pluginConfig: PluginConfig
 
     const customerIoPlugin = DESTINATION_PLUGINS_BY_ID['plugin-customerio-plugin']
@@ -73,17 +73,24 @@ describe('LegacyPluginExecutorService', () => {
             plugin_id: plugin.id,
         } as any)
 
-        mockRequest = jest.fn((_url, _options) =>
+        mockFetch = jest.fn((_url, _options) =>
             Promise.resolve({
                 status: 200,
-                body: JSON.stringify({
-                    status: 200,
-                }),
+                json: () =>
+                    Promise.resolve({
+                        status: 200,
+                    }),
+                text: () =>
+                    Promise.resolve(
+                        JSON.stringify({
+                            status: 200,
+                        })
+                    ),
                 headers: {},
             })
         )
 
-        jest.spyOn(service, 'request').mockImplementation(mockRequest)
+        jest.spyOn(service, 'request').mockImplementation(mockFetch)
 
         globals = {
             ...createHogExecutionGlobals({
@@ -172,9 +179,18 @@ describe('LegacyPluginExecutorService', () => {
                 email: 'test@posthog.com',
             }
 
-            mockRequest.mockResolvedValue({
+            mockFetch.mockResolvedValue({
                 status: 200,
-                body: JSON.stringify({ total_count: 1 }),
+                json: () =>
+                    Promise.resolve({
+                        total_count: 1,
+                    }),
+                text: () =>
+                    Promise.resolve(
+                        JSON.stringify({
+                            total_count: 1,
+                        })
+                    ),
                 headers: {},
             })
 
@@ -201,8 +217,8 @@ describe('LegacyPluginExecutorService', () => {
             `)
 
             // One for setup and then two calls
-            expect(mockRequest).toHaveBeenCalledTimes(3)
-            expect(forSnapshot(mockRequest.mock.calls)).toMatchInlineSnapshot(`
+            expect(mockFetch).toHaveBeenCalledTimes(3)
+            expect(forSnapshot(mockFetch.mock.calls)).toMatchInlineSnapshot(`
                 [
                   [
                     "https://api.customer.io/v1/api/info/ip_addresses",
@@ -267,7 +283,7 @@ describe('LegacyPluginExecutorService', () => {
             const res = await service.execute(invocation)
 
             // NOTE: Setup call is not mocked
-            expect(mockRequest).toHaveBeenCalledTimes(1)
+            expect(mockFetch).toHaveBeenCalledTimes(1)
 
             expect(customerIoPlugin.onEvent).toHaveBeenCalledTimes(1)
 
@@ -296,7 +312,7 @@ describe('LegacyPluginExecutorService', () => {
             // First fetch is successful (setup)
             // Second one not
 
-            mockRequest.mockImplementation((url, _options) => {
+            mockFetch.mockImplementation((url, _options) => {
                 if (url.includes('customers')) {
                     return Promise.resolve({ status: 500, body: JSON.stringify({}), headers: {} })
                 }

@@ -2,7 +2,7 @@ import { DateTime } from 'luxon'
 
 import { PluginsServerConfig } from '../../types'
 import { logger } from '../../utils/logger'
-import { secureRequest, SecureRequestOptions } from '../../utils/request'
+import { fetch, FetchOptions } from '../../utils/request'
 import {
     CyclotronFetchFailureInfo,
     CyclotronFetchFailureKind,
@@ -94,7 +94,7 @@ export class FetchExecutorService {
         try {
             const start = performance.now()
             const method = params.method.toUpperCase()
-            const fetchParams: SecureRequestOptions = {
+            const fetchParams: FetchOptions = {
                 method,
                 headers: params.headers,
                 timeoutMs: this.serverConfig.CDP_FETCH_TIMEOUT_MS,
@@ -102,9 +102,9 @@ export class FetchExecutorService {
             if (!['GET', 'HEAD'].includes(method) && params.body) {
                 fetchParams.body = params.body
             }
-            const fetchResponse = await secureRequest(params.url, fetchParams)
+            const fetchResponse = await fetch(params.url, fetchParams)
 
-            responseBody = fetchResponse.body
+            responseBody = await fetchResponse.text()
 
             const duration = performance.now() - start
 

@@ -1,7 +1,7 @@
 import { RetryError } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { secureRequest, SecureResponse } from '~/src/utils/request'
+import { fetch, FetchResponse } from '~/src/utils/request'
 import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
@@ -27,7 +27,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
     let team: Team
     let fn: HogFunctionType
     let globals: HogFunctionInvocationGlobalsWithInputs
-    let mockRequest: jest.Mock<Promise<SecureResponse>, Parameters<typeof secureRequest>>
+    let mockRequest: jest.Mock<Promise<FetchResponse>, Parameters<typeof fetch>>
     const insertHogFunction = async (hogFunction: Partial<HogFunctionType>) => {
         const item = await _insertHogFunction(hub.postgres, team.id, {
             ...hogFunction,
@@ -117,7 +117,8 @@ describe('CdpCyclotronWorkerPlugins', () => {
 
             mockRequest.mockResolvedValue({
                 status: 200,
-                body: JSON.stringify({ total_count: 1 }),
+                json: () => Promise.resolve({ total_count: 1 }),
+                text: () => Promise.resolve(''),
                 headers: {},
             })
 

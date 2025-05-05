@@ -2,7 +2,7 @@ import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { RetryError } from '@posthog/plugin-scaffold'
 
 import { parseJSON } from '../../../../utils/json-parse'
-import type { SecureResponse } from '../../../../utils/request'
+import type { FetchResponse } from '../../../../utils/request'
 import { LegacyDestinationPluginMeta } from '../../types'
 
 const DEFAULT_HOST = 'track.customer.io'
@@ -60,9 +60,9 @@ async function callCustomerIoApi(
         headers['Content-Type'] = 'application/json'
         bodySerialized = JSON.stringify(body)
     }
-    let response: SecureResponse
+    let response: FetchResponse
     try {
-        response = await meta.request(`https://${host}${path}`, { method, headers, body: bodySerialized })
+        response = await meta.fetch(`https://${host}${path}`, { method, headers, body: bodySerialized })
     } catch (e) {
         throw new RetryError(`Cannot reach the Customer.io API. ${e}`)
     }

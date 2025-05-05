@@ -2,7 +2,7 @@ import { PluginEvent, ProcessedPluginEvent, RetryError, StorageExtension } from 
 import { DateTime } from 'luxon'
 import { Histogram } from 'prom-client'
 
-import { secureRequest, SecureResponse } from '~/src/utils/request'
+import { fetch, FetchResponse } from '~/src/utils/request'
 
 import { Hub } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
@@ -41,15 +41,15 @@ export type PluginState = {
 const pluginConfigCheckCache: Record<string, boolean> = {}
 
 export type LegacyPluginExecutorOptions = {
-    request?: (...args: Parameters<typeof secureRequest>) => Promise<SecureResponse>
+    fetch?: (...args: Parameters<typeof fetch>) => Promise<FetchResponse>
 }
 
 export class LegacyPluginExecutorService {
     constructor(private hub: Hub) {}
     private pluginState: Record<string, PluginState> = {}
 
-    public async request(...args: Parameters<typeof secureRequest>): Promise<SecureResponse> {
-        return secureRequest(...args)
+    public async fetch(...args: Parameters<typeof fetch>): Promise<FetchResponse> {
+        return fetch(...args)
     }
 
     private legacyStorage(teamId: number, pluginConfigId?: number | string): Pick<StorageExtension, 'get' | 'set'> {
@@ -193,7 +193,7 @@ export class LegacyPluginExecutorService {
                         setupPromise = plugin.setupPlugin({
                             ...meta,
                             // Setup receives the real fetch always
-                            request: this.request,
+                            fetch: this.fetch,
                             storage: this.legacyStorage(invocation.hogFunction.team_id, legacyPluginConfigId),
                         })
                     }
@@ -214,7 +214,7 @@ export class LegacyPluginExecutorService {
 
             const isTestFunction = invocation.hogFunction.name.includes(CDP_TEST_ID)
 
-            const request = async (...args: Parameters<typeof secureRequest>) => {
+            const request = async (...args: Parameters<typeof fetch>) => {
                 // TRICKY: We use the overridden fetch here if given as it is used by the comparer service
                 // Additionally we don't do real fetches for test functions
                 const method = args[1] && typeof args[1].method === 'string' ? args[1].method : 'GET'
@@ -237,14 +237,23 @@ export class LegacyPluginExecutorService {
                     await new Promise((resolve) => setTimeout(resolve, 200))
                     return {
                         status: 200,
-                        body: JSON.stringify({
-                            status: 'OK',
-                            message: 'Test function',
-                        }),
-                    } as SecureResponse
+                        headers: {},
+                        json: () =>
+                            Promise.resolve({
+                                status: 'OK',
+                                message: 'Test function',
+                            }),
+                        text: () =>
+                            Promise.resolve(
+                                JSON.stringify({
+                                    status: 'OK',
+                                    message: 'Test function',
+                                })
+                            ),
+                    } as FetchResponse
                 }
 
-                return (options?.request || this.request)(...args)
+                return (options?.fetch || this.fetch)(...args)
             }
 
             const start = performance.now()
@@ -278,7 +287,7 @@ export class LegacyPluginExecutorService {
                     ...state.meta,
                     // NOTE: We override logger and fetch here so we can track the calls
                     logger: pluginLogger,
-                    request,
+                    fetch: request,
                     storage: this.legacyStorage(invocation.hogFunction.team_id, legacyPluginConfigId),
                 })
 
