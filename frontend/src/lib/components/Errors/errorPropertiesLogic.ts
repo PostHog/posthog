@@ -34,38 +34,38 @@ export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
 
     selectors({
         properties: [
-            () => [(_, props) => props.properties as ErrorProperties],
-            (properties: ErrorProperties) => properties,
+            () => [(_, props) => props.properties as ErrorEventProperties],
+            (properties: ErrorEventProperties) => properties,
         ],
         exceptionAttributes: [
             (s) => [s.properties],
-            (properties: ErrorProperties) => (properties ? getExceptionAttributes(properties) : null),
+            (properties: ErrorEventProperties) => (properties ? getExceptionAttributes(properties) : null),
         ],
         exceptionList: [
             (s) => [s.properties],
-            (properties: ErrorProperties) => {
+            (properties: ErrorEventProperties) => {
                 return properties ? getExceptionList(properties) : []
             },
         ],
         timestamp: [
             (s) => [s.properties],
-            (properties: ErrorProperties) => {
+            (properties: ErrorEventProperties) => {
                 return properties ? dayjs(properties.timestamp as string) : null
             },
         ],
         additionalProperties: [
             (s) => [s.properties, s.isCloudOrDev],
-            (properties: ErrorProperties, isCloudOrDev: boolean | undefined) =>
+            (properties: ErrorEventProperties, isCloudOrDev: boolean | undefined) =>
                 properties ? getAdditionalProperties(properties, isCloudOrDev) : {},
         ],
         fingerprintRecords: [
             (s) => [s.properties],
-            (properties: ErrorProperties) => (properties ? getFingerprintRecords(properties) : []),
+            (properties: ErrorEventProperties) => (properties ? getFingerprintRecords(properties) : []),
         ],
         hasStacktrace: [(s) => [s.exceptionList], (excList: ErrorTrackingException[]) => hasStacktrace(excList)],
         sessionId: [
             (s) => [s.properties],
-            (properties: ErrorProperties) => (properties ? getSessionId(properties) : undefined),
+            (properties: ErrorEventProperties) => (properties ? getSessionId(properties) : undefined),
         ],
         getExceptionFingerprint: [
             (s) => [s.fingerprintRecords],

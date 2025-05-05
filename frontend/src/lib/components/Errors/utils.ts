@@ -1,7 +1,7 @@
 import { isPostHogProperty } from '~/taxonomy/taxonomy'
 
 import {
-    ErrorProperties,
+    ErrorEventProperties,
     ErrorTrackingException,
     ErrorTrackingRuntime,
     ExceptionAttributes,
@@ -98,7 +98,7 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
     }
 }
 
-export function getExceptionList(properties: ErrorProperties): ErrorTrackingException[] {
+export function getExceptionList(properties: ErrorEventProperties): ErrorTrackingException[] {
     const { $sentry_exception } = properties
     let exceptionList: ErrorTrackingException[] | undefined = properties.$exception_list
     // exception autocapture sets $exception_list for all exceptions.
@@ -111,13 +111,13 @@ export function getExceptionList(properties: ErrorProperties): ErrorTrackingExce
     return exceptionList || []
 }
 
-export function getFingerprintRecords(properties: ErrorProperties): FingerprintRecordPart[] {
+export function getFingerprintRecords(properties: ErrorEventProperties): FingerprintRecordPart[] {
     const { $fingerprint_records } = properties
     return $fingerprint_records || []
 }
 
 export function getAdditionalProperties(
-    properties: ErrorProperties,
+    properties: ErrorEventProperties,
     isCloudOrDev: boolean | undefined
 ): Record<string, unknown> {
     return Object.fromEntries(
@@ -127,6 +127,6 @@ export function getAdditionalProperties(
     )
 }
 
-export function getSessionId(properties: ErrorProperties): string | undefined {
+export function getSessionId(properties: ErrorEventProperties): string | undefined {
     return properties['$session_id'] as string | undefined
 }
