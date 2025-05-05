@@ -27,6 +27,8 @@ pub enum CaptureError {
 
     #[error("request holds no event")]
     EmptyBatch,
+    #[error("request missing data payload")]
+    EmptyPayload,
     #[error("event submitted with an empty event name")]
     MissingEventName,
     #[error("event submitted without a distinct_id")]
@@ -75,6 +77,7 @@ impl IntoResponse for CaptureError {
             CaptureError::RequestDecodingError(_)
             | CaptureError::RequestParsingError(_)
             | CaptureError::EmptyBatch
+            | CaptureError::EmptyPayload
             | CaptureError::MissingEventName
             | CaptureError::MissingDistinctId
             | CaptureError::InvalidCookielessMode
