@@ -47,12 +47,13 @@ struct LegacyEventForm {
         headers,
         method,
         path,
-        query_params,
         token,
         historical_migration,
         lib_version,
-        batch_size,
-        compression
+        compression,
+        params_lib_version,
+        params_compression,
+        batch_size
     )
 )]
 async fn handle_legacy(
@@ -64,9 +65,23 @@ async fn handle_legacy(
     path: &MatchedPath,
     body: Bytes,
 ) -> Result<(ProcessingContext, Vec<RawEvent>), CaptureError> {
-    info!("entering handle_legacy");
     Span::current().record("path", path.as_str());
+    Span::current().record("headers", format!("{:?}", headers));
+    if query_params.lib_version.is_some() {
+        Span::current().record(
+            "params_lib_version",
+            format!("{:?}", query_params.lib_version.as_ref()),
+        );
+    }
+    if query_params.compression.is_some() {
+        Span::current().record(
+            "params_compression",
+            format!("{}", query_params.compression.unwrap()),
+        );
+    }
+    info!("entering handle_legacy");
 
+    // extract from headers here for later capture in processing context
     let user_agent = headers
         .get("user-agent")
         .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
