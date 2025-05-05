@@ -45,6 +45,10 @@ func main() {
 	if parallelism == 0 {
 		parallelism = 1
 	}
+	corsAllowOrigins := viper.GetStringSlice("cors_allow_origins")
+	if len(corsAllowOrigins) == 0 {
+		corsAllowOrigins = []string{"*"}
+	}
 
 	geolocator, err := geo.NewMaxMindGeoLocator(mmdb)
 	if err != nil {
@@ -90,7 +94,7 @@ func main() {
 		echoprometheus.MiddlewareConfig{DoNotUseRequestPathFor404: true, Subsystem: "livestream"}))
 
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
-		AllowOrigins: []string{"*"},
+		AllowOrigins: corsAllowOrigins,
 		AllowMethods: []string{http.MethodGet, http.MethodHead},
 	}))
 
