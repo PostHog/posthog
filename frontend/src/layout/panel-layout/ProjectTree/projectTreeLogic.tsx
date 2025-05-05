@@ -1,7 +1,8 @@
 import { IconPlus } from '@posthog/icons'
-import { lemonToast, Spinner } from '@posthog/lemon-ui'
+import { lemonToast, Link, ProfilePicture, Spinner } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
@@ -14,7 +15,7 @@ import { urls } from 'scenes/urls'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
-import { Breadcrumb, ProjectTreeBreadcrumb, ProjectTreeRef } from '~/types'
+import { Breadcrumb, ProjectTreeBreadcrumb, ProjectTreeRef, UserBasicType } from '~/types'
 
 import { panelLayoutLogic } from '../panelLayoutLogic'
 import { getDefaultTreeExplore, getDefaultTreeNew } from './defaultTree'
@@ -58,11 +59,11 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             featureFlagLogic,
             ['featureFlags'],
             panelLayoutLogic,
-            ['searchTerm'],
+            ['searchTerm', 'projectTreeMode'],
             breadcrumbsLogic,
             ['projectTreeRef', 'appBreadcrumbs', 'sceneBreadcrumbs'],
         ],
-        actions: [panelLayoutLogic, ['setSearchTerm']],
+        actions: [panelLayoutLogic, ['setSearchTerm', 'setProjectTreeMode']],
     })),
     actions({
         loadUnfiledItems: true,
@@ -121,6 +122,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         setSortMethod: (sortMethod: ProjectTreeSortMethod) => ({ sortMethod }),
         setSelectMode: (selectMode: LemonTreeSelectMode) => ({ selectMode }),
         setTreeTableColumnSizes: (sizes: number[]) => ({ sizes }),
+        addUsers: (users: UserBasicType[]) => ({ users }),
     }),
     loaders(({ actions, values }) => ({
         unfiledItems: [
@@ -159,7 +161,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                             : []),
                         ...response.results.slice(0, PAGINATION_LIMIT),
                     ]
-
+                    if (response.users?.length > 0) {
+                        actions.addUsers(response.users)
+                    }
                     return {
                         searchTerm,
                         results: values.sortMethod === 'recent' ? results : results.sort(sortFilesAndFolders),
@@ -189,7 +193,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     const returnedResults = response.results.slice(0, PAGINATION_LIMIT)
                     const hasMore = response.results.length > PAGINATION_LIMIT
                     breakpoint()
-
                     const seenIds = new Set()
                     const results = [...values.recentResults.results, ...returnedResults]
                         .filter((item) => {
@@ -202,6 +205,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         .sort((a, b) => {
                             return new Date(b.created_at ?? '').getTime() - new Date(a.created_at ?? '').getTime()
                         })
+                    if (response.users?.length > 0) {
+                        actions.addUsers(response.users)
+                    }
                     return {
                         results,
                         hasMore,
@@ -485,6 +491,21 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 },
             },
         ],
+        users: [
+            {} as Record<string, UserBasicType>,
+            {
+                addUsers: (state, { users }) => {
+                    if (!users || users.length === 0) {
+                        return state
+                    }
+                    const newState = { ...state }
+                    for (const user of users) {
+                        newState[user.id] = user
+                    }
+                    return newState
+                },
+            },
+        ],
         lastNewFolder: [
             null as string | null,
             {
@@ -586,7 +607,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             },
         ],
         treeTableColumnSizes: [
-            [350, 200, 200] as number[],
+            [350, 200, 200, 200] as number[],
             { persist: true },
             {
                 setTreeTableColumnSizes: (_, { sizes }) => sizes,
@@ -735,18 +756,19 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
         pendingActionsCount: [(s) => [s.pendingActions], (pendingActions): number => pendingActions.length],
         projectTree: [
-            (s) => [s.viableItems, s.folderStates, s.checkedItems],
-            (viableItems, folderStates, checkedItems): TreeDataItem[] =>
+            (s) => [s.viableItems, s.folderStates, s.checkedItems, s.users],
+            (viableItems, folderStates, checkedItems, users): TreeDataItem[] =>
                 convertFileSystemEntryToTreeDataItem({
                     imports: viableItems,
                     folderStates,
                     checkedItems,
                     root: 'project',
+                    users,
                 }),
         ],
         projectTreeOnlyFolders: [
-            (s) => [s.viableItems, s.folderStates, s.checkedItems],
-            (viableItems, folderStates, checkedItems): TreeDataItem[] => [
+            (s) => [s.viableItems, s.folderStates, s.checkedItems, s.users],
+            (viableItems, folderStates, checkedItems, users): TreeDataItem[] => [
                 {
                     id: '/',
                     name: '/',
@@ -758,6 +780,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         checkedItems,
                         root: 'project',
                         disabledReason: (item) => (item.type !== 'folder' ? 'Only folders can be selected' : undefined),
+                        users,
                     }),
                 },
             ],
@@ -789,8 +812,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             },
         ],
         treeItemsNew: [
-            (s) => [s.featureFlags, s.folderStates],
-            (featureFlags, folderStates): TreeDataItem[] =>
+            (s) => [s.featureFlags, s.folderStates, s.users],
+            (featureFlags, folderStates, users): TreeDataItem[] =>
                 convertFileSystemEntryToTreeDataItem({
                     imports: getDefaultTreeNew().filter(
                         (f) => !f.flag || (featureFlags as Record<string, boolean>)[f.flag]
@@ -798,11 +821,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     checkedItems: {},
                     folderStates,
                     root: 'new',
+                    users,
                 }),
         ],
         treeItemsExplore: [
-            (s) => [s.featureFlags, s.groupNodes, s.folderStates],
-            (featureFlags, groupNodes: FileSystemImport[], folderStates): TreeDataItem[] =>
+            (s) => [s.featureFlags, s.groupNodes, s.folderStates, s.users],
+            (featureFlags, groupNodes: FileSystemImport[], folderStates, users): TreeDataItem[] =>
                 convertFileSystemEntryToTreeDataItem({
                     imports: getDefaultTreeExplore(groupNodes).filter(
                         (f) => !f.flag || (featureFlags as Record<string, boolean>)[f.flag]
@@ -810,11 +834,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     checkedItems: {},
                     folderStates,
                     root: 'explore',
+                    users,
                 }),
         ],
         recentTreeItems: [
-            (s) => [s.recentResults, s.recentResultsLoading, s.folderStates, s.checkedItems],
-            (recentResults, recentResultsLoading, folderStates, checkedItems): TreeDataItem[] => {
+            (s) => [s.recentResults, s.recentResultsLoading, s.folderStates, s.checkedItems, s.users],
+            (recentResults, recentResultsLoading, folderStates, checkedItems, users): TreeDataItem[] => {
                 const results = convertFileSystemEntryToTreeDataItem({
                     imports: recentResults.results,
                     folderStates,
@@ -822,6 +847,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     root: 'project',
                     disableFolderSelect: true,
                     recent: true,
+                    users,
                 })
                 if (recentResultsLoading) {
                     results.push({
@@ -843,8 +869,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             },
         ],
         searchedTreeItems: [
-            (s) => [s.searchResults, s.searchResultsLoading, s.folderStates, s.checkedItems, s.sortMethod],
-            (searchResults, searchResultsLoading, folderStates, checkedItems, sortMethod): TreeDataItem[] => {
+            (s) => [s.searchResults, s.searchResultsLoading, s.folderStates, s.checkedItems, s.sortMethod, s.users],
+            (searchResults, searchResultsLoading, folderStates, checkedItems, sortMethod, users): TreeDataItem[] => {
                 const results = convertFileSystemEntryToTreeDataItem({
                     imports: searchResults.results,
                     folderStates,
@@ -853,6 +879,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     searchTerm: searchResults.searchTerm,
                     disableFolderSelect: true,
                     recent: sortMethod === 'recent',
+                    users,
                 })
                 if (searchResultsLoading) {
                     results.push({
@@ -900,8 +927,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
         // TODO: use treeData + some other logic to determine the keys
         treeTableKeys: [
-            (s) => [s.treeTableColumnSizes, s.treeTableColumnOffsets, s.sortMethod],
-            (sizes, offsets, sortMethod): TreeTableViewKeys => ({
+            (s) => [s.treeTableColumnSizes, s.treeTableColumnOffsets, s.sortMethod, s.users, s.projectTreeMode],
+            (sizes, offsets, sortMethod, users, projectTreeMode): TreeTableViewKeys => ({
                 headers: [
                     {
                         key: 'name',
@@ -911,17 +938,47 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         offset: offsets[0],
                     },
                     {
-                        key: 'record.created_at',
+                        key: 'record.meta.created_at',
                         title: 'Created at',
-                        formatFunction: (value: string) => dayjs(value).format('MMM D, YYYY'),
-                        tooltip: (value: string) => dayjs(value).format('MMM D, YYYY HH:mm:ss'),
+                        formatComponent: (created_at) =>
+                            created_at ? (
+                                <span className="text-muted text-xs">{dayjs(created_at).fromNow()}</span>
+                            ) : (
+                                '-'
+                            ),
+                        formatString: (created_at) => (created_at ? dayjs(created_at).fromNow() : '-'),
+                        tooltip: (created_at) => (created_at ? dayjs(created_at).format('MMM D, YYYY HH:mm:ss') : ''),
                         width: sizes[1],
                         offset: offsets[1],
                     },
                     {
-                        key: 'record.created_by.first_name',
+                        key: 'record.meta.created_by',
                         title: 'Created by',
-                        tooltip: (value: string) => value,
+                        formatComponent: (created_by) =>
+                            created_by && users[created_by] ? (
+                                <Link
+                                    to={urls.personByDistinctId(users[created_by].distinct_id)}
+                                    onClick={(e) => {
+                                        e.preventDefault()
+                                        e.stopPropagation()
+                                        router.actions.push(urls.personByDistinctId(users[created_by].distinct_id))
+                                        if (projectTreeMode === 'table') {
+                                            projectTreeLogic.actions.setProjectTreeMode('tree')
+                                        }
+                                    }}
+                                >
+                                    <ProfilePicture user={users[created_by]} size="sm" className="mr-1" />
+                                    <span>
+                                        {users[created_by].first_name} {users[created_by].last_name}
+                                    </span>
+                                </Link>
+                            ) : (
+                                '-'
+                            ),
+                        formatString: (created_by) =>
+                            created_by && users[created_by]
+                                ? `${users[created_by].first_name} ${users[created_by].last_name}`
+                                : '-',
                         width: sizes[2],
                         offset: offsets[2],
                     },
@@ -930,9 +987,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                               {
                                   key: 'record.path',
                                   title: 'Path',
-                                  formatFunction: (value: string) => value,
+                                  formatString: (value: string) => value,
                                   tooltip: (value: string) => value,
-                                  width: sizes[3],
+                                  width: sizes[3] || 200,
                                   offset: offsets[3],
                               },
                           ]
@@ -1055,6 +1112,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 const previousUniqueFiles = previousFiles.filter(
                     (prevFile) => !fileIds.has(prevFile.id) && prevFile.path !== folder
                 )
+                if (response.users?.length > 0) {
+                    actions.addUsers(response.users)
+                }
                 actions.loadFolderSuccess(folder, [...previousUniqueFiles, ...files], hasMore, files.length)
             } catch (error) {
                 actions.loadFolderFailure(folder, String(error))
@@ -1430,6 +1490,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                             : { ref: projectTreeRef.ref, type: projectTreeRef.type }
                     )
                     breakpoint() // bail if we opened some other item in the meanwhile
+                    if (resp.users?.length > 0) {
+                        actions.addUsers(resp.users)
+                    }
                     if (resp.results && resp.results.length > 0) {
                         const result = resp.results[0]
                         path = result.path
@@ -1449,6 +1512,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             const items = await (type.endsWith('/')
                 ? api.fileSystem.list({ type__startswith: type, ref })
                 : api.fileSystem.list({ type, ref }))
+            if (items.users?.length > 0) {
+                actions.addUsers(items.users)
+            }
             actions.updateSyncedFiles(items.results)
         },
         setLastNewFolder: ({ folder }) => {
