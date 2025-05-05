@@ -3,18 +3,21 @@ from zoneinfo import ZoneInfo
 
 from django.db.models import F
 
-from posthog.warehouse.models import ExternalDataJob
 from posthog.warehouse.types import IncrementalFieldType
 from posthog.warehouse.util import database_sync_to_async
 
 
 @database_sync_to_async
 def aget_external_data_job(team_id, job_id):
+    from posthog.warehouse.models import ExternalDataJob
+
     return ExternalDataJob.objects.get(id=job_id, team_id=team_id)
 
 
 @database_sync_to_async
 def aupdate_job_count(job_id: str, team_id: int, count: int):
+    from posthog.warehouse.models import ExternalDataJob
+
     ExternalDataJob.objects.filter(id=job_id, team_id=team_id).update(rows_synced=F("rows_synced") + count)
 
 

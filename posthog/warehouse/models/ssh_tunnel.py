@@ -1,10 +1,14 @@
 import dataclasses
+import typing
 from io import StringIO
 from typing import IO, Literal
-from sshtunnel import SSHTunnelForwarder
-from paramiko import RSAKey, Ed25519Key, ECDSAKey, DSSKey, PKey
+
 from cryptography.hazmat.primitives import serialization as crypto_serialization
-from cryptography.hazmat.primitives.asymmetric import ed25519, dsa, rsa, ec
+from cryptography.hazmat.primitives.asymmetric import dsa, ec, ed25519, rsa
+from paramiko import DSSKey, ECDSAKey, Ed25519Key, PKey, RSAKey
+from sshtunnel import SSHTunnelForwarder
+
+from posthog.temporal.data_imports.pipelines.source import config
 
 
 # Taken from https://stackoverflow.com/questions/60660919/paramiko-ssh-client-is-unable-to-unpack-ed25519-key
@@ -48,6 +52,25 @@ def from_private_key(file_obj: IO[str], passphrase: str | None = None) -> PKey:
     return private_key
 
 
+@config.config(prefix="auth_type")
+class SSHTunnelAuthConfig(config.Config):
+    """Configuration for SSH tunnel authentication."""
+
+    type: Literal["password", "keypair"] = config.value(alias="ssh_tunnel_auth_type", prefix="")
+    password: str | None = None
+    passphrase: str | None = None
+    private_key: str | None = None
+    username: str | None = None
+
+
+@config.config
+class SSHTunnelConfig(config.Config):
+    host: str
+    port: int
+    auth: SSHTunnelAuthConfig
+    enabled: bool = config.value(converter=config.str_to_bool, default=False)
+
+
 @dataclasses.dataclass
 class SSHTunnel:
     enabled: bool
@@ -59,6 +82,19 @@ class SSHTunnel:
     password: str | None
     private_key: str | None
     passphrase: str | None
+
+    @classmethod
+    def from_config(cls: type[typing.Self], config: SSHTunnelConfig) -> typing.Self:
+        return cls(
+            enabled=config.enabled,
+            host=config.host,
+            port=config.port,
+            auth_type=config.auth.type,
+            username=config.auth.username,
+            password=config.auth.password,
+            private_key=config.auth.private_key,
+            passphrase=config.auth.passphrase,
+        )
 
     def parse_private_key(self) -> PKey:
         if self.passphrase is None:
