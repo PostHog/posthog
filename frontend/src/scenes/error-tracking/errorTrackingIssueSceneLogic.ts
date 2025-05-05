@@ -21,7 +21,7 @@ import { ActivityScope, Breadcrumb } from '~/types'
 import { errorFiltersLogic } from './components/ErrorFilters/errorFiltersLogic'
 import type { errorTrackingIssueSceneLogicType } from './errorTrackingIssueSceneLogicType'
 import { errorTrackingIssueEventsQuery, errorTrackingIssueQuery } from './queries'
-import { resolveDateRange } from './utils'
+import { ERROR_TRACKING_DETAILS_RESOLUTION, resolveDateRange } from './utils'
 
 export interface ErrorTrackingIssueSceneLogicProps {
     id: ErrorTrackingIssue['id']
@@ -54,7 +54,6 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         issue: null as ErrorTrackingRelationalIssue | null,
         summary: null as ErrorTrackingIssueSummary | null,
         properties: null as ErrorEventProperties | null,
-        volumeResolution: 50,
         lastSeen: null as Dayjs | null,
     }),
 
@@ -69,9 +68,6 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             },
         },
         summary: {},
-        volumeResolution: {
-            setVolumeResolution: (_, { volumeResolution }: { volumeResolution: number }) => volumeResolution,
-        },
         lastSeen: {
             setLastSeen: (prevLastSeen, { lastSeen }) => {
                 if (!prevLastSeen || prevLastSeen.isBefore(lastSeen)) {
@@ -164,7 +160,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                         filterTestAccounts: values.filterTestAccounts,
                         filterGroup: values.filterGroup,
                         searchQuery: values.searchQuery,
-                        volumeResolution: values.volumeResolution,
+                        volumeResolution: ERROR_TRACKING_DETAILS_RESOLUTION,
                     }),
                     {},
                     undefined,

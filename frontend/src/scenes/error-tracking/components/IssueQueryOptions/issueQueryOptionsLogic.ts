@@ -57,7 +57,6 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
                 setStatus: (_, { status }) => status,
             },
         ],
-        volumeResolution: [20],
     }),
 
     actionToUrl(({ values }) => {

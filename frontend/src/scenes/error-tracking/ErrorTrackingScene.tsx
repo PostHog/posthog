@@ -29,6 +29,7 @@ import { ErrorTrackingListOptions } from './ErrorTrackingListOptions'
 import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
 import { useSparklineData } from './hooks/use-sparkline-data'
 import { OccurrenceSparkline } from './OccurrenceSparkline'
+import { ERROR_TRACKING_LISTING_RESOLUTION } from './utils'
 
 export const scene: SceneExport = {
     component: ErrorTrackingScene,
@@ -79,9 +80,9 @@ export function ErrorTrackingScene(): JSX.Element {
 }
 
 const VolumeColumn: QueryContextColumnComponent = (props) => {
-    const { dateRange, volumeResolution } = useValues(errorTrackingSceneLogic)
+    const { dateRange } = useValues(errorTrackingSceneLogic)
     const record = props.record as ErrorTrackingIssue
-    const data = useSparklineData(record.aggregations.volumeRange, dateRange, volumeResolution)
+    const data = useSparklineData(record.aggregations.volumeRange, dateRange, ERROR_TRACKING_LISTING_RESOLUTION)
     return (
         <div className="flex justify-end">
             <OccurrenceSparkline className="h-8" data={data} displayXAxis={false} />

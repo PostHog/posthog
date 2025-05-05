@@ -8,6 +8,7 @@ import { issueActionsLogic } from './components/IssueActions/issueActionsLogic'
 import { issueQueryOptionsLogic } from './components/IssueQueryOptions/issueQueryOptionsLogic'
 import type { errorTrackingSceneLogicType } from './errorTrackingSceneLogicType'
 import { errorTrackingQuery } from './queries'
+import { ERROR_TRACKING_LISTING_RESOLUTION } from './utils'
 
 export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
     path(['scenes', 'error-tracking', 'errorTrackingSceneLogic']),
@@ -17,7 +18,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
             errorFiltersLogic,
             ['dateRange', 'filterTestAccounts', 'filterGroup', 'searchQuery'],
             issueQueryOptionsLogic,
-            ['assignee', 'orderBy', 'orderDirection', 'status', 'volumeResolution'],
+            ['assignee', 'orderBy', 'orderDirection', 'status'],
         ],
         actions: [issueActionsLogic, ['mutationSuccess', 'mutationFailure']],
     })),
@@ -46,7 +47,6 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 s.filterGroup,
                 s.searchQuery,
                 s.orderDirection,
-                s.volumeResolution,
             ],
             (
                 orderBy,
@@ -56,8 +56,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 filterTestAccounts,
                 filterGroup,
                 searchQuery,
-                orderDirection,
-                volumeResolution
+                orderDirection
             ): DataTableNode =>
                 errorTrackingQuery({
                     orderBy,
@@ -66,7 +65,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                     assignee,
                     filterTestAccounts,
                     filterGroup,
-                    volumeResolution,
+                    volumeResolution: ERROR_TRACKING_LISTING_RESOLUTION,
                     searchQuery,
                     columns: ['error', 'volume', 'occurrences', 'sessions', 'users'],
                     orderDirection,

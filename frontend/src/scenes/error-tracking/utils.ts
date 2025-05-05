@@ -10,6 +10,9 @@ import { Params } from 'scenes/sceneTypes'
 import { DateRange, ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
 export const ERROR_TRACKING_LOGIC_KEY = 'errorTracking'
+export const ERROR_TRACKING_LISTING_RESOLUTION = 20
+export const ERROR_TRACKING_DETAILS_RESOLUTION = 50
+
 const THIRD_PARTY_SCRIPT_ERROR = 'Script error.'
 
 export const SEARCHABLE_EXCEPTION_PROPERTIES = [
