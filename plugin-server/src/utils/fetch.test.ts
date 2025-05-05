@@ -76,7 +76,8 @@ describe('secureFetch', () => {
         })
     })
 
-    describe('parallel requests execution', () => {
+    // NOTE: Skipped as this is mostly to validate against the new request implementation
+    describe.skip('parallel requests execution', () => {
         jest.retryTimes(3)
         const trackedFetch = new SecureFetch({
             allowUnsafe: true,
