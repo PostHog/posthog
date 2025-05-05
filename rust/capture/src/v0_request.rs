@@ -7,7 +7,7 @@ use flate2::read::GzDecoder;
 use serde::Deserialize;
 use time::format_description::well_known::Iso8601;
 use time::OffsetDateTime;
-use tracing::{error, instrument};
+use tracing::{debug, error, instrument};
 
 use crate::{
     api::CaptureError, prometheus::report_dropped_events, token::validate_token,
@@ -112,7 +112,12 @@ impl RawRequest {
         limit: usize,
         is_mirror_deploy: bool,
     ) -> Result<RawRequest, CaptureError> {
-        tracing::debug!(len = bytes.len(), "decoding new event");
+        debug!(
+            len = bytes.len(),
+            is_mirror_deploy = is_mirror_deploy,
+            cmp_hint = cmp_hint.to_string(),
+            "decoding new event"
+        );
 
         let payload = if (is_mirror_deploy && cmp_hint == Compression::Gzip)
             || bytes.starts_with(&GZIP_MAGIC_NUMBERS)
@@ -136,7 +141,7 @@ impl RawRequest {
                 }
                 buf.extend_from_slice(&chunk[..got]);
                 if buf.len() > limit {
-                    tracing::error!("from_bytes: GZIP decompression limit reached");
+                    error!("from_bytes: GZIP decompression limit reached");
                     report_dropped_events("event_too_big", 1);
                     return Err(CaptureError::EventTooBig(format!(
                         "Event or batch exceeded {} during unzipping",
@@ -147,7 +152,7 @@ impl RawRequest {
             match String::from_utf8(buf) {
                 Ok(s) => s,
                 Err(e) => {
-                    tracing::error!("from_bytes: failed to decode gzip: {}", e);
+                    error!("from_bytes: failed to decode gzip: {}", e);
                     return Err(CaptureError::RequestDecodingError(String::from(
                         "invalid gzip data",
                     )));
@@ -157,14 +162,14 @@ impl RawRequest {
             decompress_lz64(&bytes, limit)?
         } else {
             let s = String::from_utf8(bytes.into()).map_err(|e| {
-                tracing::error!(
+                error!(
                     "from_bytes: failed to convert request payload to UTF8: {}",
                     e
                 );
                 CaptureError::RequestDecodingError(String::from("invalid UTF8 in request payload"))
             })?;
             if s.len() > limit {
-                tracing::error!("from_bytes: request size limit reached");
+                error!("from_bytes: request size limit reached");
                 report_dropped_events("event_too_big", 1);
                 return Err(CaptureError::EventTooBig(format!(
                     "Event or batch wasn't compressed, size exceeded {}",
