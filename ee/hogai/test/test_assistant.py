@@ -1185,5 +1185,58 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.conversation.refresh_from_db()
         # Verify the title has been set
         self.assertEqual(self.conversation.title, "Generated Conversation Title")
+        assert self.conversation.updated_at is not None
+        assert initial_updated_at is not None
         self.assertGreater(self.conversation.updated_at, initial_updated_at)
         self.assertEqual(self.conversation.created_at, initial_created_at)
+
+    def test_merges_messages_with_same_id(self):
+        """Test that messages with the same ID are merged into one."""
+        message_id = str(uuid4())
+
+        # Create a simple graph that will return messages with the same ID but different content
+        first_content = "First version of message"
+        updated_content = "Updated version of message"
+
+        class MessageUpdatingNode:
+            def __init__(self):
+                self.call_count = 0
+
+            def __call__(self, state):
+                self.call_count += 1
+                content = first_content if self.call_count == 1 else updated_content
+                return {"messages": [AssistantMessage(id=message_id, content=content)]}
+
+        updater = MessageUpdatingNode()
+        graph = (
+            AssistantGraph(self.team)
+            .add_node(AssistantNodeName.ROOT, updater)
+            .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
+            .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
+            .compile()
+        )
+        config = {"configurable": {"thread_id": self.conversation.id}}
+
+        # First run should add the message with initial content
+        output = self._run_assistant_graph(graph, conversation=self.conversation)
+        self.assertEqual(len(output), 2)  # Human message + AI message
+        self.assertEqual(output[1][1]["id"], message_id)
+        self.assertEqual(output[1][1]["content"], first_content)
+
+        # Second run should update the message with new content
+        output = self._run_assistant_graph(graph, conversation=self.conversation)
+        self.assertEqual(len(output), 2)  # Human message + AI message
+        self.assertEqual(output[1][1]["id"], message_id)
+        self.assertEqual(output[1][1]["content"], updated_content)
+
+        # Verify the message was actually replaced, not duplicated
+        messages = graph.get_state(config).values["messages"]
+
+        # Count messages with our test ID
+        messages_with_id = [msg for msg in messages if msg.id == message_id]
+        self.assertEqual(len(messages_with_id), 1, "There should be exactly one message with the test ID")
+        self.assertEqual(
+            messages_with_id[0].content,
+            updated_content,
+            "The merged message should have the content of the last message",
+        )

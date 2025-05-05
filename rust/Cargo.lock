@@ -1047,6 +1047,7 @@ dependencies = [
  "health",
  "httpmock",
  "rayon",
+ "rdkafka",
  "reqwest 0.12.3",
  "serde",
  "serde_json",
@@ -1428,6 +1429,17 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+]
+
+[[package]]
+name = "common-database"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "sqlx",
+ "thiserror 1.0.69",
+ "tokio",
 ]
 
 [[package]]
@@ -2226,7 +2238,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "assert-json-diff",
- "async-trait",
  "axum 0.7.5",
  "axum-client-ip",
  "base64 0.22.0",
@@ -2234,6 +2245,7 @@ dependencies = [
  "chrono",
  "common-alloc",
  "common-cookieless",
+ "common-database",
  "common-geoip",
  "common-metrics",
  "common-redis",

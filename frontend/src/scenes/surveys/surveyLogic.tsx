@@ -4,6 +4,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { openSaveToModal } from 'lib/components/SaveTo/saveToLogic'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
 import { allOperatorsMapping, debounce, hasFormErrors, isObject } from 'lib/utils'
@@ -29,6 +30,7 @@ import {
     RatingSurveyQuestion,
     Survey,
     SurveyEventName,
+    SurveyEventProperties,
     SurveyEventStats,
     SurveyMatchType,
     SurveyQuestionBase,
@@ -380,7 +382,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         FROM events
                         WHERE team_id = ${teamLogic.values.currentTeamId}
                             AND event IN ('${SurveyEventName.SHOWN}', '${SurveyEventName.DISMISSED}', '${SurveyEventName.SENT}')
-                            AND properties.$survey_id = '${props.id}'
+                            AND properties.${SurveyEventProperties.SURVEY_ID} = '${props.id}'
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
                             AND {filters} -- Apply property filters here to the main query
@@ -438,7 +440,7 @@ export const surveyLogic = kea<surveyLogicType>([
                             FROM events
                             WHERE team_id = ${teamLogic.values.currentTeamId}
                               AND event IN ('${SurveyEventName.DISMISSED}', '${SurveyEventName.SENT}')
-                              AND properties.$survey_id = '${props.id}'
+                              AND properties.${SurveyEventProperties.SURVEY_ID} = '${props.id}'
                               AND timestamp >= '${startDate}'
                               AND timestamp <= '${endDate}'
                               AND (
@@ -485,8 +487,8 @@ export const surveyLogic = kea<surveyLogicType>([
                             getSurveyResponse(${questionIndex}, '${question?.id}') AS survey_response,
                             COUNT(survey_response)
                         FROM events
-                        WHERE event = 'survey sent'
-                            AND properties.$survey_id = '${props.id}'
+                        WHERE event = '${SurveyEventName.SENT}'
+                            AND properties.${SurveyEventProperties.SURVEY_ID} = '${props.id}'
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
                             ${values.answerFilterHogQLExpression}
@@ -537,12 +539,12 @@ export const surveyLogic = kea<surveyLogicType>([
                     query: `
                         -- QUERYING NPS RECURRING RESPONSES
                         SELECT
-                            JSONExtractString(properties, '$survey_iteration') AS survey_iteration,
+                            JSONExtractString(properties, '${SurveyEventProperties.SURVEY_ITERATION}') AS survey_iteration,
                             getSurveyResponse(${questionIndex}, '${question?.id}') AS survey_response,
                             COUNT(survey_response)
                         FROM events
-                        WHERE event = 'survey sent'
-                            AND properties.$survey_id = '${survey.id}'
+                        WHERE event = '${SurveyEventName.SENT}'
+                            AND properties.${SurveyEventProperties.SURVEY_ID} = '${survey.id}'
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
                             ${values.answerFilterHogQLExpression}
@@ -626,8 +628,8 @@ export const surveyLogic = kea<surveyLogicType>([
                             getSurveyResponse(${questionIndex}, '${question?.id}') AS survey_response,
                             COUNT(survey_response)
                         FROM events
-                        WHERE event = 'survey sent'
-                            AND properties.$survey_id = '${props.id}'
+                        WHERE event = '${SurveyEventName.SENT}'
+                            AND properties.${SurveyEventProperties.SURVEY_ID} = '${props.id}'
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
                             ${values.answerFilterHogQLExpression}
@@ -677,8 +679,8 @@ export const surveyLogic = kea<surveyLogicType>([
                                 getSurveyResponse(${questionIndex}, '${question?.id}', true)
                             ) AS choice
                         FROM events
-                        WHERE event == 'survey sent'
-                            AND properties.$survey_id == '${survey.id}'
+                        WHERE event == '${SurveyEventName.SENT}'
+                            AND properties.${SurveyEventProperties.SURVEY_ID} == '${survey.id}'
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
                             ${values.answerFilterHogQLExpression}
@@ -746,8 +748,8 @@ export const surveyLogic = kea<surveyLogicType>([
                         -- QUERYING OPEN TEXT RESPONSES
                         SELECT distinct_id, properties, person.properties
                         FROM events
-                        WHERE event == 'survey sent'
-                            AND properties.$survey_id == '${survey.id}'
+                        WHERE event == '${SurveyEventName.SENT}'
+                            AND properties.${SurveyEventProperties.SURVEY_ID} == '${survey.id}'
                             AND ${responseCondition}
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
@@ -1372,7 +1374,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         properties: [
                             {
                                 type: PropertyFilterType.Event,
-                                key: '$survey_id',
+                                key: SurveyEventProperties.SURVEY_ID,
                                 operator: PropertyOperator.Exact,
                                 value: survey.id,
                             },
@@ -1593,7 +1595,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         kind: NodeKind.TrendsQuery,
                         properties: [
                             {
-                                key: '$survey_id',
+                                key: SurveyEventProperties.SURVEY_ID,
                                 value: survey.id,
                                 operator: PropertyOperator.Exact,
                                 type: PropertyFilterType.Event,
@@ -1602,20 +1604,20 @@ export const surveyLogic = kea<surveyLogicType>([
                         series: [
                             {
                                 kind: NodeKind.EventsNode,
-                                event: 'survey sent',
-                                name: 'survey sent',
+                                event: SurveyEventName.SENT,
+                                name: SurveyEventName.SENT,
                                 math: BaseMathType.TotalCount,
                             },
                             {
                                 kind: NodeKind.EventsNode,
-                                event: 'survey shown',
-                                name: 'survey shown',
+                                event: SurveyEventName.SHOWN,
+                                name: SurveyEventName.SHOWN,
                                 math: BaseMathType.TotalCount,
                             },
                             {
                                 kind: NodeKind.EventsNode,
-                                event: 'survey dismissed',
-                                name: 'survey dismissed',
+                                event: SurveyEventName.DISMISSED,
+                                name: SurveyEventName.DISMISSED,
                                 math: BaseMathType.TotalCount,
                             },
                         ],
@@ -1867,7 +1869,18 @@ export const surveyLogic = kea<surveyLogicType>([
                 if (props.id && props.id !== 'new') {
                     actions.updateSurvey(payload)
                 } else {
-                    actions.createSurvey(payload)
+                    openSaveToModal({
+                        defaultFolder: 'Unfiled/Surveys',
+                        callback: (folder) =>
+                            actions.createSurvey(
+                                typeof folder === 'string'
+                                    ? {
+                                          ...payload,
+                                          _create_in_folder: folder,
+                                      }
+                                    : payload
+                            ),
+                    })
                 }
             },
         },

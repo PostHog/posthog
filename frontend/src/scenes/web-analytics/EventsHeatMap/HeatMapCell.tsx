@@ -40,10 +40,10 @@ export function getBackgroundAndTextColor({
     let backgroundColorSaturation =
         values.maxValue === 0 ? 0 : Math.max(Math.min(0.8, values.value / values.maxValue), 0.3)
 
-    if (values.value === values.maxValue) {
-        backgroundColorSaturation = 1
-    } else if (values.value === values.minValue) {
+    if (values.value <= values.minValue) {
         backgroundColorSaturation = 0.1
+    } else if (values.value >= values.maxValue) {
+        backgroundColorSaturation = 1
     }
 
     const saturatedBackgroundColor = gradateColor(backgroundColor, backgroundColorSaturation, 0.1)

@@ -1,5 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 
+import { MeasuringPersonsStoreForDistinctIdBatch } from '~/src/worker/ingestion/persons/measuring-person-store'
+
 import { Hub, LogLevel } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { UUIDT } from '../../src/utils/utils'
@@ -59,7 +61,14 @@ describe('events dead letter queue', () => {
 
     test('events get sent to dead letter queue on error', async () => {
         const event = createEvent()
-        const ingestResponse1 = await new EventPipelineRunner(hub, event).runEventPipeline(event)
+        const personsStoreForDistinctId = new MeasuringPersonsStoreForDistinctIdBatch(hub.db, 'test', 'distinct_id')
+        const ingestResponse1 = await new EventPipelineRunner(
+            hub,
+            event,
+            null,
+            [],
+            personsStoreForDistinctId
+        ).runEventPipeline(event)
         expect(ingestResponse1).toEqual({
             lastStep: 'prepareEventStep',
             error: 'database unavailable',

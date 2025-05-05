@@ -425,7 +425,9 @@
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
-         AND "posthog_filesystem"."type" = 'cohort')
+         AND "posthog_filesystem"."type" = 'cohort'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.13
@@ -639,7 +641,9 @@
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
-         AND "posthog_filesystem"."type" = 'cohort')
+         AND "posthog_filesystem"."type" = 'cohort'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.8
@@ -875,7 +879,9 @@
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
-         AND "posthog_filesystem"."type" = 'cohort')
+         AND "posthog_filesystem"."type" = 'cohort'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too.14
@@ -1339,7 +1345,9 @@
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
-         AND "posthog_filesystem"."type" = 'cohort')
+         AND "posthog_filesystem"."type" = 'cohort'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.18
@@ -1574,7 +1582,9 @@
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
-         AND "posthog_filesystem"."type" = 'cohort')
+         AND "posthog_filesystem"."type" = 'cohort'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.9
@@ -1720,7 +1730,9 @@
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
-         AND "posthog_filesystem"."type" = 'cohort')
+         AND "posthog_filesystem"."type" = 'cohort'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_experience_continuity_flag.12
@@ -2280,7 +2292,9 @@
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
-         AND "posthog_filesystem"."type" = 'cohort')
+         AND "posthog_filesystem"."type" = 'cohort'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
 # name: TestFeatureFlag.test_creating_static_cohort.2
@@ -2803,7 +2817,9 @@
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
-         AND "posthog_filesystem"."type" = 'cohort')
+         AND "posthog_filesystem"."type" = 'cohort'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
 # name: TestResiliency.test_feature_flags_v3_with_a_working_slow_db
