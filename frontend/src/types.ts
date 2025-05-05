@@ -1332,9 +1332,7 @@ export interface CommonActorType {
 
 export interface PersonActorType extends CommonActorType {
     type: 'person'
-    /** Serial ID (NOT UUID). */
-    id: number
-    uuid: string
+    id: string
     name?: string
     distinct_ids: string[]
     is_identified: boolean
