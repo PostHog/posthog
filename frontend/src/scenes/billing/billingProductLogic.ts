@@ -109,6 +109,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
         resetUnsubscribeModalStep: true,
         setHedgehogSatisfied: (satisfied: boolean) => ({ satisfied }),
         triggerMoreHedgehogs: true,
+        removeBillingLimitNextPeriod: (productType: string) => ({ productType }),
     }),
     reducers({
         billingLimitInput: [
@@ -257,6 +258,12 @@ export const billingProductLogic = kea<billingProductLogicType>([
             (_, p) => [p.product],
             (product) => {
                 return product.usage_limit || 0
+            },
+        ],
+        billingLimitNextPeriod: [
+            (_, p) => [p.product],
+            (product) => {
+                return product.billing_limit_next_period ?? null
             },
         ],
         billingGaugeItems: [
@@ -419,6 +426,19 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 await breakpoint(200)
             }
         },
+        removeBillingLimitNextPeriod: async ({ productType }) => {
+            try {
+                await api.update('api/billing', { reset_limit_next_period: productType })
+                lemonToast.success('Billing limit for next period has been removed.')
+            } catch (e) {
+                console.error(e)
+                lemonToast.error(
+                    'There was an error removing your billing limit for next period. Please try again or contact support.'
+                )
+            } finally {
+                actions.loadBilling()
+            }
+        },
     })),
     forms(({ actions, props, values }) => ({
         billingLimitInput: {
@@ -450,7 +470,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     LemonDialog.open({
                         title: 'Billing limit warning',
                         description:
-                            'Your new billing limit will be below your current usage. Your bill will not increase for this period but parts of the product will stop working and data may be lost.',
+                            'The billing limit you set is below your current usage. If you proceed the new limit will not go into effect until your next billing period.',
                         primaryButton: {
                             status: 'danger',
                             children: 'I understand',

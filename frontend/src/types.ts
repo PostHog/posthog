@@ -1803,6 +1803,7 @@ export interface BillingProductV2Type {
     // addons-only: if this addon is included with the base product and not subscribed individually. for backwards compatibility.
     included_with_main_product?: boolean
     trial?: BillingTrialType
+    billing_limit_next_period?: number | null
 }
 
 export interface BillingProductV2AddonType {
@@ -1834,6 +1835,7 @@ export interface BillingProductV2AddonType {
     included_if?: 'no_active_subscription' | 'has_subscription' | null
     usage_limit?: number | null
     trial?: BillingTrialType
+    billing_limit_next_period?: number | null
 }
 export interface BillingType {
     customer_id: string
