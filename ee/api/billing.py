@@ -115,7 +115,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     posthoganalytics.group_identify(
                         "organization",
                         str(org.id),
-                        properties={f"reset_limit_next_period": reset_limit_next_period},
+                        properties={"reset_limit_next_period": reset_limit_next_period},
                     )
 
         return self.list(request, *args, **kwargs)
