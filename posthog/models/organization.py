@@ -325,12 +325,16 @@ class OrganizationMembership(UUIDModel):
 
         # Find API keys scoped to either the organization or any of its teams
         # Also include keys with no scoped teams or orgs (they apply to all orgs/teams)
+
         personal_api_keys = PersonalAPIKey.objects.filter(user=self.user).filter(
             Q(scoped_organizations__contains=[str(self.organization_id)])
             | Q(scoped_teams__overlap=team_ids)
-            | (Q(scoped_organizations__isnull=True) | Q(scoped_organizations=[]))
-            & (Q(scoped_teams__isnull=True) | Q(scoped_teams=[]))
+            | (
+                (Q(scoped_organizations__isnull=True) | Q(scoped_organizations=[]))
+                & (Q(scoped_teams__isnull=True) | Q(scoped_teams=[]))
+            )
         )
+
 
         # Get keys with more details
         keys_data = []
