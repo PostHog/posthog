@@ -58,6 +58,8 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
         treeTableTotalWidth,
         sortMethod: projectSortMethod,
         selectMode,
+        projectTreeRef,
+        projectTreeRefEntry,
     } = useValues(projectTreeLogic)
 
     const {
@@ -631,6 +633,11 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                 <MoveFilesModal
                     items={movingItems}
                     handleMove={(destinationFolder) => {
+                        // When moving the current item, remember it so that we could open the destination folder later on
+                        const movingCurrent = movingItems.filter((item) => item === projectTreeRefEntry)
+                            ? projectTreeRef
+                            : null
+
                         if (checkedItemCountNumeric > 0) {
                             moveCheckedItems(destinationFolder)
                         } else if (movingItems.length > 0) {
@@ -644,6 +651,9 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                         }
                         // Clear the moving items and close the modal
                         setMovingItems([])
+                        if (movingCurrent) {
+                            assureVisibility(movingCurrent)
+                        }
                     }}
                     closeModal={() => setMovingItems([])}
                 />
