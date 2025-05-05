@@ -7,7 +7,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { allOperatorsMapping } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import React, { useState } from 'react'
-import { QUESTION_TYPE_ICON_MAP, SURVEY_RESPONSE_PROPERTY, SurveyQuestionLabel } from 'scenes/surveys/constants'
+import { QUESTION_TYPE_ICON_MAP, SurveyQuestionLabel } from 'scenes/surveys/constants'
 import { getSurveyIdBasedResponseKey } from 'scenes/surveys/utils'
 
 import {
@@ -16,6 +16,8 @@ import {
     PropertyFilterType,
     PropertyOperator,
     Survey,
+    SurveyEventName,
+    SurveyEventProperties,
     SurveyQuestionType,
 } from '~/types'
 
@@ -59,7 +61,9 @@ const OPERATOR_OPTIONS: Record<SurveyQuestionType, OperatorOption[]> = {
 function CopyResponseKeyButton({ questionId }: { questionId: string }): JSX.Element {
     return (
         <button
-            onClick={() => void copyToClipboard(`${SURVEY_RESPONSE_PROPERTY}_${questionId}`, 'survey response key')}
+            onClick={() =>
+                void copyToClipboard(`${SurveyEventProperties.SURVEY_RESPONSE}_${questionId}`, 'survey response key')
+            }
             className="flex items-center cursor-pointer gap-1"
         >
             <IconCopy />
@@ -167,7 +171,7 @@ function _SurveyResponseFilters(): JSX.Element {
                                                     currentFilter.operator
                                                 ) && (
                                                     <PropertyValue
-                                                        propertyKey={`${SURVEY_RESPONSE_PROPERTY}_${question.id}`}
+                                                        propertyKey={`${SurveyEventProperties.SURVEY_RESPONSE}_${question.id}`}
                                                         type={PropertyFilterType.Event}
                                                         operator={currentFilter.operator}
                                                         value={currentFilter.value || []}
@@ -179,7 +183,7 @@ function _SurveyResponseFilters(): JSX.Element {
                                                                 ? 'Enter a number'
                                                                 : 'Enter text to match'
                                                         }
-                                                        eventNames={['survey sent']}
+                                                        eventNames={[SurveyEventName.SENT]}
                                                     />
                                                 )}
                                         </div>

@@ -65,10 +65,6 @@ func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, filt
 	return func(c echo.Context) error {
 		log.Debugf("SSE client connected, ip: %v", c.RealIP())
 
-		eventType := c.QueryParam("eventType")
-		distinctId := c.QueryParam("distinctId")
-		geo := c.QueryParam("geo")
-
 		var (
 			teamID  int
 			token   string
@@ -80,6 +76,11 @@ func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, filt
 		if err != nil {
 			return echo.NewHTTPError(http.StatusUnauthorized, "wrong token")
 		}
+
+		eventType := c.QueryParam("eventType")
+		distinctId := c.QueryParam("distinctId")
+		geo := c.QueryParam("geo")
+
 		if strings.ToLower(geo) == "true" || geo == "1" {
 			geoOnly = true
 		}

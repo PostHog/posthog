@@ -15,7 +15,7 @@ import {
 import { fixLogDeduplication } from '../utils'
 import { convertToCaptureEvent } from '../utils'
 
-export const counterHogFunctionMetric = new Counter({
+const counterHogFunctionMetric = new Counter({
     name: 'cdp_hog_function_metric',
     help: 'A function invocation was evaluated with an outcome',
     labelNames: ['metric_kind', 'metric_name'],

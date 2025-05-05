@@ -19,8 +19,6 @@
 }
 
 .Resizer {
-    --resizer-thickness: 8px;
-
     position: absolute;
     z-index: var(--z-resizer);
     user-select: none; // Fixes inadvertent selection of scene text when resizing

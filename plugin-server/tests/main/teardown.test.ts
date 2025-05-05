@@ -1,12 +1,13 @@
 // eslint-disable-next-line simple-import-sort/imports
-import { getProducedKafkaMessagesForTopic } from '../helpers/mocks/producer.mock'
+import { mockProducerObserver } from '../../tests/helpers/mocks/producer.mock'
 
 import { PluginEvent } from '@posthog/plugin-scaffold'
+
 import { PluginServer } from '../../src/server'
 import { Hub, LogLevel, PluginLogEntrySource, PluginLogEntryType, PluginServerMode } from '../../src/types'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
+import { MeasuringPersonsStoreForDistinctIdBatch } from '../../src/worker/ingestion/persons/measuring-person-store'
 import { resetTestDatabase } from '../helpers/sql'
-import { MeasuringPersonsStoreForDistinctIdBatch } from '~/src/worker/ingestion/persons/measuring-person-store'
 
 jest.setTimeout(10000)
 
@@ -60,7 +61,7 @@ describe('teardown', () => {
         await processEvent(server.hub!, defaultEvent)
         await server.stop()
 
-        const logEntries = getProducedKafkaMessagesForTopic('plugin_log_entries_test')
+        const logEntries = mockProducerObserver.getProducedKafkaMessagesForTopic('plugin_log_entries_test')
 
         const systemErrors = logEntries.filter(
             (logEntry) =>
@@ -85,7 +86,7 @@ describe('teardown', () => {
         await server.start()
         await server.stop()
 
-        const logEntries = getProducedKafkaMessagesForTopic('plugin_log_entries_test')
+        const logEntries = mockProducerObserver.getProducedKafkaMessagesForTopic('plugin_log_entries_test')
 
         // verify the teardownPlugin code runs -- since we're reading from
         // ClickHouse, we need to give it a bit of time to have consumed from
