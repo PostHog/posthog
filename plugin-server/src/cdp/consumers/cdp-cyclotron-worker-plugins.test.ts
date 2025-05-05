@@ -1,6 +1,7 @@
+import { RetryError } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { getProducedKafkaMessages } from '~/tests/helpers/mocks/producer.mock'
+import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
@@ -58,8 +59,9 @@ describe('CdpCyclotronWorkerPlugins', () => {
             } as any)
         )
 
-        jest.spyOn(processor['cyclotronWorker']!, 'updateJob').mockImplementation(() => {})
-        jest.spyOn(processor['cyclotronWorker']!, 'releaseJob').mockImplementation(() => Promise.resolve())
+        jest.spyOn(processor['cyclotronJobQueue']!, 'queueInvocationResults').mockImplementation(() =>
+            Promise.resolve()
+        )
 
         const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
@@ -169,14 +171,11 @@ describe('CdpCyclotronWorkerPlugins', () => {
                 ]
             `)
 
-            expect(forSnapshot(jest.mocked(processor['cyclotronWorker']!.updateJob).mock.calls)).toMatchInlineSnapshot(`
-                [
-                  [
-                    "<REPLACED-UUID-0>",
-                    "completed",
-                  ],
-                ]
-            `)
+            expect(jest.mocked(processor['cyclotronJobQueue']!.queueInvocationResults).mock.calls[0][0]).toMatchObject([
+                {
+                    finished: true,
+                },
+            ])
         })
 
         it('should handle and collect errors', async () => {
@@ -197,16 +196,14 @@ describe('CdpCyclotronWorkerPlugins', () => {
             expect(res[0].error).toBeInstanceOf(Error)
             expect(forSnapshot(res[0].logs)).toMatchInlineSnapshot(`[]`)
 
-            expect(forSnapshot(jest.mocked(processor['cyclotronWorker']!.updateJob).mock.calls)).toMatchInlineSnapshot(`
-                [
-                  [
-                    "<REPLACED-UUID-0>",
-                    "failed",
-                  ],
-                ]
-            `)
+            expect(jest.mocked(processor['cyclotronJobQueue']!.queueInvocationResults).mock.calls[0][0]).toMatchObject([
+                {
+                    finished: true,
+                    error: new RetryError('Service is down, retry later'),
+                },
+            ])
 
-            expect(forSnapshot(getProducedKafkaMessages())).toMatchSnapshot()
+            expect(forSnapshot(mockProducerObserver.getProducedKafkaMessages())).toMatchSnapshot()
         })
     })
 })

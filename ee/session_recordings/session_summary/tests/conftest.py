@@ -148,7 +148,7 @@ def mock_raw_events() -> list[tuple[Any, ...]]:
         ),
         (
             "$pageview",  # vbgs1287 - end of segment 0
-            datetime(2025, 3, 31, 18, 40, 44, 251000),
+            datetime(2025, 3, 31, 18, 40, 45, 251000),
             "",
             [],
             [],

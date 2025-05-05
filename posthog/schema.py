@@ -996,6 +996,7 @@ class ExperimentExposureTimeSeries(BaseModel):
 class ExperimentMetricMathType(StrEnum):
     TOTAL = "total"
     SUM = "sum"
+    UNIQUE_SESSION = "unique_session"
 
 
 class ExperimentMetricOutlierHandling(BaseModel):
@@ -2788,6 +2789,7 @@ class HogQLQueryModifiers(BaseModel):
     sessionsV2JoinMode: Optional[SessionsV2JoinMode] = None
     useMaterializedViews: Optional[bool] = None
     usePresortedEventsTable: Optional[bool] = None
+    useWebAnalyticsPreAggregatedTables: Optional[bool] = None
 
 
 class HogQuery(BaseModel):

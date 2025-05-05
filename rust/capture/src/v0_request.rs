@@ -97,7 +97,7 @@ impl RawRequest {
                 let got = match zipstream.read(chunk) {
                     Ok(got) => got,
                     Err(e) => {
-                        tracing::error!("failed to read gzip stream: {}", e);
+                        tracing::error!("from_bytes: failed to read gzip stream: {}", e);
                         return Err(CaptureError::RequestDecodingError(String::from(
                             "invalid gzip data",
                         )));
@@ -108,7 +108,7 @@ impl RawRequest {
                 }
                 buf.extend_from_slice(&chunk[..got]);
                 if buf.len() > limit {
-                    tracing::error!("GZIP decompression limit reached");
+                    tracing::error!("from_bytes: GZIP decompression limit reached");
                     report_dropped_events("event_too_big", 1);
                     return Err(CaptureError::EventTooBig(format!(
                         "Event or batch exceeded {} during unzipping",
@@ -119,7 +119,7 @@ impl RawRequest {
             match String::from_utf8(buf) {
                 Ok(s) => s,
                 Err(e) => {
-                    tracing::error!("failed to decode gzip: {}", e);
+                    tracing::error!("from_bytes: failed to decode gzip: {}", e);
                     return Err(CaptureError::RequestDecodingError(String::from(
                         "invalid gzip data",
                     )));
@@ -127,11 +127,14 @@ impl RawRequest {
             }
         } else {
             let s = String::from_utf8(bytes.into()).map_err(|e| {
-                tracing::error!("failed to decode body: {}", e);
-                CaptureError::RequestDecodingError(String::from("invalid body encoding"))
+                tracing::error!(
+                    "from_bytes: failed to convert request payload to UTF8: {}",
+                    e
+                );
+                CaptureError::RequestDecodingError(String::from("invalid UTF8 in request payload"))
             })?;
             if s.len() > limit {
-                tracing::error!("Request size limit reached");
+                tracing::error!("from_bytes: request size limit reached");
                 report_dropped_events("event_too_big", 1);
                 return Err(CaptureError::EventTooBig(format!(
                     "Event or batch wasn't compressed, size exceeded {}",
@@ -141,7 +144,7 @@ impl RawRequest {
             s
         };
 
-        tracing::debug!(json = payload, "decoded event data");
+        tracing::debug!(json = payload, "from_bytes: decoded event data");
         Ok(serde_json::from_str::<RawRequest>(&payload)?)
     }
 

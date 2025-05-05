@@ -103,7 +103,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                                 </div>
                             </div>
                         ),
-                        tooltip: `Time of day in which the first sync will run. The sync frequency will be offset from the anchor time. This will not apply to sync intervals one hour or less.`,
+                        tooltip: `The sync frequency will be offset from the anchor time. This will not apply to sync intervals one hour or less.`,
                         key: 'sync_time_of_day',
                         render: function RenderSyncTimeOfDayLocal(_, schema) {
                             const utcTime = schema.sync_time_of_day || '00:00:00'

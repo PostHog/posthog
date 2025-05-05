@@ -185,7 +185,6 @@ posthog/hogql_queries/utils/query_date_range.py:0: error: Incompatible default f
 posthog/hogql_queries/utils/query_date_range.py:0: error: Item "None" of "IntervalType | None" has no attribute "name"  [union-attr]
 posthog/management/commands/fix_future_person_created_at.py:0: error: Argument "version" to "create_person" has incompatible type "int | None"; expected "int"  [arg-type]
 posthog/management/commands/sync_persons_to_clickhouse.py:0: error: Argument "group_type_index" to "raw_create_group_ch" has incompatible type "int"; expected "Literal[0, 1, 2, 3, 4]"  [arg-type]
-posthog/management/commands/sync_persons_to_clickhouse.py:0: error: Argument 4 to "create_person_override" has incompatible type "int | None"; expected "int"  [arg-type]
 posthog/management/commands/warehouse_last_incremental_value_sync.py:0: error: Argument 3 to "get_value" of "ConfigProvider" has incompatible type "str | None"; expected "str"  [arg-type]
 posthog/migrations/0228_fix_tile_layouts.py:0: error: Argument 2 to "RunPython" has incompatible type "Callable[[Migration, Any], None]"; expected "_CodeCallable | None"  [arg-type]
 posthog/migrations/0237_remove_timezone_from_teams.py:0: error: Argument 2 to "RunPython" has incompatible type "Callable[[Migration, Any], None]"; expected "_CodeCallable | None"  [arg-type]
@@ -446,3 +445,4 @@ posthog/warehouse/models/table.py:0: error: Item "None" of "DataWarehouseCredent
 posthog/warehouse/models/table.py:0: error: Item "None" of "DataWarehouseCredential | None" has no attribute "access_secret"  [union-attr]
 posthog/warehouse/models/table.py:0: error: Item "None" of "DataWarehouseCredential | None" has no attribute "access_secret"  [union-attr]
 posthog/warehouse/models/table.py:0: error: Subclass of "list[tuple[str, ...]]" and "int" cannot exist: would have incompatible method signatures  [unreachable]
+products/messaging/backend/providers/mailjet.py:0: error: 'Settings' object has no attribute 'MAILJET_API_KEY'  [misc]

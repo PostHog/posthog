@@ -83,7 +83,7 @@ export default function SchemaForm(): JSX.Element {
                                 ),
                                 key: 'sync_time_of_day',
                                 tooltip:
-                                    'Time of day in which the first sync will run. The sync interval will be offset from the anchor time. This will not apply to sync intervals one hour or less.',
+                                    'The sync interval will be offset from the anchor time. This will not apply to sync intervals one hour or less.',
                                 render: function RenderSyncTimeOfDay(_, schema) {
                                     const utcTime = schema.sync_time_of_day || '00:00:00'
                                     const localTime = isProjectTime
