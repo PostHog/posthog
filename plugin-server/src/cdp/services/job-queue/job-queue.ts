@@ -298,10 +298,8 @@ export function getProducerMapping(stringMapping: string): CyclotronJobQueueRout
 }
 
 /**
- * Parses a mapping config from a string into a routing object.
- * Format is like `TEAM:QUEUE:TARGET:PERCENTAGE with percentage being optional and defaulting to 100
- *
- * So for example `*:kafka:10,fetch:postgres` would result in all fetch jobs being routed to postgres and 10% of all other jobs being routed to kafka and the rest to postgres
+ * Same as getProducerMapping but with a team check too.
+ * So for example `1:*:kafka,2:*:postgres` would result in team 1 using kafka and team 2 using postgres
  */
 export function getProducerTeamMapping(stringMapping?: string): CyclotronJobQueueTeamRouting {
     if (!stringMapping) {
