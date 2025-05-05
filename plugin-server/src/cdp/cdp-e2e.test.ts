@@ -154,7 +154,7 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
                       "version": "v=1.0.0",
                     },
                     "method": "POST",
-                    "timeout": 10000,
+                    "timeoutMs": 10000,
                   },
                 ]
             `)
