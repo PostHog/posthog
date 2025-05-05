@@ -1,5 +1,4 @@
 import asyncio
-import collections
 import collections.abc
 import dataclasses
 import datetime as dt
@@ -10,6 +9,7 @@ import re
 import typing
 import uuid
 
+import os
 import dlt
 import dlt.common.data_types as dlt_data_types
 import dlt.common.schema.typing as dlt_typing
@@ -39,6 +39,9 @@ from posthog.warehouse.models.data_modeling_job import DataModelingJob
 from posthog.warehouse.util import database_sync_to_async
 
 logger = structlog.get_logger()
+
+# preserve casing since we are already coming from a sql dialect, we don't need to worry about normalizing
+os.environ["SCHEMA__NAMING"] = "direct"
 
 CLICKHOUSE_DLT_MAPPING: dict[str, dlt_data_types.TDataType] = {
     "UUID": "text",
