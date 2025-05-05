@@ -283,7 +283,9 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                       const value = header.key
                                           .split('.')
                                           .reduce((obj, key) => (obj as any)?.[key], item)
-                                      const formattedValue = header.formatString ? header.formatString(value) : value
+                                      const formattedValue = header.formatString
+                                          ? header.formatString(value, item)
+                                          : value
                                       // Add null/undefined check and handle object values properly
                                       const displayValue =
                                           formattedValue === null || formattedValue === undefined

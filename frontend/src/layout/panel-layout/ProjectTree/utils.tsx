@@ -72,29 +72,21 @@ export function convertFileSystemEntryToTreeDataItem({
         const nodeId = getItemId(item)
         const displayName = <SearchHighlightMultiple string={itemName} substring={searchTerm ?? ''} />
         const user: UserBasicType | undefined = item.meta?.created_by ? users?.[item.meta.created_by] : undefined
-        const profile = user ? <ProfilePicture user={user} size="sm" className="ml-1" /> : null
-        const itemWithDate =
-            recent && item.meta?.created_at ? (
-                <>
-                    {displayName}{' '}
-                    <span className="text-muted text-xs font-normal">- {dayjs(item.meta?.created_at).fromNow()}</span>
-                </>
-            ) : (
-                displayName
-            )
-        const itemWithProfile = profile ? (
-            <>
-                {itemWithDate}
-                {profile}
-            </>
-        ) : (
-            itemWithDate
-        )
 
         const node: TreeDataItem = {
             id: nodeId,
             name: itemName,
-            displayName: itemWithProfile,
+            displayName: (
+                <>
+                    {displayName}
+                    {recent && item.meta?.created_at ? (
+                        <span className="text-muted text-xs font-normal ml-1">
+                            - {dayjs(item.meta?.created_at).fromNow()}
+                        </span>
+                    ) : null}
+                    {user ? <ProfilePicture user={user} size="sm" className="ml-1" /> : null}
+                </>
+            ),
             icon: item._loading ? (
                 <Spinner />
             ) : (
