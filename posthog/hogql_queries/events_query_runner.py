@@ -75,7 +75,6 @@ class EventsQueryRunner(QueryRunner):
                 # Only use backticks for property names with spaces or special chars
                 props = []
                 for key in property_keys:
-                    # Match the same regex as in escape_hogql_identifier
                     if re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*$", key):
                         props.append(f"toString(person.properties.{key})")
                     else:
