@@ -6,6 +6,7 @@ import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimi
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
 import {
+    CSSProperties,
     ForwardedRef,
     forwardRef,
     HTMLAttributes,
@@ -256,7 +257,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
         return (
             <div
                 className={cn('list-none m-0 p-0 h-full w-full', className, {
-                    'overflow-x-auto overflow-y-hidden pt-0': mode === 'table' && depth === 0,
+                    // 'overflow-x-auto overflow-y-hidden pt-0': mode === 'table' && isRoot,
                 })}
             >
                 {data.map((item, index) => {
@@ -351,6 +352,10 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                             aria-label={ariaLabel}
                             tooltip={isDragging || isEmptyFolder || mode === 'table' ? undefined : displayName}
                             tooltipPlacement="right"
+                            // style={{
+                            //     width: mode === 'table' ? `${tableModeTotalWidth}px` : undefined,
+                            //     minWidth: mode === 'table' ? `${tableModeTotalWidth}px` : undefined,
+                            // }}
                         >
                             {/* Spacer to offset button padding */}
                             <span
@@ -554,25 +559,25 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                         )
                     }
 
-                    // If table and first level, show table headers
-                    if (index === 0 && depth === 0 && mode === 'table') {
-                        return (
-                            <div
-                                className="flex flex-col gap-1"
-                                key={`table-header-${item.id}`}
-                                // eslint-disable-next-line react/forbid-dom-props
-                                style={{
-                                    width: `${tableModeTotalWidth}px`,
-                                }}
-                            >
-                                <div className="relative h-[30px] opacity-100 border-b border-primary -ml-[3px] motion-safe:transition-[height,display] duration-200 starting:h-0 [transition-behavior:allow-discrete] z-5">
-                                    {tableModeHeader?.()}
-                                </div>
+                    // // If table and first level, show table headers
+                    // if (index === 0 && isRoot && mode === 'table') {
+                    //     wrappedContent = (
+                    //         <div
+                    //             className="flex flex-col gap-1"
+                    //             key={`table-header-${item.id}`}
+                    //             // eslint-disable-next-line react/forbid-dom-props
+                    //             style={{
+                    //                 width: `${tableModeTotalWidth}px`,
+                    //             }}
+                    //         >
+                    //             <div className="relative h-[30px] opacity-100 border-b border-primary -ml-[3px] motion-safe:transition-[height,display] duration-200 starting:h-0 [transition-behavior:allow-discrete] z-5">
+                    //                 {tableModeHeader?.()}
+                    //             </div>
 
-                                {wrappedContent}
-                            </div>
-                        )
-                    }
+                    //             {wrappedContent}
+                    //         </div>
+                    //     )
+                    // }
 
                     return <div key={item.id}>{wrappedContent}</div>
                 })}
@@ -637,6 +642,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
 
         // Scrollable container
         const containerRef = useRef<HTMLDivElement>(null)
+        const tableModeHeaderRef = useRef<HTMLDivElement>(null)
         // Current state (when matching defaultSelectedFolderOrNodeId)
         const [selectedId, setSelectedId] = useState<string | undefined>(defaultSelectedFolderOrNodeId)
         const [hasFocusedContent, setHasFocusedContent] = useState(false)
@@ -1239,10 +1245,36 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                     aria-label="Tree navigation"
                     onKeyDown={handleKeyDown}
                     className="flex-1"
-                    innerClassName="relative"
+                    innerClassName="relative overflow-x-auto" // if table mode, add overflow-x-auto
                     styledScrollbars
+                    style={
+                        {
+                            '--scrollable-shadows-offset-top': mode === 'table' ? '30px' : '0px',
+                        } as CSSProperties
+                    }
                 >
-                    <TreeNodeDroppable id="" isDroppable={enableDragAndDrop} isRoot isDragging={isDragging}>
+                    {mode === 'table' && (
+                        <div
+                            className="h-[30px] sticky top-0 z-20 border-b border-primary bg-surface-secondary"
+                            ref={tableModeHeaderRef}
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{
+                                width: mode === 'table' ? `${tableModeTotalWidth}px` : undefined,
+                            }}
+                        >
+                            {tableModeHeader?.()}
+                        </div>
+                    )}
+
+                    <TreeNodeDroppable
+                        id=""
+                        isDroppable={enableDragAndDrop}
+                        isRoot
+                        isDragging={isDragging}
+                        style={{
+                            width: mode === 'table' ? `${tableModeTotalWidth}px` : undefined,
+                        }}
+                    >
                         <LemonTreeNode
                             data={data}
                             mode={mode}

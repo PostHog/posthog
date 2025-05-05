@@ -62,6 +62,8 @@ export type LinkProps = Pick<React.HTMLProps<HTMLAnchorElement>, 'target' | 'cla
     tooltip?: TooltipProps['title']
     tooltipDocLink?: TooltipProps['docLink']
     tooltipPlacement?: TooltipProps['placement']
+
+    style?: React.CSSProperties
 }
 
 const shouldForcePageLoad = (input: any): boolean => {
