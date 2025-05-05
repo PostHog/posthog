@@ -1,6 +1,7 @@
+from __future__ import annotations
+
 import math
 from collections.abc import Iterator
-from dataclasses import dataclass
 from typing import Any
 
 import pyarrow as pa
@@ -21,6 +22,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     build_pyarrow_decimal_type,
     table_from_iterator,
 )
+from posthog.temporal.data_imports.pipelines.source.sql import Column, Table
 from posthog.temporal.data_imports.pipelines.sql_database.settings import (
     DEFAULT_CHUNK_SIZE,
     DEFAULT_TABLE_SIZE_BYTES,
@@ -85,62 +87,40 @@ def _get_primary_keys(cursor: Cursor, schema: str, table_name: str) -> list[str]
     return [row[0] for row in rows]
 
 
-@dataclass
-class TableStructureRow:
-    column_name: str
-    data_type: str
-    is_nullable: bool
-    numeric_precision: int | None
-    numeric_scale: int | None
+class MSSQLColumn(Column):
+    """Implementation of the `Column` protocol for a MSSQL source.
 
+    Attributes:
+        name: The column's name.
+        data_type: The name of the column's data type as described in
+            https://learn.microsoft.com/en-us/sql/t-sql/data-types/data-types-transact-sql.
+        nullable: Whether the column is nullable or not.
+        numeric_precision: The number of significant digits. Only used with
+            numeric `data_type`s, otherwise `None`.
+        numeric_scale: The number of significant digits to the right of
+            decimal point. Only used with numeric `data_type`s, otherwise
+            `None`.
+    """
 
-def _get_table_structure(cursor: Cursor, schema: str, table_name: str) -> list[TableStructureRow]:
-    query = """
-        SELECT
-            COLUMN_NAME,
-            DATA_TYPE,
-            CASE IS_NULLABLE WHEN 'YES' THEN 1 ELSE 0 END as IS_NULLABLE,
-            NUMERIC_PRECISION,
-            NUMERIC_SCALE
-        FROM INFORMATION_SCHEMA.COLUMNS
-        WHERE TABLE_SCHEMA = %(schema)s
-        AND TABLE_NAME = %(table_name)s
-        ORDER BY ORDINAL_POSITION"""
+    def __init__(
+        self,
+        name: str,
+        data_type: str,
+        nullable: bool,
+        numeric_precision: int | None = None,
+        numeric_scale: int | None = None,
+    ) -> None:
+        self.name = name
+        self.data_type = data_type
+        self.nullable = nullable
+        self.numeric_precision = numeric_precision
+        self.numeric_scale = numeric_scale
 
-    cursor.execute(
-        query,
-        {
-            "schema": schema,
-            "table_name": table_name,
-        },
-    )
-    rows = cursor.fetchall()
-    if not rows:
-        raise ValueError(f"Table {table_name} not found")
-    return [
-        TableStructureRow(
-            column_name=row[0],
-            data_type=row[1],
-            is_nullable=bool(row[2]),
-            numeric_precision=row[3],
-            numeric_scale=row[4],
-        )
-        for row in rows
-    ]
-
-
-def _get_arrow_schema(table_structure: list[TableStructureRow]) -> pa.Schema:
-    fields = []
-
-    for col in table_structure:
-        name = col.column_name
-        data_type = col.data_type.lower()
-
+    def to_arrow_field(self) -> pa.Field[pa.DataType]:
+        """Return a `pyarrow.Field` that closely matches this column."""
         arrow_type: pa.DataType
 
-        # Map MS SQL type names to PyArrow types
-        # https://learn.microsoft.com/en-us/sql/t-sql/data-types/data-types-transact-sql?view=sql-server-ver16
-        match data_type:
+        match self.data_type:
             case "bigint":
                 arrow_type = pa.int64()
             case "int" | "integer":
@@ -150,9 +130,10 @@ def _get_arrow_schema(table_structure: list[TableStructureRow]) -> pa.Schema:
             case "tinyint":
                 arrow_type = pa.int8()
             case "decimal" | "numeric" | "money":
-                precision = col.numeric_precision if col.numeric_precision is not None else DEFAULT_NUMERIC_PRECISION
-                scale = col.numeric_scale if col.numeric_scale is not None else DEFAULT_NUMERIC_SCALE
-                arrow_type = build_pyarrow_decimal_type(precision, scale)
+                if not self.numeric_precision or not self.numeric_scale:
+                    raise TypeError("expected `numeric_precision` and `numeric_scale` to be `int`, got `NoneType`")
+
+                arrow_type = build_pyarrow_decimal_type(self.numeric_precision, self.numeric_scale)
             case "float" | "real":
                 arrow_type = pa.float64()
             case "varchar" | "char" | "text" | "nchar" | "nvarchar" | "ntext":
@@ -172,9 +153,62 @@ def _get_arrow_schema(table_structure: list[TableStructureRow]) -> pa.Schema:
             case _:
                 arrow_type = pa.string()
 
-        fields.append(pa.field(name, arrow_type, nullable=col.is_nullable))
+        return pa.field(self.name, arrow_type, nullable=self.nullable)
 
-    return pa.schema(fields)
+
+def _get_table(cursor: Cursor, schema: str, table_name: str) -> Table[MSSQLColumn]:
+    query = """
+        SELECT
+            COLUMN_NAME,
+            DATA_TYPE,
+            CASE IS_NULLABLE WHEN 'YES' THEN 1 ELSE 0 END as IS_NULLABLE,
+            NUMERIC_PRECISION,
+            NUMERIC_SCALE
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = %(schema)s
+        AND TABLE_NAME = %(table_name)s
+        ORDER BY ORDINAL_POSITION"""
+
+    cursor.execute(
+        query,
+        {
+            "schema": schema,
+            "table_name": table_name,
+        },
+    )
+
+    numeric_data_types = {"numeric", "decimal", "money"}
+    columns = []
+    for row in cursor:
+        if row is None:
+            break
+
+        name, data_type, nullable, numeric_precision_candidate, numeric_scale_candidate = row
+        if data_type in numeric_data_types:
+            numeric_precision = numeric_precision_candidate or DEFAULT_NUMERIC_PRECISION
+            numeric_scale = numeric_scale_candidate or DEFAULT_NUMERIC_SCALE
+        else:
+            numeric_precision = None
+            numeric_scale = None
+
+        columns.append(
+            MSSQLColumn(
+                name=name,
+                data_type=data_type,
+                nullable=nullable,
+                numeric_precision=numeric_precision,
+                numeric_scale=numeric_scale,
+            )
+        )
+
+    if not columns:
+        raise ValueError(f"Table {table_name} not found")
+
+    return Table(
+        name=table_name,
+        parents=(schema,),
+        columns=columns,
+    )
 
 
 def _get_table_average_row_size(
@@ -364,7 +398,7 @@ def mssql_source(
     ) as connection:
         with connection.cursor() as cursor:
             primary_keys = _get_primary_keys(cursor, schema, table_name)
-            table_structure = _get_table_structure(cursor, schema, table_name)
+            table = _get_table(cursor, schema, table_name)
             chunk_size = _get_table_chunk_size(
                 cursor,
                 schema,
@@ -385,12 +419,11 @@ def mssql_source(
                 partition_settings = None
 
             # Fallback on checking for an `id` field on the table
-            if primary_keys is None:
-                if any(ts.column_name == "id" for ts in table_structure):
-                    primary_keys = ["id"]
+            if primary_keys is None and "id" in table:
+                primary_keys = ["id"]
 
     def get_rows() -> Iterator[Any]:
-        arrow_schema = _get_arrow_schema(table_structure)
+        arrow_schema = table.to_arrow_schema()
 
         with pymssql.connect(
             server=host,

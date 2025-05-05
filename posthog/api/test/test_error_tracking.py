@@ -64,13 +64,13 @@ class TestErrorTracking(APIBaseTest):
 
         # no fingerprint
         response = self.client.get(
-            f"/api/environments/{self.team.id}/error_tracking/issue/{deleted_issue_id}",
+            f"/api/environments/{self.team.id}/error_tracking/issues/{deleted_issue_id}",
         )
         assert response.status_code == 404
 
         # with fingerprint hint
         response = self.client.get(
-            f"/api/environments/{self.team.id}/error_tracking/issue/{deleted_issue_id}?fingerprint={merged_fingerprint}",
+            f"/api/environments/{self.team.id}/error_tracking/issues/{deleted_issue_id}?fingerprint={merged_fingerprint}",
         )
         assert response.status_code == 308
         assert response.json() == {"issue_id": str(merged_issue.id)}
@@ -80,7 +80,7 @@ class TestErrorTracking(APIBaseTest):
 
         # with fingerprint hint
         response = self.client.get(
-            f"/api/environments/{self.team.id}/error_tracking/issue/{issue.id}?fingerprint=fingerprint",
+            f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}?fingerprint=fingerprint",
         )
         assert response.status_code == 200
         assert response.json().get("id") == str(issue.id)
@@ -89,7 +89,7 @@ class TestErrorTracking(APIBaseTest):
     def test_issue_fetch(self):
         issue = self.create_issue(["fingerprint"])
 
-        response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/issue/{issue.id}")
+        response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}")
 
         assert response.status_code == 200
         assert response.json() == {
@@ -106,7 +106,7 @@ class TestErrorTracking(APIBaseTest):
         issue = self.create_issue(["fingerprint"])
 
         response = self.client.patch(
-            f"/api/environments/{self.team.id}/error_tracking/issue/{issue.id}", data={"status": "resolved"}
+            f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}", data={"status": "resolved"}
         )
         issue.refresh_from_db()
 
@@ -156,7 +156,7 @@ class TestErrorTracking(APIBaseTest):
         assert ErrorTrackingIssue.objects.count() == 2
 
         repsonse = self.client.post(
-            f"/api/environments/{self.team.id}/error_tracking/issue/{issue_one.id}/merge", data={"ids": [issue_two.id]}
+            f"/api/environments/{self.team.id}/error_tracking/issues/{issue_one.id}/merge", data={"ids": [issue_two.id]}
         )
 
         assert repsonse.status_code == 200
@@ -257,7 +257,7 @@ class TestErrorTracking(APIBaseTest):
 
         self.assertEqual(ErrorTrackingIssueAssignment.objects.count(), 0)
         self.client.patch(
-            f"/api/environments/{self.team.id}/error_tracking/issue/{issue.id}/assign",
+            f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}/assign",
             data={"assignee": {"id": self.user.id, "type": "user"}},
         )
         # assigns the issue
@@ -293,7 +293,7 @@ class TestErrorTracking(APIBaseTest):
         )
 
         self.client.patch(
-            f"/api/environments/{self.team.id}/error_tracking/issue/{issue.id}/assign",
+            f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}/assign",
             data={"assignee": None},
         )
         # deletes the assignment
@@ -301,7 +301,7 @@ class TestErrorTracking(APIBaseTest):
 
         other_team = self.create_team_with_organization(organization=self.organization)
         response = self.client.patch(
-            f"/api/environments/{other_team.id}/error_tracking/issue/{issue.id}/assign",
+            f"/api/environments/{other_team.id}/error_tracking/issues/{issue.id}/assign",
             data={"assignee": None},
         )
         # cannot assign issues from other teams
@@ -315,7 +315,7 @@ class TestErrorTracking(APIBaseTest):
         self.assertEqual(issue_two.status, ErrorTrackingIssue.Status.ACTIVE)
 
         self.client.post(
-            f"/api/environments/{self.team.id}/error_tracking/issue/bulk",
+            f"/api/environments/{self.team.id}/error_tracking/issues/bulk",
             data={"ids": [issue_one.id, issue_two.id], "action": "set_status", "status": "resolved"},
         )
 
@@ -334,7 +334,7 @@ class TestErrorTracking(APIBaseTest):
         user_group.members.set([self.user])
 
         self.client.post(
-            f"/api/environments/{self.team.id}/error_tracking/issue/bulk",
+            f"/api/environments/{self.team.id}/error_tracking/issues/bulk",
             data={
                 "ids": [issue_one.id, issue_two.id],
                 "action": "assign",
@@ -356,7 +356,7 @@ class TestErrorTracking(APIBaseTest):
     def _get_error_tracking_issue_activity(
         self, error_tracking_issue_id: int, expected_status: int = status.HTTP_200_OK
     ) -> dict:
-        url = f"/api/environments/{self.team.id}/error_tracking/issue/{error_tracking_issue_id}/activity"
+        url = f"/api/environments/{self.team.id}/error_tracking/issues/{error_tracking_issue_id}/activity"
         activity = self.client.get(url)
         self.assertEqual(activity.status_code, expected_status)
         return activity.json()

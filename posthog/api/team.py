@@ -35,6 +35,7 @@ from posthog.models.project import Project
 from posthog.models.scopes import APIScopeObjectOrNotSupported
 from posthog.models.signals import mute_selected_signals
 from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data
+from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
 from posthog.models.utils import UUIDT
 from posthog.permissions import (
     CREATE_ACTIONS,
@@ -805,6 +806,19 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         cache.set(cache_key, wizard_data, SETUP_WIZARD_CACHE_TIMEOUT)
 
         return response.Response({"success": True}, status=200)
+
+    @action(methods=["GET"], detail=True, required_scopes=["team:read"], url_path="event_ingestion_restrictions")
+    def event_ingestion_restrictions(self, request, **kwargs):
+        team = self.get_object()
+        restrictions = EventIngestionRestrictionConfig.objects.filter(token=team.api_token)
+        data = [
+            {
+                "restriction_type": restriction.restriction_type,
+                "distinct_ids": restriction.distinct_ids,
+            }
+            for restriction in restrictions
+        ]
+        return response.Response(data)
 
     @cached_property
     def user_permissions(self):

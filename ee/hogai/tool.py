@@ -1,11 +1,13 @@
-from abc import abstractmethod
 import json
-from typing import Literal, Any
+from abc import abstractmethod
+from typing import Any, Literal
+
+from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
+
 from ee.hogai.graph.root.prompts import ROOT_INSIGHT_DESCRIPTION_PROMPT
 from posthog.schema import AssistantContextualTool
-from langchain_core.runnables import RunnableConfig
 
 MaxSupportedQueryKind = Literal["trends", "funnel", "retention", "sql"]
 
@@ -20,7 +22,9 @@ class create_and_query_insight(BaseModel):
     This tool is also relevant if the user asks to write SQL.
     """
 
-    query_description: str = Field(description="The description of the query being asked.")
+    query_description: str = Field(
+        description="The description of the query being asked. Include all relevant details from the current conversation in the query description, as the tool cannot access the conversation history."
+    )
     query_kind: MaxSupportedQueryKind = Field(description=ROOT_INSIGHT_DESCRIPTION_PROMPT)
 
 

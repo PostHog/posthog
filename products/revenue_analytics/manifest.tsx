@@ -10,7 +10,7 @@ export const manifest: ProductManifest = {
             name: 'Revenue Analytics',
             import: () => import('./frontend/RevenueAnalyticsScene'),
             projectBased: true,
-            defaultDocsPath: '/docs/revenue-analytics',
+            defaultDocsPath: '/docs/web-analytics/revenue-analytics',
             activityScope: 'RevenueAnalytics',
         },
     },

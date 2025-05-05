@@ -613,6 +613,7 @@
     --project-navbar-width-collapsed: 45px;
     --project-panel-width: 320px;
     --project-panel-inner-width: calc(var(--project-panel-width) - (var(--spacing) * 2));
+    --resizer-thickness: 8px;
 
     // The space the panel is from the left edge of the screen on mobile
     --panel-layout-mobile-offset: 40px;

@@ -1,5 +1,4 @@
 pub mod api;
-pub mod client;
 pub mod cohorts;
 pub mod config;
 pub mod flags;
