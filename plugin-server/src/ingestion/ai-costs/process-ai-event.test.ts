@@ -238,4 +238,26 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(15, 2)
         })
     })
+
+    describe('gemini 2.5 pro preview', () => {
+        it('handles the seperate price for large prompts', () => {
+            event.properties!.$ai_model = 'gemini-2.5-pro-preview'
+            event.properties!.$ai_input_tokens = 200001
+            const result = processAiEvent(event)
+            expect(result.properties!.$ai_total_cost_usd).toBeDefined()
+            expect(result.properties!.$ai_input_cost_usd).toBeDefined()
+            expect(result.properties!.$ai_output_cost_usd).toBeDefined()
+            expect(result.properties!.$ai_model).toBe('gemini-2.5-pro-preview:large')
+        })
+
+        it('handles the default price for small prompts', () => {
+            event.properties!.$ai_model = 'gemini-2.5-pro-preview'
+            event.properties!.$ai_input_tokens = 199999
+            const result = processAiEvent(event)
+            expect(result.properties!.$ai_total_cost_usd).toBeDefined()
+            expect(result.properties!.$ai_input_cost_usd).toBeDefined()
+            expect(result.properties!.$ai_output_cost_usd).toBeDefined()
+            expect(result.properties!.$ai_model).toBe('gemini-2.5-pro-preview')
+        })
+    })
 })
