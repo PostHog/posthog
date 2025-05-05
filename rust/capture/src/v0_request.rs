@@ -253,7 +253,7 @@ fn decompress_lz64(payload: &[u8], limit: usize) -> Result<String, CaptureError>
         }
     };
 
-    if decompressed.len() >= limit {
+    if decompressed.len() > limit {
         error!(
             "lz64 request payload size limit exceeded: {}",
             decompressed.len()
