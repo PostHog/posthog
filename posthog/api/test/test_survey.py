@@ -3208,6 +3208,104 @@ class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
         data = response.json()
         self.assertEqual(data, {})
 
+    @snapshot_clickhouse_queries
+    @freeze_time("2024-06-11 11:00:00")
+    def test_responses_count_with_partial_responses(self):
+        survey1_id = str(uuid.uuid4())
+        survey2_id = str(uuid.uuid4())
+
+        sub_id_1 = str(uuid.uuid4())  # Submission ID for survey 1, user 1
+        sub_id_2 = str(uuid.uuid4())  # Submission ID for survey 1, user 2
+        sub_id_3 = str(uuid.uuid4())  # Submission ID for survey 2, user 1
+
+        user_1_did = str(uuid.uuid4())
+        user_2_did = str(uuid.uuid4())
+
+        # Need at least one survey with a start date for the query to work
+        Survey.objects.create(team_id=self.team.id, id=survey1_id, start_date=datetime.now() - timedelta(days=1))
+
+        events_data = [
+            # Survey 1, User 1: Legacy + 2 partials (latest should count)
+            {
+                "event": "survey sent",
+                "distinct_id": user_1_did,
+                "timestamp": "2024-06-11 10:00:00",
+                "properties": {"$survey_id": survey1_id, "$response": "legacy"},
+            },
+            {
+                "event": "survey sent",
+                "distinct_id": user_1_did,
+                "timestamp": "2024-06-11 10:05:00",
+                "properties": {"$survey_id": survey1_id, "$survey_submission_id": sub_id_1, "$response": "partial1"},
+            },
+            {
+                "event": "survey sent",
+                "distinct_id": user_1_did,
+                "timestamp": "2024-06-11 10:06:00",  # Latest for sub_id_1
+                "properties": {"$survey_id": survey1_id, "$survey_submission_id": sub_id_1, "$response": "partial2"},
+            },
+            # Survey 1, User 2: One partial submission
+            {
+                "event": "survey sent",
+                "distinct_id": user_2_did,
+                "timestamp": "2024-06-11 10:10:00",
+                "properties": {
+                    "$survey_id": survey1_id,
+                    "$survey_submission_id": sub_id_2,
+                    "$response": "user2_partial",
+                },
+            },
+            # Survey 2, User 1: One partial submission
+            {
+                "event": "survey sent",
+                "distinct_id": user_1_did,
+                "timestamp": "2024-06-11 10:15:00",
+                "properties": {
+                    "$survey_id": survey2_id,
+                    "$survey_submission_id": sub_id_3,
+                    "$response": "survey2_partial",
+                },
+            },
+            # Survey 2, User 2: Legacy
+            {
+                "event": "survey sent",
+                "distinct_id": user_2_did,
+                "timestamp": "2024-06-11 10:20:00",
+                "properties": {"$survey_id": survey2_id, "$response": "survey2_legacy"},
+            },
+            # An old event outside the implicit time range (based on survey start date)
+            {
+                "event": "survey sent",
+                "distinct_id": user_1_did,
+                "timestamp": "2024-06-09 10:00:00",
+                "properties": {"$survey_id": survey1_id, "$response": "too_old"},
+            },
+        ]
+
+        for event_data in events_data:
+            _create_event(
+                team=self.team,
+                event=event_data["event"],
+                distinct_id=event_data["distinct_id"],
+                timestamp=event_data["timestamp"],
+                properties=event_data["properties"],
+            )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/responses_count")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+
+        # Expected counts:
+        # Survey 1: 1 (legacy) + 1 (latest for sub_id_1) + 1 (sub_id_2) = 3
+        # Survey 2: 1 (sub_id_3) + 1 (legacy) = 2
+        expected_counts = {
+            survey1_id: 3,
+            survey2_id: 2,
+        }
+
+        self.assertEqual(data, expected_counts)
+
 
 class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
     def test_survey_stats_nonexistent_survey(self):
