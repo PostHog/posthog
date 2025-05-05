@@ -7,10 +7,12 @@ import { ClickHouseTimestamp, ProjectId, RawClickHouseEvent, Team } from '../../
 import { PostgresRouter } from '../../utils/db/postgres'
 import { UUIDT } from '../../utils/utils'
 import { CdpInternalEvent } from '../schema'
+import { compileHog } from '../templates/compiler'
 import {
     HogFunctionInvocation,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationGlobalsWithInputs,
+    HogFunctionTemplateType,
     HogFunctionType,
     IntegrationType,
 } from '../types'
@@ -22,8 +24,6 @@ export const createHogFunction = (hogFunction: Partial<HogFunctionType>) => {
         name: 'Hog Function',
         team_id: 1,
         enabled: true,
-        hog: '',
-        bytecode: [],
         ...hogFunction,
     } as HogFunctionType
 
@@ -96,12 +96,16 @@ export const insertHogFunction = async (
     hogFunction: Partial<HogFunctionType> = {}
 ): Promise<HogFunctionType> => {
     // This is only used for testing so we need to override some values
-
     const res = await insertRow(postgres, 'posthog_hogfunction', {
         ...createHogFunction({
             ...hogFunction,
             team_id: team_id,
         }),
+        // Ensure these fields are null unless explicitly set
+        hog: hogFunction.hog ?? null,
+        bytecode: hogFunction.bytecode ?? null,
+        inputs_schema: hogFunction.inputs_schema ?? null,
+        mappings: hogFunction.mappings ?? null,
         description: '',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -187,4 +191,67 @@ export const createInvocation = (
         timings: [],
         queuePriority: 0,
     }
+}
+
+export const createHogFunctionTemplate = async (template: Partial<HogFunctionTemplateType>) => ({
+    id: randomUUID(),
+    template_id: 'default_template_id',
+    code: 'return event',
+    bytecode: await compileHog('return event'),
+    inputs_schema: [
+        {
+            type: 'string',
+            key: 'test_input',
+            label: 'Test Input',
+            required: true,
+            default: 'test',
+        },
+        {
+            type: 'boolean',
+            key: 'enabled',
+            label: 'Enabled',
+            default: true,
+        },
+    ],
+    mappings: [
+        {
+            inputs_schema: [
+                {
+                    type: 'string',
+                    key: 'field_mapping',
+                    label: 'Field Mapping',
+                    required: true,
+                    default: 'event.properties',
+                },
+            ],
+            inputs: {
+                field_mapping: {
+                    value: 'event.properties',
+                },
+            },
+            filters: null,
+        },
+    ],
+    sha: 'sha1',
+    name: 'Test Template',
+    code_language: 'hog',
+    type: 'destination',
+    status: 'alpha',
+    category: '[]',
+    free: false,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    ...template,
+})
+
+export const insertHogFunctionTemplate = async (
+    postgres: PostgresRouter,
+    template: Partial<HogFunctionTemplateType> = {}
+): Promise<HogFunctionTemplateType> => {
+    const res = await insertRow(postgres, 'posthog_hogfunctiontemplate', {
+        ...(await createHogFunctionTemplate({
+            ...template,
+        })),
+    })
+    return res
 }

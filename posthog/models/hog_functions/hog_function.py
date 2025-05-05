@@ -86,13 +86,13 @@ class HogFunction(FileSystemSyncMixin, UUIDModel):
     icon_url = models.TextField(null=True, blank=True)
 
     # Hog source, except for the "site_*" types, when it contains TypeScript Source
-    hog = models.TextField()
+    hog = models.TextField(null=True, blank=True)
     # Used when the source language is Hog (everything except the "site_*" types)
     bytecode = models.JSONField(null=True, blank=True)
     # Transpiled JavasScript. Used with the "site_*" types
     transpiled = models.TextField(null=True, blank=True)
 
-    inputs_schema = models.JSONField(null=True)
+    inputs_schema = models.JSONField(null=True, blank=True)
     inputs = models.JSONField(null=True)
     encrypted_inputs: EncryptedJSONStringField = EncryptedJSONStringField(null=True, blank=True)
 

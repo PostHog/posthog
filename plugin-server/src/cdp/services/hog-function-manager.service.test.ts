@@ -6,7 +6,8 @@ import { closeHub, createHub } from '~/src/utils/db/hub'
 import { PostgresUse } from '~/src/utils/db/postgres'
 import { createTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
-import { insertHogFunction, insertIntegration } from '../_tests/fixtures'
+import { insertHogFunction, insertHogFunctionTemplate, insertIntegration } from '../_tests/fixtures'
+import { compileHog } from '../templates/compiler'
 import { HogFunctionManagerService } from './hog-function-manager.service'
 
 describe('HogFunctionManager', () => {
@@ -32,6 +33,9 @@ describe('HogFunctionManager', () => {
 
         hogFunctions = []
         integrations = []
+
+        const hogCode = 'return event'
+        const bytecode = await compileHog(hogCode)
 
         integrations.push(
             await insertIntegration(hub.postgres, teamId1, {
@@ -75,6 +79,7 @@ describe('HogFunctionManager', () => {
 
         hogFunctions.push(
             await insertHogFunction(hub.postgres, teamId2, {
+                bytecode: bytecode,
                 name: 'Test Hog Function team 2',
                 inputs_schema: [
                     {
@@ -112,7 +117,7 @@ describe('HogFunctionManager', () => {
                 type: 'destination',
                 enabled: true,
                 execution_order: null,
-                bytecode: {},
+                bytecode: null,
                 filters: null,
                 inputs_schema: [
                     {
@@ -543,7 +548,7 @@ describe('HogFunctionManager - Integration Updates', () => {
         // Update the integration in the database
         await hub.db.postgres.query(
             PostgresUse.COMMON_WRITE,
-            `UPDATE posthog_integration 
+            `UPDATE posthog_integration
              SET config = jsonb_set(config, '{team}', '"updated-team"'::jsonb),
                  sensitive_config = jsonb_set(sensitive_config, '{access_token}', $1::jsonb)
              WHERE id = $2`,
@@ -694,5 +699,86 @@ describe('sanitize', () => {
 
         // Should preserve undefined value
         expect(items[0].encrypted_inputs).toBeUndefined()
+    })
+})
+
+describe('template patching', () => {
+    let hub: Hub
+    let manager: HogFunctionManagerService
+    let teamId: number
+
+    beforeEach(async () => {
+        hub = await createHub()
+        await resetTestDatabase()
+        manager = new HogFunctionManagerService(hub)
+        const team = await getTeam(hub, 2)
+        teamId = await createTeam(hub.db.postgres, team!.organization_id)
+        await manager.start()
+    })
+
+    afterEach(async () => {
+        await manager.stop()
+        await closeHub(hub)
+    })
+
+    it('fills missing fields from template in DB', async () => {
+        // Insert template
+        const template = await insertHogFunctionTemplate(hub.postgres, {
+            template_id: 'template-integration-1',
+            inputs_schema: [
+                {
+                    type: 'integration',
+                    key: 'slack',
+                },
+            ],
+            mappings: null,
+        })
+
+        // Insert template based hog function (hog, bytecode, inputs_schema, mappings are null)
+        const { id } = await insertHogFunction(hub.postgres, teamId, {
+            template_id: template.template_id,
+            hog: null,
+            bytecode: null,
+            inputs_schema: null,
+            mappings: null,
+        })
+
+        // Fetch via manager and assert fields are filled-in from template
+        const fn = (await manager['fetchHogFunctions']([id]))[id]
+        expect(fn?.hog).toEqual(template.code)
+        expect(fn?.bytecode).toEqual(template.bytecode)
+        expect(fn?.inputs_schema).toEqual(template.inputs_schema)
+        expect(fn?.mappings).toEqual(template.mappings)
+    })
+
+    it('uses config of hog function instead of template for custom hog function', async () => {
+        // Insert template
+        const template = await insertHogFunctionTemplate(hub.postgres, {
+            template_id: 'template-integration-1',
+        })
+
+        // custom hog but same template
+        const { id, hog, bytecode, inputs_schema } = await insertHogFunction(hub.postgres, teamId, {
+            hog: 'return event',
+            bytecode: await compileHog('return event'),
+            template_id: template.template_id,
+            inputs_schema: [
+                {
+                    type: 'string',
+                    key: 'test_input',
+                    label: 'Test Input',
+                    required: true,
+                    default: 'test',
+                },
+            ],
+            mappings: null,
+        })
+        const fn = (await manager['fetchHogFunctions']([id]))[id]
+        expect(fn?.hog).toEqual(hog)
+        expect(fn?.bytecode).toEqual(bytecode)
+        expect(fn?.inputs_schema).not.toEqual(template.inputs_schema)
+        expect(fn?.inputs_schema).toEqual(inputs_schema)
+        expect(fn?.mappings).not.toEqual(template.mappings)
+        expect(fn?.mappings).toEqual(null)
     })
 })

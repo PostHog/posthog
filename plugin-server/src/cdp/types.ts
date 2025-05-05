@@ -9,6 +9,7 @@ import {
     PersonPropertyFilter,
     Team,
 } from '../types'
+import { HogFunctionMappingTemplate } from './templates/types'
 
 export type HogBytecode = any[]
 
@@ -53,6 +54,29 @@ export type GroupType = {
     index: number
     url: string
     properties: Record<string, any>
+}
+
+export type HogFunctionTemplateType = {
+    template_id: string
+    sha: string
+    name: string
+    description: string | null
+    code: string
+    code_language: string
+    inputs_schema: HogFunctionInputSchemaType[] | null
+    bytecode: HogBytecode | null
+    type: string
+    status: string
+    category: any[]
+    kind: string | null
+    free: boolean
+    icon_url: string | null
+    filters: HogFunctionFilters | null
+    masking: HogFunctionMasking | null
+    mappings: HogFunctionMappingType[] | null
+    mapping_templates: HogFunctionMappingTemplate[] | null
+    created_at: string
+    updated_at: string
 }
 
 export type HogFunctionInvocationGlobals = {
@@ -311,9 +335,9 @@ export type HogFunctionType = {
     name: string
     enabled: boolean
     deleted: boolean
-    hog: string
-    bytecode: HogBytecode
-    inputs_schema?: HogFunctionInputSchemaType[]
+    hog: string | null
+    bytecode: HogBytecode | null
+    inputs_schema?: HogFunctionInputSchemaType[] | null
     inputs?: Record<string, HogFunctionInputType | null>
     encrypted_inputs?: Record<string, HogFunctionInputType>
     filters?: HogFunctionFilters | null
