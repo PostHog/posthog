@@ -1,6 +1,7 @@
 import { ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
 
-import { Response } from '~/src/utils/fetch'
+import { parseJSON } from '~/src/utils/json-parse'
+import { SecureResponse } from '~/src/utils/request'
 
 import { LegacyDestinationPluginMeta } from '../../types'
 
@@ -23,11 +24,11 @@ const hubspotPropsMap = {
     companyWebsite: 'website',
 }
 
-export async function setupPlugin({ config, global, fetch }: LegacyDestinationPluginMeta) {
+export async function setupPlugin({ config, global, request }: LegacyDestinationPluginMeta) {
     try {
         global.hubspotAccessToken = config.hubspotAccessToken
 
-        const authResponse = await fetch(
+        const authResponse = await request(
             `https://api.hubapi.com/crm/v3/objects/contacts?limit=1&paginateAssociations=false&archived=false`,
             {
                 headers: {
@@ -103,7 +104,7 @@ async function createHubspotContact(
         }
     }
 
-    const addContactResponse = await meta.fetch(`https://api.hubapi.com/crm/v3/objects/contacts`, {
+    const addContactResponse = await meta.request(`https://api.hubapi.com/crm/v3/objects/contacts`, {
         method: 'POST',
         headers: {
             Authorization: `Bearer ${accessToken}`,
@@ -112,7 +113,7 @@ async function createHubspotContact(
         body: JSON.stringify({ properties: { email: email, ...hubspotFilteredProps } }),
     })
 
-    const addContactResponseJson = await addContactResponse.json()
+    const addContactResponseJson = parseJSON(addContactResponse.body ?? '{}')
 
     if (!statusOk(addContactResponse) || addContactResponseJson.status === 'error') {
         const errorMessage = addContactResponseJson.message ?? ''
@@ -125,7 +126,7 @@ async function createHubspotContact(
             const existingId = addContactResponseJson.message.match(existingIdRegex)
             meta.logger.log(`Attempting to update contact ${email} instead...`)
 
-            const updateContactResponse = await meta.fetch(
+            const updateContactResponse = await meta.request(
                 `https://api.hubapi.com/crm/v3/objects/contacts/${existingId[1]}`,
                 {
                     method: 'PATCH',
@@ -137,7 +138,7 @@ async function createHubspotContact(
                 }
             )
 
-            const updateResponseJson = await updateContactResponse.json()
+            const updateResponseJson = parseJSON(updateContactResponse.body ?? '{}')
             if (!statusOk(updateContactResponse)) {
                 const errorMessage = updateResponseJson.message ?? ''
                 meta.logger.log(
@@ -152,7 +153,7 @@ async function createHubspotContact(
     }
 }
 
-function statusOk(res: Response): boolean {
+function statusOk(res: SecureResponse): boolean {
     return String(res.status)[0] === '2'
 }
 

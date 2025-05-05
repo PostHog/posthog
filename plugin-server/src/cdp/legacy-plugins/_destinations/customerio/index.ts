@@ -1,8 +1,8 @@
 import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { RetryError } from '@posthog/plugin-scaffold'
 
-import { Response } from '~/src/utils/fetch'
-
+import { parseJSON } from '../../../../utils/json-parse'
+import type { SecureResponse } from '../../../../utils/request'
 import { LegacyDestinationPluginMeta } from '../../types'
 
 const DEFAULT_HOST = 'track.customer.io'
@@ -60,21 +60,21 @@ async function callCustomerIoApi(
         headers['Content-Type'] = 'application/json'
         bodySerialized = JSON.stringify(body)
     }
-    let response: Response
+    let response: SecureResponse
     try {
-        response = await meta.fetch(`https://${host}${path}`, { method, headers, body: bodySerialized })
+        response = await meta.request(`https://${host}${path}`, { method, headers, body: bodySerialized })
     } catch (e) {
         throw new RetryError(`Cannot reach the Customer.io API. ${e}`)
     }
     const responseStatusClass = Math.floor(response.status / 100)
     if (response.status === 401 || response.status === 403) {
-        const responseData = await response.json()
+        const responseData = parseJSON(response.body ?? '{}')
         throw new Error(
             `Customer.io Site ID or API Key invalid! Response ${response.status}: ${JSON.stringify(responseData)}`
         )
     }
     if (response.status === 408 || response.status === 429 || responseStatusClass === 5) {
-        const responseData = await response.json()
+        const responseData = parseJSON(response.body ?? '{}')
         throw new RetryError(
             `Received a potentially intermittent error from the Customer.io API. Response ${
                 response.status
@@ -82,7 +82,7 @@ async function callCustomerIoApi(
         )
     }
     if (responseStatusClass !== 2) {
-        const responseData = await response.json()
+        const responseData = parseJSON(response.body ?? '{}')
         throw new Error(
             `Received an unexpected error from the Customer.io API. Response ${response.status}: ${JSON.stringify(
                 responseData

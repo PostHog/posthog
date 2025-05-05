@@ -26,7 +26,7 @@ export type SecureRequestOptions = {
 export type SecureResponse = {
     status: number
     headers: Record<string, string>
-    body: string
+    body: string | null
 }
 
 export class SecureRequestError extends errors.UndiciError {

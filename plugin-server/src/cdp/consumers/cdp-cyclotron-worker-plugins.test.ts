@@ -1,6 +1,7 @@
 import { RetryError } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
+import { secureRequest, SecureResponse } from '~/src/utils/request'
 import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
@@ -15,7 +16,6 @@ import {
 import { DESTINATION_PLUGINS_BY_ID } from '../legacy-plugins'
 import { HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
 import { CdpCyclotronWorkerPlugins } from './cdp-cyclotron-worker-plugins.consumer'
-
 jest.setTimeout(1000)
 
 /**
@@ -27,7 +27,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
     let team: Team
     let fn: HogFunctionType
     let globals: HogFunctionInvocationGlobalsWithInputs
-    let mockFetch: jest.Mock
+    let mockRequest: jest.Mock<Promise<SecureResponse>, Parameters<typeof secureRequest>>
     const insertHogFunction = async (hogFunction: Partial<HogFunctionType>) => {
         const item = await _insertHogFunction(hub.postgres, team.id, {
             ...hogFunction,
@@ -49,13 +49,11 @@ describe('CdpCyclotronWorkerPlugins', () => {
 
         await processor.start()
 
-        processor['pluginExecutor'].fetch = mockFetch = jest.fn(() =>
+        processor['pluginExecutor'].request = mockRequest = jest.fn((_url, _options) =>
             Promise.resolve({
                 status: 200,
-                json: () =>
-                    Promise.resolve({
-                        status: 200,
-                    }),
+                body: JSON.stringify({}),
+                headers: {},
             } as any)
         )
 
@@ -117,9 +115,10 @@ describe('CdpCyclotronWorkerPlugins', () => {
                 email: 'test@posthog.com',
             }
 
-            mockFetch.mockResolvedValue({
+            mockRequest.mockResolvedValue({
                 status: 200,
-                json: () => Promise.resolve({ total_count: 1 }),
+                body: JSON.stringify({ total_count: 1 }),
+                headers: {},
             })
 
             await processor.processBatch([invocation])
@@ -141,8 +140,8 @@ describe('CdpCyclotronWorkerPlugins', () => {
                 }
             `)
 
-            expect(mockFetch).toHaveBeenCalledTimes(2)
-            expect(forSnapshot(mockFetch.mock.calls[0])).toMatchInlineSnapshot(`
+            expect(mockRequest).toHaveBeenCalledTimes(2)
+            expect(forSnapshot(mockRequest.mock.calls[0])).toMatchInlineSnapshot(`
                 [
                   "https://api.intercom.io/contacts/search",
                   {
@@ -156,7 +155,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
                   },
                 ]
             `)
-            expect(forSnapshot(mockFetch.mock.calls[1])).toMatchInlineSnapshot(`
+            expect(forSnapshot(mockRequest.mock.calls[1])).toMatchInlineSnapshot(`
                 [
                   "https://api.intercom.io/events",
                   {
@@ -187,7 +186,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
                 email: 'test@posthog.com',
             }
 
-            mockFetch.mockRejectedValue(new Error('Test error'))
+            mockRequest.mockRejectedValue(new Error('Test error'))
 
             const res = await processor.processBatch([invocation])
 
