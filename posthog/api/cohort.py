@@ -346,7 +346,7 @@ class CohortSerializer(serializers.ModelSerializer):
         for dependent_cohort in [nested_cohort, *dependent_cohorts]:
             if (
                 cohort_used_in_flags
-                and len([p for p in dependent_cohort.properties.flat if p.type == "behavioral"]) > 0
+                and any(p.type == "behavioral" for p in dependent_cohort.properties.flat)
             ):
                 raise serializers.ValidationError(
                     detail=f"A dependent cohort ({dependent_cohort.name}) has filters based on events. These cohorts can't be used in feature flags.",
