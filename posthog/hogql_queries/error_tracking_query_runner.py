@@ -18,6 +18,7 @@ from posthog.schema import (
 from posthog.hogql.parser import parse_select
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.error_tracking import ErrorTrackingIssue
+from posthog.models.property.util import property_to_django_filter
 
 logger = structlog.get_logger(__name__)
 
@@ -366,7 +367,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
                 limit_context=self.limit_context,
                 filters=HogQLFilters(
                     filterTestAccounts=self.query.filterTestAccounts,
-                    properties=self.properties,
+                    properties=self.hogql_properties,
                 ),
             )
 
@@ -430,10 +431,6 @@ class ErrorTrackingQueryRunner(QueryRunner):
             else None
         )
 
-    @cached_property
-    def properties(self):
-        return self.query.filterGroup.values[0].values if self.query.filterGroup else None
-
     def error_tracking_issues(self, ids):
         status = self.query.status
         queryset = (
@@ -449,11 +446,25 @@ class ErrorTrackingQueryRunner(QueryRunner):
             queryset = (
                 queryset.filter(assignment__user_id=self.query.assignee.id)
                 if self.query.assignee.type == "user"
-                else queryset.filter(assignment__user_group_id=self.query.assignee.id)
+                else (
+                    queryset.filter(assignment__role_id=self.query.assignee.id)
+                    if self.query.assignee.type == "role"
+                    else queryset.filter(assignment__user_group_id=self.query.assignee.id)
+                )
             )
 
+        for filter in self.issue_properties:
+            queryset = property_to_django_filter(queryset, filter)
+
         issues = queryset.values(
-            "id", "status", "name", "description", "first_seen", "assignment__user_id", "assignment__user_group_id"
+            "id",
+            "status",
+            "name",
+            "description",
+            "first_seen",
+            "assignment__user_id",
+            "assignment__user_group_id",
+            "assignment__role_id",
         )
 
         results = {}
@@ -469,11 +480,12 @@ class ErrorTrackingQueryRunner(QueryRunner):
 
             assignment_user_id = issue.get("assignment__user_id")
             assignment_user_group_id = issue.get("assignment__user_group_id")
+            assignment_role_id = issue.get("assignment__role_id")
 
-            if assignment_user_id or assignment_user_group_id:
+            if assignment_user_id or assignment_user_group_id or assignment_role_id:
                 result["assignee"] = {
-                    "id": assignment_user_id or str(assignment_user_group_id),
-                    "type": "user" if assignment_user_id else "user_group",
+                    "id": assignment_user_id or str(assignment_user_group_id) or str(assignment_role_id),
+                    "type": ("user" if assignment_user_id else "user_group" if assignment_user_group_id else "role"),
                 }
 
             results[issue["id"]] = result
@@ -506,13 +518,32 @@ class ErrorTrackingQueryRunner(QueryRunner):
             queryset = (
                 queryset.filter(assignment__user_id=self.query.assignee.id)
                 if self.query.assignee.type == "user"
-                else queryset.filter(assignment__user_group_id=self.query.assignee.id)
+                else (
+                    queryset.filter(assignment__role_id=str(self.query.assignee.id))
+                    if self.query.assignee.type == "role"
+                    else queryset.filter(assignment__user_group_id=str(self.query.assignee.id))
+                )
             )
+
+        for filter in self.issue_properties:
+            queryset = property_to_django_filter(queryset, filter)
 
         if not use_prefetched:
             return []
 
         return [str(issue.id) for issue in queryset.only("id").iterator()]
+
+    @cached_property
+    def issue_properties(self):
+        return [value for value in self.properties if "error_tracking_issue" == value.type]
+
+    @cached_property
+    def hogql_properties(self):
+        return [value for value in self.properties if "error_tracking_issue" != value.type]
+
+    @cached_property
+    def properties(self):
+        return self.query.filterGroup.values[0].values if self.query.filterGroup else []
 
 
 def search_tokenizer(query: str) -> list[str]:

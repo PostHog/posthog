@@ -11,7 +11,7 @@ import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWare
 import { urls } from 'scenes/urls'
 
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
-import { RevenueTrackingEventItem } from '~/queries/schema/schema-general'
+import { RevenueAnalyticsEventItem } from '~/queries/schema/schema-general'
 import { DateMappingOption, ExternalDataSource } from '~/types'
 
 import { revenueAnalyticsLogic } from './revenueAnalyticsLogic'
@@ -52,7 +52,7 @@ const DATE_FILTER_DATE_OPTIONS: DateMappingOption[] = [
 ]
 
 type ParsedRecord = Record<string, boolean>
-const buildEvents = (allEvents: RevenueTrackingEventItem[], state: ParsedRecord): ParsedRecord => {
+const buildEvents = (allEvents: RevenueAnalyticsEventItem[], state: ParsedRecord): ParsedRecord => {
     return allEvents.reduce((acc, event) => {
         if (!(event.eventName in acc)) {
             acc[event.eventName] = true
@@ -65,12 +65,14 @@ const buildDataWarehouseSources = (
     allDataWarehouseSources: ExternalDataSource[],
     state: ParsedRecord
 ): ParsedRecord => {
-    return allDataWarehouseSources.reduce((acc, source) => {
-        if (!(source.id in acc)) {
-            acc[source.id] = true
-        }
-        return acc
-    }, state)
+    return allDataWarehouseSources
+        .filter((source) => source.revenue_analytics_enabled)
+        .reduce((acc, source) => {
+            if (!(source.id in acc)) {
+                acc[source.id] = true
+            }
+            return acc
+        }, state)
 }
 
 export const RevenueAnalyticsFilters = (): JSX.Element => {

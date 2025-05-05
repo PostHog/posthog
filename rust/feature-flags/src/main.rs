@@ -50,5 +50,6 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind(config.address)
         .await
         .expect("could not bind port");
-    serve(config, listener, shutdown()).await
+    serve(config, listener, shutdown()).await;
+    unreachable!("Server exited unexpectedly");
 }

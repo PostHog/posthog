@@ -14,7 +14,7 @@ use limiters::token_dropper::TokenDropper;
 use metrics::counter;
 use serde_json::json;
 use serde_json::Value;
-use tracing::instrument;
+use tracing::{debug, error, instrument, warn, Span};
 
 use crate::prometheus::report_dropped_events;
 use crate::v0_request::{
@@ -49,40 +49,62 @@ async fn handle_common(
         .get("content-encoding")
         .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
 
+    let current_span = Span::current();
+    if state.is_mirror_deploy {
+        // for mirror deploy, temporarily log all headers
+        for entry in headers {
+            let key = entry.0.as_str();
+            let value = entry.1.to_str().unwrap_or("UNKNOWN");
+            current_span.record(key, value);
+        }
+    } else {
+        current_span.record("user_agent", user_agent);
+        current_span.record("content_encoding", content_encoding);
+    }
+
     let comp = match meta.compression {
         None => String::from("unknown"),
         Some(Compression::Gzip) => String::from("gzip"),
         Some(Compression::Unsupported) => String::from("unsupported"),
     };
 
-    tracing::Span::current().record("user_agent", user_agent);
-    tracing::Span::current().record("content_encoding", content_encoding);
-    tracing::Span::current().record("version", meta.lib_version.clone());
-    tracing::Span::current().record("compression", comp.as_str());
-    tracing::Span::current().record("method", method.as_str());
-    tracing::Span::current().record("path", path.as_str().trim_end_matches('/'));
+    Span::current().record("version", meta.lib_version.clone());
+    Span::current().record("compression", comp.as_str());
+    Span::current().record("method", method.as_str());
+    Span::current().record("path", path.as_str().trim_end_matches('/'));
 
     let request = match headers
         .get("content-type")
         .map_or("", |v| v.to_str().unwrap_or(""))
     {
         "application/x-www-form-urlencoded" => {
-            tracing::Span::current().record("content_type", "application/x-www-form-urlencoded");
+            Span::current().record("content_type", "application/x-www-form-urlencoded");
 
             let input: EventFormData = serde_urlencoded::from_bytes(body.deref()).map_err(|e| {
-                tracing::error!("failed to decode body: {}", e);
-                CaptureError::RequestDecodingError(String::from("invalid form data"))
+                error!("failed to decode urlencoded form body: {}", e);
+                CaptureError::RequestDecodingError(String::from("invalid urlencoded form data"))
             })?;
             let payload = base64::engine::general_purpose::STANDARD
-                .decode(input.data)
+                .decode(&input.data)
                 .map_err(|e| {
-                    tracing::error!("failed to decode form data: {}", e);
-                    CaptureError::RequestDecodingError(String::from("missing data field"))
+                    if state.is_mirror_deploy {
+                        // get a peek at the headers and a short snip of the payload in mirror
+                        // see which capture.py "kludge warning" these may map to, if any
+                        error!(
+                            data = &input.data[0..input.data.len().min(128)],
+                            "failed to decode mirrored form w/error: {}", e
+                        );
+                    } else {
+                        error!("failed to decode base64 form data: {}", e);
+                    }
+                    CaptureError::RequestDecodingError(String::from(
+                        "missing or invalid data field",
+                    ))
                 })?;
             RawRequest::from_bytes(payload.into(), state.event_size_limit)
         }
         ct => {
-            tracing::Span::current().record("content_type", ct);
+            Span::current().record("content_type", ct);
 
             RawRequest::from_bytes(body, state.event_size_limit)
         }
@@ -99,12 +121,12 @@ async fn handle_common(
     let historical_migration = request.historical_migration();
     let events = request.events(); // Takes ownership of request
 
-    tracing::Span::current().record("token", &token);
-    tracing::Span::current().record("historical_migration", historical_migration);
-    tracing::Span::current().record("batch_size", events.len());
+    Span::current().record("token", &token);
+    Span::current().record("historical_migration", historical_migration);
+    Span::current().record("batch_size", events.len());
 
     if events.is_empty() {
-        tracing::log::warn!("rejected empty batch");
+        warn!("rejected empty batch");
         return Err(CaptureError::EmptyBatch);
     }
 
@@ -131,7 +153,7 @@ async fn handle_common(
         return Err(CaptureError::BillingLimit);
     }
 
-    tracing::debug!(context=?context, events=?events, "decoded request");
+    debug!(context=?context, events=?events, "decoded request");
 
     Ok((context, events))
 }
@@ -242,7 +264,7 @@ pub async fn recording(
                     CaptureError::MissingEventName => "missing_event_name",
                     CaptureError::RequestDecodingError(_) => "request_decoding_error",
                     CaptureError::RequestParsingError(_) => "request_parsing_error",
-                    CaptureError::EventTooBig => "event_too_big",
+                    CaptureError::EventTooBig(_) => "event_too_big",
                     CaptureError::NonRetryableSinkError => "sink_error",
                     CaptureError::InvalidSessionId => "invalid_session_id",
                     CaptureError::MissingSnapshotData => "missing_snapshot_data",

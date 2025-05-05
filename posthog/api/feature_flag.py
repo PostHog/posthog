@@ -3,7 +3,6 @@ import time
 import logging
 from typing import Any, Optional, cast
 from datetime import datetime
-
 from django.db import transaction
 from django.db.models import QuerySet, Q, deletion, Prefetch
 from django.conf import settings
@@ -82,6 +81,7 @@ DATABASE_FOR_LOCAL_EVALUATION = (
 )
 
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
+SURVEY_TARGETING_FLAG_PREFIX = "survey-targeting-"
 
 MAX_PROPERTY_VALUES = 1000
 
@@ -142,6 +142,7 @@ class FeatureFlagSerializer(
         required=False,
         help_text="Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments'.",
     )
+    _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
         model = FeatureFlag
@@ -173,6 +174,7 @@ class FeatureFlagSerializer(
             "is_remote_configuration",
             "has_encrypted_payloads",
             "status",
+            "_create_in_folder",
         ]
 
     def get_can_edit(self, feature_flag: FeatureFlag) -> bool:
@@ -1023,7 +1025,10 @@ class FeatureFlagViewSet(
                     continue
 
             # Add request for analytics
-            increment_request_count(self.team.pk, 1, FlagRequestType.LOCAL_EVALUATION)
+            if len(parsed_flags) > 0 and not all(
+                flag.key.startswith(SURVEY_TARGETING_FLAG_PREFIX) for flag in parsed_flags
+            ):
+                increment_request_count(self.team.pk, 1, FlagRequestType.LOCAL_EVALUATION)
 
             duration = time.time() - start_time
             logger.info(

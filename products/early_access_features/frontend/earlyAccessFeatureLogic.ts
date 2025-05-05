@@ -4,6 +4,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { openSaveToModal } from 'lib/components/SaveTo/saveToLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -118,14 +119,21 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             },
         ],
     })),
-    forms(({ actions }) => ({
+    forms(({ actions, props }) => ({
         earlyAccessFeature: {
             defaults: { ...NEW_EARLY_ACCESS_FEATURE } as NewEarlyAccessFeatureType | EarlyAccessFeatureType,
             errors: (payload) => ({
                 name: !payload.name ? 'Feature name must be set' : undefined,
             }),
             submit: async (payload) => {
-                actions.saveEarlyAccessFeature(payload)
+                if (props.id && props.id !== 'new') {
+                    actions.saveEarlyAccessFeature(payload)
+                } else {
+                    openSaveToModal({
+                        defaultFolder: 'Unfiled/Early Access Features',
+                        callback: (folder) => actions.saveEarlyAccessFeature({ ...payload, _create_in_folder: folder }),
+                    })
+                }
             },
         },
     })),
@@ -173,7 +181,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
         ],
         projectTreeRef: [
             () => [(_, props: EarlyAccessFeatureLogicProps) => props.id],
-            (id): ProjectTreeRef => ({ type: 'early_access_feature', ref: String(id) }),
+            (id): ProjectTreeRef => ({ type: 'early_access_feature', ref: id === 'new' ? null : String(id) }),
         ],
         optedInCount: [
             (s) => [s.personsCount],

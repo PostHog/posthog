@@ -4,4 +4,9 @@ set -e
 export OBJECT_STORAGE_ENDPOINT=http://localhost:19000
 export SESSION_RECORDING_V2_S3_ENDPOINT=http://localhost:19000
 
+export CLICKHOUSE_API_USER="api"
+export CLICKHOUSE_API_PASSWORD="apipass"
+export CLICKHOUSE_APP_USER="app"
+export CLICKHOUSE_APP_PASSWORD="apppass"
+
 uvicorn --reload posthog.asgi:application --host 0.0.0.0 --log-level debug --reload-include "posthog/" --reload-include "ee/" --reload-include "products/"

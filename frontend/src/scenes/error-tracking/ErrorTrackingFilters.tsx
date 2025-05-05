@@ -23,6 +23,7 @@ const taxonomicFilterLogicKey = 'error-tracking'
 const taxonomicGroupTypes = [
     TaxonomicFilterGroupType.EventProperties,
     TaxonomicFilterGroupType.PersonProperties,
+    TaxonomicFilterGroupType.ErrorTrackingIssues,
     TaxonomicFilterGroupType.Cohorts,
     TaxonomicFilterGroupType.HogQLExpression,
 ]
@@ -79,6 +80,7 @@ const UniversalSearch = (): JSX.Element => {
         onEnter: onClose,
         autoSelectItem: false,
         initialSearchQuery: searchQuery,
+        excludedProperties: { [TaxonomicFilterGroupType.ErrorTrackingIssues]: ['assignee'] },
     }
 
     return (
@@ -165,6 +167,7 @@ export const DateRangeFilter = ({
                 onChange={(changedDateFrom, changedDateTo) =>
                     setDateRange({ date_from: changedDateFrom, date_to: changedDateTo })
                 }
+                allowedRollingDateOptions={['hours', 'days', 'weeks', 'months', 'years']}
             />
         </span>
     )

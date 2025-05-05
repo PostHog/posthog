@@ -54,6 +54,8 @@ from posthog.tasks.tasks import (
     update_survey_adaptive_sampling,
     update_survey_iteration,
     verify_persons_data_in_sync,
+    count_items_in_playlists,
+    sync_hog_function_templates_task,
 )
 from posthog.utils import get_crontab
 
@@ -321,6 +323,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
             name="persist finished recordings v2",
         )
 
+        add_periodic_task_with_expiry(
+            sender,
+            settings.PLAYLIST_COUNTER_PROCESSING_SCHEDULE_SECONDS or TWENTY_FOUR_HOURS,
+            count_items_in_playlists.s(),
+            "ee_count_items_in_playlists",
+        )
+
         sender.add_periodic_task(
             crontab(minute="0", hour="*"),
             check_flags_to_rollback.s(),
@@ -359,4 +368,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="0", minute=str(randrange(0, 40))),
         sync_all_remote_configs.s(),
         name="sync all remote configs",
+    )
+
+    # Every 20 minutes, sync hog function templates
+    add_periodic_task_with_expiry(
+        sender,
+        20 * 60,  # 20 minutes in seconds
+        sync_hog_function_templates_task.s(),
+        name="sync hog function templates",
     )

@@ -16,6 +16,17 @@ from posthog.session_recordings.models.metadata import (
     RecordingMetadata,
 )
 
+DEFAULT_EVENT_FIELDS = [
+    "event",
+    "timestamp",
+    "elements_chain_href",
+    "elements_chain_texts",
+    "elements_chain_elements",
+    "properties.$window_id",
+    "properties.$current_url",
+    "properties.$event_type",
+]
+
 
 def seconds_until_midnight():
     now = datetime.now(pytz.timezone("UTC"))
@@ -130,39 +141,56 @@ class SessionReplayEvents:
         )
 
     def get_events(
-        self, session_id: str, team: Team, metadata: RecordingMetadata, events_to_ignore: list[str] | None
+        self,
+        session_id: str,
+        team: Team,
+        metadata: RecordingMetadata,
+        # Optional, to avoid modifying the existing behavior
+        events_to_ignore: list[str] | None = None,
+        extra_fields: list[str] | None = None,
+        limit: int | None = None,
+        page: int = 0,
     ) -> tuple[list | None, list | None]:
         from posthog.schema import HogQLQuery, HogQLQueryResponse
         from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 
-        q = """
-            select event, timestamp, elements_chain_href, elements_chain_texts, elements_chain_elements, properties.$window_id, properties.$current_url, properties.$event_type
-            from events
-            where timestamp >= {start_time} and timestamp <= {end_time}
-            and $session_id = {session_id}
+        fields = [*DEFAULT_EVENT_FIELDS]
+        if extra_fields:
+            fields.extend(extra_fields)
+        # TODO: Find a better way to inject the fields (providing string or list of strings to hq `values` just returns the string back)
+        q = f"SELECT {', '.join(fields)} FROM events"
+        q += """
+            WHERE timestamp >= {start_time} AND timestamp <= {end_time}
+            AND $session_id = {session_id}
             """
+        # Avoid events adding little context, like feature flag calls
         if events_to_ignore:
-            q += " and event not in {events_to_ignore}"
-
-        q += " order by timestamp asc"
-
+            q += " AND event NOT IN {events_to_ignore}"
+        q += " ORDER BY timestamp ASC"
+        # Pagination to allow consuming more than default 100 rows per call
+        if limit is not None and limit > 0:
+            q += " LIMIT {limit}"
+            # Offset makes sense only if limit is defined,
+            # to avoid mixing default HogQL limit and the expected one
+            if page > 0:
+                q += " OFFSET {offset}"
         hq = HogQLQuery(
             query=q,
             values={
-                # add some wiggle room to the timings, to ensure we get all the events
-                # the time range is only to stop CH loading too much data to find the session
+                # Add some wiggle room to the timings, to ensure we get all the events
+                # The time range is only to stop CH loading too much data to find the session
                 "start_time": metadata["start_time"] - timedelta(seconds=100),
                 "end_time": metadata["end_time"] + timedelta(seconds=100),
                 "session_id": session_id,
                 "events_to_ignore": events_to_ignore,
+                "limit": limit,
+                "offset": page * limit if limit is not None else 0,
             },
         )
-
         result: HogQLQueryResponse = HogQLQueryRunner(
             team=team,
             query=hq,
         ).calculate()
-
         return result.columns, result.results
 
     def get_events_for_session(self, session_id: str, team: Team, limit: int = 100) -> list[dict]:

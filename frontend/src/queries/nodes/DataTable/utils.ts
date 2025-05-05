@@ -4,13 +4,13 @@ import { DataNode, DataTableNode, EventsQuery, HogQLExpression, NodeKind } from 
 export const defaultDataTableEventColumns: HogQLExpression[] = [
     '*',
     'event',
-    'person',
+    'person_display_name -- Person',
     'coalesce(properties.$current_url, properties.$screen_name) -- Url / Screen',
     'properties.$lib',
     'timestamp',
 ]
 
-export const defaultDataTablePersonColumns: HogQLExpression[] = ['person', 'id', 'created_at']
+export const defaultDataTablePersonColumns: HogQLExpression[] = ['person_display_name -- Person', 'id', 'created_at']
 
 export const defaultDataTableGroupColumns: HogQLExpression[] = ['group_name', 'key', 'created_at']
 

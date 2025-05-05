@@ -9,7 +9,6 @@ import { posthog } from 'posthog-js'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
-import { match } from 'ts-pattern'
 
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { Query } from '~/queries/Query/Query'
@@ -80,13 +79,9 @@ export function ErrorTrackingScene(): JSX.Element {
 }
 
 const VolumeColumn: QueryContextColumnComponent = (props) => {
-    const { dateRange, sparklineSelectedPeriod, volumeResolution } = useValues(errorTrackingSceneLogic)
+    const { dateRange, volumeResolution } = useValues(errorTrackingSceneLogic)
     const record = props.record as ErrorTrackingIssue
-    const occurrences = match(sparklineSelectedPeriod)
-        .with('day', () => record.aggregations.volumeDay)
-        .with('custom', () => record.aggregations.volumeRange)
-        .exhaustive()
-    const data = useSparklineData(occurrences, dateRange, volumeResolution)
+    const data = useSparklineData(record.aggregations.volumeRange, dateRange, volumeResolution)
     return (
         <div className="flex justify-end">
             <OccurrenceSparkline className="h-8" data={data} displayXAxis={false} />
@@ -172,22 +167,20 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                         assignee={record.assignee}
                         onChange={(assignee) => assignIssue(record.id, assignee)}
                     >
-                        {(anyAssignee) => {
-                            return (
-                                <div
-                                    className="flex items-center hover:bg-fill-button-tertiary-hover p-[0.1rem] rounded cursor-pointer"
-                                    role="button"
-                                >
-                                    <AssigneeIconDisplay assignee={anyAssignee} size="xsmall" />
-                                    <AssigneeLabelDisplay
-                                        assignee={anyAssignee}
-                                        className="ml-1 text-xs text-secondary"
-                                        size="xsmall"
-                                    />
-                                    <IconChevronDown />
-                                </div>
-                            )
-                        }}
+                        {(anyAssignee) => (
+                            <div
+                                className="flex items-center hover:bg-fill-button-tertiary-hover p-[0.1rem] rounded cursor-pointer"
+                                role="button"
+                            >
+                                <AssigneeIconDisplay assignee={anyAssignee} size="xsmall" />
+                                <AssigneeLabelDisplay
+                                    assignee={anyAssignee}
+                                    className="ml-1 text-xs text-secondary"
+                                    size="xsmall"
+                                />
+                                <IconChevronDown />
+                            </div>
+                        )}
                     </AssigneeSelect>
                 </div>
             </div>

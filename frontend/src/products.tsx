@@ -122,7 +122,7 @@ export const productConfiguration: Record<string, any> = {
     RevenueAnalytics: {
         name: 'Revenue Analytics',
         projectBased: true,
-        defaultDocsPath: '/docs/revenue-analytics',
+        defaultDocsPath: '/docs/web-analytics/revenue-analytics',
         activityScope: 'RevenueAnalytics',
     },
 }
@@ -283,6 +283,7 @@ export const fileSystemTypes = {
 
 /** This const is auto-generated, as is the whole file */
 export const treeItemsNew = [
+    { type: 'action', path: 'Action', icon: <IconRocket />, href: () => urls.createAction() },
     {
         path: `Broadcast`,
         type: 'hog_function/broadcast',
@@ -298,18 +299,18 @@ export const treeItemsNew = [
     { path: `Dashboard`, type: 'dashboard', href: () => urls.dashboards() + '#newDashboard=modal' },
     { path: `Experiment`, type: 'experiment', href: () => urls.experiment('new') },
     { path: `Feature flag`, type: 'feature_flag', href: () => urls.featureFlag('new') },
-    { path: `Insight/Funnels`, type: 'insight', href: () => urls.insightNew({ type: InsightType.FUNNELS }) },
+    { path: `Insight/Funnel`, type: 'insight', href: () => urls.insightNew({ type: InsightType.FUNNELS }) },
     { path: `Insight/Lifecycle`, type: 'insight', href: () => urls.insightNew({ type: InsightType.LIFECYCLE }) },
     { path: `Insight/Retention`, type: 'insight', href: () => urls.insightNew({ type: InsightType.RETENTION }) },
     { path: `Insight/Stickiness`, type: 'insight', href: () => urls.insightNew({ type: InsightType.STICKINESS }) },
     { path: `Insight/Trends`, type: 'insight', href: () => urls.insightNew({ type: InsightType.TRENDS }) },
     { path: `Insight/User paths`, type: 'insight', href: () => urls.insightNew({ type: InsightType.PATHS }) },
     { path: `Notebook`, type: 'notebook', href: () => urls.notebook('new') },
+    { path: `Replay playlist`, type: 'session_recording_playlist', href: () => urls.replayPlaylist('new') },
 ]
 
 /** This const is auto-generated, as is the whole file */
 export const treeItemsExplore = [
-    { path: 'Data management/Actions', icon: <IconRocket />, href: () => urls.actions() },
     { path: 'Early access features', icon: <IconRocket />, href: () => urls.earlyAccessFeatures() },
     { path: 'Explore/Revenue analytics', icon: <IconPiggyBank />, href: () => urls.revenueAnalytics() },
     { path: 'People and groups/People', icon: <IconPerson />, href: () => urls.persons() },

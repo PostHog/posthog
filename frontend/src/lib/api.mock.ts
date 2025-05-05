@@ -126,13 +126,20 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     live_events_token: '123',
     capture_dead_clicks: false,
     human_friendly_comparison_periods: false,
-    revenue_tracking_config: {
-        baseCurrency: CurrencyCode.USD,
+    revenue_analytics_config: {
+        base_currency: CurrencyCode.USD,
         events: [
             {
                 eventName: 'purchase',
                 revenueProperty: 'value',
                 revenueCurrencyProperty: { static: CurrencyCode.ZAR },
+                currencyAwareDecimal: false,
+            },
+            {
+                eventName: 'subscription_created',
+                revenueProperty: 'subscription_value',
+                revenueCurrencyProperty: { property: 'currency' },
+                currencyAwareDecimal: true,
             },
         ],
     },

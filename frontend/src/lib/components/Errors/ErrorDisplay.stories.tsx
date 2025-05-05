@@ -295,10 +295,6 @@ export function WithCymbalErrors(): JSX.Element {
     )
 }
 
-export function SentryStackTrace(): JSX.Element {
-    return <ErrorDisplay eventProperties={errorProperties({ $exception_list: [] })} />
-}
-
 export function LegacyEventProperties(): JSX.Element {
     return (
         <ErrorDisplay
