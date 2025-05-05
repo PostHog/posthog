@@ -1,3 +1,5 @@
+import typing
+
 from posthog.temporal.data_imports.pipelines.source import config
 
 
@@ -185,10 +187,13 @@ def test_nested_to_config_with_flat_dict_default_prefix():
     assert cfg.a.a == "test"
     assert cfg.a.b == 0
     assert cfg.a.c is None
+    assert isinstance(cfg.a, A)
 
     assert cfg.b.a.a == "test"
     assert cfg.b.a.b == 1
     assert cfg.b.a.c == "something"
+    assert isinstance(cfg.b, B)
+    assert isinstance(cfg.b.a, A)
 
     assert cfg.d is True
 
@@ -218,3 +223,70 @@ def test_to_config_override_alias():
     assert cfg.a == "test"
     assert cfg.b == 10
     assert cfg.c == "seen"
+
+
+def test_to_config_union_nested_configs():
+    """Test `config.to_config` with a union of nested configs."""
+
+    @config.config
+    class A:
+        a: str
+
+    @config.config
+    class B:
+        b: int
+
+    @config.config
+    class C(config.Config):
+        inner: A | B | int
+
+    config_dict: dict[str, typing.Any] = {"inner": {"b": 1}}
+
+    b_cfg = C.from_dict(config_dict)
+
+    assert isinstance(b_cfg.inner, B)
+    assert b_cfg.inner.b == 1
+
+    config_dict = {"inner": {"a": "test"}}
+
+    a_cfg = C.from_dict(config_dict)
+
+    assert isinstance(a_cfg.inner, A)
+    assert a_cfg.inner.a == "test"
+
+    config_dict = {"inner": 2}
+
+    a_cfg = C.from_dict(config_dict)
+
+    assert isinstance(a_cfg.inner, int)
+    assert a_cfg.inner == 2
+
+
+def test_to_config_union_nested_configs_with_alias():
+    """Test `config.to_config` with a union of nested configs using alias."""
+
+    @config.config
+    class A:
+        a: str
+
+    @config.config
+    class B:
+        b: int
+
+    @config.config
+    class C(config.Config):
+        inner: A | B = config.value(alias="some")
+
+    config_dict: dict[str, typing.Any] = {"some": {"b": 1}}
+
+    b_cfg = C.from_dict(config_dict)
+
+    assert isinstance(b_cfg.inner, B)
+    assert b_cfg.inner.b == 1
+
+    config_dict = {"some": {"a": "test"}}
+
+    a_cfg = C.from_dict(config_dict)
+
+    assert isinstance(a_cfg.inner, A)
+    assert a_cfg.inner.a == "test"

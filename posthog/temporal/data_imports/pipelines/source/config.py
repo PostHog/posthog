@@ -1,4 +1,5 @@
 import dataclasses
+import types
 import typing
 
 META_KEY = "_SOURCE_CONFIG_META"
@@ -72,67 +73,96 @@ def to_config(config_cls: type[Config], d: dict[str, typing.Any], prefixes: tupl
     Raises:
         TypeError: If called with a class not decorated with @config.
     """
-    inputs = {}
-    top_level_prefixes = prefixes or ()
-
-    try:
-        fields = dataclasses.fields(config_cls)
-    except TypeError:
-        # We raise our own to indicate that you should use @config.
+    if not is_config(config_cls):
+        # Similar to exception raised by dataclass, but we raise our own
+        # to indicate that you should use @config.
         raise TypeError("must be called with a config type or instance")
 
+    top_level_prefixes = prefixes or ()
+    inputs = {}
+
+    fields = dataclasses.fields(config_cls)
+
     for field in fields:
-        if isinstance(field.type, str):
-            field_type = _lookup_type(field.type, locals(), globals())  # type: ignore
+        field_type = _resolve_field_type(field)
+        field_meta = field.metadata.get(META_KEY, None)
+
+        field_flat_key = _get_flat_key(field, prefixes or ())
+        field_nested_key = _get_nested_key(field)
+
+        if field_nested_key in d:
+            field_key = field_nested_key
         else:
-            field_type = field.type
+            field_key = field_flat_key
 
-        try:
-            field_type_metadata: MetaConfig | None = field_type.__source_config_meta
-        except AttributeError:
-            field_type_metadata = None
-
-        field_metadata = field.metadata.get(META_KEY, None)
-
-        if field_type_metadata:
-            # We are dealing with a nested config
-            if field.name in d:
-                # Assuming a nested structure, so we don't need prefixes
-                value = to_config(field_type, d[field.name], prefixes)
-
-            else:
-                # Assuming a flat structure, so we need to resolve prefixes for
-                # nested config.
-                nested_prefix = field_type_metadata.prefix
-
-                if field_metadata and field_metadata.prefix is not None:
-                    # Prefer attribute-level prefix if set
-                    nested_prefixes = (*top_level_prefixes, field_metadata.prefix)
-                elif nested_prefix:
-                    # Prefer the class-level prefix if set
-                    nested_prefixes = (*top_level_prefixes, nested_prefix)
-                else:
-                    default_nested_prefix = _get_default_prefix_for_class(field_type)
-                    nested_prefixes = (*top_level_prefixes, default_nested_prefix)
-
-                value = to_config(field_type, d, nested_prefixes)
-
-        else:
-            key = _get_key(field, top_level_prefixes)
-
-            try:
-                value = d[key]
-            except KeyError:
-                continue
-
-        if field_metadata and field_metadata.converter:
-            convert = field_metadata.converter
+        if field_meta and field_meta.converter:
+            convert = field_meta.converter
         else:
             convert = _noop_convert
 
-        inputs[field.name] = convert(value)
+        if is_config(field.type) or _is_union_of_config(field.type):
+            # We are dealing with a nested config, which could be part of a union
+            config_types = typing.get_args(field.type) or (field_type,)
+
+            for config_type in config_types:
+                if not is_config(config_type):
+                    try:
+                        value = d[field_key]
+                    except KeyError:
+                        continue
+                    else:
+                        inputs[field.name] = convert(value)
+                        break
+
+                field_type_meta: MetaConfig | None = _try_get_meta(config_type)
+                # We have checked that this is a config, so meta attribute must
+                # be set
+                assert field_type_meta
+
+                if field_nested_key in d:
+                    try:
+                        value = to_config(config_type, d[field_nested_key], prefixes)
+                    except TypeError:
+                        # We want to try all possible config types
+                        continue
+                    else:
+                        inputs[field.name] = convert(value)
+                        break
+
+                else:
+                    # Assuming a flat structure
+                    field_prefixes = _resolve_field_prefixes(
+                        field_type, field_type_meta, field_meta, top_level_prefixes
+                    )
+
+                    try:
+                        value = to_config(field_type, d, field_prefixes)
+                    except TypeError:
+                        # We want to try all possible config types
+                        continue
+                    else:
+                        inputs[field.name] = convert(value)
+                        break
+
+        else:
+            try:
+                value = d[field_key]
+            except KeyError:
+                continue
+            else:
+                inputs[field.name] = convert(value)
 
     return config_cls(**inputs)
+
+
+def _resolve_field_type(field: dataclasses.Field[typing.Any]) -> type:
+    """Resolve a field's type."""
+    if isinstance(field.type, str):
+        field_type = _lookup_type(field.type, locals(), globals())  # type: ignore
+    else:
+        field_type = field.type
+
+    return field_type
 
 
 def _lookup_type(type_to_resolve: str, locals: dict[str, typing.Any], globals: dict[str, typing.Any]) -> type:
@@ -149,22 +179,76 @@ def _lookup_type(type_to_resolve: str, locals: dict[str, typing.Any], globals: d
             raise TypeError(f"Unknown type: '{type_to_resolve}'")
 
 
-def _get_key(field: dataclasses.Field[typing.Any], prefixes: tuple[str, ...]) -> str:
-    """Get the key used to lookup a field."""
+def _try_get_meta(t: type) -> MetaConfig | None:
+    """Attempt to get metadata from config type."""
     try:
-        metadata = field.metadata[META_KEY]
+        field_type_meta: MetaConfig | None = t.__source_config_meta  # type: ignore
+    except AttributeError:
+        field_type_meta = None
+    return field_type_meta
+
+
+def _is_union_of_config(t: typing.Any) -> bool:
+    """Check if given type is a union consisting of at least one config."""
+    origin = typing.get_origin(t)
+    return (origin is typing.Union or origin is types.UnionType) and any(is_config(arg) for arg in typing.get_args(t))
+
+
+def is_config(maybe_config: typing.Any):
+    """Check meta attribute to identify config classes."""
+    return hasattr(maybe_config, "__source_config_meta")
+
+
+def _resolve_field_prefixes(
+    t: type, cls_meta: MetaConfig, field_meta: MetaConfig | None, top_level_prefixes: tuple[str, ...]
+):
+    """Resolve a prefix to use when field is stored in flat dictionary."""
+    field_prefix = cls_meta.prefix
+
+    if field_meta and field_meta.prefix is not None:
+        # Prefer attribute-level prefix if set
+        field_prefixes = (*top_level_prefixes, field_meta.prefix)
+    elif field_prefix:
+        # Prefer the class-level prefix if set
+        field_prefixes = (*top_level_prefixes, field_prefix)
+    else:
+        default_field_prefix = _get_default_prefix_for_class(t)
+        field_prefixes = (*top_level_prefixes, default_field_prefix)
+
+    return field_prefixes
+
+
+def _get_flat_key(field: dataclasses.Field[typing.Any], prefixes: tuple[str, ...]) -> str:
+    """Get the key used to lookup a field in a flat dictionary."""
+    try:
+        config_meta = field.metadata[META_KEY]
     except KeyError:
         return "_".join((*prefixes, field.name))
 
     name = field.name
-    if metadata.alias is not None:
-        name = metadata.alias
+    if config_meta.alias is not None:
+        name = config_meta.alias
 
     prefixes = prefixes
-    if metadata.prefix is not None:
-        prefixes = metadata.prefix
+    if config_meta.prefix is not None:
+        prefixes = config_meta.prefix
 
     return "_".join((*prefixes, name))
+
+
+def _get_nested_key(field: dataclasses.Field[typing.Any]) -> str:
+    """Get the key used to lookup a field in a nested dictionary."""
+    name = field.name
+
+    try:
+        config_meta = field.metadata[META_KEY]
+    except KeyError:
+        return name
+
+    if config_meta.alias is not None:
+        name = config_meta.alias
+
+    return name
 
 
 def _get_default_prefix_for_class(cls: type) -> str:
@@ -177,6 +261,9 @@ def _get_default_prefix_for_class(cls: type) -> str:
     * An uppercase character followed by a sequence of lowercase characters.
     * A sequence of uppercase characters.
 
+    Moreover, continuing with the heuristical approach, we exclude the string
+    "config" from the default prefix if it's the final component.
+
     These are only heuristics though and there are cases in which we cannot
     separate words, like if a class name is composed of multiple continuous
     uppercase characters, e.g. "AWSKMSKey" would result in "awskms_key" instead
@@ -185,6 +272,9 @@ def _get_default_prefix_for_class(cls: type) -> str:
     Examples:
         >>> class SSHTunnel: ...
         >>> _get_default_prefix_for_class(SSHTunnel)
+        'ssh_tunnel'
+        >>> class SSHTunnelConfig: ...
+        >>> _get_default_prefix_for_class(SSHTunnelConfig)
         'ssh_tunnel'
         >>> class Test: ...
         >>> _get_default_prefix_for_class(Test)
@@ -219,6 +309,9 @@ def _get_default_prefix_for_class(cls: type) -> str:
                 split.append(current[:-1])
                 current = current[-1]
 
+    if split[-1] == "config":
+        split = split[:-1]
+
     return "_".join(split)
 
 
@@ -235,7 +328,20 @@ def value(
     alias: str | None = None,
     converter: typing.Callable[[typing.Any], typing.Any] = _noop_convert,
 ) -> _T:
-    """Wrapper for config fields to enable additional functionality."""
+    """Wrapper for config values to enable additional functionality.
+
+    Usage is similar to `dataclasses.field` and all its arguments are supported,
+    except for `metadata` which we manage here to enable additional
+    functionality.
+
+    Following arguments description will omit arguments that are simply passed
+    along to `dataclasses.field`
+
+    Arguments:
+        prefix: Define a new prefix to lookup this value in a mapping.
+        alias: Set a new lookup alias for this value in a mapping.
+        converter: A function to convert the value obtained from the mapping.
+    """
     metadata = {META_KEY: MetaConfig(prefix=prefix, alias=alias, converter=converter)}
 
     if default:
