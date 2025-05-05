@@ -8,6 +8,18 @@ import { FilterType } from '~/types'
 import { ExposureEstimateConfig } from './runningTimeCalculatorLogic'
 import { RunningTimeCalculatorModalStep } from './RunningTimeCalculatorModalStep'
 
+const defaultFilter = {
+    events: [
+        {
+            id: '$pageview',
+            kind: NodeKind.EventsNode,
+            type: 'events',
+            name: '$pageview',
+            properties: [],
+        },
+    ],
+}
+
 /**
  * Converts an ExposureEstimateConfig to a FilterType
  */
@@ -55,19 +67,7 @@ export const EventSelectorStep = ({
     onSetFilter: (filter: Record<string, any>) => void
 }): JSX.Element => {
     // If exposureEstimateConfig is null, we use the default filter
-    const filter = exposureEstimateConfig
-        ? exposureEstimateConfigToFilter(exposureEstimateConfig)
-        : {
-              events: [
-                  {
-                      id: '$pageview',
-                      kind: NodeKind.EventsNode,
-                      type: 'events',
-                      name: '$pageview',
-                      properties: [],
-                  },
-              ],
-          }
+    const filter = exposureEstimateConfig ? exposureEstimateConfigToFilter(exposureEstimateConfig) : defaultFilter
 
     return (
         <RunningTimeCalculatorModalStep
