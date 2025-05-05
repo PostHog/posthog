@@ -335,7 +335,6 @@ class OrganizationMembership(UUIDModel):
             )
         )
 
-
         # Get keys with more details
         keys_data = []
         has_keys = personal_api_keys.exists()
