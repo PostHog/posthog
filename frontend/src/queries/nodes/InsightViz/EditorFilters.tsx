@@ -169,7 +169,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             ]),
         },
         {
-            title: 'Advanced Options',
+            title: 'Advanced options',
             editorFilters: filterFalsy([
                 isPaths && {
                     key: 'paths-advanced',
@@ -329,7 +329,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             ]),
         },
         {
-            title: 'Advanced Options',
+            title: 'Advanced options',
             defaultExpanded: false,
             editorFilters: filterFalsy([
                 {

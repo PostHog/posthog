@@ -293,7 +293,7 @@ export function PersonsModal({
                         <div className="flex gap-2">
                             {insightEventsQueryUrl && (
                                 <LemonButton
-                                    type="primary"
+                                    type="secondary"
                                     to={insightEventsQueryUrl}
                                     data-attr="person-modal-view-events"
                                     onClick={() => {
@@ -314,7 +314,7 @@ export function PersonsModal({
                                         closeModal()
                                     }}
                                 >
-                                    Explore
+                                    Open as new insight
                                 </LemonButton>
                             )}
                         </div>
