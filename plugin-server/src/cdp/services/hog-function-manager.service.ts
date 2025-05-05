@@ -399,13 +399,7 @@ export class HogFunctionManagerService {
     private async patchHogFunctionsWithTemplates(hogFunctions: HogFunctionType[]): Promise<void> {
         const templateIdsSet = new Set<string>()
         for (const fn of hogFunctions) {
-            if (
-                fn.template_id &&
-                fn.hog == null &&
-                fn.bytecode == null &&
-                fn.inputs_schema == null &&
-                fn.mappings == null
-            ) {
+            if (this.needsTemplatePatch(fn) && fn.template_id) {
                 templateIdsSet.add(fn.template_id)
             }
         }
@@ -417,13 +411,7 @@ export class HogFunctionManagerService {
         const templates = await this.templateLazyLoader.getMany(templateIds)
 
         for (const fn of hogFunctions) {
-            if (
-                fn.template_id &&
-                fn.hog == null &&
-                fn.bytecode == null &&
-                fn.inputs_schema == null &&
-                fn.mappings == null
-            ) {
+            if (this.needsTemplatePatch(fn) && fn.template_id) {
                 const template = templates[fn.template_id]
                 if (!template) {
                     throw new Error(
@@ -436,5 +424,11 @@ export class HogFunctionManagerService {
                 fn.mappings = template.mappings
             }
         }
+    }
+
+    private needsTemplatePatch(fn: HogFunctionType): boolean {
+        return (
+            !!fn.template_id && fn.hog == null && fn.bytecode == null && fn.inputs_schema == null && fn.mappings == null
+        )
     }
 }
