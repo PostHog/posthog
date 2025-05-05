@@ -171,7 +171,7 @@ class OrganizationMemberViewSet(
         return Response(
             {
                 "has_keys": api_keys_data["has_keys"],
-                "keys_active_last_week": api_keys_data["keys_active_last_week"],
+                "has_keys_active_last_week": api_keys_data["has_keys_active_last_week"],
                 "keys": api_keys_data["keys"],
             }
         )

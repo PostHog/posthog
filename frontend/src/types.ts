@@ -445,7 +445,7 @@ export interface OrganizationMemberType extends BaseMemberType {
 
 export interface OrganizationMemberScopedApiKeysResponse {
     has_keys: boolean
-    keys_active_last_week: boolean
+    has_keys_active_last_week: boolean
     keys: {
         name: string
         last_used_at: string | null

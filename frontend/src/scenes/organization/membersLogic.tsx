@@ -109,12 +109,7 @@ export const membersLogic = kea<membersLogicType>([
                     const res = await api.organizationMembers.scopedApiKeys.list(member.user.uuid)
                     return res
                 } catch (e) {
-                    // Return a properly structured empty response instead of null
-                    return {
-                        has_keys: false,
-                        keys_active_last_week: false,
-                        keys: [],
-                    }
+                    return null
                 }
             },
         },

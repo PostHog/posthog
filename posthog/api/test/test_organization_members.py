@@ -95,7 +95,7 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(response_data["has_keys"], False)
-        self.assertEqual(response_data["keys_active_last_week"], False)
+        self.assertEqual(response_data["has_keys_active_last_week"], False)
         self.assertEqual(response_data["keys"], [])
 
         # Create a personal API key with scoped organizations
@@ -116,7 +116,7 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(response_data["has_keys"], True)
-        self.assertEqual(response_data["keys_active_last_week"], False)
+        self.assertEqual(response_data["has_keys_active_last_week"], False)
         self.assertEqual(len(response_data["keys"]), 1)
         self.assertEqual(response_data["keys"][0]["name"], "Old Org Key")
         self.assertEqual(
@@ -146,7 +146,7 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(response_data["has_keys"], True)
-        self.assertEqual(response_data["keys_active_last_week"], True)
+        self.assertEqual(response_data["has_keys_active_last_week"], True)
         self.assertEqual(len(response_data["keys"]), 3)
 
         # Verify all keys are in the response with correct data
@@ -209,7 +209,7 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(response_data["has_keys"], False)
-        self.assertEqual(response_data["keys_active_last_week"], False)
+        self.assertEqual(response_data["has_keys_active_last_week"], False)
         self.assertEqual(response_data["keys"], [])
 
     @patch("posthoganalytics.capture")

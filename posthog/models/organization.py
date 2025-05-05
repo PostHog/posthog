@@ -11,6 +11,7 @@ from django.db.models.query_utils import Q
 from django.dispatch import receiver
 from django.utils import timezone
 from rest_framework import exceptions
+from posthog.models.personal_api_key import PersonalAPIKey
 
 from posthog.cloud_utils import is_cloud
 from posthog.constants import INVITE_DAYS_VALIDITY, MAX_SLUG_LENGTH, AvailableFeature
@@ -317,10 +318,7 @@ class OrganizationMembership(UUIDModel):
         Get API keys that are scoped to this organization or its teams.
         Returns a dictionary with information about the keys.
         """
-        from posthog.models.personal_api_key import PersonalAPIKey
-        from django.db.models import Q
-        from posthog.models.team.team import Team
-        from django.utils import timezone
+        from posthog.models.team import Team
 
         # Get teams that belong to this organization
         team_ids = list(Team.objects.filter(organization_id=self.organization_id).values_list("id", flat=True))
@@ -330,8 +328,8 @@ class OrganizationMembership(UUIDModel):
         personal_api_keys = PersonalAPIKey.objects.filter(user=self.user).filter(
             Q(scoped_organizations__contains=[str(self.organization_id)])
             | Q(scoped_teams__overlap=team_ids)
-            | (Q(scoped_organizations__isnull=True) | Q(scoped_organizations=[]) | Q(scoped_organizations=[]))
-            & (Q(scoped_teams__isnull=True) | Q(scoped_teams=[]) | Q(scoped_teams=[]))
+            | (Q(scoped_organizations__isnull=True) | Q(scoped_organizations=[]))
+            & (Q(scoped_teams__isnull=True) | Q(scoped_teams=[]))
         )
 
         # Get keys with more details
@@ -340,7 +338,7 @@ class OrganizationMembership(UUIDModel):
 
         # Check if any keys were used in the last week
         one_week_ago = timezone.now() - timedelta(days=7)
-        keys_active_last_week = personal_api_keys.filter(last_used_at__gte=one_week_ago).exists()
+        has_keys_active_last_week = personal_api_keys.filter(last_used_at__gte=one_week_ago).exists()
 
         # Get detailed information about each key
         for key in personal_api_keys:
@@ -349,7 +347,7 @@ class OrganizationMembership(UUIDModel):
         return {
             "personal_api_keys": personal_api_keys,
             "has_keys": has_keys,
-            "keys_active_last_week": keys_active_last_week,
+            "has_keys_active_last_week": has_keys_active_last_week,
             "keys": keys_data,
             "team_ids": team_ids,
         }
