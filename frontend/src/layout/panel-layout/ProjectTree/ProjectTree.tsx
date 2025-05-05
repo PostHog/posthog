@@ -637,8 +637,8 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                 <MoveFilesModal
                     items={movingItems}
                     handleMove={(destinationFolder) => {
-                        // When moving the current item, remember it so that we could open the destination folder later on
-                        const movingCurrent = movingItems.filter((item) => item === projectTreeRefEntry)
+                        // When moving the current item, remember its ref so that we could open the destination folder later on
+                        const movingCurrentRef = movingItems.some((item) => item === projectTreeRefEntry)
                             ? projectTreeRef
                             : null
 
@@ -655,8 +655,8 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                         }
                         // Clear the moving items and close the modal
                         setMovingItems([])
-                        if (movingCurrent) {
-                            assureVisibility(movingCurrent)
+                        if (movingCurrentRef) {
+                            assureVisibility(movingCurrentRef)
                         }
                     }}
                     closeModal={() => setMovingItems([])}
