@@ -101,11 +101,19 @@ class HogQLFilter(BaseModel, extra="forbid"):
 class BehavioralFilter(BaseModel, extra="forbid"):
     type: Literal["behavioral"]
     key: Union[str, int]  # action IDs can be ints
-    value: Literal["performed_event"]
-    event_type: Literal["events", "actions"]
+    value: str
+    event_type: str
     time_value: int | None = None
-    time_interval: Literal["day", "week", "hour"] | None = None
+    time_interval: str | None = None
     negation: bool = False
+    operator: str | None = None
+    operator_value: int | None = None
+    seq_time_interval: str | None = None
+    seq_time_value: int | None = None
+    seq_event: str | None = None
+    seq_event_type: str | None = None
+    total_periods: int | None = None
+    min_periods: int | None = None
     event_filters: list[Union[EventPropFilter, HogQLFilter]] | None = None
     explicit_datetime: str | None = None
 
