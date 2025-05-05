@@ -2281,3 +2281,56 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         ).first()
         assert fs_entry is not None, "No FileSystem entry was created for this HogFunction."
         assert "Special/Hog Destinations" in fs_entry.path
+
+    def test_hog_function_template_fk_set_on_create(self):
+        """
+        When creating a HogFunction with a template_id, the hog_function_template FK should be set to the latest template.
+        When creating without a template_id, the FK should be null.
+        """
+        from posthog.models.hog_function_template import HogFunctionTemplate as DBHogFunctionTemplate
+        from posthog.models.hog_functions.hog_function import HogFunction
+
+        # Create a template in the DB
+        db_template = DBHogFunctionTemplate.objects.create(
+            template_id="template-fk-test",
+            sha="abcdef",
+            name="FK Test Template",
+            code="return event",
+            code_language="hog",
+            inputs_schema=[],
+            type="destination",
+            status="alpha",
+            category=[],
+        )
+
+        # Create a HogFunction with template_id
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "FK Test Function",
+                "hog": "return event",
+                "type": "destination",
+                "template_id": "template-fk-test",
+                "inputs": {},
+            },
+        )
+        assert response.status_code == 201, response.json()
+        hog_function_id = response.json()["id"]
+        hog_function = HogFunction.objects.get(id=hog_function_id)
+        assert hog_function.hog_function_template is not None, "FK should be set when template_id is provided"
+        assert hog_function.hog_function_template.id == db_template.id, "FK should point to the correct template"
+
+        # Create a HogFunction without template_id
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "No Template FK",
+                "hog": "return event",
+                "type": "destination",
+                "inputs": {},
+            },
+        )
+        assert response.status_code == 201, response.json()
+        hog_function_id = response.json()["id"]
+        hog_function = HogFunction.objects.get(id=hog_function_id)
+        assert hog_function.hog_function_template is None, "FK should be null when template_id is not provided"
