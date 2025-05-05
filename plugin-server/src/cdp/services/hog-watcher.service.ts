@@ -63,7 +63,7 @@ export class HogWatcherService {
         for (const [kind, mapping] of Object.entries(this.costsMapping)) {
             if (mapping.lowerBound >= this.hub.CDP_WATCHER_COST_TIMING_UPPER_MS) {
                 throw new Error(
-                    `Lower bound of ${mapping.lowerBound}ms for kind ${kind} is greater than upper bound of ${mapping.upperBound}ms. This is a configuration error.`
+                    `Lower bound for kind ${kind} of ${mapping.lowerBound}ms must be lower than upper bound of ${mapping.upperBound}ms. This is a configuration error.`
                 )
             }
         }
