@@ -1,12 +1,16 @@
+import equal from 'fast-deep-equal'
+import { LogicWrapper } from 'kea'
+import { routerType } from 'kea-router/lib/routerType'
 import { ErrorTrackingException } from 'lib/components/Errors/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { componentsToDayJs, dateStringToComponents, isStringDateRegex, objectsEqual } from 'lib/utils'
+import { componentsToDayJs, dateStringToComponents, isStringDateRegex } from 'lib/utils'
 import { MouseEvent } from 'react'
 import { Params } from 'scenes/sceneTypes'
 
 import { DateRange, ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
-import { DEFAULT_ERROR_TRACKING_DATE_RANGE, DEFAULT_ERROR_TRACKING_FILTER_GROUP } from './errorTrackingLogic'
+export const ERROR_TRACKING_LOGIC_KEY = 'errorTracking'
+const THIRD_PARTY_SCRIPT_ERROR = 'Script error.'
 
 export const SEARCHABLE_EXCEPTION_PROPERTIES = [
     '$exception_types',
@@ -20,8 +24,6 @@ export const INTERNAL_EXCEPTION_PROPERTY_KEYS = [
     '$exception_proposed_fingerprint',
     ...SEARCHABLE_EXCEPTION_PROPERTIES,
 ]
-export const ERROR_TRACKING_LOGIC_KEY = 'errorTracking'
-const THIRD_PARTY_SCRIPT_ERROR = 'Script error.'
 
 const volumePeriods: ('volumeRange' | 'volumeDay')[] = ['volumeRange', 'volumeDay']
 const sumVolumes = (...arrays: number[][]): number[] =>
@@ -154,22 +156,24 @@ export function datetimeStringToDayJs(date: string | null): Dayjs | null {
     return componentsToDayJs(dateComponents)
 }
 
-export function defaultSearchParams({ searchQuery, filterGroup, filterTestAccounts, dateRange }: any): Params {
-    const searchParams: Params = {
-        filterTestAccounts,
+export function syncSearchParams(
+    router: LogicWrapper<routerType>,
+    updateParams: (searchParams: Params) => Params
+): [string, Params, Record<string, any>, { replace: boolean }] {
+    let searchParams = { ...router.values.searchParams }
+    searchParams = updateParams(searchParams)
+    if (!equal(searchParams, router.values.searchParams)) {
+        return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
     }
+    return [router.values.location.pathname, router.values.searchParams, router.values.hashParams, { replace: false }]
+}
 
-    if (searchQuery) {
-        searchParams.searchQuery = searchQuery
+export function updateSearchParams<T>(searchParams: Params, key: string, value: T, defaultValue: T): void {
+    if (!equal(value, defaultValue)) {
+        searchParams[key] = value
+    } else {
+        delete searchParams[key]
     }
-    if (!objectsEqual(filterGroup, DEFAULT_ERROR_TRACKING_FILTER_GROUP)) {
-        searchParams.filterGroup = filterGroup
-    }
-    if (!objectsEqual(dateRange, DEFAULT_ERROR_TRACKING_DATE_RANGE)) {
-        searchParams.dateRange = dateRange
-    }
-
-    return searchParams
 }
 
 export function cancelEvent(event: MouseEvent): void {
