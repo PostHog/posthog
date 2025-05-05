@@ -20,6 +20,7 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 from django.db.models import Count
 from posthog.models import HogFunction
 from django.core.cache import cache
+from posthog.models.hog_function_template import HogFunctionTemplate as DBHogFunctionTemplate
 
 
 logger = structlog.get_logger(__name__)
@@ -70,6 +71,20 @@ class HogFunctionTemplates:
     def template(cls, template_id: str):
         cls._load_templates()
         return cls._cached_templates_by_id.get(template_id, cls._cached_sub_templates_by_id.get(template_id))
+
+    @classmethod
+    def templates_from_db(cls):
+        db_templates = DBHogFunctionTemplate.get_latest_templates()
+        return [template.to_dataclass() for template in db_templates]
+
+    @classmethod
+    def template_from_db(cls, template_id: str):
+        # Check if it's a regular template
+        db_template = DBHogFunctionTemplate.get_template(template_id)
+        if db_template:
+            return db_template.to_dataclass()
+
+        return None
 
     @classmethod
     def _load_templates(cls):
@@ -128,15 +143,21 @@ class PublicHogFunctionTemplateViewSet(viewsets.GenericViewSet):
 
     def list(self, request: Request, *args, **kwargs):
         types = ["destination"]
-
         sub_template_id = request.GET.get("sub_template_id")
+        use_db_templates = request.GET.get("db_templates") == "true"
 
         if "type" in request.GET:
             types = [self.request.GET.get("type", "destination")]
         elif "types" in request.GET:
             types = self.request.GET.get("types", "destination").split(",")
 
-        templates_list = HogFunctionTemplates.sub_templates() if sub_template_id else HogFunctionTemplates.templates()
+        if sub_template_id:
+            # Always use in-memory sub_templates
+            templates_list = HogFunctionTemplates.sub_templates()
+        elif use_db_templates:
+            templates_list = HogFunctionTemplates.templates_from_db()
+        else:
+            templates_list = HogFunctionTemplates.templates()
 
         matching_templates = []
 
@@ -183,10 +204,18 @@ class PublicHogFunctionTemplateViewSet(viewsets.GenericViewSet):
         return self.get_paginated_response(serializer.data)
 
     def retrieve(self, request: Request, *args, **kwargs):
-        item = HogFunctionTemplates.template(kwargs["pk"])
+        use_db_templates = request.GET.get("db_templates") == "true"
+        template_id = kwargs["pk"]
+
+        if use_db_templates:
+            item = HogFunctionTemplates.template_from_db(template_id)
+            if not item and template_id in HogFunctionTemplates._cached_sub_templates_by_id:
+                item = HogFunctionTemplates._cached_sub_templates_by_id[template_id]
+        else:
+            item = HogFunctionTemplates.template(template_id)
 
         if not item:
-            raise NotFound(f"Template with id {kwargs['pk']} not found.")
+            raise NotFound(f"Template with id {template_id} not found.")
 
         serializer = self.get_serializer(item)
         return Response(serializer.data)

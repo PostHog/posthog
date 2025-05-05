@@ -2,13 +2,10 @@ import { actions, connect, defaults, kea, key, listeners, path, props, reducers,
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router } from 'kea-router'
 import api from 'lib/api'
-import { stackFrameLogic } from 'lib/components/Errors/stackFrameLogic'
-import { ErrorTrackingException } from 'lib/components/Errors/types'
-import { hasStacktrace } from 'lib/components/Errors/utils'
+import { ErrorEventProperties } from 'lib/components/Errors/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { objectsEqual } from 'lib/utils'
 import { posthog } from 'posthog-js'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Params, Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -25,14 +22,7 @@ import { ActivityScope, Breadcrumb } from '~/types'
 import type { errorTrackingIssueSceneLogicType } from './errorTrackingIssueSceneLogicType'
 import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingIssueEventsQuery, errorTrackingIssueQuery } from './queries'
-import {
-    defaultSearchParams,
-    ExceptionAttributes,
-    getAdditionalProperties,
-    getExceptionAttributes,
-    getSessionId,
-    resolveDateRange,
-} from './utils'
+import { defaultSearchParams, resolveDateRange } from './utils'
 
 export interface ErrorTrackingIssueSceneLogicProps {
     id: ErrorTrackingIssue['id']
@@ -47,27 +37,8 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     key((props) => props.id),
 
     connect(() => ({
-        values: [
-            errorTrackingLogic,
-            ['dateRange', 'filterTestAccounts', 'filterGroup', 'searchQuery', 'showStacktrace', 'showContext'],
-            stackFrameLogic,
-            ['frameOrderReversed', 'showAllFrames'],
-            preflightLogic,
-            ['isCloudOrDev'],
-        ],
-        actions: [
-            errorTrackingLogic,
-            [
-                'setDateRange',
-                'setFilterTestAccounts',
-                'setFilterGroup',
-                'setSearchQuery',
-                'setShowStacktrace',
-                'setShowContext',
-            ],
-            stackFrameLogic,
-            ['setFrameOrderReversed', 'setShowAllFrames'],
-        ],
+        values: [errorTrackingLogic, ['dateRange', 'filterTestAccounts', 'filterGroup', 'searchQuery']],
+        actions: [errorTrackingLogic, ['setDateRange', 'setFilterTestAccounts', 'setFilterGroup', 'setSearchQuery']],
     })),
 
     actions({
@@ -78,16 +49,14 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         updateStatus: (status: ErrorTrackingIssueStatus) => ({ status }),
         updateAssignee: (assignee: ErrorTrackingIssueAssignee | null) => ({ assignee }),
         setLastSeen: (lastSeen: Dayjs) => ({ lastSeen }),
-        setShowAsText: (showAsText: boolean) => ({ showAsText }),
     }),
 
     defaults({
         issue: null as ErrorTrackingRelationalIssue | null,
-        properties: {} as Record<string, string>,
         summary: null as ErrorTrackingIssueSummary | null,
+        properties: null as ErrorEventProperties | null,
         volumeResolution: 50,
         lastSeen: null as Dayjs | null,
-        showAsText: false as boolean,
     }),
 
     reducers({
@@ -101,7 +70,6 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             },
         },
         summary: {},
-        properties: {},
         volumeResolution: {
             setVolumeResolution: (_, { volumeResolution }: { volumeResolution: number }) => volumeResolution,
         },
@@ -112,9 +80,6 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 }
                 return prevLastSeen
             },
-        },
-        showAsText: {
-            setShowAsText: (_, { showAsText }: { showAsText: boolean }) => showAsText,
         },
     }),
 
@@ -165,33 +130,6 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         ],
 
         aggregations: [(s) => [s.summary], (summary: ErrorTrackingIssueSummary | null) => summary?.aggregations],
-        exceptionAttributes: [
-            (s) => [s.properties],
-            (properties: Record<string, string>) => (properties ? getExceptionAttributes(properties) : null),
-        ],
-        additionalProperties: [
-            (s) => [s.properties, s.isCloudOrDev],
-            (properties: Record<string, string>, isCloudOrDev: boolean | undefined) =>
-                properties ? getAdditionalProperties(properties, isCloudOrDev) : {},
-        ],
-        exceptionList: [
-            (s) => [s.exceptionAttributes, s.frameOrderReversed],
-            (attributes: ExceptionAttributes | null, orderReversed: boolean) => {
-                if (!attributes || !attributes.exceptionList) {
-                    return []
-                }
-                return applyFrameOrder(attributes.exceptionList, orderReversed)
-            },
-        ],
-        fingerprintRecords: [
-            (s) => [s.exceptionAttributes],
-            (attributes: ExceptionAttributes | null) => attributes?.fingerprintRecords,
-        ],
-        hasStacktrace: [(s) => [s.exceptionList], (excList: ErrorTrackingException[]) => hasStacktrace(excList)],
-        sessionId: [
-            (s) => [s.properties],
-            (properties: Record<string, string> | null) => (properties ? getSessionId(properties) : undefined),
-        ],
     }),
 
     loaders(({ values, actions, props }) => ({
@@ -264,8 +202,6 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 posthog.capture('error_tracking_issue_assigned', { issue_id: props.id })
                 await api.errorTracking.assignIssue(props.id, assignee)
             },
-            setShowContext: () => actions.setShowStacktrace(true),
-            setShowAllFrames: () => actions.setShowStacktrace(true),
         }
     }),
 
@@ -309,30 +245,9 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
 function getPropertiesDateRange(issue: ErrorTrackingRelationalIssue): DateRange {
     const firstSeen = dayjs(issue.first_seen)
     return {
-        date_from: firstSeen.startOf('minute').toISOString(),
-        date_to: firstSeen.endOf('minute').toISOString(),
+        date_from: firstSeen.subtract(1, 'hour').toISOString(),
+        date_to: firstSeen.add(1, 'hour').toISOString(),
     }
-}
-
-function applyFrameOrder(
-    exceptionList: ErrorTrackingException[],
-    frameOrderReversed: boolean
-): ErrorTrackingException[] {
-    if (frameOrderReversed) {
-        return exceptionList
-            .map((exception) => {
-                const copiedException = { ...exception }
-                if (copiedException.stacktrace) {
-                    copiedException.stacktrace = {
-                        ...copiedException.stacktrace,
-                        frames: copiedException.stacktrace.frames.slice().reverse(),
-                    }
-                }
-                return copiedException
-            })
-            .reverse()
-    }
-    return [...exceptionList]
 }
 
 export type ErrorTrackingIssueSummary = {

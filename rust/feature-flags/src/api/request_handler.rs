@@ -1,10 +1,13 @@
 use crate::{
     api::{errors::FlagError, types::FlagsResponse},
-    client::database::Client,
     cohorts::cohort_cache_manager::CohortCacheManager,
     flags::{
-        flag_group_type_mapping::GroupTypeMappingCache, flag_matching::FeatureFlagMatcher,
-        flag_models::FeatureFlagList, flag_request::FlagRequest, flag_service::FlagService,
+        flag_analytics::{increment_request_count, SURVEY_TARGETING_FLAG_PREFIX},
+        flag_group_type_mapping::GroupTypeMappingCache,
+        flag_matching::FeatureFlagMatcher,
+        flag_models::FeatureFlagList,
+        flag_request::{FlagRequest, FlagRequestType},
+        flag_service::FlagService,
     },
     metrics::consts::FLAG_REQUEST_KLUDGE_COUNTER,
     router,
@@ -18,6 +21,7 @@ use base64::{engine::general_purpose, Engine as _};
 use bytes::Bytes;
 use chrono;
 use common_cookieless::{CookielessServerHashMode, EventData, TeamData};
+use common_database::Client;
 use common_geoip::GeoIpClient;
 use common_metrics::inc;
 use flate2::read::GzDecoder;
@@ -153,7 +157,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
         team_id,
         project_id,
         distinct_id,
-        filtered_flags,
+        filtered_flags.clone(),
         person_prop_overrides,
         group_prop_overrides,
         groups,
@@ -161,6 +165,29 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
         context.request_id,
     )
     .await;
+
+    // bill the flag request
+    if filtered_flags
+        .flags
+        .iter()
+        .all(|f| !f.key.starts_with(SURVEY_TARGETING_FLAG_PREFIX))
+    // NB don't charge if all the flags are survey targeting flags
+    {
+        if let Err(e) = increment_request_count(
+            context.state.redis.clone(),
+            team_id,
+            1,
+            FlagRequestType::Decide,
+        )
+        .await
+        {
+            inc(
+                "flag_request_redis_error",
+                &[("error".to_string(), e.to_string())],
+                1,
+            );
+        }
+    }
 
     Ok(response)
 }
@@ -280,6 +307,13 @@ async fn evaluate_flags_for_request(
 }
 
 /// Translates the request body and query params into a [`FlagRequest`] by examining Content-Type and compression settings.
+/// We support (i.e. our SDKs send) the following content types:
+/// - application/json
+/// - application/json-patch; charset=utf-8
+/// - text/plain
+/// - application/x-www-form-urlencoded
+///
+/// We also support gzip and base64 compression.
 pub fn decode_request(
     headers: &HeaderMap,
     body: Bytes,
@@ -288,22 +322,18 @@ pub fn decode_request(
     let content_type = headers
         .get(CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
-        .unwrap_or("unknown");
+        .unwrap_or("application/json"); // Default to JSON if no content type
 
-    if content_type.starts_with("application/json; encoding=base64")
-        && !matches!(query.compression, Some(Compression::Base64))
-    {
-        return FlagRequest::from_bytes(decode_base64(body)?);
-    }
+    let base_content_type = content_type.split(';').next().unwrap_or("").trim();
 
-    match content_type {
-        "application/json" => {
+    match base_content_type {
+        "application/json" | "text/plain" => {
             let decoded_body = decode_body(body, query.compression)?;
             FlagRequest::from_bytes(decoded_body)
         }
         "application/x-www-form-urlencoded" => decode_form_data(body, query.compression),
-        ct => Err(FlagError::RequestDecodingError(format!(
-            "unsupported content type: {ct}"
+        _ => Err(FlagError::RequestDecodingError(format!(
+            "unsupported content type: {content_type}"
         ))),
     }
 }
@@ -829,7 +859,7 @@ mod tests {
                 metadata: FlagDetailsMetadata {
                     id: 1,
                     version: 1,
-                    description: Some("Error Flag".to_string()),
+                    description: None,
                     payload: None,
                 },
             }
@@ -1314,7 +1344,7 @@ mod tests {
                 metadata: FlagDetailsMetadata {
                     id: 1,
                     version: 1,
-                    description: Some("Flag 1".to_string()),
+                    description: None,
                     payload: None,
                 },
             }
@@ -1333,7 +1363,7 @@ mod tests {
                 metadata: FlagDetailsMetadata {
                     id: 2,
                     version: 1,
-                    description: Some("Flag 2".to_string()),
+                    description: None,
                     payload: None,
                 },
             }
@@ -1585,5 +1615,56 @@ mod tests {
         // Test case 4: Neither groups nor existing overrides
         let result = process_group_property_overrides(None, None);
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_decode_request_content_types() {
+        let test_json = r#"{"token": "test_token", "distinct_id": "user123"}"#;
+        let body = Bytes::from(test_json);
+        let meta = FlagsQueryParams::default();
+
+        // Test application/json
+        let mut headers = HeaderMap::new();
+        headers.insert(CONTENT_TYPE, "application/json".parse().unwrap());
+        let result = decode_request(&headers, body.clone(), &meta);
+        assert!(result.is_ok());
+        let request = result.unwrap();
+        assert_eq!(request.token, Some("test_token".to_string()));
+        assert_eq!(request.distinct_id, Some("user123".to_string()));
+
+        // Test text/plain
+        let mut headers = HeaderMap::new();
+        headers.insert(CONTENT_TYPE, "text/plain".parse().unwrap());
+        let result = decode_request(&headers, body.clone(), &meta);
+        assert!(result.is_ok());
+        let request = result.unwrap();
+        assert_eq!(request.token, Some("test_token".to_string()));
+        assert_eq!(request.distinct_id, Some("user123".to_string()));
+
+        // Test application/json with charset
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            CONTENT_TYPE,
+            "application/json; charset=utf-8".parse().unwrap(),
+        );
+        let result = decode_request(&headers, body.clone(), &meta);
+        assert!(result.is_ok());
+        let request = result.unwrap();
+        assert_eq!(request.token, Some("test_token".to_string()));
+        assert_eq!(request.distinct_id, Some("user123".to_string()));
+
+        // Test default when no content type is provided
+        let headers = HeaderMap::new();
+        let result = decode_request(&headers, body.clone(), &meta);
+        assert!(result.is_ok());
+        let request = result.unwrap();
+        assert_eq!(request.token, Some("test_token".to_string()));
+        assert_eq!(request.distinct_id, Some("user123".to_string()));
+
+        // Test unsupported content type
+        let mut headers = HeaderMap::new();
+        headers.insert(CONTENT_TYPE, "application/xml".parse().unwrap());
+        let result = decode_request(&headers, body, &meta);
+        assert!(matches!(result, Err(FlagError::RequestDecodingError(_))));
     }
 }

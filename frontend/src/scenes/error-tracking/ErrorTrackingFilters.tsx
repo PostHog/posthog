@@ -23,6 +23,7 @@ const taxonomicFilterLogicKey = 'error-tracking'
 const taxonomicGroupTypes = [
     TaxonomicFilterGroupType.EventProperties,
     TaxonomicFilterGroupType.PersonProperties,
+    TaxonomicFilterGroupType.ErrorTrackingIssues,
     TaxonomicFilterGroupType.Cohorts,
     TaxonomicFilterGroupType.HogQLExpression,
 ]
@@ -79,6 +80,7 @@ const UniversalSearch = (): JSX.Element => {
         onEnter: onClose,
         autoSelectItem: false,
         initialSearchQuery: searchQuery,
+        excludedProperties: { [TaxonomicFilterGroupType.ErrorTrackingIssues]: ['assignee'] },
     }
 
     return (

@@ -6,6 +6,7 @@ use axum::{
     Router,
 };
 use common_cookieless::CookielessManager;
+use common_database::Client as DatabaseClient;
 use common_geoip::GeoIpClient;
 use common_metrics::{setup_metrics_recorder, track_metrics};
 use common_redis::Client as RedisClient;
@@ -19,7 +20,6 @@ use tower_http::{
 
 use crate::{
     api::{endpoint, test_endpoint},
-    client::database::Client as DatabaseClient,
     cohorts::cohort_cache_manager::CohortCacheManager,
     config::{Config, TeamIdsToTrack},
     metrics::utils::team_id_label_filter,
