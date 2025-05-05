@@ -27,7 +27,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
     let team: Team
     let fn: HogFunctionType
     let globals: HogFunctionInvocationGlobalsWithInputs
-    let mockRequest: jest.Mock<Promise<FetchResponse>, Parameters<typeof fetch>>
+    let mockFetch: jest.Mock<Promise<FetchResponse>, Parameters<typeof fetch>>
     const insertHogFunction = async (hogFunction: Partial<HogFunctionType>) => {
         const item = await _insertHogFunction(hub.postgres, team.id, {
             ...hogFunction,
@@ -49,10 +49,11 @@ describe('CdpCyclotronWorkerPlugins', () => {
 
         await processor.start()
 
-        processor['pluginExecutor'].request = mockRequest = jest.fn((_url, _options) =>
+        processor['pluginExecutor'].fetch = mockFetch = jest.fn((_url, _options) =>
             Promise.resolve({
                 status: 200,
-                body: JSON.stringify({}),
+                json: () => Promise.resolve({}),
+                text: () => Promise.resolve(JSON.stringify({})),
                 headers: {},
             } as any)
         )
@@ -115,7 +116,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
                 email: 'test@posthog.com',
             }
 
-            mockRequest.mockResolvedValue({
+            mockFetch.mockResolvedValue({
                 status: 200,
                 json: () => Promise.resolve({ total_count: 1 }),
                 text: () => Promise.resolve(''),
@@ -141,8 +142,8 @@ describe('CdpCyclotronWorkerPlugins', () => {
                 }
             `)
 
-            expect(mockRequest).toHaveBeenCalledTimes(2)
-            expect(forSnapshot(mockRequest.mock.calls[0])).toMatchInlineSnapshot(`
+            expect(mockFetch).toHaveBeenCalledTimes(2)
+            expect(forSnapshot(mockFetch.mock.calls[0])).toMatchInlineSnapshot(`
                 [
                   "https://api.intercom.io/contacts/search",
                   {
@@ -156,7 +157,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
                   },
                 ]
             `)
-            expect(forSnapshot(mockRequest.mock.calls[1])).toMatchInlineSnapshot(`
+            expect(forSnapshot(mockFetch.mock.calls[1])).toMatchInlineSnapshot(`
                 [
                   "https://api.intercom.io/events",
                   {
@@ -187,7 +188,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
                 email: 'test@posthog.com',
             }
 
-            mockRequest.mockRejectedValue(new Error('Test error'))
+            mockFetch.mockRejectedValue(new Error('Test error'))
 
             const res = await processor.processBatch([invocation])
 

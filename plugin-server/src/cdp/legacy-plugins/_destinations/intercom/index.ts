@@ -1,6 +1,5 @@
 import { ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
 
-import { parseJSON } from '~/src/utils/json-parse'
 import { FetchResponse } from '~/src/utils/request'
 
 import { LegacyDestinationPluginMeta } from '../../types'

@@ -90,7 +90,7 @@ describe('LegacyPluginExecutorService', () => {
             })
         )
 
-        jest.spyOn(service, 'request').mockImplementation(mockFetch)
+        jest.spyOn(service, 'fetch').mockImplementation(mockFetch)
 
         globals = {
             ...createHogExecutionGlobals({
@@ -314,10 +314,20 @@ describe('LegacyPluginExecutorService', () => {
 
             mockFetch.mockImplementation((url, _options) => {
                 if (url.includes('customers')) {
-                    return Promise.resolve({ status: 500, body: JSON.stringify({}), headers: {} })
+                    return Promise.resolve({
+                        status: 500,
+                        json: () => Promise.resolve({}),
+                        text: () => Promise.resolve(JSON.stringify({})),
+                        headers: {},
+                    })
                 }
 
-                return Promise.resolve({ status: 200, body: null, headers: {} })
+                return Promise.resolve({
+                    status: 200,
+                    json: () => Promise.resolve({}),
+                    text: () => Promise.resolve(JSON.stringify({})),
+                    headers: {},
+                })
             })
 
             const res = await service.execute(invocation)
