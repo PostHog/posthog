@@ -170,7 +170,9 @@ export interface PaginatedResponse<T> {
 export interface CountedPaginatedResponse<T> extends PaginatedResponse<T> {
     count: number
 }
-
+export interface CountedPaginatedResponseWithUsers<T> extends CountedPaginatedResponse<T> {
+    users: UserBasicType[]
+}
 export interface ActivityLogPaginatedResponse<T> extends PaginatedResponse<T> {
     count: number
 }
@@ -1314,7 +1316,7 @@ const api = {
             type__startswith?: string
             createdAtGt?: string
             createdAtLt?: string
-        }): Promise<CountedPaginatedResponse<FileSystemEntry>> {
+        }): Promise<CountedPaginatedResponseWithUsers<FileSystemEntry>> {
             return await new ApiRequest()
                 .fileSystem()
                 .withQueryString({
@@ -2830,6 +2832,9 @@ const api = {
         },
         async run(viewId: DataWarehouseSavedQuery['id']): Promise<void> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).withAction('run').create()
+        },
+        async cancel(viewId: DataWarehouseSavedQuery['id']): Promise<void> {
+            return await new ApiRequest().dataWarehouseSavedQuery(viewId).withAction('cancel').create()
         },
         async ancestors(viewId: DataWarehouseSavedQuery['id'], level?: number): Promise<Record<string, string[]>> {
             return await new ApiRequest()

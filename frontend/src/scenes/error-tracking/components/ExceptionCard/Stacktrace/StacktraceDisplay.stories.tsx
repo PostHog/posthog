@@ -1,7 +1,6 @@
 import { LemonCard } from '@posthog/lemon-ui'
 import { Meta } from '@storybook/react'
-import { TEST_EVENTS, TestEventNames } from 'scenes/error-tracking/__mocks__/events'
-import { getExceptionAttributes } from 'scenes/error-tracking/utils'
+import { ExceptionLogicWrapper, TEST_EVENTS, TestEventName } from 'scenes/error-tracking/__mocks__/events'
 import { sceneLogic } from 'scenes/sceneLogic'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -28,7 +27,7 @@ const meta: Meta = {
         },
         mswDecorator({
             post: {
-                'api/environments/:team_id/error_tracking/stack_frames/batch_get/': require('../../__mocks__/stack_frames/batch_get'),
+                'api/environments/:team_id/error_tracking/stack_frames/batch_get/': require('../../../__mocks__/stack_frames/batch_get'),
             },
         }),
     ],
@@ -39,57 +38,59 @@ export default meta
 ////////////////////// Generic stacktraces
 
 export function GenericDisplayPropertiesLoading(): JSX.Element {
-    const props = defaultBaseProps(
-        'python_resolved',
-        {
-            loading: true,
-        },
-        false
+    const props = defaultBaseProps({}, false)
+    return (
+        <ExceptionLogicWrapper eventName="python_resolved" loading={true}>
+            <StacktraceGenericDisplay {...props} />
+        </ExceptionLogicWrapper>
     )
-    return <StacktraceGenericDisplay {...props} />
 }
 
 export function GenericDisplayEmpty(): JSX.Element {
-    const props = defaultBaseProps(
-        'javascript_empty',
-        {
-            loading: false,
-        },
-        false
+    const props = defaultBaseProps({}, false)
+    return (
+        <ExceptionLogicWrapper eventName="javascript_empty">
+            <StacktraceGenericDisplay {...props} />
+        </ExceptionLogicWrapper>
     )
-    return <StacktraceGenericDisplay {...props} />
 }
 
 export function GenericDisplayWithStacktrace(): JSX.Element {
-    return <StacktraceWrapperAllEvents>{(props) => <StacktraceGenericDisplay {...props} />}</StacktraceWrapperAllEvents>
+    const props = defaultBaseProps({}, false)
+    return (
+        <StacktraceWrapperAllEvents>
+            <StacktraceGenericDisplay {...props} />
+        </StacktraceWrapperAllEvents>
+    )
 }
 
 ///////////////////// Text stacktraces
 
 export function TextDisplayEmpty(): JSX.Element {
-    const props = defaultBaseProps(
-        'javascript_empty',
-        {
-            loading: false,
-        },
-        false
+    const props = defaultBaseProps({}, false)
+    return (
+        <ExceptionLogicWrapper eventName="javascript_empty">
+            <StacktraceTextDisplay {...props} />
+        </ExceptionLogicWrapper>
     )
-    return <StacktraceTextDisplay {...props} />
 }
 
 export function TextDisplayPropertiesLoading(): JSX.Element {
-    const props = defaultBaseProps(
-        'javascript_resolved',
-        {
-            loading: true,
-        },
-        false
+    const props = defaultBaseProps({}, false)
+    return (
+        <ExceptionLogicWrapper eventName="javascript_resolved">
+            <StacktraceTextDisplay {...props} />
+        </ExceptionLogicWrapper>
     )
-    return <StacktraceTextDisplay {...props} />
 }
 
 export function TextDisplayWithStacktrace(): JSX.Element {
-    return <StacktraceWrapperAllEvents>{(props) => <StacktraceTextDisplay {...props} />}</StacktraceWrapperAllEvents>
+    const props = defaultBaseProps({}, false)
+    return (
+        <StacktraceWrapperAllEvents>
+            <StacktraceTextDisplay {...props} />
+        </StacktraceWrapperAllEvents>
+    )
 }
 
 //////////////////// Utils
@@ -104,16 +105,11 @@ const issue = {
 } as ErrorTrackingRelationalIssue
 
 function defaultBaseProps(
-    event_name: TestEventNames | null,
     overrideProps: Partial<StacktraceBaseDisplayProps> = {},
     issueLoading: boolean = false
 ): StacktraceBaseDisplayProps {
-    const attributes = event_name ? getExceptionAttributes(TEST_EVENTS[event_name].properties) : null
     return {
-        loading: false,
-        showAllFrames: true,
         truncateMessage: true,
-        attributes,
         renderLoading: (renderHeader: HeaderRenderer) =>
             renderHeader({
                 type: issue?.name ?? undefined,
@@ -125,29 +121,17 @@ function defaultBaseProps(
     } as StacktraceBaseDisplayProps
 }
 
-function StacktraceWrapperAllEvents({
-    children,
-}: {
-    children: (props: StacktraceBaseDisplayProps) => JSX.Element
-}): JSX.Element {
-    const eventNames = Object.keys(TEST_EVENTS) as TestEventNames[]
-    function getProps(eventName: TestEventNames): StacktraceBaseDisplayProps {
-        return defaultBaseProps(
-            eventName,
-            {
-                loading: false,
-            },
-            false
-        )
-    }
+function StacktraceWrapperAllEvents({ children }: { children: JSX.Element }): JSX.Element {
+    const eventNames = Object.keys(TEST_EVENTS) as TestEventName[]
     return (
         <div className="space-y-4">
-            {eventNames.map((name: TestEventNames) => {
-                const props = getProps(name)
+            {eventNames.map((name: TestEventName) => {
                 return (
-                    <LemonCard className="px-3 py-2" key={name}>
-                        {children(props)}
-                    </LemonCard>
+                    <ExceptionLogicWrapper key={name} eventName={name}>
+                        <LemonCard hoverEffect={false} className="px-3 py-2">
+                            {children}
+                        </LemonCard>
+                    </ExceptionLogicWrapper>
                 )
             })}
         </div>

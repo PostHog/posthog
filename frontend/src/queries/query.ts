@@ -294,10 +294,18 @@ export function getPersonsEndpoint(query: PersonsNode): string {
     return api.persons.determineListUrl(params)
 }
 
-export async function hogqlQuery(queryString: string, values?: Record<string, any>): Promise<HogQLQueryResponse> {
-    return await performQuery<HogQLQuery>({
-        kind: NodeKind.HogQLQuery,
-        query: queryString,
-        values,
-    })
+export async function hogqlQuery(
+    queryString: string,
+    values?: Record<string, any>,
+    refresh?: RefreshType
+): Promise<HogQLQueryResponse> {
+    return await performQuery<HogQLQuery>(
+        {
+            kind: NodeKind.HogQLQuery,
+            query: queryString,
+            values,
+        },
+        undefined,
+        refresh
+    )
 }

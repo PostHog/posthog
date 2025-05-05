@@ -1332,9 +1332,7 @@ export interface CommonActorType {
 
 export interface PersonActorType extends CommonActorType {
     type: 'person'
-    /** Serial ID (NOT UUID). */
-    id: number
-    uuid: string
+    id: string
     name?: string
     distinct_ids: string[]
     is_identified: boolean
@@ -2935,6 +2933,12 @@ export enum SurveyEventName {
     SENT = 'survey sent',
 }
 
+export enum SurveyEventProperties {
+    SURVEY_ID = '$survey_id',
+    SURVEY_RESPONSE = '$survey_response',
+    SURVEY_ITERATION = '$survey_iteration',
+}
+
 export interface SurveyEventStats {
     total_count: number
     total_count_only_seen: number
@@ -4442,7 +4446,7 @@ export interface ExternalDataSource {
 export interface DataModelingJob {
     id: string
     saved_query_id: string
-    status: 'Running' | 'Completed' | 'Failed'
+    status: 'Running' | 'Completed' | 'Failed' | 'Cancelled'
     rows_materialized: number
     error: string | null
     created_at: string

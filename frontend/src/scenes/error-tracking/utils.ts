@@ -1,14 +1,10 @@
-import { FingerprintRecordPart } from 'lib/components/Errors/stackFrameLogic'
-import { ErrorTrackingException, ErrorTrackingRuntime } from 'lib/components/Errors/types'
-import { getRuntimeFromLib } from 'lib/components/Errors/utils'
+import { ErrorTrackingException } from 'lib/components/Errors/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { componentsToDayJs, dateStringToComponents, isStringDateRegex, objectsEqual } from 'lib/utils'
-import { Properties } from 'posthog-js'
 import { MouseEvent } from 'react'
 import { Params } from 'scenes/sceneTypes'
 
 import { DateRange, ErrorTrackingIssue } from '~/queries/schema/schema-general'
-import { isPostHogProperty } from '~/taxonomy/taxonomy'
 
 import { DEFAULT_ERROR_TRACKING_DATE_RANGE, DEFAULT_ERROR_TRACKING_FILTER_GROUP } from './errorTrackingLogic'
 
@@ -70,101 +66,6 @@ export const mergeIssues = (
         first_seen: firstSeen.toISOString(),
         last_seen: lastSeen.toISOString(),
     }
-}
-
-export type ExceptionAttributes = {
-    ingestionErrors?: string[]
-    exceptionList: ErrorTrackingException[]
-    fingerprintRecords: FingerprintRecordPart[]
-    runtime: ErrorTrackingRuntime
-    type?: string
-    value?: string
-    synthetic?: boolean
-    lib?: string
-    libVersion?: string
-    browser?: string
-    browserVersion?: string
-    os?: string
-    osVersion?: string
-    sentryUrl?: string
-    level?: string
-    url?: string
-    handled: boolean
-}
-
-export function getExceptionAttributes(properties: Record<string, any>): ExceptionAttributes {
-    const {
-        $lib: lib,
-        $lib_version: libVersion,
-        $browser: browser,
-        $browser_version: browserVersion,
-        $os: os,
-        $os_version: osVersion,
-        $sentry_url: sentryUrl,
-        $sentry_exception,
-        $level: level,
-        $cymbal_errors: ingestionErrors,
-    } = properties
-
-    let type = properties.$exception_type
-    let value = properties.$exception_message
-    let synthetic: boolean | undefined = properties.$exception_synthetic
-    const url: string | undefined = properties.$current_url
-    let exceptionList: ErrorTrackingException[] | undefined = properties.$exception_list
-    const fingerprintRecords: FingerprintRecordPart[] | undefined = properties.$exception_fingerprint_record
-
-    // exception autocapture sets $exception_list for all exceptions.
-    // If it's not present, then this is probably a sentry exception. Get this list from the sentry_exception
-    if (!exceptionList?.length && $sentry_exception) {
-        if (Array.isArray($sentry_exception.values)) {
-            exceptionList = $sentry_exception.values
-        }
-    }
-
-    if (!type) {
-        type = exceptionList?.[0]?.type
-    }
-    if (!value) {
-        value = exceptionList?.[0]?.value
-    }
-    if (synthetic == undefined) {
-        synthetic = exceptionList?.[0]?.mechanism?.synthetic
-    }
-
-    const handled = exceptionList?.[0]?.mechanism?.handled ?? false
-    const runtime: ErrorTrackingRuntime = getRuntimeFromLib(lib)
-
-    return {
-        type,
-        value,
-        synthetic,
-        runtime,
-        lib,
-        libVersion,
-        browser,
-        browserVersion,
-        os,
-        osVersion,
-        url,
-        sentryUrl,
-        exceptionList: exceptionList || [],
-        fingerprintRecords: fingerprintRecords || [],
-        handled,
-        level,
-        ingestionErrors,
-    }
-}
-
-export function getAdditionalProperties(properties: Properties, isCloudOrDev: boolean | undefined): Properties {
-    return Object.fromEntries(
-        Object.entries(properties).filter(([key]) => {
-            return !isPostHogProperty(key, isCloudOrDev)
-        })
-    )
-}
-
-export function getSessionId(properties: Record<string, any>): string | undefined {
-    return properties['$session_id']
 }
 
 export function isThirdPartyScriptError(value: ErrorTrackingException['value']): boolean {
