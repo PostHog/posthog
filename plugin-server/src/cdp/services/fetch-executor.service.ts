@@ -83,7 +83,7 @@ export class FetchExecutorService {
         }
 
         const params = invocation.queueParameters as HogFunctionQueueParametersFetchRequest
-        let responseBody = ''
+        const responseBody = ''
 
         // Get existing metadata from previous attempts if any
         const metadata = (invocation.queueMetadata as { tries: number; trace: CyclotronFetchFailureInfo[] }) || {
@@ -103,9 +103,6 @@ export class FetchExecutorService {
                 fetchParams.body = params.body
             }
             const fetchResponse = await fetch(params.url, fetchParams)
-
-            responseBody = await fetchResponse.text()
-
             const duration = performance.now() - start
 
             // Match Rust implementation: Only return response for success status codes (<400)
@@ -119,7 +116,7 @@ export class FetchExecutorService {
                                 status: fetchResponse.status,
                                 headers: fetchResponse.headers,
                             },
-                            body: responseBody,
+                            body: await fetchResponse.text(),
                             timings: [
                                 {
                                     kind: 'async_function',
