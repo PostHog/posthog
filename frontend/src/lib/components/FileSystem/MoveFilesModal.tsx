@@ -3,6 +3,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { useState } from 'react'
 
+import { joinPath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 interface MoveFilesModalProps {
@@ -12,7 +13,9 @@ interface MoveFilesModalProps {
 }
 
 export function MoveFilesModal({ items, handleMove, closeModal }: MoveFilesModalProps): JSX.Element {
-    const [folderDestination, setFolderDestination] = useState<string>('')
+    const [folderDestination, setFolderDestination] = useState<string>(() =>
+        items.length && items[0].path.length ? joinPath(splitPath(items[0].path).slice(0, -1)) : ''
+    )
 
     return (
         <LemonModal
@@ -32,7 +35,11 @@ export function MoveFilesModal({ items, handleMove, closeModal }: MoveFilesModal
             }
         >
             <div className="w-192 max-w-full">
-                <FolderSelect className="h-[60vh] min-h-[200px]" onChange={setFolderDestination} />
+                <FolderSelect
+                    className="h-[60vh] min-h-[200px]"
+                    value={folderDestination}
+                    onChange={setFolderDestination}
+                />
             </div>
         </LemonModal>
     )

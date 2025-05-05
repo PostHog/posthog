@@ -451,6 +451,21 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     }
                     return state
                 },
+                updateSyncedFiles: (state, { files }) => {
+                    const newIdsSet = new Set(files.map((file) => file.id))
+                    const hasAnyNewIds = state.results.some((file) => newIdsSet.has(file.id))
+                    if (hasAnyNewIds) {
+                        const newResults = state.results.map((result) => {
+                            if (newIdsSet.has(result.id)) {
+                                const file = files.find((file) => file.id === result.id)
+                                return { ...result, ...file }
+                            }
+                            return result
+                        })
+                        return { ...state, results: newResults }
+                    }
+                    return state
+                },
             },
         ],
         recentResults: [
@@ -484,6 +499,21 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     } else if (savedItem.created_at && savedItem.type !== 'folder') {
                         const newResults = [...state.results, savedItem].sort((a, b) => {
                             return new Date(b.created_at ?? '').getTime() - new Date(a.created_at ?? '').getTime()
+                        })
+                        return { ...state, results: newResults }
+                    }
+                    return state
+                },
+                updateSyncedFiles: (state, { files }) => {
+                    const newIdsSet = new Set(files.map((file) => file.id))
+                    const hasAnyNewIds = state.results.some((file) => newIdsSet.has(file.id))
+                    if (hasAnyNewIds) {
+                        const newResults = state.results.map((result) => {
+                            if (newIdsSet.has(result.id)) {
+                                const file = files.find((file) => file.id === result.id)
+                                return { ...result, ...file }
+                            }
+                            return result
                         })
                         return { ...state, results: newResults }
                     }
@@ -1053,28 +1083,36 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 sceneBreadcrumbs
             ): Breadcrumb[] | null => {
                 let folders: string[] = []
-                let lastBreadcrumb: Breadcrumb | null = null
 
+                // Take the last breadcrumb from the scene (may contain some edit state logic)
+                let lastBreadcrumb: Breadcrumb | null =
+                    sceneBreadcrumbs.length > 0 ? sceneBreadcrumbs.slice(-1)[0] : null
+
+                // If we're on a page that's in the project tree, take its path as our base
                 if (projectTreeRefEntry?.path) {
                     folders = splitPath(projectTreeRefEntry.path)
-                    lastBreadcrumb = {
-                        key: `project-tree/${projectTreeRefEntry.path}`,
-                        name: folders.pop(),
-                        path: projectTreeRefEntry.href, // link to actual page
+                    const name = folders.pop() // remove last part
+                    if (!lastBreadcrumb) {
+                        // No scene breadcrumbs, so create a new one with the file name
+                        lastBreadcrumb = {
+                            key: `project-tree/${projectTreeRefEntry.path}`,
+                            name: name,
+                            path: projectTreeRefEntry.href, // link to actual page
+                        }
                     }
-                } else if (!projectTreeRefEntry && projectTreeRef?.ref === null && lastNewFolder) {
-                    folders = splitPath(lastNewFolder)
-                    lastBreadcrumb =
-                        sceneBreadcrumbs.length > 0
-                            ? sceneBreadcrumbs.slice(-1)[0]
-                            : {
-                                  key: `new/${lastNewFolder}`,
-                                  name: 'New',
-                                  path: joinPath([...folders, 'New']),
-                              }
-                } else {
-                    return null
                 }
+                // If we're on a "new xyz" page opened from a folder, use that folder as the base
+                if (!projectTreeRefEntry && projectTreeRef?.ref === null && lastNewFolder) {
+                    folders = splitPath(lastNewFolder)
+                    if (!lastBreadcrumb) {
+                        lastBreadcrumb = {
+                            key: `new/${lastNewFolder}`,
+                            name: 'New',
+                            path: joinPath([...folders, 'New']),
+                        }
+                    }
+                }
+                // Convert the folders into breadcrumbs
                 const breadcrumbs: ProjectTreeBreadcrumb[] = folders.map((path, index) => ({
                     key: `project-tree/${path}`,
                     name: path,
