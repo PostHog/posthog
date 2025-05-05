@@ -1,5 +1,7 @@
-import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
+import { IconRefresh } from '@posthog/icons'
+import { LemonButton, LemonSelect, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { errorTrackingDataNodeLogic } from 'scenes/error-tracking/errorTrackingDataNodeLogic'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
@@ -15,6 +17,7 @@ export const IssueQueryOptions = (): JSX.Element => {
 
     return (
         <span className="flex items-center gap-2 self-end">
+            <Reload />
             <GenericSelect<ErrorTrackingIssue['status'] | 'all' | null>
                 values={['all', 'active', 'resolved', 'suppressed']}
                 current={status || null}
@@ -89,5 +92,27 @@ export const IssueQueryOptions = (): JSX.Element => {
                 </AssigneeSelect>
             </div>
         </span>
+    )
+}
+
+const Reload = (): JSX.Element => {
+    const { responseLoading } = useValues(errorTrackingDataNodeLogic)
+    const { reloadData, cancelQuery } = useActions(errorTrackingDataNodeLogic)
+
+    return (
+        <LemonButton
+            type="secondary"
+            size="small"
+            onClick={() => {
+                if (responseLoading) {
+                    cancelQuery()
+                } else {
+                    reloadData()
+                }
+            }}
+            icon={responseLoading ? <Spinner textColored /> : <IconRefresh />}
+        >
+            {responseLoading ? 'Cancel' : 'Reload'}
+        </LemonButton>
     )
 }
