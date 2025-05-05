@@ -225,7 +225,6 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             )
 
             if sync_frequency and sync_frequency != "never":
-                # Ensure model paths exist before scheduling
                 recreate_model_paths(view)
 
         if was_sync_frequency_updated:
@@ -310,7 +309,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
 
         saved_query = self.get_object()
 
-        # Ensure model paths exist before running the workflow
+        # ensure model paths exist before running the workflow
         recreate_model_paths(saved_query)
 
         temporal = sync_connect()
@@ -332,9 +331,12 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
 
         return response.Response(status=status.HTTP_200_OK)
 
-    # undo materialization, revert back to the original view (i.e. delete the materialized table and the schedule)
     @action(methods=["POST"], detail=True)
     def revert_materialization(self, request: request.Request, *args, **kwargs) -> response.Response:
+        """
+        Undo materialization, revert back to the original view.
+        (i.e. delete the materialized table and the schedule)
+        """
         saved_query = self.get_object()
         saved_query.sync_frequency_interval = None
         # we still have the history preserved in our DataModelingJob
@@ -342,10 +344,9 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         saved_query.latest_error = None
         saved_query.status = None
 
-        # delete the materialized table
+        # delete the materialized table reference
         if saved_query.table is not None:
             saved_query.table.soft_delete()
-            # Make sure to remove the reference to the deleted table
             saved_query.table_id = None
 
         saved_query.save()

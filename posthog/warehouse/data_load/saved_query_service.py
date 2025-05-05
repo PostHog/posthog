@@ -107,7 +107,9 @@ def recreate_model_paths(saved_query: DataWarehouseSavedQuery) -> None:
     Recreate model paths for a saved query after materialization.
     After a query has been reverted and then re-materialized, we need to ensure
     the model paths exist for the temporal workflow to properly build the DAG.
+    If they already exist, we don't need to do anything.
     """
+
     try:
         with transaction.atomic():
             if not DataWarehouseModelPath.objects.filter(
