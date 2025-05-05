@@ -95,9 +95,16 @@ const VariantsTab = (): JSX.Element => {
 }
 
 export function ExperimentView(): JSX.Element {
-    const { experimentLoading, experimentId, tabKey, shouldUseExperimentMetrics } = useValues(experimentLogic)
+    const {
+        experiment,
+        experimentLoading,
+        experimentId,
+        tabKey,
+        shouldUseExperimentMetrics,
+        isCalculateRunningTimeModalOpen,
+    } = useValues(experimentLogic)
 
-    const { setTabKey } = useActions(experimentLogic)
+    const { setTabKey, closeCalculateRunningTimeModal, updateExperiment } = useActions(experimentLogic)
 
     return (
         <>
@@ -134,7 +141,29 @@ export function ExperimentView(): JSX.Element {
                                 <ExperimentMetricModal experimentId={experimentId} isSecondary={true} />
                                 <ExperimentMetricModal experimentId={experimentId} isSecondary={false} />
                                 <ExposureCriteriaModal />
-                                <RunningTimeCalculatorModal />
+                                <RunningTimeCalculatorModal
+                                    experimentId={experimentId}
+                                    isOpen={isCalculateRunningTimeModalOpen}
+                                    onClose={closeCalculateRunningTimeModal}
+                                    onSave={(
+                                        exposureEstimateConfig,
+                                        minimumDetectableEffect,
+                                        recommendedSampleSize,
+                                        recommendedRunningTime
+                                    ) => {
+                                        updateExperiment({
+                                            parameters: {
+                                                ...experiment?.parameters,
+                                                exposure_estimate_config: exposureEstimateConfig,
+                                                recommended_running_time: recommendedRunningTime,
+                                                recommended_sample_size: recommendedSampleSize || undefined,
+                                                minimum_detectable_effect: minimumDetectableEffect || undefined,
+                                            },
+                                        })
+
+                                        closeCalculateRunningTimeModal()
+                                    }}
+                                />
                             </>
                         ) : (
                             <>

@@ -3,63 +3,78 @@ import { useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { humanFriendlyNumber } from 'lib/utils'
 
-import { experimentLogic } from '../experimentLogic'
+import type { Experiment } from '~/types'
+
 import { EventSelectorStep } from './EventSelectorStep'
 import { MetricSelectorStep } from './MetricSelectorStep'
-import { ConversionRateInputType, runningTimeCalculatorLogic } from './runningTimeCalculatorLogic'
+import {
+    ConversionRateInputType,
+    ExposureEstimateConfig,
+    runningTimeCalculatorLogic,
+} from './runningTimeCalculatorLogic'
 import { RunningTimeCalculatorModalFooter } from './RunningTimeCalculatorModalFooter'
 import { RunningTimeCalculatorModalStep } from './RunningTimeCalculatorModalStep'
-export function RunningTimeCalculatorModal(): JSX.Element {
-    /**
-     * Modal open/close is controlled from parent component.
-     * This is a candidate for props (onClose, onSave)
-     */
-    const { experimentId, isCalculateRunningTimeModalOpen } = useValues(experimentLogic)
+
+type RunningTimeCalculatorModalProps = {
+    experimentId: Experiment['id']
+    isOpen: boolean
+    onClose: () => void
+    onSave: (
+        exposureEstimateConfig: ExposureEstimateConfig | null,
+        minimumDetectableEffect: number,
+        recommendedSampleSize: number,
+        recommendedRunningTime: number
+    ) => void
+}
+
+export function RunningTimeCalculatorModal({
+    experimentId,
+    isOpen,
+    onClose,
+    onSave,
+}: RunningTimeCalculatorModalProps): JSX.Element {
     const {
-        // Experiment Object
-        experiment,
+        /**
+         * Exposure Estimate Config Modal State.
+         * Without kea, this would be a prop.
+         */
+        exposureEstimateConfig,
         // Running Time Calculator Object. Saved inside the experiment parameters.
         minimumDetectableEffect,
         recommendedSampleSize,
         recommendedRunningTime,
-        exposureEstimateConfig,
         // FunnelQuery for unique users loading state
         metricResultLoading,
         // Queried value depending on the exposureEstimateConfig
         uniqueUsers,
     } = useValues(runningTimeCalculatorLogic({ experimentId }))
 
-    const { closeCalculateRunningTimeModal, updateExperiment } = useActions(experimentLogic)
     const { setMinimumDetectableEffect, setExposureEstimateConfig } = useActions(
         runningTimeCalculatorLogic({ experimentId })
     )
 
     return (
         <LemonModal
-            isOpen={isCalculateRunningTimeModalOpen}
-            onClose={closeCalculateRunningTimeModal}
+            isOpen={isOpen}
+            onClose={onClose}
             width={700}
             title="Calculate estimated running time"
             footer={
                 <RunningTimeCalculatorModalFooter
-                    onClose={closeCalculateRunningTimeModal}
-                    onSave={() => {
-                        updateExperiment({
-                            parameters: {
-                                ...experiment?.parameters,
-                                exposure_estimate_config: exposureEstimateConfig,
-                                recommended_running_time: recommendedRunningTime,
-                                recommended_sample_size: recommendedSampleSize || undefined,
-                                minimum_detectable_effect: minimumDetectableEffect || undefined,
-                            },
-                        })
-                        closeCalculateRunningTimeModal()
-                    }}
+                    onClose={onClose}
+                    onSave={() =>
+                        onSave(
+                            exposureEstimateConfig,
+                            minimumDetectableEffect,
+                            recommendedSampleSize ?? 0,
+                            recommendedRunningTime ?? 0
+                        )
+                    }
                 />
             }
         >
             <EventSelectorStep
-                exposureEstimateConfig={exposureEstimateConfig}
+                exposureEstimateConfig={exposureEstimateConfig ?? null}
                 onSetFilter={(filter) =>
                     setExposureEstimateConfig({
                         ...(exposureEstimateConfig ?? {
