@@ -113,10 +113,8 @@ pub async fn test_black_hole(
     let request_id = Uuid::new_v4();
 
     Ok(Json(LegacyFlagsResponse {
-        feature_flags: Default::default(),
-        feature_flag_payloads: Default::default(),
-        quota_limited: None,
         errors_while_computing_flags: false,
         request_id,
+        ..Default::default()
     }))
 }

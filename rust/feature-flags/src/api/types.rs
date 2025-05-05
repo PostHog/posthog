@@ -18,7 +18,7 @@ pub enum FlagValue {
     String(String),
 }
 
-#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, PartialEq, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum ServiceResponse {
     Default(LegacyFlagsResponse),
@@ -27,15 +27,125 @@ pub enum ServiceResponse {
 
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SessionRecordingConfig {
+    pub disabled: bool,
+    pub config: Option<SessionRecordingDetails>,
+}
+
+#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub struct SessionRecordingDetails {
+    pub endpoint: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub linked_flag: Option<LinkedFlag>,
+}
+
+#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub struct LinkedFlag {
+    pub flag: String,
+    pub variant: String,
+}
+
+#[derive(Debug, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SiteApp {
+    pub id: f64,
+    pub url: String,
+}
+
+#[derive(Debug, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FlagsResponse {
     pub errors_while_computing_flags: bool,
     pub flags: HashMap<String, FlagDetails>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quota_limited: Option<Vec<String>>, // list of quota limited resources
     pub request_id: Uuid,
+    // add a bunch of optional fields for backwards compatibility
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_authenticated: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub toolbar_params: Option<HashMap<String, Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub config: Option<HashMap<String, Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub surveys: Option<HashMap<String, Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub autocapture_exceptions: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub autocapture_opt_out: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub capture_performance: Option<Value>, // can be bool or object
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub supported_compression: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_recording: Option<SessionRecordingConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub site_apps: Option<Vec<SiteApp>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub editor_params: Option<Value>,
 }
 
-#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
+impl FlagsResponse {
+    pub fn new(
+        errors_while_computing_flags: bool,
+        flags: HashMap<String, FlagDetails>,
+        quota_limited: Option<Vec<String>>,
+        request_id: Uuid,
+        is_authenticated: Option<bool>,
+        toolbar_params: Option<HashMap<String, Value>>,
+        config: Option<HashMap<String, Value>>,
+        surveys: Option<HashMap<String, Value>>,
+        autocapture_exceptions: Option<bool>,
+        autocapture_opt_out: Option<bool>,
+        capture_performance: Option<Value>,
+        supported_compression: Option<Vec<String>>,
+        session_recording: Option<SessionRecordingConfig>,
+        site_apps: Option<Vec<SiteApp>>,
+        editor_params: Option<Value>,
+    ) -> Self {
+        Self {
+            errors_while_computing_flags,
+            flags,
+            quota_limited,
+            request_id,
+            is_authenticated,
+            toolbar_params,
+            config,
+            surveys,
+            autocapture_exceptions,
+            autocapture_opt_out,
+            capture_performance,
+            supported_compression,
+            session_recording,
+            site_apps,
+            editor_params,
+        }
+    }
+}
+
+impl Default for FlagsResponse {
+    fn default() -> Self {
+        Self {
+            errors_while_computing_flags: false,
+            flags: HashMap::new(),
+            quota_limited: None,
+            request_id: Uuid::nil(),
+            is_authenticated: None,
+            toolbar_params: None,
+            config: None,
+            surveys: None,
+            autocapture_exceptions: None,
+            autocapture_opt_out: None,
+            capture_performance: None,
+            supported_compression: None,
+            session_recording: None,
+            site_apps: None,
+            editor_params: None,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LegacyFlagsResponse {
     pub errors_while_computing_flags: bool,
@@ -44,6 +154,49 @@ pub struct LegacyFlagsResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quota_limited: Option<Vec<String>>, // list of quota limited resources
     pub request_id: Uuid,
+    // New fields for backwards compatibility
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub autocapture_exceptions: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub toolbar_params: Option<HashMap<String, Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub capture_performance: Option<Value>, // can be bool or object
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub autocapture_opt_out: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_authenticated: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub supported_compression: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub config: Option<HashMap<String, Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_recording: Option<SessionRecordingConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub site_apps: Option<Vec<SiteApp>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub editor_params: Option<Value>,
+}
+
+impl Default for LegacyFlagsResponse {
+    fn default() -> Self {
+        Self {
+            errors_while_computing_flags: false,
+            feature_flags: HashMap::new(),
+            feature_flag_payloads: HashMap::new(),
+            quota_limited: None,
+            request_id: Uuid::nil(),
+            autocapture_exceptions: None,
+            toolbar_params: None,
+            capture_performance: None,
+            autocapture_opt_out: None,
+            is_authenticated: None,
+            supported_compression: None,
+            config: None,
+            session_recording: None,
+            site_apps: None,
+            editor_params: None,
+        }
+    }
 }
 
 impl LegacyFlagsResponse {
@@ -67,22 +220,17 @@ impl LegacyFlagsResponse {
                 .collect(),
             quota_limited: response.quota_limited,
             request_id: response.request_id,
-        }
-    }
-}
-
-impl FlagsResponse {
-    pub fn new(
-        errors_while_computing_flags: bool,
-        flags: HashMap<String, FlagDetails>,
-        quota_limited: Option<Vec<String>>,
-        request_id: Uuid,
-    ) -> Self {
-        Self {
-            errors_while_computing_flags,
-            flags,
-            quota_limited,
-            request_id,
+            autocapture_exceptions: response.autocapture_exceptions,
+            toolbar_params: response.toolbar_params,
+            capture_performance: response.capture_performance,
+            autocapture_opt_out: response.autocapture_opt_out,
+            is_authenticated: response.is_authenticated,
+            supported_compression: response.supported_compression,
+            config: response.config,
+            session_recording: response.session_recording,
+            site_apps: response.site_apps,
+            editor_params: response.editor_params,
+            ..Default::default()
         }
     }
 }
@@ -351,7 +499,13 @@ mod tests {
         );
 
         let request_id = Uuid::new_v4();
-        let response = FlagsResponse::new(false, flags, None, request_id);
+        let response = FlagsResponse {
+            errors_while_computing_flags: false,
+            flags,
+            quota_limited: None,
+            request_id,
+            ..Default::default()
+        };
         let legacy_response = LegacyFlagsResponse::from_response(response);
 
         // Check that only flag1 with actual payload is included

@@ -27,8 +27,9 @@ use common_metrics::inc;
 use flate2::read::GzDecoder;
 use limiters::redis::ServiceName;
 use percent_encoding::percent_decode;
+use regex;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::{
     collections::{HashMap, HashSet},
     io::Read,
@@ -131,6 +132,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
             errors_while_computing_flags: false,
             quota_limited: Some(vec![ServiceName::FeatureFlags.as_string()]),
             request_id: context.request_id,
+            ..Default::default()
         });
     }
 
@@ -151,6 +153,62 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
 
     let (person_prop_overrides, group_prop_overrides, groups, hash_key_override) =
         prepare_property_overrides(&context, &request)?;
+
+    // config: {"enable_collect_everything": true}
+    let mut config_map = HashMap::new();
+    config_map.insert("enable_collect_everything".to_string(), json!(true));
+    let config = Some(config_map);
+
+    // toolbar_params: empty object
+    let toolbar_params = Some(HashMap::<String, Value>::new());
+    let is_authenticated = false;
+
+    // supported_compression: ["gzip", "gzip-js"]
+    let supported_compression = Some(vec!["gzip".to_string(), "gzip-js".to_string()]);
+
+    // autocapture_opt_out
+    let autocapture_opt_out = team.autocapture_opt_out.unwrap_or(false);
+
+    let capture_dead_clicks = team.capture_dead_clicks.unwrap_or(false);
+
+    let capture_web_vitals = team.autocapture_web_vitals_opt_in.unwrap_or(false);
+    let autocapture_web_vitals_allowed_metrics = team.autocapture_web_vitals_allowed_metrics;
+    let capture_network_timing = team.capture_performance_opt_in.unwrap_or(false);
+
+    let capture_performance = match (capture_network_timing, capture_web_vitals) {
+        (false, false) => Some(json!(false)),
+        (network, web_vitals) => {
+            let mut perf_map = HashMap::new();
+            perf_map.insert("network_timing".to_string(), json!(network));
+            perf_map.insert("web_vitals".to_string(), json!(web_vitals));
+            if web_vitals {
+                perf_map.insert(
+                    "web_vitals_allowed_metrics".to_string(),
+                    json!(autocapture_web_vitals_allowed_metrics),
+                );
+            }
+            Some(json!(perf_map))
+        }
+    };
+
+    // autocapture_exceptions: object if opt_in, false if not
+    let autocapture_exceptions = if team.autocapture_exceptions_opt_in.unwrap_or(false) {
+        let mut exceptions_map = HashMap::new();
+        exceptions_map.insert("endpoint".to_string(), json!("/e/"));
+        Some(json!(exceptions_map))
+    } else {
+        Some(json!(false))
+    };
+
+    let surveys = team.surveys_opt_in.unwrap_or(false);
+
+    let heatmaps = team.heatmaps_opt_in.unwrap_or(false);
+
+    let flags_persistence_default = team.flags_persistence_default.unwrap_or(true);
+
+    let default_identified_only = true;
+
+    let session_recording_config_response = session_recording_config_response(&team, &context);
 
     let response = evaluate_flags_for_request(
         &context.state,
@@ -190,6 +248,13 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
     }
 
     Ok(response)
+}
+
+fn session_recording_domain_not_allowed(team: &Team, request_context: &RequestContext) -> bool {
+    match &team.recording_domains {
+        Some(domains) if !on_permitted_recording_domain(domains, request_context) => true,
+        _ => false,
+    }
 }
 
 /// Parses the request body, extracts the distinct_id and token, then verifies the token.
@@ -368,7 +433,7 @@ pub async fn evaluate_feature_flags(
 }
 
 /// Determines whether to merge geoip properties into the existing person properties.
-pub fn get_person_property_overrides(
+fn get_person_property_overrides(
     geoip_enabled: bool,
     person_properties: Option<HashMap<String, Value>>,
     ip: &IpAddr,
@@ -403,7 +468,7 @@ pub fn get_person_property_overrides(
 }
 
 /// Incorporates `groups` into group property overrides by assigning each `$group_key`.
-pub fn process_group_property_overrides(
+fn process_group_property_overrides(
     groups: Option<HashMap<String, Value>>,
     existing_overrides: Option<HashMap<String, HashMap<String, Value>>>,
 ) -> Option<HashMap<String, HashMap<String, Value>>> {
@@ -464,7 +529,7 @@ fn decode_base64(body: Bytes) -> Result<Bytes, FlagError> {
 
 /// Decodes form-encoded data that contains a base64-encoded JSON FlagRequest.
 /// Expects data in the format: data=<base64-encoded-json> or just <base64-encoded-json>
-pub fn decode_form_data(
+fn decode_form_data(
     body: Bytes,
     compression: Option<Compression>,
 ) -> Result<FlagRequest, FlagError> {
@@ -589,6 +654,135 @@ async fn handle_cookieless_distinct_id(
         .compute_cookieless_distinct_id(event_data, team_data)
         .await
         .map_err(FlagError::CookielessError)
+}
+
+fn hostname_in_allowed_url_list(allowed: &Vec<String>, hostname: Option<&str>) -> bool {
+    let hostname = match hostname {
+        Some(h) => h,
+        None => return false,
+    };
+    for domain in allowed {
+        if domain.contains('*') {
+            // crude wildcard: treat '*' as regex '.*'
+            let pattern = format!("^{}$", regex::escape(domain).replace("\\*", ".*"));
+            if regex::Regex::new(&pattern).unwrap().is_match(hostname) {
+                return true;
+            }
+        } else if domain == hostname {
+            return true;
+        }
+    }
+    false
+}
+
+fn on_permitted_recording_domain(
+    recording_domains: &Vec<String>,
+    request_context: &RequestContext,
+) -> bool {
+    let origin = request_context
+        .headers
+        .get("Origin")
+        .and_then(|v| v.to_str().ok());
+    let referer = request_context
+        .headers
+        .get("Referer")
+        .and_then(|v| v.to_str().ok());
+    let user_agent = request_context
+        .headers
+        .get("User-Agent")
+        .and_then(|v| v.to_str().ok());
+
+    let is_authorized_web_client =
+        hostname_in_allowed_url_list(recording_domains, origin.as_deref())
+            || hostname_in_allowed_url_list(recording_domains, referer.as_deref());
+
+    let is_authorized_mobile_client = user_agent.map_or(false, |ua| {
+        [
+            "posthog-android",
+            "posthog-ios",
+            "posthog-react-native",
+            "posthog-flutter",
+        ]
+        .iter()
+        .any(|kw| ua.contains(kw))
+    });
+
+    is_authorized_web_client || is_authorized_mobile_client
+}
+
+fn session_recording_config_response(
+    team: &Team,
+    request_context: &RequestContext,
+) -> Option<serde_json::Value> {
+    if !team.session_recording_opt_in || session_recording_domain_not_allowed(team, request_context)
+    {
+        return Some(json!(false));
+    }
+
+    let capture_console_logs = team.capture_console_log_opt_in.unwrap_or(false);
+    let sample_rate = team.session_recording_sample_rate.as_ref().and_then(|sr| {
+        let sr_str = sr.to_string();
+        if sr_str == "1.00" {
+            None
+        } else {
+            Some(sr_str)
+        }
+    });
+    let minimum_duration = team.session_recording_minimum_duration_milliseconds;
+
+    // linked_flag logic
+    let linked_flag = match &team.session_recording_linked_flag {
+        Some(cfg) => {
+            // Assuming this is a serde_json::Value::Object
+            let key = cfg.get("key");
+            let variant = cfg.get("variant");
+            match (key, variant) {
+                (Some(k), Some(v)) => Some(json!({"flag": k, "variant": v})),
+                (Some(k), None) => Some(k.clone()),
+                _ => None,
+            }
+        }
+        None => None,
+    };
+
+    // rrweb_script_config logic (stub, you may want to wire this up to settings)
+    let rrweb_script_config = None::<serde_json::Value>; // TODO: implement if you have settings
+
+    let mut resp = serde_json::json!({
+        "endpoint": "/s/",
+        "consoleLogRecordingEnabled": capture_console_logs,
+        "recorderVersion": "v2",
+        "sampleRate": sample_rate,
+        "minimumDurationMilliseconds": minimum_duration,
+        "linkedFlag": linked_flag,
+        "networkPayloadCapture": team.session_recording_network_payload_capture_config.clone(),
+        "masking": team.session_recording_masking_config.clone(),
+        "urlTriggers": team.session_recording_url_trigger_config.clone(),
+        "urlBlocklist": team.session_recording_url_blocklist_config.clone(),
+        "eventTriggers": team.session_recording_event_trigger_config.clone(),
+        "triggerMatchType": team.session_recording_trigger_match_type_config.clone(),
+        "scriptConfig": rrweb_script_config,
+    });
+
+    // session_replay_config logic (assume Option<HashMap<String, Value>>)
+    if let Some(cfg) = &team.session_replay_config {
+        if let Some(record_canvas) = cfg.get("record_canvas") {
+            let record_canvas_bool = record_canvas.as_bool().unwrap_or(false);
+            resp["recordCanvas"] = json!(record_canvas_bool);
+            resp["canvasFps"] = if record_canvas_bool {
+                json!(3)
+            } else {
+                json!(null)
+            };
+            resp["canvasQuality"] = if record_canvas_bool {
+                json!("0.4")
+            } else {
+                json!(null)
+            };
+        }
+    }
+
+    Some(resp)
 }
 
 #[cfg(test)]
@@ -1260,7 +1454,7 @@ mod tests {
         let distinct_id = "user123".to_string();
         insert_person_for_team_in_pg(reader.clone(), team.id, distinct_id.clone(), None)
             .await
-            .unwrap();
+            .expect("Failed to insert person");
 
         let flags = vec![
             FeatureFlag {

@@ -270,12 +270,14 @@ impl FeatureFlagMatcher {
             )
             .fin();
 
-        FlagsResponse::new(
-            flag_hash_key_override_error || flags_response.errors_while_computing_flags,
-            flags_response.flags,
-            None,
+        FlagsResponse {
+            errors_while_computing_flags: flag_hash_key_override_error
+                || flags_response.errors_while_computing_flags,
+            flags: flags_response.flags,
+            quota_limited: None,
             request_id,
-        )
+            ..Default::default()
+        }
     }
 
     /// Processes hash key overrides for feature flags with experience continuity enabled.
@@ -533,12 +535,12 @@ impl FeatureFlagMatcher {
                     &[("reason".to_string(), reason.to_string())],
                     1,
                 );
-                return FlagsResponse::new(
+                return FlagsResponse {
                     errors_while_computing_flags,
-                    flag_details_map,
-                    None,
+                    flags: flag_details_map,
                     request_id,
-                );
+                    ..Default::default()
+                };
             }
 
             // Step 3: Evaluate remaining flags with cached properties
@@ -597,12 +599,12 @@ impl FeatureFlagMatcher {
                 .fin();
         }
 
-        FlagsResponse::new(
+        FlagsResponse {
             errors_while_computing_flags,
-            flag_details_map,
-            None,
+            flags: flag_details_map,
             request_id,
-        )
+            ..Default::default()
+        }
     }
 
     /// Matches a feature flag with property overrides.
