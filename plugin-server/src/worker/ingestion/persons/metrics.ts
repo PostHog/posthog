@@ -24,7 +24,8 @@ export const personCacheOperationsCounter = new Counter({
 
 export const personOperationLatencyByVersionSummary = new Summary({
     name: 'person_operation_latency_by_version',
-    help: 'Latency distribution of person',
+    help: 'Latency distribution of person by version',
+    labelNames: ['operation', 'version_bucket'],
 })
 
 export function getVersionBucketLabel(version: number): string {
@@ -57,7 +58,5 @@ export function observeLatencyByVersion(person: InternalPerson | undefined, star
         return
     }
     const versionBucket = getVersionBucketLabel(person.version)
-    personOperationLatencyByVersionSummary
-        .labels({ operation, version_bucket: versionBucket })
-        .observe(performance.now() - start)
+    personOperationLatencyByVersionSummary.labels(operation, versionBucket).observe(performance.now() - start)
 }

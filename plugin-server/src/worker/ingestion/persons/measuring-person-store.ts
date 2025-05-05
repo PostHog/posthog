@@ -233,9 +233,9 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
         this.clearCache()
         this.incrementDatabaseOperation('updatePersonDeprecated')
         const start = performance.now()
-        const messages = await this.db.updatePersonDeprecated(person, update, tx)
+        const response = await this.db.updatePersonDeprecated(person, update, tx)
         observeLatencyByVersion(person, start, 'updatePersonDeprecated')
-        return messages
+        return response
     }
 
     async deletePerson(person: InternalPerson, tx?: TransactionClient): Promise<TopicMessage[]> {
@@ -243,9 +243,9 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
         this.clearCache()
         this.incrementDatabaseOperation('deletePerson')
         const start = performance.now()
-        const messages = await this.db.deletePerson(person, tx)
+        const response = await this.db.deletePerson(person, tx)
         observeLatencyByVersion(person, start, 'deletePerson')
-        return messages
+        return response
     }
 
     async addDistinctId(
@@ -258,9 +258,9 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
         this.clearCache()
         this.incrementDatabaseOperation('addDistinctId')
         const start = performance.now()
-        const message = await this.db.addDistinctId(person, distinctId, version, tx)
+        const response = await this.db.addDistinctId(person, distinctId, version, tx)
         observeLatencyByVersion(person, start, 'addDistinctId')
-        return message
+        return response
     }
 
     async moveDistinctIds(
@@ -272,9 +272,9 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
         this.clearCache()
         this.incrementDatabaseOperation('moveDistinctIds')
         const start = performance.now()
-        const messages = await this.db.moveDistinctIds(source, target, tx)
+        const response = await this.db.moveDistinctIds(source, target, tx)
         observeLatencyByVersion(target, start, 'moveDistinctIds')
-        return messages
+        return response
     }
 
     async updateCohortsAndFeatureFlagsForMerge(
