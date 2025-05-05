@@ -14,12 +14,22 @@ type MMDBConfig struct {
 	Path string
 }
 
+type PostgresConfig struct {
+	URL string
+}
+
+type JWTConfig struct {
+	Secret string
+}
+
 type Config struct {
 	Debug            bool `mapstructure:"debug"`
 	MMDB             MMDBConfig
 	Kafka            KafkaConfig
 	Parallelism      int      `mapstructure:"parallelism"`
 	CORSAllowOrigins []string `mapstructure:"cors_allow_origins"`
+	Postgres         PostgresConfig
+	JWT              JWTConfig
 }
 
 type KafkaConfig struct {

@@ -1,14 +1,14 @@
 package configs
 
 import (
+	"github.com/spf13/viper"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
 
 func TestLoadConfig(t *testing.T) {
-	InitConfigs("configs.example", ".")
-
 	tests := []struct {
 		name    string
 		setup   func()
@@ -19,6 +19,8 @@ func TestLoadConfig(t *testing.T) {
 			name: "load all config values",
 			setup: func() {
 				// Values already set in setupTestConfig
+				os.Setenv("LIVESTREAM_JWT_SECRET", "token")
+				os.Setenv("LIVESTREAM_POSTGRES_URL", "pg url")
 			},
 			want: &Config{
 				Debug:            true,
@@ -30,6 +32,12 @@ func TestLoadConfig(t *testing.T) {
 					Topic:   "topic",
 					GroupID: "livestream-dev",
 				},
+				Postgres: PostgresConfig{
+					URL: "pg url",
+				},
+				JWT: JWTConfig{
+					Secret: "token",
+				},
 			},
 			wantErr: false,
 		},
@@ -38,6 +46,7 @@ func TestLoadConfig(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tt.setup()
+			InitConfigs("configs.example", ".")
 			got, err := LoadConfig()
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -45,6 +54,8 @@ func TestLoadConfig(t *testing.T) {
 			}
 			assert.NoError(t, err)
 			assert.Equal(t, tt.want, got)
+			assert.Equal(t, tt.want.Postgres.URL, viper.GetString("postgres.url"))
+			assert.Equal(t, tt.want.JWT.Secret, viper.GetString("jwt.secret"))
 		})
 	}
 }
