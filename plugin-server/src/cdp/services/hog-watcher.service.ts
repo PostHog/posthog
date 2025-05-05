@@ -49,7 +49,17 @@ type HogFunctionTimingCosts = Partial<Record<HogFunctionTiming['kind'], HogFunct
 export const CELERY_TASK_ID = 'posthog.tasks.plugin_server.hog_function_state_transition'
 
 export class HogWatcherService {
-    constructor(private hub: Hub, private redis: CdpRedis) {}
+    private costsMapping: HogFunctionTimingCosts
+
+    constructor(private hub: Hub, private redis: CdpRedis) {
+        this.costsMapping = {
+            hog: {
+                lowerBound: this.hub.CDP_WATCHER_COST_TIMING_LOWER_MS,
+                upperBound: this.hub.CDP_WATCHER_COST_TIMING_UPPER_MS,
+                cost: this.hub.CDP_WATCHER_COST_TIMING,
+            },
+        }
+    }
 
     private async onStateChange(id: HogFunctionType['id'], state: HogWatcherState) {
         await this.hub.celery.applyAsync(CELERY_TASK_ID, [id, state])
@@ -147,14 +157,6 @@ export class HogWatcherService {
     public async observeResults(results: HogFunctionInvocationResult[]): Promise<void> {
         // NOTE: Currently we only monitor hog code timings. We will have a separate config for async functions
 
-        const costsMapping: HogFunctionTimingCosts = {
-            hog: {
-                lowerBound: this.hub.CDP_WATCHER_COST_TIMING_LOWER_MS,
-                upperBound: this.hub.CDP_WATCHER_COST_TIMING_UPPER_MS,
-                cost: this.hub.CDP_WATCHER_COST_TIMING,
-            },
-        }
-
         const costs: Record<HogFunctionType['id'], number> = {}
         // Create a map to store the function types
         const functionTypes: Record<HogFunctionType['id'], HogFunctionType['type']> = {}
@@ -174,7 +176,7 @@ export class HogWatcherService {
                     // Record metrics for this timing entry
                     hogFunctionExecutionTimeSummary.labels({ kind: timing.kind }).observe(timing.duration_ms)
 
-                    const costMapping = costsMapping[timing.kind]
+                    const costMapping = this.costsMapping[timing.kind]
 
                     if (costMapping) {
                         const ratio =
