@@ -22,14 +22,12 @@ operations = [
     # 4. Writable table (for writing to sharded table)
     run_sql_with_exceptions(ADD_BLOCK_COLUMNS_WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL()),
     # 5. Distributed table (for reading)
-    run_sql_with_exceptions(ADD_BLOCK_COLUMNS_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL()),
-    # 6. Also run on coordinator node without the cluster clause
     run_sql_with_exceptions(
-        ADD_BLOCK_COLUMNS_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL().replace("on CLUSTER '{cluster}'", ""),
-        node_role=NodeRole.COORDINATOR,
+        ADD_BLOCK_COLUMNS_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+        node_role=NodeRole.ALL,
     ),
-    # 7. Recreate the Kafka table with the updated schema
+    # 6. Recreate the Kafka table with the updated schema
     run_sql_with_exceptions(KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL()),
-    # 8. Recreate the materialized view with the updated schema
+    # 7. Recreate the materialized view with the updated schema
     run_sql_with_exceptions(SESSION_REPLAY_EVENTS_TABLE_MV_SQL()),
 ]

@@ -167,24 +167,21 @@ ADD_LIBRARY_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_L
 
 # 1. Sharded table (physical storage)
 ALTER_SESSION_REPLAY_ADD_BLOCK_COLUMNS = """
-    ALTER TABLE {table_name} on CLUSTER '{cluster}'
+    ALTER TABLE {table_name}
         ADD COLUMN IF NOT EXISTS block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
         ADD COLUMN IF NOT EXISTS block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
         ADD COLUMN IF NOT EXISTS block_urls SimpleAggregateFunction(groupArrayArray, Array(String))
 """
 ADD_BLOCK_COLUMNS_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_BLOCK_COLUMNS.format(
     table_name=SESSION_REPLAY_EVENTS_DATA_TABLE(),
-    cluster=settings.CLICKHOUSE_CLUSTER,
 )
 
 # 2. Writable table (for writing to sharded table)
 ADD_BLOCK_COLUMNS_WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_BLOCK_COLUMNS.format(
     table_name="writable_session_replay_events",
-    cluster=settings.CLICKHOUSE_CLUSTER,
 )
 
 # 3. Distributed table (for reading)
 ADD_BLOCK_COLUMNS_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_BLOCK_COLUMNS.format(
     table_name="session_replay_events",
-    cluster=settings.CLICKHOUSE_CLUSTER,
 )
