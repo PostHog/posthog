@@ -1016,9 +1016,10 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         ? [
                               {
                                   key: 'record.path',
-                                  title: 'Path',
-                                  formatString: (value: string) => value,
-                                  tooltip: (value: string) => value,
+                                  title: 'Folder',
+                                  formatString: (value: string) =>
+                                      value ? joinPath(splitPath(value).slice(0, -1)) : '',
+                                  tooltip: (value: string) => (value ? joinPath(splitPath(value).slice(0, -1)) : ''),
                                   width: sizes[3] || 200,
                                   offset: offsets[3],
                               },

@@ -527,6 +527,8 @@ class Team(UUIDClassicModel):
                         type="Team",
                         action="changed",
                         field="api_token",
+                        before=old_token,
+                        after=self.api_token,
                     )
                 ],
             ),
