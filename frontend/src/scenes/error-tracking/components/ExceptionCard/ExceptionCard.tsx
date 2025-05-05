@@ -2,7 +2,7 @@ import { IconBox, IconDocument, IconList } from '@posthog/icons'
 import { LemonCard } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { errorPropertiesLogic, ErrorPropertiesLogicProps } from 'lib/components/Errors/errorPropertiesLogic'
-import { ErrorProperties } from 'lib/components/Errors/types'
+import { ErrorEventProperties } from 'lib/components/Errors/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import ViewRecordingButton, { mightHaveRecording } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { IconSubtitles, IconSubtitlesOff } from 'lib/lemon-ui/icons'
@@ -26,7 +26,7 @@ interface ExceptionCardContentProps {
 }
 
 export interface ExceptionCardProps extends ExceptionCardContentProps {
-    properties?: ErrorProperties
+    properties?: ErrorEventProperties
     propertiesLoading: boolean
 }
 
