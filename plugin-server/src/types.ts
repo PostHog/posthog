@@ -107,7 +107,7 @@ export type CdpConfig = {
     CDP_HOG_FILTERS_TELEMETRY_TEAMS: string
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: CyclotronJobQueueKind
     CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING: string // A comma-separated list of queue to mode like `hog:kafka,fetch:postgres,*:kafka` with * being the default
-    CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING?: string // Like the above but with a team check too
+    CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING: string // Like the above but with a team check too
 
     CDP_CYCLOTRON_BATCH_SIZE: number
     CDP_CYCLOTRON_BATCH_DELAY_MS: number
@@ -125,9 +125,6 @@ export type CdpConfig = {
     CDP_FETCH_RETRIES: number
     CDP_FETCH_BACKOFF_BASE_MS: number
     CDP_FETCH_BACKOFF_MAX_MS: number
-    KAFKA_CDP_PRODUCER_HOSTS?: string
-    KAFKA_CDP_PRODUCER_SECURITY_PROTOCOL?: KafkaSecurityProtocol
-    KAFKA_CDP_PRODUCER_CLIENT_ID?: string
 }
 
 export type IngestionConsumerConfig = {
@@ -136,9 +133,9 @@ export type IngestionConsumerConfig = {
     INGESTION_CONSUMER_CONSUME_TOPIC: string
     INGESTION_CONSUMER_DLQ_TOPIC: string
     /** If set then overflow routing is enabled and the topic is used for overflow events */
-    INGESTION_CONSUMER_OVERFLOW_TOPIC?: string
+    INGESTION_CONSUMER_OVERFLOW_TOPIC: string
     /** If set the ingestion consumer doesn't process events the usual way but rather just writes to a dummy topic */
-    INGESTION_CONSUMER_TESTING_TOPIC?: string
+    INGESTION_CONSUMER_TESTING_TOPIC: string
 }
 
 export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig {
