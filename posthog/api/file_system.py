@@ -156,7 +156,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     regex = rf"(^|(?<!\\)/)([^/]|\\.)*{re.escape(value)}([^/]|\\.)*$"
                     q = Q(path__iregex=regex)
 
-                elif field in "user":
+                elif field in ("user", "author"):
                     #  user:me  → files created by the current user
                     if value.lower() == "me" and self.request.user.is_authenticated:
                         q = Q(created_by=self.request.user)
