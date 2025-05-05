@@ -44,7 +44,7 @@ describe('fetch', () => {
         })
     })
 
-    describe('trackedFetch', () => {
+    describe('fetch call', () => {
         // By default security features are only enabled in production but for tests we want to enable them
 
         it('should raise if the URL is unsafe', async () => {
