@@ -24,6 +24,9 @@ class EventIngestionRestrictionConfig(UUIDModel):
     token = models.CharField(max_length=100)
     restriction_type = models.CharField(max_length=100, choices=RestrictionType.choices)
     distinct_ids = ArrayField(models.CharField(max_length=450), default=list, blank=True, null=True)
+    note = models.TextField(
+        blank=True, null=True, help_text="Optional note explaining why this restriction was put in place"
+    )
 
     class Meta:
         unique_together = ("token", "restriction_type")
@@ -37,19 +40,18 @@ def update_redis_cache_with_config(sender, instance, created=False, **kwargs):
     redis_client = get_client(PLUGINS_RELOAD_REDIS_URL)
     redis_key = instance.get_redis_key()
 
-    # Only update the config on creation of the configuration
-    # This config is not editable, admin panel will tell users to create a new one instead
-    if created:
-        existing_config = redis_client.get(redis_key)
-        data = json.loads(existing_config) if existing_config else []
+    existing_config = redis_client.get(redis_key)
+    data = json.loads(existing_config) if existing_config else []
 
-        if instance.distinct_ids:
-            for distinct_id in instance.distinct_ids:
-                data.append(f"{instance.token}:{distinct_id}")
-        else:
-            data.append(instance.token)
+    data = [entry for entry in data if not (entry == instance.token or entry.startswith(f"{instance.token}:"))]
 
-        redis_client.set(redis_key, json.dumps(data))
+    if instance.distinct_ids:
+        for distinct_id in instance.distinct_ids:
+            data.append(f"{instance.token}:{distinct_id}")
+    else:
+        data.append(instance.token)
+
+    redis_client.set(redis_key, json.dumps(data))
 
 
 @receiver(post_delete, sender=EventIngestionRestrictionConfig)

@@ -170,7 +170,9 @@ export interface PaginatedResponse<T> {
 export interface CountedPaginatedResponse<T> extends PaginatedResponse<T> {
     count: number
 }
-
+export interface CountedPaginatedResponseWithUsers<T> extends CountedPaginatedResponse<T> {
+    users: UserBasicType[]
+}
 export interface ActivityLogPaginatedResponse<T> extends PaginatedResponse<T> {
     count: number
 }
@@ -1314,7 +1316,7 @@ const api = {
             type__startswith?: string
             createdAtGt?: string
             createdAtLt?: string
-        }): Promise<CountedPaginatedResponse<FileSystemEntry>> {
+        }): Promise<CountedPaginatedResponseWithUsers<FileSystemEntry>> {
             return await new ApiRequest()
                 .fileSystem()
                 .withQueryString({

@@ -4755,6 +4755,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         activity = self.client.get(url)
         self.assertEqual(activity.status_code, expected_status)
+        if activity.status_code == status.HTTP_404_NOT_FOUND:
+            return None
         return activity.json()
 
     def assert_feature_flag_activity(self, flag_id: Optional[int], expected: list[dict]):

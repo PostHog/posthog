@@ -41,7 +41,6 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual(response_data["type"], "doc-file")
         self.assertEqual(response_data["shortcut"], False)
         self.assertDictEqual(response_data["meta"], {"description": "A test file"})
-        self.assertEqual(response_data["created_by"]["id"], self.user.pk)
 
     def test_create_shortcut(self):
         """
@@ -52,7 +51,7 @@ class TestFileSystemAPI(APIBaseTest):
             {
                 "path": "MyFolder/Document.txt",
                 "type": "doc-file",
-                "meta": {"description": "A test file"},
+                "meta": {"description": "A test file", "created_by": self.user.pk},
                 "shortcut": True,
             },
         )
@@ -63,8 +62,7 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual(response_data["path"], "MyFolder/Document.txt")
         self.assertEqual(response_data["type"], "doc-file")
         self.assertEqual(response_data["shortcut"], True)
-        self.assertDictEqual(response_data["meta"], {"description": "A test file"})
-        self.assertEqual(response_data["created_by"]["id"], self.user.pk)
+        self.assertDictEqual(response_data["meta"], {"description": "A test file", "created_by": self.user.pk})
 
     def test_retrieve_file(self):
         """
@@ -922,3 +920,50 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         self.assertIn("MidFile", paths)
         self.assertNotIn("OldFile", paths)
         self.assertNotIn("NewFile", paths)
+
+    def test_list_includes_users_array(self):
+        """
+        Verify that the list endpoint returns a 'users' array containing distinct user objects.
+        """
+        for file in FileSystem.objects.all():
+            file.delete()
+        # Create another user in the same org/team
+        second_user = User.objects.create_and_join(self.organization, "second@posthog.com", "testpass")
+
+        # Create two files with different created_by users
+        FileSystem.objects.create(
+            team=self.team, path="File1", type="doc", created_by=self.user, meta={"created_by": self.user.pk}
+        )
+        FileSystem.objects.create(
+            team=self.team, path="File2", type="doc", created_by=second_user, meta={"created_by": second_user.pk}
+        )
+
+        # Request the list
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        response_data = response.json()
+
+        # 1) Check "results" shape
+        self.assertIn("results", response_data)
+        self.assertEqual(response_data["count"], 2)
+        self.assertEqual(len(response_data["results"]), 2)
+
+        # 2) Check that "users" is present & correct
+        self.assertIn("users", response_data)
+        users = response_data["users"]
+        self.assertEqual(len(users), 2, "Should have 2 distinct users")
+
+        # Collect user IDs from "users" array
+        user_ids_in_response = {u["id"] for u in users}
+
+        self.assertIn(self.user.id, user_ids_in_response)
+        self.assertIn(second_user.id, user_ids_in_response)
+
+        # 3) Verify each FileSystem item has "created_by" referencing the correct user
+        results_by_path = {item["path"]: item for item in response_data["results"]}
+        file1_data = results_by_path["File1"]
+        file2_data = results_by_path["File2"]
+
+        self.assertEqual(file1_data["meta"]["created_by"], self.user.pk)
+        self.assertEqual(file2_data["meta"]["created_by"], second_user.pk)

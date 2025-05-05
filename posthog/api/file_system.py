@@ -18,8 +18,6 @@ from posthog.models.team import Team
 
 
 class FileSystemSerializer(serializers.ModelSerializer):
-    created_by = UserBasicSerializer(read_only=True)
-
     class Meta:
         model = FileSystem
         fields = [
@@ -32,13 +30,11 @@ class FileSystemSerializer(serializers.ModelSerializer):
             "meta",
             "shortcut",
             "created_at",
-            "created_by",
         ]
         read_only_fields = [
             "id",
             "depth",
             "created_at",
-            "created_by",
         ]
 
     def update(self, instance: FileSystem, validated_data: dict[str, Any]) -> FileSystem:
@@ -155,6 +151,25 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 queryset = queryset.order_by(Lower("path"))
 
         return queryset
+
+    def list(self, request, *args, **kwargs):
+        response = super().list(request, *args, **kwargs)
+        results = response.data.get("results", [])
+        user_ids = set()
+
+        # Collect user IDs from the "created_by" meta field
+        for item in results:
+            created_by = item.get("meta", {}).get("created_by")
+            if created_by and isinstance(created_by, int):
+                user_ids.add(created_by)
+
+        if user_ids:
+            users_qs = User.objects.filter(organization=self.organization, id__in=user_ids).distinct()
+            response.data["users"] = UserBasicSerializer(users_qs, many=True).data
+        else:
+            response.data["users"] = []
+
+        return response
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()

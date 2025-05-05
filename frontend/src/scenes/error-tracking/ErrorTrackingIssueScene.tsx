@@ -10,7 +10,7 @@ import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay } from './components/Assignee/AssigneeDisplay'
 import { AssigneeSelect } from './components/Assignee/AssigneeSelect'
-import { IssueCard } from './components/IssueCard'
+import { ExceptionCard } from './components/ExceptionCard'
 import { DateRangeFilter, FilterGroup, InternalAccountsFilter } from './ErrorTrackingFilters'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { ErrorTrackingSetupPrompt } from './ErrorTrackingSetupPrompt'
@@ -37,7 +37,7 @@ export const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {
 }
 
 export function ErrorTrackingIssueScene(): JSX.Element {
-    const { issue, issueLoading } = useValues(errorTrackingIssueSceneLogic)
+    const { issue, issueLoading, properties, propertiesLoading } = useValues(errorTrackingIssueSceneLogic)
     const { loadIssue, updateStatus, updateAssignee } = useActions(errorTrackingIssueSceneLogic)
 
     useEffect(() => {
@@ -77,7 +77,12 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                 }
             />
             <div className="ErrorTrackingIssue space-y-2">
-                <IssueCard />
+                <ExceptionCard
+                    issue={issue ?? undefined}
+                    issueLoading={issueLoading}
+                    properties={properties ?? undefined}
+                    propertiesLoading={propertiesLoading}
+                />
                 <div className="flex items-center gap-2 p-0 bg-transparent">
                     <div className="h-full flex items-center justify-center w-full gap-2">
                         <DateRangeFilter />
