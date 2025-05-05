@@ -8,6 +8,7 @@ from django.conf import settings
 from functools import partial
 import uuid
 from django.utils import timezone
+from django.db.models import Q
 
 from posthog.clickhouse.cluster import (
     ClickhouseCluster,
@@ -178,17 +179,18 @@ class PendingDeletesDictionary:
 
     @property
     def query(self) -> str:
-        return f"SELECT team_id, key, created_at FROM {self.source.qualified_name} WHERE deletion_type IN ({DeletionType.Person})"
+        return f"SELECT team_id, deletion_type, key, created_at FROM {self.source.qualified_name} WHERE deletion_type IN ({DeletionType.Person}, {DeletionType.Team})"
 
     def create(self, client: Client, shards: int, max_execution_time: int, max_memory_usage: int) -> None:
         client.execute(
             f"""
             CREATE DICTIONARY IF NOT EXISTS {self.qualified_name} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' (
                 team_id Int64,
+                deletion_type UInt8,
                 key String,
                 created_at DateTime,
             )
-            PRIMARY KEY team_id, key
+            PRIMARY KEY team_id, deletion_type, key
             SOURCE(CLICKHOUSE(DB %(database)s USER %(user)s PASSWORD %(password)s QUERY %(query)s))
             LAYOUT(COMPLEX_KEY_HASHED(SHARDS {shards}))
             LIFETIME(0)
@@ -255,8 +257,12 @@ class PendingDeletesDictionary:
     def delete_mutation_runner(self) -> LightweightDeleteMutationRunner:
         return LightweightDeleteMutationRunner(
             EVENTS_DATA_TABLE(),
-            "dictHas(%(dictionary)s, (team_id, person_id)) AND timestamp <= dictGet(%(dictionary)s, 'created_at', (team_id, person_id))",
-            parameters={"dictionary": self.qualified_name},
+            "(dictHas(%(dictionary)s, (team_id, %(person_deletion_type)s, person_id)) AND timestamp <= dictGet(%(dictionary)s, 'created_at', (team_id, %(person_deletion_type)s, person_id))) OR (dictHas(%(dictionary)s, (team_id, %(team_deletion_type)s, team_id)))",
+            parameters={
+                "dictionary": self.qualified_name,
+                "person_deletion_type": DeletionType.Person,
+                "team_deletion_type": DeletionType.Team,
+            },
         )
 
 
@@ -323,9 +329,9 @@ def load_pending_deletions(
 
     if not create_pending_deletions_table.is_reporting:
         pending_deletions = pending_deletions.filter(
-            deletion_type__in=[DeletionType.Person],
+            Q(deletion_type=DeletionType.Person, created_at__lte=create_pending_deletions_table.timestamp)
+            | Q(deletion_type=DeletionType.Team),
             delete_verified_at__isnull=True,
-            created_at__lte=create_pending_deletions_table.timestamp,
         )
         if create_pending_deletions_table.team_id:
             pending_deletions = pending_deletions.filter(
@@ -490,13 +496,16 @@ def cleanup_delete_assets(
     # Mark deletions as verified in Django
     if not create_pending_deletions_table.team_id:
         AsyncDeletion.objects.filter(
-            deletion_type__in=[DeletionType.Person],
+            Q(
+                deletion_type=DeletionType.Person, created_at__lte=create_pending_deletions_table.timestamp
+            ),  # TODO: Mark team deletion '| Q(deletion_type=DeletionType.Team)' once we setup deletion of all team data in other tables
             delete_verified_at__isnull=True,
-            created_at__lte=create_pending_deletions_table.timestamp,
         ).update(delete_verified_at=timezone.now())
     else:
         AsyncDeletion.objects.filter(
-            deletion_type__in=[DeletionType.Person],
+            Q(
+                deletion_type=DeletionType.Person, created_at__lte=create_pending_deletions_table.timestamp
+            ),  # TODO: Mark team deletion '| Q(deletion_type=DeletionType.Team)' once we setup deletion of all team data in other tables
             team_id=create_pending_deletions_table.team_id,
             delete_verified_at__isnull=True,
             created_at__lte=create_pending_deletions_table.timestamp,
