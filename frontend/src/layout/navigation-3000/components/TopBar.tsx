@@ -134,6 +134,7 @@ export function TopBar(): JSX.Element | null {
                                     className="TopBar3000__move-button"
                                     data-attr="top-bar-move-button"
                                     tooltip="Move to another folder"
+                                    disabledReason={renameState ? "Can't move while renaming" : ''}
                                 />
                             )}
                             <Breadcrumb
