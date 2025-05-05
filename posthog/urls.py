@@ -46,6 +46,7 @@ from posthog.constants import PERMITTED_FORUM_DOMAINS
 from posthog.demo.legacy import demo_route
 from posthog.models import User
 from posthog.models.instance_setting import get_instance_setting
+from oauth2_provider.urls import base_urlpatterns, oidc_urlpatterns
 
 from .utils import render_template
 from .views import (
@@ -218,6 +219,7 @@ urlpatterns = [
     path("array/<str:token>/config.js", remote_config.RemoteConfigJSAPIView.as_view()),
     path("array/<str:token>/array.js", remote_config.RemoteConfigArrayJSAPIView.as_view()),
     re_path(r"^demo.*", login_required(demo_route)),
+    path("oauth/", include(base_urlpatterns + oidc_urlpatterns)),
     # ingestion
     # NOTE: When adding paths here that should be public make sure to update ALWAYS_ALLOWED_ENDPOINTS in middleware.py
     opt_slash_path("decide", decide.get_decide),

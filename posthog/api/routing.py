@@ -13,12 +13,13 @@ from rest_framework_extensions.settings import extensions_api_settings
 from posthog.api.utils import get_token
 from posthog.auth import (
     JwtAuthentication,
+    OAuth2Authentication,
     PersonalAPIKeyAuthentication,
     SessionAuthentication,
     SharingAccessTokenAuthentication,
 )
 from posthog.models.organization import Organization
-from posthog.models.scopes import APIScopeObjectOrNotSupported
+from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.models.project import Project
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -127,6 +128,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
                 JwtAuthentication,
                 PersonalAPIKeyAuthentication,
                 SessionAuthentication,
+                OAuth2Authentication,
             ]
         )
 
