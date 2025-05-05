@@ -331,8 +331,9 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         template_id = validated_data.get("template_id")
         if template_id:
             db_template = DBHogFunctionTemplate.get_template(template_id)
-            if db_template:
-                validated_data["hog_function_template"] = db_template
+            if not db_template:
+                raise serializers.ValidationError({"template_id": f"No template found for id '{template_id}'"})
+            validated_data["hog_function_template"] = db_template
 
         # Handle execution_order for transformation type
         if validated_data.get("type") == "transformation":

@@ -2334,3 +2334,25 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         hog_function_id = response.json()["id"]
         hog_function = HogFunction.objects.get(id=hog_function_id)
         assert hog_function.hog_function_template is None, "FK should be null when template_id is not provided"
+
+    def test_hog_function_template_fk_validation_error_on_missing_template(self):
+        """
+        Creating a HogFunction with a template_id that does not exist in the DB should raise a validation error and not create the object.
+        """
+        from posthog.models.hog_functions.hog_function import HogFunction
+
+        initial_count = HogFunction.objects.count()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "Should Fail",
+                "hog": "return event",
+                "type": "destination",
+                "template_id": "nonexistent-template-id",
+                "inputs": {},
+            },
+        )
+        assert response.status_code == 400, response.json()
+        assert response.json()["attr"] == "template_id"
+        assert "No template found for id 'nonexistent-template-id'" in response.json()["detail"]
+        assert HogFunction.objects.count() == initial_count, "No HogFunction should be created on error"

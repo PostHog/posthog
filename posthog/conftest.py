@@ -204,3 +204,14 @@ def cache():
     yield django_cache
 
     django_cache.clear()
+
+
+@pytest.fixture(scope="package", autouse=True)
+def load_hog_function_templates(django_db_setup, django_db_blocker):
+    with django_db_blocker.unblock():
+        from posthog.api.hog_function_template import HogFunctionTemplates
+
+        HogFunctionTemplates._load_templates()
+        from django.core.management import call_command
+
+        call_command("sync_hog_function_templates")
