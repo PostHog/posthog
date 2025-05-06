@@ -2,8 +2,10 @@ import { IconCheckbox, IconChevronRight, IconFolder, IconFolderPlus, IconX } fro
 import { useActions, useValues } from 'kea'
 import { MoveFilesModal } from 'lib/components/FileSystem/MoveFilesModal'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
+import { dayjs } from 'lib/dayjs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { LemonTree, LemonTreeRef, TreeDataItem, TreeMode } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip/Tooltip'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
@@ -430,8 +432,7 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                     }
                     return window.location.href.endsWith(item.record?.href)
                 }}
-                selectMode={selectMode}
-                onItemChecked={onItemChecked}
+                treeElementSize={sortMethod === 'recent' && projectTreeMode === 'tree' ? 'lg' : 'base'}
                 checkedItemCount={checkedItemCountNumeric}
                 onNodeClick={(node) => {
                     if (node?.type === 'empty-folder' || node?.type === 'loading-indicator') {
@@ -622,17 +623,7 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                                             }
                                             placement="top-start"
                                         >
-                                            <span
-                                                className={cn(
-                                                    'starting:opacity-0 opacity-100 delay-50 motion-safe:transition-opacity duration-100 font-normal truncate',
-                                                    {
-                                                        'font-normal': index > 1,
-                                                        'font-semibold':
-                                                            item.record?.type === 'folder' &&
-                                                            item.type !== 'empty-folder',
-                                                    }
-                                                )}
-                                            >
+                                            <span className="starting:opacity-0 opacity-100 delay-50 motion-safe:transition-opacity duration-100 font-normal truncate">
                                                 {header.formatComponent
                                                     ? header.formatComponent(value, item)
                                                     : header.formatString
@@ -646,6 +637,25 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                         </>
                     )
                 }}
+                renderItem={(item, children) =>
+                    sortMethod === 'recent' && projectTreeMode === 'tree' ? (
+                        <span className="grid grid-cols-[1fr_auto] grid-rows-2 gap-px">
+                            <span className="flex flex-col gap-1 flex-1 row-span-2">
+                                <span className="text-primary leading-[1.1]">{children}</span>
+                                <span className="text-tertiary text-xs font-normal leading-[1.1]">
+                                    {dayjs(item.record?.created_at).fromNow()}
+                                </span>
+                            </span>
+                            {item.record?.user ? (
+                                <span className="flex items-end justify-end row-span-2 self-center">
+                                    <ProfilePicture user={item.record?.user} size="sm" />
+                                </span>
+                            ) : null}
+                        </span>
+                    ) : (
+                        children
+                    )
+                }
             />
 
             {movingItems.length > 0 && (
