@@ -407,11 +407,17 @@ const RecordingsUniversalFilterGroup = ({
                 return isUniversalGroupFilterLike(filterOrGroup) ? (
                     <div className="w-full">
                         <UniversalFilters.Group key={index} index={index} group={filterOrGroup}>
-                            <div className={showAddFilter ? 'flex items-center gap-2 border-t py-4' : 'pt-2'}>
+                            <div
+                                className={showAddFilter ? 'flex items-center gap-2 border-t py-4' : 'flex gap-2 pt-2'}
+                            >
                                 {(totalFiltersCount ?? 0) > 0 && showAddFilter && (
                                     <span className="font-semibold">Applied filters:</span>
                                 )}
-                                <RecordingsUniversalFilterGroup size={size} totalFiltersCount={totalFiltersCount} />
+                                <RecordingsUniversalFilterGroup
+                                    size={size}
+                                    totalFiltersCount={totalFiltersCount}
+                                    showAddFilter={showAddFilter}
+                                />
                             </div>
                             {showAddFilter && (
                                 <>
