@@ -385,7 +385,7 @@ def web_analytics_preaggregated_tables(
     name="web_analytics_overview_daily",
     group_name="web_analytics",
     key_prefix=["web_analytics"],
-    description="Daily aggregated overview metrics for web analytics. This handles the top overview tiles for web analytics wich includes total pageviews, bounce rate, and average session duration.",
+    description="Daily aggregated overview metrics for web analytics. This handles the top overview tiles for web analytics which includes total pageviews, bounce rate, and average session duration.",
     partitions_def=WEB_ANALYTICS_DATE_PARTITION_DEFINITION,
     config_schema=WEB_ANALYTICS_CONFIG_SCHEMA,
     deps=["web_analytics_preaggregated_tables"],
