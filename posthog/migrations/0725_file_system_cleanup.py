@@ -2,6 +2,10 @@
 
 from django.db import migrations, models
 import django.utils.timezone
+from django.contrib.postgres.operations import (
+    AddIndexConcurrently,
+    RemoveIndexConcurrently,
+)
 
 
 class Migration(migrations.Migration):
@@ -10,19 +14,19 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RemoveIndex(
+        RemoveIndexConcurrently(
             model_name="filesystem",
             name="posthog_fil_project_840481_idx",
         ),
-        migrations.RemoveIndex(
+        RemoveIndexConcurrently(
             model_name="filesystem",
             name="posthog_fs_project_path",
         ),
-        migrations.RemoveIndex(
+        RemoveIndexConcurrently(
             model_name="filesystem",
             name="posthog_fs_project_depth",
         ),
-        migrations.RemoveIndex(
+        RemoveIndexConcurrently(
             model_name="filesystem",
             name="posthog_fs_project_typeref",
         ),
@@ -31,15 +35,15 @@ class Migration(migrations.Migration):
             name="created_at",
             field=models.DateTimeField(default=django.utils.timezone.now, editable=False),
         ),
-        migrations.AddIndex(
+        AddIndexConcurrently(
             model_name="filesystem",
             index=models.Index(models.F("team_id"), models.F("path"), name="posthog_fs_team_path"),
         ),
-        migrations.AddIndex(
+        AddIndexConcurrently(
             model_name="filesystem",
             index=models.Index(models.F("team_id"), models.F("depth"), name="posthog_fs_team_depth"),
         ),
-        migrations.AddIndex(
+        AddIndexConcurrently(
             model_name="filesystem",
             index=models.Index(models.F("team_id"), models.F("type"), models.F("ref"), name="posthog_fs_team_typeref"),
         ),
