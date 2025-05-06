@@ -301,7 +301,7 @@ export function getProducerMapping(stringMapping: string): CyclotronJobQueueRout
  * Same as getProducerMapping but with a team check too.
  * So for example `1:*:kafka,2:*:postgres` would result in team 1 using kafka and team 2 using postgres
  */
-export function getProducerTeamMapping(stringMapping?: string): CyclotronJobQueueTeamRouting {
+export function getProducerTeamMapping(stringMapping: string): CyclotronJobQueueTeamRouting {
     if (!stringMapping) {
         return {}
     }
