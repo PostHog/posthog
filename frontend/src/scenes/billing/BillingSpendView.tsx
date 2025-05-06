@@ -1,6 +1,7 @@
 import './BillingUsage.scss'
 
 import { LemonCheckbox } from '@posthog/lemon-ui'
+import { LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
@@ -42,12 +43,10 @@ export function BillingSpendView(): JSX.Element {
                     <LemonInputSelect
                         mode="multiple"
                         displayMode="count"
-                        showSelectAll={true}
-                        showClearAll={true}
-                        autoWidth={false}
-                        className="h-10"
+                        bulkActions="select-and-clear-all"
+                        className="w-50 h-10"
                         value={filters.usage_types || []}
-                        onChange={(value) => setFilters({ usage_types: value })}
+                        onChange={(value: string[]) => setFilters({ usage_types: value })}
                         placeholder="All usage types"
                         options={USAGE_TYPES.map((opt) => ({ key: opt.value, label: opt.label }))}
                         allowCustomValues={false}
@@ -60,12 +59,12 @@ export function BillingSpendView(): JSX.Element {
                     <LemonInputSelect
                         mode="multiple"
                         displayMode="count"
-                        showSelectAll={true}
-                        showClearAll={true}
-                        autoWidth={false}
-                        className="h-10"
+                        bulkActions="select-and-clear-all"
+                        className="w-50 h-10"
                         value={(filters.team_ids || []).map(String)}
-                        onChange={(value) => setFilters({ team_ids: value.map(Number).filter((n) => !isNaN(n)) })}
+                        onChange={(value: string[]) =>
+                            setFilters({ team_ids: value.map(Number).filter((n: number) => !isNaN(n)) })
+                        }
                         placeholder="All teams"
                         options={
                             currentOrganization?.teams?.map((team) => ({
@@ -109,6 +108,24 @@ export function BillingSpendView(): JSX.Element {
                     </div>
                 </div>
 
+                {/* Interval */}
+                <div className="flex flex-col gap-1">
+                    <LemonLabel>Group by</LemonLabel>
+                    <div className="bg-bg-light rounded-md">
+                        <LemonSelect
+                            className="h-10.5 flex items-center"
+                            size="small"
+                            value={filters.interval || 'day'}
+                            onChange={(value: 'day' | 'week' | 'month') => setFilters({ interval: value })}
+                            options={[
+                                { value: 'day', label: 'Day' },
+                                { value: 'week', label: 'Week' },
+                                { value: 'month', label: 'Month' },
+                            ]}
+                        />
+                    </div>
+                </div>
+
                 {/* Exclude Empty Series */}
                 <div className="flex flex-col gap-1">
                     <LemonLabel>Options</LemonLabel>
@@ -131,6 +148,7 @@ export function BillingSpendView(): JSX.Element {
                         hiddenSeries={finalHiddenSeries}
                         valueFormatter={currencyFormatter}
                         showLegend={false}
+                        interval={filters.interval}
                     />
                 </div>
 

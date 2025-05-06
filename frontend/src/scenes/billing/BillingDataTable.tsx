@@ -27,7 +27,10 @@ export function BillingDataTable({
     valueFormatter = defaultFormatter,
     totalLabel = 'Total',
 }: BillingDataTableProps): JSX.Element {
-    // Get date columns for the table - show all dates
+    const headerChecked: boolean | 'indeterminate' =
+        hiddenSeries.length === 0 ? true : hiddenSeries.length === series.length ? false : 'indeterminate'
+
+    // Build the date columns dynamically based on provided dates
     const getDateColumns = (): LemonTableColumn<BillingSeriesType, keyof BillingSeriesType | undefined>[] => {
         if (!dates || dates.length === 0) {
             return []
@@ -36,6 +39,7 @@ export function BillingDataTable({
         return dates.map((date, colIndex) => {
             const dateIndex = colIndex
             return {
+                width: `${100 / (dates.length + 1)}%`,
                 title: dayjs(date).format('MMM D'),
                 render: (_, record: BillingSeriesType) => {
                     const value = record.data[dateIndex]
@@ -56,7 +60,9 @@ export function BillingDataTable({
         })
     }
 
+    // Define a column that computes the total for each series
     const totalColumn: LemonTableColumn<BillingSeriesType, keyof BillingSeriesType | undefined> = {
+        width: `${100 / (dates.length + 1)}%`,
         title: totalLabel,
         render: (_, record: BillingSeriesType) => {
             const total = record.data.reduce((sum, val) => sum + val, 0)
@@ -71,16 +77,12 @@ export function BillingDataTable({
         align: 'right',
     }
 
-    // Define table columns
+    // Combine series checkbox column, total column, and all date columns
     const columns: LemonTableColumns<BillingSeriesType> = [
         {
             title: (
                 <div className="flex items-center">
-                    <LemonCheckbox
-                        checked={series.length > 0 && hiddenSeries.length === 0}
-                        onChange={toggleAllSeries}
-                        className="mr-2"
-                    />
+                    <LemonCheckbox checked={headerChecked} onChange={toggleAllSeries} className="mr-2" />
                     <span>Series</span>
                 </div>
             ),
@@ -106,6 +108,7 @@ export function BillingDataTable({
     return (
         <div className="overflow-x-auto border rounded">
             <LemonTable
+                data-attr="billing-data-table"
                 dataSource={series}
                 columns={columns}
                 loading={isLoading}
@@ -118,6 +121,7 @@ export function BillingDataTable({
                     order: -1,
                 }}
                 rowRibbonColor={(record) => getSeriesColor(record.id % 15)}
+                firstColumnSticky
             />
         </div>
     )

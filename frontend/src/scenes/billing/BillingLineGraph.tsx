@@ -21,6 +21,7 @@ export interface BillingLineGraphProps {
     hiddenSeries: number[]
     valueFormatter?: (value: number) => string
     showLegend?: boolean
+    interval?: 'day' | 'week' | 'month'
 }
 
 const defaultFormatter = (value: number): string => value.toLocaleString()
@@ -36,6 +37,7 @@ export function BillingLineGraph({
     hiddenSeries,
     valueFormatter = defaultFormatter,
     showLegend = true,
+    interval = 'day',
 }: BillingLineGraphProps): JSX.Element {
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const chartRef = useRef<Chart | null>(null)
@@ -115,7 +117,10 @@ export function BillingLineGraph({
                 x: {
                     type: 'time',
                     time: {
-                        unit: 'day',
+                        unit: interval,
+                    },
+                    ticks: {
+                        source: 'labels',
                     },
                     grid: {
                         display: false,
@@ -238,7 +243,7 @@ export function BillingLineGraph({
                 chartRef.current.destroy()
             }
         }
-    }, [series, dates, hiddenSeries, valueFormatter, showLegend])
+    }, [series, dates, hiddenSeries, valueFormatter, showLegend, interval])
 
     return (
         <div className="relative h-96">

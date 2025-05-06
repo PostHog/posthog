@@ -1,5 +1,4 @@
 import { IconPencil } from '@posthog/icons'
-import { IconCheck, IconX } from '@posthog/icons'
 import { LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import Fuse from 'fuse.js'
@@ -519,39 +518,6 @@ export function LemonInputSelect({
                                 </p>
                             )}
                         </>
-                    )}
-
-                    {(showSelectAll || showClearAll) && mode === 'multiple' && (
-                        <div className="flex pb-0.5 gap-1">
-                            {showSelectAll && (
-                                <LemonButton
-                                    size="xsmall"
-                                    className="flex-1"
-                                    disabledReason={
-                                        values.length === allOptionsMap.size
-                                            ? 'All options are already selected'
-                                            : undefined
-                                    }
-                                    onClick={() => onChange?.(Array.from(allOptionsMap.keys()))}
-                                    icon={<IconCheck />}
-                                    tooltip="Select all options"
-                                >
-                                    All
-                                </LemonButton>
-                            )}
-                            {showClearAll && (
-                                <LemonButton
-                                    size="xsmall"
-                                    className="flex-1"
-                                    disabledReason={values.length === 0 ? 'No options are selected' : undefined}
-                                    onClick={() => onChange?.([])}
-                                    icon={<IconX />}
-                                    tooltip="Unselect all options"
-                                >
-                                    Clear
-                                </LemonButton>
-                            )}
-                        </div>
                     )}
                 </div>
             }

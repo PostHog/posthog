@@ -32,12 +32,14 @@ export interface BillingUsageFilters {
     usage_types?: string[]
     team_ids?: number[]
     breakdowns?: ('type' | 'team')[]
+    interval?: 'day' | 'week' | 'month'
 }
 
 export const DEFAULT_BILLING_USAGE_FILTERS: BillingUsageFilters = {
     breakdowns: ['type'],
     usage_types: [],
     team_ids: [],
+    interval: 'day',
 }
 
 export interface BillingUsageLogicProps {
@@ -75,13 +77,14 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
             null as BillingUsageResponse | null,
             {
                 loadBillingUsage: async () => {
-                    const { usage_types, team_ids, breakdowns } = values.filters
+                    const { usage_types, team_ids, breakdowns, interval } = values.filters
                     const params = {
                         ...(usage_types && usage_types.length > 0 ? { usage_types: JSON.stringify(usage_types) } : {}),
                         ...(team_ids && team_ids.length > 0 ? { team_ids: JSON.stringify(team_ids) } : {}),
                         ...(breakdowns && breakdowns.length > 0 ? { breakdowns: JSON.stringify(breakdowns) } : {}),
                         start_date: values.dateFrom || dayjs().subtract(30, 'day').format('YYYY-MM-DD'),
                         end_date: values.dateTo || dayjs().format('YYYY-MM-DD'),
+                        ...(interval ? { interval } : {}),
                     }
                     const response = await api.get(`api/billing/usage/?${toParams(params)}`)
                     return response
@@ -196,13 +199,13 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                 ? series.filter((s) => s.data.reduce((a, b) => a + b, 0) > 0)
                 : series
             const ids = potentiallyVisible.map((s) => s.id)
-            const allHidden = ids.length > 0 && ids.every((id) => userHiddenSeries.includes(id))
-            if (allHidden) {
-                // Unhide all
-                userHiddenSeries.forEach((id) => actions.toggleSeries(id))
+            const isAllVisible = ids.length > 0 && ids.every((id) => !userHiddenSeries.includes(id))
+            if (isAllVisible) {
+                // Hide all series
+                ids.forEach((id) => actions.toggleSeries(id))
             } else {
-                // Hide all
-                ids.filter((id) => !userHiddenSeries.includes(id)).forEach((id) => actions.toggleSeries(id))
+                // Show all series
+                userHiddenSeries.forEach((id) => actions.toggleSeries(id))
             }
         },
         toggleTeamBreakdown: () => {
