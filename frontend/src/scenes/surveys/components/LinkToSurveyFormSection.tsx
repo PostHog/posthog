@@ -7,7 +7,7 @@ interface Props {
     label?: string
 }
 
-const defaultLabels = {
+const defaultLabels: Record<SurveyEditSection, string> = {
     [SurveyEditSection.Steps]: 'steps section',
     [SurveyEditSection.Widget]: 'widget section',
     [SurveyEditSection.Presentation]: 'presentation section',
@@ -16,7 +16,7 @@ const defaultLabels = {
     [SurveyEditSection.DisplayConditions]: 'display conditions section',
     [SurveyEditSection.Scheduling]: 'scheduling section',
     [SurveyEditSection.CompletionConditions]: 'completion conditions section',
-} as const
+}
 
 export function LinkToSurveyFormSection({ section, label }: Props): JSX.Element {
     const { setSelectedSection } = useActions(surveyLogic)
