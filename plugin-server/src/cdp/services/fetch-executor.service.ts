@@ -68,12 +68,14 @@ export class FetchExecutorService {
             trace: [...metadata.trace, failure],
         }
 
-        // We want to retry if we got a general error (like network unreachable) or a retriable status code
-        let canRetry = error || (!!response?.status && RETRIABLE_STATUS_CODES.includes(response.status))
+        let canRetry = !!response?.status && RETRIABLE_STATUS_CODES.includes(response.status)
 
-        if (error && (error instanceof SecureRequestError || error instanceof InvalidRequestError)) {
-            // We don't want to retry on security errors or invalid requests
-            canRetry = false
+        if (error) {
+            if (error instanceof SecureRequestError || error instanceof InvalidRequestError) {
+                canRetry = false
+            } else {
+                canRetry = true // Only retry on general errors, not security or validation errors
+            }
         }
 
         // If we haven't exceeded retry limit, schedule a retry with backoff
