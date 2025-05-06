@@ -172,7 +172,8 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
     let capture_dead_clicks = team.capture_dead_clicks.unwrap_or(false);
 
     let capture_web_vitals = team.autocapture_web_vitals_opt_in.unwrap_or(false);
-    let autocapture_web_vitals_allowed_metrics = team.autocapture_web_vitals_allowed_metrics;
+    let autocapture_web_vitals_allowed_metrics =
+        team.autocapture_web_vitals_allowed_metrics.as_ref();
     let capture_network_timing = team.capture_performance_opt_in.unwrap_or(false);
 
     let capture_performance = match (capture_network_timing, capture_web_vitals) {
@@ -184,7 +185,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
             if web_vitals {
                 perf_map.insert(
                     "web_vitals_allowed_metrics".to_string(),
-                    json!(autocapture_web_vitals_allowed_metrics),
+                    json!(autocapture_web_vitals_allowed_metrics.cloned()),
                 );
             }
             Some(json!(perf_map))

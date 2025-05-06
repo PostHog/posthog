@@ -37,6 +37,17 @@ pub struct SessionRecordingDetails {
     pub endpoint: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub linked_flag: Option<LinkedFlag>,
+    pub console_log_recording_enabled: bool,
+    pub recorder_version: String,
+    pub sample_rate: Option<f64>,
+    pub minimum_duration_milliseconds: Option<i64>,
+    pub network_payload_capture: Option<NetworkPayloadCapture>,
+    pub masking: Option<Masking>,
+    pub url_triggers: Option<UrlTriggers>,
+    pub url_blocklist: Option<UrlBlocklist>,
+    pub event_triggers: Option<EventTriggers>,
+    pub trigger_match_type: Option<TriggerMatchType>,
+    pub script_config: Option<ScriptConfig>,
 }
 
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
