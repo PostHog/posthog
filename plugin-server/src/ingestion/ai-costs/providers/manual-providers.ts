@@ -67,6 +67,20 @@ export const manualCosts: ModelRow[] = [
             completion_token: 0.000000075,
         },
     },
+    {
+        model: 'gemini-2.5-pro-preview',
+        cost: {
+            prompt_token: 0.00000125,
+            completion_token: 0.00001,
+        },
+    },
+    {
+        model: 'gemini-2.5-pro-preview:large',
+        cost: {
+            prompt_token: 0.0000025,
+            completion_token: 0.000015,
+        },
+    },
     // Other
     {
         model: 'deepseek-v3-fireworks',

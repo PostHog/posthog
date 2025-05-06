@@ -234,6 +234,7 @@ export function convertFileSystemEntryToTreeDataItem({
                     name: 'Loading...',
                     icon: <Spinner />,
                     disableSelect: true,
+                    type: 'loading-indicator',
                 })
             }
             allFolderNodes.push(node)

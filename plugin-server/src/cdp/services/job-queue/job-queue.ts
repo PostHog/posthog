@@ -180,12 +180,10 @@ export class CyclotronJobQueue {
             }
         }
 
-        if (postgresInvocations.length > 0) {
-            await this.jobQueuePostgres.queueInvocations(postgresInvocations)
-        }
-        if (kafkaInvocations.length > 0) {
-            await this.jobQueueKafka.queueInvocations(kafkaInvocations)
-        }
+        await Promise.all([
+            this.jobQueuePostgres.queueInvocations(postgresInvocations),
+            this.jobQueueKafka.queueInvocations(kafkaInvocations),
+        ])
     }
 
     public async queueInvocationResults(invocationResults: HogFunctionInvocationResult[]) {
@@ -222,25 +220,29 @@ export class CyclotronJobQueue {
             ),
         })
 
+        const promises: Promise<any>[] = []
+
         if (postgresInvocationsToUpdate.length > 0) {
-            await this.jobQueuePostgres.queueInvocationResults(postgresInvocationsToUpdate)
+            promises.push(this.jobQueuePostgres.queueInvocationResults(postgresInvocationsToUpdate))
         }
 
         if (postgresInvocationsToCreate.length > 0) {
-            await this.jobQueuePostgres.queueInvocations(postgresInvocationsToCreate.map((x) => x.invocation))
+            promises.push(this.jobQueuePostgres.queueInvocations(postgresInvocationsToCreate.map((x) => x.invocation)))
         }
 
         if (kafkaInvocations.length > 0) {
-            await this.jobQueueKafka.queueInvocationResults(kafkaInvocations)
+            promises.push(this.jobQueueKafka.queueInvocationResults(kafkaInvocations))
 
             const jobsToRelease = kafkaInvocations
                 .filter((x) => x.invocation.queueSource === 'postgres')
                 .map((x) => x.invocation)
 
             if (jobsToRelease.length > 0) {
-                await this.jobQueuePostgres.releaseInvocations(jobsToRelease)
+                promises.push(this.jobQueuePostgres.releaseInvocations(jobsToRelease))
             }
         }
+
+        await Promise.all(promises)
     }
 }
 
@@ -301,7 +303,7 @@ export function getProducerMapping(stringMapping: string): CyclotronJobQueueRout
  * Same as getProducerMapping but with a team check too.
  * So for example `1:*:kafka,2:*:postgres` would result in team 1 using kafka and team 2 using postgres
  */
-export function getProducerTeamMapping(stringMapping?: string): CyclotronJobQueueTeamRouting {
+export function getProducerTeamMapping(stringMapping: string): CyclotronJobQueueTeamRouting {
     if (!stringMapping) {
         return {}
     }
