@@ -1,7 +1,7 @@
 import { IconCheckbox, IconChevronRight, IconFolder, IconFolderPlus, IconX } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { MoveFilesModal } from 'lib/components/FileSystem/MoveFilesModal'
-import { ResizableDiv } from 'lib/components/ResizeElement/ResizeElement'
+import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { LemonTree, LemonTreeRef, TreeDataItem, TreeMode } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { Tooltip } from 'lib/lemon-ui/Tooltip/Tooltip'
@@ -545,7 +545,7 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                         <>
                             {/* Headers */}
                             {treeTableKeys?.headers.map((header, index) => (
-                                <ResizableDiv
+                                <ResizableElement
                                     key={header.key}
                                     defaultWidth={header.width || 0}
                                     onResize={(width) => {
@@ -571,7 +571,7 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                                     >
                                         <span>{header.title}</span>
                                     </ButtonPrimitive>
-                                </ResizableDiv>
+                                </ResizableElement>
                             ))}
                         </>
                     )
