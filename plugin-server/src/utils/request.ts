@@ -1,4 +1,3 @@
-// secure-request.ts
 import { LookupAddress } from 'dns'
 import dns from 'dns/promises'
 import * as ipaddr from 'ipaddr.js'
@@ -9,6 +8,7 @@ import { URL } from 'url'
 
 import { defaultConfig } from '../config/config'
 import { isProdEnv } from './env-utils'
+import { parseJSON } from './json-parse'
 
 const unsafeRequestCounter = new Counter({
     name: 'node_request_unsafe',
@@ -16,17 +16,19 @@ const unsafeRequestCounter = new Counter({
     labelNames: ['reason'],
 })
 
-export type SecureRequestOptions = {
+// NOTE: This isn't exactly fetch - it's meant to be very close but limited to only options we actually want to expose
+export type FetchOptions = {
     method?: string
     headers?: HeadersInit
     body?: string | Buffer
     timeoutMs?: number
 }
 
-export type SecureResponse = {
+export type FetchResponse = {
     status: number
     headers: Record<string, string>
-    body: string
+    json: () => Promise<any>
+    text: () => Promise<string>
 }
 
 export class SecureRequestError extends errors.UndiciError {
@@ -140,7 +142,7 @@ class SecureAgent extends Agent {
 
 const sharedSecureAgent = new SecureAgent()
 
-export async function secureRequest(url: string, options: SecureRequestOptions = {}): Promise<SecureResponse> {
+export async function fetch(url: string, options: FetchOptions = {}): Promise<FetchResponse> {
     let parsed: URL
     try {
         parsed = new URL(url)
@@ -171,11 +173,10 @@ export async function secureRequest(url: string, options: SecureRequestOptions =
         }
     }
 
-    const body = await result.body.text()
-
     return {
         status: result.statusCode,
         headers,
-        body,
+        json: async () => parseJSON(await result.body.text()),
+        text: async () => await result.body.text(),
     }
 }
