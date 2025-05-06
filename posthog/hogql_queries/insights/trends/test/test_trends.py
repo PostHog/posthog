@@ -9442,32 +9442,51 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.team.save()
         self._create_person(team_id=self.team.pk, distinct_ids=["some_user"], properties={})
 
-        # DST in Cairo for 2025: clocks go forward at midnight between April 24 and April 25
-        # We'll create events before, during, and after the transition
+        # Add 5 events for 20:00 UTC
+        for _ in range(5):
+            self._create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="some_user",
+                timestamp="2025-04-24T20:00:00Z",
+            )
+        # Add 4 events for 21:00 UTC
+        for _ in range(4):
+            self._create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="some_user",
+                timestamp="2025-04-24T21:00:00Z",
+            )
+        # Add 3 events for 22:00 UTC
+        for _ in range(3):
+            self._create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="some_user",
+                timestamp="2025-04-24T22:00:00Z",
+            )
+        # Add 2 events for 23:00 UTC
+        for _ in range(2):
+            self._create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="some_user",
+                timestamp="2025-04-24T23:00:00Z",
+            )
+        # Add 1 event for 00:00 UTC
         self._create_event(
             team=self.team,
             event="sign up",
             distinct_id="some_user",
-            timestamp="2025-04-24T21:00:00Z",  # 23:00 Cairo time, before DST
-        )
-        self._create_event(
-            team=self.team,
-            event="sign up",
-            distinct_id="some_user",
-            timestamp="2025-04-24T22:00:00Z",  # 00:00 Cairo time, DST starts
-        )
-        self._create_event(
-            team=self.team,
-            event="sign up",
-            distinct_id="some_user",
-            timestamp="2025-04-25T01:00:00Z",  # 03:00 Cairo time, after DST
+            timestamp="2025-04-25T00:00:00Z",
         )
 
         filter = Filter(
             team=self.team,
             data={
-                "date_from": "2025-03-24T20:00:00Z",
-                "date_to": "2025-03-25T04:00:00Z",
+                "date_from": "2025-04-24T20:00:00Z",
+                "date_to": "2025-04-25T04:00:00Z",
                 "interval": "hour",
                 "events": [{"id": "sign up", "name": "sign up"}],
             },
@@ -9478,15 +9497,15 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             response[0]["days"],
             [
-                "2025-04-24 22:00:00",
-                "2025-04-24 23:00:00",
-                "2025-04-25 00:00:00",
-                "2025-04-25 02:00:00",
-                "2025-04-25 03:00:00",
+                "2025-04-24 22:00:00",  # 20:00 UTC
+                "2025-04-24 23:00:00",  # 21:00 UTC
+                "2025-04-25 01:00:00",  # 22:00 UTC
+                "2025-04-25 02:00:00",  # 23:00 UTC
+                "2025-04-25 03:00:00",  # 00:00 UTC
                 "2025-04-25 04:00:00",
                 "2025-04-25 05:00:00",
                 "2025-04-25 06:00:00",
+                "2025-04-25 07:00:00",
             ],
         )
-        # There should be 1 event in the hour containing 23:00 24th, 1 in the hour containing 00:00 25th, 1 in the hour containing 03:00 25th
-        self.assertEqual(response[0]["data"], [0, 1.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0])
+        self.assertEqual(response[0]["data"], [5, 4, 3, 2, 1, 0, 0, 0])
