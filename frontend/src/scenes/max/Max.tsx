@@ -1,4 +1,12 @@
-import { IconArrowLeft, IconChevronLeft, IconClockRewind, IconExternal, IconGear, IconSidePanel } from '@posthog/icons'
+import {
+    IconArrowLeft,
+    IconChevronLeft,
+    IconClockRewind,
+    IconExternal,
+    IconGear,
+    IconPlus,
+    IconSidePanel,
+} from '@posthog/icons'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
@@ -110,16 +118,14 @@ export function MaxInstance({ sidePanel }: MaxInstanceProps): JSX.Element {
                         tooltipPlacement="bottom-end"
                         disabledReason={backButtonDisabled ? 'You are already at home' : undefined}
                     />
-
                     <h3 className="flex-1 flex items-center font-semibold mb-0 truncate text-sm">
                         {chatTitle ?? <LemonSkeleton className="h-5 w-32" />}
                     </h3>
-
                     <LemonButton
                         size="small"
-                        sideIcon={<IconClockRewind />}
-                        onClick={() => toggleConversationHistory()}
-                        tooltip="Open chat history"
+                        icon={<IconPlus />}
+                        onClick={() => startNewConversation()}
+                        tooltip="Start a new chat"
                         tooltipPlacement="bottom"
                     />
                     <LemonButton

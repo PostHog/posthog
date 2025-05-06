@@ -1,5 +1,5 @@
-import { LemonSkeleton, Link } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { maxLogic } from './maxLogic'
@@ -8,6 +8,7 @@ import { formatConversationDate, getConversationUrl } from './utils'
 export function HistoryPreview(): JSX.Element | null {
     const { location } = useValues(router)
     const { conversationHistory, conversationHistoryLoading } = useValues(maxLogic)
+    const { toggleConversationHistory } = useActions(maxLogic)
 
     if (!conversationHistory.length && !conversationHistoryLoading) {
         return null
@@ -15,7 +16,17 @@ export function HistoryPreview(): JSX.Element | null {
 
     return (
         <div className="max-w-120 w-full self-center flex flex-col gap-2">
-            <h3 className="text-sm font-medium text-secondary">Past chats</h3>
+            <div className="flex items-center justify-between gap-2 -mr-2">
+                <h3 className="text-sm font-medium text-secondary mb-0">Recent chats</h3>
+                <LemonButton
+                    size="small"
+                    onClick={() => toggleConversationHistory()}
+                    tooltip="Open chat history"
+                    tooltipPlacement="bottom"
+                >
+                    View all
+                </LemonButton>
+            </div>
             {conversationHistoryLoading ? (
                 <>
                     <LemonSkeleton className="h-5 w-full" />
