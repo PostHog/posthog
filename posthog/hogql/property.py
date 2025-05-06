@@ -89,14 +89,14 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
         return value
     if property.type == "person":
         try:
-            property_type = property_definitions.backend.get(
+            property_type = property_definitions.backend.get_property_type(
                 team.pk, property_definitions.PropertyDefinitionType.PERSON, property.key
             )
         except property_definitions.PropertyDefinitionDoesNotExist:
             return value
     elif property.type == "group":
         try:
-            property_type = property_definitions.backend.get(
+            property_type = property_definitions.backend.get_property_type(
                 team.pk,
                 property_definitions.PropertyDefinitionType.GROUP,
                 property.key,
@@ -140,7 +140,7 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
 
     else:
         try:
-            property_type = property_definitions.backend.get(
+            property_type = property_definitions.backend.get_property_type(
                 team.pk, property_definitions.PropertyDefinitionType.EVENT, property.key
             )
         except property_definitions.PropertyDefinitionDoesNotExist:

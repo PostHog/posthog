@@ -19,7 +19,7 @@ class PropertyDefinitionsBackend:
     def __get_queryset_for_team(self, team: Team):
         return _PropertyDefinition.objects.alias(
             effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-        ).filter(effective_project_id=team.project_id)
+        ).filter(effective_project_id=team.project_id)  # type: ignore
 
     def get_property_type(
         self,
@@ -45,7 +45,7 @@ class PropertyDefinitionsBackend:
         team: Team,
         type: PropertyDefinitionType,
         *,
-        group_type_index: int | None,
+        group_type_index: int | None = None,
         names: Iterable[PropertyName] | None = None,
     ) -> Iterable[tuple[PropertyName, PropertyType]]:
         qs = self.__get_queryset_for_team(team).filter(type=type)
