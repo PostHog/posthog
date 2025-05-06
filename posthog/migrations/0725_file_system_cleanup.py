@@ -6,7 +6,7 @@ import django.utils.timezone
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0723_add_help_text_to_cohorts"),
+        ("posthog", "0724_errortrackinggroupingrule"),
     ]
 
     operations = [
