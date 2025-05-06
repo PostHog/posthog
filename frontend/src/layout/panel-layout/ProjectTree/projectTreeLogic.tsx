@@ -412,8 +412,18 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 deleteTypeAndRef: (state, { type, ref }) => {
                     const newState = { ...state }
                     for (const [folder, files] of Object.entries(newState)) {
-                        if (files.some((file) => file.type === type && file.ref === ref)) {
-                            newState[folder] = files.filter((file) => file.type !== type || file.ref !== ref)
+                        if (
+                            files.some(
+                                (file) =>
+                                    (type.endsWith('/') ? file.type?.startsWith(type) : file.type === type) &&
+                                    file.ref === ref
+                            )
+                        ) {
+                            newState[folder] = files.filter(
+                                (file) =>
+                                    (type.endsWith('/') ? !file.type?.startsWith(type) : file.type !== type) ||
+                                    file.ref !== ref
+                            )
                         }
                     }
                     return newState
@@ -462,7 +472,14 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     return state
                 },
                 deleteTypeAndRef: (state, { type, ref }) => {
-                    return { ...state, results: state.results.filter((file) => file.type !== type || file.ref !== ref) }
+                    return {
+                        ...state,
+                        results: state.results.filter(
+                            (file) =>
+                                (type.endsWith('/') ? !file.type?.startsWith(type) : file.type !== type) ||
+                                file.ref !== ref
+                        ),
+                    }
                 },
                 updateSyncedFiles: (state, { files }) => {
                     const newIdsSet = new Set(files.map((file) => file.id))
@@ -504,7 +521,14 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     return state
                 },
                 deleteTypeAndRef: (state, { type, ref }) => {
-                    return { ...state, results: state.results.filter((file) => file.type !== type || file.ref !== ref) }
+                    return {
+                        ...state,
+                        results: state.results.filter(
+                            (file) =>
+                                (type.endsWith('/') ? !file.type?.startsWith(type) : file.type !== type) ||
+                                file.ref !== ref
+                        ),
+                    }
                 },
                 createSavedItem: (state, { savedItem }) => {
                     if (state.results.find((result) => result.id === savedItem.id)) {
