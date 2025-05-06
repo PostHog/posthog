@@ -95,6 +95,6 @@ def wait_for_plugin_server(host="localhost", port=6738, path="/api/hog_function_
         except Exception:
             pass
         if time.time() - start > timeout:
-            print(f"Timed out waiting for plugin-server at {url}")
+            logger.warning(f"Timed out waiting for plugin-server at {url}")
             return False
         time.sleep(1)
