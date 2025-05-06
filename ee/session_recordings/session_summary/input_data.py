@@ -34,7 +34,7 @@ def get_session_events(
     local_reads_prod: bool = False,
     # The estimation that we can cover 2 hours/3000 events per page within 200 000 token window,
     # but as GPT-4.1 allows up to 1kk tokens, we can allow up to 4 hours sessions to be covered
-    # TODO: Check if it's a meaningful approach, or should we just analyze firt N events for huge sessions
+    # TODO: Check if it's a meaningful approach, or should we just analyze first N events for huge sessions
     # TODO: Move to a config
     max_pages: int = 2,
     items_per_page: int = 3000,

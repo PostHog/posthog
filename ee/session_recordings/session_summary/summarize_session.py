@@ -14,7 +14,6 @@ from ee.session_recordings.session_summary.prompt_data import SessionSummaryProm
 from ee.session_recordings.session_summary.utils import load_custom_template, serialize_to_sse_event, shorten_url
 from posthog.api.activity_log import ServerTimingsGathered
 from posthog.models import User, Team
-from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 
 logger = structlog.get_logger(__name__)
@@ -107,9 +106,7 @@ class ReplaySummarizer:
                 session_id=self.session_id,
             )
             if not prompt_data.metadata.start_time:
-                raise ValueError(
-                    f"No start time found for session_id {self.session_id} when generating the prompt"
-                )
+                raise ValueError(f"No start time found for session_id {self.session_id} when generating the prompt")
             # Reverse mappings for easier reference in the prompt.
             url_mapping_reversed = {v: k for k, v in prompt_data.url_mapping.items()}
             window_mapping_reversed = {v: k for k, v in prompt_data.window_id_mapping.items()}

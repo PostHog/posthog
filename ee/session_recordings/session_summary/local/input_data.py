@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 import datetime
 import re
 from typing import Any, Optional
@@ -18,6 +19,15 @@ def _get_ch_client_local_reads_prod() -> Client:
     )
 
 
+@contextmanager
+def _ch_client_local_reads_prod():
+    client = _get_ch_client_local_reads_prod()
+    try:
+        yield client
+    finally:
+        client.disconnect()
+
+
 def _get_production_session_metadata_locally(
     events_obj: SessionReplayEvents,
     session_id: str,
@@ -25,15 +35,15 @@ def _get_production_session_metadata_locally(
     recording_start_time: Optional[datetime.datetime] = None,
 ) -> RecordingMetadata | None:
     query = events_obj.get_metadata_query(recording_start_time)
-    client = _get_ch_client_local_reads_prod()
-    replay_response = client.execute(
-        query,
-        {
-            "team_id": team.pk,
-            "session_id": session_id,
-            "recording_start_time": recording_start_time,
-        },
-    )
+    with _ch_client_local_reads_prod() as client:
+        replay_response = client.execute(
+            query,
+            {
+                "team_id": team.pk,
+                "session_id": session_id,
+                "recording_start_time": recording_start_time,
+            },
+        )
     recording_metadata = events_obj.build_recording_metadata(session_id, replay_response)
     return recording_metadata
 
@@ -102,7 +112,7 @@ def _get_production_session_events_locally(
     )
     query = _rewrite_properties_fields(hq.query)
     interpolated_query = _interpolate_events_query(query, hq.values)
-    client = _get_ch_client_local_reads_prod()
-    rows, columns_with_types = client.execute(interpolated_query, with_column_types=True)
+    with _ch_client_local_reads_prod() as client:
+        rows, columns_with_types = client.execute(interpolated_query, with_column_types=True)
     columns = [col for col, _ in columns_with_types]
     return columns, rows
