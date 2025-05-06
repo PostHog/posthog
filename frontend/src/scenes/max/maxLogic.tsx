@@ -537,7 +537,11 @@ export const maxLogic = kea<maxLogicType>([
         },
 
         goBack: () => {
-            actions.toggleConversationHistory(true)
+            if (values.backToScreen === 'history' && !values.conversationHistoryVisible) {
+                actions.toggleConversationHistory(true)
+            } else {
+                actions.startNewConversation()
+            }
         },
     })),
 

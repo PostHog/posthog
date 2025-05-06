@@ -24,19 +24,14 @@ export function ConversationHistory({ displayHeader = false }: ConversationHisto
         <div className="@container/chat-history flex flex-col gap-4 w-full self-center px-4 py-8 grow max-w-screen-lg">
             {displayHeader && <h2 className="text-xl font-bold">Chat history</h2>}
             {conversationHistory.length > 0 ? (
-                <>
-                    <button className="p-4 flex flex-row bg-surface-primary rounded-lg gap-2 w-full min-h-14 items-center">
-                        <span className="flex-1 line-clamp-1">Start a new chat</span>
-                    </button>
-                    {conversationHistory.map((conversation) => (
-                        <ConversationCard
-                            key={conversation.id}
-                            conversation={conversation}
-                            pathname={location.pathname}
-                            search={location.search}
-                        />
-                    ))}
-                </>
+                conversationHistory.map((conversation) => (
+                    <ConversationCard
+                        key={conversation.id}
+                        conversation={conversation}
+                        pathname={location.pathname}
+                        search={location.search}
+                    />
+                ))
             ) : conversationHistoryLoading ? (
                 <>
                     <LemonSkeleton className="h-14" />
