@@ -261,9 +261,13 @@ export const billingProductLogic = kea<billingProductLogicType>([
             },
         ],
         billingLimitNextPeriod: [
-            (_, p) => [p.product],
-            (product) => {
-                return product.billing_limit_next_period ?? null
+            (s, p) => [s.billing, p.product],
+            (billing, product) => {
+                const nextPeriodLimit = billing?.next_period_custom_limits_usd?.[product.type]
+                if (nextPeriodLimit === 0 || nextPeriodLimit) {
+                    return nextPeriodLimit
+                }
+                return product.usage_key ? billing?.next_period_custom_limits_usd?.[product.usage_key] ?? null : null
             },
         ],
         billingGaugeItems: [
@@ -336,7 +340,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
             )
         },
         reportSurveyShown: ({ surveyID }) => {
-            posthog.capture('survey shown', {
+            posthog.capture(SurveyEventName.SHOWN, {
                 $survey_id: surveyID,
             })
             actions.setSurveyID(surveyID)
@@ -347,14 +351,14 @@ export const billingProductLogic = kea<billingProductLogicType>([
             // $survey_response_1: this is the product type
             // $survey_response_2: list of reasons
             // The order is due to the form being built before reasons we're supported. Please do not change the order.
-            posthog.capture('survey sent', {
+            posthog.capture(SurveyEventName.SENT, {
                 $survey_id: surveyID,
                 ...surveyResponse,
             })
             actions.setSurveyID('')
         },
         reportSurveyDismissed: ({ surveyID }) => {
-            posthog.capture('survey dismissed', {
+            posthog.capture(SurveyEventName.DISMISSED, {
                 $survey_id: surveyID,
             })
             actions.setSurveyID('')
