@@ -9,10 +9,10 @@ from django.contrib.postgres.operations import (
 
 
 class Migration(migrations.Migration):
+    atomic = False
     dependencies = [
         ("posthog", "0724_errortrackinggroupingrule"),
     ]
-
     operations = [
         RemoveIndexConcurrently(
             model_name="filesystem",
