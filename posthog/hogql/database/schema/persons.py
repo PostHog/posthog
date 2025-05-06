@@ -119,23 +119,34 @@ def select_from_persons_table(
         if filter is not None:
             cast(ast.SelectQuery, cast(ast.CompareOperation, select.where).right).where = filter
 
-        compare = cast(ast.CompareOperation, select.where)
-        right_select = cast(ast.SelectQuery, compare.right)
-        if node.order_by:
-            right_select.order_by = [CloningVisitor(clear_locations=True).visit(x) for x in node.order_by]
-            for order_by in right_select.order_by:
-                order_by.expr = ast.Call(
-                    name="argMax", args=[order_by.expr, ast.Field(chain=["raw_persons", "version"])]
-                )
+        # START order_by/limit optimization.
+        # only apply this to queries that directly select from the persons table
+        if (
+            node.select_from
+            and node.select_from.type
+            and hasattr(node.select_from.type, "table")
+            and node.select_from.type.table
+            and isinstance(node.select_from.type.table, PersonsTable)
+        ):
+            compare = cast(ast.CompareOperation, select.where)
+            right_select = cast(ast.SelectQuery, compare.right)
+            if node.order_by:
+                right_select.order_by = [CloningVisitor(clear_locations=True).visit(x) for x in node.order_by]
+                for order_by in right_select.order_by:
+                    order_by.expr = ast.Call(
+                        name="argMax", args=[order_by.expr, ast.Field(chain=["raw_persons", "version"])]
+                    )
 
-        # Patch: push limit+offset+1 to inner subquery for correct pagination, always set offset=0
-        if node.limit:
-            node_limit = cast(ast.Constant, node.limit)
-            node_offset = cast(ast.Constant, node.offset)
-            effective_limit = (node_limit.value if node.limit else 100) + (node_offset.value if node.offset else 0) + 1
-            right_select.limit = ast.Constant(value=effective_limit)
-            right_select.offset = ast.Constant(value=0)
-            # Do NOT set node.limit/node.offset directly, outer paginator will slice results
+            # Patch: push limit+offset+1 to inner subquery for correct pagination, always set offset=0
+            if node.limit:
+                node_limit = cast(ast.Constant, node.limit)
+                node_offset = cast(ast.Constant, node.offset)
+                effective_limit = (
+                    (node_limit.value if node.limit else 100) + (node_offset.value if node.offset else 0) + 1
+                )
+                right_select.limit = ast.Constant(value=effective_limit)
+                right_select.offset = ast.Constant(value=0)
+                # Do NOT set node.limit/node.offset directly, outer paginator will slice results
 
         for field_name, field_chain in join_or_table.fields_accessed.items():
             # We need to always select the 'id' field for the join constraint. The field name here is likely to
