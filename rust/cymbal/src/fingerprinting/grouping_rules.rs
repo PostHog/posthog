@@ -172,3 +172,110 @@ pub async fn try_grouping_rules(
     // and return that (or None)
     Ok(None)
 }
+
+#[cfg(test)]
+mod test {
+    use std::collections::HashMap;
+
+    use chrono::Utc;
+    use serde_json::{json, Value as JsonValue};
+    use sqlx::PgPool;
+    use uuid::Uuid;
+
+    use crate::{
+        config::Config, fingerprinting::resolve_fingerprint, teams::TeamManager, types::RawErrProps,
+    };
+
+    use super::GroupingRule;
+
+    fn rule_bytecode() -> JsonValue {
+        // return properties.test_value = 'test_value'
+        json!([
+            "_H",
+            1,
+            32,
+            "test_value",
+            32,
+            "test_value",
+            32,
+            "properties",
+            1,
+            2,
+            11,
+            38
+        ])
+    }
+
+    fn get_test_rule() -> GroupingRule {
+        GroupingRule {
+            id: Uuid::new_v4(),
+            team_id: 1,
+            user_id: None,
+            user_group_id: None,
+            role_id: None,
+            order_key: 1,
+            bytecode: rule_bytecode(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+
+    fn test_props() -> RawErrProps {
+        RawErrProps {
+            exception_list: vec![],
+            fingerprint: None,
+            other: HashMap::new(),
+        }
+    }
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn test_grouping_rules(db: PgPool) {
+        let config = Config::init_with_defaults().unwrap();
+
+        let test_team_id = 1;
+        let mut test_props = test_props();
+        test_props
+            .other
+            .insert("test_value".to_string(), JsonValue::from("test_value"));
+
+        let rule = get_test_rule();
+        let expected_fingerprint = format!("custom-rule:{}", rule.id);
+        let team_manager = TeamManager::new(&config);
+        // Insert the rule, so we skip the DB lookup
+        team_manager.grouping_rules.insert(test_team_id, vec![rule]);
+
+        let mut conn = db.acquire().await.unwrap();
+        let res = resolve_fingerprint(&mut conn, &team_manager, test_team_id, &test_props)
+            .await
+            .unwrap();
+
+        assert_eq!(res.value, expected_fingerprint);
+        assert!(res.assignment.is_none()); // The rule has no assignment associated with it
+
+        // Make sure if a rule has an assignment associated with it, it's returned in the fingerprint
+        let mut rule = get_test_rule();
+        let expected_fingerprint = format!("custom-rule:{}", rule.id);
+        rule.user_id = Some(1);
+        team_manager.grouping_rules.insert(test_team_id, vec![rule]);
+
+        let res = resolve_fingerprint(&mut conn, &team_manager, test_team_id, &test_props)
+            .await
+            .unwrap();
+
+        assert_eq!(res.value, expected_fingerprint);
+        assert!(res.assignment.is_some());
+
+        // Insert a different value - simply removed the value would cause the rule to be disabled, since it
+        // tries to access an undefined global
+        test_props
+            .other
+            .insert("test_value".to_string(), JsonValue::from("no_match"));
+
+        let res = resolve_fingerprint(&mut conn, &team_manager, test_team_id, &test_props)
+            .await
+            .unwrap();
+
+        assert_ne!(res.value, expected_fingerprint);
+        assert!(res.assignment.is_none());
+    }
+}

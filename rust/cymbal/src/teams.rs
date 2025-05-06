@@ -10,9 +10,9 @@ use crate::{
 };
 
 pub struct TeamManager {
-    token_cache: Cache<String, Option<Team>>,
-    assignment_rules: Cache<TeamId, Vec<AssignmentRule>>,
-    grouping_rules: Cache<TeamId, Vec<GroupingRule>>,
+    pub token_cache: Cache<String, Option<Team>>,
+    pub assignment_rules: Cache<TeamId, Vec<AssignmentRule>>,
+    pub grouping_rules: Cache<TeamId, Vec<GroupingRule>>,
 }
 
 impl TeamManager {

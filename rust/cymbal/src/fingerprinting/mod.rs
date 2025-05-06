@@ -1,28 +1,25 @@
-use std::sync::Arc;
-
 use crate::{
-    app_context::AppContext,
     assignment_rules::NewAssignment,
     error::UnhandledError,
+    teams::TeamManager,
     types::{Exception, RawErrProps},
 };
 use common_types::TeamId;
 use grouping_rules::{try_grouping_rules, GroupingRule};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
+use sqlx::PgConnection;
 use uuid::Uuid;
 
 pub mod grouping_rules;
 
 pub async fn resolve_fingerprint(
-    context: Arc<AppContext>,
+    conn: &mut PgConnection,
+    team_manager: &TeamManager,
     team_id: TeamId,
     props: &RawErrProps,
 ) -> Result<Fingerprint, UnhandledError> {
-    let mut conn = context.pool.acquire().await?;
-
-    if let Some(rule) = try_grouping_rules(&mut conn, team_id, &context.team_manager, props).await?
-    {
+    if let Some(rule) = try_grouping_rules(conn, team_id, team_manager, props).await? {
         Ok(Fingerprint::from_rule(rule))
     } else {
         Ok(generate_fingerprint(&props.exception_list))

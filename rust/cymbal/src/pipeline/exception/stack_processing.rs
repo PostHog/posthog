@@ -103,7 +103,13 @@ pub async fn do_stack_processing(
             .expect("no events have been dropped since indexed-property gathering")
             .team_id;
 
-        let proposed = resolve_fingerprint(context.clone(), team_id, &props)
+        let mut conn = context
+            .pool
+            .acquire()
+            .await
+            .map_err(|e| (index, e.into()))?;
+
+        let proposed = resolve_fingerprint(&mut conn, &context.team_manager, team_id, &props)
             .await
             .map_err(|e| (index, e))?;
 
