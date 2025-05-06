@@ -103,7 +103,6 @@ jobs:
                                       }) (improvements: ${value.improvements}, regressions: ${value.regressions})`
                                       diffEmoji = value.diff > 0.01 ? "🟢" : value.diff < -0.01 ? "🔴" : "🔵"
                                   }
-                                  }
                                   return `${diffEmoji} **${key}**: **${score}**${baselineComparison ? `, ${baselineComparison}` : ""}`
                               })
                               .join("\n")
