@@ -311,7 +311,7 @@ const translateInputsSchema = (inputs_schema: Record<string, any> | undefined): 
         })) as HogFunctionInputSchemaType[]
 }
 
-const APPROVED_DESTINATIONS = ['segment-mixpanel', 'segment-amplitude', 'segment-launchdarkly', 'segment-canny']
+const APPROVED_DESTINATIONS = ['segment-mixpanel', 'segment-amplitude', 'segment-launchdarkly', 'segment-canny', 'segment-fullstory-cloud', 'segment-drip']
 
 const HIDDEN_DESTINATIONS = [
     'segment-snap-conversions',
@@ -323,28 +323,28 @@ const HIDDEN_DESTINATIONS = [
     'segment-june-actions',
     'segment-intercom-cloud',
     'segment-avo',
-    // 'segment-drip', seems to be broken in segment as well :/
     'segment-loops',
     'segment-google-enhanced-conversions',
     'segment-reddit-conversions-api',
     'segment-customerio',
     'segment-slack',
+    'segment-webhook',
     'segment-webhook-extensible',
     'segment-gleap-cloud-actions',
     'segment-adjust',
     'segment-apolloio',
     'segment-attio',
+    'segment-braze-cloud',
+    'segment-klaviyo'
 ]
 
 export const SEGMENT_DESTINATIONS = Object.entries(destinations)
     .filter(([_, destination]) => destination)
     .filter(
-        ([_, destination]) =>
-            !HIDDEN_DESTINATIONS.includes(
-                'segment-' +
-                    (destination.slug?.replace('actions-', '') ??
-                        destination.name.replace('Actions ', '').replaceAll(' ', '-').toLowerCase())
-            )
+        ([_, destination]) => {
+            const id = 'segment-' + (destination.slug?.replace('actions-', '') ?? destination.name.replace('Actions ', '').replaceAll(' ', '-').toLowerCase())
+            return !(HIDDEN_DESTINATIONS.includes(id) || id.includes('audiences'))
+        }
     )
     .map(([_, destination]) => {
         const id =
