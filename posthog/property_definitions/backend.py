@@ -27,6 +27,7 @@ class PropertyDefinitionDoesNotExist(Exception):
 
 
 class PropertyDefinitionsBackend:
+    # TODO: all methods and call sites need to be updated to handle project_id instead of team_id
     def get_property_types(
         self,
         team_id: int,
