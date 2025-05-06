@@ -7,67 +7,73 @@ import { urls } from 'scenes/urls'
 
 import { EventType } from '~/types'
 
-import { llmObservabilityPlaygroundLogic } from '../llmObservabilityPlaygroundLogic'
+import { llmObservabilityPlaygroundLogic, Message } from '../llmObservabilityPlaygroundLogic'
 import { ConversationMessagesDisplay } from './ConversationMessagesDisplay'
 import { MetadataHeader } from './MetadataHeader'
 
 export function ConversationDisplay({ eventProperties }: { eventProperties: EventType['properties'] }): JSX.Element {
-    const { setSystemPrompt, setModel, setPrompt } = useActions(llmObservabilityPlaygroundLogic)
+    const { setSystemPrompt, setModel, setMessages } = useActions(llmObservabilityPlaygroundLogic)
 
     const handleTryInPlayground = (): void => {
         // Set model if available
         if (eventProperties.$ai_model) {
             setModel(eventProperties.$ai_model)
         }
-        // Handle input based on its format
+
         const input = eventProperties.$ai_input
+        let systemPromptContent: string | undefined = undefined
+        let conversationMessages: Message[] = []
+        let initialUserPrompt: string | undefined = undefined
+
         if (input) {
             try {
-                // If it's already a well-formatted messages array, use it directly
+                // Case 1: Input is a standard messages array
                 if (Array.isArray(input) && input.every((msg) => msg.role && msg.content)) {
-                    // Find system message if it exists
+                    // Find and set system message
                     const systemMessage = input.find((msg) => msg.role === 'system')
                     if (systemMessage?.content && typeof systemMessage.content === 'string') {
-                        setSystemPrompt(systemMessage.content)
+                        systemPromptContent = systemMessage.content
                     }
 
-                    // Keep only the last user message as the prompt
-                    const lastUserMessage = [...input].reverse().find((msg) => msg.role === 'user')
-                    if (lastUserMessage?.content) {
-                        if (typeof lastUserMessage.content === 'string') {
-                            setPrompt(lastUserMessage.content)
-                        } else if (isObject(lastUserMessage.content)) {
-                            setPrompt(JSON.stringify(lastUserMessage.content))
-                        }
-                    }
-
-                    // Set all previous messages (excluding the last user message)
-                    const previousMessages = input.filter(
-                        (msg) => !(msg.role === 'user' && msg.content === lastUserMessage?.content)
-                    )
-                    if (previousMessages.length > 0) {
-                        //setMessages(previousMessages);
-                    }
+                    // Extract user and assistant messages for history
+                    conversationMessages = input
+                        .filter((msg) => msg.role === 'user' || msg.role === 'assistant')
+                        .map((msg) => ({
+                            role: msg.role as 'user' | 'assistant',
+                            content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content),
+                        }))
                 }
-                // If a single string, use as prompt
+                // Case 2: Input is just a single string prompt
                 else if (typeof input === 'string') {
-                    setPrompt(input)
+                    initialUserPrompt = input
                 }
-                // If it's a normalized object
+                // Case 3: Input is some other object (try to extract content)
                 else if (isObject(input)) {
-                    // Try to extract content
                     if (input.content && typeof input.content === 'string') {
-                        setPrompt(input.content)
+                        initialUserPrompt = input.content
                     } else {
-                        // Fallback to stringify the object
-                        setPrompt(JSON.stringify(input, null, 2))
+                        initialUserPrompt = JSON.stringify(input, null, 2)
                     }
                 }
             } catch (e) {
-                // Fallback: convert to string and use as prompt
-                setPrompt(String(input))
+                console.error('Error processing $ai_input for playground:', e)
+                initialUserPrompt = String(input)
+                conversationMessages = []
             }
         }
+
+        // Set state in playground logic
+        if (systemPromptContent) {
+            setSystemPrompt(systemPromptContent)
+        }
+
+        // If the input was just a string, add it as the first user message
+        if (initialUserPrompt) {
+            // Prepend it so it appears first in the playground
+            conversationMessages.unshift({ role: 'user', content: initialUserPrompt })
+        }
+
+        setMessages(conversationMessages) // Set the extracted history (potentially including the initial prompt)
 
         // Navigate to the playground
         router.actions.push(urls.llmObservabilityPlayground())
