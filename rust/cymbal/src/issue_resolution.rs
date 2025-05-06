@@ -264,7 +264,7 @@ pub async fn resolve_issue(
     if let Some(mut issue) = existing_issue {
         if issue.maybe_reopen(&mut *conn).await? {
             let assignment = process_assignment(
-                &mut *conn,
+                &mut conn,
                 &context.team_manager,
                 &issue,
                 event_properties.clone(),
@@ -315,7 +315,7 @@ pub async fn resolve_issue(
         // Since we just loaded an issue, check if it needs to be reopened
         if issue.maybe_reopen(&mut *conn).await? {
             let assignment = process_assignment(
-                &mut *conn,
+                &mut conn,
                 &context.team_manager,
                 &issue,
                 event_properties.clone(),
