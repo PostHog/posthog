@@ -1,9 +1,11 @@
+import Fuse from 'fuse.js'
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { userGroupsLogic } from 'scenes/settings/environment/userGroupsLogic'
+import { rolesLogic } from 'scenes/settings/organization/Permissions/Roles/rolesLogic'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
-import type { OrganizationMemberType, UserGroup } from '~/types'
+import type { OrganizationMemberType, RoleType, UserGroup } from '~/types'
 
 import type { assigneeSelectLogicType } from './assigneeSelectLogicType'
 
@@ -23,7 +25,15 @@ export type GroupAssignee = {
     group: UserGroup
 }
 
-export type Assignee = UserAssignee | GroupAssignee | null
+export type RoleAssignee = {
+    id: string
+    type: 'role'
+    role: RoleType
+}
+
+export type Assignee = UserAssignee | GroupAssignee | RoleAssignee | null
+
+export interface RolesFuse extends Fuse<RoleType> {}
 
 export const assigneeSelectLogic = kea<assigneeSelectLogicType>([
     path(['scenes', 'error-tracking', 'assigneeSelectLogic']),
@@ -35,6 +45,8 @@ export const assigneeSelectLogic = kea<assigneeSelectLogicType>([
             ['meFirstMembers', 'filteredMembers', 'membersLoading'],
             userGroupsLogic,
             ['userGroups', 'filteredGroups', 'userGroupsLoading'],
+            rolesLogic,
+            ['roles', 'rolesLoading'],
         ],
         actions: [
             membersLogic,
@@ -66,13 +78,24 @@ export const assigneeSelectLogic = kea<assigneeSelectLogicType>([
 
     selectors({
         loading: [
-            (s) => [s.membersLoading, s.userGroupsLoading],
-            (membersLoading, userGroupsLoading): boolean => membersLoading || userGroupsLoading,
+            (s) => [s.membersLoading, s.userGroupsLoading, s.rolesLoading],
+            (membersLoading, userGroupsLoading, rolesLoading): boolean =>
+                membersLoading || userGroupsLoading || rolesLoading,
+        ],
+
+        rolesFuse: [
+            (s) => [s.roles],
+            (roles): RolesFuse => new Fuse<RoleType>(roles, { keys: ['name'], threshold: 0.3 }),
+        ],
+        filteredRoles: [
+            (s) => [s.roles, s.rolesFuse, s.search],
+            (roles, rolesFuse, search): RoleType[] =>
+                search ? rolesFuse.search(search).map((result) => result.item) : roles ?? [],
         ],
 
         resolveAssignee: [
-            (s) => [s.userGroups, s.meFirstMembers],
-            (groups, members): ((assignee: ErrorTrackingIssue['assignee']) => Assignee) => {
+            (s) => [s.userGroups, s.roles, s.meFirstMembers],
+            (groups, roles, members): ((assignee: ErrorTrackingIssue['assignee']) => Assignee) => {
                 return (assignee: ErrorTrackingIssue['assignee']) => {
                     if (assignee) {
                         if (assignee.type === 'user_group') {
@@ -82,6 +105,15 @@ export const assigneeSelectLogic = kea<assigneeSelectLogicType>([
                                       id: assignedGroup.id,
                                       type: 'group',
                                       group: assignedGroup,
+                                  }
+                                : null
+                        } else if (assignee.type === 'role') {
+                            const assignedRole = roles.find((role) => role.id === assignee.id)
+                            return assignedRole
+                                ? {
+                                      id: assignedRole.id,
+                                      type: 'role',
+                                      role: assignedRole,
                                   }
                                 : null
                         }

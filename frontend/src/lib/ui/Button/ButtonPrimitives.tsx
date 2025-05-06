@@ -131,15 +131,19 @@ export const buttonPrimitiveVariants = cva({
             false: '',
         },
         fullWidth: {
-            true: 'w-full',
+            true: 'button-primitive--full-width',
             false: '',
         },
         isGroup: {
             true: '',
             false: 'gap-1.5',
         },
+        active: {
+            true: 'button-primitive--active',
+            false: '',
+        },
         menuItem: {
-            true: 'w-full justify-start', // @TODO this isn't working
+            true: 'button-primitive--full-width justify-start',
             false: '',
         },
         truncate: {

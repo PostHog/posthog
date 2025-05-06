@@ -1,6 +1,6 @@
 import './TopBar.scss'
 
-import { IconChevronDown, IconX } from '@posthog/icons'
+import { IconChevronDown, IconFolderMove, IconX } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -34,7 +34,8 @@ export function TopBar(): JSX.Element | null {
     const { setActionsContainer } = useActions(breadcrumbsLogic)
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
     const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
-    const { projectTreeRefBreadcrumbs } = useValues(projectTreeLogic)
+    const { projectTreeRefEntry, projectTreeRefBreadcrumbs } = useValues(projectTreeLogic)
+    const { setMovingItems } = useActions(projectTreeLogic)
     const [compactionRate, setCompactionRate] = useState(0)
 
     const breadcrumbs = featureFlags[FEATURE_FLAGS.TREE_VIEW]
@@ -83,7 +84,7 @@ export function TopBar(): JSX.Element | null {
         return () => main.removeEventListener('scroll', handleScroll)
     }, [hasRenameState])
 
-    return breadcrumbs.length ? (
+    return breadcrumbs.length || (featureFlags[FEATURE_FLAGS.TREE_VIEW] && projectTreeRefEntry) ? (
         <div
             className={clsx(
                 'TopBar3000',
@@ -125,6 +126,17 @@ export function TopBar(): JSX.Element | null {
                                     </div>
                                 </React.Fragment>
                             ))}
+                            {featureFlags[FEATURE_FLAGS.TREE_VIEW] && projectTreeRefEntry && (
+                                <LemonButton
+                                    size="xsmall"
+                                    onClick={() => setMovingItems([projectTreeRefEntry])}
+                                    icon={<IconFolderMove />}
+                                    className="TopBar3000__move-button"
+                                    data-attr="top-bar-move-button"
+                                    tooltip="Move to another folder"
+                                    disabledReason={renameState ? "Can't move while renaming" : ''}
+                                />
+                            )}
                             <Breadcrumb
                                 breadcrumb={breadcrumbs[breadcrumbs.length - 1]}
                                 here
