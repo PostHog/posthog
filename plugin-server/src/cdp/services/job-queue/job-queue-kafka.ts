@@ -66,6 +66,10 @@ export class CyclotronJobQueueKafka {
     }
 
     public async queueInvocations(invocations: HogFunctionInvocation[]) {
+        if (invocations.length === 0) {
+            return
+        }
+
         const producer = this.getKafkaProducer()
 
         const messages = await Promise.all(
