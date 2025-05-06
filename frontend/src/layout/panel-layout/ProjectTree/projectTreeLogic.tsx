@@ -885,6 +885,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         name: 'Loading...',
                         icon: <Spinner />,
                         disableSelect: true,
+                        type: 'loading-indicator',
                     })
                 } else if (recentResults.hasMore) {
                     results.push({
@@ -917,6 +918,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         name: 'Loading...',
                         icon: <Spinner />,
                         disableSelect: true,
+                        type: 'loading-indicator',
                     })
                 } else if (searchResults.hasMore) {
                     results.push({
@@ -949,6 +951,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                             id: `folder-loading/`,
                             name: 'Loading...',
                             icon: <Spinner />,
+                            type: 'loading-indicator',
                         },
                     ]
                 }
