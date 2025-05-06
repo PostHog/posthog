@@ -14,7 +14,7 @@ use limiters::token_dropper::TokenDropper;
 use metrics::counter;
 use serde_json::json;
 use serde_json::Value;
-use tracing::{debug, error, info, instrument, warn, Span};
+use tracing::{debug, error, instrument, warn, Span};
 
 use crate::prometheus::report_dropped_events;
 use crate::v0_request::{
@@ -67,6 +67,18 @@ async fn handle_legacy(
     path: &MatchedPath,
     body: Bytes,
 ) -> Result<(ProcessingContext, Vec<RawEvent>), CaptureError> {
+    // this endpoint handles:
+    // - GET or POST requests w/payload that is one of:
+    //   1. GZIP or LZ64 compressed, possibly base64 encoded JSON payload
+    //   2. urlencoded form where "data" is key to access the payload
+    //
+    // When POST body isn't the payload, the POST form fields or
+    // GET query params should contain the following:
+    //     - data        = JSON payload which may itself be compressed or base64 encoded or both
+    //     - compression = hint to how "data" is encoded or compressed
+    //     - lib_version = SDK version that submitted the request
+
+    // capture arguments and add to logger, processing context
     Span::current().record("path", path.as_str());
     let user_agent = headers
         .get("user-agent")
@@ -85,6 +97,7 @@ async fn handle_legacy(
         .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
     Span::current().record("x_request_id", x_request_id);
 
+    // TODO(eli): temporary peek at these
     if query_params.lib_version.is_some() {
         Span::current().record(
             "params_lib_version",
@@ -99,44 +112,17 @@ async fn handle_legacy(
     }
     debug!("entering handle_legacy");
 
-    // extract the raw payload from the request which may include
-    // GZIP or lz64 compressed blob representing ANY of the below options:
-    // 1. JSON POST body that may itself be base64 encoded
-    // 2. GET query params or POST form KVs including:
-    //     - data        = JSON payload which may itself be compressed or base64 encoded or both
-    //     - compression = optional hint to how "data" is encoded or compressed
-    //     - lib_version = optional SDK version that submitted this request
-    let raw_payload: Bytes = match *method {
-        Method::POST => {
-            if body.is_empty() {
-                error!("unexpected missing payload on {:?} request", method);
-                return Err(CaptureError::EmptyPayload);
-            }
-            body
-        }
-
-        Method::GET => {
-            if query_params.data.as_ref().is_some_and(|d| !d.is_empty()) {
-                let tmp_vec = std::mem::take(&mut query_params.data);
-                Bytes::from(tmp_vec.unwrap())
-            } else if !body.is_empty() {
-                body
-            } else {
-                error!("unexpected missing payload on {:?} request", method);
-                return Err(CaptureError::EmptyPayload);
-            }
-        }
-
-        _ => {
-            error!("data payload not found on {:?} request", method);
-            return Err(CaptureError::EmptyPayload);
-        }
+    let raw_payload: Bytes = if query_params.data.as_ref().is_some_and(|d| !d.is_empty()) {
+        let tmp_vec = std::mem::take(&mut query_params.data);
+        Bytes::from(tmp_vec.unwrap())
+    } else if !body.is_empty() {
+        body
+    } else {
+        error!("missing payload on {:?} request", method);
+        return Err(CaptureError::EmptyPayload);
     };
 
-    // attempt to decode POST payload form if the request's content type
-    // indicates we should. If present, capture metadata params that some
-    // SDKs include in form KVs rather than URL query parameters. This method
-    // may return an EventFormData with all 'None' values.
+    // attempt to decode POST payload if it is form data
     let form: EventFormData = match content_type {
         "application/x-www-form-urlencoded" => {
             if is_likely_urlencoded_form(&raw_payload) {
@@ -190,20 +176,17 @@ async fn handle_legacy(
         }
     };
 
-    // extract the "compression" param; location varies depending on SDK/version etc.
+    // different SDKs stash these in different places
     let compression = extract_compression(&form, query_params, headers);
     Span::current().record("compression", format!("{}", compression));
-
     let lib_version = extract_lib_version(&form, query_params);
     Span::current().record("lib_version", &lib_version);
 
-    // TODO(eli): Add is_mirror_deploy to error logging in RawRequest::from_bytes
+    // if the payload is populated in the form, process it.
+    // otherwise, pass the byte payload
+    let data = form.data.map_or(raw_payload, Bytes::from);
     let request = RawRequest::from_bytes(
-        if form.data.is_some() {
-            Bytes::from(form.data.unwrap())
-        } else {
-            raw_payload
-        },
+        data,
         compression,
         state.event_size_limit,
         state.is_mirror_deploy,
@@ -252,9 +235,7 @@ async fn handle_legacy(
         return Err(CaptureError::BillingLimit);
     }
 
-    // TODO(eli): back to debug-level logging as we ramp the mirror
-    info!(context=?context, events=?events, "handle_legacy: decoded request");
-
+    debug!(context=?context, events=?events, "handle_legacy: decoded request");
     Ok((context, events))
 }
 
