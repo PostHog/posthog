@@ -4,7 +4,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import ErrorTrackingRules from './ErrorTrackingRules'
 import { ErrorTrackingRuleType, ErrorTrackingSuppressionRule } from './types'
 
-export function ErrorTrackingClientSideSuppression(): JSX.Element {
+export function ErrorTrackingClientSuppression(): JSX.Element {
     return (
         <ErrorTrackingRules<ErrorTrackingSuppressionRule> ruleType={ErrorTrackingRuleType.Suppression}>
             {({ rule, editable }) => {
