@@ -51,8 +51,7 @@ export type LemonInputSelectProps = Pick<
     size?: 'xsmall' | 'small' | 'medium' | 'large'
     transparentBackground?: boolean
     displayMode?: 'snacks' | 'count'
-    showSelectAll?: boolean
-    showClearAll?: boolean
+    bulkActions?: 'clear-all' | 'select-and-clear-all'
 }
 
 export function LemonInputSelect({
@@ -79,8 +78,7 @@ export function LemonInputSelect({
     autoWidth = true,
     fullWidth = false,
     displayMode = 'snacks',
-    showSelectAll,
-    showClearAll,
+    bulkActions,
 }: LemonInputSelectProps): JSX.Element {
     const [showPopover, setShowPopover] = useState(false)
     const [inputValue, _setInputValue] = useState('')
@@ -369,20 +367,21 @@ export function LemonInputSelect({
         )
     }, [mode, values, allowCustomValues, itemBeingEditedIndex, inputValue])
 
+    // Positioned like a placeholder but rendered via the suffix since the actual placeholder has to be a string
     const countPlaceholder = useMemo(() => {
-        if (displayMode !== 'count' || mode !== 'multiple') {
-            return placeholder
+        if (displayMode !== 'count' || mode !== 'multiple' || inputValue) {
+            return null
         }
-        const selectedCount = values.length
-        const totalCount = options.length
-
-        if (selectedCount === 0) {
-            return `None selected` // Empty array now means none
-        } else if (selectedCount === totalCount) {
-            return `All ${totalCount} selected`
-        }
-        return `${selectedCount}/${totalCount} selected`
-    }, [displayMode, mode, values, options, placeholder])
+        return values.length === 0 ? (
+            <span className="-ml-2 text-muted">None selected</span>
+        ) : (
+            <span className="-ml-2">
+                {values.length === options.length
+                    ? `All ${options.length} selected`
+                    : `${values.length}/${options.length} selected`}
+            </span>
+        )
+    }, [displayMode, mode, inputValue, values.length, options.length])
 
     return (
         <LemonDropdown
@@ -405,6 +404,50 @@ export function LemonInputSelect({
             overlay={
                 <div className="deprecated-space-y-px overflow-y-auto">
                     {title && <h5 className="mx-2 my-1">{title}</h5>}
+
+                    {bulkActions && mode === 'multiple' && (
+                        <div className="flex items-center mb-0.5" onMouseEnter={() => setSelectedIndex(-1)}>
+                            {bulkActions === 'select-and-clear-all' && (
+                                <LemonButton
+                                    size="small"
+                                    className="flex-1"
+                                    disabledReason={
+                                        values.length === allOptionsMap.size
+                                            ? 'All options are already selected'
+                                            : undefined
+                                    }
+                                    tooltipPlacement="top-start"
+                                    tooltipArrowOffset={50}
+                                    onClick={() => onChange?.(Array.from(allOptionsMap.keys()))}
+                                    icon={
+                                        <LemonCheckbox
+                                            checked={
+                                                values.length === allOptionsMap.size
+                                                    ? true
+                                                    : values.length
+                                                    ? 'indeterminate'
+                                                    : false
+                                            }
+                                            className="pointer-events-none"
+                                        />
+                                    }
+                                >
+                                    Select all
+                                </LemonButton>
+                            )}
+                            <LemonButton
+                                size="small"
+                                className={clsx({ 'flex-1': bulkActions === 'clear-all' })}
+                                tooltipPlacement={bulkActions === 'select-and-clear-all' ? 'top-end' : 'top-start'}
+                                tooltipArrowOffset={bulkActions === 'clear-all' ? 30 : undefined}
+                                disabledReason={values.length === 0 ? 'No options are selected' : undefined}
+                                onClick={() => onChange?.([])}
+                            >
+                                Clear all
+                            </LemonButton>
+                        </div>
+                    )}
+
                     {visibleOptions.length > 0 ? (
                         visibleOptions.map((option, index) => {
                             const isFocused = index === selectedIndex
@@ -517,7 +560,7 @@ export function LemonInputSelect({
                 inputRef={inputRef}
                 placeholder={
                     displayMode === 'count'
-                        ? countPlaceholder
+                        ? undefined
                         : values.length === 0
                         ? placeholder
                         : mode === 'single'
@@ -529,7 +572,12 @@ export function LemonInputSelect({
                 autoWidth={autoWidth}
                 fullWidth={fullWidth}
                 prefix={valuesPrefix}
-                suffix={valuesAndEditButtonSuffix}
+                suffix={
+                    <>
+                        {countPlaceholder}
+                        {valuesAndEditButtonSuffix}
+                    </>
+                }
                 onFocus={_onFocus}
                 onBlur={_onBlur}
                 value={inputValue}
