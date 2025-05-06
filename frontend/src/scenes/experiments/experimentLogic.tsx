@@ -412,6 +412,7 @@ export const experimentLogic = kea<experimentLogicType>([
         setValidExistingFeatureFlag: (featureFlag: FeatureFlagType | null) => ({ featureFlag }),
         setFeatureFlagValidationError: (error: string) => ({ error }),
         validateFeatureFlag: (featureFlagKey: string) => ({ featureFlagKey }),
+        // Running Time Calculator Modal
         openCalculateRunningTimeModal: true,
         closeCalculateRunningTimeModal: true,
     }),
