@@ -38,6 +38,12 @@ const consumedBatchBackgroundDuration = new Histogram({
     labelNames: ['topic', 'groupId'],
 })
 
+const consumedBatchBackpressureDuration = new Histogram({
+    name: 'consumed_batch_backpressure_duration_ms',
+    help: 'Time spent waiting for background work to finish due to backpressure',
+    labelNames: ['topic', 'groupId'],
+})
+
 const gaugeBatchUtilization = new Gauge({
     name: 'consumer_batch_utilization',
     help: 'Indicates how big batches are we are processing compared to the max batch size. Useful as a scaling metric',
@@ -389,8 +395,13 @@ export class KafkaConsumer {
 
             // If we have too much "backpressure" we need to await one of the background tasks. We await the oldest one on purpose
             if (backgroundBatches.length > MAX_BACKGROUND_TASKS) {
+                const stopTimer = consumedBatchBackpressureDuration.startTimer({
+                    topic: this.config.topic,
+                    groupId: this.config.groupId,
+                })
                 // If we have more than the max, we need to await one
                 await backgroundBatches[0]
+                stopTimer()
             }
         })
 
