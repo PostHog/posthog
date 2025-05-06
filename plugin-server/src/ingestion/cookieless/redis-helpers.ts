@@ -134,91 +134,6 @@ export class RedisHelpers {
         })
     }
 
-    public redisSetMulti(kv: Array<[string, unknown]>, ttlSeconds?: number, options: CacheOptions = {}): Promise<void> {
-        const { jsonSerialize = true } = options
-
-        return this.instrumentRedisQuery('query.redisSet', undefined, { keys: kv.map((x) => x[0]) }, async (client) => {
-            let pipeline = client.multi()
-            for (const [key, value] of kv) {
-                const serializedValue = jsonSerialize ? JSON.stringify(value) : (value as string)
-                if (ttlSeconds) {
-                    pipeline = pipeline.set(key, serializedValue, 'EX', ttlSeconds)
-                } else {
-                    pipeline = pipeline.set(key, serializedValue)
-                }
-            }
-            await pipeline.exec()
-        })
-    }
-
-    public redisIncr(key: string): Promise<number> {
-        return this.instrumentRedisQuery('query.redisIncr', undefined, { key }, async (client) => {
-            return await client.incr(key)
-        })
-    }
-
-    public redisExpire(key: string, ttlSeconds: number): Promise<boolean> {
-        return this.instrumentRedisQuery('query.redisExpire', undefined, { key }, async (client) => {
-            return (await client.expire(key, ttlSeconds)) === 1
-        })
-    }
-
-    public redisLPush(key: string, value: unknown, options: CacheOptions = {}): Promise<number> {
-        const { jsonSerialize = true } = options
-
-        return this.instrumentRedisQuery('query.redisLPush', undefined, { key }, async (client) => {
-            const serializedValue = jsonSerialize ? JSON.stringify(value) : (value as string | string[])
-            return await client.lpush(key, serializedValue)
-        })
-    }
-
-    public redisLRange(key: string, startIndex: number, endIndex: number, tag?: string): Promise<string[]> {
-        return this.instrumentRedisQuery('query.redisLRange', tag, { key, startIndex, endIndex }, async (client) => {
-            return await client.lrange(key, startIndex, endIndex)
-        })
-    }
-
-    public redisLLen(key: string): Promise<number> {
-        return this.instrumentRedisQuery('query.redisLLen', undefined, { key }, async (client) => {
-            return await client.llen(key)
-        })
-    }
-
-    public redisBRPop(key1: string, key2: string): Promise<[string, string]> {
-        return this.instrumentRedisQuery('query.redisBRPop', undefined, { key1, key2 }, async (client) => {
-            return await client.brpop(key1, key2)
-        })
-    }
-
-    public redisLRem(key: string, count: number, elementKey: string): Promise<number> {
-        return this.instrumentRedisQuery(
-            'query.redisLRem',
-            undefined,
-            {
-                key,
-                count,
-                elementKey,
-            },
-            async (client) => {
-                return await client.lrem(key, count, elementKey)
-            }
-        )
-    }
-
-    public redisLPop(key: string, count: number): Promise<string[]> {
-        return this.instrumentRedisQuery(
-            'query.redisLPop',
-            undefined,
-            {
-                key,
-                count,
-            },
-            async (client) => {
-                return await client.lpop(key, count)
-            }
-        )
-    }
-
     public redisSAddAndSCard(key: string, value: Redis.ValueType, ttlSeconds?: number): Promise<number> {
         return this.instrumentRedisQuery('query.redisSAddAndSCard', undefined, { key }, async (client) => {
             const multi = client.multi()
@@ -246,16 +161,74 @@ export class RedisHelpers {
         )
     }
 
-    public redisPublish(channel: string, message: string): Promise<number> {
+    public redisSMembersMulti(keys: string[], tag: string): Promise<Record<string, string[] | null>> {
+        return this.instrumentRedisQuery('query.redisSMembersMulti', tag, { keys }, async (client) => {
+            const pipeline = client.pipeline()
+            // queue SMEMBERS for every key
+            keys.forEach((k) => pipeline.smembers(k))
+            const raw = await pipeline.exec()
+
+            const result: Record<string, string[] | null> = {}
+            raw.forEach(([err, res], i) => {
+                // if key doesn't exist or is wrong type, Redis returns an error
+                result[keys[i]] = err ? null : res
+            })
+
+            return result
+        })
+    }
+
+    public redisSAddMulti(keyVals: Record<string, string[]>, tag: string, ttlSeconds?: number): Promise<void> {
         return this.instrumentRedisQuery(
-            'query.redisPublish',
-            undefined,
-            {
-                channel,
-                message,
-            },
+            'query.redisSAddMulti',
+            tag,
+            { keys: Array.from(Object.keys(keyVals)) },
             async (client) => {
-                return await client.publish(channel, message)
+                const pipeline = client.pipeline()
+                // queue SADD for every key
+                for (const [key, value] of Object.entries(keyVals)) {
+                    pipeline.sadd(key, ...value)
+                    if (ttlSeconds) {
+                        pipeline.expire(key, ttlSeconds)
+                    }
+                }
+                await pipeline.exec()
+            }
+        )
+    }
+
+    public redisMGetBuffer(keys: string[], tag: string): Promise<Record<string, Buffer | null>> {
+        return this.instrumentRedisQuery('query.redisMGetBuffer', tag, { keys }, async (client) => {
+            const pipeline = client.pipeline()
+            // queue getBuffer for every key
+            keys.forEach((k) => pipeline.getBuffer(k))
+            const raw = await pipeline.exec()
+
+            const result: Record<string, Buffer | null> = {}
+            raw.forEach(([err, res], i) => {
+                // if key doesn't exist or is wrong type, Redis returns an error
+                result[keys[i]] = err ? null : res
+            })
+
+            return result
+        })
+    }
+
+    public redisSetBufferMulti(keyVals: Record<string, Buffer>, tag: string, ttlSeconds?: number): Promise<void> {
+        return this.instrumentRedisQuery(
+            'query.redisSetBufferMulti',
+            tag,
+            { keys: Array.from(Object.keys(keyVals)) },
+            async (client) => {
+                const pipeline = client.pipeline()
+                // queue setBuffer for every key
+                for (const [key, value] of Object.entries(keyVals)) {
+                    pipeline.setBuffer(key, value)
+                    if (ttlSeconds) {
+                        pipeline.expire(key, ttlSeconds)
+                    }
+                }
+                await pipeline.exec()
             }
         )
     }

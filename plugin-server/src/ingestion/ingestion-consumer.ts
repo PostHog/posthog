@@ -2,6 +2,8 @@ import { Message, MessageHeader } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 import { z } from 'zod'
 
+import { CookielessStateForBatch } from '~/src/ingestion/cookieless/cookieless-manager'
+
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
 import { KafkaConsumer, parseKafkaHeaders } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
@@ -261,7 +263,10 @@ export class IngestionConsumer {
             return this.resolveTeams(parsedMessages)
         })
 
-        const groupedMessages = this.groupEventsByDistinctId(eventsWithTeams)
+        const cookielessStateForBatch = new CookielessStateForBatch(this.hub)
+        const postCookielessMessages = await cookielessStateForBatch.doBatch(eventsWithTeams)
+
+        const groupedMessages = this.groupEventsByDistinctId(postCookielessMessages)
 
         // Check if hogwatcher should be used (using the same sampling logic as in the transformer)
         const shouldRunHogWatcher = Math.random() < this.hub.CDP_HOG_WATCHER_SAMPLE_RATE
