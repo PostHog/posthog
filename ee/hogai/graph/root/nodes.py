@@ -72,7 +72,7 @@ class RootNode(AssistantNode):
                         (
                             "system",
                             f"<{tool_name}>\n"
-                            f"{CONTEXTUAL_TOOL_NAME_TO_TOOL[AssistantContextualTool(tool_name)]().format_system_prompt_injection(tool_context)}\n"  # type: ignore
+                            f"{CONTEXTUAL_TOOL_NAME_TO_TOOL[AssistantContextualTool(tool_name)]().format_system_prompt_injection(tool_context)}\n"
                             f"</{tool_name}>",
                         )
                         for tool_name, tool_context in self._get_contextual_tools(config).items()
@@ -278,7 +278,7 @@ class RootNodeTools(AssistantNode):
             )
         elif ToolClass := CONTEXTUAL_TOOL_NAME_TO_TOOL.get(cast(AssistantContextualTool, tool_call.name)):
             tool_class = ToolClass(state)
-            result = tool_class.invoke(tool_call.model_dump(), config)  # type: ignore
+            result = tool_class.invoke(tool_call.model_dump(), config)
             state = tool_class._state  # latest state, in case the tool has updated it
             last_message = state.messages[-1]
             if isinstance(last_message, AssistantToolCallMessage) and last_message.tool_call_id == tool_call.id:

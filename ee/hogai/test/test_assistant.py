@@ -89,6 +89,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         tool_call_partial_state: Optional[AssistantState] = None,
         is_new_conversation: bool = False,
         mode: AssistantMode = AssistantMode.ASSISTANT,
+        contextual_tools: Optional[dict[str, Any]] = None,
     ) -> list[tuple[str, Any]]:
         # Create assistant instance with our test graph
         assistant = Assistant(
@@ -99,6 +100,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             is_new_conversation=is_new_conversation,
             tool_call_partial_state=tool_call_partial_state,
             mode=mode,
+            contextual_tools=contextual_tools,
         )
         if test_graph:
             assistant._graph = test_graph
@@ -1240,3 +1242,93 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             updated_content,
             "The merged message should have the content of the last message",
         )
+
+    @patch("ee.hogai.graph.query_executor.nodes.QueryExecutorNode.run")
+    @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
+    @patch("ee.hogai.graph.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model")
+    @patch("ee.hogai.graph.rag.nodes.InsightRagContextNode.run")
+    @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
+    def test_contextual_tool_call_with_tool_call_message_update(
+        self, root_mock, rag_mock, planner_mock, generator_mock, query_executor_mock
+    ):
+        def root_side_effect(prompt: ChatPromptValue):
+            if prompt.messages[-1].type == "tool":
+                return RunnableLambda(lambda _: messages.AIMessage(content="Everything is fine"))
+
+            return messages.AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "id": "xyz",
+                        "name": "create_and_query_insight",
+                        "args": {"query_description": "Foobar", "query_kind": "trends"},
+                    }
+                ],
+            )
+
+        root_mock.return_value = FakeRunnableLambdaWithTokenCounter(root_side_effect)
+        rag_mock.return_value = PartialAssistantState(
+            rag_context="",
+        )
+
+        planner_mock.return_value = RunnableLambda(
+            lambda _: messages.AIMessage(
+                content="""
+                Thought: Done.
+                Action:
+                ```
+                {
+                    "action": "final_answer",
+                    "action_input": "Plan"
+                }
+                ```
+                """
+            )
+        )
+        query = AssistantTrendsQuery(series=[])
+        generator_mock.return_value = RunnableLambda(lambda _: TrendsSchemaGeneratorOutput(query=query))
+
+        query_executor_mock.return_value = PartialAssistantState(
+            messages=[
+                AssistantToolCallMessage(content="The results indicate a great future for you.", tool_call_id="xyz")
+            ],
+        )
+
+        output = self._run_assistant_graph(
+            test_graph=AssistantGraph(self.team)
+            .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
+            .add_root(
+                {
+                    "root": AssistantNodeName.ROOT,
+                    "insights": AssistantNodeName.INSIGHTS_SUBGRAPH,
+                    "end": AssistantNodeName.END,
+                }
+            )
+            .add_insights()
+            .compile(),
+            conversation=self.conversation,
+            is_new_conversation=True,
+            message=None,
+            mode=AssistantMode.ASSISTANT,
+            contextual_tools={"create_and_query_insight": {"current_schema": "schema"}},
+        )
+
+        expected_output = [
+            ("conversation", {"id": str(self.conversation.id)}),
+            ("message", HumanMessage(content="Hello")),
+            ("message", ReasoningMessage(content="Coming up with an insight")),
+            ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
+            ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
+            ("message", ReasoningMessage(content="Creating trends query")),
+            ("message", VisualizationMessage(query="Foobar", answer=query, plan="Plan")),
+            (
+                "message",
+                AssistantToolCallMessage(
+                    content="The results indicate a great future for you.",
+                    tool_call_id="xyz",
+                    ui_payload={"create_and_query_insight": query.model_dump()},
+                ),
+            ),
+            ("message", AssistantMessage(content="Everything is fine")),
+        ]
+        self.assertConversationEqual(output, expected_output)
