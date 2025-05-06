@@ -178,8 +178,8 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         q = Q(type=value)
                 elif field == "ref":
                     q = Q(ref=value)
-                else:  # unknown prefix → fall back to path search
-                    q = Q(path__icontains=value)
+                else:  # unknown prefix → search for the full token in path
+                    q = Q(path__icontains=token)
             else:
                 # plain free-text token: search in path
                 q = Q(path__icontains=token)

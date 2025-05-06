@@ -1,80 +1,59 @@
 import equal from 'fast-deep-equal'
-import { actions, afterMount, kea, path, reducers } from 'kea'
-import { loaders } from 'kea-loaders'
-import { urlToAction } from 'kea-router'
-import api from 'lib/api'
-import { isDefinitionStale } from 'lib/utils/definitions'
+import { actions, kea, path, reducers } from 'kea'
+import { actionToUrl, router, urlToAction } from 'kea-router'
+import { syncSearchParams, updateSearchParams } from 'scenes/error-tracking/utils'
 import { Params } from 'scenes/sceneTypes'
 
-import { DateRange, ErrorTrackingIssue, ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
-import { EventDefinitionType, FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
+import { DateRange } from '~/queries/schema/schema-general'
+import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
-import type { errorTrackingLogicType } from './errorTrackingLogicType'
+import type { errorFiltersLogicType } from './errorFiltersLogicType'
 
-export const DEFAULT_ERROR_TRACKING_DATE_RANGE = { date_from: '-7d', date_to: null }
-
-export const DEFAULT_ERROR_TRACKING_FILTER_GROUP = {
+const DEFAULT_DATE_RANGE = { date_from: '-7d', date_to: null }
+const DEFAULT_FILTER_GROUP = {
     type: FilterLogicalOperator.And,
     values: [{ type: FilterLogicalOperator.And, values: [] }],
 }
+const DEFAULT_TEST_ACCOUNT = false
+const DEFAULT_SEARCH_QUERY = ''
 
-export const errorTrackingLogic = kea<errorTrackingLogicType>([
-    path(['scenes', 'error-tracking', 'errorTrackingLogic']),
+export const errorFiltersLogic = kea<errorFiltersLogicType>([
+    path(['scenes', 'error-tracking', 'errorFiltersLogic']),
 
     actions({
         setDateRange: (dateRange: DateRange) => ({ dateRange }),
-        setAssignee: (assignee: ErrorTrackingIssue['assignee']) => ({ assignee }),
         setSearchQuery: (searchQuery: string) => ({ searchQuery }),
         setFilterGroup: (filterGroup: UniversalFiltersGroup) => ({ filterGroup }),
         setFilterTestAccounts: (filterTestAccounts: boolean) => ({ filterTestAccounts }),
     }),
     reducers({
         dateRange: [
-            DEFAULT_ERROR_TRACKING_DATE_RANGE as DateRange,
+            DEFAULT_DATE_RANGE as DateRange,
             { persist: true },
             {
                 setDateRange: (_, { dateRange }) => dateRange,
             },
         ],
-        assignee: [
-            null as ErrorTrackingIssueAssignee | null,
-            {
-                setAssignee: (_, { assignee }) => assignee,
-            },
-        ],
         filterGroup: [
-            DEFAULT_ERROR_TRACKING_FILTER_GROUP as UniversalFiltersGroup,
+            DEFAULT_FILTER_GROUP as UniversalFiltersGroup,
             { persist: true },
             {
                 setFilterGroup: (_, { filterGroup }) => filterGroup,
             },
         ],
         filterTestAccounts: [
-            false as boolean,
+            DEFAULT_TEST_ACCOUNT as boolean,
             { persist: true },
             {
                 setFilterTestAccounts: (_, { filterTestAccounts }) => filterTestAccounts,
             },
         ],
         searchQuery: [
-            '' as string,
+            DEFAULT_SEARCH_QUERY as string,
             {
                 setSearchQuery: (_, { searchQuery }) => searchQuery,
             },
         ],
-    }),
-    loaders({
-        hasSentExceptionEvent: {
-            __default: undefined as boolean | undefined,
-            loadExceptionEventDefinition: async (): Promise<boolean> => {
-                const exceptionDefinition = await api.eventDefinitions.list({
-                    event_type: EventDefinitionType.Event,
-                    search: '$exception',
-                })
-                const definition = exceptionDefinition.results.find((r) => r.name === '$exception')
-                return definition ? !isDefinitionStale(definition) : false
-            },
-        },
     }),
 
     urlToAction(({ actions, values }) => {
@@ -97,7 +76,29 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
         }
     }),
 
-    afterMount(({ actions }) => {
-        actions.loadExceptionEventDefinition()
+    actionToUrl(({ values }) => {
+        const buildURL = (): [
+            string,
+            Params,
+            Record<string, any>,
+            {
+                replace: boolean
+            }
+        ] => {
+            return syncSearchParams(router, (params: Params) => {
+                updateSearchParams(params, 'filterTestAccounts', values.filterTestAccounts, DEFAULT_TEST_ACCOUNT)
+                updateSearchParams(params, 'searchQuery', values.searchQuery, DEFAULT_SEARCH_QUERY)
+                updateSearchParams(params, 'filterGroup', values.filterGroup, DEFAULT_FILTER_GROUP)
+                updateSearchParams(params, 'dateRange', values.dateRange, DEFAULT_DATE_RANGE)
+                return params
+            })
+        }
+
+        return {
+            setDateRange: () => buildURL(),
+            setFilterGroup: () => buildURL(),
+            setSearchQuery: () => buildURL(),
+            setFilterTestAccounts: () => buildURL(),
+        }
     }),
 ])

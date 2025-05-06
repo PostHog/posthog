@@ -26,11 +26,10 @@ export interface DomainFormType {
     domain: string
 }
 
-// Using 'any' temporarily until typegen runs
 export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
     path(['products', 'messaging', 'frontend', 'EmailSetup', 'emailSetupModalLogic']),
     props({} as EmailSetupModalLogicProps),
-    key(({ integration }) => (integration ? `messaging-sender-setup-${integration.id}` : 'messaging-sender-setup')),
+    key(({ integration }) => (integration ? `messaging-sender-setup-${integration.id}` : 'messaging-sender-setup-new')),
     connect(() => ({
         values: [integrationsLogic, ['integrations']],
         actions: [integrationsLogic, ['loadIntegrations']],

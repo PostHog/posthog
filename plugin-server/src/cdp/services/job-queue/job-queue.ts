@@ -180,12 +180,10 @@ export class CyclotronJobQueue {
             }
         }
 
-        if (postgresInvocations.length > 0) {
-            await this.jobQueuePostgres.queueInvocations(postgresInvocations)
-        }
-        if (kafkaInvocations.length > 0) {
-            await this.jobQueueKafka.queueInvocations(kafkaInvocations)
-        }
+        await Promise.all([
+            this.jobQueuePostgres.queueInvocations(postgresInvocations),
+            this.jobQueueKafka.queueInvocations(kafkaInvocations),
+        ])
     }
 
     public async queueInvocationResults(invocationResults: HogFunctionInvocationResult[]) {
@@ -222,25 +220,29 @@ export class CyclotronJobQueue {
             ),
         })
 
+        const promises: Promise<any>[] = []
+
         if (postgresInvocationsToUpdate.length > 0) {
-            await this.jobQueuePostgres.queueInvocationResults(postgresInvocationsToUpdate)
+            promises.push(this.jobQueuePostgres.queueInvocationResults(postgresInvocationsToUpdate))
         }
 
         if (postgresInvocationsToCreate.length > 0) {
-            await this.jobQueuePostgres.queueInvocations(postgresInvocationsToCreate.map((x) => x.invocation))
+            promises.push(this.jobQueuePostgres.queueInvocations(postgresInvocationsToCreate.map((x) => x.invocation)))
         }
 
         if (kafkaInvocations.length > 0) {
-            await this.jobQueueKafka.queueInvocationResults(kafkaInvocations)
+            promises.push(this.jobQueueKafka.queueInvocationResults(kafkaInvocations))
 
             const jobsToRelease = kafkaInvocations
                 .filter((x) => x.invocation.queueSource === 'postgres')
                 .map((x) => x.invocation)
 
             if (jobsToRelease.length > 0) {
-                await this.jobQueuePostgres.releaseInvocations(jobsToRelease)
+                promises.push(this.jobQueuePostgres.releaseInvocations(jobsToRelease))
             }
         }
+
+        await Promise.all(promises)
     }
 }
 

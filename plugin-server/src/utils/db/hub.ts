@@ -9,7 +9,6 @@ import { ConnectionOptions } from 'tls'
 
 import { getPluginServerCapabilities } from '../../capabilities'
 import { EncryptedFields } from '../../cdp/encryption-utils'
-import { LegacyOneventCompareService } from '../../cdp/services/legacy-onevent-compare.service'
 import { buildIntegerMatcher, defaultConfig } from '../../config/config'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from '../../config/constants'
 import { CookielessManager } from '../../ingestion/cookieless/cookieless-manager'
@@ -136,7 +135,7 @@ export async function createHub(
 
     const cookielessManager = new CookielessManager(serverConfig, redisPool, teamManager)
 
-    const hub: Omit<Hub, 'legacyOneventCompareService'> = {
+    const hub: Hub = {
         ...serverConfig,
         instanceId,
         capabilities,
@@ -181,10 +180,7 @@ export async function createHub(
     // NOTE: For whatever reason loading at this point is really fast versus lazy loading it when needed
     await hub.geoipService.get()
 
-    return {
-        ...hub,
-        legacyOneventCompareService: new LegacyOneventCompareService(hub as Hub),
-    }
+    return hub
 }
 
 export const closeHub = async (hub: Hub): Promise<void> => {
