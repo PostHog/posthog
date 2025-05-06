@@ -49,7 +49,7 @@ export const messageSendersLogic = kea<messageSendersLogicType>([
                     {
                         key: 'senders',
                         name: 'Senders',
-                        path: urls.messageSenders(),
+                        path: urls.messagingSenders(),
                     },
                 ]
             },

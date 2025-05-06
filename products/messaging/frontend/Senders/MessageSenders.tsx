@@ -18,9 +18,9 @@ function MessageSender({ integration }: { integration: IntegrationType }): JSX.E
 
     const onDeleteClick = (integration: IntegrationType): void => {
         LemonDialog.open({
-            title: `Do you want to disconnect from this ${integration.kind} integration?`,
+            title: `Do you want to disconnect this domain?`,
             description:
-                'This cannot be undone. PostHog resources configured to use this integration will remain but will stop working.',
+                'This cannot be undone. Campaigns and broadcasts configured to use this sender domain will remain but will stop working.',
             primaryButton: {
                 children: 'Yes, disconnect',
                 status: 'danger',
