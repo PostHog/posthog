@@ -1,6 +1,6 @@
 import datetime
 import re
-from typing import Optional
+from typing import Any, Optional
 import os
 from clickhouse_driver import Client
 from posthog.session_recordings.models.metadata import RecordingMetadata
@@ -38,7 +38,7 @@ def _get_production_session_metadata_locally(
     return recording_metadata
 
 
-def _interpolate_events_query(events_query: str, events_values: dict) -> str:
+def _interpolate_events_query(events_query: str, events_values: dict[str, Any] | None) -> str:
     """
     Interpolate events query to get valid CH query.
     """
@@ -47,7 +47,7 @@ def _interpolate_events_query(events_query: str, events_values: dict) -> str:
         if isinstance(v, str):
             safe_v = v.replace("'", "''")
             return f"'{safe_v}'"
-        elif isinstance(v, datetime.datetime | datetime.date):
+        elif isinstance(v, datetime.datetime):
             # Converting into Unix timestamp to avoid timezone issues
             return str(int(v.astimezone(datetime.UTC).timestamp()))
         elif isinstance(v, list):
@@ -58,6 +58,8 @@ def _interpolate_events_query(events_query: str, events_values: dict) -> str:
         else:
             return str(v)
 
+    if not events_values:
+        return events_query
     return events_query.format(**{k: _format_value(v) for k, v in events_values.items()})
 
 
