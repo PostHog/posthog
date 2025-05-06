@@ -1,4 +1,5 @@
 import { DateTime } from 'luxon'
+import { Counter } from 'prom-client'
 
 import { PluginsServerConfig } from '../../types'
 import { logger } from '../../utils/logger'
@@ -10,6 +11,12 @@ import {
     HogFunctionInvocationResult,
     HogFunctionQueueParametersFetchRequest,
 } from '../types'
+
+const cdpHttpRequests = new Counter({
+    name: 'cdp_http_requests',
+    help: 'HTTP requests and their outcomes',
+    labelNames: ['status'],
+})
 
 /**
  * This class is only used by the kafka based queuing system. For the Cyclotron system there is no need for this.
@@ -104,6 +111,8 @@ export class FetchExecutorService {
             const fetchResponse = await fetch(params.url, fetchParams)
             const duration = performance.now() - start
 
+            cdpHttpRequests.inc({ status: fetchResponse.status.toString() })
+
             // Match Rust implementation: Only return response for success status codes (<400)
             if (fetchResponse.status && fetchResponse.status < 400) {
                 return {
@@ -139,6 +148,8 @@ export class FetchExecutorService {
                 return this.handleFetchFailure(invocation, failure, metadata)
             }
         } catch (err) {
+            cdpHttpRequests.inc({ status: 'error' })
+
             let kind: CyclotronFetchFailureKind = 'requesterror'
 
             if (err.message.toLowerCase().includes('timeout')) {
