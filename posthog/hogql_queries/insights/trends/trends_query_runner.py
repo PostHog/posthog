@@ -6,10 +6,9 @@ from operator import itemgetter
 from typing import Any, Optional, Union
 
 from django.conf import settings
-from django.db import models
-from django.db.models.functions import Coalesce
 from natsort import natsorted, ns
 
+from posthog import property_definitions
 from posthog.caching.insights_api import (
     BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL,
     REAL_TIME_INSIGHT_REFRESH_INTERVAL,
@@ -43,7 +42,6 @@ from posthog.models import Team
 from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.models.property_definition import PropertyDefinition
 from posthog.queries.util import correct_result_for_sampling
 from posthog.schema import (
     ActionsNode,
@@ -958,46 +956,27 @@ class TrendsQueryRunner(QueryRunner):
             return False
 
         if breakdown_type == "person":
-            property_type = PropertyDefinition.Type.PERSON
+            property_type = property_definitions.PropertyObjectType.Person
         elif breakdown_type == "group":
-            property_type = PropertyDefinition.Type.GROUP
+            property_type = property_definitions.PropertyObjectType.Group
         else:
-            property_type = PropertyDefinition.Type.EVENT
+            property_type = property_definitions.PropertyObjectType.Event
 
-        field_type = self._event_property(
-            str(breakdown_value),
-            property_type,
-            breakdown_group_type_index,
-        )
+        try:
+            field_type = property_definitions.backend.get_property_type(
+                self.team.pk,
+                property_type,
+                str(breakdown_value),
+                group_type_index=breakdown_group_type_index,
+            )
+        except property_definitions.PropertyDefinitionDoesNotExist:
+            field_type = property_definitions.PropertyValueType.String
 
         return field_type == "Boolean"
 
     def _convert_boolean(self, value: Any):
         bool_map = {1: "true", 0: "false", "": "", "1": "true", "0": "false"}
         return bool_map.get(value) or value
-
-    def _event_property(
-        self,
-        field: str,
-        field_type: PropertyDefinition.Type,
-        group_type_index: Optional[int],
-    ) -> str:
-        try:
-            return (
-                PropertyDefinition.objects.alias(
-                    effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-                )
-                .get(
-                    effective_project_id=self.team.project_id,  # type: ignore
-                    name=field,
-                    type=field_type,
-                    group_type_index=group_type_index if field_type == PropertyDefinition.Type.GROUP else None,
-                )
-                .property_type
-                or "String"
-            )
-        except PropertyDefinition.DoesNotExist:
-            return "String"
 
     # TODO: Move this to posthog/hogql_queries/legacy_compatibility/query_to_filter.py
     def _query_to_filter(self) -> dict[str, Any]:
