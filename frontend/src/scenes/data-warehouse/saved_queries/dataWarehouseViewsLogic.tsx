@@ -71,13 +71,10 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                         sync_frequency?: string
                         lifecycle?: string
                         shouldRematerialize?: boolean
+                        edited_history_id?: string
                     }
                 ) => {
-                    const current_query = values.dataWarehouseSavedQueryMapById[view.id]?.query
-                    const newView = await api.dataWarehouseSavedQueries.update(view.id, {
-                        ...view,
-                        current_query: current_query?.query,
-                    })
+                    const newView = await api.dataWarehouseSavedQueries.update(view.id, view)
                     return values.dataWarehouseSavedQueries.map((savedQuery) => {
                         if (savedQuery.id === view.id) {
                             return newView
@@ -149,7 +146,6 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             }
 
             actions.loadDatabase()
-            lemonToast.success('View updated')
         },
         updateDataWarehouseSavedQueryError: () => {
             lemonToast.error('Failed to update view')

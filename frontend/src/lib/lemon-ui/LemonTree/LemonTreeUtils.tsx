@@ -256,6 +256,7 @@ type DroppableProps = DragAndDropProps & {
     className?: string
     isDragging?: boolean
     isRoot?: boolean
+    style?: CSSProperties
 }
 
 export const TreeNodeDroppable = (props: DroppableProps): JSX.Element => {
@@ -271,6 +272,8 @@ export const TreeNodeDroppable = (props: DroppableProps): JSX.Element => {
                 // If the item is a root item and it's dragging, make it take up the full height
                 props.isRoot && props.isDragging && 'h-full'
             )}
+            // eslint-disable-next-line react/forbid-dom-props
+            style={props.style}
         >
             {props.children}
         </div>
