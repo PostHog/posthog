@@ -124,23 +124,23 @@ function MessageSenders(): JSX.Element {
                 />
             )}
             <div>
-                <div className="deprecated-space-y-2">
-                    {emailIntegrations?.length ? (
-                        emailIntegrations.map((integration) => (
-                            <MessageSender key={integration.id} integration={integration} />
-                        ))
-                    ) : integrationsLoading ? (
-                        <LemonSkeleton className="h-10" />
-                    ) : (
-                        <ProductIntroduction
-                            productName="Email sender"
-                            thingName="sender domain"
-                            description="Configure domains to send emails from. This ensures your emails are delivered to inboxes and not marked as spam."
-                            docsURL="https://posthog.com/docs/messaging"
-                            action={openNewSenderModal}
-                            isEmpty
-                        />
-                    )}
+                <div className="flex flex-col gap-2">
+                    {integrationsLoading && <LemonSkeleton className="h-10" />}
+                    {!integrationsLoading &&
+                        (emailIntegrations?.length ? (
+                            emailIntegrations.map((integration) => (
+                                <MessageSender key={integration.id} integration={integration} />
+                            ))
+                        ) : (
+                            <ProductIntroduction
+                                productName="Email sender"
+                                thingName="sender domain"
+                                description="Configure domains to send emails from. This ensures your emails are delivered to inboxes and not marked as spam."
+                                docsURL="https://posthog.com/docs/messaging"
+                                action={openNewSenderModal}
+                                isEmpty
+                            />
+                        ))}
                 </div>
             </div>
         </div>
