@@ -184,11 +184,12 @@ class Assistant:
                         for message in messages:
                             if isinstance(message, VisualizationMessage):
                                 last_viz_message = message
-                            if update[1] == "custom" and hasattr(message, "id"):
-                                # Custom updates come from tool calls, we want to deduplicate the messages sent to the client.
-                                self._custom_update_ids.add(message.id)
-                            elif message.id in self._custom_update_ids:
-                                continue
+                            if hasattr(message, "id"):
+                                if update[1] == "custom":
+                                    # Custom updates come from tool calls, we want to deduplicate the messages sent to the client.
+                                    self._custom_update_ids.add(message.id)
+                                elif message.id in self._custom_update_ids:
+                                    continue
                             yield self._serialize_message(message)
 
                 # Check if the assistant has requested help.
