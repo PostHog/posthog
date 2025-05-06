@@ -95,7 +95,7 @@ jobs:
                                   let baselineComparison = null
                                   const diffHighlight = Math.abs(value.diff) > 0.01 ? "**" : ""
                                   let diffEmoji = "🆕"
-                                  if (result.comparison_experiment_name) {
+                                  if (result.comparison_experiment_name?.startsWith("master-")) {
                                       baselineComparison = `${diffHighlight}${value.diff > 0 ? "+" : value.diff < 0 ? "" : "±"}${(
                                           value.diff * 100
                                       ).toFixed(2)}%${diffHighlight} versus [baseline (master)](${result.project_url}/experiments/${
