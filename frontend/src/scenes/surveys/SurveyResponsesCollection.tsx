@@ -1,5 +1,6 @@
 import { LemonBanner, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LinkToSurveyFormSection } from 'scenes/surveys/components/LinkToSurveyFormSection'
 import { SurveyEditSection, surveyLogic } from 'scenes/surveys/surveyLogic'
 
@@ -9,15 +10,20 @@ export function SurveyResponsesCollection(): JSX.Element | null {
 
     return (
         <div className="flex flex-col gap-1">
-            <LemonSwitch
-                tooltip="If you enable this, we'll store responses even if the user does not complete the survey. Requires version X.XXX.X or higher of posthog-js."
+            <LemonField.Pure
+                inline
                 label={<h3 className="mb-0">Enable partial responses</h3>}
-                checked={!!survey.enable_partial_responses}
-                onChange={(newValue) => {
-                    setSurveyValue('enable_partial_responses', newValue)
-                }}
-                className="p-0 gap-8"
-            />
+                info="Requires at least version 1.240.0 or higher of posthog-js. Doesn't work with the mobile SDKs for now."
+                htmlFor="enable-partial-responses"
+            >
+                <LemonSwitch
+                    id="enable-partial-responses"
+                    checked={!!survey.enable_partial_responses}
+                    onChange={(newValue) => {
+                        setSurveyValue('enable_partial_responses', newValue)
+                    }}
+                />
+            </LemonField.Pure>
             {survey.appearance?.shuffleQuestions && survey.enable_partial_responses && (
                 <LemonBanner type="info" hideIcon>
                     <h3 className="mb-0">Shuffle questions does not work with partial responses.</h3>
