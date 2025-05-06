@@ -111,7 +111,7 @@ class SessionReplayEvents:
             )
         )
         return query
-    
+
     @staticmethod
     def build_recording_metadata(session_id: str, replay_response: list[tuple]) -> Optional[RecordingMetadata]:
         if len(replay_response) == 0:
@@ -156,7 +156,6 @@ class SessionReplayEvents:
     def get_events_query(
         self,
         session_id: str,
-        team: Team,
         metadata: RecordingMetadata,
         # Optional, to avoid modifying the existing behavior
         events_to_ignore: list[str] | None = None,
@@ -216,7 +215,7 @@ class SessionReplayEvents:
         from posthog.schema import HogQLQueryResponse
         from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 
-        hq = self.get_events_query(session_id, team, metadata, events_to_ignore, extra_fields, limit, page)
+        hq = self.get_events_query(session_id, metadata, events_to_ignore, extra_fields, limit, page)
         result: HogQLQueryResponse = HogQLQueryRunner(
             team=team,
             query=hq,
