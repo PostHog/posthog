@@ -425,6 +425,10 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                 onItemChecked={onItemChecked}
                 checkedItemCount={checkedItemCountNumeric}
                 onNodeClick={(node) => {
+                    if (node?.type === 'empty-folder' || node?.type === 'loading-indicator') {
+                        return
+                    }
+
                     if (!isLayoutPanelPinned || projectTreeMode === 'table') {
                         clearActivePanelIdentifier()
                         showLayoutPanel(false)
@@ -614,7 +618,6 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                                                     'starting:opacity-0 opacity-100 delay-50 motion-safe:transition-opacity duration-100 font-normal truncate',
                                                     {
                                                         'font-normal': index > 1,
-                                                        // 'opacity-0': index !== 1 && isEmptyFolder,
                                                     }
                                                 )}
                                             >
