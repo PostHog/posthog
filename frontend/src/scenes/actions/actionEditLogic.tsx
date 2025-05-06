@@ -179,12 +179,12 @@ export const actionEditLogic = kea<actionEditLogicType>([
                             refreshTreeItem('action', String(actionId))
                         } else {
                             actions.resetAction()
+                            deleteFromTree('action', String(actionId))
                             router.actions.push(urls.actions())
                             actions.loadActions()
                         }
                     },
                 })
-                deleteFromTree('action', String(actionId))
             } catch (e: any) {
                 lemonToast.error(`Error deleting action: ${e.detail}`)
             }

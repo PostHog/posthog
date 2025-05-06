@@ -250,14 +250,17 @@ export const cohortsModel = kea<cohortsModelType>([
             await deleteWithUndo({
                 endpoint: api.cohorts.determineDeleteEndpoint(),
                 object: cohort,
-                callback: () => {
+                callback: (undo) => {
                     actions.loadCohorts()
-                    refreshTreeItem('cohort', String(cohort.id))
+                    if (cohort.id && cohort.id !== 'new') {
+                        if (undo) {
+                            refreshTreeItem('cohort', String(cohort.id))
+                        } else {
+                            deleteFromTree('cohort', String(cohort.id))
+                        }
+                    }
                 },
             })
-            if (cohort.id && cohort.id !== 'new') {
-                deleteFromTree('cohort', String(cohort.id))
-            }
         },
         setCohortFilters: async () => {
             if (!router.values.location.pathname.includes(urls.cohorts())) {
