@@ -856,8 +856,8 @@ class TestFileSystemAPI(APIBaseTest):
 
         # created_at matches (ignore possible micro-second differences)
         self.assertEqual(
-            timezone.make_naive(fs.created_at, timezone.utc).replace(microsecond=0),
-            timezone.make_naive(flag.created_at, timezone.utc).replace(microsecond=0),
+            timezone.make_naive(fs.created_at, UTC).replace(microsecond=0),
+            timezone.make_naive(flag.created_at, UTC).replace(microsecond=0),
         )
         self.assertEqual(fs.created_by_id, flag.created_by_id)
 
