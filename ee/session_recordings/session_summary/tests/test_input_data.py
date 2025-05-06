@@ -8,7 +8,7 @@ from ee.session_recordings.session_summary.input_data import (
     _get_improved_elements_chain_texts,
     _get_improved_elements_chain_elements,
     add_context_and_filter_events,
-    _get_paginated_session_events,
+    get_session_events,
 )
 from posthog.session_recordings.models.metadata import RecordingMetadata
 
@@ -312,7 +312,7 @@ def test_get_paginated_session_events(
         mock_instance.get_events.side_effect = processed_pages_data
         if expected_error:
             with pytest.raises(expected_error):
-                _get_paginated_session_events(
+                get_session_events(
                     session_id=mock_metadata["distinct_id"],
                     session_metadata=mock_metadata,
                     team=MagicMock(),
@@ -320,7 +320,7 @@ def test_get_paginated_session_events(
                     items_per_page=items_per_page,
                 )
             return
-        result_columns, events = _get_paginated_session_events(
+        result_columns, events = get_session_events(
             session_id=mock_metadata["distinct_id"],
             session_metadata=mock_metadata,
             team=MagicMock(),

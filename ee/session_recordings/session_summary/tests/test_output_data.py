@@ -308,8 +308,8 @@ class TestEnrichRawSessionSummary:
         assert segment_with_missing_end_id["meta"] is not None
         assert segment_with_missing_end_id["meta"]["duration"] == 4
         assert segment_with_missing_end_id["meta"]["events_count"] == 2
-        assert segment_with_missing_end_id["meta"]["duration_percentage"] == 0.0007514559458951719
-        assert segment_with_missing_end_id["meta"]["events_percentage"] == 0.33333333333333333
+        assert segment_with_missing_end_id["meta"]["duration_percentage"] == 0.0008
+        assert segment_with_missing_end_id["meta"]["events_percentage"] == 0.3333
 
     def test_enrich_raw_session_summary_invalid_schema(
         self,
