@@ -1,4 +1,4 @@
-from datetime import datetime
+import datetime
 import re
 from typing import Optional, cast
 import os
@@ -6,8 +6,6 @@ from clickhouse_driver import Client
 
 from ee.session_recordings.session_summary.utils import (
     get_column_index,
-    load_session_metadata_from_json,
-    load_session_recording_events_from_csv,
 )
 from posthog.session_recordings.models.metadata import RecordingMetadata
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
@@ -16,14 +14,24 @@ from posthog.models import Team
 EXTRA_SUMMARY_EVENT_FIELDS = ["elements_chain_ids", "elements_chain"]
 
 
+def _get_ch_client_local_reads_prod() -> Client:
+    return Client(
+        host=os.environ["LOCAL_READS_PROD_CLICKHOUSE_US_HOST"],
+        user=os.environ["LOCAL_READS_PROD_CLICKHOUSE_US_USER"],
+        password=os.environ["LOCAL_READS_PROD_CLICKHOUSE_US_PASSWORD"],
+        secure=True,
+        verify=False,
+    )
+
+
 def _get_production_session_metadata_locally(
-    events_obj: SessionReplayEvents, session_id: str, team: Team, recording_start_time: Optional[datetime] = None
+    events_obj: SessionReplayEvents,
+    session_id: str,
+    team: Team,
+    recording_start_time: Optional[datetime.datetime] = None,
 ) -> RecordingMetadata | None:
     query = events_obj.get_metadata_query(recording_start_time)
-    host = os.environ["LOCAL_READS_PROD_CLICKHOUSE_US_HOST"]
-    user = os.environ["LOCAL_READS_PROD_CLICKHOUSE_US_USER"]
-    password = os.environ["LOCAL_READS_PROD_CLICKHOUSE_US_PASSWORD"]
-    client = Client(host=host, user=user, password=password, secure=True)
+    client = _get_ch_client_local_reads_prod()
     replay_response = client.execute(
         query,
         {
@@ -47,22 +55,72 @@ def get_session_metadata(session_id: str, team: Team, local_reads_prod: bool = F
     return session_metadata
 
 
+def _interpolate_events_query(events_query: str, events_values: dict) -> str:
+    """
+    Interpolate events query to get valid CH query.
+    """
+
+    def _format_value(v):
+        if isinstance(v, str):
+            safe_v = v.replace("'", "''")
+            return f"'{safe_v}'"
+        elif isinstance(v, datetime.datetime | datetime.date):
+            # Converting into Unix timestamp to avoid timezone issues
+            return str(int(v.astimezone(datetime.UTC).timestamp()))
+        elif isinstance(v, list):
+            # ClickHouse expects arrays as (val1, val2, ...)
+            return "(" + ", ".join(_format_value(x) for x in v) + ")"
+        elif v is None:
+            return "NULL"
+        else:
+            return str(v)
+
+    return events_query.format(**{k: _format_value(v) for k, v in events_values.items()})
+
+
+def _rewrite_properties_fields(query: str) -> str:
+    """
+    Rewrite properties.$field format to extract string from JSON.
+    """
+
+    def _replacer(match):
+        field = match.group(1)
+        return f"JSONExtractString(properties, '${field}') AS {field}"
+
+    select_match = re.search(r"SELECT\s+(.*?)\s+FROM", query, re.DOTALL | re.IGNORECASE)
+    if not select_match:
+        return query
+    select_clause = select_match.group(1)
+    new_select = re.sub(r"properties\.\$([a-zA-Z0-9_]+)", _replacer, select_clause)
+    return query.replace(select_clause, new_select, 1)
+
+
 def _get_production_session_events_locally(
     events_obj: SessionReplayEvents,
     session_id: str,
-    team: Team,
     metadata: RecordingMetadata,
+    limit: int,
+    page: int,
     events_to_ignore: list[str] | None = None,
     extra_fields: list[str] | None = None,
-    limit: int | None = None,
-    page: int = 0,
 ) -> tuple[list | None, list | None]:
     """
     Get session events from production, locally, required for testing session summary
     """
-    hq = events_obj.get_events_query(session_id, team, metadata, events_to_ignore, extra_fields, limit, page)
-    pass
-    print("")
+    hq = events_obj.get_events_query(
+        session_id=session_id,
+        metadata=metadata,
+        events_to_ignore=events_to_ignore,
+        extra_fields=extra_fields,
+        limit=limit,
+        page=page,
+    )
+    query = _rewrite_properties_fields(hq.query)
+    interpolated_query = _interpolate_events_query(query, hq.values)
+    client = _get_ch_client_local_reads_prod()
+    rows, columns_with_types = client.execute(interpolated_query, with_column_types=True)
+    columns = [col for col, _ in columns_with_types]
+    return columns, rows
 
 
 def get_session_events(
@@ -76,7 +134,7 @@ def get_session_events(
     # TODO: Move to a config
     max_pages: int = 2,
     items_per_page: int = 3000,
-) -> tuple[list[str], list[tuple[str | datetime | list[str] | None, ...]]]:
+) -> tuple[list[str], list[tuple[str | datetime.datetime | list[str] | None, ...]]]:
     """
     Get session events with pagination to handle large sessions.
     Returns combined results from all pages up to max_pages.
@@ -102,7 +160,6 @@ def get_session_events(
             page_columns, page_events = _get_production_session_events_locally(
                 events_obj=events_obj,
                 session_id=str(session_id),
-                team=team,
                 metadata=session_metadata,
                 events_to_ignore=events_to_ignore,
                 extra_fields=extra_fields,
@@ -129,7 +186,7 @@ def get_session_events(
 
 
 def _skip_event_without_context(
-    event_row: list[str | datetime | list[str] | None],
+    event_row: list[str | datetime.datetime | list[str] | None],
     # Using indexes as argument to avoid calling get_column_index on each event row
     indexes: dict[str, int],
 ) -> bool:
@@ -158,8 +215,8 @@ def _skip_event_without_context(
 
 
 def add_context_and_filter_events(
-    session_events_columns: list[str], session_events: list[tuple[str | datetime | list[str] | None, ...]]
-) -> tuple[list[str], list[tuple[str | datetime | list[str] | None, ...]]]:
+    session_events_columns: list[str], session_events: list[tuple[str | datetime.datetime | list[str] | None, ...]]
+) -> tuple[list[str], list[tuple[str | datetime.datetime | list[str] | None, ...]]]:
     indexes = {
         "event": get_column_index(session_events_columns, "event"),
         "$event_type": get_column_index(session_events_columns, "$event_type"),
@@ -174,7 +231,7 @@ def add_context_and_filter_events(
         chain = event[indexes["elements_chain"]]
         if not isinstance(chain, str):
             raise ValueError(f"Elements chain is not a string: {chain}")
-        updated_event: list[str | datetime | list[str] | None] = list(event)
+        updated_event: list[str | datetime.datetime | list[str] | None] = list(event)
         if not chain:
             # If no chain - no additional context will come, so it's ok to check if to skip right away
             if _skip_event_without_context(updated_event, indexes):
