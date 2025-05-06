@@ -1,5 +1,6 @@
 from datetime import datetime
 from unittest import mock
+import re
 
 import pytest
 from freezegun import freeze_time
@@ -46,23 +47,6 @@ def pageview_volumes():
         24: 500000,
         25: 600000,
     }
-
-
-@pytest.fixture
-def mock_clickhouse_cluster(pageview_volumes):
-    mock_cluster = mock.MagicMock()
-    mock_cluster.map_all_hosts.return_value.result.return_value = {"host1": True}
-
-    mock_client = mock.MagicMock()
-    mock_client.execute.return_value = list(pageview_volumes.items())
-
-    def any_host_side_effect(fn):
-        result_mock = mock.MagicMock()
-        result_mock.result.return_value = fn(mock_client)
-        return result_mock
-
-    mock_cluster.any_host.side_effect = any_host_side_effect
-    return mock_cluster
 
 
 class TestWebAnalyticsUtils:
@@ -158,7 +142,7 @@ class TestWebAnalyticsUtils:
 class TestWebAnalyticsClickhouse:
     """Tests for ClickHouse database operations related to web analytics tables and queries."""
 
-    def test_get_team_pageview_volumes_fetches_data(self, mock_clickhouse_cluster):
+    def test_get_team_pageview_volumes_fetches_data(self):
         mock_client = mock.MagicMock()
         mock_client.execute.return_value = [(5, 100), (13, 5000), (25, 600000)]
 
@@ -274,14 +258,20 @@ class TestSqlGeneration:
     """Tests for SQL generation used in web analytics processing, ensuring correct query formatting."""
 
     def test_batch_team_ids_included_in_sql(self, pageview_volumes):
+        """Test that team IDs are correctly included in the generated SQL."""
         # Increased target_batch_size to handle the largest team's volume (600000)
         target_batch_size = 1_000_000
-
         batches = split_teams_in_batches(pageview_volumes, target_batch_size)
+
+        # With this batch size, we should get at least 2 batches
         assert len(batches) >= 2
 
-        for batch in batches[:2]:  # Check at least two batches
+        # Test the SQL generation for the first two batches
+        for _, batch in enumerate(batches[:2]):
+            # Format the team IDs for SQL
             team_ids_list = format_team_ids(batch)
+
+            # Generate the SQL
             sql = WEB_OVERVIEW_INSERT_SQL(
                 date_start="2025-01-08 00:00:00",
                 date_end="2025-01-15 00:00:00",
@@ -291,22 +281,21 @@ class TestSqlGeneration:
                 table_name="web_overview_daily",
             )
 
-            # Extract the actual team IDs from the SQL
-            import re
-
+            # Find all occurrences of team_id IN(...) in the SQL
             team_id_matches = re.findall(r"e\.team_id IN\((.*?)\)", sql)
-            if team_id_matches:
-                actual_team_ids = team_id_matches[0]
-                # Check that some team IDs are included in the SQL
-                assert actual_team_ids != ""
-                # Check that the same team IDs are used in both places
-                person_team_id_matches = re.findall(r"person_distinct_id_overrides\.team_id IN\((.*?)\)", sql)
-                assert person_team_id_matches[0] == actual_team_ids
-            else:
-                # If no match, the SQL is not formed correctly
-                raise AssertionError("Team IDs not found in SQL")
 
-            assert sum(pageview_volumes.get(t, 1) for t in batch) <= target_batch_size
+            # Verify team IDs are in the SQL
+            assert team_id_matches, "SQL should contain team_id IN clause"
+            actual_team_ids = team_id_matches[0]
+            assert actual_team_ids != "", "Team IDs list should not be empty"
+
+            # Verify the same team IDs are used in both places
+            person_team_id_matches = re.findall(r"person_distinct_id_overrides\.team_id IN\((.*?)\)", sql)
+            assert person_team_id_matches[0] == actual_team_ids, "Team IDs should be consistent across SQL clauses"
+
+            # Verify the batch volume is within the target limit
+            batch_volume = sum(pageview_volumes.get(t, 1) for t in batch)
+            assert batch_volume <= target_batch_size, f"Batch volume {batch_volume} exceeds target {target_batch_size}"
 
     def test_single_huge_batch_sql_generation(self, pageview_volumes):
         """Test SQL generation with a very large target size, creating a single batch with all teams."""
@@ -360,8 +349,6 @@ class TestSqlGeneration:
             )
 
             # Extract the actual team IDs from the SQL
-            import re
-
             team_id_matches = re.findall(r"e\.team_id IN\((.*?)\)", sql)
             if team_id_matches:
                 actual_team_ids = team_id_matches[0]

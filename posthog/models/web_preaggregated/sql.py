@@ -178,7 +178,7 @@ def WEB_OVERVIEW_INSERT_SQL(
 def WEB_STATS_INSERT_SQL(
     date_start, date_end, team_ids=None, timezone="UTC", settings="", table_name="web_stats_daily"
 ):
-    team_ids_str = format_team_ids(team_ids) if team_ids else ""
+    team_ids_str = format_team_ids(team_ids)
     team_filter = f"raw_sessions.team_id IN({team_ids_str})" if team_ids else "1=1"
     person_team_filter = f"person_distinct_id_overrides.team_id IN({team_ids_str})" if team_ids else "1=1"
     events_team_filter = f"e.team_id IN({team_ids_str})" if team_ids else "1=1"
