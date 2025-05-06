@@ -1248,7 +1248,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     @patch("ee.hogai.graph.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model")
     @patch("ee.hogai.graph.rag.nodes.InsightRagContextNode.run")
     @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
-    def test_contextual_tool_call_with_tool_call_message_update(
+    def test_create_and_query_insight_contextual_tool(
         self, root_mock, rag_mock, planner_mock, generator_mock, query_executor_mock
     ):
         def root_side_effect(prompt: ChatPromptValue):
