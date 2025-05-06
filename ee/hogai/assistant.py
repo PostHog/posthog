@@ -158,7 +158,7 @@ class Assistant:
         state = self._init_or_update_state()
         config = self._get_config()
         generator: Iterator[Any] = self._graph.stream(
-            state, config=config, stream_mode=["messages", "values", "updates", "debug"], subgraphs=True
+            state, config=config, stream_mode=["messages", "values", "updates", "debug", "custom"], subgraphs=True
         )
 
         with self._lock_conversation():
@@ -345,6 +345,9 @@ class Assistant:
                 return None
 
     def _process_update(self, update: Any) -> BaseModel | None:
+        if update[1] == "custom":
+            # Custom streams come from a tool call
+            update = update[2]
         update = update[1:]  # we remove the first element, which is the node/subgraph node name
         if is_state_update(update):
             _, new_state = update

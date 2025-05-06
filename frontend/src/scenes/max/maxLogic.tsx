@@ -242,10 +242,12 @@ export const maxLogic = kea<maxLogicType>([
                                 for (const [toolName, toolResult] of Object.entries(parsedResponse.ui_payload)) {
                                     values.toolMap[toolName]?.callback(toolResult)
                                 }
-                                actions.addMessage({
-                                    ...parsedResponse,
-                                    status: 'completed',
-                                })
+                                if (parsedResponse.visible) {
+                                    actions.addMessage({
+                                        ...parsedResponse,
+                                        status: 'completed',
+                                    })
+                                }
                             } else if (values.threadRaw[values.threadRaw.length - 1].status === 'completed') {
                                 actions.addMessage({
                                     ...parsedResponse,

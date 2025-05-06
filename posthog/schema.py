@@ -65,6 +65,7 @@ class AssistantContextualTool(StrEnum):
     SEARCH_SESSION_RECORDINGS = "search_session_recordings"
     GENERATE_HOGQL_QUERY = "generate_hogql_query"
     FIX_HOGQL_QUERY = "fix_hogql_query"
+    CREATE_AND_QUERY_INSIGHT = "create_and_query_insight"
 
 
 class AssistantDateRange(BaseModel):
@@ -242,6 +243,7 @@ class AssistantToolCallMessage(BaseModel):
             " without a ui_payload are not passed through to the frontend."
         ),
     )
+    visible: Optional[bool] = None
 
 
 class AssistantTrendsDisplayType(RootModel[Union[str, Any]]):
@@ -1740,6 +1742,7 @@ class RootAssistantMessage1(BaseModel):
             " without a ui_payload are not passed through to the frontend."
         ),
     )
+    visible: Optional[bool] = None
 
 
 class SamplingRate(BaseModel):
