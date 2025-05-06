@@ -2,7 +2,6 @@ import { createServer } from 'http'
 import { AddressInfo } from 'net'
 
 import { logger } from '~/src/utils/logger'
-import { SecureRequestError } from '~/src/utils/request'
 
 import { defaultConfig } from '../../config/config'
 import { promisifyCallback } from '../../utils/utils'
@@ -184,6 +183,8 @@ describe('FetchExecutorService', () => {
                 },
             ],
         })
+
+        process.env.NODE_ENV = 'test'
     })
 
     it('handles timeouts', async () => {
