@@ -8,13 +8,13 @@ from typing import Literal, Optional, TypedDict, Union, cast
 
 from pydantic import BaseModel, Field, RootModel, field_validator
 
+from posthog import property_definitions
 from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES
 from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import ActorsPropertyTaxonomyQueryRunner
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Action, Team
 from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.models.property_definition import PropertyDefinition, PropertyType
 from posthog.schema import (
     ActorsPropertyTaxonomyQuery,
     CachedActorsPropertyTaxonomyQueryResponse,
@@ -304,10 +304,12 @@ class TaxonomyAgentToolkit(ABC):
             return f"Entity {entity} does not exist in the taxonomy."
 
         if entity == "person":
-            qs = PropertyDefinition.objects.filter(team=self._team, type=PropertyDefinition.Type.PERSON).values_list(
-                "name", "property_type"
+            props = self._enrich_props_with_descriptions(
+                "person",
+                property_definitions.backend.get_property_types(
+                    self._team.pk, property_definitions.PropertyObjectType.Person
+                ),
             )
-            props = self._enrich_props_with_descriptions("person", qs)
         elif entity == "session":
             # Session properties are not in the DB.
             props = self._enrich_props_with_descriptions(
@@ -324,10 +326,14 @@ class TaxonomyAgentToolkit(ABC):
             )
             if group_type_index is None:
                 return f"Group {entity} does not exist in the taxonomy."
-            qs = PropertyDefinition.objects.filter(
-                team=self._team, type=PropertyDefinition.Type.GROUP, group_type_index=group_type_index
-            ).values_list("name", "property_type")
-            props = self._enrich_props_with_descriptions(entity, qs)
+            props = self._enrich_props_with_descriptions(
+                entity,
+                property_definitions.backend.get_property_types(
+                    self._team.pk,
+                    property_definitions.PropertyObjectType.Group,
+                    group_type_index=group_type_index,
+                ),
+            )
 
         if not props:
             return f"Properties do not exist in the taxonomy for the entity {entity}."
@@ -364,10 +370,13 @@ class TaxonomyAgentToolkit(ABC):
             return f"Properties do not exist in the taxonomy for the {verbose_name}."
 
         # Intersect properties with their types.
-        qs = PropertyDefinition.objects.filter(
-            team=self._team, type=PropertyDefinition.Type.EVENT, name__in=[item.property for item in response.results]
+        property_to_type = dict(
+            property_definitions.backend.get_property_types(
+                self._team.pk,
+                property_definitions.PropertyObjectType.Event,
+                names=[item.property for item in response.results],
+            )
         )
-        property_to_type = {property_definition.name: property_definition.property_type for property_definition in qs}
         props = [
             (item.property, property_to_type.get(item.property))
             for item in response.results
@@ -410,10 +419,10 @@ class TaxonomyAgentToolkit(ABC):
 
     def retrieve_event_or_action_property_values(self, event_name_or_action_id: str | int, property_name: str) -> str:
         try:
-            property_definition = PropertyDefinition.objects.get(
-                team=self._team, name=property_name, type=PropertyDefinition.Type.EVENT
+            property_type = property_definitions.backend.get_property_type(
+                self._team.pk, property_definitions.PropertyObjectType.Event, property_name
             )
-        except PropertyDefinition.DoesNotExist:
+        except property_definitions.PropertyDefinitionDoesNotExist:
             return f"The property {property_name} does not exist in the taxonomy."
 
         response, verbose_name = self._retrieve_event_or_action_taxonomy(event_name_or_action_id)
@@ -429,7 +438,8 @@ class TaxonomyAgentToolkit(ABC):
         return self._format_property_values(
             prop.sample_values,
             prop.sample_count,
-            format_as_string=property_definition.property_type in (PropertyType.String, PropertyType.Datetime),
+            format_as_string=property_type
+            in (property_definitions.PropertyValueType.String, property_definitions.PropertyValueType.Datetime),
         )
 
     def _retrieve_session_properties(self, property_name: str) -> str:
@@ -451,7 +461,8 @@ class TaxonomyAgentToolkit(ABC):
             sample_values = CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"][property_name]["examples"]
             sample_count = None
             is_str = (
-                CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"][property_name]["type"] == PropertyType.String
+                CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"][property_name]["type"]
+                == property_definitions.PropertyValueType.String
             )
         else:
             return f"Property values for {property_name} do not exist in the taxonomy for the session entity."
@@ -477,19 +488,16 @@ class TaxonomyAgentToolkit(ABC):
 
         try:
             if query.group_type_index is not None:
-                prop_type = PropertyDefinition.Type.GROUP
+                prop_type = property_definitions.PropertyObjectType.Group
                 group_type_index = query.group_type_index
             else:
-                prop_type = PropertyDefinition.Type.PERSON
+                prop_type = property_definitions.PropertyObjectType.Person
                 group_type_index = None
 
-            property_definition = PropertyDefinition.objects.get(
-                team=self._team,
-                name=property_name,
-                type=prop_type,
-                group_type_index=group_type_index,
+            property_type = property_definitions.backend.get_property_type(
+                self._team.pk, prop_type, property_name, group_type_index=group_type_index
             )
-        except PropertyDefinition.DoesNotExist:
+        except property_definitions.PropertyDefinitionDoesNotExist:
             return f"The property {property_name} does not exist in the taxonomy for the entity {entity}."
 
         response = ActorsPropertyTaxonomyQueryRunner(query, self._team).run(
@@ -505,7 +513,8 @@ class TaxonomyAgentToolkit(ABC):
         return self._format_property_values(
             response.results.sample_values,
             response.results.sample_count,
-            format_as_string=property_definition.property_type in (PropertyType.String, PropertyType.Datetime),
+            format_as_string=property_type
+            in (property_definitions.PropertyValueType.String, property_definitions.PropertyValueType.Datetime),
         )
 
     def handle_incorrect_response(self, response: str) -> str:
