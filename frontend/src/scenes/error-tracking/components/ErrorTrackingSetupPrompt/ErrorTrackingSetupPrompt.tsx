@@ -7,10 +7,10 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductKey } from '~/types'
 
-import { errorTrackingLogic } from './errorTrackingLogic'
+import { errorIngestionLogic } from './errorIngestionLogic'
 
 export const ErrorTrackingSetupPrompt = ({ children }: { children: React.ReactNode }): JSX.Element => {
-    const { hasSentExceptionEvent, hasSentExceptionEventLoading } = useValues(errorTrackingLogic)
+    const { hasSentExceptionEvent, hasSentExceptionEventLoading } = useValues(errorIngestionLogic)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const exceptionAutocaptureEnabled = currentTeam && currentTeam.autocapture_exceptions_opt_in
 

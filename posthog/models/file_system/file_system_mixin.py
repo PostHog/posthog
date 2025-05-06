@@ -95,7 +95,8 @@ class FileSystemSyncMixin(Model):
                         ref=fs_data.ref,
                         href=fs_data.href,
                         meta=fs_data.meta,
-                        created_by=getattr(instance, "created_by", None),
+                        created_at=fs_data.meta.get("created_at") or getattr(instance, "created_at", None),
+                        created_by_id=fs_data.meta.get("created_by") or getattr(instance, "created_by_id", None),
                     )
             except Exception as e:
                 # Don't raise exceptions in signals
