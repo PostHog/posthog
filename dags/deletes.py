@@ -475,7 +475,7 @@ def delete_team_data(
     table_name,
     load_and_verify_deletes_dictionary: PendingDeletesDictionary,
 ) -> tuple[PendingDeletesDictionary, ShardMutations]:
-    """Delete events from sharded_events table for persons pending deletion."""
+    """Delete data from the specified table for teams pending deletion."""
 
     def count_pending_deletes(client: Client) -> int:
         result = client.execute(
