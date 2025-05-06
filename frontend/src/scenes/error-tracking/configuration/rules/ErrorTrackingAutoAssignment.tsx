@@ -2,11 +2,11 @@ import { LemonCard, LemonDivider } from '@posthog/lemon-ui'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import ErrorTrackingRules from './ErrorTrackingRules'
-import { ErrorTrackingAssignmentRule } from './types'
+import { ErrorTrackingAssignmentRule, ErrorTrackingRuleType } from './types'
 
 export function ErrorTrackingAutoAssignment(): JSX.Element {
     return (
-        <ErrorTrackingRules<ErrorTrackingAssignmentRule> ruleType="assignment_rules">
+        <ErrorTrackingRules<ErrorTrackingAssignmentRule> ruleType={ErrorTrackingRuleType.Assignment}>
             {({ rule, editable }) => {
                 return (
                     <LemonCard key={rule.id} hoverEffect={false} className="flex flex-col p-0">

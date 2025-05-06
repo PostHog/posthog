@@ -541,6 +541,7 @@ class ErrorTrackingSuppressionRuleSerializer(serializers.ModelSerializer):
         fields = ["id", "filters", "order_key"]
         read_only_fields = ["team_id"]
 
+
 class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "error_tracking"
     queryset = ErrorTrackingSuppressionRule.objects.all()

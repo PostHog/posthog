@@ -2,11 +2,11 @@ import { LemonCard, LemonDivider } from '@posthog/lemon-ui'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import ErrorTrackingRules from './ErrorTrackingRules'
-import { ErrorTrackingSuppressionRule } from './types'
+import { ErrorTrackingRuleType, ErrorTrackingSuppressionRule } from './types'
 
 export function ErrorTrackingClientSideSuppression(): JSX.Element {
     return (
-        <ErrorTrackingRules<ErrorTrackingSuppressionRule> ruleType="suppression_rules">
+        <ErrorTrackingRules<ErrorTrackingSuppressionRule> ruleType={ErrorTrackingRuleType.Suppression}>
             {({ rule, editable }) => {
                 return (
                     <LemonCard key={rule.id} hoverEffect={false} className="flex flex-col p-0">
