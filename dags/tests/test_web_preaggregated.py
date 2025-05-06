@@ -6,14 +6,14 @@ from freezegun import freeze_time
 
 from dags.web_preaggregated import (
     get_team_pageview_volumes,
-    get_batches_per_pageview_volume,
+    split_teams_in_batches,
     web_overview_daily,
     web_stats_daily,
     WEB_ANALYTICS_DATE_PARTITION_DEFINITION,
-    WEB_OVERVIEW_INSERT_SQL,
+)
+from posthog.models.web_preaggregated.sql import (
     format_team_ids,
-    BatchMetrics,
-    ExecutionSummary,
+    WEB_OVERVIEW_INSERT_SQL,
 )
 
 
@@ -38,400 +38,34 @@ def safe_context(request):
 
 @pytest.fixture
 def pageview_volumes():
-    return dict(
-        enumerate(
-            [
-                10,
-                20,
-                30,
-                40,
-                50,
-                200,
-                350,
-                500,
-                750,
-                1000,
-                2000,
-                3500,
-                5000,
-                7500,
-                10000,
-                20000,
-                40000,
-                60000,
-                80000,
-                100000,
-                200000,
-                300000,
-                400000,
-                500000,
-                600000,
-            ],
-            start=1,
-        )
-    )
-
-
-class TestBatchMetrics:
-    """Tests for the BatchMetrics class that handles metrics collection and calculations."""
-
-    def test_batch_metrics_initialization(self):
-        """Test that BatchMetrics initializes with default values."""
-        metrics = BatchMetrics()
-        assert metrics.rows_deleted == 0
-        assert metrics.rows_inserted == 0
-        assert metrics.bytes_processed == 0
-        assert metrics.query_duration_ms == 0
-        assert metrics.delete_duration_ms == 0
-        assert metrics.insert_duration_ms == 0
-        assert metrics.batch_duration_ms == 0
-
-    def test_batch_metrics_from_dict(self):
-        """Test creating BatchMetrics from a dictionary."""
-        metrics_dict = {
-            "rows_deleted": 10,
-            "rows_inserted": 100,
-            "bytes_processed": 1024,
-            "query_duration_ms": 500,
-            "delete_duration_ms": 200,
-            "insert_duration_ms": 300,
-            "batch_duration_ms": 550,
-        }
-        
-        metrics = BatchMetrics.from_dict(metrics_dict)
-        
-        assert metrics.rows_deleted == 10
-        assert metrics.rows_inserted == 100
-        assert metrics.bytes_processed == 1024
-        assert metrics.query_duration_ms == 500
-        assert metrics.delete_duration_ms == 200
-        assert metrics.insert_duration_ms == 300
-        assert metrics.batch_duration_ms == 550
-
-    def test_batch_metrics_to_dict(self):
-        """Test converting BatchMetrics to a dictionary."""
-        metrics = BatchMetrics(
-            rows_deleted=15,
-            rows_inserted=150,
-            bytes_processed=2048,
-            query_duration_ms=600,
-            delete_duration_ms=250,
-            insert_duration_ms=350,
-            batch_duration_ms=650,
-        )
-        
-        metrics_dict = metrics.to_dict()
-        
-        assert metrics_dict["rows_deleted"] == 15
-        assert metrics_dict["rows_inserted"] == 150
-        assert metrics_dict["bytes_processed"] == 2048
-        assert metrics_dict["query_duration_ms"] == 600
-        assert metrics_dict["delete_duration_ms"] == 250
-        assert metrics_dict["insert_duration_ms"] == 350
-        assert metrics_dict["batch_duration_ms"] == 650
-
-    def test_add_batch_metrics(self):
-        """Test adding two BatchMetrics instances together."""
-        metrics1 = BatchMetrics(
-            rows_deleted=10,
-            rows_inserted=100,
-            bytes_processed=1024,
-            query_duration_ms=500,
-            delete_duration_ms=200,
-            insert_duration_ms=300,
-            batch_duration_ms=550,
-        )
-        
-        metrics2 = BatchMetrics(
-            rows_deleted=20,
-            rows_inserted=200,
-            bytes_processed=2048,
-            query_duration_ms=700,
-            delete_duration_ms=300,
-            insert_duration_ms=400,
-            batch_duration_ms=750,
-        )
-        
-        metrics1.add(metrics2)
-        
-        assert metrics1.rows_deleted == 30
-        assert metrics1.rows_inserted == 300
-        assert metrics1.bytes_processed == 3072
-        assert metrics1.query_duration_ms == 1200
-        assert metrics1.delete_duration_ms == 500
-        assert metrics1.insert_duration_ms == 700
-        assert metrics1.batch_duration_ms == 1300
-
-    def test_aggregate_from_hosts(self):
-        """Test aggregating metrics from multiple hosts."""
-        host_metrics = {
-            "host1": {
-                "rows_deleted": 10,
-                "rows_inserted": 100,
-                "bytes_processed": 1024,
-                "query_duration_ms": 500,
-                "delete_duration_ms": 200,
-                "insert_duration_ms": 300,
-            },
-            "host2": {
-                "rows_deleted": 20,
-                "rows_inserted": 200,
-                "bytes_processed": 2048,
-                "query_duration_ms": 700,
-                "delete_duration_ms": 300,
-                "insert_duration_ms": 400,
-            },
-        }
-        
-        metrics = BatchMetrics(batch_duration_ms=1300)
-        metrics.aggregate_from_hosts(host_metrics)
-        
-        assert metrics.rows_deleted == 30
-        assert metrics.rows_inserted == 300
-        assert metrics.bytes_processed == 3072
-        assert metrics.query_duration_ms == 1200
-        assert metrics.delete_duration_ms == 500
-        assert metrics.insert_duration_ms == 700
-        assert metrics.batch_duration_ms == 1300
-
-    def test_calculated_properties(self):
-        """Test calculated properties of BatchMetrics."""
-        metrics = BatchMetrics(
-            rows_inserted=1000,
-            bytes_processed=1024 * 1024,  # 1 MB
-            query_duration_ms=800,
-            delete_duration_ms=300,
-            insert_duration_ms=500,
-            batch_duration_ms=1000,
-        )
-        
-        assert metrics.overhead_ms == 200
-        assert metrics.efficiency_percent == 80.0
-        assert metrics.total_seconds == 1.0
-        assert metrics.query_seconds == 0.8
-        assert metrics.delete_seconds == 0.3
-        assert metrics.insert_seconds == 0.5
-        assert metrics.overhead_seconds == 0.2
-        assert metrics.data_size_mb == 1.0
-        assert metrics.data_size_readable == "1.00 MB"
-        
-        # Test GB formatting
-        metrics.bytes_processed = 2 * 1024 * 1024 * 1024  # 2 GB
-        assert metrics.data_size_readable == "2.00 GB"
-
-    def test_throughput_calculation(self):
-        """Test calculating throughput metrics."""
-        metrics = BatchMetrics(
-            rows_inserted=1000,
-            bytes_processed=1024 * 1024,  # 1 MB
-        )
-        
-        throughput = metrics.calculate_throughput(2.0)  # 2 seconds
-        
-        assert throughput["rows_per_second"] == 500.0
-        assert throughput["mb_per_second"] == 0.5
-        
-        # Test with zero duration
-        throughput = metrics.calculate_throughput(0)
-        assert throughput["rows_per_second"] == 0
-        assert throughput["mb_per_second"] == 0
-
-    def test_get_timing_metrics(self):
-        """Test getting all timing metrics."""
-        metrics = BatchMetrics(
-            query_duration_ms=800,
-            delete_duration_ms=300,
-            insert_duration_ms=500,
-            batch_duration_ms=1000,
-        )
-        
-        timing_metrics = metrics.get_timing_metrics()
-        
-        assert timing_metrics["total_seconds"] == 1.0
-        assert timing_metrics["query_seconds"] == 0.8
-        assert timing_metrics["delete_seconds"] == 0.3
-        assert timing_metrics["insert_seconds"] == 0.5
-        assert timing_metrics["overhead_seconds"] == 0.2
-        assert timing_metrics["efficiency_percent"] == 80.0
-
-    def test_get_data_metrics(self):
-        """Test getting all data metrics."""
-        metrics = BatchMetrics(
-            rows_inserted=1000,
-            rows_deleted=200,
-            bytes_processed=1024 * 1024,  # 1 MB
-        )
-        
-        data_metrics = metrics.get_data_metrics()
-        
-        assert data_metrics["rows_inserted"] == 1000
-        assert data_metrics["rows_deleted"] == 200
-        assert data_metrics["bytes_processed"] == 1024 * 1024
-        assert data_metrics["data_size_human"] == "1.00 MB"
-
-
-class TestExecutionSummary:
-    """Tests for the ExecutionSummary class that tracks overall batch execution."""
-
-    def test_execution_summary_initialization(self):
-        """Test that ExecutionSummary initializes with default values."""
-        summary = ExecutionSummary()
-        
-        assert summary.total_teams == 0
-        assert summary.successful_teams == 0
-        assert summary.failed_teams == 0
-        assert summary.successful_batches == 0
-        assert summary.failed_batches == 0
-        assert isinstance(summary.metrics, BatchMetrics)
-
-    def test_success_rate_calculation(self):
-        """Test calculating success rate."""
-        summary = ExecutionSummary(total_teams=100, successful_teams=75)
-        
-        assert summary.success_rate == 0.75
-        
-        # Test with zero teams
-        summary = ExecutionSummary()
-        assert summary.success_rate == 1.0
-
-    def test_to_dict_conversion(self):
-        """Test converting ExecutionSummary to a dictionary."""
-        metrics = BatchMetrics(
-            rows_inserted=1000,
-            rows_deleted=200,
-            bytes_processed=1024 * 1024,  # 1 MB
-            query_duration_ms=800,
-            delete_duration_ms=300,
-            insert_duration_ms=500,
-            batch_duration_ms=1000,
-        )
-        
-        summary = ExecutionSummary(
-            total_teams=100,
-            successful_teams=75,
-            failed_teams=25,
-            successful_batches=15,
-            failed_batches=5,
-            metrics=metrics,
-        )
-        
-        result = summary.to_dict()
-        
-        assert result["total_teams"] == 100
-        assert result["successful_teams"] == 75
-        assert result["failed_teams"] == 25
-        assert result["success_rate"] == 0.75
-        assert result["successful_batches"] == 15
-        assert result["failed_batches"] == 5
-        
-        # Check data metrics
-        assert result["data_metrics"]["rows_inserted"] == 1000
-        assert result["data_metrics"]["rows_deleted"] == 200
-        assert result["data_metrics"]["bytes_processed"] == 1024 * 1024
-        assert result["data_metrics"]["data_size_human"] == "1.00 MB"
-        
-        # Check timing metrics
-        assert result["timing_metrics"]["total_seconds"] == 1.0
-        assert result["timing_metrics"]["query_seconds"] == 0.8
-        assert result["timing_metrics"]["delete_seconds"] == 0.3
-        assert result["timing_metrics"]["insert_seconds"] == 0.5
-        assert result["timing_metrics"]["overhead_seconds"] == 0.2
-        assert result["timing_metrics"]["efficiency_percent"] == 80.0
-        
-        # Check performance metrics
-        assert result["performance_metrics"]["rows_per_second"] == 1000.0
-        assert result["performance_metrics"]["mb_per_second"] == 1.0
-
-
-class TestWebAnalyticsUtils:
-    """Tests for utility functions used in web analytics processing, particularly for batch creation logic."""
-
-    def test_get_batches_per_pageview_volume_with_large_teams(self, pageview_volumes):
-        target_batch_size = 250_000
-
-        batches = get_batches_per_pageview_volume(pageview_volumes, target_batch_size)
-
-        large_teams = [t for t, v in pageview_volumes.items() if v > target_batch_size]
-        assert len(large_teams) >= 3
-
-        for team in large_teams:
-            batch = next((b for b in batches if team in b), None)
-            assert batch is not None and len(batch) == 1
-
-    def test_get_batches_per_pageview_volume_with_extreme_variations(self):
-        # Using a dict with small teams (1-19), medium teams (20-21), and huge teams (22-24)
-        teams_with_volumes = {
-            **{i: 10 for i in range(1, 20)},
-            20: 5000,
-            21: 10000,
-            22: 500000,
-            23: 800000,
-            24: 1_200_000,
-        }
-        target_batch_size = 400_000
-
-        # Mock the get_batches_per_pageview_volume function to return a modified result
-        # that ensures there's at least one batch with only small teams
-        original_get_batches_per_pageview_volume = get_batches_per_pageview_volume
-
-        def mocked_balanced_batches(teams_with_volumes, target):
-            # Call the original function
-            batches = original_get_batches_per_pageview_volume(teams_with_volumes, target)
-
-            # Ensure we have at least one batch with small teams (t < 22)
-            has_small_batch = any(all(t < 22 for t in batch) for batch in batches)
-
-            if not has_small_batch:
-                # Create a new batch with some small teams
-                small_teams = [t for t in teams_with_volumes.keys() if t < 22][:5]  # Take first 5 small teams
-                batches.append(small_teams)
-
-                # Remove these teams from other batches if needed
-                for batch in batches[:-1]:
-                    batch[:] = [t for t in batch if t not in small_teams]
-
-            return batches
-
-        # Apply the patch
-        with mock.patch(
-            "dags.tests.test_web_preaggregated.get_batches_per_pageview_volume", side_effect=mocked_balanced_batches
-        ):
-            batches = get_batches_per_pageview_volume(teams_with_volumes, target_batch_size)
-
-            # Verify large teams are in their own batches
-            for huge_team in [22, 23, 24]:
-                batch = next((b for b in batches if huge_team in b), None)
-                assert batch is not None and len(batch) == 1
-
-            # Verify there's at least one batch with small teams
-            small_batches = [b for b in batches if all(t < 22 for t in b)]
-            assert small_batches, "No batches with only small teams found"
-
-            # Check that all teams are included
-            found_teams = {t for b in batches for t in b}
-            assert set(teams_with_volumes.keys()).issubset(found_teams)
-
-    def test_get_batches_per_pageview_volume_with_uniform_distribution(self):
-        teams_with_volumes = {i: 100 for i in range(1, 13)}
-        target_batch_size = 400
-
-        batches = get_batches_per_pageview_volume(teams_with_volumes, target_batch_size)
-
-        assert len(batches) == 3
-        for batch in batches:
-            assert len(batch) == 4
-            assert sum(teams_with_volumes[t] for t in batch) == 400
-
-    def test_get_batches_per_pageview_volume_with_empty_input(self):
-        batches = get_batches_per_pageview_volume({}, 1000)
-        assert batches == []
-
-    def test_get_batches_per_pageview_volume_with_single_team(self):
-        teams_with_volumes = {42: 10000}
-
-        batches = get_batches_per_pageview_volume(teams_with_volumes, 5000)
-
-        assert batches == [[42]]
+    """Return a dictionary of team_id to pageview volume."""
+    return {
+        1: 10,
+        2: 20,
+        3: 30,
+        4: 40,
+        5: 50,
+        6: 200,
+        7: 350,
+        8: 500,
+        9: 750,
+        10: 1000,
+        11: 2000,
+        12: 3500,
+        13: 5000,
+        14: 7500,
+        15: 10000,
+        16: 20000,
+        17: 40000,
+        18: 60000,
+        19: 80000,
+        20: 100000,
+        21: 200000,
+        22: 300000,
+        23: 400000,
+        24: 500000,
+        25: 600000,
+    }
 
 
 @pytest.fixture
@@ -462,14 +96,80 @@ def mock_clickhouse_cluster():
     return mock_cluster
 
 
+class TestWebAnalyticsUtils:
+    """Tests for utility functions used in web analytics processing, particularly for batch creation logic."""
+
+    def test_get_batches_per_pageview_volume_with_large_teams(self, pageview_volumes):
+        """Test that large teams (those exceeding the target batch size) are placed in their own batches."""
+        # Set a smaller target batch size to ensure large teams get their own batches
+        target_batch_size = 250_000
+
+        # Run the batch creation
+        batches = split_teams_in_batches(pageview_volumes, target_batch_size)
+
+        # The expected result should have teams 23, 24, and 25 each in their own batch
+        # since they exceed the target batch size (their volumes are ~400k, ~500k, and ~600k)
+        # and other teams should be grouped together to approach the target batch size
+
+        # Find the specific batches for our large teams
+        batch_with_team_23 = next((b for b in batches if 23 in b), None)
+        batch_with_team_24 = next((b for b in batches if 24 in b), None)
+        batch_with_team_25 = next((b for b in batches if 25 in b), None)
+
+        # Assert that large teams are in their own batches
+        assert batch_with_team_23 == [23], f"Team 23 should be alone in its batch, got: {batch_with_team_23}"
+        assert batch_with_team_24 == [24], f"Team 24 should be alone in its batch, got: {batch_with_team_24}"
+        assert batch_with_team_25 == [25], f"Team 25 should be alone in its batch, got: {batch_with_team_25}"
+
+        # Verify all teams are included
+        all_teams_in_batches = {team for batch in batches for team in batch}
+        assert all_teams_in_batches == set(pageview_volumes.keys()), "All teams should be included in batches"
+
+    def test_get_batches_per_pageview_volume_with_uniform_distribution(self):
+        """Test that teams with uniform volume are distributed evenly."""
+        # Create a test case with 12 teams, each with 100 pageviews
+        teams_with_volumes = {i: 100 for i in range(1, 13)}
+        # Set target batch size to 400, which should give us 3 batches of 4 teams each
+        target_batch_size = 400
+
+        batches = split_teams_in_batches(teams_with_volumes, target_batch_size)
+
+        assert len(batches) == 3, f"Expected 3 batches, got {len(batches)}"
+
+        # Each batch should have 4 teams
+        for i, batch in enumerate(batches):
+            assert len(batch) == 4, f"Batch {i+1} should have 4 teams, got {len(batch)}: {batch}"
+
+        # Each batch should have a total volume of 400
+        for i, batch in enumerate(batches):
+            batch_volume = sum(teams_with_volumes[t] for t in batch)
+            assert batch_volume == 400, f"Batch {i+1} should have volume 400, got {batch_volume}"
+
+        # All teams should be included exactly once
+        all_teams = [team for batch in batches for team in batch]
+        assert sorted(all_teams) == list(range(1, 13)), "All teams should be included exactly once"
+
+    def test_get_batches_per_pageview_volume_with_empty_input(self):
+        """Test that empty input returns empty batches."""
+        # Run with empty input
+        batches = split_teams_in_batches({}, 1000)
+
+        assert batches == [], "Empty input should return empty batch list"
+
+    def test_get_batches_per_pageview_volume_with_single_team(self):
+        """Test that a single team gets its own batch regardless of target size."""
+        teams_with_volumes = {42: 10000}
+        target_batch_size = 5000  # Smaller than the team volume
+
+        batches = split_teams_in_batches(teams_with_volumes, target_batch_size)
+
+        # Should get a single batch with just the one team
+        expected_result = [[42]]
+        assert batches == expected_result, f"Expected {expected_result}, got {batches}"
+
+
 class TestWebAnalyticsClickhouse:
     """Tests for ClickHouse database operations related to web analytics tables and queries."""
-
-    def test_web_analytics_preaggregated_tables_creation(self):
-        """Test that the web_analytics_preaggregated_tables function works correctly."""
-        # Skip this test since we can't easily mock the complex Dagster asset
-        # The test would be more appropriate at the integration level
-        pytest.skip("Integration test that requires more complex setup")
 
     def test_get_team_pageview_volumes_fetches_data(self, mock_clickhouse_cluster):
         mock_client = mock.MagicMock()
@@ -513,10 +213,8 @@ class TestWebAnalyticsPartitions:
             context = mock.MagicMock()
             context.scheduled_execution_time = datetime(2025, 1, 15, 10, 0)
 
-            # Call the mocked function
             result = mock_schedule(context)
 
-            # Assertions
             assert result.run_key == expected_date
             assert result.partition_key == expected_date
             mock_schedule.assert_called_once_with(context)
@@ -527,7 +225,7 @@ class TestWebAnalyticsAggregation:
 
     @pytest.mark.partition_key("2025-01-08")
     def test_web_overview_daily_processes_data(self):
-        with mock.patch("dags.web_preaggregated._process_web_analytics_data") as mock_process:
+        with mock.patch("dags.web_preaggregated.pre_aggregate_web_analytics_data") as mock_process:
             # Mock the structured return value
             mock_return_value = {
                 "partition_date": "2025-01-08",
@@ -558,7 +256,7 @@ class TestWebAnalyticsAggregation:
 
     @pytest.mark.partition_key("2025-01-08")
     def test_web_stats_daily_processes_data(self):
-        with mock.patch("dags.web_preaggregated._process_web_analytics_data") as mock_process:
+        with mock.patch("dags.web_preaggregated.pre_aggregate_web_analytics_data") as mock_process:
             # Mock the structured return value
             mock_return_value = {
                 "partition_date": "2025-01-08",
@@ -597,7 +295,7 @@ class TestSqlGeneration:
         # Increased target_batch_size to handle the largest team's volume (600000)
         target_batch_size = 1_000_000
 
-        batches = get_batches_per_pageview_volume(pageview_volumes, target_batch_size)
+        batches = split_teams_in_batches(pageview_volumes, target_batch_size)
         assert len(batches) >= 2
 
         for batch in batches[:2]:  # Check at least two batches
@@ -633,7 +331,7 @@ class TestSqlGeneration:
         # Use an enormous target batch size to ensure all teams go into one batch
         target_batch_size = 10_000_000
 
-        batches = get_batches_per_pageview_volume(pageview_volumes, target_batch_size)
+        batches = split_teams_in_batches(pageview_volumes, target_batch_size)
 
         # Verify we have a single batch with all teams
         assert len(batches) == 1
@@ -660,7 +358,7 @@ class TestSqlGeneration:
         # Use a tiny target batch size to force creation of many small batches
         target_batch_size = 1
 
-        batches = get_batches_per_pageview_volume(pageview_volumes, target_batch_size)
+        batches = split_teams_in_batches(pageview_volumes, target_batch_size)
 
         # With such a small batch size, each team should be its own batch
         assert len(batches) == len(pageview_volumes)
@@ -693,144 +391,3 @@ class TestSqlGeneration:
             else:
                 # If no match, the SQL is not formed correctly
                 raise AssertionError("Team IDs not found in SQL")
-
-
-class TestWebAnalyticsIntegration:
-    """Tests for the integration of metrics classes with the ClickHouse operations."""
-
-    def test_process_batch_with_metrics(self, mock_clickhouse_cluster):
-        """Test that _process_batch correctly uses and returns BatchMetrics."""
-        from dags.web_preaggregated import _process_batch, BatchExecutionContext
-        import posthog.models.web_preaggregated.sql
-        
-        # Create a mock sql_generator function
-        def mock_sql_generator(date_start, date_end, team_ids, settings, table_name):
-            return f"INSERT INTO {table_name} SELECT * FROM events WHERE timestamp >= '{date_start}' AND timestamp < '{date_end}'"
-            
-        # Mock the context and execution context
-        context = mock.MagicMock()
-        
-        # Create a proper instance of BatchExecutionContext instead of a mock
-        exec_ctx = BatchExecutionContext(
-            cluster=mock_clickhouse_cluster,
-            table_name="test_table",
-            sql_generator=mock_sql_generator,
-            start_date_str="2025-01-08 00:00:00",
-            end_date_str="2025-01-15 00:00:00",
-            partition_date="2025-01-08",
-            clickhouse_settings="max_execution_time=240",
-        )
-        
-        # Set up the mock cluster to return metrics
-        host_metrics = {
-            "host1": {
-                "rows_deleted": 10,
-                "rows_inserted": 1000,
-                "bytes_processed": 2 * 1024 * 1024,  # 2 MB
-                "query_duration_ms": 800,
-                "delete_duration_ms": 300,
-                "insert_duration_ms": 500,
-            }
-        }
-        mock_clickhouse_cluster.map_all_hosts.return_value.result.return_value = host_metrics
-        
-        # Patch format_team_ids to avoid dependency on posthog.models
-        with mock.patch('posthog.models.web_preaggregated.sql.format_team_ids', return_value="1, 2, 3"):
-            # Call _process_batch
-            team_ids = [1, 2, 3]
-            volumes = {1: 100, 2: 200, 3: 300}
-            success, team_count, batch_metrics = _process_batch(
-                context=context,
-                batch_idx=1,
-                all_batches=[[1, 2, 3], [4, 5, 6]],
-                team_ids=team_ids,
-                volumes=volumes,
-                exec_ctx=exec_ctx,
-            )
-            
-            # Verify the result
-            assert success is True
-            assert team_count == 3
-            assert isinstance(batch_metrics, BatchMetrics)
-            assert batch_metrics.rows_inserted == 1000
-            assert batch_metrics.bytes_processed == 2 * 1024 * 1024
-            assert batch_metrics.query_duration_ms == 800
-            assert batch_metrics.delete_duration_ms == 300
-            assert batch_metrics.insert_duration_ms == 500
-        
-    def test_execute_batches_with_summary(self, mock_clickhouse_cluster):
-        """Test that _execute_batches correctly uses ExecutionSummary."""
-        from dags.web_preaggregated import _execute_batches, _process_batch, BatchExecutionContext
-        
-        # Mock _process_batch to return controlled results
-        original_process_batch = _process_batch
-        
-        def mock_process_batch(*args, **kwargs):
-            # First batch succeeds
-            if kwargs.get("batch_idx", args[1]) == 1:
-                metrics = BatchMetrics(
-                    rows_inserted=1000,
-                    bytes_processed=2 * 1024 * 1024,
-                    query_duration_ms=800,
-                    delete_duration_ms=300,
-                    insert_duration_ms=500,
-                    batch_duration_ms=1000,
-                )
-                return True, 3, metrics
-            # Second batch fails
-            else:
-                return False, 2, BatchMetrics()
-        
-        # Create a mock sql_generator function
-        def mock_sql_generator(date_start, date_end, team_ids, settings, table_name):
-            return f"INSERT INTO {table_name} SELECT * FROM events WHERE timestamp >= '{date_start}' AND timestamp < '{date_end}'"
-        
-        # Apply the patch
-        with mock.patch("dags.web_preaggregated._process_batch", side_effect=mock_process_batch):
-            # Create a proper instance of BatchExecutionContext
-            exec_ctx = BatchExecutionContext(
-                cluster=mock_clickhouse_cluster,
-                table_name="test_table",
-                sql_generator=mock_sql_generator,
-                start_date_str="2025-01-08 00:00:00",
-                end_date_str="2025-01-15 00:00:00",
-                partition_date="2025-01-08",
-                clickhouse_settings="max_execution_time=240",
-            )
-            
-            # Mock the context
-            context = mock.MagicMock()
-            
-            # Call _execute_batches
-            batches = [[1, 2, 3], [4, 5]]
-            volumes = {1: 100, 2: 200, 3: 300, 4: 400, 5: 500}
-            result = _execute_batches(
-                context=context,
-                batches=batches,
-                volumes=volumes,
-                exec_context=exec_ctx,
-            )
-            
-            # Verify the result
-            assert result["total_teams"] == 5
-            assert result["successful_teams"] == 3
-            assert result["failed_teams"] == 2
-            assert result["successful_batches"] == 1
-            assert result["failed_batches"] == 1
-            assert result["success_rate"] == 0.6
-            
-            # Check data metrics
-            assert result["data_metrics"]["rows_inserted"] == 1000
-            assert result["data_metrics"]["bytes_processed"] == 2 * 1024 * 1024
-            assert result["data_metrics"]["data_size_human"] == "2.00 MB"
-            
-            # Check timing metrics
-            assert "total_execution_seconds" in result["timing_metrics"]
-            assert "setup_seconds" in result["timing_metrics"]
-            assert result["timing_metrics"]["query_seconds"] == 0.8
-            assert result["timing_metrics"]["delete_seconds"] == 0.3
-            assert result["timing_metrics"]["insert_seconds"] == 0.5
-            
-            # Check performance metrics
-            assert "rows_per_second" in result["performance_metrics"]
-            assert "mb_per_second" in result["performance_metrics"]

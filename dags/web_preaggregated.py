@@ -1,9 +1,8 @@
 from datetime import datetime, timedelta
 from collections.abc import Callable
-from typing import Dict, List, Any, Optional
 
 import dagster
-from dagster import Field, Array, Definitions, op, In, Out
+from dagster import Field, Array, Definitions
 from clickhouse_driver import Client
 
 from dags.common import ClickhouseClusterResource
@@ -30,7 +29,7 @@ WEB_ANALYTICS_DATE_PARTITION_DEFINITION = dagster.WeeklyPartitionsDefinition(
 WEB_ANALYTICS_CONFIG_SCHEMA = {
     "team_ids": Field(
         Array(int),
-        default_value=[],
+        default_value=[],  # Intentionally empty to process all teams but we can use a custom launchpad on dagster to process specific teams while testing
         description="List of team IDs to process - leave empty to process all teams :fire:",
     ),
     "clickhouse_settings": Field(
@@ -162,8 +161,8 @@ def _process_single_team(
 
         # Simple count query to get number of inserted rows
         count_query = f"""
-        SELECT count() FROM {table_name} 
-        WHERE team_id = {team_id} 
+        SELECT count() FROM {table_name}
+        WHERE team_id = {team_id}
         AND toDate(day_bucket) >= toDate('{partition_date}')
         AND toDate(day_bucket) < toDate('{end_date_str}')
         """
@@ -361,9 +360,9 @@ def pre_aggregate_web_analytics_data(
 
 
 @dagster.asset(
-    name="preaggregated_tables",
+    name="web_analytics_preaggregated_tables",
     group_name="web_analytics",
-    key_prefix=["web_analytics", "pre_aggregated"],
+    key_prefix=["web_analytics"],
     description="Creates the tables needed for web analytics preaggregated data.",
 )
 def web_analytics_preaggregated_tables(
@@ -371,6 +370,7 @@ def web_analytics_preaggregated_tables(
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> bool:
     """Creates the tables needed for web analytics preaggregated data."""
+
     def create_tables(client: Client):
         client.execute(WEB_OVERVIEW_METRICS_DAILY_SQL(table_name="web_overview_daily"))
         client.execute(WEB_STATS_DAILY_SQL(table_name="web_stats_daily"))
@@ -382,13 +382,13 @@ def web_analytics_preaggregated_tables(
 
 
 @dagster.asset(
-    name="overview_daily",
+    name="web_analytics_overview_daily",
     group_name="web_analytics",
-    key_prefix=["web_analytics", "pre_aggregated"],
+    key_prefix=["web_analytics"],
     description="Daily aggregated overview metrics for web analytics. This handles the top overview tiles for web analytics wich includes total pageviews, bounce rate, and average session duration.",
     partitions_def=WEB_ANALYTICS_DATE_PARTITION_DEFINITION,
     config_schema=WEB_ANALYTICS_CONFIG_SCHEMA,
-    deps=["preaggregated_tables"],
+    deps=["web_analytics_preaggregated_tables"],
     metadata={"table": "web_overview_daily"},
 )
 def web_overview_daily(
@@ -404,13 +404,13 @@ def web_overview_daily(
 
 
 @dagster.asset(
-    name="stats_table_daily",
+    name="web_analytics_stats_table_daily",
     group_name="web_analytics",
-    key_prefix=["web_analytics", "pre_aggregated"],
+    key_prefix=["web_analytics"],
     description="Aggregated dimensional data with pageviews and unique user counts. This is used by the breakdown tiles except the path-specific ones.",
     partitions_def=WEB_ANALYTICS_DATE_PARTITION_DEFINITION,
     config_schema=WEB_ANALYTICS_CONFIG_SCHEMA,
-    deps=["preaggregated_tables"],
+    deps=["web_analytics_preaggregated_tables"],
     metadata={"table": "web_stats_daily"},
 )
 def web_stats_daily(
