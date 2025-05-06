@@ -127,6 +127,7 @@ def select_from_persons_table(
             and hasattr(node.select_from.type, "table")
             and node.select_from.type.table
             and isinstance(node.select_from.type.table, PersonsTable)
+            and not node.group_by  # TODO: support group_by
         ):
             compare = cast(ast.CompareOperation, select.where)
             right_select = cast(ast.SelectQuery, compare.right)
