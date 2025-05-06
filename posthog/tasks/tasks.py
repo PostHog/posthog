@@ -927,7 +927,7 @@ def calculate_external_data_rows_synced() -> None:
 
 @shared_task(
     ignore_result=True,
-    autoretry_for=(Exception,),
+    autoretry_for=(Exception),
     max_retries=5,
     default_retry_delay=30,  # retry every 30 seconds
 )
