@@ -1089,6 +1089,15 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 let lastBreadcrumb: Breadcrumb | null =
                     sceneBreadcrumbs.length > 0 ? sceneBreadcrumbs.slice(-1)[0] : null
 
+                // :HACK: Ignore last breadcrumb for the messaging scenes to avoid showing static titles
+                if (
+                    projectTreeRef?.type &&
+                    projectTreeRef.ref !== null &&
+                    ['hog_function/campaign', 'hog_function/broadcast'].includes(projectTreeRef.type)
+                ) {
+                    lastBreadcrumb = null
+                }
+
                 // If we're on a page that's in the project tree, take its path as our base
                 if (projectTreeRefEntry?.path) {
                     folders = splitPath(projectTreeRefEntry.path)
