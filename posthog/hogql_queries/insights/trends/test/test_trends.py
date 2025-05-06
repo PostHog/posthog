@@ -9485,8 +9485,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         filter = Filter(
             team=self.team,
             data={
-                "date_from": "2025-04-24T20:00:00Z",
-                "date_to": "2025-04-25T04:00:00Z",
+                "date_from": "2025-04-24T22:00:00",
+                "date_to": "2025-04-25T04:00:00",
                 "interval": "hour",
                 "events": [{"id": "sign up", "name": "sign up"}],
             },
@@ -9502,10 +9502,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 "2025-04-25 01:00:00",  # 22:00 UTC
                 "2025-04-25 02:00:00",  # 23:00 UTC
                 "2025-04-25 03:00:00",  # 00:00 UTC
-                "2025-04-25 04:00:00",
-                "2025-04-25 05:00:00",
-                "2025-04-25 06:00:00",
-                "2025-04-25 07:00:00",
+                "2025-04-25 04:00:00",  # 01:00 UTC
             ],
         )
-        self.assertEqual(response[0]["data"], [5, 4, 3, 2, 1, 0, 0, 0])
+        self.assertEqual(response[0]["data"], [5, 4, 3, 2, 1, 0])
