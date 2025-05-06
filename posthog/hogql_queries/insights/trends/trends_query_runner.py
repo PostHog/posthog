@@ -964,7 +964,7 @@ class TrendsQueryRunner(QueryRunner):
 
         try:
             field_type = property_definitions.backend.get_property_type(
-                self.team.pk,
+                self.team,
                 property_type,
                 str(breakdown_value),
                 group_type_index=breakdown_group_type_index,

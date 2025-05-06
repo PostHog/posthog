@@ -307,7 +307,7 @@ class TaxonomyAgentToolkit(ABC):
             props = self._enrich_props_with_descriptions(
                 "person",
                 property_definitions.backend.get_property_types(
-                    self._team.pk, property_definitions.PropertyObjectType.Person
+                    self._team, property_definitions.PropertyObjectType.Person
                 ),
             )
         elif entity == "session":
@@ -329,7 +329,7 @@ class TaxonomyAgentToolkit(ABC):
             props = self._enrich_props_with_descriptions(
                 entity,
                 property_definitions.backend.get_property_types(
-                    self._team.pk,
+                    self._team,
                     property_definitions.PropertyObjectType.Group,
                     group_type_index=group_type_index,
                 ),
@@ -372,7 +372,7 @@ class TaxonomyAgentToolkit(ABC):
         # Intersect properties with their types.
         property_to_type = dict(
             property_definitions.backend.get_property_types(
-                self._team.pk,
+                self._team,
                 property_definitions.PropertyObjectType.Event,
                 names=[item.property for item in response.results],
             )
@@ -420,7 +420,7 @@ class TaxonomyAgentToolkit(ABC):
     def retrieve_event_or_action_property_values(self, event_name_or_action_id: str | int, property_name: str) -> str:
         try:
             property_type = property_definitions.backend.get_property_type(
-                self._team.pk, property_definitions.PropertyObjectType.Event, property_name
+                self._team, property_definitions.PropertyObjectType.Event, property_name
             )
         except property_definitions.PropertyDefinitionDoesNotExist:
             return f"The property {property_name} does not exist in the taxonomy."
@@ -495,7 +495,7 @@ class TaxonomyAgentToolkit(ABC):
                 group_type_index = None
 
             property_type = property_definitions.backend.get_property_type(
-                self._team.pk, prop_type, property_name, group_type_index=group_type_index
+                self._team, prop_type, property_name, group_type_index=group_type_index
             )
         except property_definitions.PropertyDefinitionDoesNotExist:
             return f"The property {property_name} does not exist in the taxonomy for the entity {entity}."

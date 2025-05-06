@@ -568,7 +568,7 @@ def get_hogql_autocomplete(
 
                                     with timings.measure("find_properties"):
                                         total_property_count, properties = property_definitions.backend.find_properties(
-                                            context.team.pk,  # XXX: doesn't consider project_id
+                                            context.team,
                                             property_type,
                                             match_term,
                                             limit=PROPERTY_DEFINITION_LIMIT,
