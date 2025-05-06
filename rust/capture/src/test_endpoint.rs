@@ -66,7 +66,7 @@ pub async fn test_black_hole(
                     )));
                 }
             };
-            if input.data.is_none() && input.data.as_ref().is_some_and(|d| d.is_empty()) {
+            if input.data.is_none() || input.data.as_ref().is_some_and(|d| d.is_empty()) {
                 error!("unexpected missing EventFormData payload");
                 return Err(CaptureError::EmptyPayload);
             }
