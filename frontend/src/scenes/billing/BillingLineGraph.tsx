@@ -1,58 +1,45 @@
 import { Chart, ChartDataset, ChartOptions, TooltipModel } from 'chart.js'
 import { getSeriesColor } from 'lib/colors'
-import React, { useEffect, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { createRoot, Root } from 'react-dom/client'
 
 import { BillingLineGraphTooltip } from './BillingLineGraphTooltip'
 
-// Interfaces (potentially move to a shared types file later)
 export interface BillingSeriesType {
     id: number
     label: string
     data: number[]
-    days: string[] // Dates associated with the data points
-    count: number // Total count/sum for the series (used in table, might be removed from graph context later)
-    compare?: boolean
-    compare_label?: string
-    breakdown_value?: string | string[]
-    /** Function to format the display of graph values (Y-axis and tooltips) */
+    dates: string[]
     valueFormatter?: (value: number) => string
-    /** Whether to show the chart legend (default: true) */
     showLegend?: boolean
 }
 
 export interface BillingLineGraphProps {
     series: BillingSeriesType[]
-    dates: string[] // All dates for the x-axis labels
+    dates: string[]
     isLoading?: boolean
     hiddenSeries: number[]
-    /** Function to format the display of graph values (Y-axis and tooltips) */
     valueFormatter?: (value: number) => string
-    /** Whether to show the chart legend (default: true) */
     showLegend?: boolean
 }
 
-// Default formatter using locale string
 const defaultFormatter = (value: number): string => value.toLocaleString()
 
-// Component for color dot
 export function SeriesColorDot({ colorIndex }: { colorIndex: number }): JSX.Element {
     return <div className={`series-color-dot series-color-dot-${colorIndex % 15}`} />
 }
 
-// Reusable BillingLineGraph component
 export function BillingLineGraph({
     series,
     dates,
     isLoading,
     hiddenSeries,
     valueFormatter = defaultFormatter,
-    showLegend = true, // Default legend to true
+    showLegend = true,
 }: BillingLineGraphProps): JSX.Element {
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const chartRef = useRef<Chart | null>(null)
 
-    // Tooltip state
     const tooltipRootRef = useRef<Root | null>(null)
     const tooltipElRef = useRef<HTMLElement | null>(null)
 
@@ -191,8 +178,8 @@ export function BillingLineGraph({
                             // Render custom tooltip content using the dedicated component
                             tooltipRoot.render(<BillingLineGraphTooltip title={title} sortedSeries={sortedSeries} />)
 
-                            // Position tooltip AFTER rendering to get dimensions
-                            tooltipEl.classList.remove('hidden') // Make visible before positioning
+                            // Position tooltip after rendering to get dimensions
+                            tooltipEl.classList.remove('hidden')
                             tooltipEl.classList.add('block')
 
                             const bounds = canvasRef.current.getBoundingClientRect()
@@ -224,7 +211,7 @@ export function BillingLineGraph({
                     intersect: false,
                 },
                 legend: {
-                    display: showLegend, // Control legend display via prop
+                    display: showLegend,
                     position: 'bottom',
                     labels: {
                         usePointStyle: true,
@@ -250,7 +237,6 @@ export function BillingLineGraph({
             if (chartRef.current) {
                 chartRef.current.destroy()
             }
-            // No need to cleanup tooltip here, handled by component unmount effect
         }
     }, [series, dates, hiddenSeries, valueFormatter, showLegend])
 

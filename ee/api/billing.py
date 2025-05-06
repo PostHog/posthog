@@ -8,7 +8,7 @@ import structlog
 from django.conf import settings
 from django.http import HttpResponse
 from django.shortcuts import redirect
-from rest_framework import serializers, status, viewsets
+from rest_framework import serializers, status, viewsets, permissions
 from posthog.api.utils import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
@@ -24,10 +24,26 @@ from posthog.event_usage import groups
 from posthog.models import Organization, Team
 from posthog.models.organization import OrganizationMembership
 from posthog.utils import relative_date_parse
+from posthog.exceptions_capture import capture_exception
 
 logger = structlog.get_logger(__name__)
 
 BILLING_SERVICE_JWT_AUD = "posthog:license-key"
+
+
+class IsOrganizationAdmin(permissions.BasePermission):
+    """
+    Permission to allow only organization admins (level >= ADMIN) to access billing endpoints.
+    """
+
+    def has_permission(self, request, view):
+        try:
+            org = view._get_org_required()
+        except Exception:
+            return False
+        return OrganizationMembership.objects.filter(
+            user=request.user, organization=org, level__gte=OrganizationMembership.Level.ADMIN
+        ).exists()
 
 
 class BillingSerializer(serializers.Serializer):
@@ -40,18 +56,21 @@ class LicenseKeySerializer(serializers.Serializer):
 
 
 class BillingUsageRequestSerializer(serializers.Serializer):
+    """
+    Serializer for the usage and spend requests to the billing service.
+    Only responsible for parsing dates, passes through other params.
+    """
+
     start_date = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     end_date = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     usage_types = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     team_ids = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     breakdowns = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     interval = serializers.CharField(required=False, allow_blank=True, allow_null=True)
-    compare = serializers.CharField(required=False, allow_blank=True, allow_null=True)
-    show_values_on_series = serializers.BooleanField(required=False, allow_null=True)
 
     def _parse_date(self, date_str: Optional[str], field_name: str) -> Optional[str]:
         """Shared date parsing logic for validation methods."""
-        if not date_str:  # Handles None and empty string correctly based on field settings
+        if not date_str:
             return None
 
         if not isinstance(date_str, str):
@@ -61,18 +80,14 @@ class BillingUsageRequestSerializer(serializers.Serializer):
         try:
             parsed_date = relative_date_parse(date_str, utc_zone)
             return parsed_date.strftime("%Y-%m-%d")
-        except ValueError as e:
-            raise serializers.ValidationError({field_name: f"Invalid date format: {e}"})
-        except Exception as e:
-            logger.error("billing_date_parsing_error", exc_info=True, error=e, date_str=date_str, field_name=field_name)
+        except Exception:
             raise serializers.ValidationError({field_name: f"Could not parse date '{date_str}'."})
 
     def validate_start_date(self, value: Optional[str]) -> Optional[str]:
         """Validate and normalize the start_date, handling 'all'."""
         if value == "all":
-            # Revisit logic here
+            # Currently hardcoded to avoid querying extended history
             return "2024-01-01"
-        # Otherwise, parse normally
         return self._parse_date(value, "start_date")
 
     def validate_end_date(self, value: Optional[str]) -> Optional[str]:
@@ -445,30 +460,20 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             else:
                 raise
 
-    @action(methods=["GET"], detail=False, url_path="usage")
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="usage",
+        permission_classes=[permissions.IsAuthenticated, IsOrganizationAdmin],
+    )
     def usage(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
-        user = self.request.user
-        if not isinstance(user, AbstractUser):
-            raise PermissionDenied("You must be logged in to access usage data")
-
         organization = self._get_org_required()
-
-        membership = OrganizationMembership.objects.get(user=user, organization=organization)
-        if membership.level < OrganizationMembership.Level.ADMIN:
-            raise PermissionDenied("You need to be an organization admin or owner to access usage data")
-
         billing_manager = self.get_billing_manager()
 
-        # Validate using the serializer
         serializer = BillingUsageRequestSerializer(data=request.GET)
         serializer.is_valid(raise_exception=True)
 
-        try:
-            teams_map = {team.id: team.name for team in Team.objects.filter(organization=organization)}
-        except Exception as e:
-            logger.error(
-                "billing_fetch_teams_for_enrichment_error", org_id=organization.id, error=str(e), exc_info=True
-            )
+        teams_map = self._get_teams_map(organization)
 
         try:
             params_to_pass = {k: v for k, v in serializer.validated_data.items() if v is not None}
@@ -492,31 +497,21 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             else:
                 raise
 
-    @action(methods=["GET"], detail=False, url_path="spend")
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="spend",
+        permission_classes=[permissions.IsAuthenticated, IsOrganizationAdmin],
+    )
     def spend(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         """Endpoint to fetch spend data (proxy to billing service)."""
-        user = self.request.user
-        if not isinstance(user, AbstractUser):
-            raise PermissionDenied("You must be logged in to access spend data")
-
         organization = self._get_org_required()
-
-        membership = OrganizationMembership.objects.get(user=user, organization=organization)
-        if membership.level < OrganizationMembership.Level.ADMIN:
-            raise PermissionDenied("You need to be an organization admin or owner to access spend data")
-
         billing_manager = self.get_billing_manager()
 
-        # Validate using the serializer
         serializer = BillingUsageRequestSerializer(data=request.GET)
         serializer.is_valid(raise_exception=True)
 
-        try:
-            teams_map = {team.id: team.name for team in Team.objects.filter(organization=organization)}
-        except Exception as e:
-            logger.error(
-                "billing_fetch_teams_for_enrichment_error", org_id=organization.id, error=str(e), exc_info=True
-            )
+        teams_map = self._get_teams_map(organization)
 
         try:
             params_to_pass = {k: v for k, v in serializer.validated_data.items() if v is not None}
@@ -539,6 +534,16 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 )
             else:
                 raise
+
+    def _get_teams_map(self, organization: Organization) -> dict[int, str]:
+        """
+        Safely build a mapping of team.id to team.name for the org. Return empty dict on failure.
+        """
+        try:
+            return {team.id: team.name for team in Team.objects.filter(organization=organization)}
+        except Exception as e:
+            capture_exception(e, {"organization_id": organization.id})
+            return {}
 
     def _get_org(self) -> Optional[Organization]:
         org = None if self.request.user.is_anonymous else self.request.user.organization

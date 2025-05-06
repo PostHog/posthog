@@ -1,10 +1,9 @@
 import { LemonCheckbox, LemonTable, LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui'
-import { getSeriesColor } from 'lib/colors' // Import getSeriesColor
+import { getSeriesColor } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 
 import { BillingSeriesType, SeriesColorDot } from './BillingLineGraph'
 
-// Props for the reusable table component
 export interface BillingDataTableProps {
     series: BillingSeriesType[]
     dates: string[]
@@ -12,16 +11,12 @@ export interface BillingDataTableProps {
     hiddenSeries: number[]
     toggleSeries: (id: number) => void
     toggleAllSeries: () => void
-    /** Function to format the display of values in the table cells */
     valueFormatter?: (value: number) => string | number
-    /** Label for the total column */
     totalLabel?: string
 }
 
-// Default formatter using locale string
 const defaultFormatter = (value: number): string => value.toLocaleString()
 
-// Reusable BillingDataTable component
 export function BillingDataTable({
     series,
     dates,
@@ -47,9 +42,8 @@ export function BillingDataTable({
                     return (
                         <div className="text-right">
                             {dateIndex >= 0 && dateIndex < record.data.length
-                                ? valueFormatter(value) // Use formatter
+                                ? valueFormatter(value)
                                 : valueFormatter(0)}{' '}
-                            {/* Format zero value */}
                         </div>
                     )
                 },
@@ -62,15 +56,13 @@ export function BillingDataTable({
         })
     }
 
-    // Define the total column
     const totalColumn: LemonTableColumn<BillingSeriesType, keyof BillingSeriesType | undefined> = {
-        title: totalLabel, // Use prop
+        title: totalLabel,
         render: (_, record: BillingSeriesType) => {
-            // Prefer sum of data array for consistency, 'count' field might be ambiguous/deprecated
             const total = record.data.reduce((sum, val) => sum + val, 0)
-            return <div className="text-right font-semibold">{valueFormatter(total)}</div> // Use formatter
+            return <div className="text-right font-semibold">{valueFormatter(total)}</div>
         },
-        key: 'total', // Keep key as 'total' for sorting
+        key: 'total',
         sorter: (a: BillingSeriesType, b: BillingSeriesType) => {
             const totalA = a.data.reduce((sum, val) => sum + val, 0)
             const totalB = b.data.reduce((sum, val) => sum + val, 0)

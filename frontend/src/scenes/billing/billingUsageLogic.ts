@@ -1,14 +1,17 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { dateMapping, toParams } from 'lib/utils'
 import { organizationLogic } from 'scenes/organizationLogic'
 
+import type { OrganizationType } from '~/types'
 import { BillingType, DateMappingOption } from '~/types'
 
 import { billingLogic } from './billingLogic'
 import type { billingUsageLogicType } from './billingUsageLogicType'
+import { ALL_USAGE_TYPES } from './constants'
 
 export interface BillingUsageResponse {
     status: 'ok'
@@ -21,8 +24,6 @@ export interface BillingUsageResponse {
         dates: string[]
         breakdown_type: 'type' | 'team' | 'multiple' | null
         breakdown_value: string | string[] | null
-        compare_label?: string
-        count?: number
     }>
     next?: string
 }
@@ -31,7 +32,6 @@ export interface BillingUsageFilters {
     usage_types?: string[]
     team_ids?: number[]
     breakdowns?: ('type' | 'team')[]
-    show_values_on_series?: boolean
 }
 
 export const DEFAULT_BILLING_USAGE_FILTERS: BillingUsageFilters = {
@@ -51,25 +51,37 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
     connect({
         values: [organizationLogic, ['currentOrganization'], billingLogic, ['billing']],
     }),
+    subscriptions((logic: billingUsageLogicType) => ({
+        currentOrganization: (org: OrganizationType | null, prevOrg: OrganizationType | null) => {
+            if (!prevOrg && org) {
+                // patch only team_ids
+                const teamIds: number[] = org.teams?.map(({ id }) => id) ?? []
+                if (teamIds.length) {
+                    logic.actions.setFilters({ team_ids: teamIds })
+                }
+            }
+        },
+    })),
     actions({
         setFilters: (filters: Partial<BillingUsageFilters>) => ({ filters }),
         setDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
+        toggleSeries: (id: number) => ({ id }),
+        toggleAllSeries: true,
+        setExcludeEmptySeries: (exclude: boolean) => ({ exclude }),
+        toggleTeamBreakdown: true,
     }),
     loaders(({ values }) => ({
         billingUsageResponse: [
             null as BillingUsageResponse | null,
             {
                 loadBillingUsage: async () => {
-                    const { usage_types, team_ids, show_values_on_series, breakdowns } = values.filters
+                    const { usage_types, team_ids, breakdowns } = values.filters
                     const params = {
                         ...(usage_types && usage_types.length > 0 ? { usage_types: JSON.stringify(usage_types) } : {}),
                         ...(team_ids && team_ids.length > 0 ? { team_ids: JSON.stringify(team_ids) } : {}),
-                        // team_ids: [30393, 33266],
-                        ...(show_values_on_series ? { show_values_on_series } : {}),
                         ...(breakdowns && breakdowns.length > 0 ? { breakdowns: JSON.stringify(breakdowns) } : {}),
                         start_date: values.dateFrom || dayjs().subtract(30, 'day').format('YYYY-MM-DD'),
                         end_date: values.dateTo || dayjs().format('YYYY-MM-DD'),
-                        organization_id: values.currentOrganization?.id,
                     }
                     const response = await api.get(`api/billing/usage/?${toParams(params)}`)
                     return response
@@ -82,6 +94,15 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
             { ...DEFAULT_BILLING_USAGE_FILTERS } as BillingUsageFilters,
             {
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
+                toggleTeamBreakdown: (state: BillingUsageFilters) => {
+                    // Always toggle only 'team' in breakdowns, preserving 'type'
+                    const current: ('type' | 'team')[] = state.breakdowns ?? []
+                    const hasTeam = current.includes('team')
+                    const next: ('type' | 'team')[] = hasTeam
+                        ? current.filter((d) => d !== 'team')
+                        : [...current, 'team']
+                    return { ...state, breakdowns: next }
+                },
             },
         ],
         dateFrom: [
@@ -94,6 +115,19 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
             dayjs().format('YYYY-MM-DD'),
             {
                 setDateRange: (_, { dateTo }) => dateTo || dayjs().format('YYYY-MM-DD'),
+            },
+        ],
+        userHiddenSeries: [
+            [] as number[],
+            {
+                toggleSeries: (state: number[], { id }: { id: number }) =>
+                    state.includes(id) ? state.filter((i: number) => i !== id) : [...state, id],
+            },
+        ],
+        excludeEmptySeries: [
+            false,
+            {
+                setExcludeEmptySeries: (_, { exclude }: { exclude: boolean }) => exclude,
             },
         ],
     }),
@@ -129,32 +163,58 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                     return []
                 }
 
-                return response.results.map((item) => ({
-                    id: item.id,
-                    label: item.label,
-                    data: item.data,
-                    days: item.dates,
-                    count: item.count || 0,
-                    compare: !!item.compare_label,
-                    compare_label: item.compare_label,
-                    breakdown_value: item.breakdown_value || undefined,
-                }))
+                return response.results
             },
         ],
         dates: [
             (s) => [s.billingUsageResponse],
             (response: BillingUsageResponse | null) => response?.results?.[0]?.dates || [],
         ],
+        emptySeriesIDs: [
+            (s) => [s.series],
+            (series: billingUsageLogicType['values']['series']) =>
+                series
+                    .filter((item) => item.data.reduce((a: number, b: number) => a + b, 0) === 0)
+                    .map((item) => item.id),
+        ],
+        finalHiddenSeries: [
+            (s) => [s.userHiddenSeries, s.excludeEmptySeries, s.emptySeriesIDs],
+            (userHiddenSeries: number[], excludeEmptySeries: boolean, emptySeriesIDs: number[]) =>
+                excludeEmptySeries ? Array.from(new Set([...userHiddenSeries, ...emptySeriesIDs])) : userHiddenSeries,
+        ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         setFilters: () => {
             actions.loadBillingUsage()
         },
         setDateRange: () => {
             actions.loadBillingUsage()
         },
+        toggleAllSeries: () => {
+            const { series, excludeEmptySeries, userHiddenSeries } = values
+            const potentiallyVisible = excludeEmptySeries
+                ? series.filter((s) => s.data.reduce((a, b) => a + b, 0) > 0)
+                : series
+            const ids = potentiallyVisible.map((s) => s.id)
+            const allHidden = ids.length > 0 && ids.every((id) => userHiddenSeries.includes(id))
+            if (allHidden) {
+                // Unhide all
+                userHiddenSeries.forEach((id) => actions.toggleSeries(id))
+            } else {
+                // Hide all
+                ids.filter((id) => !userHiddenSeries.includes(id)).forEach((id) => actions.toggleSeries(id))
+            }
+        },
+        toggleTeamBreakdown: () => {
+            actions.loadBillingUsage()
+        },
     })),
-    afterMount(({ actions }) => {
-        actions.loadBillingUsage()
+    afterMount(({ values, actions }: billingUsageLogicType) => {
+        const org = values.currentOrganization
+        if (org) {
+            // const teamIds: number[] = org.teams?.map(({ id }) => id) || []
+            const teamIds = [30393, 33266]
+            actions.setFilters({ usage_types: ALL_USAGE_TYPES, team_ids: teamIds })
+        }
     }),
 ])

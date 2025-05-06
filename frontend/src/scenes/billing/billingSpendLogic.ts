@@ -1,87 +1,85 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { dateMapping, toParams } from 'lib/utils'
 import { organizationLogic } from 'scenes/organizationLogic'
 
-import { BillingType, DateMappingOption } from '~/types'
+import { BillingType, DateMappingOption, OrganizationType, TeamBasicType } from '~/types'
 
 import { billingLogic } from './billingLogic'
-import type { billingSpendLogicType } from './billingSpendLogicType' // Renamed type import
+import type { billingSpendLogicType } from './billingSpendLogicType'
+import { ALL_USAGE_TYPES } from './constants'
 
-// Assuming the response structure is the same for spend
 export interface BillingSpendResponse {
-    // Renamed interface
     status: 'ok'
     type: 'timeseries'
     customer_id: string
     results: Array<{
         id: number
         label: string
-        data: number[] // Should these be numbers (cents) or floats? Assuming number for now based on PRD.
+        data: number[]
         dates: string[]
         breakdown_type: 'type' | 'team' | 'multiple' | null
         breakdown_value: string | string[] | null
-        compare_label?: string
-        count?: number // Does count make sense for spend? Keeping for consistency, maybe backend omits it.
     }>
     next?: string
 }
 
-// Added usage_types and team_ids
 export interface BillingSpendFilters {
-    // Renamed interface
-    usage_types?: string[] // Added
-    team_ids?: number[] // Added
-    breakdowns?: ('type' | 'team')[] // Changed type to match usage
-    show_values_on_series?: boolean // Is this relevant for spend? Keeping for now.
+    usage_types?: string[]
+    team_ids?: number[]
+    breakdowns?: ('type' | 'team')[]
 }
 
-// Added usage_types and team_ids, adjusted default breakdown to just type
 export const DEFAULT_BILLING_SPEND_FILTERS: BillingSpendFilters = {
-    // Renamed const
-    usage_types: [], // Added, initialize empty
-    team_ids: [], // Added, initialize empty
-    breakdowns: ['type'], // Default breakdown for spend now matches usage
+    usage_types: [],
+    team_ids: [],
+    breakdowns: ['type'],
 }
 
 export interface BillingSpendLogicProps {
-    // Renamed interface
     dashboardItemId?: string
 }
 
 export const billingSpendLogic = kea<billingSpendLogicType>([
-    // Renamed logic
-    path(['scenes', 'billing', 'billingSpendLogic']), // Updated path
+    path(['scenes', 'billing', 'billingSpendLogic']),
     props({} as BillingSpendLogicProps),
-    key(({ dashboardItemId }) => dashboardItemId || 'global_spend'), // Updated key
+    key(({ dashboardItemId }) => dashboardItemId || 'global_spend'),
     connect({
         values: [organizationLogic, ['currentOrganization'], billingLogic, ['billing']],
     }),
+    // patch only team_ids
+    subscriptions((logic: billingSpendLogicType) => ({
+        currentOrganization: (org: OrganizationType | null, prevOrg: OrganizationType | null) => {
+            if (!prevOrg && org) {
+                const teamIds: number[] = org.teams?.map((t: TeamBasicType) => t.id) ?? []
+                logic.actions.setFilters({ team_ids: teamIds })
+            }
+        },
+    })),
     actions({
         setFilters: (filters: Partial<BillingSpendFilters>) => ({ filters }),
         setDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
+        toggleSeries: (id: number) => ({ id }),
+        toggleAllSeries: true,
+        setExcludeEmptySeries: (exclude: boolean) => ({ exclude }),
+        toggleBreakdown: (dimension: 'type' | 'team') => ({ dimension }),
     }),
     loaders(({ values }) => ({
         billingSpendResponse: [
-            // Renamed loader
             null as BillingSpendResponse | null,
             {
                 loadBillingSpend: async () => {
-                    // Renamed action
-                    // Added usage_types and team_ids to filters destructuring and params
-                    const { usage_types, team_ids, show_values_on_series, breakdowns } = values.filters
+                    const { usage_types, team_ids, breakdowns } = values.filters
                     const params = {
-                        ...(usage_types && usage_types.length > 0 ? { usage_types: JSON.stringify(usage_types) } : {}), // Added
-                        ...(team_ids && team_ids.length > 0 ? { team_ids: JSON.stringify(team_ids) } : {}), // Added
-                        ...(show_values_on_series ? { show_values_on_series } : {}),
-                        ...(breakdowns && breakdowns.length > 0 ? { breakdowns: JSON.stringify(breakdowns) } : {}), // Ensure breakdowns are stringified
+                        ...(usage_types && usage_types.length > 0 ? { usage_types: JSON.stringify(usage_types) } : {}),
+                        ...(team_ids && team_ids.length > 0 ? { team_ids: JSON.stringify(team_ids) } : {}),
+                        ...(breakdowns && breakdowns.length > 0 ? { breakdowns: JSON.stringify(breakdowns) } : {}),
                         start_date: values.dateFrom || dayjs().subtract(30, 'day').format('YYYY-MM-DD'),
                         end_date: values.dateTo || dayjs().format('YYYY-MM-DD'),
-                        organization_id: values.currentOrganization?.id,
                     }
-                    // Changed API endpoint
                     const response = await api.get(`api/billing/spend/?${toParams(params)}`)
                     return response
                 },
@@ -90,10 +88,16 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
     })),
     reducers({
         filters: [
-            // Initialize with default spend filters
             { ...DEFAULT_BILLING_SPEND_FILTERS } as BillingSpendFilters,
             {
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
+                toggleBreakdown: (state: BillingSpendFilters, { dimension }: { dimension: 'type' | 'team' }) => {
+                    const current = state.breakdowns || []
+                    const next = current.includes(dimension)
+                        ? current.filter((d) => d !== dimension)
+                        : [...current, dimension]
+                    return { ...state, breakdowns: next }
+                },
             },
         ],
         dateFrom: [
@@ -108,30 +112,28 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
                 setDateRange: (_, { dateTo }) => dateTo || dayjs().format('YYYY-MM-DD'),
             },
         ],
+        userHiddenSeries: [
+            [] as number[],
+            {
+                toggleSeries: (state: number[], { id }: { id: number }) =>
+                    state.includes(id) ? state.filter((i) => i !== id) : [...state, id],
+            },
+        ],
+        excludeEmptySeries: [false, { setExcludeEmptySeries: (_, { exclude }: { exclude: boolean }) => exclude }],
     }),
     selectors({
         series: [
-            (s) => [s.billingSpendResponse], // Use spend response
+            (s) => [s.billingSpendResponse],
             (response: BillingSpendResponse | null) => {
                 if (!response?.results) {
                     return []
                 }
 
-                // Assuming data structure is the same, if not, adjust mapping here
-                return response.results.map((item) => ({
-                    id: item.id,
-                    label: item.label,
-                    data: item.data,
-                    days: item.dates,
-                    count: item.count || 0,
-                    compare: !!item.compare_label,
-                    compare_label: item.compare_label,
-                    breakdown_value: item.breakdown_value || undefined,
-                }))
+                return response.results
             },
         ],
         dates: [
-            (s) => [s.billingSpendResponse], // Use spend response
+            (s) => [s.billingSpendResponse],
             (response: BillingSpendResponse | null) => response?.results?.[0]?.dates || [],
         ],
         dateOptions: [
@@ -158,16 +160,55 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
                 return [currentBillingPeriodOption, previousBillingPeriodOption, ...dayAndMonthOptions]
             },
         ],
+        emptySeriesIDs: [
+            (s) => [s.series],
+            (series: billingSpendLogicType['values']['series']) =>
+                series
+                    .filter((item) => item.data.reduce((a: number, b: number) => a + b, 0) === 0)
+                    .map((item) => item.id),
+        ],
+        finalHiddenSeries: [
+            (s) => [s.userHiddenSeries, s.excludeEmptySeries, s.emptySeriesIDs],
+            (userHiddenSeries: number[], excludeEmptySeries: boolean, emptySeriesIDs: number[]) =>
+                excludeEmptySeries ? Array.from(new Set([...userHiddenSeries, ...emptySeriesIDs])) : userHiddenSeries,
+        ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         setFilters: () => {
-            actions.loadBillingSpend() // Use spend action
+            actions.loadBillingSpend()
         },
         setDateRange: () => {
-            actions.loadBillingSpend() // Use spend action
+            actions.loadBillingSpend()
+        },
+        toggleSeries: () => {
+            actions.loadBillingSpend()
+        },
+        toggleAllSeries: () => {
+            const { series, excludeEmptySeries, userHiddenSeries } = values
+            const potentiallyVisible = excludeEmptySeries
+                ? series.filter((s) => s.data.reduce((a, b) => a + b, 0) > 0)
+                : series
+            const ids = potentiallyVisible.map((s) => s.id)
+            const allHidden = ids.length > 0 && ids.every((id) => userHiddenSeries.includes(id))
+            if (allHidden) {
+                userHiddenSeries.forEach((id) => actions.toggleSeries(id))
+            } else {
+                ids.filter((id) => !userHiddenSeries.includes(id)).forEach((id) => actions.toggleSeries(id))
+            }
+        },
+        setExcludeEmptySeries: () => {
+            actions.loadBillingSpend()
+        },
+        toggleBreakdown: () => {
+            actions.loadBillingSpend()
         },
     })),
-    afterMount(({ actions }) => {
-        actions.loadBillingSpend() // Use spend action
+    afterMount((logic: billingSpendLogicType) => {
+        const org: OrganizationType | null = logic.values.currentOrganization
+        if (org) {
+            // const teamIds: number[] = org.teams?.map((t: TeamBasicType) => t.id) || []
+            const teamIds: number[] = [30393, 33266]
+            logic.actions.setFilters({ usage_types: ALL_USAGE_TYPES, team_ids: teamIds })
+        }
     }),
 ])
