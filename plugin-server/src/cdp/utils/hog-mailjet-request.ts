@@ -34,7 +34,7 @@ export const createMailjetRequest = (
     const { api_key, secret_key } = credentials
 
     if (from.split('@')[1] !== domain) {
-        throw new Error('From email must use a verified domain')
+        throw new Error('From address must use the same verified domain configured for this email')
     }
 
     if (!mailjet_verified) {
