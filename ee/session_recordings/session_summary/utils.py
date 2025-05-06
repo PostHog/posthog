@@ -92,7 +92,7 @@ def load_session_metadata_from_json(file_path: str) -> dict[str, Any]:
 
 def get_column_index(columns: list[str], column_name: str) -> int:
     for i, c in enumerate(columns):
-        if c == column_name:
+        if c.replace("$", "") == column_name.replace("$", ""):
             return i
     else:
         raise ValueError(f"Column {column_name} not found in the columns: {columns}")
