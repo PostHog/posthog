@@ -22,7 +22,6 @@
  */
 
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
-import { captureException } from '@sentry/react'
 import { getCookie } from 'lib/api'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { roundToDecimal } from 'lib/utils'
@@ -53,7 +52,7 @@ export function cleanedCookieSubdomain(loggedInInstance: string | null): Subdoma
         }
     } catch (e) {
         // let's not allow errors in this code break the log-in page 🤞
-        captureException(e, { extra: { loggedInInstance } })
+        posthog.captureException(e, { loggedInInstance })
         return null
     }
 }

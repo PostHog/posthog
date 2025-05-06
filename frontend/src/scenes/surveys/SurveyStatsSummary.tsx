@@ -4,7 +4,7 @@ import { humanFriendlyNumber, percentage, pluralize } from 'lib/utils'
 import { memo } from 'react'
 import { StackedBar, StackedBarSegment } from 'scenes/surveys/components/StackedBar'
 
-import { SurveyRates, SurveyStats } from '~/types'
+import { SurveyEventName, SurveyRates, SurveyStats } from '~/types'
 
 import { surveyLogic } from './surveyLogic'
 
@@ -35,8 +35,8 @@ function StatCard({ title, value, description, isLoading }: StatCardProps): JSX.
 }
 
 function UsersCount({ stats, rates }: { stats: SurveyStats; rates: SurveyRates }): JSX.Element {
-    const uniqueUsersShown = stats['survey shown'].unique_persons
-    const uniqueUsersSent = stats['survey sent'].unique_persons
+    const uniqueUsersShown = stats[SurveyEventName.SHOWN].unique_persons
+    const uniqueUsersSent = stats[SurveyEventName.SENT].unique_persons
     const { answerFilterHogQLExpression } = useValues(surveyLogic)
     return (
         <div className="flex flex-wrap gap-4 mb-4">
@@ -64,8 +64,8 @@ function UsersCount({ stats, rates }: { stats: SurveyStats; rates: SurveyRates }
 }
 
 function ResponsesCount({ stats, rates }: { stats: SurveyStats; rates: SurveyRates }): JSX.Element {
-    const impressions = stats['survey shown'].total_count
-    const sent = stats['survey sent'].total_count
+    const impressions = stats[SurveyEventName.SHOWN].total_count
+    const sent = stats[SurveyEventName.SENT].total_count
     const { answerFilterHogQLExpression } = useValues(surveyLogic)
 
     return (
@@ -119,14 +119,18 @@ function SurveyStatsStackedBar({
     stats: SurveyStats
     filterByDistinctId: boolean
 }): JSX.Element {
-    const total = !filterByDistinctId ? stats['survey shown'].total_count : stats['survey shown'].unique_persons
+    const total = !filterByDistinctId
+        ? stats[SurveyEventName.SHOWN].total_count
+        : stats[SurveyEventName.SHOWN].unique_persons
     const onlySeen = !filterByDistinctId
-        ? stats['survey shown'].total_count_only_seen
-        : stats['survey shown'].unique_persons_only_seen
+        ? stats[SurveyEventName.SHOWN].total_count_only_seen
+        : stats[SurveyEventName.SHOWN].unique_persons_only_seen
     const dismissed = !filterByDistinctId
-        ? stats['survey dismissed'].total_count
-        : stats['survey dismissed'].unique_persons
-    const sent = !filterByDistinctId ? stats['survey sent'].total_count : stats['survey sent'].unique_persons
+        ? stats[SurveyEventName.DISMISSED].total_count
+        : stats[SurveyEventName.DISMISSED].unique_persons
+    const sent = !filterByDistinctId
+        ? stats[SurveyEventName.SENT].total_count
+        : stats[SurveyEventName.SENT].unique_persons
 
     const segments: StackedBarSegment[] = [
         {

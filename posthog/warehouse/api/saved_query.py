@@ -7,10 +7,13 @@ from django.db import transaction
 from django.db.models import Q
 from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
-
+from loginas.utils import is_impersonated_session
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
+from posthog.models import Team
+from posthog.models.activity_logging.activity_log import Detail, log_activity, changes_between, Change, load_activity
+from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import SerializedField, create_hogql_database, serialize_fields
 from posthog.hogql.errors import ExposedHogQLError
@@ -19,6 +22,7 @@ from posthog.hogql.placeholders import FindPlaceholders
 from posthog.hogql.printer import print_ast
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.data_modeling.run_workflow import RunWorkflowInputs, Selector
+from temporalio.client import ScheduleActionExecutionStartWorkflow
 from posthog.warehouse.models import (
     CLICKHOUSE_HOGQL_MAPPING,
     DataWarehouseJoin,
@@ -35,8 +39,8 @@ from posthog.warehouse.data_load.saved_query_service import (
     sync_saved_query_workflow,
     delete_saved_query_schedule,
 )
+from rest_framework.response import Response
 import uuid
-
 
 logger = structlog.get_logger(__name__)
 
@@ -45,6 +49,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     columns = serializers.SerializerMethodField(read_only=True)
     sync_frequency = serializers.SerializerMethodField()
+    current_query = serializers.CharField(write_only=True, required=False)
 
     class Meta:
         model = DataWarehouseSavedQuery
@@ -60,6 +65,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             "status",
             "last_run_at",
             "latest_error",
+            "current_query",
         ]
         read_only_fields = ["id", "created_by", "created_at", "columns", "status", "last_run_at", "latest_error"]
 
@@ -124,9 +130,38 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
                 # closer together.
                 logger.exception("Failed to create model path when creating view %s", view.name)
 
+            team = Team.objects.get(id=view.team_id)
+
+            log_activity(
+                organization_id=team.organization_id,
+                team_id=team.id,
+                user=view.created_by,
+                was_impersonated=is_impersonated_session(self.context["request"]),
+                item_id=view.id,
+                scope="DataWarehouseSavedQuery",
+                activity="created",
+                detail=Detail(
+                    name=view.name,
+                    changes=[
+                        Change(
+                            field="query",
+                            action="created",
+                            type="DataWarehouseSavedQuery",
+                            before=None,
+                            after=view.query,
+                        )
+                    ],
+                ),
+            )
+
         return view
 
     def update(self, instance: Any, validated_data: Any) -> Any:
+        try:
+            before_update = DataWarehouseSavedQuery.objects.get(pk=instance.id)
+        except DataWarehouseSavedQuery.DoesNotExist:
+            before_update = None
+
         sync_frequency = self.context["request"].data.get("sync_frequency", None)
         was_sync_frequency_updated = False
 
@@ -174,6 +209,20 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
                 DataWarehouseModelPath.objects.update_from_saved_query(view)
             except Exception:
                 logger.exception("Failed to update model path when updating view %s", view.name)
+
+            team = Team.objects.get(id=view.team_id)
+
+            changes = changes_between("DataWarehouseSavedQuery", previous=before_update, current=view)
+            log_activity(
+                organization_id=team.organization_id,
+                team_id=team.id,
+                user=self.context["request"].user,
+                was_impersonated=is_impersonated_session(self.context["request"]),
+                item_id=view.id,
+                scope="DataWarehouseSavedQuery",
+                activity="updated",
+                detail=Detail(name=view.name, changes=changes),
+            )
 
         if was_sync_frequency_updated:
             schedule_exists = saved_query_workflow_exists(str(instance.id))
@@ -336,6 +385,79 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             descendants = descendants.union(map(try_convert_to_uuid, model_path.path[start:end]))
 
         return response.Response({"descendants": descendants})
+
+    @action(methods=["GET"], detail=True, required_scopes=["activity_log:read"])
+    def activity(self, request: request.Request, **kwargs):
+        limit = int(request.query_params.get("limit", "10"))
+        page = int(request.query_params.get("page", "1"))
+
+        item_id = kwargs["pk"]
+        if not DataWarehouseSavedQuery.objects.filter(id=item_id, team_id=self.team_id).exists():
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        activity_page = load_activity(
+            scope="DataWarehouseSavedQuery",
+            team_id=self.team_id,
+            item_ids=[str(item_id)],
+            limit=limit,
+            page=page,
+        )
+        return activity_page_response(activity_page, limit, page, request)
+
+    @action(methods=["POST"], detail=True)
+    def cancel(self, request: request.Request, *args, **kwargs) -> response.Response:
+        """Cancel a running saved query workflow."""
+        saved_query = self.get_object()
+
+        if saved_query.status != DataWarehouseSavedQuery.Status.RUNNING:
+            return response.Response(
+                {"error": "Cannot cancel a query that is not running"}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        temporal = sync_connect()
+        workflow_id = f"data-modeling-run-{saved_query.id.hex}"
+
+        try:
+            # Ad-hoc handling
+            try:
+                workflow_handle = temporal.get_workflow_handle(workflow_id)
+                if workflow_handle:
+                    async_to_sync(workflow_handle.cancel)()
+            except Exception:
+                logger.info("No ad-hoc workflow to cancel", workflow_id=workflow_id)
+
+            # Schedule handling
+            try:
+                scheduled_workflow_handle = temporal.get_schedule_handle(str(saved_query.id))
+                desc = async_to_sync(scheduled_workflow_handle.describe)()
+                recent_actions = desc.info.running_actions
+                if len(recent_actions) > 0:
+                    most_recent_action = recent_actions[-1]
+                    if isinstance(most_recent_action, ScheduleActionExecutionStartWorkflow):
+                        workflow_id_to_cancel = most_recent_action.workflow_id
+                    else:
+                        logger.warning(
+                            "Unexpected action type in schedule",
+                            action_type=type(most_recent_action).__name__,
+                        )
+
+                    workflow_handle_to_cancel = temporal.get_workflow_handle(workflow_id_to_cancel)
+                    if workflow_handle_to_cancel:
+                        async_to_sync(workflow_handle_to_cancel.cancel)()
+            except Exception:
+                logger.info("No scheduled workflow to cancel", saved_query_id=str(saved_query.id))
+
+            # Update saved query status, but not the data modeling job which occurs in the workflow
+            # This is because the saved_query is used by our UI to prevent multiple cancellations
+            saved_query.status = DataWarehouseSavedQuery.Status.CANCELLED
+            saved_query.save()
+
+            return response.Response(status=status.HTTP_200_OK)
+        except Exception as e:
+            logger.exception("Failed to cancel workflow", workflow_id=workflow_id, error=str(e))
+            return response.Response(
+                {"error": f"Failed to cancel workflow"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 
 def try_convert_to_uuid(s: str) -> uuid.UUID | str:

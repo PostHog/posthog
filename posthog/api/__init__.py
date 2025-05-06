@@ -1,9 +1,11 @@
 from rest_framework import decorators, exceptions, viewsets
 from rest_framework_extensions.routers import NestedRegistryItem
 
+import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 import products.early_access_features.backend.api as early_access_feature
 from products.editor.backend.api import LLMProxyViewSet, MaxToolsViewSet
-from posthog.api import data_color_theme, llm_playground, metalytics, project, wizard
+from products.messaging.backend.api import MessageTemplatesViewSet
+from posthog.api import data_color_theme, metalytics, project, wizard
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.batch_exports import http as batch_exports
 from posthog.settings import EE_AVAILABLE
@@ -45,7 +47,6 @@ from . import (
     instance_settings,
     instance_status,
     integration,
-    message_templates,
     notebook,
     organization,
     organization_domain,
@@ -328,6 +329,12 @@ register_grandfathered_environment_nested_viewset(
     "environment_external_data_schemas",
     ["team_id"],
 )
+environments_router.register(
+    r"fix_hogql",
+    fix_hogql.FixHogQLViewSet,
+    "project_fix_hogql",
+    ["team_id"],
+)
 
 # Organizations nested endpoints
 organizations_router = router.register(r"organizations", organization.OrganizationViewSet, "organizations")
@@ -562,7 +569,7 @@ environments_router.register(
 )
 
 environments_router.register(
-    r"error_tracking/issue",
+    r"error_tracking/issues",
     error_tracking.ErrorTrackingIssueViewSet,
     "project_error_tracking_issue",
     ["team_id"],
@@ -645,7 +652,6 @@ environments_router.register(
 )
 
 router.register(r"wizard", wizard.SetupWizardViewSet, "wizard")
-router.register(r"llm_playground", llm_playground.LLMPlaygroundViewSet, "llm_playground")
 
 register_grandfathered_environment_nested_viewset(
     r"data_modeling_jobs",
@@ -658,7 +664,7 @@ environments_router.register(r"max_tools", MaxToolsViewSet, "environment_max_too
 
 environments_router.register(
     r"messaging_templates",
-    message_templates.MessageTemplateViewSet,
+    MessageTemplatesViewSet,
     "environment_messaging_templates",
     ["team_id"],
 )

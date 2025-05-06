@@ -39,6 +39,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
     }),
     actions({
         runDataWarehouseSavedQuery: (viewId: string) => ({ viewId }),
+        cancelDataWarehouseSavedQuery: (viewId: string) => ({ viewId }),
         loadOlderDataModelingJobs: () => {},
         resetDataModelingJobs: () => {},
     }),
@@ -72,7 +73,11 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                         shouldRematerialize?: boolean
                     }
                 ) => {
-                    const newView = await api.dataWarehouseSavedQueries.update(view.id, view)
+                    const current_query = values.dataWarehouseSavedQueryMapById[view.id]?.query
+                    const newView = await api.dataWarehouseSavedQueries.update(view.id, {
+                        ...view,
+                        current_query: current_query?.query,
+                    })
                     return values.dataWarehouseSavedQueries.map((savedQuery) => {
                         if (savedQuery.id === view.id) {
                             return newView
@@ -88,7 +93,9 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 loadDataModelingJobs: async (savedQueryId: string) => {
                     return await api.dataWarehouseSavedQueries.dataWarehouseDataModelingJobs.list(
                         savedQueryId,
-                        values.dataModelingJobs?.results.length ?? DEFAULT_JOBS_PAGE_SIZE,
+                        values.dataModelingJobs?.results.length
+                            ? Math.max(values.dataModelingJobs?.results.length, DEFAULT_JOBS_PAGE_SIZE)
+                            : DEFAULT_JOBS_PAGE_SIZE,
                         0
                     )
                 },
@@ -154,6 +161,15 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 actions.loadDataWarehouseSavedQueries()
             } catch (error) {
                 lemonToast.error(`Failed to run materialization`)
+            }
+        },
+        cancelDataWarehouseSavedQuery: async ({ viewId }) => {
+            try {
+                await api.dataWarehouseSavedQueries.cancel(viewId)
+                lemonToast.success('Materialization cancelled')
+                actions.loadDataWarehouseSavedQueries()
+            } catch (error) {
+                lemonToast.error(`Failed to cancel materialization`)
             }
         },
     })),

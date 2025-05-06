@@ -30,9 +30,6 @@ import { BUCKETS_KB_WRITTEN, SessionManager } from './services/session-manager'
 import { IncomingRecordingMessage } from './types'
 import { allSettledWithConcurrency, bufferFileDir, now, parseKafkaBatch } from './utils'
 
-// Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
-require('@sentry/tracing')
-
 // WARNING: Do not change this - it will essentially reset the consumer
 const KAFKA_CONSUMER_GROUP_ID = 'session-recordings-blob'
 const KAFKA_CONSUMER_GROUP_ID_OVERFLOW = 'session-recordings-blob-overflow'
@@ -344,7 +341,7 @@ export class SessionRecordingIngester {
 
         await runInstrumentedFunction({
             statsKey: `recordingingester.handleEachBatch`,
-            sendTimeoutGuardToSentry: false,
+            sendException: false,
             func: async () => {
                 histogramKafkaBatchSize.observe(messages.length)
                 histogramKafkaBatchSizeKb.observe(messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024)
@@ -455,7 +452,6 @@ export class SessionRecordingIngester {
 
         // NOTE: We use the standard config as we connect to the analytics kafka for producing
         this.sharedClusterProducerWrapper = await KafkaProducerWrapper.create(this.config)
-        this.sharedClusterProducerWrapper.producer.connect()
 
         if (this.config.SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED) {
             this.consoleLogsIngester = new ConsoleLogsIngester(
@@ -474,7 +470,7 @@ export class SessionRecordingIngester {
         await this.kafkaConsumer.connect(async (messages) => {
             return await runInstrumentedFunction({
                 statsKey: `recordingingester.handleEachBatch`,
-                sendTimeoutGuardToSentry: false,
+                sendException: false,
                 func: async () => {
                     return await this.scheduleWork(this.handleEachBatch(messages))
                 },
