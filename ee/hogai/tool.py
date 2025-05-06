@@ -89,7 +89,7 @@ class MaxTool(BaseTool):
         self._team_id = config["configurable"].get("team_id", None)
         self._config = {
             "recursion_limit": 48,
-            "callbacks": config["callbacks"] if "callbacks" in config else [],
+            "callbacks": config.get("callbacks", []),
             "configurable": {
                 "thread_id": config["configurable"].get("thread_id"),
                 "trace_id": config["configurable"].get("trace_id"),

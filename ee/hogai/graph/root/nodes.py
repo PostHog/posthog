@@ -279,18 +279,21 @@ class RootNodeTools(AssistantNode):
         elif ToolClass := CONTEXTUAL_TOOL_NAME_TO_TOOL.get(cast(AssistantContextualTool, tool_call.name)):
             tool_class = ToolClass(state)
             result = tool_class.invoke(tool_call.model_dump(), config)
-            state = tool_class._state  # latest state, in case the tool has updated it
-            last_message = state.messages[-1]
+            assert isinstance(result, LangchainToolMessage)
+
+            new_state = tool_class._state  # latest state, in case the tool has updated it
+            last_message = new_state.messages[-1]
             if isinstance(last_message, AssistantToolCallMessage) and last_message.tool_call_id == tool_call.id:
                 return PartialAssistantState(
-                    messages=[last_message],
+                    messages=new_state.messages[
+                        len(state.messages) :
+                    ],  # we send all messages from the tool call onwards
                     root_tool_call_id=None,  # Tool handled already
                     root_tool_insight_plan=None,  # No insight plan here
                     root_tool_insight_type=None,  # No insight type here
                     root_tool_calls_count=tool_call_count + 1,
                 )
 
-            assert isinstance(result, LangchainToolMessage)
             return PartialAssistantState(
                 messages=[
                     AssistantToolCallMessage(
