@@ -92,7 +92,6 @@ export class FetchExecutorService {
         }
 
         // If we've exceeded retries, return all failures in trace
-        // TODO: We want to have the full response here too
         return {
             invocation: cloneInvocation(invocation, {
                 queue: 'hog',
