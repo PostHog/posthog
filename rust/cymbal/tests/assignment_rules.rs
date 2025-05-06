@@ -108,7 +108,7 @@ async fn test_assignment_processing(db: PgPool) {
 
     let existing = res;
 
-    // Now, do the assigmnet again, but this time assigning a different user. The original assignment should be
+    // Now, do the assignment again, but this time assigning a different user. The original assignment should be
     // returned, since we want to respect existing assignments when processing exceptions, and we're re-using the
     // issue
     let mut rule = get_test_rule();
