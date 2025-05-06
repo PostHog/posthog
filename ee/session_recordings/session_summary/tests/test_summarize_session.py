@@ -49,7 +49,7 @@ def summarizer(
     mock_user: MagicMock,
     mock_team: MagicMock,
 ) -> ReplaySummarizer:
-    return ReplaySummarizer(mock_recording, mock_user, mock_team)
+    return ReplaySummarizer(mock_recording.session_id, mock_user, mock_team)
 
 
 class TestReplaySummarizer:
@@ -90,11 +90,13 @@ class TestReplaySummarizer:
             mock_get_metadata.assert_called_once_with(
                 session_id="test_session_id",
                 team=summarizer.team,
+                local_reads_prod=False,
             )
             mock_get_events.assert_called_once_with(
                 session_id="test_session_id",
                 team=summarizer.team,
                 session_metadata=mock_raw_metadata,
+                local_reads_prod=False,
             )
             mock_stream_summary.assert_called_once()
             # Verify result structure
@@ -111,9 +113,7 @@ class TestReplaySummarizer:
             "get_metadata",
             return_value=None,
         ) as mock_get_db_metadata:
-            with pytest.raises(
-                ValueError, match=f"No session metadata found for session_id {summarizer.recording.session_id}"
-            ):
+            with pytest.raises(ValueError, match=f"No session metadata found for session_id {summarizer.session_id}"):
                 list(summarizer.summarize_recording())
             mock_get_db_metadata.assert_called_once_with(
                 session_id="test_session_id",
@@ -132,7 +132,7 @@ class TestReplaySummarizer:
             mock_instance = MagicMock()
             mock_replay_events.return_value = mock_instance
             mock_instance.get_events.side_effect = [(None, None), (None, None)]
-            with pytest.raises(ValueError, match=f"No columns found for session_id {summarizer.recording.session_id}"):
+            with pytest.raises(ValueError, match=f"No columns found for session_id {summarizer.session_id}"):
                 list(summarizer.summarize_recording())
                 mock_instance.get_events.assert_called_once_with(
                     session_id="test_session_id",
