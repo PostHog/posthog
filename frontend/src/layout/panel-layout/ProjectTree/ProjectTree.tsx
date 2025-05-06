@@ -393,7 +393,7 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
             <ButtonPrimitive
                 tooltip={projectTreeMode === 'tree' ? 'Switch to table view' : 'Switch to tree view'}
                 onClick={() => setProjectTreeMode(projectTreeMode === 'tree' ? 'table' : 'tree')}
-                className="absolute top-1/2 translate-y-1/2 right-0 translate-x-1/2 z-top w-fit bg-surface-primary border border-primary"
+                className="absolute top-1/2 translate-y-1/2 right-0 translate-x-1/2 w-fit bg-surface-primary border border-primary z-[var(--z-resizer)]"
             >
                 <IconChevronRight
                     className={cn('size-4', {
@@ -614,7 +614,9 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                                                     'starting:opacity-0 opacity-100 delay-50 motion-safe:transition-opacity duration-100 font-normal truncate',
                                                     {
                                                         'font-normal': index > 1,
-                                                        // 'opacity-0': index !== 1 && isEmptyFolder,
+                                                        'font-semibold':
+                                                            item.record?.type === 'folder' &&
+                                                            item.type !== 'empty-folder',
                                                     }
                                                 )}
                                             >

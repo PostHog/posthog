@@ -6,7 +6,6 @@ import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimi
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
 import {
-    CSSProperties,
     ForwardedRef,
     forwardRef,
     HTMLAttributes,
@@ -60,7 +59,7 @@ export type TreeDataItem = {
      * Type node, normal behavior
      * Type separator, render as separator
      */
-    type?: 'node' | 'separator' | 'empty-folder'
+    type?: 'node' | 'separator' | 'empty-folder' | 'loading-indicator'
 
     /**
      * Handle a click on the item.
@@ -257,7 +256,11 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
         }
 
         return (
-            <div className={cn('list-none m-0 p-0 h-full w-full', className)}>
+            <div
+                className={cn('list-none m-0 p-0 h-full w-full', className, {
+                    'overflow-x-auto overflow-y-hidden pt-0': mode === 'table' && depth === 0,
+                })}
+            >
                 {data.map((item, index) => {
                     const displayName = item.displayName ?? item.name
                     const isFolder = item.record?.type === 'folder'
@@ -550,6 +553,26 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                             <TreeNodeDroppable id={item.id} isDroppable={item.record?.type === 'folder'}>
                                 {wrappedContent}
                             </TreeNodeDroppable>
+                        )
+                    }
+
+                    // If table and first level, show table headers
+                    if (index === 0 && depth === 0 && mode === 'table') {
+                        return (
+                            <div
+                                className="flex flex-col gap-1"
+                                key={`table-header-${item.id}`}
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{
+                                    width: `${tableModeTotalWidth}px`,
+                                }}
+                            >
+                                <div className="relative h-[30px] opacity-100 border-b border-primary -ml-[3px] motion-safe:transition-[height,display] duration-200 starting:h-0 [transition-behavior:allow-discrete] z-5">
+                                    {tableModeHeader?.()}
+                                </div>
+
+                                {wrappedContent}
+                            </div>
                         )
                     }
 
@@ -1218,35 +1241,10 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                     aria-label="Tree navigation"
                     onKeyDown={handleKeyDown}
                     className="flex-1"
-                    innerClassName="relative overflow-x-auto"
+                    innerClassName="relative"
                     styledScrollbars
-                    style={
-                        {
-                            '--scrollable-shadows-offset-top': mode === 'table' ? '30px' : '0px',
-                        } as CSSProperties
-                    }
                 >
-                    {mode === 'table' && (
-                        <div
-                            className="h-[30px] sticky top-0 z-20 border-b border-primary bg-surface-secondary"
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{
-                                width: mode === 'table' ? `${tableModeTotalWidth}px` : undefined,
-                            }}
-                        >
-                            {tableModeHeader?.()}
-                        </div>
-                    )}
-
-                    <TreeNodeDroppable
-                        id=""
-                        isDroppable={enableDragAndDrop}
-                        isRoot
-                        isDragging={isDragging}
-                        style={{
-                            width: mode === 'table' ? `${tableModeTotalWidth}px` : undefined,
-                        }}
-                    >
+                    <TreeNodeDroppable id="" isDroppable={enableDragAndDrop} isRoot isDragging={isDragging}>
                         <LemonTreeNode
                             data={data}
                             mode={mode}
