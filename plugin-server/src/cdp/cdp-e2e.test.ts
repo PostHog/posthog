@@ -17,7 +17,6 @@ import { forSnapshot } from '~/tests/helpers/snapshots'
 import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
 import { resetKafka } from '~/tests/helpers/kafka'
 import { logger } from '../utils/logger'
-import { errors } from 'undici'
 
 const ActualKafkaProducerWrapper = jest.requireActual('../../src/kafka/producer').KafkaProducerWrapper
 
