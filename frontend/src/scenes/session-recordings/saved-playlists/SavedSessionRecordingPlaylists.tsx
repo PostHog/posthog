@@ -237,7 +237,7 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                 <br />
                 <p className="font-normal">
                     Playlists used to combine saved filters and pinned recordings, but that sometimes led to confusion.
-                    Now, filters and recordings are handled separately:
+                    Now, they are handled separately:
                     <ul className="list-disc list-inside">
                         <li>
                             <Link to={`${urls.replay(ReplayTabs.Home)}?showFilters=true&filtersTab=saved`}>
