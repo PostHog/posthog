@@ -18,27 +18,7 @@ from posthog.models.web_preaggregated.sql import (
 
 
 @pytest.fixture
-def safe_context(request):
-    """Create a context that's safer for testing."""
-    partition_key = (
-        request.node.get_closest_marker("partition_key").args[0]
-        if request.node.get_closest_marker("partition_key")
-        else "2025-01-08"
-    )
-
-    context = mock.MagicMock()
-    context.partition_key = partition_key
-    context.op_config = {
-        "clickhouse_settings": "max_execution_time=240",
-        "team_ids": [3, 7, 12, 17, 22],
-    }
-
-    return context
-
-
-@pytest.fixture
 def pageview_volumes():
-    """Return a dictionary of team_id to pageview volume."""
     return {
         1: 10,
         2: 20,
@@ -69,23 +49,12 @@ def pageview_volumes():
 
 
 @pytest.fixture
-def mock_clickhouse_cluster():
+def mock_clickhouse_cluster(pageview_volumes):
     mock_cluster = mock.MagicMock()
     mock_cluster.map_all_hosts.return_value.result.return_value = {"host1": True}
 
     mock_client = mock.MagicMock()
-    mock_client.execute.return_value = [
-        (2, 20),
-        (5, 100),
-        (8, 500),
-        (10, 1000),
-        (13, 5000),
-        (15, 10000),
-        (18, 60000),
-        (20, 100000),
-        (23, 400000),
-        (25, 600000),
-    ]
+    mock_client.execute.return_value = list(pageview_volumes.items())
 
     def any_host_side_effect(fn):
         result_mock = mock.MagicMock()
@@ -167,6 +136,24 @@ class TestWebAnalyticsUtils:
         expected_result = [[42]]
         assert batches == expected_result, f"Expected {expected_result}, got {batches}"
 
+    def test_get_batches_with_one_pageview_per_batch(self, pageview_volumes):
+        """Test that setting target batch size to 1 pageview results in one team per batch."""
+        target_batch_size = 1
+
+        # Run the batch creation
+        batches = split_teams_in_batches(pageview_volumes, target_batch_size)
+
+        # We should get exactly one batch per team
+        assert len(batches) == len(pageview_volumes)
+
+        # Each batch should have exactly one team
+        for batch in batches:
+            assert len(batch) == 1
+
+        # All teams should be included
+        batch_teams = {batch[0] for batch in batches}
+        assert batch_teams == set(pageview_volumes.keys())
+
 
 class TestWebAnalyticsClickhouse:
     """Tests for ClickHouse database operations related to web analytics tables and queries."""
@@ -187,14 +174,9 @@ class TestWebAnalyticsPartitions:
     """Tests for partition management and scheduling in web analytics processing."""
 
     def test_weekly_partition_definition_creates_correct_partitions(self):
-        try:
-            partitions = list(WEB_ANALYTICS_DATE_PARTITION_DEFINITION.get_partition_keys())
-            assert partitions
-
-            parsed = [datetime.strptime(p, "%Y-%m-%d") for p in partitions]
-            assert all(parsed[i] < parsed[i + 1] for i in range(len(parsed) - 1))
-        except Exception as e:
-            pytest.skip(f"Cannot test partitions in this environment: {e}")
+        partitions = list(WEB_ANALYTICS_DATE_PARTITION_DEFINITION.get_partition_keys())
+        parsed = [datetime.strptime(p, "%Y-%m-%d") for p in partitions]
+        assert all(parsed[i] < parsed[i + 1] for i in range(len(parsed) - 1))
 
     @freeze_time("2025-01-15 10:00:00")
     def test_web_analytics_daily_schedule_uses_correct_dates(self):

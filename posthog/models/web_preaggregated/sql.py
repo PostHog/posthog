@@ -91,6 +91,8 @@ def format_team_ids(team_ids):
     return ", ".join(str(team_id) for team_id in team_ids)
 
 
+# This should be similar and kept in sync with what the web_overview query runner needs at posthog/hogql_queries/web_analytics/web_overview.py
+# It is ok if we have some difference in order to make the aggregations work.
 def WEB_OVERVIEW_INSERT_SQL(
     date_start, date_end, team_ids=None, timezone="UTC", settings="", table_name="web_overview_daily"
 ):
@@ -171,6 +173,8 @@ def WEB_OVERVIEW_INSERT_SQL(
     """
 
 
+# This should be similar and kept in sync with what the web_stats query runner needs at posthog/hogql_queries/web_analytics/stats_table.py
+# It is ok if we have some difference in order to make the aggregations work.
 def WEB_STATS_INSERT_SQL(
     date_start, date_end, team_ids=None, timezone="UTC", settings="", table_name="web_stats_daily"
 ):
