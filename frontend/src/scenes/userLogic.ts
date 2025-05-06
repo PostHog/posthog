@@ -78,18 +78,9 @@ export const userLogic = kea<userLogicType>([
                     }
                 },
                 deleteUser: async () => {
-                    return await api
-                        .delete('api/users/@me/')
-                        .then(() => {
-                            actions.deleteUserSuccess(null)
-                            actions.logout()
-                            return null
-                        })
-                        .catch((error) => {
-                            console.error(error)
-                            actions.deleteUserFailure(error.message)
-                            return values.user
-                        })
+                    return await api.delete('api/users/@me/').then(() => {
+                        return null
+                    })
                 },
                 setUserScenePersonalisation: async ({ scene, dashboard }) => {
                     if (!values.user) {
@@ -191,6 +182,7 @@ export const userLogic = kea<userLogicType>([
             })
         },
         deleteUserSuccess: () => {
+            actions.logout()
             lemonToast.success('Account deleted', {
                 toastId: 'deleteUser',
             })
