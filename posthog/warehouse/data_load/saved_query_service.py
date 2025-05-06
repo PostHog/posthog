@@ -120,3 +120,4 @@ def recreate_model_paths(saved_query: DataWarehouseSavedQuery) -> None:
                     DataWarehouseModelPath.objects.create(team=saved_query.team, path=[table_name, saved_query.id.hex])
     except Exception as e:
         logging.exception(f"Failed to recreate model paths for {saved_query.id}: {str(e)}")
+        raise
