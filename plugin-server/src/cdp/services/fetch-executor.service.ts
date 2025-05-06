@@ -68,7 +68,8 @@ export class FetchExecutorService {
             trace: [...metadata.trace, failure],
         }
 
-        const canRetry = !!response?.status && RETRIABLE_STATUS_CODES.includes(response.status)
+        // We want to retry if we got a general error (like network unreachable) or a retriable status code
+        const canRetry = error || (!!response?.status && RETRIABLE_STATUS_CODES.includes(response.status))
 
         // If we haven't exceeded retry limit, schedule a retry with backoff
         if (canRetry && updatedMetadata.tries < maxTries) {
@@ -124,7 +125,6 @@ export class FetchExecutorService {
     }
 
     async execute(invocation: HogFunctionInvocation): Promise<HogFunctionInvocationResult> {
-        console.log('Executing fetch', invocation.queue, invocation.queueParameters)
         if (invocation.queue !== 'fetch' || !invocation.queueParameters) {
             throw new Error('Bad invocation')
         }
