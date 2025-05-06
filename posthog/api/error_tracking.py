@@ -538,9 +538,8 @@ class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelVie
 class ErrorTrackingSuppressionRuleSerializer(serializers.ModelSerializer):
     class Meta:
         model = ErrorTrackingSuppressionRule
-        fields = ["id", "filters"]
+        fields = ["id", "filters", "order_key"]
         read_only_fields = ["team_id"]
-
 
 class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "error_tracking"

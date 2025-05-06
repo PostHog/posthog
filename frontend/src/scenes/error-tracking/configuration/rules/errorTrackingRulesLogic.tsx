@@ -7,20 +7,22 @@ import { FilterLogicalOperator } from '~/types'
 import type { errorTrackingRulesLogicType } from './errorTrackingRulesLogicType'
 import { ErrorTrackingRule, ErrorTrackingRuleNew, ErrorTrackingRulesLogicProps, ErrorTrackingRuleType } from './types'
 
-function createNewRule<T extends ErrorTrackingRuleType>(ruleType: T): ErrorTrackingRuleNew {
-    if (ruleType == ErrorTrackingRuleType.Assignment || ruleType == ErrorTrackingRuleType.Grouping) {
-        return {
-            id: 'new',
-            assignee: null,
-            filters: { type: FilterLogicalOperator.Or, values: [] },
-        }
-    } else if (ruleType == ErrorTrackingRuleType.Suppression) {
-        return {
-            id: 'new',
-            filters: { type: FilterLogicalOperator.Or, values: [] },
-        }
+function createNewRule(ruleType: ErrorTrackingRuleType): ErrorTrackingRuleNew {
+    switch (ruleType) {
+        case 'assignment_rules':
+            return {
+                id: 'new',
+                assignee: null,
+                filters: { type: FilterLogicalOperator.Or, values: [] },
+            }
+        case 'suppression_rules':
+            return {
+                id: 'new',
+                filters: { type: FilterLogicalOperator.Or, values: [] },
+            }
+        default:
+            throw new Error(`Unsupported rule type: ${ruleType}`)
     }
-    throw new Error('Unsupported rule type')
 }
 
 export const errorTrackingRulesLogic = kea<errorTrackingRulesLogicType>([
@@ -70,7 +72,7 @@ export const errorTrackingRulesLogic = kea<errorTrackingRulesLogicType>([
                     return newValues
                 },
                 deleteRule: async (id) => {
-                    if (id != 'new') {
+                    if (id !== 'new') {
                         await api.errorTracking.deleteRule(props.ruleType, id)
                     }
                     const newValues = [...values.rules]

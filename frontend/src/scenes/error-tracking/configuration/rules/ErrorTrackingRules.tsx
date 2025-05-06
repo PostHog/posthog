@@ -72,7 +72,7 @@ const Actions = ({ rule, editable }: { rule: ErrorTrackingRule; editable: boolea
         <div className="flex gap-1">
             {editable ? (
                 <>
-                    {rule.id == 'new' ? null : (
+                    {rule.id === 'new' ? null : (
                         <LemonButton
                             size="small"
                             icon={<IconTrash />}
