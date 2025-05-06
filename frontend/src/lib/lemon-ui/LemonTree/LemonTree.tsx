@@ -156,6 +156,8 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     tableModeHeader?: () => React.ReactNode
     /** The row to render for the table mode */
     tableModeRow?: (item: TreeDataItem, firstColumnOffset: number) => React.ReactNode
+    /** The size of the tree element */
+    treeElementSize?: 'base' | 'lg'
 }
 
 export type LemonTreeProps = LemonTreeBaseProps & {
@@ -323,7 +325,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                 disabled: isEmptyFolder,
                                 className: cn(
                                     'group/lemon-tree-button',
-                                    'relative z-1 focus-visible:bg-fill-button-tertiary-hover h-[var(--button-height-base)] motion-safe:transition-[padding] duration-50',
+                                    'relative z-1 focus-visible:bg-fill-button-tertiary-hover motion-safe:transition-[padding] duration-50 h-[var(--lemon-tree-button-height)]',
                                     {
                                         'bg-fill-button-tertiary-hover':
                                             (selectMode === 'folder-only' &&
@@ -363,7 +365,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                             {mode === 'table' ? (
                                 tableModeRow?.(item, firstColumnOffset + 20)
                             ) : (
-                                <span className="relative truncate text-left">
+                                <span className="relative truncate text-left w-full">
                                     {renderItem ? (
                                         <>
                                             {renderItem(
@@ -373,7 +375,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                         'font-semibold': isFolder && !isEmptyFolder,
                                                     })}
                                                 >
-                                                    <span>{displayName}</span>
+                                                    {displayName}
                                                 </span>
                                             )}
                                         </>
@@ -383,7 +385,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                 'font-semibold': isFolder && !isEmptyFolder,
                                             })}
                                         >
-                                            <span>{displayName}</span>
+                                            {displayName}
                                         </span>
                                     )}
 
@@ -399,7 +401,11 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
 
                     if (enableDragAndDrop && isItemDraggable?.(item) && item.id) {
                         button = (
-                            <TreeNodeDraggable id={item.id} enableDragging className="h-[var(--button-height-base)]">
+                            <TreeNodeDraggable
+                                id={item.id}
+                                enableDragging
+                                className="h-[var(--lemon-tree-button-height)]"
+                            >
                                 {button}
                             </TreeNodeDraggable>
                         )
@@ -435,7 +441,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                         <ContextMenuTrigger asChild>
                                             <ButtonGroupPrimitive
                                                 fullWidth
-                                                className="group/lemon-tree-button-group relative h-[var(--button-height-base)]"
+                                                className="group/lemon-tree-button-group relative h-[var(--lemon-tree-button-height)]"
                                             >
                                                 {/* The contents of this <TreeNodeDisplayIconWrapper> are positioned absolutely, so to give the effect it's inside the button */}
                                                 <TreeNodeDisplayIconWrapper
@@ -476,7 +482,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                             <ButtonPrimitive
                                                                 iconOnly
                                                                 isSideActionRight
-                                                                className="z-2 shrink-0 motion-safe:transition-opacity duration-[50ms] group-hover/lemon-tree-button-group:opacity-100 aria-expanded:opacity-100"
+                                                                className="z-2 shrink-0 motion-safe:transition-opacity duration-[50ms] group-hover/lemon-tree-button-group:opacity-100 aria-expanded:opacity-100 h-[var(--lemon-tree-button-height)]"
                                                             >
                                                                 <IconEllipsis className="size-3 text-tertiary" />
                                                             </ButtonPrimitive>
@@ -593,6 +599,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             tableModeTotalWidth,
             tableModeHeader,
             tableModeRow,
+            treeElementSize = 'base',
             ...props
         },
         ref: ForwardedRef<LemonTreeRef>
@@ -1222,7 +1229,13 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                     styledScrollbars
                     style={
                         {
+                            // for scrollable shadows
                             '--scrollable-shadows-offset-top': mode === 'table' ? '30px' : '0px',
+                            // for tree element
+                            '--lemon-tree-button-height':
+                                treeElementSize === 'lg'
+                                    ? 'var(--button-height-base-tall)'
+                                    : 'var(--button-height-base)',
                         } as CSSProperties
                     }
                 >
