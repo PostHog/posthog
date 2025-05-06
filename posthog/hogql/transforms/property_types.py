@@ -1,7 +1,6 @@
 from typing import Literal, cast, Optional
 
-from django.db.models.functions.comparison import Coalesce
-
+from posthog import property_definitions
 from posthog.clickhouse.materialized_columns import (
     MaterializedColumn,
     TablesWithMaterializedColumns,
@@ -19,12 +18,9 @@ from posthog.models import Team
 from posthog.models.property import PropertyName, TableColumn
 from posthog.schema import PersonsOnEventsMode
 from posthog.hogql.database.s3_table import S3Table
-from django.db import models
 
 
 def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
-    from posthog.models import PropertyDefinition
-
     if not context or not context.team_id:
         return
 
@@ -38,31 +34,20 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
     property_finder = PropertyFinder(context)
     property_finder.visit(node)
 
+    # TODO: this could be made more efficient/to run in fewer round trips
     event_property_values = (
-        PropertyDefinition.objects.alias(
-            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
+        property_definitions.backend.get(
+            context.team.pk, property_definitions.PropertyObjectType.Event, names=property_finder.event_properties
         )
-        .filter(
-            effective_project_id=context.team.project_id,  # type: ignore
-            name__in=property_finder.event_properties,
-            type__in=[None, PropertyDefinition.Type.EVENT],
-        )
-        .values_list("name", "property_type")
         if property_finder.event_properties
         else []
     )
     event_properties = {name: property_type for name, property_type in event_property_values if property_type}
 
     person_property_values = (
-        PropertyDefinition.objects.alias(
-            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
+        property_definitions.backend.get(
+            context.team.pk, property_definitions.PropertyObjectType.Person, names=property_finder.person_properties
         )
-        .filter(
-            effective_project_id=context.team.project_id,  # type: ignore
-            name__in=property_finder.person_properties,
-            type=PropertyDefinition.Type.PERSON,
-        )
-        .values_list("name", "property_type")
         if property_finder.person_properties
         else []
     )
@@ -72,17 +57,8 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
     for group_id, properties in property_finder.group_properties.items():
         if not properties:
             continue
-        group_property_values = (
-            PropertyDefinition.objects.alias(
-                effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-            )
-            .filter(
-                effective_project_id=context.team.project_id,  # type: ignore
-                name__in=properties,
-                type=PropertyDefinition.Type.GROUP,
-                group_type_index=group_id,
-            )
-            .values_list("name", "property_type")
+        group_property_values = property_definitions.backend.get(
+            context.team.pk, property_definitions.PropertyObjectType.Group, group_type_index=group_id, names=properties
         )
         group_properties.update(
             {f"{group_id}_{name}": property_type for name, property_type in group_property_values if property_type}

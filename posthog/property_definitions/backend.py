@@ -4,7 +4,7 @@ from collections.abc import Iterable, Sequence
 import posthog.models.property_definition as models
 
 
-PropertyName = str
+PropertyName = str  # TODO: use models.property.PropertyName?
 
 
 class PropertyObjectType(enum.Enum):  # TODO: unify with model definition
