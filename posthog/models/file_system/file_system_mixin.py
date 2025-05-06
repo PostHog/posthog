@@ -77,7 +77,7 @@ class FileSystemSyncMixin(Model):
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
 
-        @receiver(post_save, sender=cls)
+        @receiver(post_save, sender=cls, weak=False)
         def _file_system_post_save(sender, instance: FileSystemSyncMixin, created, **kwargs):
             from posthog.models.file_system.file_system import create_or_update_file, delete_file
 
@@ -101,7 +101,7 @@ class FileSystemSyncMixin(Model):
                 # Don't raise exceptions in signals
                 capture_exception(e, additional_properties=dataclasses.asdict(fs_data))
 
-        @receiver(post_delete, sender=cls)
+        @receiver(post_delete, sender=cls, weak=False)
         def _file_system_post_delete(sender, instance: FileSystemSyncMixin, **kwargs):
             from posthog.models.file_system.file_system import delete_file
 
