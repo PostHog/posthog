@@ -311,7 +311,14 @@ const translateInputsSchema = (inputs_schema: Record<string, any> | undefined): 
         })) as HogFunctionInputSchemaType[]
 }
 
-const APPROVED_DESTINATIONS = ['segment-mixpanel', 'segment-amplitude', 'segment-launchdarkly', 'segment-canny', 'segment-fullstory-cloud', 'segment-drip']
+const APPROVED_DESTINATIONS = [
+    'segment-mixpanel',
+    'segment-amplitude',
+    'segment-launchdarkly',
+    'segment-canny',
+    'segment-fullstory-cloud',
+    'segment-drip',
+]
 
 const HIDDEN_DESTINATIONS = [
     'segment-snap-conversions',
@@ -335,17 +342,27 @@ const HIDDEN_DESTINATIONS = [
     'segment-apolloio',
     'segment-attio',
     'segment-braze-cloud',
-    'segment-klaviyo'
+    'segment-klaviyo',
 ]
 
 export const SEGMENT_DESTINATIONS = Object.entries(destinations)
     .filter(([_, destination]) => destination)
-    .filter(
-        ([_, destination]) => {
-            const id = 'segment-' + (destination.slug?.replace('actions-', '') ?? destination.name.replace('Actions ', '').replaceAll(' ', '-').toLowerCase())
-            return !(HIDDEN_DESTINATIONS.includes(id) || id.includes('audiences'))
+    .filter(([_, destination]) => {
+        const id =
+            'segment-' +
+            (destination.slug?.replace('actions-', '') ??
+                destination.name.replace('Actions ', '').replaceAll(' ', '-').toLowerCase())
+        if (HIDDEN_DESTINATIONS.includes(id) || id.includes('audiences')) {
+            return false
         }
-    )
+        if (
+            Object.keys(destination.authentication?.fields ?? {}).length === 0 &&
+            (destination?.presets ?? []).length === 0
+        ) {
+            return false
+        }
+        return true
+    })
     .map(([_, destination]) => {
         const id =
             'segment-' +
