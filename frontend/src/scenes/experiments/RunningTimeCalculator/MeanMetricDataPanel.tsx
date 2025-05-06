@@ -1,19 +1,29 @@
-import { useValues } from 'kea'
+import type { ExperimentMetric } from '~/queries/schema/schema-general'
 
-import { experimentLogic } from '../experimentLogic'
 import {
     AverageEventsPerUserPanel,
     AveragePropertyValuePerUserPanel,
     StandardDeviationPanel,
     UniqueUsersPanel,
 } from './components'
-import { runningTimeCalculatorLogic } from './runningTimeCalculatorLogic'
+import { calculateVariance } from './experimentStatisticsUtils'
 
-export const MeanMetricDataPanel = (): JSX.Element => {
-    const { experimentId } = useValues(experimentLogic)
-    const { uniqueUsers, averageEventsPerUser, averagePropertyValuePerUser, standardDeviation } = useValues(
-        runningTimeCalculatorLogic({ experimentId })
-    )
+type MeanMetricDataPanelProps = {
+    metric: ExperimentMetric
+    uniqueUsers: number
+    averageEventsPerUser: number
+    averagePropertyValuePerUser: number
+}
+
+export const MeanMetricDataPanel = ({
+    metric,
+    uniqueUsers,
+    averageEventsPerUser,
+    averagePropertyValuePerUser,
+}: MeanMetricDataPanelProps): JSX.Element => {
+    const variance = calculateVariance(metric, averageEventsPerUser, averagePropertyValuePerUser)
+
+    const standardDeviation = variance ? Math.sqrt(variance) : null
 
     return (
         <div className="grid grid-cols-3 gap-4">

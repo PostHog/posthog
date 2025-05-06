@@ -142,7 +142,7 @@ export function ExperimentView(): JSX.Element {
                                 <ExperimentMetricModal experimentId={experimentId} isSecondary={false} />
                                 <ExposureCriteriaModal />
                                 <RunningTimeCalculatorModal
-                                    experimentId={experimentId}
+                                    experiment={experiment}
                                     isOpen={isCalculateRunningTimeModalOpen}
                                     onClose={closeCalculateRunningTimeModal}
                                     onSave={(

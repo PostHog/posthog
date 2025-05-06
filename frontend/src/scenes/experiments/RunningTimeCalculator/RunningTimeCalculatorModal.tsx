@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { humanFriendlyNumber } from 'lib/utils'
 
+import type { ExperimentMetric } from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
 
 import { EventSelectorStep } from './EventSelectorStep'
@@ -16,7 +17,7 @@ import { RunningTimeCalculatorModalFooter } from './RunningTimeCalculatorModalFo
 import { RunningTimeCalculatorModalStep } from './RunningTimeCalculatorModalStep'
 
 type RunningTimeCalculatorModalProps = {
-    experimentId: Experiment['id']
+    experiment: Experiment
     isOpen: boolean
     onClose: () => void
     onSave: (
@@ -28,11 +29,13 @@ type RunningTimeCalculatorModalProps = {
 }
 
 export function RunningTimeCalculatorModal({
-    experimentId,
+    experiment,
     isOpen,
     onClose,
     onSave,
 }: RunningTimeCalculatorModalProps): JSX.Element {
+    const { id: experimentId, metrics } = experiment
+
     const {
         /**
          * Exposure Estimate Config Modal State.
@@ -49,7 +52,7 @@ export function RunningTimeCalculatorModal({
         uniqueUsers,
     } = useValues(runningTimeCalculatorLogic({ experimentId }))
 
-    const { setMinimumDetectableEffect, setExposureEstimateConfig } = useActions(
+    const { setMinimumDetectableEffect, setExposureEstimateConfig, loadExposureEstimate } = useActions(
         runningTimeCalculatorLogic({ experimentId })
     )
 
@@ -98,12 +101,20 @@ export function RunningTimeCalculatorModal({
             />
             {exposureEstimateConfig && (
                 <MetricSelectorStep
-                    onChangeMetric={(metric) =>
+                    experimentId={experimentId}
+                    experimentMetrics={metrics as ExperimentMetric[]}
+                    selectedMetric={exposureEstimateConfig.metric as ExperimentMetric}
+                    onChangeMetric={(metric) => {
                         setExposureEstimateConfig({
                             ...exposureEstimateConfig,
                             metric,
                         })
-                    }
+
+                        /**
+                         * Load the exposure estimate for the new metric.
+                         */
+                        loadExposureEstimate(metric)
+                    }}
                     onChangeFunnelConversionRateType={(type) =>
                         setExposureEstimateConfig({
                             ...exposureEstimateConfig,

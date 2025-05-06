@@ -1,4 +1,4 @@
-import equal from 'fast-deep-equal'
+// import equal from 'fast-deep-equal'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -36,9 +36,21 @@ export interface ExposureEstimateConfig {
      * It is not used for the funnel query. Instead, typically we'll use a $feature_flag event.
      */
     eventFilter: EventConfig | null
+    /**
+     * This is the metric that we're estimating the exposure for.
+     */
     metric: ExperimentMetric | null
+    /**
+     * This is the type of conversion rate input that we're using.
+     */
     conversionRateInputType: ConversionRateInputType
+    /**
+     * This is the manual conversion rate that we're using.
+     */
     manualConversionRate: number | null
+    /**
+     * This is the number of unique users that we're estimating the exposure for.
+     */
     uniqueUsers: number | null
 }
 
@@ -70,7 +82,6 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
     })),
     actions({
         setExposureEstimateConfig: (value: ExposureEstimateConfig) => ({ value }),
-        setMetricIndex: (value: number) => ({ value }),
         setMetricResult: (value: {
             uniqueUsers: number
             averageEventsPerUser?: number
@@ -86,12 +97,6 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
             null as ExposureEstimateConfig | null,
             { setExposureEstimateConfig: (_, { value }) => value },
         ],
-        _metricIndex: [
-            null as number | null,
-            {
-                setMetricIndex: (_, { value }) => value,
-            },
-        ],
         _conversionRateInputType: [
             ConversionRateInputType.AUTOMATIC as string,
             { setConversionRateInputType: (_, { value }) => value },
@@ -102,12 +107,21 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
     loaders(({ values }) => ({
         metricResult: {
             loadMetricResult: async () => {
-                if (values.metricIndex === null) {
-                    return null
-                }
-
-                const metric = values.metric as ExperimentMetric
-
+                return null
+            },
+        },
+        /**
+         * This loader will create the following actions:
+         * - loadExposureEstimate
+         * - loadExposureEstimateSucess
+         * - loadExposureEstimateFailure
+         *
+         * and these reducers:
+         * - exposureEstimate
+         * - exposureEstimateLoading
+         */
+        exposureEstimate: {
+            loadExposureEstimate: async (metric: ExperimentMetric) => {
                 if (!metric) {
                     return null
                 }
@@ -150,72 +164,20 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
 
                 return {}
             },
-            // For testing purposes, we want to be able set the metric result directly
             setMetricResult: ({ value }) => value,
         },
     })),
-    listeners(({ actions, values }) => ({
-        setMetricIndex: () => {
-            actions.loadMetricResult()
-        },
-        setExposureEstimateConfig: () => {
-            actions.loadMetricResult()
-        },
-        setManualConversionRate: () => {
-            /**
-             * We listen for changes in the manual conversion rate and update the exposure estimate config
-             */
-            actions.setExposureEstimateConfig({
-                ...(values.exposureEstimateConfig ?? {
-                    eventFilter: null,
-                    metric: null,
-                    conversionRateInputType: ConversionRateInputType.MANUAL,
-                    uniqueUsers: null,
-                }),
-                manualConversionRate: values._manualConversionRate,
+    listeners(({ actions }) => ({
+        loadExposureEstimateSuccess: ({ exposureEstimate }) => {
+            actions.setMetricResult({
+                uniqueUsers: exposureEstimate?.uniqueUsers ?? null,
+                ...(exposureEstimate?.automaticConversionRateDecimal
+                    ? { automaticConversionRateDecimal: exposureEstimate.automaticConversionRateDecimal }
+                    : {}),
             })
-        },
-        loadMetricResultSuccess: () => {
-            /**
-             * We listen for changes in the metric results.
-             * If the unique users have changed, we update the exposure estimate config.
-             * Otherwise, this could cause an infinite loop, because changing the exposure estimate config
-             * could trigger a change in the metric result.
-             */
-            const uniqueUsers = values.metricResult?.uniqueUsers
-            if (uniqueUsers !== values.exposureEstimateConfig?.uniqueUsers) {
-                actions.setExposureEstimateConfig({
-                    ...(values.exposureEstimateConfig ?? {
-                        eventFilter: null,
-                        metric: null,
-                        conversionRateInputType: ConversionRateInputType.AUTOMATIC,
-                        manualConversionRate: null,
-                    }),
-                    uniqueUsers,
-                })
-            }
         },
     })),
     selectors({
-        defaultMetricIndex: [
-            (s) => [s.experiment, s.exposureEstimateConfig],
-            (experiment: Experiment, exposureEstimateConfig: ExposureEstimateConfig | null): number | null => {
-                if (!experiment?.metrics || !exposureEstimateConfig?.metric) {
-                    return null
-                }
-
-                const metricIndex = experiment.metrics.findIndex((m) => equal(m, exposureEstimateConfig.metric))
-                return metricIndex >= 0 ? metricIndex : null
-            },
-        ],
-        metricIndex: [
-            (s) => [s._metricIndex, s.defaultMetricIndex],
-            (metricIndex: number | null, defaultMetricIndex: number | null): number | null => {
-                // If metricIndex was manually set, use that
-                // Otherwise use the default from exposureEstimateConfig if available
-                return metricIndex ?? defaultMetricIndex
-            },
-        ],
         exposureEstimateConfig: [
             (s) => [s._exposureEstimateConfig, s.experiment],
             (
@@ -269,8 +231,8 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                 minimumDetectableEffect ?? experiment?.parameters?.minimum_detectable_effect ?? DEFAULT_MDE,
         ],
         metric: [
-            (s) => [s.metricIndex, s.experiment],
-            (metricIndex: number, experiment: Experiment) => experiment.metrics[metricIndex],
+            (s) => [s.exposureEstimateConfig],
+            (exposureEstimateConfig: ExposureEstimateConfig | null) => exposureEstimateConfig?.metric,
         ],
         uniqueUsers: [
             (s) => [s.metricResult, s.exposureEstimateConfig],
@@ -314,6 +276,7 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                 ) {
                     return VARIANCE_SCALING_FACTOR_SUM * averagePropertyValuePerUser ** 2
                 }
+
                 return null
             },
         ],
