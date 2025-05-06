@@ -35,6 +35,7 @@ class TestSavedQuery(APIBaseTest):
                 }
             ],
         )
+        self.assertIsNotNone(saved_query["latest_history_id"])
 
     def test_create_with_types(self):
         with patch.object(DataWarehouseSavedQuery, "get_columns") as mock_get_columns:
@@ -296,6 +297,7 @@ class TestSavedQuery(APIBaseTest):
                     "kind": "HogQLQuery",
                     "query": "select distinct_id as distinct_id from events LIMIT 100",
                 },
+                "edited_history_id": saved_query_1_response["latest_history_id"],
             },
         )
 
@@ -629,6 +631,7 @@ class TestSavedQuery(APIBaseTest):
                         "kind": "HogQLQuery",
                         "query": "select event as event from events LIMIT 10",
                     },
+                    "edited_history_id": saved_query["latest_history_id"],
                 },
             )
 
@@ -663,7 +666,7 @@ class TestSavedQuery(APIBaseTest):
                         "kind": "HogQLQuery",
                         "query": "select event as event from events LIMIT 10",
                     },
-                    "current_query": saved_query["query"]["query"],
+                    "edited_history_id": saved_query["latest_history_id"],
                 },
             )
 
@@ -699,3 +702,52 @@ class TestSavedQuery(APIBaseTest):
                 },
             )
             self.assertEqual(query_change["before"], None)
+
+            # this should fail because the activity log has changed
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+                {
+                    "query": {
+                        "kind": "HogQLQuery",
+                        "query": "select event as event from events LIMIT 1",
+                    },
+                    "edited_history_id": saved_query["latest_history_id"],
+                },
+            )
+
+            self.assertEqual(response.status_code, 400, response.content)
+            self.assertEqual(response.json()["detail"], "The query was modified by someone else.")
+
+    def test_create_with_activity_log_existing_view(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        saved_query = response.json()
+        self.assertEqual(saved_query["name"], "event_view")
+        self.assertEqual(saved_query["query"]["kind"], "HogQLQuery")
+        self.assertEqual(saved_query["query"]["query"], "select event as event from events LIMIT 100")
+
+        ActivityLog.objects.filter(item_id=saved_query["id"], scope="DataWarehouseSavedQuery").delete()
+
+        with patch.object(DataWarehouseSavedQuery, "get_columns") as mock_get_columns:
+            mock_get_columns.return_value = {}
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+                {
+                    "query": {
+                        "kind": "HogQLQuery",
+                        "query": "select event as event from events LIMIT 10",
+                    },
+                    "edited_history_id": None,
+                },
+            )
+
+            self.assertEqual(response.status_code, 200, response.content)

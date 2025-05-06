@@ -62,6 +62,11 @@ const ExperimentFormFields = (): JSX.Element => {
                             placeholder="Pricing page conversion"
                             data-attr="experiment-name"
                             onBlur={() => {
+                                // bail if feature flag key is already set
+                                if (experiment.feature_flag_key) {
+                                    return
+                                }
+
                                 setExperiment({
                                     feature_flag_key: generateFeatureFlagKey(
                                         experiment.name,

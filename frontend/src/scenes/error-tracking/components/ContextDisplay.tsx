@@ -1,27 +1,27 @@
 import { IconCopy } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import { ExceptionAttributes } from 'lib/components/Errors/types'
 import { concatValues } from 'lib/components/Errors/utils'
 import useIsHovering from 'lib/hooks/useIsHovering'
 import { identifierToHuman } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
-import { Properties } from 'posthog-js'
 import { useRef } from 'react'
 import { match } from 'ts-pattern'
 
-import { cancelEvent, ExceptionAttributes } from '../utils'
+import { cancelEvent } from '../utils'
 
 export interface ContextDisplayProps {
     className?: string
-    attributes: ExceptionAttributes | null
-    additionalProperties: Properties
+    attributes?: ExceptionAttributes
+    additionalProperties?: Record<string, unknown>
     loading: boolean
 }
 
 export function ContextDisplay({
     className,
     attributes,
-    additionalProperties,
+    additionalProperties = {},
     loading,
 }: ContextDisplayProps): JSX.Element {
     return (

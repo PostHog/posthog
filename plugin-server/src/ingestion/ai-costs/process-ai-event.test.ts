@@ -238,4 +238,38 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(15, 2)
         })
     })
+
+    describe('gemini 2.5 pro preview', () => {
+        it('handles the seperate price for lage prompts', () => {
+            const event1 = {
+                ...event,
+                properties: {
+                    ...event.properties,
+                    $ai_model: 'gemini-2.5-pro-preview',
+                    $ai_input_tokens: 200001,
+                },
+            }
+
+            const event2 = {
+                ...event,
+                properties: {
+                    ...event.properties,
+                    $ai_model: 'gemini-2.5-pro-preview',
+                    $ai_input_tokens: 199999,
+                },
+            }
+
+            const result1 = processAiEvent(event1)
+            const result2 = processAiEvent(event2)
+
+            expect(result1.properties!.$ai_total_cost_usd).toBeDefined()
+            expect(result1.properties!.$ai_input_cost_usd).toBeDefined()
+            expect(result1.properties!.$ai_output_cost_usd).toBeDefined()
+            expect(result2.properties!.$ai_input_cost_usd).toBeDefined()
+            expect(result2.properties!.$ai_output_cost_usd).toBeDefined()
+            expect(result1.properties!.$ai_input_cost_usd).toBeGreaterThan(result2.properties!.$ai_input_cost_usd)
+            expect(result1.properties!.$ai_output_cost_usd).toBeGreaterThan(result2.properties!.$ai_output_cost_usd)
+            expect(result1.properties!.$ai_total_cost_usd).toBeGreaterThan(result2.properties!.$ai_total_cost_usd)
+        })
+    })
 })

@@ -443,6 +443,15 @@ export interface OrganizationMemberType extends BaseMemberType {
     is_2fa_enabled: boolean
 }
 
+export interface OrganizationMemberScopedApiKeysResponse {
+    has_keys: boolean
+    has_keys_active_last_week: boolean
+    keys: {
+        name: string
+        last_used_at: string | null
+    }[]
+}
+
 export interface ExplicitTeamMemberType extends BaseMemberType {
     /** Level at which the user explicitly is in the project. */
     level: TeamMembershipLevel
@@ -4376,6 +4385,7 @@ export interface DataWarehouseSavedQuery {
     sync_frequency: string
     status?: string
     latest_error: string | null
+    latest_history_id?: string
 }
 
 export interface DataWarehouseViewLink {
@@ -4446,7 +4456,7 @@ export interface ExternalDataSource {
 export interface DataModelingJob {
     id: string
     saved_query_id: string
-    status: 'Running' | 'Completed' | 'Failed'
+    status: 'Running' | 'Completed' | 'Failed' | 'Cancelled'
     rows_materialized: number
     error: string | null
     created_at: string
