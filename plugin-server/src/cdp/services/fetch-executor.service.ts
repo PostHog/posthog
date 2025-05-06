@@ -19,6 +19,15 @@ const cdpHttpRequests = new Counter({
     labelNames: ['status'],
 })
 
+const RETRIABLE_STATUS_CODES = [
+    408, // Request Timeout
+    429, // Too Many Requests (rate limiting)
+    500, // Internal Server Error
+    502, // Bad Gateway
+    503, // Service Unavailable
+    504, // Gateway Timeout
+]
+
 export class FetchExecutorService {
     constructor(private serverConfig: PluginsServerConfig) {}
 
@@ -59,8 +68,10 @@ export class FetchExecutorService {
             trace: [...metadata.trace, failure],
         }
 
+        const canRetry = !!response?.status && RETRIABLE_STATUS_CODES.includes(response.status)
+
         // If we haven't exceeded retry limit, schedule a retry with backoff
-        if (updatedMetadata.tries < maxTries) {
+        if (canRetry && updatedMetadata.tries < maxTries) {
             // Calculate backoff with jitter, similar to Rust implementation
             const backoffMs = Math.min(
                 this.serverConfig.CDP_FETCH_BACKOFF_BASE_MS * updatedMetadata.tries +
