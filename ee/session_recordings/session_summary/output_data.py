@@ -221,7 +221,7 @@ def _calculate_segment_duration(
     end_event_timestamp = prepare_datetime(end_event[timestamp_index])
     duration = int((end_event_timestamp - start_event_timestamp).total_seconds())
     # Round to avoid floating point precision issues (like 1.0000000002)
-    duration_percentage = round(duration / session_total_duration, 2)
+    duration_percentage = round(duration / session_total_duration, 4)
     return duration, duration_percentage
 
 
@@ -231,7 +231,8 @@ def _calculate_segment_events_count(
     start_event, end_event = simplified_events_mapping[start_event_id], simplified_events_mapping[end_event_id]
     # Events from the start to the end event (inclusive)
     events_count = end_event[event_index_index] - start_event[event_index_index] + 1
-    events_percentage = events_count / len(simplified_events_mapping)
+    # Round to avoid floating point precision issues (like 1.0000000002)
+    events_percentage = round(events_count / len(simplified_events_mapping), 4)
     return events_count, events_percentage
 
 
