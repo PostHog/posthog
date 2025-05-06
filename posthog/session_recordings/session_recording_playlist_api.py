@@ -358,6 +358,9 @@ class SessionRecordingPlaylistViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel
 
         # TODO: Maybe we need to save the created_at date here properly to help with filtering
         if request.method == "POST":
+            if playlist.type == SessionRecordingPlaylist.PlaylistType.FILTERS:
+                raise serializers.ValidationError("Cannot add recordings to a playlist that is type 'filters'.")
+
             recording, _ = SessionRecording.objects.get_or_create(
                 session_id=session_recording_id,
                 team=self.team,
