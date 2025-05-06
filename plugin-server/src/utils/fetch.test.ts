@@ -1,6 +1,6 @@
 import { FetchError } from 'node-fetch'
 
-import { raiseIfUserProvidedUrlUnsafe, SecureFetch } from './fetch'
+import { SecureFetch } from './fetch'
 
 // Restore the real fetch implementation for this test file
 jest.unmock('node-fetch')
@@ -13,34 +13,14 @@ jest.mock('dns/promises', () => ({
 }))
 
 import dns from 'dns/promises'
+import { range } from 'lodash'
 
 describe('secureFetch', () => {
-    jest.setTimeout(1000)
-    describe('raiseIfUserProvidedUrlUnsafe', () => {
-        it.each([
-            'https://google.com?q=20', // Safe
-            'https://posthog.com', // Safe
-            'https://posthog.com/foo/bar', // Safe, with path
-            'https://posthog.com:443', // Safe, good port
-            'https://1.1.1.1', // Safe, public IP
-        ])('should allow safe URLs: %s', async (url) => {
-            await expect(raiseIfUserProvidedUrlUnsafe(url)).resolves.not.toThrow()
-        })
-
-        it.each([
-            ['', 'Invalid URL'],
-            ['@@@', 'Invalid URL'],
-            ['posthog.com', 'Invalid URL'],
-            ['ftp://posthog.com', 'Scheme must be either HTTP or HTTPS'],
-            ['http://localhost', 'Internal hostname'],
-            ['http://192.168.0.5', 'Internal hostname'],
-            ['http://0.0.0.0', 'Internal hostname'],
-            ['http://10.0.0.24', 'Internal hostname'],
-            ['http://172.20.0.21', 'Internal hostname'],
-            ['http://fgtggggzzggggfd.com', 'Invalid hostname'],
-        ])('should raise against unsafe URLs: %s', async (url, error) => {
-            await expect(raiseIfUserProvidedUrlUnsafe(url)).rejects.toThrow(new FetchError(error, 'posthog-host-guard'))
-        })
+    beforeEach(() => {
+        jest.setTimeout(1000)
+        jest.mocked(dns.lookup).mockImplementation(realDnsLookup)
+        // NOTE: We are testing production-only features hence the override
+        process.env.NODE_ENV = 'production'
     })
 
     describe('trackedFetch', () => {
@@ -95,6 +75,38 @@ describe('secureFetch', () => {
             await expect(trackedFetch.fetch(`http://example.com`)).rejects.toThrow(
                 new FetchError(`request to http://example.com/ failed, reason: Internal hostname`, 'posthog-host-guard')
             )
+        })
+    })
+
+    // NOTE: Skipped as this is mostly to validate against the new request implementation
+    describe.skip('parallel requests execution', () => {
+        jest.retryTimes(3)
+        const trackedFetch = new SecureFetch({
+            allowUnsafe: true,
+        })
+        it('should execute requests in parallel', async () => {
+            const start = performance.now()
+            const timings: number[] = []
+            const parallelRequests = 100
+
+            const requests = range(parallelRequests).map(() =>
+                trackedFetch.fetch('https://example.com').then(() => {
+                    timings.push(performance.now() - start)
+                })
+            )
+
+            await Promise.all(requests)
+
+            expect(timings).toHaveLength(parallelRequests)
+
+            // NOTE: Not the easiest thing to test - what we are testing is that the requests are executed in parallel
+            // so the total time should be close to the time it takes to execute one request.
+            // It's far from perfect but it at the very least caches
+            const totalTime = performance.now() - start
+            const firstTime = timings[0]
+
+            expect(totalTime).toBeGreaterThan(firstTime - 100)
+            expect(totalTime).toBeLessThan(firstTime + 100)
         })
     })
 })

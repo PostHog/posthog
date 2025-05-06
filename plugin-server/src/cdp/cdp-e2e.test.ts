@@ -1,5 +1,6 @@
 // eslint-disable-next-line simple-import-sort/imports
 import { MockKafkaProducerWrapper } from '~/tests/helpers/mocks/producer.mock'
+import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { CdpCyclotronWorker } from '../../src/cdp/consumers/cdp-cyclotron-worker.consumer'
 import { CdpCyclotronWorkerFetch } from '../../src/cdp/consumers/cdp-cyclotron-worker-fetch.consumer'
@@ -12,19 +13,11 @@ import { waitForExpect } from '~/tests/helpers/expectations'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './_tests/examples'
 import { createHogExecutionGlobals, insertHogFunction as _insertHogFunction } from './_tests/fixtures'
-import { FetchError } from 'node-fetch'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
 import { resetKafka } from '~/tests/helpers/kafka'
 import { logger } from '../utils/logger'
-
-jest.mock('../../src/utils/fetch', () => {
-    return {
-        trackedFetch: jest.fn(() => Promise.resolve({ status: 200, body: { success: true } })),
-    }
-})
-
-const mockFetch: jest.Mock = require('../../src/utils/fetch').trackedFetch
+import { errors } from 'undici'
 
 const ActualKafkaProducerWrapper = jest.requireActual('../../src/kafka/producer').KafkaProducerWrapper
 
@@ -108,9 +101,9 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
 
             mockFetch.mockResolvedValue({
                 status: 200,
-                text: () => Promise.resolve(JSON.stringify({ success: true })),
-                headers: new Headers({ 'Content-Type': 'application/json' }),
                 json: () => Promise.resolve({ success: true }),
+                text: () => Promise.resolve(JSON.stringify({ success: true })),
+                headers: { 'Content-Type': 'application/json' },
             })
 
             expect(mockProducerObserver.getProducedKafkaMessages()).toHaveLength(0)
@@ -162,7 +155,7 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
                       "version": "v=1.0.0",
                     },
                     "method": "POST",
-                    "timeout": 10000,
+                    "timeoutMs": 10000,
                   },
                 ]
             `)
@@ -252,7 +245,7 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
         })
 
         it('should handle fetch failures with retries', async () => {
-            mockFetch.mockRejectedValue(new FetchError('Test error', 'request-timeout'))
+            mockFetch.mockRejectedValue(new errors.ConnectTimeoutError())
 
             const invocations = await eventsConsumer.processBatch([globals])
 
@@ -281,8 +274,8 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
                 'Executing function',
                 "Suspending function due to async function call 'fetch'. Payload: 2031 bytes. Event: <REPLACED-UUID-0>",
                 'Fetch failed after 2 attempts',
-                'Fetch failure of kind timeout with status (none) and message FetchError: Test error',
-                'Fetch failure of kind timeout with status (none) and message FetchError: Test error',
+                'Fetch failure of kind timeout with status (none) and message ConnectTimeoutError: Connect Timeout Error',
+                'Fetch failure of kind timeout with status (none) and message ConnectTimeoutError: Connect Timeout Error',
                 'Resuming function',
                 'Fetch response:, {"status":503}',
             ])

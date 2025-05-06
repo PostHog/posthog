@@ -5,7 +5,7 @@ import { Query } from '~/queries/Query/Query'
 import { QueryContext } from '~/queries/types'
 import { InsightLogicProps } from '~/types'
 
-export const EventsTab = (): JSX.Element => {
+export const EventsTable = (): JSX.Element => {
     const { eventsQuery } = useValues(errorTrackingIssueSceneLogic)
 
     const insightProps: InsightLogicProps = {
@@ -18,6 +18,9 @@ export const EventsTab = (): JSX.Element => {
                 title: 'Recording',
                 width: '134px',
             },
+        },
+        rowProps: () => {
+            return {}
         },
         showOpenEditorButton: false,
         insightProps: insightProps,
