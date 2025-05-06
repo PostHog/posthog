@@ -307,7 +307,7 @@ class TaxonomyAgentToolkit(ABC):
             props = self._enrich_props_with_descriptions(
                 "person",
                 property_definitions.backend.get_property_types(
-                    self._team, property_definitions.PropertyObjectType.Person
+                    self._team, property_definitions.PropertyDefinitionType.Person
                 ),
             )
         elif entity == "session":
@@ -330,7 +330,7 @@ class TaxonomyAgentToolkit(ABC):
                 entity,
                 property_definitions.backend.get_property_types(
                     self._team,
-                    property_definitions.PropertyObjectType.Group,
+                    property_definitions.PropertyDefinitionType.Group,
                     group_type_index=group_type_index,
                 ),
             )
@@ -373,7 +373,7 @@ class TaxonomyAgentToolkit(ABC):
         property_to_type = dict(
             property_definitions.backend.get_property_types(
                 self._team,
-                property_definitions.PropertyObjectType.Event,
+                property_definitions.PropertyDefinitionType.Event,
                 names=[item.property for item in response.results],
             )
         )
@@ -420,7 +420,7 @@ class TaxonomyAgentToolkit(ABC):
     def retrieve_event_or_action_property_values(self, event_name_or_action_id: str | int, property_name: str) -> str:
         try:
             property_type = property_definitions.backend.get_property_type(
-                self._team, property_definitions.PropertyObjectType.Event, property_name
+                self._team, property_definitions.PropertyDefinitionType.Event, property_name
             )
         except property_definitions.PropertyDefinitionDoesNotExist:
             return f"The property {property_name} does not exist in the taxonomy."
@@ -439,7 +439,7 @@ class TaxonomyAgentToolkit(ABC):
             prop.sample_values,
             prop.sample_count,
             format_as_string=property_type
-            in (property_definitions.PropertyValueType.String, property_definitions.PropertyValueType.Datetime),
+            in (property_definitions.PropertyType.String, property_definitions.PropertyType.Datetime),
         )
 
     def _retrieve_session_properties(self, property_name: str) -> str:
@@ -462,7 +462,7 @@ class TaxonomyAgentToolkit(ABC):
             sample_count = None
             is_str = (
                 CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"][property_name]["type"]
-                == property_definitions.PropertyValueType.String
+                == property_definitions.PropertyType.String
             )
         else:
             return f"Property values for {property_name} do not exist in the taxonomy for the session entity."
@@ -488,10 +488,10 @@ class TaxonomyAgentToolkit(ABC):
 
         try:
             if query.group_type_index is not None:
-                prop_type = property_definitions.PropertyObjectType.Group
+                prop_type = property_definitions.PropertyDefinitionType.Group
                 group_type_index = query.group_type_index
             else:
-                prop_type = property_definitions.PropertyObjectType.Person
+                prop_type = property_definitions.PropertyDefinitionType.Person
                 group_type_index = None
 
             property_type = property_definitions.backend.get_property_type(
@@ -514,7 +514,7 @@ class TaxonomyAgentToolkit(ABC):
             response.results.sample_values,
             response.results.sample_count,
             format_as_string=property_type
-            in (property_definitions.PropertyValueType.String, property_definitions.PropertyValueType.Datetime),
+            in (property_definitions.PropertyType.String, property_definitions.PropertyType.Datetime),
         )
 
     def handle_incorrect_response(self, response: str) -> str:

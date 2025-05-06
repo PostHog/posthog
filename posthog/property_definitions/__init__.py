@@ -1,13 +1,13 @@
 from posthog.property_definitions.backend import (
     PropertyDefinitionDoesNotExist,
-    PropertyObjectType,
-    PropertyValueType,
+    PropertyDefinitionType,
+    PropertyType,
     backend,
 )
 
 __all__ = [
     "PropertyDefinitionDoesNotExist",
-    "PropertyObjectType",
-    "PropertyValueType",
+    "PropertyDefinitionType",
+    "PropertyType",
     "backend",
 ]
