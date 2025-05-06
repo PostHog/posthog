@@ -1,4 +1,4 @@
-import { SimpleKeyValueList } from 'scenes/session-recordings/player/inspector/components/SimpleKeyValueList'
+import { SimpleKeyValueList } from 'lib/components/SimpleKeyValueList'
 
 import { InspectorListItemDoctor } from '../playerInspectorLogic'
 

@@ -75,7 +75,7 @@ export interface ActionFilterProps {
     propertiesTaxonomicGroupTypes?: TaxonomicFilterGroupType[]
     /** Whether properties shown should be limited to just numerical types */
     showNumericalPropsOnly?: boolean
-    hideDeleteBtn?: boolean
+    hideDeleteBtn?: boolean | ((filter: LocalFilter, index: number) => boolean)
     readOnly?: boolean
     renderRow?: ({
         seriesIndicator,
@@ -92,6 +92,8 @@ export interface ActionFilterProps {
     dataWarehousePopoverFields?: DataWarehousePopoverField[]
     /** Whether to add left padding to the filters div to align with indented content */
     filtersLeftPadding?: boolean
+    /** Doc link to show in the tooltip of the New Filter button */
+    addFilterDocLink?: string
 }
 
 export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(function ActionFilter(
@@ -125,6 +127,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         allowedMathTypes,
         dataWarehousePopoverFields,
         filtersLeftPadding,
+        addFilterDocLink,
     },
     ref
 ): JSX.Element {
@@ -175,7 +178,6 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         actionsTaxonomicGroupTypes,
         propertiesTaxonomicGroupTypes,
         propertyFiltersPopover,
-        hideDeleteBtn,
         disabled,
         readOnly,
         renderRow,
@@ -187,6 +189,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         allowedMathTypes,
         dataWarehousePopoverFields,
         filtersLeftPadding,
+        addFilterDocLink,
     }
 
     const reachedLimit: boolean = Boolean(entitiesLimit && localFilters.length >= entitiesLimit)
@@ -233,6 +236,11 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                                     showNestedArrow={showNestedArrow}
                                     singleFilter={singleFilter}
                                     hideFilter={hideFilter || readOnly}
+                                    hideDeleteBtn={
+                                        typeof hideDeleteBtn === 'function'
+                                            ? hideDeleteBtn(filter, index)
+                                            : hideDeleteBtn
+                                    }
                                     {...commonProps}
                                 />
                             ))}

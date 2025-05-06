@@ -7,6 +7,7 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { HogFunctionIcon } from 'scenes/pipeline/hogfunctions/HogFunctionIcon'
 import { HogFunctionStatusIndicator } from 'scenes/pipeline/hogfunctions/HogFunctionStatusIndicator'
 import { hogFunctionUrl } from 'scenes/pipeline/hogfunctions/urls'
+import { urls } from 'scenes/urls'
 
 import { HogFunctionKind, HogFunctionType, HogFunctionTypeType } from '~/types'
 
@@ -102,6 +103,10 @@ export function FunctionsTable({ type, kind }: FunctionsTableProps): JSX.Element
                                         overlay={
                                             <LemonMenuOverlay
                                                 items={[
+                                                    {
+                                                        label: 'Create template',
+                                                        to: urls.messagingLibraryTemplateFromMessage(hogFunction.id),
+                                                    },
                                                     {
                                                         label: 'Delete',
                                                         status: 'danger' as const, // for typechecker happiness

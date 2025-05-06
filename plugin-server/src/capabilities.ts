@@ -17,11 +17,11 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 sessionRecordingBlobIngestionV2: true,
                 sessionRecordingBlobIngestionV2Overflow: config.SESSION_RECORDING_OVERFLOW_ENABLED,
                 appManagementSingleton: true,
-                preflightSchedules: true,
                 cdpProcessedEvents: true,
                 cdpInternalEvents: true,
                 cdpCyclotronWorker: true,
                 cdpCyclotronWorkerPlugins: true,
+                cdpCyclotronWorkerFetch: true,
                 cdpApi: true,
             }
 
@@ -73,6 +73,10 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return {
                 cdpCyclotronWorkerPlugins: true,
             }
+        case PluginServerMode.cdp_cyclotron_worker_fetch:
+            return {
+                cdpCyclotronWorkerFetch: true,
+            }
         case PluginServerMode.cdp_api:
             return {
                 cdpApi: true,
@@ -90,7 +94,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 processAsyncWebhooksHandlers: true,
                 sessionRecordingBlobIngestion: true,
                 appManagementSingleton: true,
-                preflightSchedules: true,
             }
     }
 }

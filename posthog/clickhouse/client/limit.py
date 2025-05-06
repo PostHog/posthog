@@ -6,17 +6,11 @@ from typing import Optional
 from collections.abc import Callable
 
 from celery import current_task
-from prometheus_client import Counter, Gauge
+from prometheus_client import Counter
 
 from posthog import redis, settings
 from posthog.settings import TEST
 from posthog.utils import generate_short_id
-
-RUNNING_CLICKHOUSE_QUERIES = Gauge(
-    "posthog_clickhouse_query_concurrent_per_team",
-    "Number of concurrent queries",
-    ["team_id", "access_method"],
-)
 
 CONCURRENT_QUERY_LIMIT_EXCEEDED_COUNTER = Counter(
     "posthog_clickhouse_query_concurrency_limit_exceeded",
@@ -79,19 +73,11 @@ class RateLimit:
         applicable = not self.applicable or self.applicable(*args, **kwargs)
 
         if applicable:
-            access_method = "personal_api_key"
             running_task_key, task_id = self.use(*args, **kwargs)
-        else:
-            access_method = "other"
 
-        query_gauge = RUNNING_CLICKHOUSE_QUERIES.labels(
-            team_id=str(kwargs.get("team_id", "")), access_method=access_method
-        )
-        query_gauge.inc()
         try:
             yield
         finally:
-            query_gauge.dec()
             if applicable:
                 self.release(running_task_key, task_id)
 

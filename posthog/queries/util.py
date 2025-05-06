@@ -99,6 +99,7 @@ def get_earliest_timestamp(team_id: int) -> datetime:
         query_type="get_earliest_timestamp",
         team_id=team_id,
     )
+
     if len(results) > 0:
         return results[0][0]
     else:

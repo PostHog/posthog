@@ -1,6 +1,6 @@
 import './ErrorTracking.scss'
 
-import { LemonCard } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { useEffect } from 'react'
@@ -8,15 +8,15 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
-import { AssigneeSelect } from './AssigneeSelect'
-import { IssueCard } from './components/IssueCard'
-import { DateRangeFilter, FilterGroup, InternalAccountsFilter } from './ErrorTrackingFilters'
+import { AssigneeIconDisplay, AssigneeLabelDisplay } from './components/Assignee/AssigneeDisplay'
+import { AssigneeSelect } from './components/Assignee/AssigneeSelect'
+import { ErrorFilters } from './components/ErrorFilters'
+import { ErrorTrackingSetupPrompt } from './components/ErrorTrackingSetupPrompt/ErrorTrackingSetupPrompt'
+import { ExceptionCard } from './components/ExceptionCard'
+import { GenericSelect } from './components/GenericSelect'
+import { IssueStatus, StatusIndicator } from './components/Indicator'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
-import { ErrorTrackingSetupPrompt } from './ErrorTrackingSetupPrompt'
-import { GenericSelect } from './issue/GenericSelect'
-import { IssueStatus, StatusIndicator } from './issue/Indicator'
 import { Metadata } from './issue/Metadata'
-import { EventsTab } from './issue/tabs/EventsTab'
 
 export const scene: SceneExport = {
     component: ErrorTrackingIssueScene,
@@ -36,7 +36,7 @@ export const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {
 }
 
 export function ErrorTrackingIssueScene(): JSX.Element {
-    const { issue, issueLoading } = useValues(errorTrackingIssueSceneLogic)
+    const { issue, issueLoading, properties, propertiesLoading } = useValues(errorTrackingIssueSceneLogic)
     const { loadIssue, updateStatus, updateAssignee } = useActions(errorTrackingIssueSceneLogic)
 
     useEffect(() => {
@@ -48,13 +48,17 @@ export function ErrorTrackingIssueScene(): JSX.Element {
             <PageHeader
                 buttons={
                     <div className="flex gap-x-2">
-                        {!issueLoading && issue?.status == 'active' && (
-                            <AssigneeSelect
-                                assignee={issue?.assignee}
-                                onChange={updateAssignee}
-                                type="secondary"
-                                showName
-                            />
+                        {!issueLoading && issue?.status === 'active' && (
+                            <AssigneeSelect assignee={issue?.assignee} onChange={updateAssignee}>
+                                {(displayAssignee) => (
+                                    <LemonButton
+                                        type="secondary"
+                                        icon={<AssigneeIconDisplay assignee={displayAssignee} />}
+                                    >
+                                        <AssigneeLabelDisplay assignee={displayAssignee} placeholder="Unassigned" />
+                                    </LemonButton>
+                                )}
+                            </AssigneeSelect>
                         )}
                         {!issueLoading && (
                             <GenericSelect
@@ -72,18 +76,18 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                 }
             />
             <div className="ErrorTrackingIssue space-y-2">
-                <IssueCard />
-                <div className="flex items-center gap-2 p-0 bg-transparent">
-                    <div className="h-full flex items-center justify-center w-full gap-2">
-                        <DateRangeFilter />
-                        <FilterGroup />
-                        <InternalAccountsFilter />
-                    </div>
-                </div>
+                <ExceptionCard
+                    issue={issue ?? undefined}
+                    issueLoading={issueLoading}
+                    properties={properties ?? undefined}
+                    propertiesLoading={propertiesLoading}
+                />
+                <ErrorFilters.Root>
+                    <ErrorFilters.DateRange />
+                    <ErrorFilters.FilterGroup />
+                    <ErrorFilters.InternalAccounts />
+                </ErrorFilters.Root>
                 <Metadata />
-                <LemonCard className="p-0 overflow-hidden" hoverEffect={false}>
-                    <EventsTab />
-                </LemonCard>
             </div>
         </ErrorTrackingSetupPrompt>
     )

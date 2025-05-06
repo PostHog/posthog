@@ -14,19 +14,24 @@ from django.http import StreamingHttpResponse
 from rest_framework.response import Response
 from posthog.rate_limit import EditorProxyBurstRateThrottle, EditorProxySustainedRateThrottle
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
-from ..providers.anthropic import AnthropicProvider, AnthropicConfig
-from ..providers.codestral import CodestralProvider
-from ..providers.inkeep import InkeepProvider
+from products.editor.backend.providers.anthropic import AnthropicProvider, AnthropicConfig
+from products.editor.backend.providers.openai import OpenAIProvider, OpenAIConfig
+from products.editor.backend.providers.codestral import CodestralProvider, CodestralConfig
+from products.editor.backend.providers.inkeep import InkeepProvider, InkeepConfig
+from products.editor.backend.providers.gemini import GeminiProvider, GeminiConfig
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 from ee.hogai.utils.asgi import SyncIterableToAsync
 from collections.abc import Generator, Callable
-from typing import Any
+from typing import Any, TypedDict, TypeGuard
+from anthropic.types import MessageParam
 import logging
 
 logger = logging.getLogger(__name__)
 
 
-SUPPORTED_MODELS_WITH_THINKING = AnthropicConfig.SUPPORTED_MODELS_WITH_THINKING
+SUPPORTED_MODELS_WITH_THINKING = (
+    AnthropicConfig.SUPPORTED_MODELS_WITH_THINKING + OpenAIConfig.SUPPORTED_MODELS_WITH_THINKING
+)
 
 
 class LLMProxyCompletionSerializer(serializers.Serializer):
@@ -41,6 +46,13 @@ class LLMProxyFIMSerializer(serializers.Serializer):
     suffix = serializers.CharField()
     model = serializers.CharField()
     stop = serializers.ListField(child=serializers.CharField())
+
+
+class ProviderData(TypedDict):
+    model: str
+    system: str
+    messages: list[dict[str, Any]]
+    thinking: bool
 
 
 class LLMProxyViewSet(viewsets.ViewSet):
@@ -62,6 +74,14 @@ class LLMProxyViewSet(viewsets.ViewSet):
             return False
         user, _ = result
         return posthoganalytics.feature_enabled("llm-editor-proxy", user.email, person_properties={"email": user.email})
+
+    def validate_messages(self, messages: list[dict[str, Any]]) -> TypeGuard[list[MessageParam]]:
+        if not messages:
+            return False
+        for msg in messages:
+            if "role" not in msg or "content" not in msg:
+                return False
+        return True
 
     def _create_stream_generator(
         self, provider_stream: Generator[str, None, None], request
@@ -91,7 +111,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
         self,
         request: Request,
         serializer_class: type[LLMProxyCompletionSerializer] | type[LLMProxyFIMSerializer],
-        provider_factory: Callable[[dict], Any],
+        provider_factory: Callable[[ProviderData], Any],
         mode: str = "completion",
     ) -> StreamingHttpResponse | Response:
         """Generic handler for LLM proxy requests"""
@@ -109,11 +129,14 @@ class LLMProxyViewSet(viewsets.ViewSet):
                 return provider
 
             if mode == "completion" and hasattr(provider, "stream_response"):
+                messages = serializer.validated_data.get("messages")
+                if not self.validate_messages(messages):
+                    return Response({"error": "Invalid messages"}, status=400)
                 stream = self._create_stream_generator(
                     provider.stream_response(
                         **{
                             "system": serializer.validated_data.get("system"),
-                            "messages": serializer.validated_data.get("messages"),
+                            "messages": messages,
                             "thinking": serializer.validated_data.get("thinking", False),
                         }
                     ),
@@ -139,7 +162,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
             logger.exception(f"Error in LLM proxy: {e}")
             return Response({"error": "An internal error occurred"}, status=500)
 
-    def _get_completion_provider(self, data: dict) -> Any:
+    def _get_completion_provider(self, data: ProviderData) -> Any:
         """Factory method for completion providers"""
         model_id = data.get("model")
         thinking = data.get("thinking", False)
@@ -148,25 +171,23 @@ class LLMProxyViewSet(viewsets.ViewSet):
             return Response({"error": "Thinking is not supported for this model"}, status=400)
 
         match model_id:
-            case (
-                "claude-3-7-sonnet-20250219"
-                | "claude-3-5-sonnet-20241022"
-                | "claude-3-5-haiku-20241022"
-                | "claude-3-opus-20240229"
-                | "claude-3-haiku-20240307"
-            ):
+            case model_id if model_id in AnthropicConfig.SUPPORTED_MODELS:
                 return AnthropicProvider(model_id)
-            case "inkeep-qa-expert":
+            case model_id if model_id in InkeepConfig.SUPPORTED_MODELS:
                 return InkeepProvider(model_id)
+            case model_id if model_id in OpenAIConfig.SUPPORTED_MODELS:
+                return OpenAIProvider(model_id)
+            case model_id if model_id in GeminiConfig.SUPPORTED_MODELS:
+                return GeminiProvider(model_id)
             case _:
                 return Response({"error": "Unsupported model"}, status=400)
 
-    def _get_fim_provider(self, data: dict) -> Any:
+    def _get_fim_provider(self, data: ProviderData) -> Any:
         """Factory method for FIM providers"""
-        model = data.get("model")
-        match model:
-            case "codestral-latest":
-                return CodestralProvider(model)
+        model_id = data.get("model")
+        match model_id:
+            case model_id if model_id in CodestralConfig.SUPPORTED_MODELS:
+                return CodestralProvider(model_id)
             case _:
                 return Response({"error": "Unsupported model"}, status=400)
 

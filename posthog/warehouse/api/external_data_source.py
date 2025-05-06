@@ -37,8 +37,8 @@ from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
 )
 from posthog.temporal.data_imports.pipelines.stripe import (
-    validate_credentials as validate_stripe_credentials,
     StripePermissionError,
+    validate_credentials as validate_stripe_credentials,
 )
 from posthog.temporal.data_imports.pipelines.vitally import (
     validate_credentials as validate_vitally_credentials,
@@ -158,6 +158,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
     latest_error = serializers.SerializerMethodField(read_only=True)
     status = serializers.SerializerMethodField(read_only=True)
     schemas = serializers.SerializerMethodField(read_only=True)
+    revenue_analytics_enabled = serializers.BooleanField(default=False)
 
     class Meta:
         model = ExternalDataSource
@@ -171,6 +172,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "source_type",
             "latest_error",
             "prefix",
+            "revenue_analytics_enabled",
             "last_run_at",
             "schemas",
             "job_inputs",
@@ -525,7 +527,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         try:
             for active_schema in active_schemas:
-                sync_external_data_job_workflow(active_schema, create=True)
+                sync_external_data_job_workflow(active_schema, create=True, should_sync=active_schema.should_sync)
         except Exception as e:
             # Log error but don't fail because the source model was already created
             logger.exception("Could not trigger external data job", exc_info=e)
@@ -547,6 +549,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             team=self.team,
             status="Running",
             source_type=source_type,
+            revenue_analytics_enabled=True,
             job_inputs={"stripe_secret_key": client_secret, "stripe_account_id": account_id},
             prefix=prefix,
         )

@@ -1,12 +1,13 @@
 import { LogicWrapper } from 'kea'
 
-import { ActivityScope } from '~/types'
+import { AccessControlResourceType, ActivityScope } from '~/types'
 
 // The enum here has to match the first and only exported component of the scene.
 // If so, we can preload the scene's required chunks in parallel with the scene itself.
 
 export enum Scene {
     Error404 = '404',
+    ErrorAccessDenied = 'AccessDenied',
     ErrorNetwork = '4xx',
     ErrorProjectUnavailable = 'ProjectUnavailable',
     ErrorTracking = 'ErrorTracking',
@@ -160,4 +161,23 @@ export interface SceneConfig {
     defaultDocsPath?: string
     /** Component import, used only in manifests */
     import?: () => Promise<any>
+}
+
+// Map scenes to their access control resource types
+export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessControlResourceType>> = {
+    // Feature flags
+    [Scene.FeatureFlag]: AccessControlResourceType.FeatureFlag,
+    [Scene.FeatureFlags]: AccessControlResourceType.FeatureFlag,
+
+    // Dashboards
+    [Scene.Dashboard]: AccessControlResourceType.Dashboard,
+    [Scene.Dashboards]: AccessControlResourceType.Dashboard,
+
+    // Insights
+    [Scene.Insight]: AccessControlResourceType.Insight,
+    [Scene.SavedInsights]: AccessControlResourceType.Insight,
+
+    // Notebooks
+    [Scene.Notebook]: AccessControlResourceType.Notebook,
+    [Scene.Notebooks]: AccessControlResourceType.Notebook,
 }

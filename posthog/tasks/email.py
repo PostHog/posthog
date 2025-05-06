@@ -179,7 +179,7 @@ def send_password_reset(user_id: int, token: str) -> None:
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
-def send_email_verification(user_id: int, token: str) -> None:
+def send_email_verification(user_id: int, token: str, next_url: str | None = None) -> None:
     user: User = User.objects.get(pk=user_id)
     message = EmailMessage(
         use_http=True,
@@ -188,9 +188,9 @@ def send_email_verification(user_id: int, token: str) -> None:
         template_name="email_verification",
         template_context={
             "preheader": "Please follow the link inside to verify your account.",
-            "link": f"/verify_email/{user.uuid}/{token}",
+            "link": f"/verify_email/{user.uuid}/{token}{f'?next={next_url}' if next_url else ''}",
             "site_url": settings.SITE_URL,
-            "url": f"{settings.SITE_URL}/verify_email/{user.uuid}/{token}",
+            "url": f"{settings.SITE_URL}/verify_email/{user.uuid}/{token}{f'?next={next_url}' if next_url else ''}",
         },
     )
     message.add_recipient(user.pending_email if user.pending_email is not None else user.email)
@@ -462,6 +462,13 @@ def send_error_tracking_issue_assigned(assignment: ErrorTrackingIssueAssignment,
             membership
             for membership in memberships_to_email
             if (membership.user in group_users and membership.user != assigner)
+        ]
+    elif assignment.role:
+        role_users = assignment.role.members.all()
+        memberships_to_email = [
+            membership
+            for membership in memberships_to_email
+            if (membership.user in role_users and membership.user != assigner)
         ]
 
     campaign_key: str = f"error_tracking_issue_assigned_{assignment.id}_updated_at_{assignment.created_at.timestamp()}"

@@ -206,18 +206,27 @@ export type HogFunctionInvocationQueueParameters =
     | HogFunctionQueueParametersFetchRequest
     | HogFunctionQueueParametersFetchResponse
 
+export const HOG_FUNCTION_INVOCATION_JOB_QUEUES = ['hog', 'fetch', 'plugin'] as const
+export type HogFunctionInvocationJobQueue = (typeof HOG_FUNCTION_INVOCATION_JOB_QUEUES)[number]
+
+export const CYCLOTRON_JOB_QUEUE_KINDS = ['postgres', 'kafka'] as const
+export type CyclotronJobQueueKind = (typeof CYCLOTRON_JOB_QUEUE_KINDS)[number]
+
 export type HogFunctionInvocation = {
     id: string
     globals: HogFunctionInvocationGlobalsWithInputs
     teamId: Team['id']
     hogFunction: HogFunctionType
-    priority: number
-    queue: 'hog' | 'fetch' | 'plugins'
-    queueParameters?: HogFunctionInvocationQueueParameters
     // The current vmstate (set if the invocation is paused)
     vmState?: VMState
     timings: HogFunctionTiming[]
-    functionToExecute?: [string, any[]]
+    // Params specific to the queueing system
+    queue: HogFunctionInvocationJobQueue
+    queueParameters?: HogFunctionInvocationQueueParameters
+    queuePriority: number
+    queueScheduledAt?: DateTime
+    queueMetadata?: Record<string, any>
+    queueSource?: CyclotronJobQueueKind
 }
 
 export type HogFunctionAsyncFunctionRequest = {
@@ -253,8 +262,7 @@ export type HogHooksFetchResponse = {
 
 export type HogFunctionInvocationSerialized = Omit<HogFunctionInvocation, 'hogFunction'> & {
     // When serialized to kafka / cyclotron we only store the ID
-    hogFunctionId?: HogFunctionType['id']
-    hogFunction?: HogFunctionType
+    hogFunctionId: HogFunctionType['id']
 }
 
 // Mostly copied from frontend types
@@ -287,7 +295,7 @@ export type HogFunctionTypeType =
     | 'alert'
     | 'broadcast'
 
-export type HogFunctionKind = 'messaging_campaign' | null
+export type HogFunctionKind = 'messaging_campaign'
 
 export interface HogFunctionMappingType {
     inputs_schema?: HogFunctionInputSchemaType[]
@@ -298,7 +306,7 @@ export interface HogFunctionMappingType {
 export type HogFunctionType = {
     id: string
     type: HogFunctionTypeType
-    kind?: HogFunctionKind
+    kind?: HogFunctionKind | null
     team_id: number
     name: string
     enabled: boolean

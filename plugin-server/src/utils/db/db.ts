@@ -43,8 +43,6 @@ import {
     TimestampFormat,
 } from '../../types'
 import { fetchAction, fetchAllActionsGroupedByTeam } from '../../worker/ingestion/action-manager'
-import { fetchOrganization } from '../../worker/ingestion/organization-manager'
-import { fetchTeam, fetchTeamByToken } from '../../worker/ingestion/team-manager'
 import { parseRawClickHouseEvent } from '../event'
 import { parseJSON } from '../json-parse'
 import { logger } from '../logger'
@@ -122,6 +120,10 @@ export type GroupId = [GroupTypeIndex, GroupKey]
 export interface CachedGroupData {
     properties: Properties
     created_at: ClickHouseTimestamp
+}
+
+export interface PersonPropertiesSize {
+    total_props_bytes: number
 }
 
 export const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
@@ -490,11 +492,39 @@ export class DB {
             }) as ClickHousePerson[]
         } else if (database === Database.Postgres) {
             return await this.postgres
-                .query<RawPerson>(PostgresUse.COMMON_WRITE, 'SELECT * FROM posthog_person', undefined, 'fetchPersons')
+                .query<RawPerson>(PostgresUse.PERSONS_WRITE, 'SELECT * FROM posthog_person', undefined, 'fetchPersons')
                 .then(({ rows }) => rows.map(this.toPerson))
         } else {
             throw new Error(`Can't fetch persons for database: ${database}`)
         }
+    }
+
+    // temporary: measure person record JSONB blob sizes
+    public async personPropertiesSize(teamId: number, distinctId: string): Promise<number> {
+        const values = [teamId, distinctId]
+        const queryString = `
+            SELECT COALESCE(pg_column_size(properties)::bigint, 0::bigint) AS total_props_bytes
+            FROM posthog_person
+            JOIN posthog_persondistinctid ON (posthog_persondistinctid.person_id = posthog_person.id)
+            WHERE
+                posthog_person.team_id = $1
+                AND posthog_persondistinctid.team_id = $1
+                AND posthog_persondistinctid.distinct_id = $2`
+
+        const { rows } = await this.postgres.query<PersonPropertiesSize>(
+            PostgresUse.COMMON_READ,
+            queryString,
+            values,
+            'personPropertiesSize'
+        )
+
+        // the returned value from the DB query can be NULL if the record
+        // specified by the team and distinct ID inputs doesn't exist
+        if (rows.length > 0) {
+            return Number(rows[0].total_props_bytes)
+        }
+
+        return 0
     }
 
     public async fetchPerson(
@@ -530,7 +560,7 @@ export class DB {
         const values = [teamId, distinctId]
 
         const { rows } = await this.postgres.query<RawPerson>(
-            options.useReadReplica ? PostgresUse.COMMON_READ : PostgresUse.COMMON_WRITE,
+            options.useReadReplica ? PostgresUse.PERSONS_READ : PostgresUse.PERSONS_WRITE,
             queryString,
             values,
             'fetchPerson'
@@ -552,7 +582,7 @@ export class DB {
         uuid: string,
         distinctIds?: { distinctId: string; version?: number }[],
         tx?: TransactionClient
-    ): Promise<InternalPerson> {
+    ): Promise<[InternalPerson, TopicMessage[]]> {
         distinctIds ||= []
 
         for (const distinctId of distinctIds) {
@@ -563,7 +593,7 @@ export class DB {
         const personVersion = 0
 
         const { rows } = await this.postgres.query<RawPerson>(
-            tx ?? PostgresUse.COMMON_WRITE,
+            tx ?? PostgresUse.PERSONS_WRITE,
             `WITH inserted_person AS (
                     INSERT INTO posthog_person (
                         created_at, properties, properties_last_updated_at,
@@ -575,7 +605,7 @@ export class DB {
                 distinctIds
                     .map(
                         // NOTE: Keep this in sync with the posthog_persondistinctid INSERT in
-                        // `addDistinctIdPooled`
+                        // `addDistinctId`
                         (_, index) => `, distinct_id_${index} AS (
                         INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
                         VALUES (
@@ -635,8 +665,7 @@ export class DB {
             })
         }
 
-        await this.kafkaProducer.queueMessages(kafkaMessages)
-        return person
+        return [person, kafkaMessages]
     }
 
     // Currently in use, but there are various problems with this function
@@ -667,7 +696,7 @@ export class DB {
         RETURNING *`
 
         const { rows } = await this.postgres.query<RawPerson>(
-            tx ?? PostgresUse.COMMON_WRITE,
+            tx ?? PostgresUse.PERSONS_WRITE,
             queryString,
             values,
             'updatePerson'
@@ -683,6 +712,11 @@ export class DB {
         // Without races, the returned person (updatedPerson) should have a version that's only +1 the person in memory
         const versionDisparity = updatedPerson.version - person.version - 1
         if (versionDisparity > 0) {
+            logger.info('🧑‍🦰', 'Person update version mismatch', {
+                team_id: updatedPerson.team_id,
+                person_id: updatedPerson.id,
+                version_disparity: versionDisparity,
+            })
             personUpdateVersionMismatchCounter.inc()
         }
 
@@ -698,7 +732,7 @@ export class DB {
 
     public async deletePerson(person: InternalPerson, tx?: TransactionClient): Promise<TopicMessage[]> {
         const { rows } = await this.postgres.query<{ version: string }>(
-            tx ?? PostgresUse.COMMON_WRITE,
+            tx ?? PostgresUse.PERSONS_WRITE,
             'DELETE FROM posthog_person WHERE team_id = $1 AND id = $2 RETURNING version',
             [person.team_id, person.id],
             'deletePerson'
@@ -739,7 +773,7 @@ export class DB {
             ).data as ClickHousePersonDistinctId2[]
         } else if (database === Database.Postgres) {
             const result = await this.postgres.query(
-                PostgresUse.COMMON_WRITE, // used in tests only
+                PostgresUse.PERSONS_WRITE, // used in tests only
                 'SELECT * FROM posthog_persondistinctid WHERE person_id=$1 AND team_id=$2 ORDER BY id',
                 [person.id, person.team_id],
                 'fetchDistinctIds'
@@ -760,7 +794,7 @@ export class DB {
 
     public async addPersonlessDistinctId(teamId: number, distinctId: string): Promise<boolean> {
         const result = await this.postgres.query(
-            PostgresUse.COMMON_WRITE,
+            PostgresUse.PERSONS_WRITE,
             `
                 INSERT INTO posthog_personlessdistinctid (team_id, distinct_id, is_merged, created_at)
                 VALUES ($1, $2, false, now())
@@ -777,7 +811,7 @@ export class DB {
 
         // ON CONFLICT ... DO NOTHING won't give us our RETURNING, so we have to do another SELECT
         const existingResult = await this.postgres.query(
-            PostgresUse.COMMON_WRITE,
+            PostgresUse.PERSONS_WRITE,
             `
                 SELECT is_merged
                 FROM posthog_personlessdistinctid
@@ -796,7 +830,7 @@ export class DB {
         tx?: TransactionClient
     ): Promise<boolean> {
         const result = await this.postgres.query(
-            tx ?? PostgresUse.COMMON_WRITE,
+            tx ?? PostgresUse.PERSONS_WRITE,
             `
                 INSERT INTO posthog_personlessdistinctid (team_id, distinct_id, is_merged, created_at)
                 VALUES ($1, $2, true, now())
@@ -816,25 +850,13 @@ export class DB {
         distinctId: string,
         version: number,
         tx?: TransactionClient
-    ): Promise<void> {
-        const kafkaMessages = await this.addDistinctIdPooled(person, distinctId, version, tx)
-        if (kafkaMessages.length) {
-            await this.kafkaProducer.queueMessages(kafkaMessages)
-        }
-    }
-
-    public async addDistinctIdPooled(
-        person: InternalPerson,
-        distinctId: string,
-        version: number,
-        tx?: TransactionClient
     ): Promise<TopicMessage[]> {
         const insertResult = await this.postgres.query(
-            tx ?? PostgresUse.COMMON_WRITE,
+            tx ?? PostgresUse.PERSONS_WRITE,
             // NOTE: Keep this in sync with the posthog_persondistinctid INSERT in `createPerson`
             'INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version) VALUES ($1, $2, $3, $4) RETURNING *',
             [distinctId, person.id, person.team_id, version],
-            'addDistinctIdPooled'
+            'addDistinctId'
         )
 
         const { id, ...personDistinctIdCreated } = insertResult.rows[0] as PersonDistinctId
@@ -865,7 +887,7 @@ export class DB {
         let movedDistinctIdResult: QueryResult<any> | null = null
         try {
             movedDistinctIdResult = await this.postgres.query(
-                tx ?? PostgresUse.COMMON_WRITE,
+                tx ?? PostgresUse.PERSONS_WRITE,
                 `
                     UPDATE posthog_persondistinctid
                     SET person_id = $1, version = COALESCE(version, 0)::numeric + 1
@@ -1098,22 +1120,6 @@ export class DB {
 
     public async fetchAction(id: Action['id']): Promise<Action | null> {
         return await fetchAction(this.postgres, id)
-    }
-
-    // Organization
-
-    public async fetchOrganization(organizationId: string): Promise<RawOrganization | undefined> {
-        return await fetchOrganization(this.postgres, organizationId)
-    }
-
-    // Team
-
-    public async fetchTeam(teamId: Team['id']): Promise<Team | null> {
-        return await fetchTeam(this.postgres, teamId)
-    }
-
-    public async fetchTeamByToken(token: string): Promise<Team | null> {
-        return await fetchTeamByToken(this.postgres, token)
     }
 
     // Hook (EE)

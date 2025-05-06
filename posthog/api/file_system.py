@@ -1,7 +1,10 @@
+import shlex
+import re
 from typing import Any, cast
-
 from django.db import transaction
 from django.db.models import QuerySet
+from django.db.models import Case, When, Value, IntegerField, Q, F
+from django.db.models.functions import Lower, Concat
 from rest_framework import filters, serializers, viewsets, pagination, status
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -16,8 +19,6 @@ from posthog.models.team import Team
 
 
 class FileSystemSerializer(serializers.ModelSerializer):
-    created_by = UserBasicSerializer(read_only=True)
-
     class Meta:
         model = FileSystem
         fields = [
@@ -30,13 +31,11 @@ class FileSystemSerializer(serializers.ModelSerializer):
             "meta",
             "shortcut",
             "created_at",
-            "created_by",
         ]
         read_only_fields = [
             "id",
             "depth",
             "created_at",
-            "created_by",
         ]
 
     def update(self, instance: FileSystem, validated_data: dict[str, Any]) -> FileSystem:
@@ -93,7 +92,101 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = FileSystemSerializer
     filter_backends = [filters.SearchFilter]
     pagination_class = FileSystemsLimitOffsetPagination
-    search_fields = ["path", "ref", "type"]
+
+    def _apply_search_to_queryset(self, queryset: QuerySet, search: str) -> QuerySet:
+        """
+        Supported token formats
+        -----------------------
+        • <field>:<value>      → field-specific search
+            • path:<txt>     → match any parent-folder segment (substring)
+            • name:<txt>     → match the basename (substring)
+            • user:<txt>     → matches creator full-name or e-mail (use **user:me** as a shortcut)
+            • type:<txt>     → exact match (or use an ending “/” for prefix match)
+            • ref:<txt>      → exact match
+        • Plain tokens         → searched in `path` (`icontains`)
+        • Quotes               → `"multi word value"` keeps spaces together
+        • Negation             → prefix any token with `-` or `!` (e.g. `-type:folder`, `-report`)
+        • All positive/negative tokens are **AND-combined**.
+
+        Example
+        -------
+        search='name:report type:file -author:"Paul D" draft'
+        """
+        tokens: list[str] = shlex.split(search)
+        if not tokens:
+            return queryset
+
+        combined_q: Q = Q()  # neutral element for "&" chaining
+
+        for raw in tokens:
+            negated = raw.startswith(("-", "!"))
+            token = raw[1:] if negated else raw
+
+            if (token.startswith('"') and token.endswith('"')) or (token.startswith("'") and token.endswith("'")):
+                token = token[1:-1]
+
+            # field-qualified token?
+            if ":" in token:
+                field, value = token.split(":", 1)
+                field = field.lower()
+                value = value.strip()
+                if (value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'")):
+                    value = value[1:-1]
+
+                if field == "path":
+                    # ────────────────────────────────────────────────────────────
+                    # substring search in ANY *parent* segment (everything before
+                    # the last segment).  We look for a segment that *contains*
+                    # the value, bounded by un-escaped slashes.
+                    #
+                    #   (^|(?<!\\)/)       ← segment start (BOL or un-escaped /)
+                    #   ([^/]|\\.)*value([^/]|\\.)*
+                    #   (?<!\\)/          ← next un-escaped slash (ensures “parent”)
+                    # ────────────────────────────────────────────────────────────
+                    regex = rf"(^|(?<!\\)/)([^/]|\\.)*{re.escape(value)}([^/]|\\.)*(?<!\\)/"
+                    q = Q(path__iregex=regex)
+
+                elif field == "name":
+                    # ────────────────────────────────────────────────────────────
+                    # substring search *only* in the last segment (basename)
+                    #   (^|(?<!\\)/)       ← segment start
+                    #   ([^/]|\\.)*value([^/]|\\.)*
+                    #   $                 ← end-of-string  (marks “last” segment)
+                    # ────────────────────────────────────────────────────────────
+                    regex = rf"(^|(?<!\\)/)([^/]|\\.)*{re.escape(value)}([^/]|\\.)*$"
+                    q = Q(path__iregex=regex)
+
+                elif field in ("user", "author"):
+                    #  user:me  → files created by the current user
+                    if value.lower() == "me" and self.request.user.is_authenticated:
+                        q = Q(created_by=self.request.user)
+                    else:
+                        # build “first last” once and do a single icontains
+                        queryset = queryset.annotate(
+                            _created_by_full_name=Concat(
+                                F("created_by__first_name"),
+                                Value(" "),
+                                F("created_by__last_name"),
+                            )
+                        )
+                        q = Q(_created_by_full_name__icontains=value) | Q(created_by__email__icontains=value)
+
+                elif field == "type":
+                    if value.endswith("/"):
+                        q = Q(type__startswith=value)
+                    else:
+                        q = Q(type=value)
+                elif field == "ref":
+                    q = Q(ref=value)
+                else:  # unknown prefix → search for the full token in path
+                    q = Q(path__icontains=token)
+            else:
+                # plain free-text token: search in path
+                q = Q(path__icontains=token)
+
+            combined_q &= ~q if negated else q
+
+        return queryset.filter(combined_q)
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = queryset.filter(team=self.team)
@@ -102,8 +195,13 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         parent_param = self.request.query_params.get("parent")
         path_param = self.request.query_params.get("path")
         type_param = self.request.query_params.get("type")
+        not_type_param = self.request.query_params.get("not_type")
         type__startswith_param = self.request.query_params.get("type__startswith")
         ref_param = self.request.query_params.get("ref")
+        order_by_param = self.request.query_params.get("order_by")
+        created_at__gt = self.request.query_params.get("created_at__gt")
+        created_at__lt = self.request.query_params.get("created_at__lt")
+        search_param = self.request.query_params.get("search")
 
         if depth_param is not None:
             try:
@@ -111,26 +209,65 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 queryset = queryset.filter(depth=depth_value)
             except ValueError:
                 pass
-
-        if self.action == "list":
-            queryset = queryset.order_by("path")
-
         if path_param:
             queryset = queryset.filter(path=path_param)
         if parent_param:
             queryset = queryset.filter(path__startswith=f"{parent_param}/")
         if type_param:
             queryset = queryset.filter(type=type_param)
+        if not_type_param:
+            queryset = queryset.exclude(type=not_type_param)
         if type__startswith_param:
             queryset = queryset.filter(type__startswith=type__startswith_param)
-        if ref_param:
-            queryset = queryset.filter(ref=ref_param)
-            queryset = queryset.order_by("shortcut")  # override order
+        if created_at__gt:
+            queryset = queryset.filter(created_at__gt=created_at__gt)
+        if created_at__lt:
+            queryset = queryset.filter(created_at__lt=created_at__lt)
+        if search_param:
+            queryset = self._apply_search_to_queryset(queryset, search_param)
 
         if self.user_access_control:
             queryset = self.user_access_control.filter_and_annotate_file_system_queryset(queryset)
 
+        if ref_param:
+            queryset = queryset.filter(ref=ref_param)
+            queryset = queryset.order_by("shortcut")  # override order
+        elif order_by_param:
+            if order_by_param in ["path", "-path", "created_at", "-created_at"]:
+                queryset = queryset.order_by(order_by_param)
+        elif self.action == "list":
+            if depth_param is not None:
+                queryset = queryset.order_by(
+                    Case(
+                        When(type="folder", then=Value(0)),
+                        default=Value(1),
+                        output_field=IntegerField(),
+                    ),
+                    Lower("path"),
+                )
+            else:
+                queryset = queryset.order_by(Lower("path"))
+
         return queryset
+
+    def list(self, request, *args, **kwargs):
+        response = super().list(request, *args, **kwargs)
+        results = response.data.get("results", [])
+        user_ids = set()
+
+        # Collect user IDs from the "created_by" meta field
+        for item in results:
+            created_by = item.get("meta", {}).get("created_by")
+            if created_by and isinstance(created_by, int):
+                user_ids.add(created_by)
+
+        if user_ids:
+            users_qs = User.objects.filter(organization=self.organization, id__in=user_ids).distinct()
+            response.data["users"] = UserBasicSerializer(users_qs, many=True).data
+        else:
+            response.data["users"] = []
+
+        return response
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()

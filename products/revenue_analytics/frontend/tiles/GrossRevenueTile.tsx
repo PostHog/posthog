@@ -1,3 +1,5 @@
+import { IconInfo } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { useMemo } from 'react'
 
@@ -27,11 +29,12 @@ export const GrossRevenueTile = (): JSX.Element => {
 
     return (
         <div className="flex flex-col gap-1">
-            <h3 className="text-lg font-semibold">Gross Revenue</h3>
-            <p className="text-sm text-gray-500">
-                Gross revenue is the total amount of revenue generated from all sources, including all products and
-                services.
-            </p>
+            <h3 className="text-lg font-semibold">
+                Gross Revenue&nbsp;
+                <Tooltip title="Gross revenue is the total amount of revenue generated from all sources, including all products and services.">
+                    <IconInfo />
+                </Tooltip>
+            </h3>
 
             <Query query={query} readOnly context={context} />
         </div>

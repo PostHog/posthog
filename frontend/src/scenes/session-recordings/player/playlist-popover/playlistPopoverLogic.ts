@@ -3,13 +3,13 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import {
     sessionRecordingPlayerLogic,
     SessionRecordingPlayerLogicProps,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { addRecordingToPlaylist, removeRecordingFromPlaylist } from 'scenes/session-recordings/player/utils/playerUtils'
 import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils'
+import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 
 import { SessionRecordingPlaylistType } from '~/types'
 
@@ -23,7 +23,7 @@ export const playlistPopoverLogic = kea<playlistPopoverLogicType>([
         actions: [
             sessionRecordingPlayerLogic(props),
             ['setPause'],
-            eventUsageLogic,
+            sessionRecordingEventUsageLogic,
             ['reportRecordingPinnedToList', 'reportRecordingPlaylistCreated'],
         ],
     })),

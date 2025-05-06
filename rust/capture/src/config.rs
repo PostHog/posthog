@@ -2,6 +2,7 @@ use std::{net::SocketAddr, num::NonZeroU32};
 
 use envconfig::Envconfig;
 use health::HealthStrategy;
+use tracing::Level;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum CaptureMode {
@@ -34,6 +35,9 @@ pub struct Config {
 
     #[envconfig(default = "false")]
     pub overflow_enabled: bool,
+
+    #[envconfig(default = "false")]
+    pub overflow_preserve_partition_locality: bool,
 
     #[envconfig(default = "100")]
     pub overflow_per_second_limit: NonZeroU32,
@@ -82,6 +86,12 @@ pub struct Config {
 
     #[envconfig(default = "ALL")]
     pub healthcheck_strategy: HealthStrategy,
+
+    #[envconfig(default = "false")]
+    pub is_mirror_deploy: bool,
+
+    #[envconfig(default = "info")]
+    pub log_level: Level,
 }
 
 #[derive(Envconfig, Clone)]

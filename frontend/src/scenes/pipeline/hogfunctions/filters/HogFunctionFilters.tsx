@@ -150,7 +150,9 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                             {!useMapping ? (
                                 <>
                                     <div className="flex justify-between w-full gap-2">
-                                        <LemonLabel>Match events and actions</LemonLabel>
+                                        <LemonLabel>
+                                            {isTransformation ? 'Match events' : 'Match events and actions'}
+                                        </LemonLabel>
                                     </div>
                                     <p className="mb-0 text-xs text-secondary">
                                         If set, the {type} will only run if the <b>event matches any</b> of the below.
