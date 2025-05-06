@@ -32,7 +32,7 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
                 data-attr={`billing-limit-input-wrapper-${product.type}`}
             >
                 <h4>Billing limit</h4>
-                <div className="flex w-full items-center justify-between">
+                <div className="flex flex-col xl:flex-row w-full items-stretch xl:items-center justify-start xl:justify-between gap-2">
                     <div className="flex items-center gap-1">
                         {!isEditingBillingLimit ? (
                             <>
@@ -143,7 +143,7 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
                     </div>
                     {billingLimitNextPeriod ? (
                         <div className="flex items-center gap-2">
-                            <span className="text-sm text-right">
+                            <span className="text-sm xl:text-right">
                                 Your limit for next period: <b>${billingLimitNextPeriod.toLocaleString()}</b>.
                             </span>
                             <LemonButton
