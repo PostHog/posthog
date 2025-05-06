@@ -12,6 +12,8 @@ from dags.web_preaggregated import (
     WEB_ANALYTICS_DATE_PARTITION_DEFINITION,
     WEB_OVERVIEW_INSERT_SQL,
     format_team_ids,
+    BatchMetrics,
+    ExecutionSummary,
 )
 
 
@@ -68,6 +70,277 @@ def pageview_volumes():
             start=1,
         )
     )
+
+
+class TestBatchMetrics:
+    """Tests for the BatchMetrics class that handles metrics collection and calculations."""
+
+    def test_batch_metrics_initialization(self):
+        """Test that BatchMetrics initializes with default values."""
+        metrics = BatchMetrics()
+        assert metrics.rows_deleted == 0
+        assert metrics.rows_inserted == 0
+        assert metrics.bytes_processed == 0
+        assert metrics.query_duration_ms == 0
+        assert metrics.delete_duration_ms == 0
+        assert metrics.insert_duration_ms == 0
+        assert metrics.batch_duration_ms == 0
+
+    def test_batch_metrics_from_dict(self):
+        """Test creating BatchMetrics from a dictionary."""
+        metrics_dict = {
+            "rows_deleted": 10,
+            "rows_inserted": 100,
+            "bytes_processed": 1024,
+            "query_duration_ms": 500,
+            "delete_duration_ms": 200,
+            "insert_duration_ms": 300,
+            "batch_duration_ms": 550,
+        }
+        
+        metrics = BatchMetrics.from_dict(metrics_dict)
+        
+        assert metrics.rows_deleted == 10
+        assert metrics.rows_inserted == 100
+        assert metrics.bytes_processed == 1024
+        assert metrics.query_duration_ms == 500
+        assert metrics.delete_duration_ms == 200
+        assert metrics.insert_duration_ms == 300
+        assert metrics.batch_duration_ms == 550
+
+    def test_batch_metrics_to_dict(self):
+        """Test converting BatchMetrics to a dictionary."""
+        metrics = BatchMetrics(
+            rows_deleted=15,
+            rows_inserted=150,
+            bytes_processed=2048,
+            query_duration_ms=600,
+            delete_duration_ms=250,
+            insert_duration_ms=350,
+            batch_duration_ms=650,
+        )
+        
+        metrics_dict = metrics.to_dict()
+        
+        assert metrics_dict["rows_deleted"] == 15
+        assert metrics_dict["rows_inserted"] == 150
+        assert metrics_dict["bytes_processed"] == 2048
+        assert metrics_dict["query_duration_ms"] == 600
+        assert metrics_dict["delete_duration_ms"] == 250
+        assert metrics_dict["insert_duration_ms"] == 350
+        assert metrics_dict["batch_duration_ms"] == 650
+
+    def test_add_batch_metrics(self):
+        """Test adding two BatchMetrics instances together."""
+        metrics1 = BatchMetrics(
+            rows_deleted=10,
+            rows_inserted=100,
+            bytes_processed=1024,
+            query_duration_ms=500,
+            delete_duration_ms=200,
+            insert_duration_ms=300,
+            batch_duration_ms=550,
+        )
+        
+        metrics2 = BatchMetrics(
+            rows_deleted=20,
+            rows_inserted=200,
+            bytes_processed=2048,
+            query_duration_ms=700,
+            delete_duration_ms=300,
+            insert_duration_ms=400,
+            batch_duration_ms=750,
+        )
+        
+        metrics1.add(metrics2)
+        
+        assert metrics1.rows_deleted == 30
+        assert metrics1.rows_inserted == 300
+        assert metrics1.bytes_processed == 3072
+        assert metrics1.query_duration_ms == 1200
+        assert metrics1.delete_duration_ms == 500
+        assert metrics1.insert_duration_ms == 700
+        assert metrics1.batch_duration_ms == 1300
+
+    def test_aggregate_from_hosts(self):
+        """Test aggregating metrics from multiple hosts."""
+        host_metrics = {
+            "host1": {
+                "rows_deleted": 10,
+                "rows_inserted": 100,
+                "bytes_processed": 1024,
+                "query_duration_ms": 500,
+                "delete_duration_ms": 200,
+                "insert_duration_ms": 300,
+            },
+            "host2": {
+                "rows_deleted": 20,
+                "rows_inserted": 200,
+                "bytes_processed": 2048,
+                "query_duration_ms": 700,
+                "delete_duration_ms": 300,
+                "insert_duration_ms": 400,
+            },
+        }
+        
+        metrics = BatchMetrics(batch_duration_ms=1300)
+        metrics.aggregate_from_hosts(host_metrics)
+        
+        assert metrics.rows_deleted == 30
+        assert metrics.rows_inserted == 300
+        assert metrics.bytes_processed == 3072
+        assert metrics.query_duration_ms == 1200
+        assert metrics.delete_duration_ms == 500
+        assert metrics.insert_duration_ms == 700
+        assert metrics.batch_duration_ms == 1300
+
+    def test_calculated_properties(self):
+        """Test calculated properties of BatchMetrics."""
+        metrics = BatchMetrics(
+            rows_inserted=1000,
+            bytes_processed=1024 * 1024,  # 1 MB
+            query_duration_ms=800,
+            delete_duration_ms=300,
+            insert_duration_ms=500,
+            batch_duration_ms=1000,
+        )
+        
+        assert metrics.overhead_ms == 200
+        assert metrics.efficiency_percent == 80.0
+        assert metrics.total_seconds == 1.0
+        assert metrics.query_seconds == 0.8
+        assert metrics.delete_seconds == 0.3
+        assert metrics.insert_seconds == 0.5
+        assert metrics.overhead_seconds == 0.2
+        assert metrics.data_size_mb == 1.0
+        assert metrics.data_size_readable == "1.00 MB"
+        
+        # Test GB formatting
+        metrics.bytes_processed = 2 * 1024 * 1024 * 1024  # 2 GB
+        assert metrics.data_size_readable == "2.00 GB"
+
+    def test_throughput_calculation(self):
+        """Test calculating throughput metrics."""
+        metrics = BatchMetrics(
+            rows_inserted=1000,
+            bytes_processed=1024 * 1024,  # 1 MB
+        )
+        
+        throughput = metrics.calculate_throughput(2.0)  # 2 seconds
+        
+        assert throughput["rows_per_second"] == 500.0
+        assert throughput["mb_per_second"] == 0.5
+        
+        # Test with zero duration
+        throughput = metrics.calculate_throughput(0)
+        assert throughput["rows_per_second"] == 0
+        assert throughput["mb_per_second"] == 0
+
+    def test_get_timing_metrics(self):
+        """Test getting all timing metrics."""
+        metrics = BatchMetrics(
+            query_duration_ms=800,
+            delete_duration_ms=300,
+            insert_duration_ms=500,
+            batch_duration_ms=1000,
+        )
+        
+        timing_metrics = metrics.get_timing_metrics()
+        
+        assert timing_metrics["total_seconds"] == 1.0
+        assert timing_metrics["query_seconds"] == 0.8
+        assert timing_metrics["delete_seconds"] == 0.3
+        assert timing_metrics["insert_seconds"] == 0.5
+        assert timing_metrics["overhead_seconds"] == 0.2
+        assert timing_metrics["efficiency_percent"] == 80.0
+
+    def test_get_data_metrics(self):
+        """Test getting all data metrics."""
+        metrics = BatchMetrics(
+            rows_inserted=1000,
+            rows_deleted=200,
+            bytes_processed=1024 * 1024,  # 1 MB
+        )
+        
+        data_metrics = metrics.get_data_metrics()
+        
+        assert data_metrics["rows_inserted"] == 1000
+        assert data_metrics["rows_deleted"] == 200
+        assert data_metrics["bytes_processed"] == 1024 * 1024
+        assert data_metrics["data_size_human"] == "1.00 MB"
+
+
+class TestExecutionSummary:
+    """Tests for the ExecutionSummary class that tracks overall batch execution."""
+
+    def test_execution_summary_initialization(self):
+        """Test that ExecutionSummary initializes with default values."""
+        summary = ExecutionSummary()
+        
+        assert summary.total_teams == 0
+        assert summary.successful_teams == 0
+        assert summary.failed_teams == 0
+        assert summary.successful_batches == 0
+        assert summary.failed_batches == 0
+        assert isinstance(summary.metrics, BatchMetrics)
+
+    def test_success_rate_calculation(self):
+        """Test calculating success rate."""
+        summary = ExecutionSummary(total_teams=100, successful_teams=75)
+        
+        assert summary.success_rate == 0.75
+        
+        # Test with zero teams
+        summary = ExecutionSummary()
+        assert summary.success_rate == 1.0
+
+    def test_to_dict_conversion(self):
+        """Test converting ExecutionSummary to a dictionary."""
+        metrics = BatchMetrics(
+            rows_inserted=1000,
+            rows_deleted=200,
+            bytes_processed=1024 * 1024,  # 1 MB
+            query_duration_ms=800,
+            delete_duration_ms=300,
+            insert_duration_ms=500,
+            batch_duration_ms=1000,
+        )
+        
+        summary = ExecutionSummary(
+            total_teams=100,
+            successful_teams=75,
+            failed_teams=25,
+            successful_batches=15,
+            failed_batches=5,
+            metrics=metrics,
+        )
+        
+        result = summary.to_dict()
+        
+        assert result["total_teams"] == 100
+        assert result["successful_teams"] == 75
+        assert result["failed_teams"] == 25
+        assert result["success_rate"] == 0.75
+        assert result["successful_batches"] == 15
+        assert result["failed_batches"] == 5
+        
+        # Check data metrics
+        assert result["data_metrics"]["rows_inserted"] == 1000
+        assert result["data_metrics"]["rows_deleted"] == 200
+        assert result["data_metrics"]["bytes_processed"] == 1024 * 1024
+        assert result["data_metrics"]["data_size_human"] == "1.00 MB"
+        
+        # Check timing metrics
+        assert result["timing_metrics"]["total_seconds"] == 1.0
+        assert result["timing_metrics"]["query_seconds"] == 0.8
+        assert result["timing_metrics"]["delete_seconds"] == 0.3
+        assert result["timing_metrics"]["insert_seconds"] == 0.5
+        assert result["timing_metrics"]["overhead_seconds"] == 0.2
+        assert result["timing_metrics"]["efficiency_percent"] == 80.0
+        
+        # Check performance metrics
+        assert result["performance_metrics"]["rows_per_second"] == 1000.0
+        assert result["performance_metrics"]["mb_per_second"] == 1.0
 
 
 class TestWebAnalyticsUtils:
@@ -420,3 +693,144 @@ class TestSqlGeneration:
             else:
                 # If no match, the SQL is not formed correctly
                 raise AssertionError("Team IDs not found in SQL")
+
+
+class TestWebAnalyticsIntegration:
+    """Tests for the integration of metrics classes with the ClickHouse operations."""
+
+    def test_process_batch_with_metrics(self, mock_clickhouse_cluster):
+        """Test that _process_batch correctly uses and returns BatchMetrics."""
+        from dags.web_preaggregated import _process_batch, BatchExecutionContext
+        import posthog.models.web_preaggregated.sql
+        
+        # Create a mock sql_generator function
+        def mock_sql_generator(date_start, date_end, team_ids, settings, table_name):
+            return f"INSERT INTO {table_name} SELECT * FROM events WHERE timestamp >= '{date_start}' AND timestamp < '{date_end}'"
+            
+        # Mock the context and execution context
+        context = mock.MagicMock()
+        
+        # Create a proper instance of BatchExecutionContext instead of a mock
+        exec_ctx = BatchExecutionContext(
+            cluster=mock_clickhouse_cluster,
+            table_name="test_table",
+            sql_generator=mock_sql_generator,
+            start_date_str="2025-01-08 00:00:00",
+            end_date_str="2025-01-15 00:00:00",
+            partition_date="2025-01-08",
+            clickhouse_settings="max_execution_time=240",
+        )
+        
+        # Set up the mock cluster to return metrics
+        host_metrics = {
+            "host1": {
+                "rows_deleted": 10,
+                "rows_inserted": 1000,
+                "bytes_processed": 2 * 1024 * 1024,  # 2 MB
+                "query_duration_ms": 800,
+                "delete_duration_ms": 300,
+                "insert_duration_ms": 500,
+            }
+        }
+        mock_clickhouse_cluster.map_all_hosts.return_value.result.return_value = host_metrics
+        
+        # Patch format_team_ids to avoid dependency on posthog.models
+        with mock.patch('posthog.models.web_preaggregated.sql.format_team_ids', return_value="1, 2, 3"):
+            # Call _process_batch
+            team_ids = [1, 2, 3]
+            volumes = {1: 100, 2: 200, 3: 300}
+            success, team_count, batch_metrics = _process_batch(
+                context=context,
+                batch_idx=1,
+                all_batches=[[1, 2, 3], [4, 5, 6]],
+                team_ids=team_ids,
+                volumes=volumes,
+                exec_ctx=exec_ctx,
+            )
+            
+            # Verify the result
+            assert success is True
+            assert team_count == 3
+            assert isinstance(batch_metrics, BatchMetrics)
+            assert batch_metrics.rows_inserted == 1000
+            assert batch_metrics.bytes_processed == 2 * 1024 * 1024
+            assert batch_metrics.query_duration_ms == 800
+            assert batch_metrics.delete_duration_ms == 300
+            assert batch_metrics.insert_duration_ms == 500
+        
+    def test_execute_batches_with_summary(self, mock_clickhouse_cluster):
+        """Test that _execute_batches correctly uses ExecutionSummary."""
+        from dags.web_preaggregated import _execute_batches, _process_batch, BatchExecutionContext
+        
+        # Mock _process_batch to return controlled results
+        original_process_batch = _process_batch
+        
+        def mock_process_batch(*args, **kwargs):
+            # First batch succeeds
+            if kwargs.get("batch_idx", args[1]) == 1:
+                metrics = BatchMetrics(
+                    rows_inserted=1000,
+                    bytes_processed=2 * 1024 * 1024,
+                    query_duration_ms=800,
+                    delete_duration_ms=300,
+                    insert_duration_ms=500,
+                    batch_duration_ms=1000,
+                )
+                return True, 3, metrics
+            # Second batch fails
+            else:
+                return False, 2, BatchMetrics()
+        
+        # Create a mock sql_generator function
+        def mock_sql_generator(date_start, date_end, team_ids, settings, table_name):
+            return f"INSERT INTO {table_name} SELECT * FROM events WHERE timestamp >= '{date_start}' AND timestamp < '{date_end}'"
+        
+        # Apply the patch
+        with mock.patch("dags.web_preaggregated._process_batch", side_effect=mock_process_batch):
+            # Create a proper instance of BatchExecutionContext
+            exec_ctx = BatchExecutionContext(
+                cluster=mock_clickhouse_cluster,
+                table_name="test_table",
+                sql_generator=mock_sql_generator,
+                start_date_str="2025-01-08 00:00:00",
+                end_date_str="2025-01-15 00:00:00",
+                partition_date="2025-01-08",
+                clickhouse_settings="max_execution_time=240",
+            )
+            
+            # Mock the context
+            context = mock.MagicMock()
+            
+            # Call _execute_batches
+            batches = [[1, 2, 3], [4, 5]]
+            volumes = {1: 100, 2: 200, 3: 300, 4: 400, 5: 500}
+            result = _execute_batches(
+                context=context,
+                batches=batches,
+                volumes=volumes,
+                exec_context=exec_ctx,
+            )
+            
+            # Verify the result
+            assert result["total_teams"] == 5
+            assert result["successful_teams"] == 3
+            assert result["failed_teams"] == 2
+            assert result["successful_batches"] == 1
+            assert result["failed_batches"] == 1
+            assert result["success_rate"] == 0.6
+            
+            # Check data metrics
+            assert result["data_metrics"]["rows_inserted"] == 1000
+            assert result["data_metrics"]["bytes_processed"] == 2 * 1024 * 1024
+            assert result["data_metrics"]["data_size_human"] == "2.00 MB"
+            
+            # Check timing metrics
+            assert "total_execution_seconds" in result["timing_metrics"]
+            assert "setup_seconds" in result["timing_metrics"]
+            assert result["timing_metrics"]["query_seconds"] == 0.8
+            assert result["timing_metrics"]["delete_seconds"] == 0.3
+            assert result["timing_metrics"]["insert_seconds"] == 0.5
+            
+            # Check performance metrics
+            assert "rows_per_second" in result["performance_metrics"]
+            assert "mb_per_second" in result["performance_metrics"]
