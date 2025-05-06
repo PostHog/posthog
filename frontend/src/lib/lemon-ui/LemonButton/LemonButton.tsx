@@ -73,7 +73,7 @@ export interface LemonButtonPropsBase
     truncate?: boolean
     /** Wrap the main button element with a container element */
     buttonWrapper?: (button: JSX.Element) => JSX.Element
-    /** Static offset (px) to adjust tooltip arrow position */
+    /** Static offset (px) to adjust tooltip arrow position. Should only be used with fixed tooltipPlacement */
     tooltipArrowOffset?: number
 }
 
