@@ -2,7 +2,7 @@ import './RetentionTable.scss'
 
 import { IconChevronDown } from '@posthog/icons'
 import clsx from 'clsx'
-import { mean, sum } from 'd3'
+import { sum } from 'd3'
 import { useActions, useValues } from 'kea'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -25,12 +25,12 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
         theme,
         retentionFilter,
         expandedBreakdowns,
+        meanRetentionTableData,
     } = useValues(retentionTableLogic(insightProps))
     const { toggleBreakdown } = useActions(retentionTableLogic(insightProps))
     const { openModal } = useActions(retentionModalLogic(insightProps))
     const backgroundColor = theme?.['preset-1'] || '#000000' // Default to black if no color found
     const backgroundColorMean = theme?.['preset-2'] || '#000000' // Default to black if no color found
-    const meanRetentionCalculation = retentionFilter?.meanRetentionCalculation ?? 'weighted'
     const { isDarkModeOn } = useValues(themeLogic)
 
     const totalIntervals = retentionFilter?.totalIntervals ?? 8
@@ -58,114 +58,138 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                 </tr>
 
                 {Object.entries(tableRowsSplitByBreakdownValue).map(
-                    ([breakdownValue, breakdownRows], breakdownIndex) => (
-                        <React.Fragment key={breakdownIndex}>
-                            <tr
-                                onClick={() => toggleBreakdown(breakdownValue)}
-                                className={clsx('cursor-pointer', {
-                                    'bg-slate-100':
-                                        !isSingleBreakdown && !isDarkModeOn && expandedBreakdowns[breakdownValue],
-                                })}
-                            >
-                                <td className="pr-2">
-                                    <div className="flex items-center gap-2">
-                                        {expandedBreakdowns[breakdownValue] ? (
-                                            <IconChevronDown />
-                                        ) : (
-                                            <IconChevronRight />
-                                        )}
-                                        <span>
-                                            {breakdownValue === NO_BREAKDOWN_VALUE
-                                                ? 'Mean'
-                                                : breakdownValue === null || breakdownValue === ''
-                                                ? '(empty)'
-                                                : breakdownValue}{' '}
-                                        </span>
-                                    </div>
-                                </td>
+                    ([breakdownValue, breakdownRows], breakdownIndex) => {
+                        // Get the pre-calculated mean data for this breakdown value
+                        const meanData = meanRetentionTableData[breakdownValue]
 
-                                {!hideSizeColumn && <td>{sum(breakdownRows.map((row) => row.cohortSize))}</td>}
-
-                                {range(0, totalIntervals).map((interval) => (
-                                    <td key={interval}>
-                                        <CohortDay
-                                            percentage={
-                                                (() => {
-                                                    // rows with value for the (completed) interval
-                                                    // Also don't include the count if the cohort size (count) is 0 or less
-                                                    const validRows = breakdownRows.filter((row) => {
-                                                        return !(
-                                                            row.values?.[interval]?.isCurrentPeriod ||
-                                                            row.cohortSize <= 0
-                                                        )
-                                                    })
-
-                                                    if (meanRetentionCalculation === 'weighted') {
-                                                        if (validRows.length === 0) {
-                                                            return 0
-                                                        }
-
-                                                        const weightedSum = sum(
-                                                            validRows.map(
-                                                                (row) =>
-                                                                    (row.values?.[interval]?.percentage || 0) *
-                                                                    row.cohortSize
-                                                            )
-                                                        )
-                                                        const totalWeight = sum(validRows.map((row) => row.cohortSize))
-
-                                                        return totalWeight > 0 ? weightedSum / totalWeight : 0
-                                                    }
-                                                    // default to simple mean
-
-                                                    return (
-                                                        mean(
-                                                            validRows.map((row) => row.values[interval]?.percentage)
-                                                        ) || 0
-                                                    )
-                                                })() || 0
-                                            }
-                                            clickable={false}
-                                            backgroundColor={backgroundColorMean}
-                                        />
+                        return (
+                            <React.Fragment key={breakdownIndex}>
+                                <tr
+                                    onClick={() => toggleBreakdown(breakdownValue)}
+                                    className={clsx('cursor-pointer', {
+                                        'bg-slate-100':
+                                            !isSingleBreakdown && !isDarkModeOn && expandedBreakdowns[breakdownValue],
+                                    })}
+                                >
+                                    <td className="pr-2">
+                                        <div className="flex items-center gap-2">
+                                            {expandedBreakdowns[breakdownValue] ? (
+                                                <IconChevronDown />
+                                            ) : (
+                                                <IconChevronRight />
+                                            )}
+                                            <span>
+                                                {breakdownValue === NO_BREAKDOWN_VALUE
+                                                    ? 'Mean'
+                                                    : breakdownValue === null || breakdownValue === ''
+                                                    ? '(empty)'
+                                                    : breakdownValue}{' '}
+                                            </span>
+                                        </div>
                                     </td>
-                                ))}
-                            </tr>
 
-                            {expandedBreakdowns[breakdownValue] &&
-                                breakdownRows.map((row, rowIndex) => (
-                                    <tr
-                                        key={rowIndex}
-                                        onClick={() => {
-                                            if (!inSharedMode) {
-                                                openModal(rowIndex)
-                                            }
-                                        }}
-                                        className={clsx({
-                                            'bg-slate-100': !isSingleBreakdown && !isDarkModeOn,
-                                        })}
-                                    >
-                                        {/* Only add extra padding if there is more than one breakdown value */}
-                                        <td className={clsx('pl-2', { 'pl-6': !isSingleBreakdown })}>{row.label}</td>
-                                        {!hideSizeColumn && (
-                                            <td>
-                                                <span className="RetentionTable__TextTab">{row.cohortSize}</span>
+                                    {!hideSizeColumn && (
+                                        <td>
+                                            {meanData
+                                                ? meanData.cohortSize
+                                                : sum(breakdownRows.map((row) => row.cohortSize))}
+                                        </td>
+                                    )}
+
+                                    {range(0, totalIntervals).map((interval) => (
+                                        <td key={interval}>
+                                            <CohortDay
+                                                percentage={
+                                                    // Use pre-calculated mean if available, otherwise calculate on the fly
+                                                    meanData
+                                                        ? meanData.values[interval]?.percentage || 0
+                                                        : (() => {
+                                                              // Legacy calculation, should only be used if meanData is not available
+                                                              // rows with value for the (completed) interval
+                                                              // Also don't include the count if the cohort size (count) is 0 or less
+                                                              const validRows = breakdownRows.filter((row) => {
+                                                                  return !(
+                                                                      row.values?.[interval]?.isCurrentPeriod ||
+                                                                      row.cohortSize <= 0
+                                                                  )
+                                                              })
+
+                                                              const meanRetentionCalculation =
+                                                                  retentionFilter?.meanRetentionCalculation ??
+                                                                  'weighted'
+                                                              if (meanRetentionCalculation === 'weighted') {
+                                                                  if (validRows.length === 0) {
+                                                                      return 0
+                                                                  }
+
+                                                                  const weightedSum = sum(
+                                                                      validRows.map(
+                                                                          (row) =>
+                                                                              (row.values?.[interval]?.percentage ||
+                                                                                  0) * row.cohortSize
+                                                                      )
+                                                                  )
+                                                                  const totalWeight = sum(
+                                                                      validRows.map((row) => row.cohortSize)
+                                                                  )
+
+                                                                  return totalWeight > 0 ? weightedSum / totalWeight : 0
+                                                              }
+                                                              // default to simple mean
+                                                              return validRows.length > 0
+                                                                  ? sum(
+                                                                        validRows.map(
+                                                                            (row) =>
+                                                                                row.values[interval]?.percentage || 0
+                                                                        )
+                                                                    ) / validRows.length
+                                                                  : 0
+                                                          })() || 0
+                                                }
+                                                clickable={false}
+                                                backgroundColor={backgroundColorMean}
+                                            />
+                                        </td>
+                                    ))}
+                                </tr>
+
+                                {expandedBreakdowns[breakdownValue] &&
+                                    breakdownRows.map((row, rowIndex) => (
+                                        <tr
+                                            key={rowIndex}
+                                            onClick={() => {
+                                                if (!inSharedMode) {
+                                                    openModal(rowIndex)
+                                                }
+                                            }}
+                                            className={clsx({
+                                                'bg-slate-100': !isSingleBreakdown && !isDarkModeOn,
+                                            })}
+                                        >
+                                            {/* Only add extra padding if there is more than one breakdown value */}
+                                            <td className={clsx('pl-2', { 'pl-6': !isSingleBreakdown })}>
+                                                {row.label}
                                             </td>
-                                        )}
-                                        {row.values.map((column, columnIndex) => (
-                                            <td key={columnIndex}>
-                                                <CohortDay
-                                                    percentage={column.percentage}
-                                                    clickable={true}
-                                                    isCurrentPeriod={column.isCurrentPeriod}
-                                                    backgroundColor={backgroundColor}
-                                                />
-                                            </td>
-                                        ))}
-                                    </tr>
-                                ))}
-                        </React.Fragment>
-                    )
+                                            {!hideSizeColumn && (
+                                                <td>
+                                                    <span className="RetentionTable__TextTab">{row.cohortSize}</span>
+                                                </td>
+                                            )}
+                                            {row.values.map((column, columnIndex) => (
+                                                <td key={columnIndex}>
+                                                    <CohortDay
+                                                        percentage={column.percentage}
+                                                        clickable={true}
+                                                        isCurrentPeriod={column.isCurrentPeriod}
+                                                        backgroundColor={backgroundColor}
+                                                    />
+                                                </td>
+                                            ))}
+                                        </tr>
+                                    ))}
+                            </React.Fragment>
+                        )
+                    }
                 )}
             </tbody>
         </table>

@@ -4,7 +4,7 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { InsightLogicProps, InsightType } from '~/types'
 
-import { retentionLogic } from './retentionLogic'
+import { OVERALL_MEAN_KEY, retentionLogic } from './retentionLogic'
 import type { retentionTableLogicType } from './retentionTableLogicType'
 import { NO_BREAKDOWN_VALUE, ProcessedRetentionPayload, RetentionTableRow } from './types'
 
@@ -19,7 +19,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
             insightVizDataLogic(props),
             ['dateRange', 'retentionFilter', 'vizSpecificOptions', 'theme'],
             retentionLogic(props),
-            ['results', 'selectedBreakdownValue'],
+            ['results', 'selectedBreakdownValue', 'retentionMeans', 'hasValidBreakdown'],
         ],
         actions: [retentionLogic(props), ['setSelectedBreakdownValue']],
     })),
@@ -75,7 +75,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
         ],
 
         tableRows: [
-            (s) => [s.filteredResults, s.retentionFilter, s.hideSizeColumn],
+            (s) => [s.filteredResults, s.retentionFilter],
             (filteredResults, retentionFilter): RetentionTableRow[] => {
                 const { period } = retentionFilter || {}
 
@@ -113,16 +113,89 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
             },
         ],
 
+        // Add additional selector to convert retention means to table-ready data
+        meanRetentionTableData: [
+            (s) => [s.retentionMeans, s.retentionFilter],
+            (retentionMeans, retentionFilter): Record<string, RetentionTableRow> => {
+                if (!retentionMeans || Object.keys(retentionMeans).length === 0) {
+                    return {}
+                }
+
+                const meanTableRows: Record<string, RetentionTableRow> = {}
+                const { totalIntervals = 11 } = retentionFilter || {}
+
+                for (const breakdownKey in retentionMeans) {
+                    const meanData = retentionMeans[breakdownKey]
+                    // Create retention value objects for each interval
+                    const values = meanData.meanPercentages.map((percentage) => ({
+                        count: 0, // Not relevant for means
+                        percentage,
+                        // These properties aren't used for mean display row, but required by the type
+                        cellDate: null as any,
+                        isCurrentPeriod: false,
+                        isFuture: false,
+                    }))
+
+                    // Ensure we have entries for all intervals (padding with zeros if needed)
+                    while (values.length < totalIntervals) {
+                        values.push({
+                            count: 0,
+                            percentage: 0,
+                            cellDate: null as any,
+                            isCurrentPeriod: false,
+                            isFuture: false,
+                        })
+                    }
+
+                    meanTableRows[breakdownKey] = {
+                        label: String(meanData.label ?? (meanData.isOverall ? 'Overall' : 'Unknown')),
+                        cohortSize: meanData.totalCohortSize,
+                        values,
+                        breakdown_value: meanData.label,
+                    }
+                }
+
+                return meanTableRows
+            },
+        ],
+
         tableRowsSplitByBreakdownValue: [
-            (s) => [s.tableRows],
-            (tableRows): Record<string, RetentionTableRow[]> =>
-                tableRows.reduce((acc, row) => {
-                    acc[row.breakdown_value ?? NO_BREAKDOWN_VALUE] = [
-                        ...(acc[row.breakdown_value ?? NO_BREAKDOWN_VALUE] || []),
-                        row,
-                    ]
+            (s) => [s.tableRows, s.hasValidBreakdown, s.meanRetentionTableData],
+            (tableRows, hasValidBreakdown, meanRetentionTableData): Record<string, RetentionTableRow[]> => {
+                // Group the detail rows by breakdown value
+                const rowsByBreakdown = tableRows.reduce((acc, row) => {
+                    const key = String(row.breakdown_value ?? NO_BREAKDOWN_VALUE)
+                    if (!acc[key]) {
+                        acc[key] = []
+                    }
+                    acc[key].push(row)
                     return acc
-                }, {} as Record<string, RetentionTableRow[]>),
+                }, {} as Record<string, RetentionTableRow[]>)
+
+                // If we have valid breakdowns and mean data available, add the mean rows at the top level
+                if (hasValidBreakdown && Object.keys(meanRetentionTableData).length > 0) {
+                    // We're showing breakdown means
+                    return Object.entries(meanRetentionTableData).reduce((acc, [key, meanRow]) => {
+                        // Skip the overall mean in breakdown view
+                        if (key === OVERALL_MEAN_KEY || meanRow.label === 'Overall') {
+                            return acc
+                        }
+
+                        // The key in the return object needs to match the breakdown value for the detail rows
+                        const rowKey = String(meanRow.breakdown_value ?? NO_BREAKDOWN_VALUE)
+                        // Get the individual cohort rows for this breakdown value
+                        const detailRows = rowsByBreakdown[rowKey] || []
+                        acc[rowKey] = detailRows
+                        return acc
+                    }, {} as Record<string, RetentionTableRow[]>)
+                } else if (!hasValidBreakdown && Object.keys(meanRetentionTableData).length > 0) {
+                    // No breakdown, show single group with overall mean
+                    return { [NO_BREAKDOWN_VALUE]: tableRows }
+                }
+
+                // Fallback to previous behavior - just group rows by their breakdown values
+                return rowsByBreakdown
+            },
         ],
     }),
 ])
