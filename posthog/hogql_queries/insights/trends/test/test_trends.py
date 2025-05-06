@@ -9399,27 +9399,29 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.team.save()
         self._create_person(team_id=self.team.pk, distinct_ids=["some_user"], properties={})
 
-        # DST in Cairo for 2025: clocks go forward at midnight between April 24 and April 25
-        # We'll create events before, during, and after the transition
+        # Egypt's DST starts at 00:00 on Friday, 25 April 2025. At that instant
+        # clocks jump from UTC+02 to UTC+03, so the very next readable wall-clock
+        # time is 01:00. The whole interval 00:00:01 – 00:59:59 never exists.
         self._create_event(
             team=self.team,
             event="sign up",
             distinct_id="some_user",
-            timestamp="2025-04-24T21:00:00Z",  # 23:00 Cairo time, before DST
+            timestamp="2025-04-24T21:00:00Z",  # 24 Apr 23:00 EET
         )
         self._create_event(
             team=self.team,
             event="sign up",
             distinct_id="some_user",
-            timestamp="2025-04-24T22:00:00Z",  # 00:00 Cairo time, DST starts
+            timestamp="2025-04-24T22:00:00Z",  # 25 Apr 01:00 EEST
         )
         self._create_event(
             team=self.team,
             event="sign up",
             distinct_id="some_user",
-            timestamp="2025-04-25T01:00:00Z",  # 03:00 Cairo time, after DST
+            timestamp="2025-04-25T01:00:00Z",  # 25 Apr 04:00 EEST
         )
 
+        # local date range
         filter = Filter(
             team=self.team,
             data={
@@ -9435,7 +9437,25 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         days = response[0]["days"]
 
         self.assertEqual(days, ["2025-04-23", "2025-04-24", "2025-04-25", "2025-04-26"])
-        self.assertEqual(response[0]["data"], [0.0, 2.0, 1.0, 0.0])
+        self.assertEqual(response[0]["data"], [0, 1, 2, 0])
+
+        # UTC date range
+        filter = Filter(
+            team=self.team,
+            data={
+                "date_from": "2025-04-22T22:00:00Z",
+                "date_to": "2025-04-25T21:00:00Z",
+                "interval": "day",
+                "events": [{"id": "sign up", "name": "sign up"}],
+            },
+        )
+
+        response = self._run(filter, self.team)
+
+        days = response[0]["days"]
+
+        self.assertEqual(days, ["2025-04-23", "2025-04-24", "2025-04-25", "2025-04-26"])
+        self.assertEqual(response[0]["data"], [0, 1, 2, 0])
 
     def test_dst_transition_hourly(self):
         self.team.timezone = "Africa/Cairo"
