@@ -1,6 +1,7 @@
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { uuid } from 'lib/utils'
 
 import type { llmObservabilityPlaygroundLogicType } from './llmObservabilityPlaygroundLogicType'
 
@@ -28,6 +29,21 @@ export interface Message {
     content: string
 }
 
+export interface ComparisonItem {
+    id: string
+    model: string
+    systemPrompt: string
+    requestMessages: Message[]
+    response: string
+    usage?: {
+        prompt_tokens?: number | null
+        completion_tokens?: number | null
+        total_tokens?: number | null
+    }
+    ttftMs?: number | null
+    latencyMs?: number | null
+}
+
 export const llmObservabilityPlaygroundLogic = kea<llmObservabilityPlaygroundLogicType>([
     path(['products', 'llm_observability', 'frontend', 'llmObservabilityPlaygroundLogic']),
 
@@ -46,6 +62,11 @@ export const llmObservabilityPlaygroundLogic = kea<llmObservabilityPlaygroundLog
         addMessage: (message?: Partial<Message>) => ({ message }),
         updateMessage: (index: number, payload: Partial<Message>) => ({ index, payload }),
         addResponseToHistory: (content: string) => ({ content }),
+        addCurrentRunToComparison: true,
+        setLastRunDetails: (details: ComparisonItem | null) => ({ details }),
+        addToComparison: (item: ComparisonItem) => ({ item }),
+        removeFromComparison: (id: string) => ({ id }),
+        clearComparison: true,
     }),
 
     reducers({
@@ -97,6 +118,24 @@ export const llmObservabilityPlaygroundLogic = kea<llmObservabilityPlaygroundLog
                 setMessages: () => null,
             },
         ],
+        lastRunDetails: [
+            null as ComparisonItem | null,
+            {
+                submitPrompt: () => null,
+                setLastRunDetails: (_, { details }) => details,
+                addToComparison: () => null,
+                clearConversation: () => null,
+                setMessages: () => null,
+            },
+        ],
+        comparisonItems: [
+            [] as ComparisonItem[],
+            {
+                addToComparison: (state, { item }) => [...state, item],
+                removeFromComparison: (state, { id }) => state.filter((item) => item.id !== id),
+                clearComparison: () => [],
+            },
+        ],
     }),
     loaders(({ values }) => ({
         modelOptions: {
@@ -117,9 +156,13 @@ export const llmObservabilityPlaygroundLogic = kea<llmObservabilityPlaygroundLog
     })),
     listeners(({ actions, values }) => ({
         submitPrompt: async (_, breakpoint) => {
+            const requestModel = values.model
+            const requestSystemPrompt = values.systemPrompt
             const messagesToSend = values.messages.filter(
                 (m) => (m.role === 'user' || m.role === 'assistant' || m.role === 'system') && m.content.trim()
             )
+
+            const requestMessages = messagesToSend
 
             if (messagesToSend.length === 0) {
                 console.warn('SubmitPrompt called with no valid messages.')
@@ -127,13 +170,24 @@ export const llmObservabilityPlaygroundLogic = kea<llmObservabilityPlaygroundLog
                 return
             }
 
+            let responseUsage: ComparisonItem['usage'] = {}
+            let ttftMs: number | null = null
+            let latencyMs: number | null = null
+            let firstTokenTime: number | null = null
+
+            // Declare startTime outside try block
+            let startTime: number | null = null
+
             try {
+                // Start timer for latency? Might be inaccurate due to network etc.
+                startTime = performance.now()
+
                 await api.stream('/api/llm_proxy/completion', {
                     method: 'POST',
                     data: {
-                        system: values.systemPrompt,
+                        system: requestSystemPrompt,
                         messages: messagesToSend.filter((m) => m.role === 'user' || m.role === 'assistant'),
-                        model: values.model,
+                        model: requestModel,
                         thinking: values.thinking,
                     },
                     headers: { 'Content-Type': 'application/json' },
@@ -145,11 +199,17 @@ export const llmObservabilityPlaygroundLogic = kea<llmObservabilityPlaygroundLog
                         try {
                             const data = JSON.parse(event.data)
                             if (data.type === 'text') {
+                                if (firstTokenTime === null && startTime !== null) {
+                                    firstTokenTime = performance.now()
+                                    ttftMs = firstTokenTime - startTime
+                                }
                                 actions.addAssistantMessageChunk(data.text)
-                                // } else if (data.type === 'reasoning') {
-                                //     // TODO: Add reasoning
-                                // } else if (data.type === 'usage') {
-                                //     // TODO: Add usage
+                            } else if (data.type === 'usage') {
+                                responseUsage = {
+                                    prompt_tokens: data.prompt_tokens ?? null,
+                                    completion_tokens: data.completion_tokens ?? null,
+                                    total_tokens: data.total_tokens ?? null,
+                                }
                             } else if (data.error) {
                                 console.error('LLM Error:', data.error)
                                 actions.addAssistantMessageChunk(`\n\n**LLM Error:** ${data.error}`)
@@ -172,6 +232,30 @@ export const llmObservabilityPlaygroundLogic = kea<llmObservabilityPlaygroundLog
                 console.error('Submit prompt error:', error)
                 actions.addAssistantMessageChunk(`\n\n**Error:** Failed to initiate prompt submission.`)
                 actions.finalizeAssistantMessage()
+            } finally {
+                if (startTime) {
+                    const endTime = performance.now()
+                    latencyMs = endTime - startTime
+                }
+            }
+
+            if (values.currentResponse !== null) {
+                const runDetails: ComparisonItem = {
+                    id: uuid(),
+                    model: requestModel,
+                    systemPrompt: requestSystemPrompt,
+                    requestMessages: requestMessages,
+                    response: values.currentResponse,
+                    usage: responseUsage,
+                    ttftMs: ttftMs,
+                    latencyMs: latencyMs,
+                }
+                actions.setLastRunDetails(runDetails)
+            }
+        },
+        addCurrentRunToComparison: () => {
+            if (values.lastRunDetails) {
+                actions.addToComparison(values.lastRunDetails)
             }
         },
     })),
