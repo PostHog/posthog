@@ -11,7 +11,6 @@ from posthoganalytics.exception_capture import Integrations
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.tasks.tasks import sync_all_organization_available_product_features
 from posthog.utils import get_machine_id, initialize_self_capture_api_token, get_instance_region
-from posthog.tasks.hog_functions import queue_sync_hog_function_templates
 
 
 logger = structlog.get_logger(__name__)
@@ -66,5 +65,7 @@ class PostHogConfig(AppConfig):
             logger.warning("Skipping async migrations setup. This is unsafe in production!")
         else:
             setup_async_migrations()
+
+        from posthog.tasks.hog_functions import queue_sync_hog_function_templates
 
         queue_sync_hog_function_templates()
