@@ -278,7 +278,9 @@ class SessionRecordingPlaylistViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel
         filters = request.GET.dict()
 
         # Pre-calculate Q objects for playlists with items
-        playlist_ids_with_items = SessionRecordingPlaylistItem.objects.values_list("playlist_id", flat=True)
+        playlist_ids_with_items = SessionRecordingPlaylistItem.objects.filter(
+            playlist__team_id=self.team.id
+        ).values_list("playlist_id", flat=True)
         has_items = Q(id__in=playlist_ids_with_items)
         has_no_items = ~has_items
         has_filters = ~Q(filters={})
