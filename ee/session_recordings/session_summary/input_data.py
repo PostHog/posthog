@@ -194,7 +194,7 @@ def add_context_and_filter_events(
         updated_event: list[str | datetime.datetime | list[str] | None] = list(event)
         # Check for errors worth keeping in the context
         if event[indexes["event"]] == "$exception":
-            if _skip_exception_without_valid_context(event, indexes):
+            if _skip_exception_without_valid_context(updated_event, indexes):
                 continue
             # If it's a valid exception, there are no elements to enrich the context, so keep it as is
             for column in columns_to_pop:

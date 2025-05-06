@@ -4,7 +4,7 @@ from unittest.mock import patch, MagicMock
 from datetime import datetime
 
 from ee.session_recordings.session_summary.input_data import (
-    _skip_event_without_context,
+    _skip_event_without_valid_context,
     _get_improved_elements_chain_texts,
     _get_improved_elements_chain_elements,
     add_context_and_filter_events,
@@ -51,7 +51,7 @@ def mock_event_indexes() -> dict[str, int]:
 def test_skip_event_without_context(
     mock_event_indexes: dict[str, int], event_tuple: tuple[Any, ...], expected_skip: bool
 ):
-    assert _skip_event_without_context(list(event_tuple), mock_event_indexes) is expected_skip
+    assert _skip_event_without_valid_context(list(event_tuple), mock_event_indexes) is expected_skip
 
 
 def test_get_improved_elements_chain_texts():
