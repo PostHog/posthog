@@ -100,6 +100,7 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
                         payment_intent_id: paymentIntentId || searchPaymentIntentId,
                     })
                     const status = response.status
+                    const errorMessage = response.error || 'Payment failed. Please try again.'
 
                     actions.setAuthorizationStatus(status)
 
@@ -119,7 +120,7 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
                         }
                         return
                     } else if (status === 'failed') {
-                        actions.setError('Payment failed')
+                        actions.setError(errorMessage)
                         return
                     }
 
