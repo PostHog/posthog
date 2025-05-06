@@ -593,7 +593,7 @@ def team_api_test_factory():
                 ]
             )
 
-        def test_reset_token_insufficient_priviledges(self):
+        def test_reset_token_insufficient_privileges(self):
             self.team.api_token = "xyz"
             self.team.save()
 
@@ -827,7 +827,7 @@ def team_api_test_factory():
                 ]
             )
 
-        def test_rotate_secret_token_insufficient_priviledges(self):
+        def test_rotate_secret_token_insufficient_privileges(self):
             self.team.secret_api_token = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
             self.team.save()
 
