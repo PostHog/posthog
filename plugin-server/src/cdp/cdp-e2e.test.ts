@@ -17,7 +17,6 @@ import { forSnapshot } from '~/tests/helpers/snapshots'
 import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
 import { resetKafka } from '~/tests/helpers/kafka'
 import { logger } from '../utils/logger'
-import { errors } from 'undici'
 
 const ActualKafkaProducerWrapper = jest.requireActual('../../src/kafka/producer').KafkaProducerWrapper
 
@@ -245,7 +244,14 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
         })
 
         it('should handle fetch failures with retries', async () => {
-            mockFetch.mockRejectedValue(new errors.ConnectTimeoutError())
+            mockFetch.mockImplementation(() => {
+                return Promise.resolve({
+                    status: 500,
+                    headers: {},
+                    json: () => Promise.resolve({ error: 'Server error' }),
+                    text: () => Promise.resolve(JSON.stringify({ error: 'Server error' })),
+                })
+            })
 
             const invocations = await eventsConsumer.processBatch([globals])
 
@@ -274,10 +280,10 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
                 'Executing function',
                 "Suspending function due to async function call 'fetch'. Payload: 2031 bytes. Event: <REPLACED-UUID-0>",
                 'Fetch failed after 2 attempts',
-                'Fetch failure of kind timeout with status (none) and message ConnectTimeoutError: Connect Timeout Error',
-                'Fetch failure of kind timeout with status (none) and message ConnectTimeoutError: Connect Timeout Error',
+                'Fetch failure of kind failurestatus with status 500 and message Received failure status: 500',
+                'Fetch failure of kind failurestatus with status 500 and message Received failure status: 500',
                 'Resuming function',
-                'Fetch response:, {"status":503}',
+                'Fetch response:, {"status":500,"body":{"error":"Server error"}}',
             ])
         })
     })
