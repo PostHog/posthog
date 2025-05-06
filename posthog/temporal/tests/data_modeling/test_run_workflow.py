@@ -3,6 +3,7 @@ import datetime as dt
 import functools
 import unittest.mock
 import uuid
+import os
 
 import aioboto3
 import dlt
@@ -727,3 +728,63 @@ async def test_run_workflow_with_minio_bucket(
             assert warehouse_table is not None, f"DataWarehouseTable for {query.name} not found"
             # Match the 50 page_view events defined above
             assert warehouse_table.row_count == len(expected_data), f"Row count for {query.name} not the expected value"
+
+
+async def test_dlt_direct_naming(ateam, bucket_name, minio_client, pageview_events):
+    """Test that setting SCHEMA__NAMING=direct preserves original column casing when materializing models."""
+    # Query with CamelCase and PascalCase column names, not snake_case
+    query = """\
+    select
+      event as Event,
+      if(distinct_id != '0', distinct_id, null) as DistinctId,
+      timestamp as TimeStamp,
+      'example' as CamelCaseColumn
+    from events
+    where event = '$pageview'
+    """
+    saved_query = await DataWarehouseSavedQuery.objects.acreate(
+        team=ateam,
+        name="camel_case_model",
+        query={"query": query, "kind": "HogQLQuery"},
+    )
+
+    # Make sure we have pageview events for the query to work with
+    events, _ = pageview_events
+
+    with (
+        override_settings(
+            BUCKET_URL=f"s3://{bucket_name}",
+            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            AIRBYTE_BUCKET_REGION="us-east-1",
+            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        ),
+        unittest.mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
+        unittest.mock.patch.object(
+            AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials
+        ),
+        unittest.mock.patch.dict(os.environ, {"SCHEMA__NAMING": "direct"}, clear=True),
+    ):
+        job = await database_sync_to_async(DataModelingJob.objects.create)(
+            team=ateam,
+            status=DataModelingJob.Status.RUNNING,
+            workflow_id="test_workflow",
+        )
+
+        # Check that SCHEMA__NAMING is set to direct in the environment
+        assert os.environ.get("SCHEMA__NAMING") == "direct", "SCHEMA__NAMING should be 'direct'"
+
+        key, delta_table, job_id = await materialize_model(
+            saved_query.id.hex,
+            ateam,
+            saved_query,
+            job,
+        )
+
+    # Check that the column names maintain their original casing
+    table_columns = delta_table.to_pyarrow_table().column_names
+    # Verify the original capitalization is preserved
+    assert "Event" in table_columns, "Column 'Event' should maintain its original capitalization"
+    assert "DistinctId" in table_columns, "Column 'DistinctId' should maintain its original capitalization"
+    assert "TimeStamp" in table_columns, "Column 'TimeStamp' should maintain its original capitalization"
+    assert "CamelCaseColumn" in table_columns, "Column 'CamelCaseColumn' should maintain its original capitalization"

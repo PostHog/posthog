@@ -11,7 +11,7 @@ from ee.session_recordings.session_summary.input_data import (
 )
 from ee.session_recordings.session_summary.llm.consume import stream_llm_session_summary
 from ee.session_recordings.session_summary.prompt_data import SessionSummaryPromptData
-from ee.session_recordings.session_summary.utils import load_custom_template, shorten_url
+from ee.session_recordings.session_summary.utils import load_custom_template, serialize_to_sse_event, shorten_url
 from posthog.api.activity_log import ServerTimingsGathered
 from posthog.models import User, Team
 from posthog.session_recordings.models.session_recording import SessionRecording
@@ -59,12 +59,29 @@ class ReplaySummarizer:
                 session_id=self.recording.session_id,
                 team=self.team,
             )
-        with timer("get_events"):
-            session_events_columns, session_events = get_session_events(
-                session_id=self.recording.session_id,
-                session_metadata=session_metadata,
-                team=self.team,
-            )
+        try:
+            with timer("get_events"):
+                session_events_columns, session_events = get_session_events(
+                    session_id=self.recording.session_id,
+                    session_metadata=session_metadata,
+                    team=self.team,
+                )
+        # Real-time replays could have no events yet, so we need to handle that case and show users a meaningful message
+        except ValueError as e:
+            raw_error_message = str(e)
+            if "No events found for session_id" in raw_error_message:
+                # Returning a generator (instead of yielding) to keep the consistent behavior for later iter-to-async conversion
+                return (
+                    msg
+                    for msg in [
+                        serialize_to_sse_event(
+                            event_label="session-summary-error",
+                            event_data="No events found for this replay yet. Please try again in a few minutes.",
+                        )
+                    ]
+                )
+            # Re-raise unexpected exceptions
+            raise
         with timer("add_context_and_filter"):
             session_events_columns, session_events = add_context_and_filter_events(
                 session_events_columns, session_events

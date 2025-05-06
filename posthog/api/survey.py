@@ -26,6 +26,7 @@ from posthog.api.feature_flag import (
     BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
     FeatureFlagSerializer,
     MinimalFeatureFlagSerializer,
+    SURVEY_TARGETING_FLAG_PREFIX,
 )
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -50,7 +51,6 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.utils_cors import cors_response
 
-SURVEY_TARGETING_FLAG_PREFIX = "survey-targeting-"
 ALLOWED_LINK_URL_SCHEMES = ["https", "mailto"]
 EMAIL_REGEX = r"^mailto:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
 
@@ -177,6 +177,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
     )
     schedule = serializers.CharField(required=False, allow_null=True)
     enable_partial_responses = serializers.BooleanField(required=False, allow_null=True)
+    _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
         model = Survey
@@ -213,6 +214,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             "response_sampling_limit",
             "response_sampling_daily_limits",
             "enable_partial_responses",
+            "_create_in_folder",
         ]
         read_only_fields = ["id", "linked_flag", "targeting_flag", "created_at"]
 
@@ -770,9 +772,37 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )["start_date__min"]
         data = sync_execute(
             f"""
-            SELECT JSONExtractString(properties, '$survey_id') as survey_id, count()
+            SELECT
+                JSONExtractString(properties, '$survey_id') as survey_id,
+                count()
             FROM events
-            WHERE event = 'survey sent' AND team_id = %(team_id)s AND timestamp >= %(timestamp)s
+            WHERE
+                team_id = %(team_id)s
+                AND event = 'survey sent'
+                AND timestamp >= %(timestamp)s
+                AND uuid IN ( -- Filter using the unique submission logic across all relevant surveys
+                    (
+                        -- Select events without a submission ID (older format)
+                        SELECT uuid
+                        FROM events
+                        WHERE team_id = %(team_id)s
+                          AND event = 'survey sent'
+                          AND timestamp >= %(timestamp)s
+                          AND COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') = ''
+                    )
+                    UNION ALL
+                    (
+                        -- Select the latest event for each submission ID
+                        SELECT argMax(uuid, timestamp) -- ClickHouse function to get the arg (uuid) for the max value (timestamp)
+                        FROM events
+                        WHERE team_id = %(team_id)s
+                          AND event = 'survey sent'
+                          AND timestamp >= %(timestamp)s
+                          AND COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') != ''
+                        -- Group by submission ID to find the latest event per submission
+                        GROUP BY JSONExtractString(properties, '$survey_id'), JSONExtractString(properties, '$survey_submission_id')
+                    )
+                )
             GROUP BY survey_id
         """,
             {"team_id": self.team_id, "timestamp": earliest_survey_start_date},
@@ -973,6 +1003,35 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             AND event IN (%(shown)s, %(dismissed)s, %(sent)s)
             {survey_filter}
             {date_filter}
+            AND (
+                event != %(dismissed)s
+                OR
+                COALESCE(JSONExtractBool(properties, '$survey_partially_completed'), False) = False
+            )
+            AND (
+                event != %(sent)s
+                OR
+                uuid IN (
+                    (
+                        -- Select events without a submission ID (older format)
+                        SELECT uuid
+                        FROM events
+                        WHERE event = 'survey sent'
+                        AND JSONExtractString(properties, '$survey_id') {'= %(survey_id)s' if survey_id else 'IN %(survey_ids)s'}
+                        AND COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') = ''
+                    )
+                    UNION ALL
+                    (
+                        -- Select the latest event for each submission ID
+                        SELECT argMax(uuid, timestamp) -- ClickHouse function to get the arg (uuid) for the max value (timestamp)
+                        FROM events
+                        WHERE event = 'survey sent'
+                        AND JSONExtractString(properties, '$survey_id') {'= %(survey_id)s' if survey_id else 'IN %(survey_ids)s'}
+                        AND COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') != ''
+                        GROUP BY JSONExtractString(properties, '$survey_submission_id') -- Find the latest event per submission
+                    )
+                )
+            )
             GROUP BY event
         """
         query_params = {
@@ -993,6 +1052,11 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                   AND event IN (%(dismissed)s, %(sent)s)
                   {survey_filter}
                   {date_filter}
+                AND (
+                    event != %(dismissed)s
+                    OR
+                    COALESCE(JSONExtractBool(properties, '$survey_partially_completed'), False) = False
+                )
                 GROUP BY person_id
                 HAVING sum(if(event = %(dismissed)s, 1, 0)) > 0
                    AND sum(if(event = %(sent)s, 1, 0)) > 0

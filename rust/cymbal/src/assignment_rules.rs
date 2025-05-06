@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
 use common_types::TeamId;
-use hogvm::{ExecutionContext, StepOutcome, VmError};
+use hogvm::{ExecutionContext, Program, StepOutcome, VmError};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::PgConnection;
@@ -17,11 +17,64 @@ use crate::teams::TeamManager;
 use crate::{error::UnhandledError, issue_resolution::Issue, types::OutputErrProps};
 
 #[derive(Debug, Clone)]
+pub struct NewAssignment {
+    pub user_id: Option<i32>,
+    pub user_group_id: Option<Uuid>,
+    pub role_id: Option<Uuid>,
+}
+
+impl NewAssignment {
+    // Returns None if this cannot be used to construct a valid assignment, ensuring all
+    // NewAssignments have at least one of user_id, user_group_id, or role_id set.
+    pub fn try_new(
+        user_id: Option<i32>,
+        user_group_id: Option<Uuid>,
+        role_id: Option<Uuid>,
+    ) -> Option<Self> {
+        if user_id.is_none() && user_group_id.is_none() && role_id.is_none() {
+            None
+        } else {
+            Some(NewAssignment {
+                user_id,
+                user_group_id,
+                role_id,
+            })
+        }
+    }
+}
+
+impl NewAssignment {
+    pub async fn apply<'c, E>(&self, conn: E, issue_id: Uuid) -> Result<Assignment, sqlx::Error>
+    where
+        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+    {
+        // TODO - should we respect existing assignments? This does, and I think that's right, but :shrug:
+        let assignment = sqlx::query_as!(
+            Assignment,
+            r#"
+                INSERT INTO posthog_errortrackingissueassignment (id, issue_id, user_id, user_group_id, role_id, created_at)
+                VALUES ($1, $2, $3, $4, $5, NOW())
+                ON CONFLICT (issue_id) DO UPDATE SET issue_id = $2 -- no-op to get a returned row
+                RETURNING id, issue_id, user_id, user_group_id, role_id, created_at
+            "#,
+            Uuid::now_v7(),
+            issue_id,
+            self.user_id,
+            self.user_group_id,
+            self.role_id,
+        ).fetch_one(conn).await?;
+
+        Ok(assignment)
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct Assignment {
     pub id: Uuid,
     pub issue_id: Uuid,
     pub user_id: Option<i32>,
     pub user_group_id: Option<Uuid>,
+    pub role_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -31,6 +84,7 @@ pub struct AssignmentRule {
     pub team_id: TeamId,
     pub user_id: Option<i32>,
     pub user_group_id: Option<Uuid>,
+    pub role_id: Option<Uuid>,
     pub order_key: i32,
     pub bytecode: Value,
     // We don't bother loading the original filter, as we never use it in cymbal
@@ -47,7 +101,7 @@ impl AssignmentRule {
         sqlx::query_as!(
             AssignmentRule,
             r#"
-                SELECT id, team_id, user_id, user_group_id, order_key, bytecode, created_at, updated_at
+                SELECT id, team_id, user_id, user_group_id, role_id, order_key, bytecode, created_at, updated_at
                 FROM posthog_errortrackingassignmentrule
                 WHERE team_id = $1 AND disabled_data IS NULL
             "#,
@@ -96,35 +150,67 @@ impl AssignmentRule {
         Ok(())
     }
 
-    pub async fn apply<'c, E>(&self, conn: E, issue_id: Uuid) -> Result<Assignment, sqlx::Error>
-    where
-        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
-    {
-        // TODO - should we respect existing assignments? This does, and I think that's right, but :shrug:
-        let assignment = sqlx::query_as!(
-            Assignment,
-            r#"
-                INSERT INTO posthog_errortrackingissueassignment (id, issue_id, user_id, user_group_id, created_at)
-                VALUES ($1, $2, $3, $4, NOW())
-                ON CONFLICT (issue_id) DO UPDATE SET issue_id = $2 -- no-op to get a returned row
-                RETURNING id, issue_id, user_id, user_group_id, created_at
-            "#,
-            Uuid::now_v7(),
-            issue_id,
-            self.user_id,
-            self.user_group_id,
-        ).fetch_one(conn).await?;
+    pub fn try_match(
+        &self,
+        issue: &Value,
+        props: &Value,
+    ) -> Result<Option<NewAssignment>, VmError> {
+        let rule_bytecode = match &self.bytecode {
+            Value::Array(ops) => ops,
+            _ => {
+                return Err(VmError::Other(format!(
+                    "Invalid rule bytecode - expected array, got {:?}",
+                    self.bytecode
+                )))
+            }
+        };
 
-        Ok(assignment)
+        let mut globals = HashMap::new();
+        globals.insert("issue".to_string(), issue.clone());
+        globals.insert("properties".to_string(), props.clone());
+        let globals: Value = serde_json::to_value(globals)
+            .expect("Can construct a json object from a hashmap of String:JsonValue");
+        let program = Program::new(rule_bytecode.clone())?;
+        let context = ExecutionContext::with_defaults(program).with_globals(globals);
+        let mut vm = context.to_vm()?;
+
+        metrics::counter!(ASSIGNMENT_RULES_TRIED).increment(1);
+
+        let mut i = 0;
+        while i < context.max_steps {
+            let step_result = vm.step()?;
+            match step_result {
+                StepOutcome::Finished(Value::Bool(b)) if b => {
+                    return Ok(NewAssignment::try_new(
+                        self.user_id,
+                        self.user_group_id,
+                        self.role_id,
+                    ))
+                }
+                StepOutcome::Finished(res) => {
+                    return Err(VmError::Other(format!(
+                        "Assignment rule returned {:?}, expected a boolean value",
+                        res
+                    )))
+                }
+                StepOutcome::NativeCall(name, args) => {
+                    context.execute_native_function_call(&mut vm, &name, args)?
+                }
+                StepOutcome::Continue => {}
+            }
+            i += 1;
+        }
+
+        Err(VmError::OutOfResource("steps".to_string()))
     }
 }
 
-pub async fn assign_issue(
+pub async fn try_assignment_rules(
     con: &mut PgConnection,
     team_manager: &TeamManager,
     issue: Issue,
     exception_properties: OutputErrProps,
-) -> Result<Option<Assignment>, UnhandledError> {
+) -> Result<Option<NewAssignment>, UnhandledError> {
     let timing = common_metrics::timing_guard(ASSIGNMENT_RULES_PROCESSING_TIME, &[]);
     #[derive(Debug, Clone, Serialize, Deserialize)]
     struct IssueJson {
@@ -141,19 +227,21 @@ pub async fn assign_issue(
 
     let props_json = serde_json::to_value(exception_properties)?;
 
-    let mut rules = team_manager.get_rules(&mut *con, issue.team_id).await?;
+    let mut rules = team_manager
+        .get_assignment_rules(&mut *con, issue.team_id)
+        .await?;
 
-    metrics::counter!(ASSIGNMENT_RULES_FOUND).increment(1);
+    metrics::counter!(ASSIGNMENT_RULES_FOUND).increment(rules.len() as u64);
 
     rules.sort_unstable_by_key(|r| r.order_key);
 
     for rule in rules {
-        match try_rule(&rule.bytecode, &issue_json, &props_json) {
-            Ok(false) => continue,
-            Ok(true) => {
+        match rule.try_match(&issue_json, &props_json) {
+            Ok(None) => continue,
+            Ok(Some(new_assignment)) => {
                 timing.label("outcome", "match").fin();
                 metrics::counter!(AUTO_ASSIGNMENTS).increment(1);
-                return Ok(Some(rule.apply(con, issue.id).await?));
+                return Ok(Some(new_assignment));
             }
             Err(err) => {
                 rule.disable(
@@ -169,50 +257,5 @@ pub async fn assign_issue(
 
     timing.label("outcome", "no_match").fin();
 
-    // If none of the rules matched, grab the existing assignment, in case one exists,
-    // and return that (or None)
-    Ok(issue.get_assignments(con).await?.first().cloned())
-}
-
-pub fn try_rule(rule_bytecode: &Value, issue: &Value, props: &Value) -> Result<bool, VmError> {
-    let rule_bytecode = match rule_bytecode {
-        Value::Array(ops) => ops,
-        _ => {
-            return Err(VmError::Other(format!(
-                "Invalid rule bytecode - expected array, got {:?}",
-                rule_bytecode
-            )))
-        }
-    };
-
-    let mut globals = HashMap::new();
-    globals.insert("issue".to_string(), issue.clone());
-    globals.insert("properties".to_string(), props.clone());
-    let globals: Value = serde_json::to_value(globals)
-        .expect("Can construct a json object from a hashmap of String:JsonValue");
-    let context = ExecutionContext::with_defaults(rule_bytecode).with_globals(globals);
-    let mut vm = context.to_vm()?;
-
-    metrics::counter!(ASSIGNMENT_RULES_TRIED).increment(1);
-
-    let mut i = 0;
-    while i < context.max_steps {
-        let step_result = vm.step()?;
-        match step_result {
-            StepOutcome::Finished(Value::Bool(b)) => return Ok(b),
-            StepOutcome::Finished(res) => {
-                return Err(VmError::Other(format!(
-                    "Assignment rule returned {:?}, expected a boolean value",
-                    res
-                )))
-            }
-            StepOutcome::NativeCall(name, args) => {
-                context.execute_native_function_call(&mut vm, &name, args)?
-            }
-            StepOutcome::Continue => {}
-        }
-        i += 1;
-    }
-
-    Err(VmError::OutOfResource("steps".to_string()))
+    Ok(None)
 }

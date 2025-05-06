@@ -3,6 +3,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router } from 'kea-router'
 import api from 'lib/api'
+import { openSaveToModal } from 'lib/components/SaveTo/saveToLogic'
 import { ENTITY_MATCH_TYPE } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -194,7 +195,14 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 },
             }),
             submit: (cohort) => {
-                actions.saveCohort(cohort)
+                if (cohort.id !== 'new') {
+                    actions.saveCohort(cohort)
+                } else {
+                    openSaveToModal({
+                        defaultFolder: 'Untitled/Cohorts',
+                        callback: (folder) => actions.saveCohort({ ...cohort, _create_in_folder: folder }),
+                    })
+                }
             },
         },
     })),

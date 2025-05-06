@@ -1,7 +1,8 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import { BindLogic } from 'kea'
 import { Uri, UriComponents } from 'monaco-editor'
 
-import { QueryTab } from './multitabEditorLogic'
+import { multitabEditorLogic, QueryTab } from './multitabEditorLogic'
 import { QueryTabs } from './QueryTabs'
 
 type Story = StoryObj<typeof QueryTabs>
@@ -17,7 +18,11 @@ const meta: Meta<typeof QueryTabs> = {
 export default meta
 
 const Template: StoryFn<typeof QueryTabs> = (args) => {
-    return <QueryTabs {...args} />
+    return (
+        <BindLogic logic={multitabEditorLogic} props={{ key: 'new' }}>
+            <QueryTabs {...args} />
+        </BindLogic>
+    )
 }
 
 const mockModels: QueryTab[] = [

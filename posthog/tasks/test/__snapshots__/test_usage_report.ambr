@@ -337,6 +337,21 @@
   FROM events
   WHERE event = 'survey sent'
     AND timestamp between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
+    AND uuid IN (
+                   (SELECT uuid
+                    FROM events
+                    WHERE event = 'survey sent'
+                      AND timestamp between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
+                      AND COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') = '' )
+                 UNION ALL
+                   (SELECT argMax(uuid, timestamp)
+                    FROM events
+                    WHERE event = 'survey sent'
+                      AND timestamp between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
+                      AND COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') != ''
+                    GROUP BY team_id,
+                             JSONExtractString(properties, '$survey_id'),
+                             JSONExtractString(properties, '$survey_submission_id')))
   GROUP BY team_id
   '''
 # ---

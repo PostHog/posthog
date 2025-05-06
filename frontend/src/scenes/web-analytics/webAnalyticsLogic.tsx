@@ -91,6 +91,7 @@ export enum TileId {
     GOALS = 'GOALS',
     WEB_VITALS = 'WEB_VITALS',
     WEB_VITALS_PATH_BREAKDOWN = 'WEB_VITALS_PATH_BREAKDOWN',
+    FRUSTRATING_PAGES = 'FRUSTRATING_PAGES',
 
     // Page Report Tiles to avoid conflicts with web analytics
     PAGE_REPORTS_COMBINED_METRICS_CHART_SECTION = 'PR_COMBINED_METRICS_CHART_SECTION',
@@ -141,6 +142,7 @@ const loadPriorityMap: Record<TileId, number> = {
     [TileId.GOALS]: 11,
     [TileId.WEB_VITALS]: 12,
     [TileId.WEB_VITALS_PATH_BREAKDOWN]: 13,
+    [TileId.FRUSTRATING_PAGES]: 14,
 
     // Page Report Sections
     [TileId.PAGE_REPORTS_COMBINED_METRICS_CHART_SECTION]: 1,
@@ -340,7 +342,9 @@ export const webStatsBreakdownToPropertyName = (
         case WebStatsBreakdown.Timezone:
             return { key: '$timezone', type: PropertyFilterType.Event }
         case WebStatsBreakdown.Language:
-            return { key: '$geoip_language', type: PropertyFilterType.Event }
+            return { key: '$browser_language', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.FrustrationMetrics:
+            return { key: '$pathname', type: PropertyFilterType.Event }
         case WebStatsBreakdown.InitialUTMSourceMediumCampaign:
             return undefined
         default:
@@ -830,16 +834,16 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 s.pathTab,
                 s.geographyTab,
                 s.activeHoursTab,
-                () => values.shouldShowGeographyTile,
+                () => values.shouldShowGeoIPQueries,
             ],
-            (graphsTab, sourceTab, deviceTab, pathTab, geographyTab, activeHoursTab, shouldShowGeographyTile) => ({
+            (graphsTab, sourceTab, deviceTab, pathTab, geographyTab, activeHoursTab, shouldShowGeoIPQueries) => ({
                 graphsTab,
                 sourceTab,
                 deviceTab,
                 pathTab,
                 geographyTab,
                 activeHoursTab,
-                shouldShowGeographyTile,
+                shouldShowGeoIPQueries,
             }),
         ],
         controls: [
@@ -894,7 +898,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             ],
             (
                 productTab,
-                { graphsTab, sourceTab, deviceTab, pathTab, geographyTab, shouldShowGeographyTile, activeHoursTab },
+                { graphsTab, sourceTab, deviceTab, pathTab, geographyTab, shouldShowGeoIPQueries, activeHoursTab },
                 { isPathCleaningEnabled, filterTestAccounts, shouldStripQueryParams },
                 {
                     webAnalyticsFilters,
@@ -1686,89 +1690,99 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             ),
                         ],
                     },
-                    shouldShowGeographyTile
-                        ? {
-                              kind: 'tabs',
-                              tileId: TileId.GEOGRAPHY,
-                              layout: {
-                                  colSpanClassName: 'md:col-span-full',
-                              },
-                              activeTabId: geographyTab || GeographyTab.MAP,
-                              setTabId: actions.setGeographyTab,
-                              tabs: [
-                                  {
-                                      id: GeographyTab.MAP,
-                                      title: 'World map',
-                                      linkText: 'Map',
-                                      query: {
-                                          kind: NodeKind.InsightVizNode,
-                                          source: {
-                                              kind: NodeKind.TrendsQuery,
-                                              breakdownFilter: {
-                                                  // use the event level country code rather than person, to work better with personless users
-                                                  breakdown: '$geoip_country_code',
-                                                  breakdown_type: 'event',
-                                              },
-                                              dateRange,
-                                              series: [
-                                                  {
-                                                      event: '$pageview',
-                                                      name: 'Pageview',
-                                                      kind: NodeKind.EventsNode,
-                                                      math: BaseMathType.UniqueUsers,
+
+                    {
+                        kind: 'tabs',
+                        tileId: TileId.GEOGRAPHY,
+                        layout: {
+                            colSpanClassName: 'md:col-span-full',
+                        },
+                        activeTabId:
+                            geographyTab || (shouldShowGeoIPQueries ? GeographyTab.MAP : GeographyTab.LANGUAGES),
+                        setTabId: actions.setGeographyTab,
+                        tabs: (
+                            [
+                                shouldShowGeoIPQueries
+                                    ? {
+                                          id: GeographyTab.MAP,
+                                          title: 'World map',
+                                          linkText: 'Map',
+                                          query: {
+                                              kind: NodeKind.InsightVizNode,
+                                              source: {
+                                                  kind: NodeKind.TrendsQuery,
+                                                  breakdownFilter: {
+                                                      // use the event level country code rather than person, to work better with personless users
+                                                      breakdown: '$geoip_country_code',
+                                                      breakdown_type: 'event',
                                                   },
-                                              ],
-                                              trendsFilter: {
-                                                  display: ChartDisplayType.WorldMap,
+                                                  dateRange,
+                                                  series: [
+                                                      {
+                                                          event: '$pageview',
+                                                          name: 'Pageview',
+                                                          kind: NodeKind.EventsNode,
+                                                          math: BaseMathType.UniqueUsers,
+                                                      },
+                                                  ],
+                                                  trendsFilter: {
+                                                      display: ChartDisplayType.WorldMap,
+                                                  },
+                                                  conversionGoal,
+                                                  filterTestAccounts,
+                                                  properties: webAnalyticsFilters,
                                               },
-                                              conversionGoal,
-                                              filterTestAccounts,
-                                              properties: webAnalyticsFilters,
+                                              hidePersonsModal: true,
+                                              embedded: true,
                                           },
-                                          hidePersonsModal: true,
-                                          embedded: true,
-                                      },
-                                      insightProps: createInsightProps(TileId.GEOGRAPHY, GeographyTab.MAP),
-                                      canOpenInsight: true,
-                                  },
-                                  createTableTab(
-                                      TileId.GEOGRAPHY,
-                                      GeographyTab.COUNTRIES,
-                                      'Countries',
-                                      'Countries',
-                                      WebStatsBreakdown.Country
-                                  ),
-                                  createTableTab(
-                                      TileId.GEOGRAPHY,
-                                      GeographyTab.REGIONS,
-                                      'Regions',
-                                      'Regions',
-                                      WebStatsBreakdown.Region
-                                  ),
-                                  createTableTab(
-                                      TileId.GEOGRAPHY,
-                                      GeographyTab.CITIES,
-                                      'Cities',
-                                      'Cities',
-                                      WebStatsBreakdown.City
-                                  ),
-                                  createTableTab(
-                                      TileId.GEOGRAPHY,
-                                      GeographyTab.TIMEZONES,
-                                      'Timezones',
-                                      'Timezones',
-                                      WebStatsBreakdown.Timezone
-                                  ),
-                                  createTableTab(
-                                      TileId.GEOGRAPHY,
-                                      GeographyTab.LANGUAGES,
-                                      'Languages',
-                                      'Languages',
-                                      WebStatsBreakdown.Language
-                                  ),
-                              ],
-                          }
-                        : null,
+                                          insightProps: createInsightProps(TileId.GEOGRAPHY, GeographyTab.MAP),
+                                          canOpenInsight: true,
+                                      }
+                                    : null,
+                                shouldShowGeoIPQueries
+                                    ? createTableTab(
+                                          TileId.GEOGRAPHY,
+                                          GeographyTab.COUNTRIES,
+                                          'Countries',
+                                          'Countries',
+                                          WebStatsBreakdown.Country
+                                      )
+                                    : null,
+                                shouldShowGeoIPQueries
+                                    ? createTableTab(
+                                          TileId.GEOGRAPHY,
+                                          GeographyTab.REGIONS,
+                                          'Regions',
+                                          'Regions',
+                                          WebStatsBreakdown.Region
+                                      )
+                                    : null,
+                                shouldShowGeoIPQueries
+                                    ? createTableTab(
+                                          TileId.GEOGRAPHY,
+                                          GeographyTab.CITIES,
+                                          'Cities',
+                                          'Cities',
+                                          WebStatsBreakdown.City
+                                      )
+                                    : null,
+                                createTableTab(
+                                    TileId.GEOGRAPHY,
+                                    GeographyTab.LANGUAGES,
+                                    'Languages',
+                                    'Languages',
+                                    WebStatsBreakdown.Language
+                                ),
+                                createTableTab(
+                                    TileId.GEOGRAPHY,
+                                    GeographyTab.TIMEZONES,
+                                    'Timezones',
+                                    'Timezones',
+                                    WebStatsBreakdown.Timezone
+                                ),
+                            ] as (TabsTileTab | null)[]
+                        ).filter(isNotNil),
+                    },
                     !conversionGoal
                         ? {
                               kind: 'query',
@@ -1843,7 +1857,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       linkText: 'Active hours',
                                       canOpenModal: true,
                                       query: {
-                                          kind: NodeKind.WebActiveHoursHeatMapQuery,
+                                          kind: NodeKind.EventsHeatMapQuery,
+                                          source: {
+                                              kind: NodeKind.EventsNode,
+                                              event: '$pageview',
+                                              name: '$pageview',
+                                              math: BaseMathType.UniqueUsers,
+                                          },
                                           properties: webAnalyticsFilters,
                                           dateRange,
                                       },
@@ -1967,6 +1987,70 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                   Errors are captured as <code>$exception</code> events which means that
                                                   you can create insights, filter recordings and trigger surveys based
                                                   on them exactly the same way you can for any other type of event.
+                                              </p>
+                                          </div>
+                                      </>
+                                  ),
+                              },
+                          }
+                        : null,
+                    !conversionGoal && featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FRUSTRATING_PAGES_TILE]
+                        ? {
+                              kind: 'query',
+                              title: 'Frustrating Pages',
+                              tileId: TileId.FRUSTRATING_PAGES,
+                              layout: {
+                                  colSpanClassName: 'md:col-span-2',
+                              },
+                              query: {
+                                  full: true,
+                                  kind: NodeKind.DataTableNode,
+                                  source: {
+                                      kind: NodeKind.WebStatsTableQuery,
+                                      breakdownBy: WebStatsBreakdown.FrustrationMetrics,
+                                      dateRange,
+                                      filterTestAccounts,
+                                      properties: webAnalyticsFilters,
+                                      compareFilter,
+                                      limit: 10,
+                                      doPathCleaning: isPathCleaningEnabled,
+                                  },
+                                  embedded: true,
+                                  showActions: true,
+                                  hiddenColumns: ['views'],
+                              },
+                              insightProps: createInsightProps(TileId.FRUSTRATING_PAGES, 'table'),
+                              canOpenModal: true,
+                              canOpenInsight: false,
+                              docs: {
+                                  title: 'Frustrating Pages',
+                                  description: (
+                                      <>
+                                          <div>
+                                              <p>
+                                                  See which pages are causing frustration by monitoring rage clicks,
+                                                  dead clicks, and errors.
+                                              </p>
+                                              <p>
+                                                  <ul>
+                                                      <li>
+                                                          A dead click is a click that doesn't result in any action.
+                                                          E.g. an image that looks like a button.
+                                                      </li>
+                                                      <li>
+                                                          Rageclicks are collected when a user clicks on a static
+                                                          element more than three times in a one-second window.
+                                                      </li>
+                                                      <li>
+                                                          Errors are JavaScript exceptions that occur when users
+                                                          interact with your site.
+                                                      </li>
+                                                  </ul>
+                                              </p>
+                                              <p>
+                                                  These are captured automatically and can help identify broken
+                                                  functionality, failed API calls, or other technical issues that
+                                                  frustrate users.
                                               </p>
                                           </div>
                                       </>
@@ -2186,9 +2270,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 }
             },
         },
-        shouldShowGeographyTile: {
+        shouldShowGeoIPQueries: {
             _default: null as boolean | null,
-            loadShouldShowGeographyTile: async (): Promise<boolean> => {
+            loadShouldShowGeoIPQueries: async (): Promise<boolean> => {
                 // Always display on dev mode, we don't always have events and/or hogQL functions
                 // but we want the map to be there for debugging purposes
                 if (values.isDev) {
@@ -2232,7 +2316,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     // start the loaders after mounting the logic
     afterMount(({ actions }) => {
         actions.loadStatusCheck()
-        actions.loadShouldShowGeographyTile()
+        actions.loadShouldShowGeoIPQueries()
     }),
     windowValues({
         isGreaterThanMd: (window: Window) => window.innerWidth > 768,
@@ -2273,6 +2357,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 } else {
                     urlParams.set('conversionGoal.customEventName', conversionGoal.customEventName)
                 }
+            } else {
+                urlParams.delete('conversionGoal.actionId')
+                urlParams.delete('conversionGoal.customEventName')
             }
             if (dateFrom !== INITIAL_DATE_FROM || dateTo !== INITIAL_DATE_TO || interval !== INITIAL_INTERVAL) {
                 urlParams.set('date_from', dateFrom ?? '')
@@ -2302,6 +2389,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             }
             if (compareFilter) {
                 urlParams.set('compare_filter', JSON.stringify(compareFilter))
+            } else {
+                urlParams.delete('compare_filter')
             }
 
             const { featureFlags } = featureFlagLogic.values
@@ -2315,6 +2404,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             }
             if (deviceTypeFilter) {
                 urlParams.set('device_type', deviceTypeFilter)
+            } else {
+                urlParams.delete('device_type')
             }
             if (tileVisualizations) {
                 urlParams.set('tile_visualizations', JSON.stringify(tileVisualizations))
