@@ -97,6 +97,7 @@ import {
     NotebookType,
     OrganizationFeatureFlags,
     OrganizationFeatureFlagsCopyBody,
+    OrganizationMemberScopedApiKeysResponse,
     OrganizationMemberType,
     OrganizationResourcePermissionType,
     OrganizationType,
@@ -649,6 +650,10 @@ class ApiRequest {
 
     public organizationMember(uuid: OrganizationMemberType['user']['uuid']): ApiRequest {
         return this.organizationMembers().addPathComponent(uuid)
+    }
+
+    public organizationMemberScopedApiKeys(uuid: OrganizationMemberType['user']['uuid']): ApiRequest {
+        return this.organizationMember(uuid).addPathComponent('scoped_api_keys')
     }
 
     // # Persons
@@ -1908,6 +1913,11 @@ const api = {
         ): Promise<OrganizationMemberType> {
             return new ApiRequest().organizationMember(uuid).update({ data })
         },
+        scopedApiKeys: {
+            async list(uuid: string): Promise<OrganizationMemberScopedApiKeysResponse> {
+                return new ApiRequest().organizationMemberScopedApiKeys(uuid).get()
+            },
+        },
     },
 
     resourceAccessPermissions: {
@@ -2831,7 +2841,7 @@ const api = {
         },
         async update(
             viewId: DataWarehouseSavedQuery['id'],
-            data: Partial<DataWarehouseSavedQuery> & { types: string[][]; current_query?: string }
+            data: Partial<DataWarehouseSavedQuery> & { types: string[][]; edited_history_id?: string }
         ): Promise<DataWarehouseSavedQuery> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).update({ data })
         },
