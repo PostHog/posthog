@@ -38,6 +38,7 @@ def MaxEval(
         task=task,
         scores=scores,
         trial_count=3 if os.getenv("CI") else 1,
+        timeout=180,
     )
     if os.getenv("GITHUB_EVENT_NAME") == "pull_request":
         with open("eval_results.jsonl", "a") as f:
@@ -48,10 +49,10 @@ def MaxEval(
 @pytest.fixture(scope="package")
 def demo_org_team_user(django_db_setup, django_db_blocker):  # noqa: F811
     with django_db_blocker.unblock():
-        should_create_new_team = True
         team = Team.objects.order_by("-created_at").first()
-        if team and team.created_at.date() >= datetime.date.today():
-            should_create_new_team = False  # Project doesn't exist or is from yesterday, let's get a new one
+        today = datetime.date.today()
+        # If there's no eval team or it's older than today, we need to create a new one with fresh data
+        should_create_new_team = not team or team.created_at.date() < today
 
         if should_create_new_team:
             print(f"Generating fresh demo data for evals...")  # noqa: T201
@@ -68,7 +69,7 @@ def demo_org_team_user(django_db_setup, django_db_blocker):  # noqa: F811
                 # Simulation saving should occur in non-test mode, so that Kafka isn't mocked. Normally in tests we don't
                 # want to ingest via Kafka, but simulation saving is specifically designed to use that route for speed
                 org, team, user = matrix_manager.ensure_account_and_save(
-                    "eval@posthog.com", "Eval Doe", "Hedgebox Inc."
+                    f"eval-{today.isoformat()}", "Eval Doe", "Hedgebox Inc."
                 )
         else:
             print(f"Using existing demo data for evals...")  # noqa: T201
@@ -78,7 +79,7 @@ def demo_org_team_user(django_db_setup, django_db_blocker):  # noqa: F811
         yield org, team, user
 
 
-@pytest.fixture(scope="package")
+@pytest.fixture(scope="package", autouse=True)
 def core_memory(demo_org_team_user, django_db_blocker) -> Generator[CoreMemory, None, None]:
     initial_memory = """Hedgebox is a cloud storage service enabling users to store, share, and access files across devices.
 

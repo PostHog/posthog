@@ -61,12 +61,8 @@ How would you rate the memory content? Choose one:
 
 
 @pytest.fixture
-def call_node(demo_org_team_user, core_memory):
-    graph = (
-        AssistantGraph(demo_org_team_user[1])
-        .add_memory_collector(AssistantNodeName.END, AssistantNodeName.END)
-        .compile()
-    )
+def call_node(demo_org_team_user):
+    graph = AssistantGraph(demo_org_team_user[1]).add_memory_collector(AssistantNodeName.END).compile()
 
     def callable(message: str) -> Optional[AssistantMessage]:
         conversation = Conversation.objects.create(team=demo_org_team_user[1], user=demo_org_team_user[2])
