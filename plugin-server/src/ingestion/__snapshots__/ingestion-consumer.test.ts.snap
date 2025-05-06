@@ -228,7 +228,7 @@ exports[`IngestionConsumer general should process a cookieless event 1`] = `
       "person_mode": "full",
       "person_properties": "{"$current_url":"http://localhost:8000","$raw_user_agent":"Chrome","$creator_event_uuid":"<REPLACED-UUID-1>","$initial_current_url":"http://localhost:8000","$initial_raw_user_agent":"Chrome"}",
       "project_id": 2,
-      "properties": "{"$current_url":"http://localhost:8000","$host":"localhost:8000","$session_id":"<REPLACED-UUID-3>","$device_id":"cookieless_30DOCIzVwbtKc4UibJ7/OA","$cookieless_mode":true,"$set":{"$current_url":"http://localhost:8000","$raw_user_agent":"Chrome"},"$set_once":{"$initial_current_url":"http://localhost:8000","$initial_raw_user_agent":"Chrome"}}",
+      "properties": "{"$current_url":"http://localhost:8000","$host":"localhost:8000","$session_id":"<REPLACED-UUID-3>","$device_id":"<REPLACED-COOKIELESS-ID-2>","$cookieless_mode":true,"$set":{"$current_url":"http://localhost:8000","$raw_user_agent":"Chrome"},"$set_once":{"$initial_current_url":"http://localhost:8000","$initial_raw_user_agent":"Chrome"}}",
       "team_id": 2,
       "timestamp": "2025-01-01 00:00:00.000",
       "uuid": "<REPLACED-UUID-1>",

@@ -7,7 +7,7 @@ const COOKIELESS_REGEX = /^cookieless_[0-9a-z+\/]+$/i
 export const forSnapshot = (
     obj: any,
     context?: { overrides?: Record<string, string>; idMap?: Record<string, string> }
-) => {
+): any => {
     context = context ?? {}
     context.idMap = context.idMap ?? {}
     let res = obj
@@ -26,6 +26,17 @@ export const forSnapshot = (
     }
 
     if (typeof obj === 'string') {
+        let jsonObj: any = null
+        try {
+            // eslint-disable-next-line no-restricted-syntax
+            jsonObj = JSON.parse(obj)
+        } catch (e) {}
+
+        if (jsonObj != null) {
+            // String was JSON, so parse it and replace UUIDs
+            return JSON.stringify(forSnapshot(jsonObj, context))
+        }
+
         // Replace UUIDs with placeholders
         const uuidMatches = obj.match(UUID_REGEX)
         for (const match of uuidMatches ?? []) {
@@ -35,10 +46,12 @@ export const forSnapshot = (
 
         // Replace cookieless distinct IDs with placeholders
         const cookielessMatches = obj.match(COOKIELESS_REGEX)
-        for (const match of cookielessMatches ?? []) {
-            context.idMap[match] =
-                context.idMap[match] ?? `<REPLACED-COOKIELESS-ID-${Object.keys(context.idMap).length}>`
-            res = res.replace(match, context.idMap[match])
+        if (cookielessMatches) {
+            for (const match of cookielessMatches) {
+                context.idMap[match] =
+                    context.idMap[match] ?? `<REPLACED-COOKIELESS-ID-${Object.keys(context.idMap).length}>`
+                res = res.replace(match, context.idMap[match])
+            }
         }
     }
 
