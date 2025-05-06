@@ -238,7 +238,7 @@ def WEB_STATS_INSERT_SQL(
             FROM raw_sessions
             WHERE {team_filter}
                 AND toTimeZone(raw_sessions.min_timestamp, '{timezone}') >= toDateTime('{date_start}', '{timezone}')
-                AND toTimeZone(raw_sessions.min_timestamp, '{timezone}') <= toDateTime('{date_end}', '{timezone}')
+                AND toTimeZone(raw_sessions.min_timestamp, '{timezone}') < toDateTime('{date_end}', '{timezone}')
             GROUP BY
                 raw_sessions.session_id_v7
             SETTINGS {settings}
