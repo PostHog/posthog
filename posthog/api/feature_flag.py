@@ -143,6 +143,7 @@ class FeatureFlagSerializer(
         required=False,
         help_text="Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments'.",
     )
+    _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
         model = FeatureFlag
@@ -175,6 +176,7 @@ class FeatureFlagSerializer(
             "is_remote_configuration",
             "has_encrypted_payloads",
             "status",
+            "_create_in_folder",
         ]
 
     def get_can_edit(self, feature_flag: FeatureFlag) -> bool:
@@ -1199,10 +1201,10 @@ class FeatureFlagViewSet(
                 else FeatureFlag.objects.get(key=kwargs["pk"], team__project_id=self.project_id)
             )
         except FeatureFlag.DoesNotExist:
-            return Response("", status=status.HTTP_404_NOT_FOUND)
+            return Response(status=status.HTTP_404_NOT_FOUND)
 
         if not feature_flag.is_remote_configuration:
-            return Response("", status=status.HTTP_404_NOT_FOUND)
+            return Response(status=status.HTTP_404_NOT_FOUND)
 
         if not feature_flag.has_encrypted_payloads:
             payloads = feature_flag.filters.get("payloads", {})
@@ -1225,7 +1227,7 @@ class FeatureFlagViewSet(
 
         item_id = kwargs["pk"]
         if not FeatureFlag.objects.filter(id=item_id, team__project_id=self.project_id).exists():
-            return Response("", status=status.HTTP_404_NOT_FOUND)
+            return Response(status=status.HTTP_404_NOT_FOUND)
 
         activity_page = load_activity(
             scope="FeatureFlag",

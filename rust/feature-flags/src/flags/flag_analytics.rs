@@ -4,6 +4,7 @@ use common_redis::{Client as RedisClient, CustomRedisError};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+pub const SURVEY_TARGETING_FLAG_PREFIX: &str = "survey-targeting-";
 const CACHE_BUCKET_SIZE: u64 = 60 * 2; // duration in seconds
 
 pub fn get_team_request_key(team_id: i32, request_type: FlagRequestType) -> String {

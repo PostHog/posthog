@@ -1,9 +1,6 @@
 package main
 
 import (
-	"github.com/posthog/posthog/livestream/auth"
-	"github.com/posthog/posthog/livestream/events"
-	"github.com/posthog/posthog/livestream/geo"
 	"log"
 	"net/http"
 	"time"
@@ -11,41 +8,25 @@ import (
 	"github.com/labstack/echo-contrib/echoprometheus"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+	"github.com/posthog/posthog/livestream/auth"
+	"github.com/posthog/posthog/livestream/configs"
+	"github.com/posthog/posthog/livestream/events"
+	"github.com/posthog/posthog/livestream/geo"
+	"github.com/posthog/posthog/livestream/handlers"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/spf13/viper"
 )
 
 func main() {
-	loadConfigs()
+	configs.InitConfigs("configs", "./configs")
 
-	isDebug := viper.GetBool("debug")
-	mmdb := viper.GetString("mmdb.path")
-	if mmdb == "" {
+	config, err := configs.LoadConfig()
+	if err != nil {
 		// TODO capture error to PostHog
-		log.Fatal("mmdb.path must be set")
-	}
-	brokers := viper.GetString("kafka.brokers")
-	if brokers == "" {
-		// TODO capture error to PostHog
-		log.Fatal("kafka.brokers must be set")
-	}
-	topic := viper.GetString("kafka.topic")
-	if topic == "" {
-		// TODO capture error to PostHog
-		log.Fatal("kafka.topic must be set")
-	}
-	groupID := viper.GetString("kafka.group_id")
-	if groupID == "" {
-		// TODO capture error to PostHog
-		log.Fatal("kafka.group_id must be set")
-	}
-	parallelism := viper.GetInt("parallelism")
-	if parallelism == 0 {
-		parallelism = 1
+		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	geolocator, err := geo.NewMaxMindGeoLocator(mmdb)
+	geolocator, err := geo.NewMaxMindGeoLocator(config.MMDB.Path)
 	if err != nil {
 		// TODO capture error to PostHog
 		log.Fatalf("Failed to open MMDB: %v", err)
@@ -61,13 +42,12 @@ func main() {
 	go stats.KeepStats(statsChan)
 
 	kafkaSecurityProtocol := "SSL"
-	if isDebug {
+	if config.Debug {
 		kafkaSecurityProtocol = "PLAINTEXT"
 	}
-	consumer, err := events.NewPostHogKafkaConsumer(brokers, kafkaSecurityProtocol, groupID, topic, geolocator, phEventChan,
-		statsChan, parallelism)
+	consumer, err := events.NewPostHogKafkaConsumer(config.Kafka.Brokers, kafkaSecurityProtocol, config.Kafka.GroupID, config.Kafka.Topic, geolocator, phEventChan,
+		statsChan, config.Parallelism)
 	if err != nil {
-		// TODO capture error to PostHog
 		log.Fatalf("Failed to create Kafka consumer: %v", err)
 	}
 	defer consumer.Close()
@@ -82,7 +62,6 @@ func main() {
 	// Middleware
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
-	e.Use(middleware.RequestID())
 	e.Use(middleware.GzipWithConfig(middleware.GzipConfig{
 		Level: 9, // Set compression level to maximum
 	}))
@@ -90,12 +69,12 @@ func main() {
 		echoprometheus.MiddlewareConfig{DoNotUseRequestPathFor404: true, Subsystem: "livestream"}))
 
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
-		AllowOrigins: []string{"*"},
+		AllowOrigins: config.CORSAllowOrigins,
 		AllowMethods: []string{http.MethodGet, http.MethodHead},
 	}))
 
 	// Routes
-	e.GET("/", index)
+	e.GET("/", handlers.Index)
 
 	// For details why promhttp.Handler won't work: https://github.com/prometheus/client_golang/issues/622
 	e.GET("/metrics", echo.WrapHandler(promhttp.InstrumentMetricHandler(
@@ -103,13 +82,13 @@ func main() {
 		promhttp.HandlerFor(prometheus.DefaultGatherer, promhttp.HandlerOpts{DisableCompression: true}),
 	)))
 
-	e.GET("/served", servedHandler(stats))
+	e.GET("/stats", handlers.StatsHandler(stats))
 
-	e.GET("/stats", statsHandler(stats))
+	e.GET("/events", handlers.StreamEventsHandler(e.Logger, subChan, filter))
 
-	e.GET("/events", streamEventsHandler(e.Logger, subChan, filter))
+	if config.Debug {
+		e.GET("/served", handlers.ServedHandler(stats))
 
-	if isDebug {
 		e.GET("/jwt", func(c echo.Context) error {
 			claims, err := auth.GetAuth(c.Request().Header)
 			if err != nil {
@@ -136,7 +115,7 @@ func main() {
 					e.Logger.Printf("SSE client disconnected, ip: %v", c.RealIP())
 					return nil
 				case <-ticker.C:
-					event := Event{
+					event := handlers.Event{
 						Data: []byte("ping: " + time.Now().Format(time.RFC3339Nano)),
 					}
 					if err := event.WriteTo(w); err != nil {

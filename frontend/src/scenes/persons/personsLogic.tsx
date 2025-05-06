@@ -113,8 +113,9 @@ export const personsLogic = kea<personsLogicType>([
                 },
                 loadPersonUUID: async ({ uuid }): Promise<PersonType | null> => {
                     const response = await hogqlQuery(
-                        'select id, groupArray(pdi.distinct_id) as distinct_ids, properties, is_identified, created_at from persons where id={id} group by id, properties, is_identified, created_at',
-                        { id: uuid }
+                        'select id, groupArray(101)(pdi.distinct_id) as distinct_ids, properties, is_identified, created_at from persons where id={id} group by id, properties, is_identified, created_at',
+                        { id: uuid },
+                        'blocking'
                     )
                     const row = response?.results?.[0]
                     if (row) {

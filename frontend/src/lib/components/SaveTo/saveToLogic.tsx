@@ -100,6 +100,23 @@ export function openSaveToModal(props: OpenSaveToProps): void {
     if (logic) {
         logic.actions.openSaveToModal(props)
     } else {
-        console.error('SaveToLogic not mounted as part of GlobalModals')
+        console.error('SaveToLogic not mounted as part of <GlobalModals />')
+        props.callback?.(props.folder ?? props.defaultFolder ?? '')
     }
+}
+
+export async function asyncSaveToModal(
+    props: Omit<OpenSaveToProps, 'callback' | 'cancelCallback'>
+): Promise<string | null> {
+    return new Promise((resolve) => {
+        openSaveToModal({
+            ...props,
+            callback: (folder) => {
+                resolve(folder)
+            },
+            cancelCallback: () => {
+                resolve(null)
+            },
+        })
+    })
 }

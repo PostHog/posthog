@@ -79,7 +79,6 @@ export abstract class CdpConsumerBase {
             this.hogFunctionManager.start(),
             KafkaProducerWrapper.create(this.hub).then((producer) => {
                 this.kafkaProducer = producer
-                this.kafkaProducer.producer.connect()
             }),
         ])
     }

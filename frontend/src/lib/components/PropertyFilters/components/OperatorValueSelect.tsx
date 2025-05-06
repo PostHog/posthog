@@ -85,7 +85,8 @@ export function OperatorValueSelect({
     size,
     editable,
 }: OperatorValueSelectProps): JSX.Element {
-    const propertyDefinition = propertyDefinitions.find((pd) => pd.name === propertyKey)
+    const lookupKey = type === PropertyFilterType.DataWarehousePersonProperty ? 'id' : 'name'
+    const propertyDefinition = propertyDefinitions.find((pd) => pd[lookupKey] === propertyKey)
 
     const isCohortProperty = propertyKey === 'id' && type === PropertyFilterType.Cohort
 

@@ -8,7 +8,6 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useEffect, useState } from 'react'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { MaxTool } from 'scenes/max/MaxTool'
@@ -25,6 +24,7 @@ import { playerSettingsLogic, TimestampFormat } from '../player/playerSettingsLo
 import { playlistLogic } from '../playlist/playlistLogic'
 import { createPlaylist } from '../playlist/playlistUtils'
 import { savedSessionRecordingPlaylistsLogic } from '../saved-playlists/savedSessionRecordingPlaylistsLogic'
+import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import { DurationFilter } from './DurationFilter'
 import { SavedFilters } from './SavedFilters'
 
@@ -113,7 +113,7 @@ export const RecordingsUniversalFilters = ({
     const { savedFilters } = useValues(savedFiltersLogic)
     const { loadSavedFilters } = useActions(savedFiltersLogic)
 
-    const { reportRecordingPlaylistCreated } = useActions(eventUsageLogic)
+    const { reportRecordingPlaylistCreated } = useActions(sessionRecordingEventUsageLogic)
 
     const newPlaylistHandler = async (): Promise<void> => {
         await createPlaylist({ name: savedFilterName, filters }, false)

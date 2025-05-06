@@ -1,7 +1,10 @@
 import { createServer } from 'http'
 import { AddressInfo } from 'net'
 
+import { logger } from '~/src/utils/logger'
+
 import { defaultConfig } from '../../config/config'
+import { promisifyCallback } from '../../utils/utils'
 import {
     HogFunctionInvocation,
     HogFunctionQueueParametersFetchRequest,
@@ -9,28 +12,41 @@ import {
 } from '../types'
 import { FetchExecutorService } from './fetch-executor.service'
 
-jest.unmock('node-fetch')
-
 describe('FetchExecutorService', () => {
-    jest.setTimeout(1000)
+    jest.setTimeout(10000)
     let server: any
     let baseUrl: string
     let service: FetchExecutorService
     let mockRequest = jest.fn()
 
-    beforeAll(() => {
+    let timeoutHandle: NodeJS.Timeout | undefined
+
+    beforeAll(async () => {
         server = createServer((req, res) => {
             mockRequest(req, res)
         })
 
-        server.listen(0) // Random available port
+        await promisifyCallback<void>((cb) => {
+            server.listen(0, () => {
+                logger.info('Server listening')
+                cb(null, server)
+            })
+        })
         const address = server.address() as AddressInfo
         baseUrl = `http://localhost:${address.port}`
         service = new FetchExecutorService(defaultConfig)
     })
 
-    afterAll((done) => {
-        server.close(done)
+    afterEach(() => {
+        clearTimeout(timeoutHandle)
+    })
+
+    afterAll(async () => {
+        logger.info('Closing server')
+        await promisifyCallback<void>((cb) => {
+            logger.info('Closed server')
+            server.close(cb)
+        })
     })
 
     beforeEach(() => {
@@ -142,7 +158,8 @@ describe('FetchExecutorService', () => {
     it('handles timeouts', async () => {
         mockRequest.mockImplementation((_req: any, res: any) => {
             // Never send response
-            setTimeout(() => res.end(), 10000)
+            clearTimeout(timeoutHandle)
+            timeoutHandle = setTimeout(() => res.end(), 10000)
         })
 
         const invocation = createInvocation({

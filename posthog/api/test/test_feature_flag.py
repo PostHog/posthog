@@ -4755,6 +4755,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         activity = self.client.get(url)
         self.assertEqual(activity.status_code, expected_status)
+        if activity.status_code == status.HTTP_404_NOT_FOUND:
+            return None
         return activity.json()
 
     def assert_feature_flag_activity(self, flag_id: Optional[int], expected: list[dict]):
@@ -5341,6 +5343,29 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "cohort_name": "test_cohort",
             },
         )
+
+    def test_create_feature_flag_in_specific_folder(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={
+                "key": "my-test-flag-in-folder",
+                "name": "Test Flag in Folder",
+                "filters": {"groups": [{"properties": [], "rollout_percentage": 50}]},
+                "_create_in_folder": "Special Folder/Flags",
+            },
+            format="json",
+        )
+        assert response.status_code == 201, response.json()
+        flag_id = response.json()["id"]
+        assert flag_id is not None
+
+        from posthog.models.file_system.file_system import FileSystem
+
+        fs_entry = FileSystem.objects.filter(team=self.team, ref=str(flag_id), type="feature_flag").first()
+        assert fs_entry, "No FileSystem entry found for this feature flag."
+        assert (
+            "Special Folder/Flags" in fs_entry.path
+        ), f"Expected 'Special Folder/Flags' in path, got: '{fs_entry.path}'"
 
 
 class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
