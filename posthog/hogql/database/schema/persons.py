@@ -130,7 +130,9 @@ def select_from_persons_table(
 
         # Patch: push limit+offset+1 to inner subquery for correct pagination, always set offset=0
         if node.limit:
-            effective_limit = (node.limit.value if node.limit else 100) + (node.offset.value if node.offset else 0) + 1
+            node_limit = cast(ast.Constant, node.limit)
+            node_offset = cast(ast.Constant, node.offset)
+            effective_limit = (node_limit.value if node.limit else 100) + (node_offset.value if node.offset else 0) + 1
             right_select.limit = ast.Constant(value=effective_limit)
             right_select.offset = ast.Constant(value=0)
             # Do NOT set node.limit/node.offset directly, outer paginator will slice results
