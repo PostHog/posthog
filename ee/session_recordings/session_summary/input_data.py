@@ -1,4 +1,5 @@
 import datetime
+import json
 import re
 from typing import cast
 
@@ -13,7 +14,16 @@ from posthog.session_recordings.models.metadata import RecordingMetadata
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.models import Team
 
-EXTRA_SUMMARY_EVENT_FIELDS = ["elements_chain_ids", "elements_chain"]
+EXTRA_SUMMARY_EVENT_FIELDS = [
+    "elements_chain_ids",
+    "elements_chain",
+    "properties.$exception_types",
+    "properties.$exception_sources",
+    "properties.$exception_values",
+    "properties.$exception_list",
+    "properties.$exception_fingerprint_record",
+    "properties.$exception_functions",
+]
 
 
 def get_session_metadata(session_id: str, team: Team, local_reads_prod: bool = False) -> RecordingMetadata:
@@ -89,7 +99,44 @@ def get_session_events(
     return columns, all_events
 
 
-def _skip_event_without_context(
+def _skip_exception_without_valid_context(
+    event_row: list[str | datetime.datetime | list[str] | None],
+    # Using indexes as argument to avoid calling get_column_index on each event row
+    indexes: dict[str, int],
+) -> bool:
+    """
+    Avoid exceptions that don't add meaningful context and confuse the LLM.
+    """
+
+    def load_json_list(row, indexes, key):
+        raw = row[indexes[key]]
+        return json.loads(raw) if raw else []
+
+    exception_sources = load_json_list(event_row, indexes, "$exception_sources")
+    exception_values = load_json_list(event_row, indexes, "$exception_values")
+    exception_fingerprint_record = load_json_list(event_row, indexes, "$exception_fingerprint_record")
+    exception_functions = load_json_list(event_row, indexes, "$exception_functions")
+    # Keep exceptions with 5+ traces as blocking errors usually affect multiple flows
+    if len(exception_fingerprint_record) >= 5:
+        return False
+    # Search for keywords in functions names to try to catch API errors (that are usually blocking)
+    # Ensure to ignore letter case
+    pattern = (
+        r".*(api|http|fetch|request|get|post|put|delete|response|xhr|ajax|graphql|socket|websocket|auth|token|login).*"
+    )
+    if exception_functions and any(re.search(pattern, fn, re.IGNORECASE) for fn in exception_functions):
+        return False
+    # Search for the same keywords in filenames, if applicable
+    if exception_sources and any(re.search(pattern, source, re.IGNORECASE) for source in exception_sources):
+        return False
+    # Search for the same keywords in values, if applicable
+    if exception_values and any(re.search(pattern, value, re.IGNORECASE) for value in exception_values):
+        return False
+    # Filter out all the rest
+    return True
+
+
+def _skip_event_without_valid_context(
     event_row: list[str | datetime.datetime | list[str] | None],
     # Using indexes as argument to avoid calling get_column_index on each event row
     indexes: dict[str, int],
@@ -124,23 +171,46 @@ def add_context_and_filter_events(
     indexes = {
         "event": get_column_index(session_events_columns, "event"),
         "$event_type": get_column_index(session_events_columns, "$event_type"),
-        "elements_chain": get_column_index(session_events_columns, "elements_chain"),
         "elements_chain_texts": get_column_index(session_events_columns, "elements_chain_texts"),
         "elements_chain_elements": get_column_index(session_events_columns, "elements_chain_elements"),
         "elements_chain_href": get_column_index(session_events_columns, "elements_chain_href"),
         "elements_chain_ids": get_column_index(session_events_columns, "elements_chain_ids"),
+        "$exception_types": get_column_index(session_events_columns, "$exception_types"),
+        "$exception_values": get_column_index(session_events_columns, "$exception_values"),
+        "elements_chain": get_column_index(session_events_columns, "elements_chain"),
+        "$exception_sources": get_column_index(session_events_columns, "$exception_sources"),
+        "$exception_fingerprint_record": get_column_index(session_events_columns, "$exception_fingerprint_record"),
+        "$exception_functions": get_column_index(session_events_columns, "$exception_functions"),
     }
+    # Columns that are useful to building context or/and filtering, but would be excessive for the LLM
+    columns_to_pop = [
+        "$exception_functions",
+        "$exception_fingerprint_record",
+        "$exception_sources",
+        "elements_chain",
+    ]
     updated_events = []
     for event in session_events:
+        updated_event: list[str | datetime.datetime | list[str] | None] = list(event)
+        # Check for errors worth keeping in the context
+        if event[indexes["event"]] == "$exception":
+            if _skip_exception_without_valid_context(event, indexes):
+                continue
+            # If it's a valid exception, there are no elements to enrich the context, so keep it as is
+            for column in columns_to_pop:
+                updated_event.pop(indexes[column])
+            updated_events.append(tuple(updated_event))
+            continue
         chain = event[indexes["elements_chain"]]
         if not isinstance(chain, str):
             raise ValueError(f"Elements chain is not a string: {chain}")
-        updated_event: list[str | datetime.datetime | list[str] | None] = list(event)
         if not chain:
             # If no chain - no additional context will come, so it's ok to check if to skip right away
-            if _skip_event_without_context(updated_event, indexes):
+            if _skip_event_without_valid_context(updated_event, indexes):
                 continue
-            updated_event.pop(indexes["elements_chain"])
+            # Popping the columns as they are not needed for the LLM
+            for column in columns_to_pop:
+                updated_event.pop(indexes[column])
             updated_events.append(tuple(updated_event))
             continue
         elements_chain_texts = event[indexes["elements_chain_texts"]]
@@ -154,14 +224,16 @@ def add_context_and_filter_events(
             chain, elements_chain_elements
         )
         # After additional context is added, check again if the event is still without context
-        if _skip_event_without_context(updated_event, indexes):
+        if _skip_event_without_valid_context(updated_event, indexes):
             continue
         # Remove chain from as we already got all the info from it (safe to remove as it's the last column)
-        updated_event.pop(indexes["elements_chain"])
+        for column in columns_to_pop:
+            updated_event.pop(indexes[column])
         updated_events.append(tuple(updated_event))
     # Remove chain from columns also to avoid confusion (safe to remove as it's the last column)
     updated_columns = session_events_columns.copy()
-    updated_columns.pop(indexes["elements_chain"])
+    for column in columns_to_pop:
+        updated_columns.pop(indexes[column])
     return updated_columns, updated_events
 
 
