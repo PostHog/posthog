@@ -172,7 +172,7 @@ class UserTeamPermissions:
         if not organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS):
             return organization_membership.level
 
-        # Legacy access control system
+        # This path is deprecated, and will be removed soon
         if self.team.access_control:
             explicit_membership_level = self.p.explicit_team_memberships.get(self.team.id)
             if explicit_membership_level is not None:
