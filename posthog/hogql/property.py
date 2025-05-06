@@ -1,8 +1,8 @@
 from typing import Literal, Optional, cast
 
-from django.db.models.functions.comparison import Coalesce
 from pydantic import BaseModel
 
+from posthog import property_definitions
 from posthog.constants import (
     AUTOCAPTURE_EVENT,
     TREND_FILTER_TYPE_ACTIONS,
@@ -18,14 +18,12 @@ from posthog.models import (
     Action,
     Cohort,
     Property,
-    PropertyDefinition,
     Team,
 )
 from posthog.models.event import Selector
 from posthog.models.element import Element
 from posthog.models.property import PropertyGroup, ValueT
 from posthog.models.property.util import build_selector_regex
-from posthog.models.property_definition import PropertyType
 from posthog.schema import (
     EventMetadataPropertyFilter,
     FilterLogicalOperator,
@@ -52,7 +50,6 @@ from posthog.schema import (
 from posthog.warehouse.models import DataWarehouseJoin
 from posthog.utils import get_from_dict_or_attr
 from django.db.models import Q
-from django.db import models
 
 
 from posthog.warehouse.models.util import get_view_or_table_by_name
@@ -91,22 +88,22 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
     if value != "true" and value != "false":
         return value
     if property.type == "person":
-        property_types = PropertyDefinition.objects.alias(
-            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-        ).filter(
-            effective_project_id=team.project_id,  # type: ignore
-            name=property.key,
-            type=PropertyDefinition.Type.PERSON,
-        )
+        try:
+            property_type = property_definitions.backend.get(
+                team.pk, property_definitions.PropertyObjectType.Person, property.key
+            )
+        except property_definitions.PropertyDefinitionDoesNotExist:
+            return value
     elif property.type == "group":
-        property_types = PropertyDefinition.objects.alias(
-            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-        ).filter(
-            effective_project_id=team.project_id,  # type: ignore
-            name=property.key,
-            type=PropertyDefinition.Type.GROUP,
-            group_type_index=property.group_type_index,
-        )
+        try:
+            property_type = property_definitions.backend.get(
+                team.pk,
+                property_definitions.PropertyObjectType.Group,
+                property.key,
+                group_type_index=property.group_type_index,
+            )
+        except property_definitions.PropertyDefinitionDoesNotExist:
+            return value
     elif property.type == "data_warehouse_person_property":
         if not isinstance(expr, ast.Field):
             raise Exception(f"Requires a Field expression")
@@ -142,20 +139,19 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
         return value
 
     else:
-        property_types = PropertyDefinition.objects.alias(
-            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-        ).filter(
-            effective_project_id=team.project_id,  # type: ignore
-            name=property.key,
-            type=PropertyDefinition.Type.EVENT,
-        )
-    property_type = property_types[0].property_type if len(property_types) > 0 else None
+        try:
+            property_type = property_definitions.backend.get(
+                team.pk, property_definitions.PropertyObjectType.Event, property.key
+            )
+        except property_definitions.PropertyDefinitionDoesNotExist:
+            return value
 
-    if property_type == PropertyType.Boolean:
+    if property_type == property_definitions.PropertyValueType.Boolean:
         if value == "true":
             return True
         if value == "false":
             return False
+
     return value
 
 
