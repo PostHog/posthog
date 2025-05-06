@@ -131,9 +131,9 @@ async fn test_assignment_processing(db: PgPool) {
     // Next, change the issue, and put an assignment on the fingerprint. The returned assignment should be the one from
     // the fingerprint, rather than the rule, because fingerprint assignments take priority over assignment rules
 
-    let mut props_with_fingerprint_assigment = test_props.clone();
-    let fingerprint_assigment = NewAssignment::try_new(Some(3), None, None).unwrap();
-    props_with_fingerprint_assigment.fingerprint.assignment = Some(fingerprint_assigment);
+    let mut props_with_fingerprint_assignment = test_props.clone();
+    let fingerprint_assignment = NewAssignment::try_new(Some(3), None, None).unwrap();
+    props_with_fingerprint_assignment.fingerprint.assignment = Some(fingerprint_assignment);
 
     let mut new_issue = issue.clone();
     new_issue.id = Uuid::now_v7(); // So we don't hit the "respect existing assignments" path
@@ -142,7 +142,7 @@ async fn test_assignment_processing(db: PgPool) {
         &mut conn,
         &team_manager,
         &new_issue,
-        props_with_fingerprint_assigment.clone(),
+        props_with_fingerprint_assignment.clone(),
     )
     .await
     .unwrap();
