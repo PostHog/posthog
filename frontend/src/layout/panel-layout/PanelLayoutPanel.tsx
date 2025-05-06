@@ -2,7 +2,16 @@ import { IconPin, IconPinFilled, IconSearch, IconX } from '@posthog/icons'
 import { LemonInput } from '@posthog/lemon-ui'
 import { cva } from 'cva'
 import { useActions, useValues } from 'kea'
+import { IconFunnelVertical, IconOffline, IconRadioButtonUnchecked } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuGroup,
+    DropdownMenuItem,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
 import { useRef } from 'react'
 
@@ -59,6 +68,96 @@ const panelLayoutPanelVariants = cva({
         },
     ],
 })
+
+interface FiltersDropdownProps {
+    setSearchTerm: (searchTerm: string) => void
+    searchTerm: string
+}
+
+export function FiltersDropdown({ setSearchTerm, searchTerm }: FiltersDropdownProps): JSX.Element {
+    const types = [
+        ['dashboard', 'Dashboards'],
+        ['insight', 'Insights'],
+        ['feature_flag', 'Feature flags'],
+    ]
+    const removeTagsStarting = (str: string, tag: string): string =>
+        str
+            .split(' ')
+            .filter((p) => !p.startsWith(tag))
+            .join(' ')
+            .trim()
+    const removeTagsEquals = (str: string, tag: string): string =>
+        str
+            .split(' ')
+            .filter((p) => p != tag)
+            .join(' ')
+            .trim()
+    const addTag = (str: string, tag: string): string => `${str.trim()} ${tag.trim()}`.trim()
+
+    return (
+        <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+                <ButtonPrimitive
+                    iconOnly
+                    className="z-2 shrink-0 motion-safe:transition-opacity duration-[50ms] group-hover/lemon-tree-button-group:opacity-100 aria-expanded:opacity-100"
+                >
+                    <IconFunnelVertical className="size-3 text-tertiary" />
+                </ButtonPrimitive>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent loop align="end" side="bottom" className="max-w-[250px]">
+                <DropdownMenuGroup>
+                    <DropdownMenuItem
+                        onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            setSearchTerm(removeTagsEquals(searchTerm, 'user:me'))
+                        }}
+                    >
+                        <ButtonPrimitive menuItem>
+                            {!searchTerm.includes('user:me') ? <IconOffline /> : <IconRadioButtonUnchecked />}
+                            Everybody
+                        </ButtonPrimitive>
+                    </DropdownMenuItem>
+
+                    <DropdownMenuItem
+                        onClick={(e) => {
+                            e.preventDefault()
+                            setSearchTerm(
+                                searchTerm.includes('user:me')
+                                    ? removeTagsEquals(searchTerm, 'user:me')
+                                    : addTag(searchTerm, 'user:me')
+                            )
+                        }}
+                    >
+                        <ButtonPrimitive menuItem>
+                            {searchTerm.includes('user:me') ? <IconOffline /> : <IconRadioButtonUnchecked />}
+                            Only me
+                        </ButtonPrimitive>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    {types.map(([obj, label]) => (
+                        <DropdownMenuItem
+                            key={obj}
+                            onClick={(e) => {
+                                e.preventDefault()
+                                setSearchTerm(
+                                    searchTerm.includes(`type:${obj}`)
+                                        ? removeTagsStarting(searchTerm, 'type:')
+                                        : addTag(removeTagsStarting(searchTerm, 'type:'), `type:${obj}`)
+                                )
+                            }}
+                        >
+                            <ButtonPrimitive menuItem>
+                                {searchTerm.includes(`type:${obj}`) ? <IconOffline /> : <IconRadioButtonUnchecked />}
+                                {label}
+                            </ButtonPrimitive>
+                        </DropdownMenuItem>
+                    ))}
+                </DropdownMenuGroup>
+            </DropdownMenuContent>
+        </DropdownMenu>
+    )
+}
 
 export function PanelLayoutPanel({ searchPlaceholder, panelActions, children }: PanelLayoutPanelProps): JSX.Element {
     const { clearSearch, setSearchTerm, toggleLayoutPanelPinned } = useActions(panelLayoutLogic)
@@ -138,6 +237,7 @@ export function PanelLayoutPanel({ searchPlaceholder, panelActions, children }: 
                                 }
                             }}
                         />
+                        <FiltersDropdown setSearchTerm={setSearchTerm} searchTerm={searchTerm} />
                     </div>
                     <div className="border-b border-primary h-px" />
                     {children}
