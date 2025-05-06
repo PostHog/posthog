@@ -3,6 +3,7 @@ import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -13,8 +14,7 @@ import { MessagingTabs } from '../MessagingTabs'
 import { messageSendersLogic } from './messageSendersLogic'
 
 function MessageSender({ integration }: { integration: IntegrationType }): JSX.Element {
-    const { deleteIntegration, setIntegration } = useActions(messageSendersLogic)
-    const { openNewSenderModal } = useActions(messageSendersLogic)
+    const { setSelectedIntegration, deleteIntegration } = useActions(messageSendersLogic)
 
     const onDeleteClick = (integration: IntegrationType): void => {
         LemonDialog.open({
@@ -36,7 +36,6 @@ function MessageSender({ integration }: { integration: IntegrationType }): JSX.E
         <div className="rounded border bg-surface-primary">
             <div className="flex justify-between items-center p-2">
                 <div className="flex items-center gap-4 ml-2">
-                    <img src={integration.icon_url} className="h-10 w-10 rounded" />
                     <div>
                         <div className="flex items-center gap-2">
                             <strong>{integration.config.domain || integration.display_name}</strong>
@@ -58,7 +57,7 @@ function MessageSender({ integration }: { integration: IntegrationType }): JSX.E
                             <UserActivityIndicator
                                 at={integration.created_at}
                                 by={integration.created_by}
-                                prefix="Updated"
+                                prefix="Created"
                                 className="text-secondary"
                             />
                         ) : null}
@@ -68,10 +67,9 @@ function MessageSender({ integration }: { integration: IntegrationType }): JSX.E
                 <div className="flex items-center gap-2">
                     {!integration.config.mailjet_verified && (
                         <LemonButton
-                            type="secondary"
+                            type="primary"
                             onClick={() => {
-                                setIntegration(integration)
-                                openNewSenderModal()
+                                setSelectedIntegration(integration)
                             }}
                             icon={<IconWarning />}
                         >
@@ -93,8 +91,9 @@ function MessageSender({ integration }: { integration: IntegrationType }): JSX.E
 }
 
 function MessageSenders(): JSX.Element {
-    const { isNewSenderModalOpen, integrations, integrationsLoading } = useValues(messageSendersLogic)
-    const { openNewSenderModal, closeNewSenderModal } = useActions(messageSendersLogic)
+    const { isNewSenderModalOpen, selectedIntegration, integrations, integrationsLoading } =
+        useValues(messageSendersLogic)
+    const { openNewSenderModal, closeNewSenderModal, clearSelectedIntegration } = useActions(messageSendersLogic)
 
     const emailIntegrations = integrations?.filter((integration) => integration.kind === 'email')
 
@@ -117,7 +116,9 @@ function MessageSenders(): JSX.Element {
             />
             {isNewSenderModalOpen && (
                 <EmailSetupModal
+                    integration={selectedIntegration}
                     onComplete={() => {
+                        clearSelectedIntegration()
                         closeNewSenderModal()
                     }}
                 />
@@ -131,7 +132,14 @@ function MessageSenders(): JSX.Element {
                     ) : integrationsLoading ? (
                         <LemonSkeleton className="h-10" />
                     ) : (
-                        <p>No senders</p>
+                        <ProductIntroduction
+                            productName="Email sender"
+                            thingName="sender domain"
+                            description="Configure domains to send emails from. This ensures your emails are delivered to inboxes and not marked as spam."
+                            docsURL="https://posthog.com/docs/messaging"
+                            action={openNewSenderModal}
+                            isEmpty
+                        />
                     )}
                 </div>
             </div>

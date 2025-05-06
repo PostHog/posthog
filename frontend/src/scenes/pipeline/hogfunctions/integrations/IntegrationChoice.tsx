@@ -5,7 +5,6 @@ import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { EmailSetupModal } from 'products/messaging/frontend/EmailSetup/EmailSetupModal'
 import { urls } from 'scenes/urls'
 
 import { HogFunctionInputSchemaType } from '~/types'
@@ -27,8 +26,8 @@ export function IntegrationChoice({
     redirectUrl,
     beforeRedirect,
 }: IntegrationConfigureProps): JSX.Element | null {
-    const { integrationsLoading, integrations, isSetupModalOpen } = useValues(integrationsLogic)
-    const { newGoogleCloudKey, openSetupModal, closeSetupModal } = useActions(integrationsLogic)
+    const { integrationsLoading, integrations } = useValues(integrationsLogic)
+    const { newGoogleCloudKey } = useActions(integrationsLogic)
     const kind = integration
 
     const integrationsOfKind = integrations?.filter((x) => x.kind === kind)
@@ -69,24 +68,6 @@ export function IntegrationChoice({
         input.click()
     }
 
-    function getSetupModal(): JSX.Element | null {
-        switch (kind) {
-            case 'email':
-                return (
-                    <EmailSetupModal
-                        onComplete={(integrationId?: number) => {
-                            if (integrationId) {
-                                onChange?.(integrationId)
-                            }
-                            closeSetupModal()
-                        }}
-                    />
-                )
-            default:
-                return null
-        }
-    }
-
     const button = (
         <LemonMenu
             items={[
@@ -115,8 +96,8 @@ export function IntegrationChoice({
                     ? {
                           items: [
                               {
-                                  onClick: () => openSetupModal(),
-                                  label: 'Configure email sender domain',
+                                  to: urls.messageSenders(),
+                                  label: 'Configure new email sender domain',
                               },
                           ],
                       }
@@ -168,7 +149,6 @@ export function IntegrationChoice({
             ) : (
                 button
             )}
-            {isSetupModalOpen && getSetupModal()}
         </>
     )
 }

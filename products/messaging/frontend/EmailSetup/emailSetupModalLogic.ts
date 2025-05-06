@@ -1,7 +1,8 @@
-import { kea, key, listeners, path, props, selectors } from 'kea'
+import { afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import { IntegrationType } from '~/types'
@@ -9,6 +10,7 @@ import { IntegrationType } from '~/types'
 import type { emailSetupModalLogicType } from './emailSetupModalLogicType'
 
 export interface EmailSetupModalLogicProps {
+    integration?: IntegrationType | null
     onComplete: (integrationId?: number) => void
 }
 
@@ -28,7 +30,11 @@ export interface DomainFormType {
 export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
     path(['products', 'messaging', 'frontend', 'EmailSetup', 'emailSetupModalLogic']),
     props({} as EmailSetupModalLogicProps),
-    key(() => 'global'),
+    key(({ integration }) => (integration ? `messaging-sender-setup-${integration.id}` : 'messaging-sender-setup')),
+    connect(() => ({
+        values: [integrationsLogic, ['integrations']],
+        actions: [integrationsLogic, ['loadIntegrations']],
+    })),
     forms(({ actions }) => ({
         emailSender: {
             defaults: {
@@ -52,17 +58,19 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
             },
         },
     })),
-    loaders(({ values }) => ({
+    loaders(({ actions, values }) => ({
         integration: {
-            setIntegration: (integration: IntegrationType) => integration,
-            submitDomain: () => {
-                return api.integrations.create({
+            submitDomain: async () => {
+                const integration = await api.integrations.create({
                     kind: 'email',
                     config: {
                         domain: values.emailSender.domain,
                     },
                 })
+                actions.loadIntegrations()
+                return integration
             },
+            setIntegration: (integration?: IntegrationType) => integration,
         },
         verification: {
             verifyDomain: async () => {
@@ -78,17 +86,24 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
     }),
     listeners(({ props, values, actions }) => ({
         setIntegrationSuccess: () => {
+            // After setting a pre-existing integration, verify the domain
             actions.verifyDomain()
         },
         submitDomainSuccess: () => {
-            // Fetch the DNS records and current verification status
+            // After creating the integration, verify the domain
             actions.verifyDomain()
         },
         verifyDomainSuccess: ({ verification }) => {
             if (verification.status === 'success') {
                 lemonToast.success('Domain verified successfully!')
+                actions.loadIntegrations()
                 props.onComplete(values.integration.id)
             }
         },
     })),
+    afterMount(({ props, actions }) => {
+        if (props.integration) {
+            actions.setIntegration(props.integration)
+        }
+    }),
 ])
