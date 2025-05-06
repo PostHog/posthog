@@ -113,9 +113,16 @@ export const TreeNodeDisplayCheckbox = ({
                     className={cn(
                         'size-5 ml-[2px] starting:opacity-0 starting:-translate-x-2 translate-x-0 opacity-100 motion-safe:transition-all [transition-behavior:allow-discrete] duration-100',
                         {
-                            // Hide the checkbox if the item is disabled from being checked and is a folder
-                            // When searching we disable folders from being checked
-                            hidden: item.disableSelect && item.record?.type === 'folder',
+                            // Hide the checkbox if...
+                            // - the item is disabled from being checked AND
+                            // - the item is a folder
+                            // - or, the item is a loading indicator
+                            // - or, the item is an empty folder
+                            hidden:
+                                item.disableSelect &&
+                                (item.record?.type === 'folder' ||
+                                    item.type === 'loading-indicator' ||
+                                    item.type === 'empty-folder'),
                         }
                     )}
                     checked={isChecked ?? false}
