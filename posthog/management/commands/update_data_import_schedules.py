@@ -2,6 +2,7 @@ import datetime as dt
 import logging
 
 import structlog
+import temporalio
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
@@ -21,6 +22,14 @@ def _update_external_data_schema_schedule(external_data_schema: ExternalDataSche
         sync_external_data_job_workflow(
             external_data_schema, create=False, should_sync=external_data_schema.should_sync
         )
+    except temporalio.service.RPCError as e:
+        if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+            # if the schema was never activated, then there won't be a schedule
+            pass
+        else:
+            logger.exception(
+                "Error updating external data schema schedule", external_data_schema_id=str(external_data_schema.id)
+            )
     except Exception:
         logger.exception(
             "Error updating external data schema schedule", external_data_schema_id=str(external_data_schema.id)
