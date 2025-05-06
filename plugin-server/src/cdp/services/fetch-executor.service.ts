@@ -139,7 +139,7 @@ export class FetchExecutorService {
         }
 
         const duration = performance.now() - start
-        cdpHttpRequests.inc({ status: fetchResponse?.status.toString() ?? 'error' })
+        cdpHttpRequests.inc({ status: fetchResponse?.status?.toString() ?? 'error' })
 
         // If error - decide if it can be retried and set the values
         if (!fetchResponse || (fetchResponse?.status && fetchResponse.status >= 400)) {
