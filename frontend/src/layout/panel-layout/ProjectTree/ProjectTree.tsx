@@ -1,7 +1,7 @@
 import { IconCheckbox, IconChevronRight, IconFolder, IconFolderPlus, IconX } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { MoveFilesModal } from 'lib/components/FileSystem/MoveFilesModal'
-import { ResizableDiv } from 'lib/components/ResizeElement/ResizeElement'
+import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { LemonTree, LemonTreeRef, TreeDataItem, TreeMode } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { Tooltip } from 'lib/lemon-ui/Tooltip/Tooltip'
@@ -393,7 +393,7 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
             <ButtonPrimitive
                 tooltip={projectTreeMode === 'tree' ? 'Switch to table view' : 'Switch to tree view'}
                 onClick={() => setProjectTreeMode(projectTreeMode === 'tree' ? 'table' : 'tree')}
-                className="absolute top-1/2 translate-y-1/2 right-0 translate-x-1/2 z-top w-fit bg-surface-primary border border-primary"
+                className="absolute top-1/2 translate-y-1/2 right-0 translate-x-1/2 w-fit bg-surface-primary border border-primary z-[var(--z-resizer)]"
             >
                 <IconChevronRight
                     className={cn('size-4', {
@@ -549,7 +549,7 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                         <>
                             {/* Headers */}
                             {treeTableKeys?.headers.map((header, index) => (
-                                <ResizableDiv
+                                <ResizableElement
                                     key={header.key}
                                     defaultWidth={header.width || 0}
                                     onResize={(width) => {
@@ -575,7 +575,7 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                                     >
                                         <span>{header.title}</span>
                                     </ButtonPrimitive>
-                                </ResizableDiv>
+                                </ResizableElement>
                             ))}
                         </>
                     )
@@ -618,6 +618,9 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                                                     'starting:opacity-0 opacity-100 delay-50 motion-safe:transition-opacity duration-100 font-normal truncate',
                                                     {
                                                         'font-normal': index > 1,
+                                                        'font-semibold':
+                                                            item.record?.type === 'folder' &&
+                                                            item.type !== 'empty-folder',
                                                     }
                                                 )}
                                             >
