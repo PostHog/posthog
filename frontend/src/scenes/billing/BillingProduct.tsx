@@ -275,13 +275,21 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                                 billing?.discount_percent
                                                                     ? ', discounts on your account,'
                                                                     : ''
-                                                            } and the remaining time left in this billing period. This number updates once daily.`}
+                                                            } and the remaining time left in this billing period. This number updates once daily. ${
+                                                                product.projected_amount_usd_with_limit !==
+                                                                product.projected_amount_usd
+                                                                    ? ` This is capped at your current billing limit, we will never charge you more than your billing limit. If you did not have a billing limit set then this would be an estimate of $${parseFloat(
+                                                                          product.projected_amount_usd || '0'
+                                                                      ).toFixed(2)}`
+                                                                    : ''
+                                                            }`}
                                                         >
                                                             <div className="flex flex-col items-center justify-end">
                                                                 <div className="font-bold text-secondary text-lg leading-5">
                                                                     {humanFriendlyCurrency(
                                                                         parseFloat(
-                                                                            product.projected_amount_usd || '0'
+                                                                            product.projected_amount_usd_with_limit ||
+                                                                                '0'
                                                                         ) *
                                                                             (1 -
                                                                                 (billing?.discount_percent

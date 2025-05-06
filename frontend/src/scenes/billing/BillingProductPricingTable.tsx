@@ -46,7 +46,8 @@ export const BillingProductPricingTable = ({
                 <span className="font-bold mb-0 text-text-3000">{item.total}</span>
             ),
         },
-        { title: 'Projected Total', dataIndex: 'projectedTotal' },
+        { title: 'Projected Total', dataIndex: 'projectedTotalWithLimit' },
+        // { title: 'Projected Total', dataIndex: 'projectedTotal' },
     ]
 
     const subscribedAddons =
@@ -72,6 +73,11 @@ export const BillingProductPricingTable = ({
                                             usage: compactNumber(tier.current_usage),
                                             price: `$${tier.unit_amount_usd}`,
                                             total: `$${tier.current_amount_usd || '0.00'}`,
+                                            projectedTotalWithLimit: `$${parseFloat(
+                                                tier.projected_amount_usd_with_limit === 'None'
+                                                    ? '0'
+                                                    : tier.projected_amount_usd_with_limit || '0'
+                                            ).toFixed(2)}`,
                                             projectedTotal: `$${parseFloat(
                                                 tier.projected_amount_usd === 'None'
                                                     ? '0'
@@ -84,6 +90,11 @@ export const BillingProductPricingTable = ({
                                                 usage: compactNumber(addon.tiers?.[i]?.current_usage || 0),
                                                 price: `$${addon.tiers?.[i]?.unit_amount_usd || '0.00'}`,
                                                 total: `$${addon.tiers?.[i]?.current_amount_usd || '0.00'}`,
+                                                projectedTotalWithLimit: `$${parseFloat(
+                                                    addon.tiers?.[i]?.projected_amount_usd_with_limit === 'None'
+                                                        ? '0'
+                                                        : addon.tiers?.[i]?.projected_amount_usd_with_limit || '0'
+                                                ).toFixed(2)}`,
                                                 projectedTotal: `$${parseFloat(
                                                     addon.tiers?.[i]?.projected_amount_usd === 'None'
                                                         ? '0'
@@ -108,9 +119,11 @@ export const BillingProductPricingTable = ({
                               },
                               { title: 'Current Usage', dataIndex: 'usage' },
                               { title: 'Total', dataIndex: 'total' },
-                              { title: 'Projected Total', dataIndex: 'projectedTotal' },
+                              { title: 'Projected Total (with limit)', dataIndex: 'projectedTotalWithLimit' },
+                              // { title: 'Projected Total', dataIndex: 'projectedTotal' },
                           ],
                       }
+
                       // take the tier.current_amount_usd and add it to the same tier level for all the addons
                       const totalForTier =
                           product.type === 'session_replay'
@@ -123,6 +136,19 @@ export const BillingProductPricingTable = ({
                                           0
                                       ) || 0
                                     : 0)
+
+                      const projectedTotalWithLimitForTier =
+                          product.type === 'session_replay'
+                              ? parseFloat(tier.projected_amount_usd_with_limit || '0')
+                              : (parseFloat(tier.projected_amount_usd_with_limit || '') || 0) +
+                                ('addons' in product
+                                    ? product.addons?.reduce(
+                                          (acc: number, addon: BillingProductV2AddonType) =>
+                                              acc + (parseFloat(addon.tiers?.[i]?.projected_amount_usd || '') || 0),
+                                          0
+                                      ) || 0
+                                    : 0)
+
                       const projectedTotalForTier =
                           product.type === 'session_replay'
                               ? parseFloat(tier.projected_amount_usd || '0')
@@ -149,6 +175,7 @@ export const BillingProductPricingTable = ({
                                   : 'Free',
                           usage: compactNumber(tier.current_usage),
                           total: `$${totalForTier.toFixed(2) || '0.00'}`,
+                          projectedTotalWithLimit: `$${projectedTotalWithLimitForTier.toFixed(2) || '0.00'}`,
                           projectedTotal: `$${projectedTotalForTier.toFixed(2) || '0.00'}`,
                           subrows: subrows,
                       }
@@ -167,7 +194,10 @@ export const BillingProductPricingTable = ({
                                         : '0.00') || '0.00'
                                 }`
                               : `$${product.current_amount_usd || '0.00'}`,
-                          projectedTotal: `$${product.projected_amount_usd || '0.00'}`,
+                          projectedTotalWithLimit: `$${parseFloat(
+                              product.projected_amount_usd_with_limit || '0.00'
+                          ).toFixed(2)}`,
+                          projectedTotal: `$${parseFloat(product.projected_amount_usd || '0.00').toFixed(2)}`,
                           subrows: { rows: [], columns: [] },
                       },
                   ])
@@ -182,6 +212,12 @@ export const BillingProductPricingTable = ({
             total: `$${
                 (parseInt(product.current_amount_usd || '0') * (1 - billing?.discount_percent / 100)).toFixed(2) ||
                 '0.00'
+            }`,
+            projectedTotalWithLimit: `$${
+                (
+                    parseInt(product.projected_amount_usd_with_limit || '0') -
+                    parseInt(product.projected_amount_usd_with_limit || '0') * (billing?.discount_percent / 100)
+                ).toFixed(2) || '0.00'
             }`,
             projectedTotal: `$${
                 (

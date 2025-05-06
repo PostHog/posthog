@@ -1770,6 +1770,7 @@ export interface BillingTierType {
     current_usage: number
     projected_usage: number | null
     projected_amount_usd: string | null
+    projected_amount_usd_with_limit: string | null
     up_to: number | null
 }
 
@@ -1794,6 +1795,7 @@ export interface BillingProductV2Type {
     tiered: boolean
     current_usage?: number
     projected_amount_usd?: string | null
+    projected_amount_usd_with_limit?: string | null
     projected_usage?: number
     percentage_usage: number
     current_amount_usd_before_addons: string | null
@@ -1833,6 +1835,7 @@ export interface BillingProductV2AddonType {
     current_usage: number
     projected_usage: number | null
     projected_amount_usd: string | null
+    projected_amount_usd_with_limit: string | null
     plans: BillingPlanType[]
     usage_key?: string
     free_allocation?: number | null
@@ -4945,6 +4948,7 @@ export type BillingTableTierAddonRow = {
     usage: string
     total: string
     projectedTotal: string
+    projectedTotalWithLimit: string
     icon?: string
 }
 
@@ -4954,6 +4958,7 @@ export type BillingTableTierRow = {
     usage: string
     total: string
     projectedTotal: string
+    projectedTotalWithLimit: string
     subrows: ProductPricingTierSubrows
 }
 
