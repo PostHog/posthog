@@ -230,6 +230,8 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
                 "organization_id": self.organization.id,
                 "organization_name": self.organization.name,
                 "removal_type": "self_removal",
+                "removed_email": self.user.email,
+                "removed_user_id": self.user.id,
             },
             groups={"instance": ANY, "organization": str(self.organization.id)},
         )
