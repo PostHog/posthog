@@ -18,7 +18,7 @@ export function SurveyResponsesCollection(): JSX.Element | null {
                 }}
                 className="p-0 gap-8"
             />
-            {survey.appearance?.shuffleQuestions && (
+            {survey.appearance?.shuffleQuestions && survey.enable_partial_responses && (
                 <LemonBanner type="info" hideIcon>
                     <h3 className="mb-0">Shuffle questions does not work with partial responses.</h3>
                     <p>
