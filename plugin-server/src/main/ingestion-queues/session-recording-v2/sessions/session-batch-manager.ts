@@ -19,7 +19,7 @@ export interface SessionBatchManagerConfig {
     /** Manages storing console logs */
     consoleLogStore: SessionConsoleLogStore
     /** Optional switchover date for v2 metadata logic */
-    metadataSwitchoverDate?: Date | null
+    metadataSwitchoverDate: Date | null
 }
 
 /**
@@ -65,7 +65,7 @@ export class SessionBatchManager {
     private readonly metadataStore: SessionMetadataStore
     private readonly consoleLogStore: SessionConsoleLogStore
     private lastFlushTime: number
-    private readonly metadataSwitchoverDate?: Date | null
+    private readonly metadataSwitchoverDate: Date | null
 
     constructor(config: SessionBatchManagerConfig) {
         this.maxBatchSizeBytes = config.maxBatchSizeBytes

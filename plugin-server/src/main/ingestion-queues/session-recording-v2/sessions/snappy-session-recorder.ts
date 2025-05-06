@@ -89,7 +89,7 @@ export class SnappySessionRecorder {
         public readonly sessionId: string,
         public readonly teamId: number,
         public readonly batchId: string,
-        private readonly metadataSwitchoverDate?: Date | null
+        private readonly metadataSwitchoverDate: Date | null
     ) {}
 
     /**
@@ -133,31 +133,38 @@ export class SnappySessionRecorder {
 
         for (const [windowId, events] of Object.entries(message.eventsByWindowId)) {
             for (const event of events) {
-                // Store segmentation event for later use in active time calculation
-                this.segmentationEvents.push(toSegmentationEvent(event))
-
-                const eventUrl = hrefFrom(event)
-                if (eventUrl) {
-                    this.addUrl(eventUrl)
-                }
-
-                if (isClick(event)) {
-                    this.clickCount += 1
-                }
-
-                if (isKeypress(event)) {
-                    this.keypressCount += 1
-                }
-
-                if (isMouseActivity(event)) {
-                    this.mouseActivityCount += 1
-                }
-
                 const serializedLine = JSON.stringify([windowId, event]) + '\n'
                 const chunk = Buffer.from(serializedLine)
                 this.uncompressedChunks.push(chunk)
-                rawBytesWritten += chunk.length
-                this.eventCount++
+
+                const eventTimestamp = event.timestamp
+                const switchoverMs = this.metadataSwitchoverDate ? this.metadataSwitchoverDate.getTime() : null
+                const shouldComputeMetadata = switchoverMs && eventTimestamp >= switchoverMs
+
+                if (shouldComputeMetadata) {
+                    // Store segmentation event for later use in active time calculation
+                    this.segmentationEvents.push(toSegmentationEvent(event))
+
+                    const eventUrl = hrefFrom(event)
+                    if (eventUrl) {
+                        this.addUrl(eventUrl)
+                    }
+
+                    if (isClick(event)) {
+                        this.clickCount += 1
+                    }
+
+                    if (isKeypress(event)) {
+                        this.keypressCount += 1
+                    }
+
+                    if (isMouseActivity(event)) {
+                        this.mouseActivityCount += 1
+                    }
+
+                    this.eventCount++
+                    rawBytesWritten += chunk.length
+                }
             }
         }
 
@@ -233,7 +240,7 @@ export class SnappySessionRecorder {
             keypressCount: this.keypressCount,
             mouseActivityCount: this.mouseActivityCount,
             activeMilliseconds: activeTime,
-            size: uncompressedBuffer.length,
+            size: this.rawBytesWritten,
             messageCount: this.messageCount,
             snapshotSource: this.snapshotSource,
             snapshotLibrary: this.snapshotLibrary,
