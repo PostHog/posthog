@@ -1,10 +1,8 @@
 import enum
 from collections.abc import Iterable, Sequence
 
+from posthog.models.property import PropertyName
 import posthog.models.property_definition as models
-
-
-PropertyName = str  # TODO: use models.property.PropertyName?
 
 
 class PropertyObjectType(enum.Enum):  # TODO: unify with model definition
