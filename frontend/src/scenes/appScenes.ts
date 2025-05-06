@@ -90,4 +90,5 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.MessagingLibrary]: () => import('products/messaging/frontend/library/MessageLibrary'),
     [Scene.Wizard]: () => import('./wizard/Wizard'),
     [Scene.StartupProgram]: () => import('./startups/StartupProgram'),
+    [Scene.OAuthAuthorize]: () => import('./oauth/OAuthAuthorize'),
 }

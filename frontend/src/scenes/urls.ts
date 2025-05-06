@@ -175,4 +175,5 @@ export const urls = {
     messagingLibraryTemplateNew: (): string => '/messaging/library/templates/new',
     messagingLibraryMessage: (id: string): string => `/messaging/library/messages/${id}`,
     startups: (ycProgram?: boolean): string => `/startups${ycProgram ? '/yc' : ''}`,
+    oauthAuthorize: (): string => '/oauth/authorize',
 }

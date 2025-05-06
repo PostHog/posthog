@@ -96,6 +96,7 @@ export enum Scene {
     MessagingLibrary = 'MessagingLibrary',
     Wizard = 'Wizard',
     StartupProgram = 'StartupProgram',
+    OAuthAuthorize = 'OAuthAuthorize',
 }
 
 export type SceneProps = Record<string, any>

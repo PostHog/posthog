@@ -19,7 +19,7 @@ from posthog.auth import (
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.models import Organization, OrganizationMembership, Team, User
-from posthog.models.scopes import APIScopeObject, APIScopeObjectOrNotSupported
+from posthog.scopes import APIScopeObject, APIScopeObjectOrNotSupported
 from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl, ordered_access_levels
 from posthog.utils import get_can_create_org
 from rest_framework.exceptions import AuthenticationFailed

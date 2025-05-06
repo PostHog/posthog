@@ -472,6 +472,10 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: true,
         name: 'Messaging library',
     },
+    [Scene.OAuthAuthorize]: {
+        name: 'Authorize',
+        layout: 'plain',
+    },
     ...productConfiguration,
 }
 
@@ -672,5 +676,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.wizard()]: [Scene.Wizard, 'wizard'],
     [urls.startups()]: [Scene.StartupProgram, 'startupProgram'],
     [urls.startups(true)]: [Scene.StartupProgram, 'startupProgramYC'],
+    [urls.oauthAuthorize()]: [Scene.OAuthAuthorize, 'oauthAuthorize'],
     ...productRoutes,
 }

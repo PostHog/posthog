@@ -29,6 +29,7 @@ from posthog.api import (
     capture,
     decide,
     hog_function_template,
+    oauth,
     remote_config,
     router,
     sharing,
@@ -46,7 +47,7 @@ from posthog.constants import PERMITTED_FORUM_DOMAINS
 from posthog.demo.legacy import demo_route
 from posthog.models import User
 from posthog.models.instance_setting import get_instance_setting
-from oauth2_provider.urls import base_urlpatterns, oidc_urlpatterns
+from oauth2_provider.urls import oidc_urlpatterns
 
 from .utils import render_template
 from .views import (
@@ -219,7 +220,11 @@ urlpatterns = [
     path("array/<str:token>/config.js", remote_config.RemoteConfigJSAPIView.as_view()),
     path("array/<str:token>/array.js", remote_config.RemoteConfigArrayJSAPIView.as_view()),
     re_path(r"^demo.*", login_required(demo_route)),
-    path("oauth/", include(base_urlpatterns + oidc_urlpatterns)),
+    path("oauth/", include(oidc_urlpatterns)),
+    path("oauth/authorize/", oauth.OAuthAuthorizationView.as_view(), name="oauth_authorize"),
+    path("oauth/token/", oauth.OAuthTokenView.as_view(), name="oauth_token"),
+    path("oauth/revoke/", oauth.OAuthRevokeTokenView.as_view(), name="oauth_revoke"),
+    path("oauth/introspect/", oauth.OAuthIntrospectTokenView.as_view(), name="oauth_introspect"),
     # ingestion
     # NOTE: When adding paths here that should be public make sure to update ALWAYS_ALLOWED_ENDPOINTS in middleware.py
     opt_slash_path("decide", decide.get_decide),
