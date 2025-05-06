@@ -94,7 +94,7 @@ jobs:
                                   const score = typeof value.score === "number" ? `${(value.score * 100).toFixed(2)}%` : value.score
                                   let baselineComparison = null
                                   const diffHighlight = Math.abs(value.diff) > 0.01 ? "**" : ""
-                                  const diffEmoji = "🆕"
+                                  let diffEmoji = "🆕"
                                   if (result.comparison_experiment_name) {
                                       baselineComparison = `${diffHighlight}${value.diff > 0 ? "+" : value.diff < 0 ? "" : "±"}${(
                                           value.diff * 100
@@ -102,6 +102,7 @@ jobs:
                                           result.comparison_experiment_name
                                       }) (improvements: ${value.improvements}, regressions: ${value.regressions})`
                                       diffEmoji = value.diff > 0.01 ? "🟢" : value.diff < -0.01 ? "🔴" : "🔵"
+                                  }
                                   }
                                   return `${diffEmoji} **${key}**: **${score}**${baselineComparison ? `, ${baselineComparison}` : ""}`
                               })
