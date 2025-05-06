@@ -1,20 +1,38 @@
-import { LemonSwitch } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { surveyLogic } from 'scenes/surveys/surveyLogic'
+import { LinkToSurveyFormSection } from 'scenes/surveys/components/LinkToSurveyFormSection'
+import { SurveyEditSection, surveyLogic } from 'scenes/surveys/surveyLogic'
 
 export function SurveyResponsesCollection(): JSX.Element | null {
     const { survey } = useValues(surveyLogic)
     const { setSurveyValue } = useActions(surveyLogic)
 
     return (
-        <LemonSwitch
-            tooltip="If you enable this, we'll store responses even if the user does not complete the survey. Requires version X.XXX.X or higher of posthog-js."
-            label={<h3 className="mb-0">Enable partial responses</h3>}
-            checked={!!survey.enable_partial_responses}
-            onChange={(newValue) => {
-                setSurveyValue('enable_partial_responses', newValue)
-            }}
-            className="p-0 gap-8"
-        />
+        <div className="flex flex-col gap-1">
+            <LemonSwitch
+                tooltip="If you enable this, we'll store responses even if the user does not complete the survey. Requires version X.XXX.X or higher of posthog-js."
+                label={<h3 className="mb-0">Enable partial responses</h3>}
+                checked={!!survey.enable_partial_responses}
+                onChange={(newValue) => {
+                    setSurveyValue('enable_partial_responses', newValue)
+                }}
+                className="p-0 gap-8"
+            />
+            {survey.appearance?.shuffleQuestions && (
+                <LemonBanner type="info" hideIcon>
+                    <h3 className="mb-0">Shuffle questions does not work with partial responses.</h3>
+                    <p>
+                        Shuffle questions is currently enabled for your survey. However, it will have no effect if
+                        partial responses are enabled. Go to the{' '}
+                        <LinkToSurveyFormSection section={SurveyEditSection.Customization} /> to disable it.
+                    </p>
+                    <p>
+                        This is a temporary limitation that we'll fix in a future release. There's no action needed from
+                        you, just know that the order of the questions won't be shuffled if partial responses are
+                        enabled.
+                    </p>
+                </LemonBanner>
+            )}
+        </div>
     )
 }
