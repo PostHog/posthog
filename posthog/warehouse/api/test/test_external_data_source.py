@@ -1053,9 +1053,9 @@ class TestExternalDataSource(APIBaseTest):
         assert "auth_type" in ssh_tunnel
         assert ssh_tunnel["auth_type"]["selection"] == "username_password"
         assert ssh_tunnel["auth_type"]["username"] == "testuser"
-        assert ssh_tunnel["auth_type"]["password"] == "testpass"
-        assert ssh_tunnel["auth_type"]["passphrase"] == "testphrase"
-        assert ssh_tunnel["auth_type"]["private_key"] == "testkey"
+        assert ssh_tunnel["auth_type"]["password"] is None
+        assert ssh_tunnel["auth_type"]["passphrase"] is None
+        assert ssh_tunnel["auth_type"]["private_key"] is None
 
     def test_snowflake_auth_type_create_and_update(self):
         """Test that we can create and update the auth type for a Snowflake source"""

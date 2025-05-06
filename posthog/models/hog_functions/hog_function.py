@@ -110,6 +110,7 @@ class HogFunction(FileSystemSyncMixin, UUIDModel):
     def get_file_system_representation(self) -> FileSystemRepresentation:
         folder = "Unfiled/Destinations"
         href = f"/pipeline/destinations/hog-{self.pk}/configuration"
+        type = self.type
 
         if self.type == HogFunctionType.SITE_APP:
             folder = "Unfiled/Site apps"
@@ -120,10 +121,14 @@ class HogFunction(FileSystemSyncMixin, UUIDModel):
         elif self.type == HogFunctionType.BROADCAST:
             folder = "Unfiled/Broadcasts"
             href = f"/messaging/broadcasts/{self.pk}"
+        elif self.kind == "messaging_campaign":
+            folder = "Unfiled/Campaigns"
+            href = f"/messaging/campaigns/{self.pk}"
+            type = "campaign"
 
         return FileSystemRepresentation(
             base_folder=self._create_in_folder or folder,
-            type=f"hog_function/{self.type}",  # sync with APIScopeObject in scopes.py
+            type=f"hog_function/{type}",  # sync with APIScopeObject in scopes.py
             ref=str(self.pk),
             name=self.name or "Untitled",
             href=href,

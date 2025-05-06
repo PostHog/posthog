@@ -57,7 +57,7 @@ pub async fn do_exception_handling(
     let mut events = events;
     for (index, fingerprinted) in fingerprinted.into_iter() {
         let issue = issues
-            .get(&fingerprinted.fingerprint)
+            .get(&fingerprinted.fingerprint.value)
             .cloned()
             .expect("Issue was resolved");
 

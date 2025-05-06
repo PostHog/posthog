@@ -16,6 +16,7 @@ import {
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import api, { ApiMethodOptions } from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { shouldCancelQuery, uuid } from 'lib/utils'
@@ -126,7 +127,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ],
     })),
     props({ query: {}, variablesOverride: undefined, autoLoad: true } as DataNodeLogicProps),
-    propsChanged(({ actions, props }, oldProps) => {
+    propsChanged(({ actions, props, values }, oldProps) => {
         if (!props.query) {
             return // Can't do anything without a query
         }
@@ -154,13 +155,22 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     !('results' in props.cachedResults)))
         ) {
             // For normal loads, use appropriate refresh type
-            const refreshType = queryVarsHaveChanged
-                ? isInsightQueryNode(props.query) || isHogQLQuery(props.query)
-                    ? 'force_async'
-                    : 'force_blocking'
-                : isInsightQueryNode(props.query) || isHogQLQuery(props.query)
-                ? 'async'
-                : 'blocking'
+            let refreshType: RefreshType
+            if (queryVarsHaveChanged) {
+                refreshType =
+                    isInsightQueryNode(props.query) || isHogQLQuery(props.query) ? 'force_async' : 'force_blocking'
+            } else {
+                refreshType = isInsightQueryNode(props.query) || isHogQLQuery(props.query) ? 'async' : 'blocking'
+            }
+
+            if (values.featureFlags[FEATURE_FLAGS.ALWAYS_QUERY_BLOCKING]) {
+                refreshType =
+                    refreshType === 'force_async'
+                        ? 'force_blocking'
+                        : refreshType === 'async'
+                        ? 'blocking'
+                        : refreshType
+            }
             actions.loadData(refreshType)
         } else if (props.cachedResults) {
             // Use cached results if available, otherwise this logic will load the data again
