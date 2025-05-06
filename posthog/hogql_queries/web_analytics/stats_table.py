@@ -662,7 +662,10 @@ GROUP BY session_id, breakdown_value
                 return ast.Field(chain=["properties", "$browser_language"])
             case WebStatsBreakdown.TIMEZONE:
                 # Value is in minutes, turn it to hours, works even for fractional timezone offsets (I'm looking at you, Australia)
-                return parse_expr("toFloat(properties.$timezone_offset) / 60")
+                # see the docs here for why this the negative is necessary
+                # https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date/getTimezoneOffset#negative_values_and_positive_values
+                # the example given is that for UTC+10, -600 will be returned.
+                return parse_expr("-toFloat(properties.$timezone_offset) / 60")
             case WebStatsBreakdown.FRUSTRATION_METRICS:
                 return self._apply_path_cleaning(ast.Field(chain=["events", "properties", "$pathname"]))
             case _:

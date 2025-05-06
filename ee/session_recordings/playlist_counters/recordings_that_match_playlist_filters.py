@@ -4,11 +4,13 @@ from typing import Any, Optional
 import posthoganalytics
 from celery import shared_task
 from django.conf import settings
+from django.db.models import Count
 from prometheus_client import Counter, Histogram, Gauge
 from pydantic import ValidationError
 from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.session_recordings.session_recording_api import list_recordings_from_query, filter_from_params_to_query
+from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLIST_NAMES
 from posthog.tasks.utils import CeleryQueue
 from posthog.redis import get_client
 from posthog.schema import (
@@ -491,10 +493,16 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
 
 
 def enqueue_recordings_that_match_playlist_filters() -> None:
-    base_query = SessionRecordingPlaylist.objects.filter(
-        deleted=False,
-        filters__isnull=False,
-    ).filter(Q(last_counted_at__isnull=True) | Q(last_counted_at__lt=timezone.now() - timedelta(hours=2)))
+    base_query = (
+        SessionRecordingPlaylist.objects.filter(
+            deleted=False,
+            filters__isnull=False,
+        )
+        .filter(Q(last_counted_at__isnull=True) | Q(last_counted_at__lt=timezone.now() - timedelta(hours=2)))
+        .exclude(name__in=DEFAULT_PLAYLIST_NAMES)
+        .annotate(pinned_item_count=Count("playlist_items"))
+        .filter(pinned_item_count=0)
+    )
 
     total_playlists_count = base_query.count()
 
