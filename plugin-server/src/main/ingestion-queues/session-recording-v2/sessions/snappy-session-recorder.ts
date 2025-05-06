@@ -69,7 +69,7 @@ export interface EndResult {
 export class SnappySessionRecorder {
     private readonly uncompressedChunks: Buffer[] = []
     private eventCount: number = 0
-    private rawBytesWritten: number = 0
+    private size: number = 0
     private ended = false
     private startDateTime: DateTime | null = null
     private endDateTime: DateTime | null = null
@@ -163,12 +163,13 @@ export class SnappySessionRecorder {
                     }
 
                     this.eventCount++
-                    rawBytesWritten += chunk.length
+                    this.size += chunk.length
                 }
+
+                rawBytesWritten += chunk.length
             }
         }
 
-        this.rawBytesWritten += rawBytesWritten
         this.messageCount += 1
         return rawBytesWritten
     }
@@ -240,7 +241,7 @@ export class SnappySessionRecorder {
             keypressCount: this.keypressCount,
             mouseActivityCount: this.mouseActivityCount,
             activeMilliseconds: activeTime,
-            size: this.rawBytesWritten,
+            size: this.size,
             messageCount: this.messageCount,
             snapshotSource: this.snapshotSource,
             snapshotLibrary: this.snapshotLibrary,
