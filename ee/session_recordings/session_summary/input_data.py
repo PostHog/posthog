@@ -122,7 +122,7 @@ def _skip_exception_without_valid_context(
     # Search for keywords in functions names to try to catch API errors (that are usually blocking)
     # Ensure to ignore letter case
     pattern = (
-        r".*(api|http|fetch|request|get|post|put|delete|response|xhr|ajax|graphql|socket|websocket|auth|token|login).*"
+        r".*(api|http|fetch|request|post|put|delete|response|xhr|ajax|graphql|socket|websocket|auth|token|login).*"
     )
     if exception_functions and any(re.search(pattern, fn, re.IGNORECASE) for fn in exception_functions):
         return False
