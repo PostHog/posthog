@@ -21,6 +21,15 @@ const teamActionsMapping: Record<
     keyof TeamType,
     (change?: ActivityChange, logItem?: ActivityLogItem) => ChangeMapping | null
 > = {
+    api_token: (change) => {
+        if (change === undefined || change.after === undefined) {
+            return null
+        }
+        const prefix = change.action === 'created' ? 'set' : 'reset'
+        return {
+            description: [<>{prefix} the project API key</>],
+        }
+    },
     // session replay
     session_recording_minimum_duration_milliseconds: (change) => {
         const after = change?.after
@@ -457,7 +466,6 @@ const teamActionsMapping: Record<
 
     // should never come from the backend
     created_at: () => null,
-    api_token: () => null,
     id: () => null,
     updated_at: () => null,
     uuid: () => null,
@@ -466,6 +474,8 @@ const teamActionsMapping: Record<
     product_intents: () => null,
     cookieless_server_hash_mode: () => null,
     access_control_version: () => null,
+    secret_api_token: () => null,
+    secret_api_token_backup: () => null,
 }
 
 function nameAndLink(logItem?: ActivityLogItem): JSX.Element {

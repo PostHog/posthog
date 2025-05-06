@@ -14,7 +14,7 @@ export interface AssigneeDropdownProps {
 }
 
 export function AssigneeDropdown({ assignee, onChange }: AssigneeDropdownProps): JSX.Element {
-    const { search, filteredGroups, filteredMembers, userGroupsLoading, membersLoading } =
+    const { search, filteredGroups, filteredRoles, filteredMembers, userGroupsLoading, rolesLoading, membersLoading } =
         useValues(assigneeSelectLogic)
     const { setSearch } = useActions(assigneeSelectLogic)
     return (
@@ -34,6 +34,30 @@ export function AssigneeDropdown({ assignee, onChange }: AssigneeDropdownProps):
                         </LemonButton>
                     </li>
                 )}
+
+                <Section
+                    title="Roles"
+                    loading={rolesLoading}
+                    search={!!search}
+                    type="role"
+                    items={filteredRoles.map((role) => ({
+                        id: role.id,
+                        type: 'role',
+                        role: role,
+                    }))}
+                    onSelect={onChange}
+                    activeId={assignee?.id}
+                    emptyState={
+                        <LemonButton
+                            fullWidth
+                            size="small"
+                            icon={<IconPlusSmall />}
+                            to={urls.settings('organization-roles')}
+                        >
+                            <div className="text-secondary">Create role</div>
+                        </LemonButton>
+                    }
+                />
 
                 <Section
                     title="Groups"

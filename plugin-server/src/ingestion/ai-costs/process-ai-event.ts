@@ -1,9 +1,12 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import bigDecimal from 'js-big-decimal'
 
 import { logger } from '../../utils/logger'
 import { costsByModel } from './providers'
 import { ModelRow } from './providers/types'
+
+// Work around for new gemini models that require special cost calculations
+const SPECIAL_COST_MODELS = ['gemini-2.5-pro-preview']
 
 export const processAiEvent = (event: PluginEvent): PluginEvent => {
     if ((event.event !== '$ai_generation' && event.event !== '$ai_embedding') || !event.properties) {
@@ -63,7 +66,13 @@ const processCost = (event: PluginEvent) => {
         return event
     }
 
-    const cost = findCostFromModel(event.properties['$ai_model'])
+    let model = event.properties['$ai_model']
+
+    if (requireSpecialCost(model)) {
+        model = getNewModelName(event.properties)
+    }
+
+    const cost = findCostFromModel(model)
     if (!cost) {
         return event
     }
@@ -141,4 +150,21 @@ const findCostFromModel = (aiModel: string): ModelRow | undefined => {
         logger.warn(`No cost found for model: ${aiModel}`)
     }
     return cost
+}
+
+const requireSpecialCost = (aiModel: string): boolean => {
+    return SPECIAL_COST_MODELS.some((model) => aiModel.toLowerCase().includes(model.toLowerCase()))
+}
+
+const getNewModelName = (properties: Properties): string => {
+    const model = properties['$ai_model']
+    if (!model) {
+        return model
+    }
+    // Gemini 2.5 Pro Preview has a limit of 200k input tokens before the price changes, we store the other price in the :large suffix
+    if (model.toLowerCase().includes('gemini-2.5-pro-preview')) {
+        const tokenCountExceeded = properties['$ai_input_tokens'] ? properties['$ai_input_tokens'] > 200000 : false
+        return tokenCountExceeded ? 'gemini-2.5-pro-preview:large' : 'gemini-2.5-pro-preview'
+    }
+    return model
 }

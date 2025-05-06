@@ -1,6 +1,5 @@
 import { LemonDropdown } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
-import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { InfiniteSelectResults } from 'lib/components/TaxonomicFilter/InfiniteSelectResults'
 import { TaxonomicFilterSearchInput } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
@@ -8,16 +7,11 @@ import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/compone
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
-import { dateMapping } from 'lib/utils'
-import { cn } from 'lib/utils/css-classes'
-import { ReactNode, useEffect, useRef, useState } from 'react'
-import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
+import { useEffect, useRef, useState } from 'react'
 
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
-import { errorTrackingLogic } from './errorTrackingLogic'
-
-const errorTrackingDateOptions = dateMapping.filter((dm) => dm.key != 'Yesterday')
+import { errorFiltersLogic } from './errorFiltersLogic'
 
 const taxonomicFilterLogicKey = 'error-tracking'
 const taxonomicGroupTypes = [
@@ -28,17 +22,9 @@ const taxonomicGroupTypes = [
     TaxonomicFilterGroupType.HogQLExpression,
 ]
 
-export const ErrorTrackingFilters = ({ children }: { children: ReactNode }): JSX.Element => {
-    return (
-        <div className="space-y-1">
-            <div className="flex gap-2 items-center">{children}</div>
-        </div>
-    )
-}
-
 export const FilterGroup = (): JSX.Element => {
-    const { filterGroup } = useValues(errorTrackingLogic)
-    const { setFilterGroup } = useActions(errorTrackingLogic)
+    const { filterGroup } = useValues(errorFiltersLogic)
+    const { setFilterGroup } = useActions(errorFiltersLogic)
 
     return (
         <UniversalFilters
@@ -55,8 +41,8 @@ export const FilterGroup = (): JSX.Element => {
 
 const UniversalSearch = (): JSX.Element => {
     const [visible, setVisible] = useState<boolean>(false)
-    const { searchQuery } = useValues(errorTrackingLogic)
-    const { setSearchQuery } = useActions(errorTrackingLogic)
+    const { searchQuery } = useValues(errorFiltersLogic)
+    const { setSearchQuery } = useActions(errorFiltersLogic)
     const { addGroupFilter } = useActions(universalFiltersLogic)
 
     const searchInputRef = useRef<HTMLInputElement | null>(null)
@@ -142,48 +128,5 @@ const RecordingsUniversalFilterGroup = (): JSX.Element => {
                 )
             })}
         </>
-    )
-}
-
-export const DateRangeFilter = ({
-    className,
-    fullWidth = false,
-    size = 'small',
-}: {
-    className?: string
-    fullWidth?: boolean
-    size?: 'xsmall' | 'small' | 'medium' | 'large'
-}): JSX.Element => {
-    const { dateRange } = useValues(errorTrackingLogic)
-    const { setDateRange } = useActions(errorTrackingLogic)
-    return (
-        <span className={cn('rounded bg-surface-primary', className)}>
-            <DateFilter
-                size={size}
-                dateFrom={dateRange.date_from}
-                dateTo={dateRange.date_to}
-                fullWidth={fullWidth}
-                dateOptions={errorTrackingDateOptions}
-                onChange={(changedDateFrom, changedDateTo) =>
-                    setDateRange({ date_from: changedDateFrom, date_to: changedDateTo })
-                }
-                allowedRollingDateOptions={['hours', 'days', 'weeks', 'months', 'years']}
-            />
-        </span>
-    )
-}
-
-export const InternalAccountsFilter = (): JSX.Element => {
-    const { filterTestAccounts } = useValues(errorTrackingLogic)
-    const { setFilterTestAccounts } = useActions(errorTrackingLogic)
-
-    return (
-        <div>
-            <TestAccountFilter
-                size="small"
-                filters={{ filter_test_accounts: filterTestAccounts }}
-                onChange={({ filter_test_accounts }) => setFilterTestAccounts(filter_test_accounts || false)}
-            />
-        </div>
     )
 }

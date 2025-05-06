@@ -220,6 +220,11 @@ def generate_random_token_personal() -> str:
     return "phx_" + generate_random_token(35)  # "x" standing for nothing in particular
 
 
+def generate_random_token_secret() -> str:
+    # Similar to personal API keys, but for retrieving feature flag definitions for local evaluation.
+    return "phs_" + generate_random_token(35)  # "s" standing for "secret"
+
+
 def int_to_base(number: int, base: int) -> str:
     if base > 62:
         raise ValueError("Cannot convert integer to base above 62")

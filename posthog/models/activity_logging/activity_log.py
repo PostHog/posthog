@@ -246,7 +246,14 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "post_to_slack",
         "property_type_format",
     ],
-    "Team": ["uuid", "updated_at", "api_token", "created_at", "id"],
+    "Team": [
+        "uuid",
+        "updated_at",
+        "created_at",
+        "id",
+        "secret_api_token",
+        "secret_api_token_backup",
+    ],
     "Project": ["id", "created_at"],
     "DataWarehouseSavedQuery": [
         "name",
@@ -430,7 +437,7 @@ def log_activity(
     detail: Detail,
     was_impersonated: Optional[bool],
     force_save: bool = False,
-) -> None:
+) -> ActivityLog | None:
     if was_impersonated and user is None:
         logger.warn(
             "activity_log.failed_to_write_to_activity_log",
@@ -440,7 +447,7 @@ def log_activity(
             activity=activity,
             exception=ValueError("Cannot log impersonated activity without a user"),
         )
-        return
+        return None
     try:
         if activity == "updated" and (detail.changes is None or len(detail.changes) == 0) and not force_save:
             logger.warn(
@@ -450,9 +457,9 @@ def log_activity(
                 user_id=user.id if user else None,
                 scope=scope,
             )
-            return
+            return None
 
-        ActivityLog.objects.create(
+        activity_log = ActivityLog.objects.create(
             organization_id=organization_id,
             team_id=team_id,
             user=user,
@@ -463,6 +470,7 @@ def log_activity(
             activity=activity,
             detail=detail,
         )
+        return activity_log
     except Exception as e:
         logger.warn(
             "activity_log.failed_to_write_to_activity_log",
@@ -476,6 +484,8 @@ def log_activity(
             # Re-raise in tests, so that we can catch failures in test suites - but keep quiet in production,
             # as we currently don't treat activity logs as critical
             raise
+
+    return None
 
 
 @dataclasses.dataclass(frozen=True)

@@ -10,7 +10,7 @@ import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventD
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
-import { getLastNewFolder, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { deleteFromTree, getLastNewFolder, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { actionsModel } from '~/models/actionsModel'
 import { tagsModel } from '~/models/tagsModel'
 import { ActionStepType, ActionType } from '~/types'
@@ -176,8 +176,10 @@ export const actionEditLogic = kea<actionEditLogicType>([
                     callback: (undo: boolean) => {
                         if (undo) {
                             router.actions.push(urls.action(actionId))
+                            refreshTreeItem('action', String(actionId))
                         } else {
                             actions.resetAction()
+                            deleteFromTree('action', String(actionId))
                             router.actions.push(urls.actions())
                             actions.loadActions()
                         }
