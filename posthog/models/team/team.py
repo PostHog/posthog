@@ -561,6 +561,8 @@ class Team(UUIDClassicModel):
         from posthog.models.user import User
 
         if not self.access_control:
+            # TODO(@zach): add new access control support
+            # If access control row with team matching, resource = 'team' and access level = 'none' then need to look for access control rows, else get all org members
             user_ids_queryset = OrganizationMembership.objects.filter(organization_id=self.organization_id).values_list(
                 "user_id", flat=True
             )

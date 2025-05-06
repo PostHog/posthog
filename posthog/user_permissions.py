@@ -172,6 +172,7 @@ class UserTeamPermissions:
         if not organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS) or not self.team.access_control:
             return organization_membership.level
 
+        # TODO(@zach): add new access control support
         explicit_membership_level = self.p.explicit_team_memberships.get(self.team.id)
         if explicit_membership_level is not None:
             return max(explicit_membership_level, organization_membership.level)

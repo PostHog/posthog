@@ -172,30 +172,36 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
                 raise exceptions.ValidationError(
                     team_error,
                 )
-            is_private = team.access_control
-            if not is_private:
-                continue
-            try:
-                team_membership: ExplicitTeamMembership | OrganizationMembership = ExplicitTeamMembership.objects.get(
-                    team_id=item["id"],
-                    parent_membership__user=self.context["request"].user,
-                )
-            except ExplicitTeamMembership.DoesNotExist:
+
+            # The path is deprecated, and will be removed soon
+            if team.access_control:
                 try:
-                    # No explicit team membership. Try getting the implicit team membership - any org owners and admins can invite to any team
-                    team_membership = OrganizationMembership.objects.get(
-                        organization_id=self.context["organization_id"],
-                        user=self.context["request"].user,
-                        level__in=[OrganizationMembership.Level.ADMIN, OrganizationMembership.Level.OWNER],
+                    team_membership: ExplicitTeamMembership | OrganizationMembership = (
+                        ExplicitTeamMembership.objects.get(
+                            team_id=item["id"],
+                            parent_membership__user=self.context["request"].user,
+                        )
                     )
-                except OrganizationMembership.DoesNotExist:
+                except ExplicitTeamMembership.DoesNotExist:
+                    try:
+                        # No explicit team membership. Try getting the implicit team membership - any org owners and admins can invite to any team
+                        team_membership = OrganizationMembership.objects.get(
+                            organization_id=self.context["organization_id"],
+                            user=self.context["request"].user,
+                            level__in=[OrganizationMembership.Level.ADMIN, OrganizationMembership.Level.OWNER],
+                        )
+                    except OrganizationMembership.DoesNotExist:
+                        raise exceptions.ValidationError(
+                            team_error,
+                        )
+                if team_membership.level < item["level"]:
                     raise exceptions.ValidationError(
-                        team_error,
+                        "You cannot invite to a private project with a higher level than your own.",
                     )
-            if team_membership.level < item["level"]:
-                raise exceptions.ValidationError(
-                    "You cannot invite to a private project with a higher level than your own.",
-                )
+            else:
+                # TODO(@zach): add new access control support
+                # If access control row with team matching, resource = 'team' and access level = 'none' | 'member' then need to create an access control row
+                continue
 
         return private_project_access
 

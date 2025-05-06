@@ -123,13 +123,17 @@ class OrganizationInvite(UUIDModel):
             except self.organization.teams.model.DoesNotExist:
                 # if the team doesn't exist, it was probably deleted. We can still continue with the invite.
                 continue
-            if not team.access_control:
-                continue
-            ExplicitTeamMembership.objects.create(
-                team=team,
-                parent_membership=parent_membership,
-                level=item["level"],
-            )
+
+            # The path is deprecated, and will be removed soon
+            if team.access_control:
+                ExplicitTeamMembership.objects.create(
+                    team=team,
+                    parent_membership=parent_membership,
+                    level=item["level"],
+                )
+
+            # TODO(@zach): add new access control support
+            # If access control row with team matching, resource = 'team' and access level = 'none' | 'member' then need to create an access control row
 
         if is_email_available(with_absolute_urls=True) and self.organization.is_member_join_email_enabled:
             from posthog.tasks.email import send_member_join

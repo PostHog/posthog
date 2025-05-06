@@ -100,7 +100,25 @@ class CanEditFeatureFlag(BasePermission):
         if request.method in SAFE_METHODS:
             return True
         else:
-            return can_user_edit_feature_flag(request, feature_flag)
+            return (
+                # Old access control
+                can_user_edit_feature_flag(request, feature_flag)
+                or
+                # New access control
+                (
+                    self.get_user_access_level(feature_flag) == "editor"
+                    and
+                    # This is an added check for mid-migration to the new access control. We want to check
+                    # if the user has permissions from either system but in the case they are still using
+                    # the old system, since the new system defaults to editor we need to check what that
+                    # organization is defaulting to for access (view or edit)
+                    not OrganizationResourceAccess.objects.filter(
+                        organization=request.user.organization,
+                        resource="feature flags",
+                        access_level=OrganizationResourceAccess.AccessLevel.CAN_ONLY_VIEW,
+                    ).exists()
+                )
+            )
 
 
 class FeatureFlagSerializer(
