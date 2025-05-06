@@ -220,7 +220,8 @@ def _calculate_segment_duration(
     start_event_timestamp = prepare_datetime(start_event[timestamp_index])
     end_event_timestamp = prepare_datetime(end_event[timestamp_index])
     duration = int((end_event_timestamp - start_event_timestamp).total_seconds())
-    duration_percentage = duration / session_total_duration
+    # Round to avoid floating point precision issues (like 1.0000000002)
+    duration_percentage = round(duration / session_total_duration, 2)
     return duration, duration_percentage
 
 
