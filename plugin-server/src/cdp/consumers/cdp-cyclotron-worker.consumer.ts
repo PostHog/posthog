@@ -42,14 +42,15 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
             async () => await this.processInvocations(invocations)
         )
 
-        await this.queueInvocationResults(invocationResults)
-
-        // After this point we parallelize and any issues are logged rather than thrown as retrying now would end up in duplicate messages
-        const backgroundWork = Promise.allSettled([
-            this.hogFunctionMonitoringService.processInvocationResults(invocationResults),
-            this.hogWatcher.observeResults(invocationResults),
-            this.hogFunctionMonitoringService.produceQueuedMessages(),
-        ])
+        // NOTE: We can queue and publish all metrics in the background whilst processing the next batch of invocations
+        const backgroundWork = this.queueInvocationResults(invocationResults).then(() => {
+            // After this point we parallelize and any issues are logged rather than thrown as retrying now would end up in duplicate messages
+            return Promise.allSettled([
+                this.hogFunctionMonitoringService.processInvocationResults(invocationResults),
+                this.hogWatcher.observeResults(invocationResults),
+                this.hogFunctionMonitoringService.produceQueuedMessages(),
+            ])
+        })
 
         return { backgroundWork, invocationResults }
     }
