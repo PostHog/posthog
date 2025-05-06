@@ -113,7 +113,7 @@ export const personsLogic = kea<personsLogicType>([
                 },
                 loadPersonUUID: async ({ uuid }): Promise<PersonType | null> => {
                     const response = await hogqlQuery(
-                        'select id, groupArray(101)(pdi.distinct_id) as distinct_ids, properties, is_identified, created_at from persons where id={id} group by id, properties, is_identified, created_at',
+                        'select id, groupArray(101)(pdi.distinct_id) as distinct_ids, properties, is_identified, created_at from persons LEFT JOIN (SELECT argMax(pid2.person_id, pid2.version) AS person_id, pid2.distinct_id AS distinct_id FROM raw_person_distinct_ids as pid2 WHERE equals(pid2.team_id, 9291) and pid2.person_id = {id} GROUP BY pid2.distinct_id HAVING ifNull(equals(argMax(pid2.is_deleted, pid2.version), 0), 0)) as pid2 ON pid2.person_id=persons.id where id={id} group by id, properties, is_identified, created_at',
                         { id: uuid },
                         'blocking'
                     )
