@@ -1,8 +1,9 @@
 import sys
-from typing import Optional
+from typing import Optional, Any
 
 import lxml
 import toronado
+import html
 from celery import shared_task
 from django.conf import settings
 from django.core import exceptions, mail
@@ -13,6 +14,7 @@ from django.utils import timezone
 from django.utils.module_loading import import_string
 from decimal import Decimal
 import requests
+import uuid
 
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.messaging import MessagingRecord
@@ -129,9 +131,6 @@ def _send_via_http(
                 if record.sent_at:
                     continue
 
-                # Convert any Decimal values to float for JSON serialization
-                properties = {k: float(v) if isinstance(v, Decimal) else v for k, v in properties.items()}
-
                 payload = {
                     "transactional_message_id": get_customer_io_template_id(template_name),
                     "to": dest["raw_email"],
@@ -221,6 +220,66 @@ def _send_via_smtp(
                 )
 
 
+def sanitize_email_properties(properties: dict[str, Any] | None) -> dict[str, Any]:
+    """
+    Sanitizes properties that will be used in email templates to prevent HTML injection.
+    This function recursively processes dictionaries, lists, and scalar values to ensure
+    all string values are properly escaped.
+
+    Args:
+        properties: Dictionary of properties to sanitize
+
+    Returns:
+        Sanitized copy of the properties dictionary
+
+    Raises:
+        TypeError: If an unsupported type is encountered
+    """
+    if properties is None:
+        return {}
+
+    # Special keys that should not be sanitized (e.g., URL query parameters)
+    skip_sanitization_keys = ["utm_tags"]
+
+    # Supported types (besides containers like dict and list)
+    supported_types = (str, int, float, bool, type(None), Decimal, uuid.UUID)
+
+    def sanitize_value(value: Any) -> Any:
+        if isinstance(value, str):
+            return html.escape(value)
+        elif isinstance(value, dict):
+            return {k: sanitize_value(v) for k, v in value.items()}
+        elif isinstance(value, list):
+            return [sanitize_value(item) for item in value]
+        elif isinstance(value, uuid.UUID):
+            # Handle UUID by converting to string and escaping
+            return html.escape(str(value))
+        elif hasattr(value, "_meta") and hasattr(value, "pk"):
+            # Handle Django models by converting to string and escaping
+            return html.escape(str(value))
+        elif isinstance(value, Decimal):
+            # Convert Decimal to float for JSON serialization
+            return float(value)
+        elif isinstance(value, int | float | bool | type(None)):
+            # These types are safe as-is
+            return value
+        else:
+            # Raise an error for unsupported types - this is a security measure to prevent uncaught injections
+            raise TypeError(
+                f"Unsupported type in email properties: {type(value).__name__}. "
+                f"Only {', '.join(t.__name__ for t in supported_types)}, dict, list, and Django models are supported."
+            )
+
+    result = {}
+    for k, v in properties.items():
+        if k in skip_sanitization_keys:
+            result[k] = v  # Skip sanitization for special keys
+        else:
+            result[k] = sanitize_value(v)
+
+    return result
+
+
 @shared_task(**EMAIL_TASK_KWARGS)
 def _send_email(
     campaign_key: str,
@@ -284,11 +343,7 @@ class EmailMessage:
         self.reply_to = reply_to
         self.template_name = template_name
 
-        # Convert any Django models to strings for JSON serialization
-        self.properties = {
-            k: str(v) if hasattr(v, "_meta") and hasattr(v, "pk") else v  # Check if it's a Django model
-            for k, v in template_context.items()
-        }
+        self.properties = sanitize_email_properties(template_context)
 
         template = get_template(f"email/{template_name}.html")
         self.html_body = inline_css(template.render(template_context))
@@ -296,7 +351,8 @@ class EmailMessage:
         self.headers = headers if headers else {}
 
     def add_recipient(self, email: str, name: Optional[str] = None) -> None:
-        self.to.append({"recipient": f'"{name}" <{email}>' if name else email, "raw_email": email})
+        sanitized_name = html.escape(name) if name else None
+        self.to.append({"recipient": f'"{sanitized_name}" <{email}>' if sanitized_name else email, "raw_email": email})
 
     def send(self, send_async: bool = True) -> None:
         if not self.to:

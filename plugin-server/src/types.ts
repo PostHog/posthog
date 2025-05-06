@@ -20,6 +20,7 @@ import { z } from 'zod'
 
 import { EncryptedFields } from './cdp/encryption-utils'
 import { LegacyOneventCompareService } from './cdp/services/legacy-onevent-compare.service'
+import { CyclotronJobQueueKind } from './cdp/types'
 import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import { KafkaProducerWrapper } from './kafka/producer'
 import { Celery } from './utils/db/celery'
@@ -104,12 +105,17 @@ export type CdpConfig = {
     CDP_WATCHER_DISABLED_TEMPORARY_TTL: number // How long a function should be temporarily disabled for
     CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT: number // How many times a function can be disabled before it is disabled permanently
     CDP_HOG_FILTERS_TELEMETRY_TEAMS: string
+    CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: CyclotronJobQueueKind
+    CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING: string // A comma-separated list of queue to mode like `hog:kafka,fetch:postgres,*:kafka` with * being the default
+    CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING: string // Like the above but with a team check too
+
     CDP_CYCLOTRON_BATCH_SIZE: number
     CDP_CYCLOTRON_BATCH_DELAY_MS: number
     CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: number
     CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: boolean
     CDP_CYCLOTRON_COMPRESS_VM_STATE: boolean
     CDP_CYCLOTRON_USE_BULK_COPY_JOB: boolean
+    CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: boolean
     CDP_REDIS_HOST: string
     CDP_REDIS_PORT: number
     CDP_REDIS_PASSWORD: string
@@ -127,9 +133,9 @@ export type IngestionConsumerConfig = {
     INGESTION_CONSUMER_CONSUME_TOPIC: string
     INGESTION_CONSUMER_DLQ_TOPIC: string
     /** If set then overflow routing is enabled and the topic is used for overflow events */
-    INGESTION_CONSUMER_OVERFLOW_TOPIC?: string
+    INGESTION_CONSUMER_OVERFLOW_TOPIC: string
     /** If set the ingestion consumer doesn't process events the usual way but rather just writes to a dummy topic */
-    INGESTION_CONSUMER_TESTING_TOPIC?: string
+    INGESTION_CONSUMER_TESTING_TOPIC: string
 }
 
 export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig {
@@ -144,6 +150,8 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     TASK_TIMEOUT: number // how many seconds until tasks are timed out
     DATABASE_URL: string // Postgres database URL
     DATABASE_READONLY_URL: string // Optional read-only replica to the main Postgres database
+    PERSONS_DATABASE_URL: string // Optional read-write Postgres database for persons
+    PERSONS_READONLY_DATABASE_URL: string // Optional read-only replica to the persons Postgres database
     PLUGIN_STORAGE_DATABASE_URL: string // Optional read-write Postgres database for plugin storage
     POSTGRES_CONNECTION_POOL_SIZE: number
     POSTHOG_DB_NAME: string | null
@@ -179,11 +187,8 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
 
     // Kafka params - identical for client and producer
     KAFKA_HOSTS: string // comma-delimited Kafka hosts
-    KAFKA_PRODUCER_HOSTS?: string // If specified - different hosts to produce to (useful for migrating between kafka clusters)
     KAFKA_SECURITY_PROTOCOL: KafkaSecurityProtocol | undefined
-    KAFKA_PRODUCER_SECURITY_PROTOCOL?: KafkaSecurityProtocol // If specified - different security protocol to produce to (useful for migrating between kafka clusters)
-    KAFKA_CLIENT_ID: string | undefined
-    KAFKA_PRODUCER_CLIENT_ID?: string // If specified - different client ID to produce to (useful for migrating between kafka clusters)
+    KAFKA_CLIENT_RACK: string | undefined
 
     // Other methods that are generally only used by self-hosted users
     KAFKA_CLIENT_CERT_B64: string | undefined
@@ -193,19 +198,9 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     KAFKA_SASL_USER: string | undefined
     KAFKA_SASL_PASSWORD: string | undefined
 
-    // Consumer specific settings
-    KAFKA_CLIENT_RACK: string | undefined
-    KAFKA_CONSUMPTION_MAX_BYTES: number
-    KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION: number
-    KAFKA_CONSUMPTION_MAX_WAIT_MS: number // fetch.wait.max.ms rdkafka parameter
-    KAFKA_CONSUMPTION_ERROR_BACKOFF_MS: number // fetch.error.backoff.ms rdkafka parameter
-    KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS: number
-    KAFKA_CONSUMPTION_TOPIC: string | null
-    KAFKA_CONSUMPTION_OVERFLOW_TOPIC: string | null
+    // Consumer specific settings (deprecated but cant be removed until legacy onevent consumer is removed)
     KAFKA_CONSUMPTION_REBALANCE_TIMEOUT_MS: number | null
     KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS: number
-    KAFKA_CONSUMPTION_MAX_POLL_INTERVAL_MS: number
-    KAFKA_TOPIC_METADATA_REFRESH_INTERVAL_MS: number | undefined
     APP_METRICS_FLUSH_FREQUENCY_MS: number
     APP_METRICS_FLUSH_MAX_QUEUE_SIZE: number
     BASE_DIR: string // base path for resolving local plugins
@@ -400,7 +395,6 @@ export interface PluginServerCapabilities {
     cdpCyclotronWorkerFetch?: boolean
     cdpApi?: boolean
     appManagementSingleton?: boolean
-    preflightSchedules?: boolean // Used for instance health checks on hobby deploy, not useful on cloud
     mmdb?: boolean
 }
 

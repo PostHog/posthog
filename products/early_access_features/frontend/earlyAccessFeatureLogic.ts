@@ -8,7 +8,7 @@ import { openSaveToModal } from 'lib/components/SaveTo/saveToLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { performQuery } from '~/queries/query'
 import { ActorsQuery, NodeKind } from '~/queries/schema/schema-general'
 import {
@@ -226,6 +226,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                 actions.loadEarlyAccessFeaturesSuccess(
                     values.earlyAccessFeatures.filter((feature) => feature.id !== earlyAccessFeatureId)
                 )
+                deleteFromTree('early_access_feature', earlyAccessFeatureId)
                 router.actions.push(urls.earlyAccessFeatures())
             } catch (e) {
                 lemonToast.error(`Error deleting Early Access Feature: ${e}`)

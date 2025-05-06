@@ -122,7 +122,7 @@ export const productConfiguration: Record<string, any> = {
     RevenueAnalytics: {
         name: 'Revenue Analytics',
         projectBased: true,
-        defaultDocsPath: '/docs/revenue-analytics',
+        defaultDocsPath: '/docs/web-analytics/revenue-analytics',
         activityScope: 'RevenueAnalytics',
     },
 }
@@ -306,6 +306,7 @@ export const treeItemsNew = [
     { path: `Insight/Trends`, type: 'insight', href: () => urls.insightNew({ type: InsightType.TRENDS }) },
     { path: `Insight/User paths`, type: 'insight', href: () => urls.insightNew({ type: InsightType.PATHS }) },
     { path: `Notebook`, type: 'notebook', href: () => urls.notebook('new') },
+    { path: `Replay playlist`, type: 'session_recording_playlist', href: () => urls.replayPlaylist('new') },
 ]
 
 /** This const is auto-generated, as is the whole file */

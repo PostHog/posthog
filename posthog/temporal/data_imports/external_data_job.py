@@ -70,6 +70,7 @@ Non_Retryable_Schema_Errors: dict[ExternalDataSource.Type, list[str]] = {
         "Can't connect to MySQL server on",
         "No primary key defined for table",
         "Access denied for user",
+        "sqlstate 42S02",  # Table not found error
     ],
     ExternalDataSource.Type.SALESFORCE: [
         "400 Client Error: Bad Request for url",
