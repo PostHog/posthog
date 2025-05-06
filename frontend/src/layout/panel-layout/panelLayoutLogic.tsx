@@ -124,6 +124,7 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         ],
         panelWidth: [
             PANEL_LAYOUT_DEFAULT_WIDTH,
+            { persist: true },
             {
                 setPanelWidth: (_, { width }) => width,
             },
