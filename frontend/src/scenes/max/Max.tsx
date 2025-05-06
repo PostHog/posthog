@@ -14,6 +14,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import React from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -22,6 +23,7 @@ import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panel
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { SidePanelTab } from '~/types'
 
+import { AnimatedBackButton } from './components/AnimatedBackButton'
 import { ConversationHistory } from './ConversationHistory'
 import { HistoryPreview } from './HistoryPreview'
 import { Intro } from './Intro'
@@ -109,18 +111,24 @@ export function MaxInstance({ sidePanel }: MaxInstanceProps): JSX.Element {
     return (
         <>
             {sidePanel && (
-                <SidePanelPaneHeader className="transition-all duration-150">
-                    <LemonButton
-                        size="small"
-                        icon={<IconChevronLeft />}
-                        onClick={() => goBack()}
-                        tooltip="Go back"
-                        tooltipPlacement="bottom-end"
-                        disabledReason={backButtonDisabled ? 'You are already at home' : undefined}
-                    />
-                    <h3 className="flex-1 flex items-center font-semibold mb-0 truncate text-sm">
-                        {chatTitle ?? <LemonSkeleton className="h-5 w-32" />}
-                    </h3>
+                <SidePanelPaneHeader className="transition-all duration-200">
+                    <div className="flex items-center flex-1">
+                        <AnimatedBackButton in={!backButtonDisabled}>
+                            <LemonButton
+                                size="small"
+                                icon={<IconChevronLeft />}
+                                onClick={() => goBack()}
+                                tooltip="Go back"
+                                tooltipPlacement="bottom-end"
+                                disabledReason={backButtonDisabled ? 'You are already at home' : undefined}
+                            />
+                        </AnimatedBackButton>
+                        {chatTitle ? (
+                            <h3 className="font-semibold mb-0 truncate text-sm ml-2">{chatTitle}</h3>
+                        ) : (
+                            <LemonSkeleton className="h-5 w-32" />
+                        )}
+                    </div>
                     <LemonButton
                         size="small"
                         icon={<IconPlus />}
