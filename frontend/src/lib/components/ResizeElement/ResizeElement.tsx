@@ -11,7 +11,6 @@ type ResizableElementProps = {
     innerClassName?: string
     style?: React.CSSProperties
     borderPosition?: 'center' | 'left' | 'right'
-    hidden?: boolean
 }
 
 export function ResizableElement({
@@ -24,7 +23,6 @@ export function ResizableElement({
     innerClassName,
     style,
     borderPosition = 'center',
-    hidden = false,
     ...props
 }: ResizableElementProps): JSX.Element {
     const [width, setWidth] = useState(defaultWidth)
@@ -154,7 +152,6 @@ export function ResizableElement({
                         'bg-accent-highlight-primary': isResizing.current,
                         'after:left-0': borderPosition === 'left',
                         'after:left-full': borderPosition === 'right',
-                        'hidden pointer-events-none': hidden,
                     },
                     innerClassName
                 )}
