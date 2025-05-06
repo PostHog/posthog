@@ -188,6 +188,8 @@ async fn handle_legacy(
     let lib_version = extract_lib_version(&form, query_params);
     Span::current().record("lib_version", &lib_version);
 
+    warn!("payload processed: passing to RawRequest::from_bytes");
+
     // if the payload is populated in the form, process it.
     // otherwise, pass the byte payload
     let data = form.data.map_or(raw_payload, Bytes::from);
@@ -241,7 +243,9 @@ async fn handle_legacy(
         return Err(CaptureError::BillingLimit);
     }
 
-    debug!(context=?context, events=?events, "handle_legacy: decoded request");
+    warn!(context=?context,
+        event_count=?events.len(),
+        "handle_legacy: successfully hydrated events");
     Ok((context, events))
 }
 
