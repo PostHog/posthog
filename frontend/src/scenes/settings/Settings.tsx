@@ -141,7 +141,7 @@ export function Settings({
             )}
 
             <AuthenticationAreaComponent>
-                <div className="flex-1 w-full gap-y-2 min-w-0">
+                <div className="flex-1 w-full min-w-0 space-y-2">
                     {!hideSections && selectedLevel === 'project' && (
                         <LemonBanner type="info">
                             These settings only apply to the current project{' '}

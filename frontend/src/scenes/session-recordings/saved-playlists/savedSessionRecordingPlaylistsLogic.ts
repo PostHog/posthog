@@ -7,9 +7,9 @@ import { dayjs } from 'lib/dayjs'
 import { Sorting } from 'lib/lemon-ui/LemonTable'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { objectClean, objectsEqual, toParams } from 'lib/utils'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import posthog from 'posthog-js'
+import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 import { urls } from 'scenes/urls'
 
 import { ReplayTabs, SessionRecordingPlaylistType } from '~/types'
@@ -50,7 +50,7 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
     props({} as SavedSessionRecordingPlaylistsLogicProps),
     key((props) => props.tab),
     connect(() => ({
-        actions: [eventUsageLogic, ['reportRecordingPlaylistCreated']],
+        actions: [sessionRecordingEventUsageLogic, ['reportRecordingPlaylistCreated']],
     })),
 
     actions(() => ({

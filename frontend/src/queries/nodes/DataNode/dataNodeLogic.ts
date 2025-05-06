@@ -48,6 +48,8 @@ import {
     QueryStatus,
     QueryTiming,
     RefreshType,
+    TracesQuery,
+    TracesQueryResponse,
 } from '~/queries/schema/schema-general'
 import {
     isActorsQuery,
@@ -58,6 +60,7 @@ import {
     isInsightActorsQuery,
     isInsightQueryNode,
     isPersonsNode,
+    isTracesQuery,
 } from '~/queries/utils'
 
 import type { dataNodeLogicType } from './dataNodeLogicType'
@@ -73,6 +76,8 @@ export interface DataNodeLogicProps {
     refresh?: RefreshType
     /** Callback when data is successfully loader or provided from cache. */
     onData?: (data: Record<string, unknown> | null | undefined) => void
+    /** Callback when an error is returned */
+    onError?: (error: string | null) => void
     /** Load priority. Higher priority (smaller number) queries will be loaded first. */
     loadPriority?: number
     /** Override modifiers when making the request */
@@ -335,7 +340,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         isEventsQuery(props.query) ||
                         isActorsQuery(props.query) ||
                         isGroupsQuery(props.query) ||
-                        isErrorTrackingQuery(props.query)
+                        isErrorTrackingQuery(props.query) ||
+                        isTracesQuery(props.query)
                     ) {
                         const newResponse =
                             (await performQuery(
@@ -349,6 +355,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             | ActorsQueryResponse
                             | GroupsQueryResponse
                             | ErrorTrackingQueryResponse
+                            | TracesQueryResponse
                         return {
                             ...queryResponse,
                             results: [...(queryResponse?.results ?? []), ...(newResponse?.results ?? [])],
@@ -584,7 +591,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     (isEventsQuery(query) ||
                         isActorsQuery(query) ||
                         isGroupsQuery(query) ||
-                        isErrorTrackingQuery(query)) &&
+                        isErrorTrackingQuery(query) ||
+                        isTracesQuery(query)) &&
                     !responseError &&
                     !dataLoading
                 ) {
@@ -595,9 +603,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                 | ActorsQueryResponse
                                 | GroupsQueryResponse
                                 | ErrorTrackingQueryResponse
+                                | TracesQueryResponse
                         )?.hasMore
                     ) {
-                        const sortKey = query.orderBy?.[0] ?? 'timestamp DESC'
+                        const sortKey = isTracesQuery(query) ? null : query.orderBy?.[0] ?? 'timestamp DESC'
                         if (isEventsQuery(query) && sortKey === 'timestamp DESC') {
                             const typedResults = (response as EventsQueryResponse)?.results
                             const sortColumnIndex = query.select
@@ -624,12 +633,13 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                     | ActorsQueryResponse
                                     | GroupsQueryResponse
                                     | ErrorTrackingQueryResponse
+                                    | TracesQueryResponse
                             )?.results
                             return {
                                 ...query,
                                 offset: typedResults?.length || 0,
                                 limit: Math.max(100, Math.min(2 * (typedResults?.length || 100), LOAD_MORE_ROWS_LIMIT)),
-                            } as EventsQuery | ActorsQuery | GroupsQuery | ErrorTrackingQuery
+                            } as EventsQuery | ActorsQuery | GroupsQuery | ErrorTrackingQuery | TracesQuery
                         }
                     }
                 }
@@ -803,7 +813,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             }
         },
     })),
-    subscriptions(({ actions, cache, values }) => ({
+    subscriptions(({ props, actions, cache, values }) => ({
+        responseError: (error: string | null) => {
+            props.onError?.(error)
+        },
         autoLoadRunning: (autoLoadRunning) => {
             if (cache.autoLoadInterval) {
                 window.clearInterval(cache.autoLoadInterval)

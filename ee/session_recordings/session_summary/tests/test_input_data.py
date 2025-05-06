@@ -1,12 +1,16 @@
 from typing import Any
 import pytest
+from unittest.mock import patch, MagicMock
+from datetime import datetime
 
 from ee.session_recordings.session_summary.input_data import (
     _skip_event_without_context,
     _get_improved_elements_chain_texts,
     _get_improved_elements_chain_elements,
     add_context_and_filter_events,
+    _get_paginated_session_events,
 )
+from posthog.session_recordings.models.metadata import RecordingMetadata
 
 
 @pytest.fixture
@@ -166,3 +170,167 @@ def test_add_context_and_filter_events(mock_event_indexes: dict[str, int]):
         None,
         None,
     )
+
+
+@pytest.mark.parametrize(
+    "pages_data,expected_count,expected_iterations,expected_error",
+    [
+        # Got less than requested (N=2), should stop
+        (
+            [
+                [
+                    (
+                        "$autocapture",
+                        datetime(2025, 3, 31, 18, 40, 39, 302000),
+                        "",
+                        ["Log in"],
+                        ["button"],
+                        "0195ed81-7519-7595-9221-8bb8ddb1fdcc",
+                        "http://localhost:8010/login",
+                        "click",
+                        [],
+                        "",
+                    )
+                ]
+            ],
+            1,  # Got 1 event
+            1,  # Called one page
+            None,
+        ),
+        # Got exactly N (N=2), should try next page
+        (
+            [
+                [
+                    (
+                        "$autocapture",
+                        datetime(2025, 3, 31, 18, 40, 39, 302000),
+                        "",
+                        ["Log in"],
+                        ["button"],
+                        "0195ed81-7519-7595-9221-8bb8ddb1fdcc",
+                        "http://localhost:8010/login",
+                        "click",
+                        [],
+                        "",
+                    ),
+                    (
+                        "$pageview",
+                        datetime(2025, 3, 31, 18, 40, 44, 251000),
+                        "",
+                        [],
+                        [],
+                        "0195ed81-7519-7595-9221-8bb8ddb1fdcc",
+                        "http://localhost:8010/signup",
+                        None,
+                        [],
+                        "",
+                    ),
+                ],
+                # Second page is empty
+                [],
+            ],
+            2,  # Got 2 events total
+            2,  # Called two pages
+            None,
+        ),
+        # Got exactly N (N=2), should try next page and get more events
+        (
+            [
+                [
+                    (
+                        "$autocapture",
+                        datetime(2025, 3, 31, 18, 40, 39, 302000),
+                        "",
+                        ["Log in"],
+                        ["button"],
+                        "0195ed81-7519-7595-9221-8bb8ddb1fdcc",
+                        "http://localhost:8010/login",
+                        "click",
+                        [],
+                        "",
+                    ),
+                    (
+                        "$pageview",
+                        datetime(2025, 3, 31, 18, 40, 44, 251000),
+                        "",
+                        [],
+                        [],
+                        "0195ed81-7519-7595-9221-8bb8ddb1fdcc",
+                        "http://localhost:8010/signup",
+                        None,
+                        [],
+                        "",
+                    ),
+                ],
+                # Second page has one more event
+                [
+                    (
+                        "$autocapture",
+                        datetime(2025, 3, 31, 18, 40, 49, 200000),
+                        "",
+                        ["Sign up"],
+                        ["button"],
+                        "0195ed81-7519-7595-9221-8bb8ddb1fdcc",
+                        "http://localhost:8010/signup",
+                        "click",
+                        [],
+                        "",
+                    ),
+                ],
+            ],
+            3,  # Got 3 events total
+            2,  # Called two pages
+            None,
+        ),
+        # Got no events, should raise error
+        (
+            [None],
+            0,
+            1,  # Called once
+            ValueError,
+        ),
+    ],
+)
+def test_get_paginated_session_events(
+    mock_raw_metadata: dict[str, Any],
+    mock_events_columns: list[str],
+    pages_data: list[list[tuple[Any, ...]] | None],
+    expected_count: int,
+    expected_iterations: int,
+    expected_error: type[Exception] | None,
+):
+    items_per_page = 2
+    max_pages = 3
+    mock_metadata = RecordingMetadata(**mock_raw_metadata)  # type: ignore
+    mock_columns = mock_events_columns[:10]
+    # Prepare mock pages data (add columns to each page)
+    processed_pages_data = [(mock_columns, events) if events is not None else (None, None) for events in pages_data]
+    with patch("ee.session_recordings.session_summary.input_data.SessionReplayEvents") as mock_replay_events:
+        # Mock the SessionReplayEvents DB model to return different data for each page
+        mock_instance = MagicMock()
+        mock_replay_events.return_value = mock_instance
+        mock_instance.get_events.side_effect = processed_pages_data
+        if expected_error:
+            with pytest.raises(expected_error):
+                _get_paginated_session_events(
+                    session_id=mock_metadata["distinct_id"],
+                    session_metadata=mock_metadata,
+                    team=MagicMock(),
+                    max_pages=max_pages,
+                    items_per_page=items_per_page,
+                )
+            return
+        result_columns, events = _get_paginated_session_events(
+            session_id=mock_metadata["distinct_id"],
+            session_metadata=mock_metadata,
+            team=MagicMock(),
+            max_pages=max_pages,
+            items_per_page=items_per_page,
+        )
+        assert len(events) == expected_count
+        assert mock_instance.get_events.call_count == expected_iterations
+        assert result_columns == mock_columns
+        # Verify pagination parameters were passed correctly
+        for i, call in enumerate(mock_instance.get_events.call_args_list):
+            assert call.kwargs["limit"] == items_per_page
+            assert call.kwargs["page"] == i

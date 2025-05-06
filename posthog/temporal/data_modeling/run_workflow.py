@@ -74,6 +74,12 @@ class EmptyHogQLResponseColumnsError(Exception):
         super().__init__("After running a HogQL query, no columns where returned")
 
 
+class DataModelingCancelledException(Exception):
+    """Exception raised when a data modeling job is cancelled."""
+
+    pass
+
+
 @dataclasses.dataclass(frozen=True)
 class ModelNode:
     """A node representing a model in a DAG.
@@ -191,7 +197,6 @@ async def run_dag_activity(inputs: RunDagActivityInputs) -> Results:
     async with Heartbeater():
         while True:
             message = await queue.get()
-
             match message:
                 case QueueMessage(status=ModelStatus.READY, label=label):
                     model = inputs.dag[label]
@@ -290,12 +295,13 @@ async def handle_model_ready(model: ModelNode, team_id: int, queue: asyncio.Queu
 
             saved_query = await get_saved_query(team, model.label)
             job = await start_job_modeling_run(team, workflow_id, workflow_run_id, saved_query)
-
             key, delta_table, job_id = await materialize_model(model.label, team, saved_query, job)
     except CHQueryErrorMemoryLimitExceeded as err:
         await handle_error(job, model, queue, err, "Memory limit exceeded for model %s: %s")
     except CannotCoerceColumnException as err:
         await handle_error(job, model, queue, err, "Type coercion error for model %s: %s")
+    except DataModelingCancelledException as err:
+        await handle_cancelled(job, model, queue, err, "Data modeling run was cancelled for model %s: %s")
     except Exception as err:
         await handle_error(job, model, queue, err, "Failed to materialize model %s due to error: %s")
     else:
@@ -312,10 +318,16 @@ async def handle_error(
         job.status = DataModelingJob.Status.FAILED
         job.error = str(error)
         await database_sync_to_async(job.save)()
-        await logger.aexception(error_message, model.label, str(error))
-    else:
-        await logger.aexception("No job found for model %s", model.label)
+    await queue.put(QueueMessage(status=ModelStatus.FAILED, label=model.label, error=str(error)))
 
+
+async def handle_cancelled(
+    job: DataModelingJob, model: ModelNode, queue: asyncio.Queue[QueueMessage], error: Exception, error_message: str
+):
+    if job:
+        job.status = DataModelingJob.Status.CANCELLED
+        job.error = str(error)
+        await database_sync_to_async(job.save)()
     await queue.put(QueueMessage(status=ModelStatus.FAILED, label=model.label, error=str(error)))
 
 
@@ -416,11 +428,16 @@ async def materialize_model(
             raise CannotCoerceColumnException(f"Type coercion error in model {model_label}: {error_message}") from e
         else:
             saved_query.latest_error = f"Failed to materialize model {model_label}"
+            error_message = "Your query failed to materialize. If this query ran for a long time, try optimizing it."
             await database_sync_to_async(saved_query.save)()
+            await mark_job_as_failed(job, error_message)
             raise Exception(f"Failed to materialize model {model_label}: {error_message}") from e
 
-    tables = get_delta_tables(pipeline)
+    data_modeling_job = await database_sync_to_async(DataModelingJob.objects.get)(id=job.id)
+    if data_modeling_job.status == DataModelingJob.Status.CANCELLED:
+        raise DataModelingCancelledException("Data modeling run was cancelled")
 
+    tables = get_delta_tables(pipeline)
     for table in tables.values():
         table.optimize.compact()
         table.vacuum(retention_hours=24, enforce_retention_duration=False, dry_run=False)
@@ -801,6 +818,24 @@ async def update_saved_query_status(
 
 
 @dataclasses.dataclass
+class CancelJobsActivityInputs:
+    workflow_id: str
+    workflow_run_id: str
+    team_id: int
+
+
+@temporalio.activity.defn
+async def cancel_jobs_activity(inputs: CancelJobsActivityInputs) -> None:
+    """Activity to cancel data modeling jobs."""
+    await database_sync_to_async(
+        DataModelingJob.objects.filter(workflow_id=inputs.workflow_id, workflow_run_id=inputs.workflow_run_id).update
+    )(status=DataModelingJob.Status.CANCELLED)
+    await logger.ainfo(
+        "Cancelled data modeling jobs", workflow_id=inputs.workflow_id, workflow_run_id=inputs.workflow_run_id
+    )
+
+
+@dataclasses.dataclass
 class RunWorkflowInputs:
     """Inputs to `RunWorkflow`.
 
@@ -862,16 +897,39 @@ class RunWorkflow(PostHogWorkflow):
             ),
         )
 
+        # Run the DAG
         run_model_activity_inputs = RunDagActivityInputs(team_id=inputs.team_id, dag=dag)
-        results = await temporalio.workflow.execute_activity(
-            run_dag_activity,
-            run_model_activity_inputs,
-            start_to_close_timeout=dt.timedelta(hours=1),
-            heartbeat_timeout=dt.timedelta(minutes=1),
-            retry_policy=temporalio.common.RetryPolicy(
-                maximum_attempts=1,
-            ),
-        )
+        try:
+            results = await temporalio.workflow.execute_activity(
+                run_dag_activity,
+                run_model_activity_inputs,
+                start_to_close_timeout=dt.timedelta(hours=1),
+                heartbeat_timeout=dt.timedelta(minutes=1),
+                retry_policy=temporalio.common.RetryPolicy(
+                    maximum_attempts=1,
+                ),
+                cancellation_type=temporalio.workflow.ActivityCancellationType.TRY_CANCEL,
+            )
+        except temporalio.exceptions.ActivityError as e:
+            if isinstance(e.cause, temporalio.exceptions.CancelledError):
+                workflow_id = temporalio.workflow.info().workflow_id
+                workflow_run_id = temporalio.workflow.info().run_id
+                try:
+                    await temporalio.workflow.execute_activity(
+                        cancel_jobs_activity,
+                        CancelJobsActivityInputs(
+                            workflow_id=workflow_id, workflow_run_id=workflow_run_id, team_id=inputs.team_id
+                        ),
+                        start_to_close_timeout=dt.timedelta(minutes=5),
+                        retry_policy=temporalio.common.RetryPolicy(
+                            maximum_attempts=0,
+                        ),
+                    )
+                except Exception as cancel_err:
+                    temporalio.workflow.logger.error(f"Failed to cancel jobs: {str(cancel_err)}")
+
+            temporalio.workflow.logger.error(f"Activity failed during model run: {str(e)}")
+            return Results(set(), set(), set())
         completed, failed, ancestor_failed = results
 
         # publish metrics
