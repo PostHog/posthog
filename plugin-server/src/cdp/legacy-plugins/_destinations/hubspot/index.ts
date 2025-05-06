@@ -1,7 +1,6 @@
 import { ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
 
-import { FetchResponse } from '~/src/utils/request'
-
+import { FetchResponse } from '../../../../utils/request'
 import { LegacyDestinationPluginMeta } from '../../types'
 
 const hubspotPropsMap = {

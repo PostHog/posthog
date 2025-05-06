@@ -2,12 +2,11 @@ import { PluginEvent, ProcessedPluginEvent, RetryError, StorageExtension } from 
 import { DateTime } from 'luxon'
 import { Histogram } from 'prom-client'
 
-import { fetch, FetchResponse } from '~/src/utils/request'
-
 import { Hub } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
+import { fetch, FetchResponse } from '../../utils/request'
 import { DESTINATION_PLUGINS_BY_ID, TRANSFORMATION_PLUGINS_BY_ID } from '../legacy-plugins'
 import { firstTimeEventTrackerPluginProcessEventAsync } from '../legacy-plugins/_transformations/first-time-event-tracker'
 import { firstTimeEventTrackerPlugin } from '../legacy-plugins/_transformations/first-time-event-tracker/template'
