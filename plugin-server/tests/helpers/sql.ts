@@ -2,6 +2,7 @@ import { DateTime } from 'luxon'
 
 import { defaultConfig } from '../../src/config/config'
 import {
+    CookielessServerHashMode,
     Hub,
     InternalPerson,
     Plugin,
@@ -307,6 +308,7 @@ export async function createUserTeamAndOrganization(
         data_attributes: ['data-attr'],
         person_display_name_properties: [],
         access_control: false,
+        cookieless_server_hash_mode: CookielessServerHashMode.Stateful,
     })
 }
 

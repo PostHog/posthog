@@ -348,4 +348,60 @@ describe('Event Pipeline integration test', () => {
         )
         expect(result.lastStep).toEqual('cookielessServerHashStep') // rather than emitting the event
     })
+
+    it('does not blend the person properties from 2 different cookieless users', async () => {
+        await hub.db.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `UPDATE posthog_team SET cookieless_server_hash_mode = $1 WHERE id = $2`,
+            [CookielessServerHashMode.Stateful, 2],
+            'set team to cookieless'
+        )
+
+        const event: PluginEvent = {
+            event: '$pageview',
+            properties: {
+                $cookieless_mode: true,
+                $raw_user_agent: 'Mozilla/5.0',
+                $ip: '1.2.3.4',
+                $host: 'https://www.example.com',
+                $timezone: 'Europe/London',
+                $set: {
+                    a: 'a',
+                },
+            },
+            distinct_id: '$posthog_cookieless',
+            timestamp: new Date().toISOString(),
+            now: new Date().toISOString(),
+            team_id: 2,
+            ip: '1.2.3.4',
+            site_url: 'https://example.com',
+            uuid: new UUIDT().toString(),
+        }
+        const event2: PluginEvent = {
+            ...event,
+            uuid: new UUIDT().toString(),
+            properties: {
+                ...event.properties,
+                ip: '4.5.6.7',
+                $set: {
+                    b: 'b',
+                },
+            },
+        }
+
+        // ingest 2 events from the same user
+        await ingestEvent(event)
+        await ingestEvent(event2)
+
+        const events = await delayUntilEventIngested(() => hub.db.fetchEvents(), 2)
+        if (events.length > 2) {
+            console.log(events)
+        }
+        expect(events.length).toEqual(2)
+        expect(events[0].distinct_id.slice(0, 11)).toEqual('cookieless_') // should have set a distict id
+        expect(events[0].properties.$session_id).toBeTruthy() // should have set a session id
+        expect(events[0].properties.$raw_user_agent).toBeUndefined() // should have removed personal data
+        expect(events[0].distinct_id).toEqual(events[1].distinct_id) // events with the same hash should be assigned to the same user
+        expect(events[0].properties.$session_id).toEqual(events[1].properties.$session_id)
+    })
 })
