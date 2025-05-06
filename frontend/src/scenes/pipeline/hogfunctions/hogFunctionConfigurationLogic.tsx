@@ -22,7 +22,7 @@ import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { performQuery } from '~/queries/query'
@@ -1228,6 +1228,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 callback(undo) {
                     if (undo) {
                         router.actions.replace(hogFunctionUrl(type, id, template?.id, kind))
+                        refreshTreeItem('hog_function/', id)
+                    } else {
+                        deleteFromTree('hog_function/', id)
                     }
                 },
             })
