@@ -1,6 +1,5 @@
 from datetime import datetime, timedelta
 from collections.abc import Callable
-from dataclasses import dataclass, field
 from typing import Dict, List, Any, Optional
 
 import dagster
@@ -15,10 +14,11 @@ from posthog.models.web_preaggregated.sql import (
     DISTRIBUTED_WEB_STATS_DAILY_SQL,
     WEB_OVERVIEW_INSERT_SQL,
     WEB_STATS_INSERT_SQL,
-    format_team_ids,
 )
 from posthog.clickhouse.cluster import ClickhouseCluster
 
+# We're using 1M pageviews as the desired batch size, this is arbitrary and can be tuned
+# but it is a way to split teams by volume instead of grouping them arbitrarily
 DEFAULT_PAGEVIEW_VOLUME_PER_BATCH = 1_000_000
 
 WEB_ANALYTICS_DATE_PARTITION_DEFINITION = dagster.WeeklyPartitionsDefinition(
@@ -41,178 +41,7 @@ WEB_ANALYTICS_CONFIG_SCHEMA = {
 }
 
 
-@dataclass
-class BatchExecutionContext:
-    cluster: ClickhouseCluster
-    table_name: str
-    sql_generator: Callable
-    start_date_str: str
-    end_date_str: str
-    partition_date: str
-    clickhouse_settings: str
-
-
-@dataclass
-class BatchMetrics:
-    """Class to track and compute metrics for batch processing."""
-    rows_deleted: int = 0
-    rows_inserted: int = 0
-    bytes_processed: int = 0
-    query_duration_ms: int = 0
-    delete_duration_ms: int = 0
-    insert_duration_ms: int = 0
-    batch_duration_ms: int = 0
-    
-    @classmethod
-    def from_dict(cls, metrics_dict: Dict[str, int]) -> 'BatchMetrics':
-        """Create a BatchMetrics instance from a dictionary."""
-        return cls(
-            rows_deleted=metrics_dict.get("rows_deleted", 0),
-            rows_inserted=metrics_dict.get("rows_inserted", 0),
-            bytes_processed=metrics_dict.get("bytes_processed", 0),
-            query_duration_ms=metrics_dict.get("query_duration_ms", 0),
-            delete_duration_ms=metrics_dict.get("delete_duration_ms", 0),
-            insert_duration_ms=metrics_dict.get("insert_duration_ms", 0),
-            batch_duration_ms=metrics_dict.get("batch_duration_ms", 0),
-        )
-    
-    def to_dict(self) -> Dict[str, int]:
-        """Convert BatchMetrics to a dictionary."""
-        return {
-            "rows_deleted": self.rows_deleted,
-            "rows_inserted": self.rows_inserted,
-            "bytes_processed": self.bytes_processed,
-            "query_duration_ms": self.query_duration_ms,
-            "delete_duration_ms": self.delete_duration_ms,
-            "insert_duration_ms": self.insert_duration_ms,
-            "batch_duration_ms": self.batch_duration_ms,
-        }
-    
-    def add(self, other: 'BatchMetrics') -> None:
-        """Add metrics from another BatchMetrics instance to this one."""
-        self.rows_deleted += other.rows_deleted
-        self.rows_inserted += other.rows_inserted
-        self.bytes_processed += other.bytes_processed
-        self.query_duration_ms += other.query_duration_ms
-        self.delete_duration_ms += other.delete_duration_ms
-        self.insert_duration_ms += other.insert_duration_ms
-        self.batch_duration_ms += other.batch_duration_ms
-    
-    def aggregate_from_hosts(self, host_metrics: Dict[str, Dict[str, int]]) -> None:
-        """Aggregate metrics from multiple hosts."""
-        for host_data in host_metrics.values():
-            host_metrics_obj = BatchMetrics.from_dict(host_data)
-            self.add(host_metrics_obj)
-    
-    @property
-    def overhead_ms(self) -> float:
-        """Calculate overhead in milliseconds."""
-        return self.batch_duration_ms - self.query_duration_ms
-    
-    @property
-    def efficiency_percent(self) -> float:
-        """Calculate processing efficiency as a percentage."""
-        return (self.query_duration_ms / self.batch_duration_ms) * 100 if self.batch_duration_ms > 0 else 0
-    
-    @property
-    def total_seconds(self) -> float:
-        """Get total duration in seconds."""
-        return self.batch_duration_ms / 1000
-    
-    @property
-    def query_seconds(self) -> float:
-        """Get query duration in seconds."""
-        return self.query_duration_ms / 1000
-    
-    @property
-    def delete_seconds(self) -> float:
-        """Get delete operation duration in seconds."""
-        return self.delete_duration_ms / 1000
-    
-    @property
-    def insert_seconds(self) -> float:
-        """Get insert operation duration in seconds."""
-        return self.insert_duration_ms / 1000
-    
-    @property
-    def overhead_seconds(self) -> float:
-        """Get overhead duration in seconds."""
-        return self.overhead_ms / 1000
-    
-    @property
-    def data_size_mb(self) -> float:
-        """Get processed data size in MB."""
-        return self.bytes_processed / (1024 * 1024)
-    
-    @property
-    def data_size_readable(self) -> str:
-        """Get human-readable data size."""
-        if self.data_size_mb > 1024:
-            return f"{self.data_size_mb / 1024:.2f} GB"
-        return f"{self.data_size_mb:.2f} MB"
-    
-    def calculate_throughput(self, total_duration_seconds: float) -> Dict[str, float]:
-        """Calculate throughput metrics based on the given total duration."""
-        if total_duration_seconds <= 0:
-            return {"rows_per_second": 0, "mb_per_second": 0}
-        
-        return {
-            "rows_per_second": self.rows_inserted / total_duration_seconds,
-            "mb_per_second": self.data_size_mb / total_duration_seconds,
-        }
-    
-    def get_timing_metrics(self) -> Dict[str, float]:
-        """Get all timing-related metrics."""
-        return {
-            "total_seconds": self.total_seconds,
-            "query_seconds": self.query_seconds,
-            "delete_seconds": self.delete_seconds,
-            "insert_seconds": self.insert_seconds,
-            "overhead_seconds": self.overhead_seconds,
-            "efficiency_percent": self.efficiency_percent,
-        }
-    
-    def get_data_metrics(self) -> Dict[str, Any]:
-        """Get all data-related metrics."""
-        return {
-            "rows_inserted": self.rows_inserted,
-            "rows_deleted": self.rows_deleted,
-            "bytes_processed": self.bytes_processed,
-            "data_size_human": self.data_size_readable,
-        }
-
-
-@dataclass
-class ExecutionSummary:
-    """Class to track the overall execution summary of batch processing."""
-    total_teams: int = 0
-    successful_teams: int = 0
-    failed_teams: int = 0
-    successful_batches: int = 0
-    failed_batches: int = 0
-    metrics: BatchMetrics = field(default_factory=BatchMetrics)
-    
-    @property
-    def success_rate(self) -> float:
-        """Calculate success rate as a percentage."""
-        return self.successful_teams / self.total_teams if self.total_teams > 0 else 1.0
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert ExecutionSummary to a dictionary."""
-        return {
-            "total_teams": self.total_teams,
-            "successful_teams": self.successful_teams,
-            "failed_teams": self.failed_teams,
-            "success_rate": self.success_rate,
-            "successful_batches": self.successful_batches,
-            "failed_batches": self.failed_batches,
-            "data_metrics": self.metrics.get_data_metrics(),
-            "timing_metrics": self.metrics.get_timing_metrics(),
-            "performance_metrics": self.metrics.calculate_throughput(self.metrics.total_seconds),
-        }
-
-
-def get_team_pageview_volumes_core(client: Client) -> dict:
+def get_team_pageview_volumes(client: Client) -> dict:
     """Fetches teams pageview volumes from ClickHouse."""
     query = """
     SELECT
@@ -234,10 +63,10 @@ def get_team_pageview_volumes_core(client: Client) -> dict:
     return dict(client.execute(query))
 
 
-def create_team_batches_core(
-    pageview_volumes: dict[int, float], target_batch_size: int = DEFAULT_PAGEVIEW_VOLUME_PER_BATCH
+def split_teams_in_batches(
+    pageview_volumes: dict, target_batch_size: int = DEFAULT_PAGEVIEW_VOLUME_PER_BATCH
 ) -> list[list[int]]:
-    """Core implementation for creating batches of teams based on their pageview volume."""
+    """Create batches of teams based on their pageview volume."""
     teams_sorted = sorted(pageview_volumes.items(), key=lambda item: item[1], reverse=True)
 
     batches = []
@@ -259,335 +88,289 @@ def create_team_batches_core(
     return batches
 
 
-def filter_team_volumes_core(volumes: dict, team_ids: list[int]) -> dict:
-    """Core implementation for filtering team volumes based on provided team_ids."""
+def _fetch_pageview_data(
+    context: dagster.AssetExecutionContext, cluster: dagster.ResourceParam[ClickhouseCluster]
+) -> dict:
+    """Fetch team pageview volume data from ClickHouse."""
+
+    def fetch_pageview_data(client: Client) -> dict:
+        return get_team_pageview_volumes(client)
+
+    pageview_volumes = cluster.any_host(fetch_pageview_data).result()
+    context.log.info(f"Retrieved pageview volume data for {len(pageview_volumes)} teams")
+    return pageview_volumes
+
+
+def _filter_and_batch_teams(
+    context: dagster.AssetExecutionContext, pageview_volumes: dict, team_ids: list[int]
+) -> tuple[dict, list[list[int]]]:
+    """Filter teams based on config if any is provided and create batches using the desired pageview volume per batch."""
     if team_ids:
-        return {tid: volumes.get(tid, 1) for tid in team_ids}
-    return volumes
+        filtered_pageview_volumes = {team_id: pageview_volumes.get(team_id, 1) for team_id in team_ids}
+        context.log.info(f"Filtering to {len(filtered_pageview_volumes)} teams specified in config")
+    else:
+        filtered_pageview_volumes = pageview_volumes
+        context.log.info(f"Processing all {len(filtered_pageview_volumes)} teams with pageview data")
+
+    batches = split_teams_in_batches(filtered_pageview_volumes)
+    context.log.info(f"Created {len(batches)} batches based on pageview volume")
+
+    return filtered_pageview_volumes, batches
 
 
-# Direct function aliases for testing (no Dagster dependency)
-get_team_pageview_volumes = get_team_pageview_volumes_core
-get_batches_per_pageview_volume = create_team_batches_core
+def _process_single_team(
+    context: dagster.AssetExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    team_id: int,
+    table_name: str,
+    sql_generator: Callable,
+    date_info: dict,
+    settings: str,
+) -> dict:
+    """Process a single team. This function is indepondent in the sense that it deletes previous existing data
+    so we can safely use to backfill periods and replace the current week data everyday so we can guarantee the data is always up to date.
+    """
+    start_time = datetime.now()
 
+    # Extract date information
+    partition_date = date_info["partition_date"]
+    start_date_str = date_info["start_date_str"]
+    end_date_str = date_info["end_date_str"]
 
-# Dagster ops that wrap the core functions
-@op(out=Out(dict), description="Fetch average daily pageviews per team from ClickHouse.")
-def fetch_team_pageview_volumes(context, client: Client) -> dict[int, float]:
-    """Dagster op that wraps get_team_pageview_volumes_core."""
-    result = get_team_pageview_volumes_core(client)
-    context.log.info(f"Fetched pageview volumes for {len(result)} teams")
-    return result
+    # Delete existing data for this team and partition
+    delete_query = f"""
+    ALTER TABLE {table_name} DELETE WHERE
+    toDate(day_bucket) >= toDate('{partition_date}')
+    AND toDate(day_bucket) < toDate('{end_date_str}')
+    AND team_id = {team_id}
+    """
 
+    # Generate insertion SQL for just this team
+    insert_query = sql_generator(
+        date_start=start_date_str,
+        date_end=end_date_str,
+        team_ids=[team_id],
+        settings=settings,
+        table_name=table_name,
+    )
 
-@op(
-    ins={"pageview_volumes": In(dict)},
-    out=Out(list),
-    description="Split teams into batches based on their pageview volume.",
-)
-def create_team_batches(
-    context, pageview_volumes: dict[int, float], target_batch_size: int = DEFAULT_PAGEVIEW_VOLUME_PER_BATCH
-) -> list[list[int]]:
-    """Dagster op that wraps create_team_batches_core."""
-    batches = create_team_batches_core(pageview_volumes, target_batch_size)
-    context.log.info(f"Created {len(batches)} batches")
-    return batches
+    # Function to execute queries on a single host
+    def process_team(client: Client, delete_query=delete_query, insert_query=insert_query):
+        client.execute(delete_query)
 
+        client.execute(insert_query)
 
-@op(
-    ins={"volumes": In(dict), "team_ids": In(list)},
-    out=Out(dict),
-    description="Filter team volumes based on provided team_ids",
-)
-def filter_team_volumes(context, volumes: dict[int, float], team_ids: list[int]) -> dict[int, float]:
-    """Dagster op that wraps filter_team_volumes_core."""
-    filtered = filter_team_volumes_core(volumes, team_ids)
-    context.log.info(f"Filtered to {len(filtered)} teams from config")
-    return filtered
+        # Simple count query to get number of inserted rows
+        count_query = f"""
+        SELECT count() FROM {table_name} 
+        WHERE team_id = {team_id} 
+        AND toDate(day_bucket) >= toDate('{partition_date}')
+        AND toDate(day_bucket) < toDate('{end_date_str}')
+        """
 
+        rows = client.execute(count_query)[0][0]
+        return {"rows_inserted": rows}
 
-def _fetch_pageview_volumes(cluster: ClickhouseCluster) -> dict:
-    return cluster.any_host(get_team_pageview_volumes_core).result()
+    try:
+        # Execute on all hosts and collect results
+        results = cluster.map_all_hosts(process_team).result()
+
+        # Get the total rows (sum from all hosts)
+        rows_inserted = sum(host_data.get("rows_inserted", 0) for host_data in results.values())
+
+        end_time = datetime.now()
+        duration = (end_time - start_time).total_seconds()
+
+        return {"success": True, "team_id": team_id, "rows_inserted": rows_inserted, "duration_seconds": duration}
+    except Exception as e:
+        context.log.exception(f"Error processing team {team_id} for {table_name}: {str(e)}")
+        return {
+            "success": False,
+            "team_id": team_id,
+            "error": str(e),
+            "rows_inserted": 0,
+            "duration_seconds": (datetime.now() - start_time).total_seconds(),
+        }
 
 
 def _process_batch(
     context: dagster.AssetExecutionContext,
-    batch_idx: int,
-    all_batches: list[list[int]],
-    team_ids: list[int],
-    volumes: dict[int, int],
-    exec_ctx: BatchExecutionContext,
-) -> tuple[bool, int, BatchMetrics]:
-    est_views = sum(volumes.get(tid, 1) for tid in team_ids)
-    context.log.info(
-        f"Batch {batch_idx}/{len(all_batches)}: {len(team_ids)} teams (~{int(est_views)} views) for {exec_ctx.table_name}"
-    )
-
-    # Track overall batch timing
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    batch_teams: list[int],
+    batch_num: int,
+    total_batches: int,
+    table_name: str,
+    sql_generator: Callable,
+    date_info: dict,
+    settings: str,
+    pageview_volumes: dict,
+) -> dict:
+    """Process a batch of teams."""
     batch_start_time = datetime.now()
 
-    delete_sql = f"""
-        ALTER TABLE {exec_ctx.table_name} DELETE WHERE
-        toDate(day_bucket) >= toDate('{exec_ctx.partition_date}')
-        AND toDate(day_bucket) < toDate('{exec_ctx.end_date_str}')
-        AND team_id IN ({format_team_ids(team_ids)})
-    """
-    insert_sql = exec_ctx.sql_generator(
-        date_start=exec_ctx.start_date_str,
-        date_end=exec_ctx.end_date_str,
-        team_ids=team_ids,
-        settings=exec_ctx.clickhouse_settings,
-        table_name=exec_ctx.table_name,
+    pageviews = sum(pageview_volumes.get(team_id, 1) for team_id in batch_teams)
+    context.log.info(
+        f"Processing batch {batch_num}/{total_batches} with {len(batch_teams)} teams "
+        f"(~{int(pageviews)} avg daily pageviews) for {table_name}"
     )
 
-    # Create a BatchMetrics instance to track data processing stats
-    metrics = BatchMetrics()
+    batch_metrics = {
+        "successful_teams": 0,
+        "failed_teams": 0,
+        "total_rows_inserted": 0,
+        "total_teams": len(batch_teams),
+        "team_results": [],
+    }
 
-    def execute(client: Client, delete_query=delete_sql, insert_query=insert_sql):
-        # Create a metrics dict to collect data during execution
-        query_metrics = BatchMetrics()
-        
-        # Track rows deleted - with send_progress_in_http_headers to get statistics
-        settings = {
-            "send_progress_in_http_headers": 1,
-            "wait_end_of_query": 1,
-            "log_queries": 1,
-            "output_format_json_quote_64bit_integers": 0,
-            "session_id": f"batch_{batch_idx}_{datetime.now().isoformat()}",
-        }
-
-        delete_start_time = datetime.now()
-        client.execute(delete_query, settings=settings)
-        delete_end_time = datetime.now()
-        delete_duration = (delete_end_time - delete_start_time).total_seconds() * 1000
-        query_metrics.delete_duration_ms = delete_duration
-
-        # For insert, we can get metrics directly from the client result summary
-        insert_start_time = datetime.now()
-        result, summary = client.execute(
-            insert_query,
+    # Let's process each team individually since we're already splitting the volume in batches
+    # so we should be ok leaving clickhouse to handle the query load
+    for team_id in batch_teams:
+        result = _process_single_team(
+            context=context,
+            cluster=cluster,
+            team_id=team_id,
+            table_name=table_name,
+            sql_generator=sql_generator,
+            date_info=date_info,
             settings=settings,
-            with_summary=True,  # Get execution summary directly
-        )
-        insert_end_time = datetime.now()
-        insert_duration = (insert_end_time - insert_start_time).total_seconds() * 1000
-
-        # Extract metrics from summary
-        if summary:
-            query_metrics.rows_inserted = summary.get("written_rows", 0)
-            query_metrics.bytes_processed = summary.get("read_bytes", 0)
-
-        query_metrics.insert_duration_ms = insert_duration
-        query_metrics.query_duration_ms = delete_duration + insert_duration
-
-        return query_metrics.to_dict()
-
-    try:
-        metrics_results = exec_ctx.cluster.map_all_hosts(execute).result()
-
-        # Calculate total batch duration including overhead
-        batch_end_time = datetime.now()
-        batch_duration_ms = (batch_end_time - batch_start_time).total_seconds() * 1000
-        
-        # Create a BatchMetrics instance and populate it from host results
-        batch_metrics = BatchMetrics(batch_duration_ms=batch_duration_ms)
-        batch_metrics.aggregate_from_hosts(metrics_results)
-
-        # Log metrics
-        context.log.info(
-            f"Batch {batch_idx} metrics: "
-            f"{batch_metrics.rows_inserted} rows inserted, "
-            f"{batch_metrics.data_size_mb:.2f} MB processed"
         )
 
-        context.log.info(
-            f"Batch {batch_idx} timing: "
-            f"Total: {batch_metrics.batch_duration_ms:.2f}ms "
-            f"(Delete: {batch_metrics.delete_duration_ms:.2f}ms, "
-            f"Insert: {batch_metrics.insert_duration_ms:.2f}ms, "
-            f"Overhead: {batch_metrics.overhead_ms:.2f}ms, "
-            f"Efficiency: {batch_metrics.efficiency_percent:.1f}%)"
-        )
+        batch_metrics["team_results"].append(result)
 
-        context.log.info(f"Successfully processed batch {batch_idx} for {exec_ctx.table_name}")
-        return True, len(team_ids), batch_metrics
-    except Exception as e:
-        context.log.exception(f"Error in batch {batch_idx} for {exec_ctx.table_name}: {str(e)}")
-        # Don't raise the exception, just return failure status
-        return False, len(team_ids), BatchMetrics()
-
-
-def _execute_batches(
-    context: dagster.AssetExecutionContext,
-    batches: list[list[int]],
-    volumes: dict[int, int],
-    exec_context: BatchExecutionContext,
-) -> Dict[str, Any]:
-    # Track overall execution time
-    execution_start = datetime.now()
-
-    # Create an execution summary
-    summary = ExecutionSummary()
-    summary.total_teams = sum(len(batch) for batch in batches)
-
-    for idx, team_ids in enumerate(batches, 1):
-        success, team_count, batch_metrics = _process_batch(context, idx, batches, team_ids, volumes, exec_context)
-        if success:
-            summary.successful_teams += team_count
-            summary.successful_batches += 1
-            summary.metrics.add(batch_metrics)
+        if result["success"]:
+            batch_metrics["successful_teams"] += 1
+            batch_metrics["total_rows_inserted"] += result["rows_inserted"]
         else:
-            summary.failed_teams += team_count
-            summary.failed_batches += 1
+            batch_metrics["failed_teams"] += 1
 
-    # Calculate overall execution time including all overhead
-    execution_end = datetime.now()
-    total_execution_seconds = (execution_end - execution_start).total_seconds()
-
-    # Calculate setup time
-    setup_seconds = total_execution_seconds - summary.metrics.total_seconds
-
-    # Log summary
-    context.log.info(
-        f"Batch execution summary: {summary.successful_batches}/{len(batches)} batches succeeded "
-        f"({summary.successful_teams}/{summary.total_teams} teams, {summary.success_rate:.2%} success rate)"
-    )
+    batch_end_time = datetime.now()
+    batch_duration = (batch_end_time - batch_start_time).total_seconds()
+    batch_metrics["duration_seconds"] = batch_duration
 
     context.log.info(
-        f"Data processing metrics: " 
-        f"{summary.metrics.rows_inserted} rows inserted, " 
-        f"{summary.metrics.data_size_readable} processed"
+        f"Completed batch {batch_num}/{total_batches}: "
+        f"{batch_metrics['successful_teams']}/{batch_metrics['total_teams']} teams successful, "
+        f"{batch_metrics['total_rows_inserted']} rows inserted in {batch_duration:.2f}s"
     )
+
+    return batch_metrics
+
+
+def _create_date_info(partition_key: str) -> dict:
+    """Create date information for processing."""
+    start_date = datetime.strptime(partition_key, "%Y-%m-%d")
+    # We're using weekly partitions, so we'll fill 7 days of data for each one
+    end_date = start_date + timedelta(days=7)
+
+    return {
+        "partition_date": partition_key,
+        "start_date": start_date,
+        "end_date": end_date,
+        "start_date_str": start_date.strftime("%Y-%m-%d 00:00:00"),
+        "end_date_str": end_date.strftime("%Y-%m-%d 00:00:00"),
+    }
+
+
+def _summarize_results(
+    context: dagster.AssetExecutionContext, batch_results: list[dict], table_name: str, total_duration: float
+) -> dict:
+    """Summarize batch results and add asset metadata."""
+
+    metrics = {
+        "successful_teams": sum(batch["successful_teams"] for batch in batch_results),
+        "failed_teams": sum(batch["failed_teams"] for batch in batch_results),
+        "total_teams": sum(batch["total_teams"] for batch in batch_results),
+        "total_rows_inserted": sum(batch["total_rows_inserted"] for batch in batch_results),
+        "duration_seconds": total_duration,
+    }
+
+    success_rate = metrics["successful_teams"] / metrics["total_teams"]
+    rows_per_second = metrics["total_rows_inserted"] / total_duration
 
     context.log.info(
-        f"Timing breakdown: "
-        f"Total: {total_execution_seconds:.2f}s "
-        f"(Queries: {summary.metrics.query_seconds:.2f}s [{summary.metrics.efficiency_percent:.1f}%], "
-        f"Delete: {summary.metrics.delete_seconds:.2f}s, "
-        f"Insert: {summary.metrics.insert_seconds:.2f}s, "
-        f"Overhead: {summary.metrics.overhead_seconds:.2f}s)"
+        f"Completed processing for {table_name} for partition {context.partition_key}: "
+        f"{metrics['successful_teams']}/{metrics['total_teams']} teams successful ({success_rate:.2%}) "
+        f"in {total_duration:.2f}s"
     )
 
-    # Calculate throughput metrics
-    throughput = summary.metrics.calculate_throughput(total_execution_seconds)
-    context.log.info(
-        f"Performance: " 
-        f"{throughput['rows_per_second']:.1f} rows/sec, " 
-        f"{throughput['mb_per_second']:.2f} MB/sec"
+    # Add metrics as metadata for the asset
+    context.add_output_metadata(
+        {
+            # Team metrics
+            "teams_processed": metrics["total_teams"],
+            "teams_succeeded": metrics["successful_teams"],
+            "teams_failed": metrics["failed_teams"],
+            "success_rate": f"{success_rate:.2%}",
+            # Data metrics
+            "rows_inserted": metrics["total_rows_inserted"],
+            # Timings
+            "total_duration": f"{total_duration:.2f}s",
+            "rows_per_second": f"{rows_per_second:.1f}",
+        }
     )
 
-    # Get the summary as a dictionary and add execution total time
-    result = summary.to_dict()
-    
-    # Add setup time to timing metrics
-    result["timing_metrics"]["setup_seconds"] = setup_seconds
-    
-    # Add total execution time
-    result["timing_metrics"]["total_execution_seconds"] = total_execution_seconds
-    
-    # Recalculate performance metrics with total execution time
-    result["performance_metrics"] = summary.metrics.calculate_throughput(total_execution_seconds)
-    
-    return result
+    return metrics
 
 
-def _process_web_analytics_data(
+def pre_aggregate_web_analytics_data(
     context: dagster.AssetExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
     table_name: str,
     sql_generator: Callable,
 ) -> dict:
-    # Track overall processing time
+    """Handles the aggregation pipeline for web analytics pre-aggregated tables. It processes the data in batches of teams based on their pageview volume."""
     process_start = datetime.now()
 
     config = context.op_config
     team_ids = config.get("team_ids", [])
-    partition_date = context.partition_key
-    start_dt = datetime.strptime(partition_date, "%Y-%m-%d")
-    end_dt = start_dt + timedelta(days=7)
+    clickhouse_settings = config["clickhouse_settings"]
 
-    exec_ctx = BatchExecutionContext(
-        cluster=cluster,
-        table_name=table_name,
-        sql_generator=sql_generator,
-        start_date_str=start_dt.strftime("%Y-%m-%d 00:00:00"),
-        end_date_str=end_dt.strftime("%Y-%m-%d 00:00:00"),
-        partition_date=partition_date,
-        clickhouse_settings=config["clickhouse_settings"],
+    date_info = _create_date_info(context.partition_key)
+
+    # Get team data and create batches
+    pageview_volumes = _fetch_pageview_data(context, cluster)
+    filtered_volumes, batches = _filter_and_batch_teams(context, pageview_volumes, team_ids)
+
+    batch_results = []
+    for batch_idx, batch_teams in enumerate(batches):
+        batch_result = _process_batch(
+            context=context,
+            cluster=cluster,
+            batch_teams=batch_teams,
+            batch_num=batch_idx + 1,
+            total_batches=len(batches),
+            table_name=table_name,
+            sql_generator=sql_generator,
+            date_info=date_info,
+            settings=clickhouse_settings,
+            pageview_volumes=filtered_volumes,
+        )
+        batch_results.append(batch_result)
+
+    total_duration = (datetime.now() - process_start).total_seconds()
+    metrics = _summarize_results(
+        context=context, batch_results=batch_results, table_name=table_name, total_duration=total_duration
     )
 
-    volumes = _fetch_pageview_volumes(cluster)
-    filtered_volumes = filter_team_volumes_core(volumes, team_ids)
-    batches = create_team_batches_core(filtered_volumes)
-
-    context.log.info(f"Starting processing for {table_name}: {len(filtered_volumes)} teams in {len(batches)} batches")
-
-    results = _execute_batches(context, batches, filtered_volumes, exec_ctx)
-
-    # Calculate total processing time including all overhead
-    process_end = datetime.now()
-    total_process_seconds = (process_end - process_start).total_seconds()
-    setup_seconds = total_process_seconds - results["timing_metrics"]["total_execution_seconds"]
-
-    context.log.info(
-        f"Completed processing for {table_name}: {results['successful_teams']}/{results['total_teams']} teams successful"
-    )
-
-    context.log.info(
-        f"Total process time: {total_process_seconds:.2f}s "
-        f"(Setup: {setup_seconds:.2f}s, Execution: {results['timing_metrics']['total_execution_seconds']:.2f}s)"
-    )
-
-    # Add detailed metrics as metadata for the asset
-    context.add_output_metadata(
-        {
-            # Team metrics
-            "teams_processed": results["total_teams"],
-            "teams_succeeded": results["successful_teams"],
-            "teams_failed": results["failed_teams"],
-            "success_rate": f"{results['success_rate']:.2%}",
-            "successful_batches": results["successful_batches"],
-            "failed_batches": results["failed_batches"],
-            # Data metrics
-            "rows_inserted": results["data_metrics"]["rows_inserted"],
-            "rows_deleted": results["data_metrics"]["rows_deleted"],
-            "data_processed": results["data_metrics"]["data_size_human"],
-            "bytes_processed": results["data_metrics"]["bytes_processed"],
-            "compression_ratio": f"{results['data_metrics']['rows_inserted'] / (results['data_metrics']['bytes_processed'] / 1024) if results['data_metrics']['bytes_processed'] > 0 else 0:.2f} rows/KB",
-            # Timing metrics
-            "total_duration": f"{total_process_seconds:.2f}s",
-            "execution_duration": f"{results['timing_metrics']['total_execution_seconds']:.2f}s",
-            "setup_duration": f"{setup_seconds:.2f}s",
-            "query_duration": f"{results['timing_metrics']['query_seconds']:.2f}s",
-            "delete_duration": f"{results['timing_metrics']['delete_seconds']:.2f}s",
-            "insert_duration": f"{results['timing_metrics']['insert_seconds']:.2f}s",
-            "overhead_duration": f"{results['timing_metrics']['overhead_seconds']:.2f}s",
-            "efficiency": f"{results['timing_metrics']['efficiency_percent']:.1f}%",
-            # Resource metrics
-            "memory_usage": f"{results['performance_metrics']['mb_per_second']:.2f}MB/s",
-            "cpu_time": f"{results['timing_metrics']['total_seconds']:.2f}s",
-            # Performance indicators
-            "rows_per_second": f"{results['performance_metrics']['rows_per_second']:.1f}",
-            "mb_per_second": f"{results['performance_metrics']['mb_per_second']:.2f}",
-        }
-    )
-
-    # Return a structured result with both the partition date and processing results
     return {
-        "partition_date": partition_date,
-        "processing_results": results,
+        "partition_date": date_info["partition_date"],
+        "metrics": metrics,
+        "batch_results": batch_results,
+        "duration_seconds": total_duration,
     }
 
 
 @dagster.asset(
     name="preaggregated_tables",
     group_name="web_analytics",
+    key_prefix=["web_analytics", "pre_aggregated"],
     description="Creates the tables needed for web analytics preaggregated data.",
 )
 def web_analytics_preaggregated_tables(
     context: dagster.AssetExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> bool:
+    """Creates the tables needed for web analytics preaggregated data."""
     def create_tables(client: Client):
         client.execute(WEB_OVERVIEW_METRICS_DAILY_SQL(table_name="web_overview_daily"))
         client.execute(WEB_STATS_DAILY_SQL(table_name="web_stats_daily"))
@@ -602,17 +385,17 @@ def web_analytics_preaggregated_tables(
     name="overview_daily",
     group_name="web_analytics",
     key_prefix=["web_analytics", "pre_aggregated"],
-    description="Daily aggregated overview metrics for web analytics across all teams.",
+    description="Daily aggregated overview metrics for web analytics. This handles the top overview tiles for web analytics wich includes total pageviews, bounce rate, and average session duration.",
     partitions_def=WEB_ANALYTICS_DATE_PARTITION_DEFINITION,
     config_schema=WEB_ANALYTICS_CONFIG_SCHEMA,
-    deps=["web_analytics_preaggregated_tables"],
-    metadata={"table": "web_overview_daily", "data_type": "metrics", "refresh_frequency": "daily"},
+    deps=["preaggregated_tables"],
+    metadata={"table": "web_overview_daily"},
 )
 def web_overview_daily(
     context: dagster.AssetExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> dict:
-    return _process_web_analytics_data(
+    return pre_aggregate_web_analytics_data(
         context=context,
         cluster=cluster,
         table_name="web_overview_daily",
@@ -624,17 +407,17 @@ def web_overview_daily(
     name="stats_table_daily",
     group_name="web_analytics",
     key_prefix=["web_analytics", "pre_aggregated"],
-    description="Daily detailed statistics for web analytics across all teams.",
+    description="Aggregated dimensional data with pageviews and unique user counts. This is used by the breakdown tiles except the path-specific ones.",
     partitions_def=WEB_ANALYTICS_DATE_PARTITION_DEFINITION,
     config_schema=WEB_ANALYTICS_CONFIG_SCHEMA,
-    deps=["web_analytics_preaggregated_tables"],
-    metadata={"table": "web_stats_daily", "data_type": "statistics", "refresh_frequency": "daily"},
+    deps=["preaggregated_tables"],
+    metadata={"table": "web_stats_daily"},
 )
 def web_stats_daily(
     context: dagster.AssetExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> dict:
-    return _process_web_analytics_data(
+    return pre_aggregate_web_analytics_data(
         context=context,
         cluster=cluster,
         table_name="web_stats_daily",
@@ -642,17 +425,17 @@ def web_stats_daily(
     )
 
 
-@dagster.job(name="web_analytics_daily_job")
-def web_analytics_daily_job():
+@dagster.job(name="web_analytics_pre_aggregate_daily_job")
+def web_analytics_pre_aggregate_daily_job():
     """Job that processes the daily web analytics data."""
-    # The job can reference the assets directly
+
     web_overview_daily()
     web_stats_daily()
 
 
 @dagster.schedule(
     cron_schedule="0 1 * * *",
-    job=web_analytics_daily_job,
+    job=web_analytics_pre_aggregate_daily_job,
     execution_timezone="UTC",
 )
 def web_analytics_daily_schedule(context: dagster.ScheduleEvaluationContext):
@@ -671,6 +454,6 @@ defs = Definitions(
         web_stats_daily,
     ],
     resources={"cluster": ClickhouseClusterResource()},
-    jobs=[web_analytics_daily_job],
+    jobs=[web_analytics_pre_aggregate_daily_job],
     schedules=[web_analytics_daily_schedule],
 )
