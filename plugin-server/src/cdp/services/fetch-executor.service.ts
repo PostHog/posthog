@@ -25,7 +25,7 @@ export class FetchExecutorService {
     private async handleFetchFailure(
         invocation: HogFunctionInvocation,
         response: FetchResponse | null,
-        error: Error | null
+        error: any | null
     ): Promise<HogFunctionInvocationResult> {
         let kind: CyclotronFetchFailureKind = 'requesterror'
 
@@ -113,7 +113,6 @@ export class FetchExecutorService {
     }
 
     async execute(invocation: HogFunctionInvocation): Promise<HogFunctionInvocationResult> {
-        console.log('Executing fetch', invocation.queue, invocation.queueParameters)
         if (invocation.queue !== 'fetch' || !invocation.queueParameters) {
             throw new Error('Bad invocation')
         }
@@ -136,14 +135,14 @@ export class FetchExecutorService {
         try {
             fetchResponse = await fetch(params.url, fetchParams)
         } catch (err) {
-            fetchError = err as Error
+            fetchError = err
         }
 
         const duration = performance.now() - start
         cdpHttpRequests.inc({ status: fetchResponse?.status.toString() ?? 'error' })
 
         // If error - decide if it can be retried and set the values
-        if (!fetchResponse || (fetchResponse?.status && fetchResponse.status > 400)) {
+        if (!fetchResponse || (fetchResponse?.status && fetchResponse.status >= 400)) {
             return await this.handleFetchFailure(invocation, fetchResponse, fetchError)
         }
 
