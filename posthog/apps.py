@@ -7,11 +7,11 @@ from django.apps import AppConfig
 from django.conf import settings
 from posthoganalytics.client import Client
 from posthoganalytics.exception_capture import Integrations
-from posthog.redis import get_client
 
 from posthog.git import get_git_branch, get_git_commit_short
-from posthog.tasks.tasks import sync_all_organization_available_product_features, sync_hog_function_templates_task
+from posthog.tasks.tasks import sync_all_organization_available_product_features
 from posthog.utils import get_machine_id, initialize_self_capture_api_token, get_instance_region
+from posthog.tasks.hog_functions import queue_sync_hog_function_templates
 
 
 logger = structlog.get_logger(__name__)
@@ -67,15 +67,4 @@ class PostHogConfig(AppConfig):
         else:
             setup_async_migrations()
 
-        try:
-            r = get_client()
-            lock_key = "posthog_sync_hog_function_templates_task_lock"
-            # setnx returns True if the key was set, False if it already exists
-            if r.setnx(lock_key, 1):
-                r.expire(lock_key, 60 * 60)  # expire after 1 hour
-                logger.info("Queuing sync_hog_function_templates celery task (redis lock)...")
-                sync_hog_function_templates_task.delay()
-            else:
-                logger.info("Not queuing sync_hog_function_templates task: lock already set")
-        except Exception as e:
-            logger.exception(f"Failed to queue sync_hog_function_templates celery task: {e}")
+        queue_sync_hog_function_templates()
