@@ -425,6 +425,10 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                 onItemChecked={onItemChecked}
                 checkedItemCount={checkedItemCountNumeric}
                 onNodeClick={(node) => {
+                    if (node?.type === 'empty-folder' || node?.type === 'loading-indicator') {
+                        return
+                    }
+
                     if (!isLayoutPanelPinned || projectTreeMode === 'table') {
                         clearActivePanelIdentifier()
                         showLayoutPanel(false)

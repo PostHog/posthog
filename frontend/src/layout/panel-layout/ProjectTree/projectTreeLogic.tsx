@@ -114,6 +114,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         deleteCheckedItems: true,
         checkSelectedFolders: true,
         syncTypeAndRef: (type: string, ref: string) => ({ type, ref }),
+        deleteTypeAndRef: (type: string, ref: string) => ({ type, ref }),
         updateSyncedFiles: (files: FileSystemEntry[]) => ({ files }),
         scrollToView: (item: FileSystemEntry) => ({ item }),
         clearScrollTarget: true,
@@ -408,6 +409,25 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     }
                     return newState
                 },
+                deleteTypeAndRef: (state, { type, ref }) => {
+                    const newState = { ...state }
+                    for (const [folder, files] of Object.entries(newState)) {
+                        if (
+                            files.some(
+                                (file) =>
+                                    (type.endsWith('/') ? file.type?.startsWith(type) : file.type === type) &&
+                                    file.ref === ref
+                            )
+                        ) {
+                            newState[folder] = files.filter(
+                                (file) =>
+                                    (type.endsWith('/') ? !file.type?.startsWith(type) : file.type !== type) ||
+                                    file.ref !== ref
+                            )
+                        }
+                    }
+                    return newState
+                },
             },
         ],
         folderLoadOffset: [
@@ -451,6 +471,16 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     }
                     return state
                 },
+                deleteTypeAndRef: (state, { type, ref }) => {
+                    return {
+                        ...state,
+                        results: state.results.filter(
+                            (file) =>
+                                (type.endsWith('/') ? !file.type?.startsWith(type) : file.type !== type) ||
+                                file.ref !== ref
+                        ),
+                    }
+                },
                 updateSyncedFiles: (state, { files }) => {
                     const newIdsSet = new Set(files.map((file) => file.id))
                     const hasAnyNewIds = state.results.some((file) => newIdsSet.has(file.id))
@@ -489,6 +519,16 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         return { ...state, results: newResults }
                     }
                     return state
+                },
+                deleteTypeAndRef: (state, { type, ref }) => {
+                    return {
+                        ...state,
+                        results: state.results.filter(
+                            (file) =>
+                                (type.endsWith('/') ? !file.type?.startsWith(type) : file.type !== type) ||
+                                file.ref !== ref
+                        ),
+                    }
                 },
                 createSavedItem: (state, { savedItem }) => {
                     if (state.results.find((result) => result.id === savedItem.id)) {
@@ -885,6 +925,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         name: 'Loading...',
                         icon: <Spinner />,
                         disableSelect: true,
+                        type: 'loading-indicator',
                     })
                 } else if (recentResults.hasMore) {
                     results.push({
@@ -917,6 +958,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         name: 'Loading...',
                         icon: <Spinner />,
                         disableSelect: true,
+                        type: 'loading-indicator',
                     })
                 } else if (searchResults.hasMore) {
                     results.push({
@@ -949,6 +991,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                             id: `folder-loading/`,
                             name: 'Loading...',
                             icon: <Spinner />,
+                            type: 'loading-indicator',
                         },
                     ]
                 }
@@ -1595,6 +1638,10 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
 
 export function refreshTreeItem(type: string, ref: string): void {
     projectTreeLogic.findMounted()?.actions.syncTypeAndRef(type, ref)
+}
+
+export function deleteFromTree(type: string, ref: string): void {
+    projectTreeLogic.findMounted()?.actions.deleteTypeAndRef(type, ref)
 }
 
 export function getLastNewFolder(): string | undefined {
