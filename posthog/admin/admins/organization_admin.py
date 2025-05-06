@@ -95,16 +95,6 @@ class OrganizationAdmin(admin.ModelAdmin):
             path(
                 "send-usage-report/", self.admin_site.admin_view(self.send_usage_report_view), name="send-usage-report"
             ),
-            path(
-                "<str:organization_id>/run-rbac-team-migration/",
-                self.admin_site.admin_view(self.run_rbac_team_migration),
-                name="run-rbac-team-migration",
-            ),
-            path(
-                "<str:organization_id>/run-rbac-feature-flag-migration/",
-                self.admin_site.admin_view(self.run_rbac_feature_flag_migration),
-                name="run-rbac-feature-flag-migration",
-            ),
         ]
         return custom_urls + urls
 
