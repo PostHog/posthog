@@ -1,5 +1,6 @@
 # posthog/models/file_system/unfiled_file_saver.py
 from datetime import datetime
+from django.utils import timezone
 from typing import Optional
 
 from posthog.models.action.action import Action
@@ -57,14 +58,16 @@ class UnfiledFileSaver:
                 continue
 
             path = f"{rep.base_folder}/{escape_path(rep.name)}"
-            user = users_by_id.get(rep.meta["created_by"])
-            if user is None:
-                user = User.objects.filter(pk=rep.meta["created_by"]).first() if rep.meta.get("created_by") else None
-                if user:
-                    users_by_id[rep.meta["created_by"]] = user
-            if user is None:
-                user = self.user
-            created_at = datetime.now()
+            user: User | None = None
+            if rep.meta.get("created_by"):
+                user = users_by_id.get(rep.meta["created_by"])
+                if user is None:
+                    user = User.objects.filter(pk=rep.meta["created_by"]).first()
+                    if user:
+                        users_by_id[rep.meta["created_by"]] = user
+                if user is None:
+                    user = self.user
+            created_at = timezone.now()
             if rep.meta.get("created_at"):
                 created_at = datetime.fromisoformat(rep.meta["created_at"])
             new_files.append(

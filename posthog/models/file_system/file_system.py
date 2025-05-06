@@ -65,6 +65,8 @@ def create_or_update_file(
         existing.meta = meta
         if created_at:
             existing.created_at = created_at
+        if created_by_id and existing.created_by_id != created_by_id:
+            existing.created_by_id = created_by_id
         existing.save()
 
     if not has_existing:
@@ -77,9 +79,9 @@ def create_or_update_file(
             ref=ref,
             href=href,
             meta=meta,
-            created_by_id=created_by_id,
             shortcut=False,
-            created_at=created_at or datetime.now(),
+            created_by_id=created_by_id,
+            created_at=created_at or timezone.now(),
         )
 
 
