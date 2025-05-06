@@ -318,6 +318,9 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: string
     SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: number
 
+    // New: switchover flag for v2 session recording metadata
+    SESSION_RECORDING_V2_METADATA_SWITCHOVER: string
+
     // Destination Migration Diffing
     DESTINATION_MIGRATION_DIFFING_ENABLED: boolean
 
