@@ -17,7 +17,7 @@ import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
 import { FilterRow } from './components/FilterRow'
 import { propertyFilterLogic } from './propertyFilterLogic'
 
-interface PropertyFiltersProps {
+export interface PropertyFiltersProps {
     endpoint?: string | null
     propertyFilters?: AnyPropertyFilter[] | null
     onChange: (filters: AnyPropertyFilter[]) => void

@@ -2,7 +2,8 @@ import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { ErrorTrackingAlerting } from 'scenes/error-tracking/configuration/alerting/ErrorTrackingAlerting'
-import { ErrorTrackingAutoAssignment } from 'scenes/error-tracking/configuration/auto-assignment/ErrorTrackingAutoAssignment'
+import { ErrorTrackingAutoAssignment } from 'scenes/error-tracking/configuration/rules/ErrorTrackingAutoAssignment'
+import { ErrorTrackingClientSideSuppression } from 'scenes/error-tracking/configuration/rules/ErrorTrackingClientSideSuppression'
 import { ErrorTrackingSymbolSets } from 'scenes/error-tracking/configuration/symbol-sets/ErrorTrackingSymbolSets'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
@@ -353,6 +354,12 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'error-tracking-exception-autocapture',
                 title: 'Exception autocapture',
                 component: <ExceptionAutocaptureSettings />,
+            },
+            {
+                id: 'error-tracking-suppression-rules',
+                title: 'Suppression rules',
+                component: <ErrorTrackingClientSideSuppression />,
+                flag: 'ERROR_TRACKING_SUPPRESSION_RULES',
             },
             {
                 id: 'error-tracking-user-groups',

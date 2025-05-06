@@ -402,10 +402,17 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         type: TaxonomicFilterGroupType.ErrorTrackingIssueProperties,
                         options: Object.entries(
                             CORE_FILTER_DEFINITIONS_BY_GROUP[TaxonomicFilterGroupType.ErrorTrackingIssueProperties]
-                        ).map(([key, { label }]) => ({
-                            value: key,
-                            name: label,
-                        })),
+                        )
+                            .map(([key, { label }]) => ({
+                                value: key,
+                                name: label,
+                            }))
+                            .filter(
+                                (o) =>
+                                    !excludedProperties[
+                                        TaxonomicFilterGroupType.ErrorTrackingIssueProperties
+                                    ]?.includes(o.value)
+                            ),
                         getName: (option) => option.name,
                         getValue: (option) => option.value,
                         getPopoverHeader: () => 'Issue properties',
