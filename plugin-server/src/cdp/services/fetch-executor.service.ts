@@ -83,7 +83,6 @@ export class FetchExecutorService {
         }
 
         const params = invocation.queueParameters as HogFunctionQueueParametersFetchRequest
-        const responseBody = ''
 
         // Get existing metadata from previous attempts if any
         const metadata = (invocation.queueMetadata as { tries: number; trace: CyclotronFetchFailureInfo[] }) || {
