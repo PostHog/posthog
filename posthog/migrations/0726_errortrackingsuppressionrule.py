@@ -6,9 +6,7 @@ import posthog.models.utils
 
 
 class Migration(migrations.Migration):
-    dependencies = [
-        ("posthog", "0724_errortrackinggroupingrule"),
-    ]
+    dependencies = [("posthog", "0725_file_system_cleanup")]
 
     operations = [
         migrations.CreateModel(
