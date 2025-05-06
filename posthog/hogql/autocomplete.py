@@ -3,8 +3,8 @@ from copy import deepcopy
 from typing import Optional, cast
 from collections.abc import Callable
 
-from django.db.models.functions.comparison import Coalesce
 
+from posthog import property_definitions
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import HOGQL_CHARACTERS_TO_BE_WRAPPED, Database, create_hogql_database
 from posthog.hogql.database.models import (
@@ -33,7 +33,6 @@ from posthog.hogql.visitor import TraversingVisitor, clone_expr
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.models.insight_variable import InsightVariable
-from posthog.models.property_definition import PropertyDefinition
 from posthog.models.team.team import Team
 from posthog.schema import (
     HogQLAutocomplete,
@@ -44,7 +43,6 @@ from posthog.schema import (
 )
 from common.hogvm.python.stl import STL
 from common.hogvm.python.stl.bytecode import BYTECODE_STL
-from django.db import models
 
 ALL_HOG_FUNCTIONS = sorted(list(STL.keys()) + list(BYTECODE_STL.keys()))
 MATCH_ANY_CHARACTER = "$$_POSTHOG_ANY_$$"
@@ -553,13 +551,13 @@ def get_hogql_autocomplete(
                             if isinstance(field, StringJSONDatabaseField):
                                 if last_table.to_printed_hogql() == "events":
                                     if field.name == "person_properties":
-                                        property_type = PropertyDefinition.Type.PERSON
+                                        property_type = property_definitions.PropertyObjectType.Person
                                     else:
-                                        property_type = PropertyDefinition.Type.EVENT
+                                        property_type = property_definitions.PropertyObjectType.Event
                                 elif last_table.to_printed_hogql() == "persons":
-                                    property_type = PropertyDefinition.Type.PERSON
+                                    property_type = property_definitions.PropertyObjectType.Person
                                 elif last_table.to_printed_hogql() == "groups":
-                                    property_type = PropertyDefinition.Type.GROUP
+                                    property_type = property_definitions.PropertyObjectType.Group
                                 else:
                                     property_type = None
 
@@ -568,29 +566,18 @@ def get_hogql_autocomplete(
                                     if match_term == MATCH_ANY_CHARACTER:
                                         match_term = ""
 
-                                    with timings.measure("property_filter"):
-                                        property_query = PropertyDefinition.objects.alias(
-                                            effective_project_id=Coalesce(
-                                                "project_id", "team_id", output_field=models.BigIntegerField()
-                                            )
-                                        ).filter(
-                                            effective_project_id=context.team.project_id,  # type: ignore
-                                            name__contains=match_term,
-                                            type=property_type,
-                                        )
-
-                                    with timings.measure("property_count"):
-                                        total_property_count = property_query.count()
-
-                                    with timings.measure("property_get_values"):
-                                        properties = property_query[:PROPERTY_DEFINITION_LIMIT].values(
-                                            "name", "property_type"
+                                    with timings.measure("find_properties"):
+                                        total_property_count, properties = property_definitions.backend.find_properties(
+                                            context.team.pk,  # XXX: doesn't consider project_id
+                                            property_type,
+                                            match_term,
+                                            limit=PROPERTY_DEFINITION_LIMIT,
                                         )
 
                                     extend_responses(
-                                        keys=[prop["name"] for prop in properties],
+                                        keys=[name for name, _property_type in properties],
                                         suggestions=response.suggestions,
-                                        details=[prop["property_type"] for prop in properties],
+                                        details=[property_type for _name, property_type in properties],
                                     )
                                     response.incomplete_list = total_property_count > PROPERTY_DEFINITION_LIMIT
                             elif isinstance(field, VirtualTable) or isinstance(field, LazyTable):

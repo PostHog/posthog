@@ -1,5 +1,5 @@
 import enum
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 
 import posthog.models.property_definition as models
 
@@ -63,6 +63,12 @@ class PropertyDefinitionsBackend:
             return qs.get()
         except models.PropertyDefinition.DoesNotExist:
             raise PropertyDefinitionDoesNotExist()
+
+    def find_properties(
+        self, team_id: int, object_type: PropertyObjectType, name: PropertyName, limit: int
+    ) -> tuple[int, Sequence[PropertyName, PropertyValueType]]:
+        qs = models.PropertyDefinition.objects.filter(team_id=team_id, type=object_type, name__contains=name)
+        return qs.count(), qs.values_list("name", "property_type")[:limit]
 
 
 backend = PropertyDefinitionsBackend()
