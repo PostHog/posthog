@@ -19,6 +19,7 @@ import {
     HogFunctionInvocationSerialized,
 } from '../../types'
 import { HogFunctionManagerService } from '../hog-function-manager.service'
+import { cdpJobSizeKb } from './shared'
 
 export class CyclotronJobQueueKafka {
     private kafkaConsumer?: KafkaConsumer
@@ -75,13 +76,18 @@ export class CyclotronJobQueueKafka {
         const messages = await Promise.all(
             invocations.map(async (x) => {
                 const serialized = serializeHogFunctionInvocation(x)
+
+                const value = this.config.CDP_CYCLOTRON_COMPRESS_KAFKA_DATA
+                    ? await compress(JSON.stringify(serialized))
+                    : JSON.stringify(serialized)
+
+                cdpJobSizeKb.observe(value.length / 1024)
+
                 return {
                     topic: `cdp_cyclotron_${x.queue}`,
                     messages: [
                         {
-                            value: this.config.CDP_CYCLOTRON_COMPRESS_KAFKA_DATA
-                                ? await compress(JSON.stringify(serialized))
-                                : JSON.stringify(serialized),
+                            value,
                             key: x.id,
                             headers: {
                                 hogFunctionId: x.hogFunction.id,
