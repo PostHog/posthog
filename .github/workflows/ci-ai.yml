@@ -24,7 +24,7 @@ jobs:
         timeout-minutes: 30
         name: Run AI evals
         runs-on: ubuntu-latest
-        if: github.repository == 'PostHog/posthog' # Braintrust credentials not available on forks
+        if: github.repository == 'PostHog/posthog' && (github.event_name == 'push' || (github.event.pull_request.draft == false)) # Braintrust credentials not available on forks
 
         steps:
             - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
