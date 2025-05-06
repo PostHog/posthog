@@ -195,16 +195,22 @@ class QueryDateRange:
             start += delta
         return values
 
-    def date_to_as_hogql(self) -> ast.Expr:
+    def date_to_as_hogql(self, utc: bool = False) -> ast.Expr:
+        args = [ast.Constant(value=self.date_to_str)]
+        if utc:
+            args.append(ast.Constant(value="UTC"))
         return ast.Call(
             name="assumeNotNull",
-            args=[ast.Call(name="toDateTime", args=[(ast.Constant(value=self.date_to_str))])],
+            args=[ast.Call(name="toDateTime", args=args)],
         )
 
-    def date_from_as_hogql(self) -> ast.Expr:
+    def date_from_as_hogql(self, utc: bool = False) -> ast.Expr:
+        args = [ast.Constant(value=self.date_from_str)]
+        if utc:
+            args.append(ast.Constant(value="UTC"))
         return ast.Call(
             name="assumeNotNull",
-            args=[ast.Call(name="toDateTime", args=[(ast.Constant(value=self.date_from_str))])],
+            args=[ast.Call(name="toDateTime", args=args)],
         )
 
     def previous_period_date_from_as_hogql(self) -> ast.Expr:
@@ -213,7 +219,7 @@ class QueryDateRange:
             args=[
                 ast.Call(
                     name="toDateTime",
-                    args=[(ast.Constant(value=self.previous_period_date_from_str))],
+                    args=[ast.Constant(value=self.previous_period_date_from_str)],
                 )
             ],
         )
@@ -278,11 +284,11 @@ class QueryDateRange:
             case _:
                 raise ImpossibleASTError(message="Unknown interval name")
 
-    def date_from_to_start_of_interval_hogql(self) -> ast.Call:
-        return self.date_to_start_of_interval_hogql(self.date_from_as_hogql())
+    def date_from_to_start_of_interval_hogql(self, utc: bool = False) -> ast.Call:
+        return self.date_to_start_of_interval_hogql(self.date_from_as_hogql(utc=utc))
 
-    def date_to_to_start_of_interval_hogql(self) -> ast.Call:
-        return self.date_to_start_of_interval_hogql(self.date_to_as_hogql())
+    def date_to_to_start_of_interval_hogql(self, utc: bool = False) -> ast.Call:
+        return self.date_to_start_of_interval_hogql(self.date_to_as_hogql(utc=utc))
 
     def date_to_with_extra_interval_hogql(self) -> ast.Call:
         return ast.Call(
@@ -298,7 +304,9 @@ class QueryDateRange:
             "date_from": self.date_from_as_hogql(),
             "date_to": self.date_to_as_hogql(),
             "date_from_start_of_interval": self.date_from_to_start_of_interval_hogql(),
+            "date_from_start_of_interval_utc": self.date_from_to_start_of_interval_hogql(utc=True),
             "date_to_start_of_interval": self.date_to_to_start_of_interval_hogql(),
+            "date_to_start_of_interval_utc": self.date_to_to_start_of_interval_hogql(utc=True),
             "date_from_with_adjusted_start_of_interval": (
                 self.date_from_to_start_of_interval_hogql()
                 if self.use_start_of_interval()
