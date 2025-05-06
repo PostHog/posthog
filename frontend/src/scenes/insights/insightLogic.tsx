@@ -21,7 +21,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
-import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { getLastNewFolder, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupsModel } from '~/models/groupsModel'
@@ -86,13 +86,21 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             insight,
             options,
         }),
-        saveAs: (redirectToViewMode?: boolean, persist?: boolean) => ({ redirectToViewMode, persist }),
-        saveAsConfirmation: (name: string, redirectToViewMode = false, persist = true) => ({
+        saveAs: (redirectToViewMode?: boolean, persist?: boolean, folder?: string | null) => ({
+            redirectToViewMode,
+            persist,
+            folder,
+        }),
+        saveAsConfirmation: (name: string, redirectToViewMode = false, persist = true, folder?: string | null) => ({
             name,
             redirectToViewMode,
             persist,
+            folder,
         }),
-        saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
+        saveInsight: (redirectToViewMode: boolean = true, folder: string | null = null) => ({
+            redirectToViewMode,
+            folder,
+        }),
         saveInsightSuccess: true,
         saveInsightFailure: true,
         loadInsight: (
@@ -371,7 +379,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         isUsingPathsV2: [(s) => [s.featureFlags], (featureFlags) => featureFlags[FEATURE_FLAGS.PATHS_V2]],
     }),
     listeners(({ actions, values }) => ({
-        saveInsight: async ({ redirectToViewMode }) => {
+        saveInsight: async ({ redirectToViewMode, folder }) => {
             const insightNumericId =
                 values.insight.id || (values.insight.short_id ? await getInsightId(values.insight.short_id) : undefined)
             const { name, description, favorited, deleted, dashboards, tags } = values.insight
@@ -394,7 +402,10 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
 
                 savedInsight = insightNumericId
                     ? await insightsApi.update(insightNumericId, insightRequest)
-                    : await insightsApi.create(insightRequest)
+                    : await insightsApi.create({
+                          ...insightRequest,
+                          _create_in_folder: folder ?? getLastNewFolder(),
+                      })
                 savedInsightsLogic.findMounted()?.actions.loadInsights() // Load insights afresh
                 // remove draft query from local storage
                 localStorage.removeItem(`draft-query-${values.currentTeamId}`)
@@ -447,7 +458,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         saveInsightSuccess: async () => {
             activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.CreateFirstInsight)
         },
-        saveAs: async ({ redirectToViewMode, persist }) => {
+        saveAs: async ({ redirectToViewMode, persist, folder }) => {
             LemonDialog.openForm({
                 title: 'Save as new insight',
                 initialValues: {
@@ -464,14 +475,15 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 errors: {
                     name: (name) => (!name ? 'You must enter a name' : undefined),
                 },
-                onSubmit: async ({ name }) => actions.saveAsConfirmation(name, redirectToViewMode, persist),
+                onSubmit: async ({ name }) => actions.saveAsConfirmation(name, redirectToViewMode, persist, folder),
             })
         },
-        saveAsConfirmation: async ({ name, redirectToViewMode, persist }) => {
+        saveAsConfirmation: async ({ name, redirectToViewMode, persist, folder }) => {
             const insight = await insightsApi.create({
                 name,
                 query: values.query,
                 saved: true,
+                _create_in_folder: folder ?? getLastNewFolder(),
             })
 
             if (router.values.location.pathname.includes(urls.sqlEditor())) {

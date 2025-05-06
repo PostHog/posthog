@@ -80,7 +80,7 @@ class Experiment(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(
-            base_folder="Unfiled/Experiments",
+            base_folder=self._create_in_folder or "Unfiled/Experiments",
             type="experiment",  # sync with APIScopeObject in scopes.py
             ref=str(self.id),
             name=self.name or "Untitled",

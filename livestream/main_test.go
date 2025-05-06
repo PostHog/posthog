@@ -2,14 +2,14 @@
 package main
 
 import (
-	"encoding/json"
-	"github.com/labstack/echo/v4"
-	"github.com/posthog/posthog/livestream/events"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/labstack/echo/v4"
+	"github.com/posthog/posthog/livestream/events"
+	"github.com/posthog/posthog/livestream/handlers"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestIndex(t *testing.T) {
@@ -18,7 +18,7 @@ func TestIndex(t *testing.T) {
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
-	if assert.NoError(t, index(c)) {
+	if assert.NoError(t, handlers.Index(c)) {
 		assert.Equal(t, http.StatusOK, rec.Code)
 		assert.Equal(t, "RealTime Hog 3000", rec.Body.String())
 	}
@@ -48,9 +48,6 @@ func TestStatsHandler(t *testing.T) {
 
 	if assert.NoError(t, handler(c)) {
 		assert.Equal(t, http.StatusOK, rec.Code)
-		var response map[string]int
-		err := json.Unmarshal(rec.Body.Bytes(), &response)
-		require.NoError(t, err)
-		assert.Equal(t, 1, response["users_on_product"])
+		assert.JSONEq(t, `{"users_on_product":1}`, string(rec.Body.Bytes()))
 	}
 }

@@ -103,6 +103,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
         sessionSummaryFeedback: (feedback: 'good' | 'bad') => ({ feedback }),
         setSessionSummaryContent: (content: SessionSummaryContent) => ({ content }),
         summarizeSession: () => ({}),
+        setSessionSummaryLoading: (isLoading: boolean) => ({ isLoading }),
     }),
     reducers(() => ({
         summaryHasHadFeedback: [
@@ -122,6 +123,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             {
                 summarizeSession: () => true,
                 setSessionSummaryContent: () => false,
+                setSessionSummaryLoading: (_, { isLoading }) => isLoading,
             },
         ],
     })),
@@ -335,15 +337,21 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 }
                 const decoder = new TextDecoder()
                 const parser = createParser({
-                    onEvent: ({ data }) => {
+                    onEvent: ({ event, data }) => {
                         try {
+                            // Stop loading and show error if encountered an error event
+                            if (event === 'session-summary-error') {
+                                lemonToast.error(data)
+                                actions.setSessionSummaryLoading(false)
+                                return
+                            }
                             const parsedData = JSON.parse(data)
                             if (parsedData) {
                                 actions.setSessionSummaryContent(parsedData)
                             }
                         } catch (e) {
                             // Don't handle errors as we can afford to fail some chunks silently.
-                            // Also, there should not be any unparseable chunks coming from the server as they are validated before being sent.
+                            // However, there should not be any unparseable chunks coming from the server as they are validated before being sent.
                         }
                     },
                 })
@@ -357,8 +365,10 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                     parser.feed(decodedValue)
                 }
             } catch (err) {
-                lemonToast.error('Failed to load session summary. Please, try again.')
+                lemonToast.error('Failed to load session summary. Please, contact us, and try again in a few minutes.')
                 throw err
+            } finally {
+                actions.setSessionSummaryLoading(false)
             }
         },
     })),

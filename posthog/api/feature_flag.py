@@ -3,7 +3,6 @@ import time
 import logging
 from typing import Any, Optional, cast
 from datetime import datetime
-
 from django.db import transaction
 from django.db.models import QuerySet, Q, deletion, Prefetch
 from django.conf import settings
@@ -82,6 +81,7 @@ DATABASE_FOR_LOCAL_EVALUATION = (
 )
 
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
+SURVEY_TARGETING_FLAG_PREFIX = "survey-targeting-"
 
 MAX_PROPERTY_VALUES = 1000
 
@@ -143,6 +143,7 @@ class FeatureFlagSerializer(
         required=False,
         help_text="Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments'.",
     )
+    _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
         model = FeatureFlag
@@ -175,6 +176,7 @@ class FeatureFlagSerializer(
             "is_remote_configuration",
             "has_encrypted_payloads",
             "status",
+            "_create_in_folder",
         ]
 
     def get_can_edit(self, feature_flag: FeatureFlag) -> bool:
@@ -1035,7 +1037,10 @@ class FeatureFlagViewSet(
                     continue
 
             # Add request for analytics
-            increment_request_count(self.team.pk, 1, FlagRequestType.LOCAL_EVALUATION)
+            if len(parsed_flags) > 0 and not all(
+                flag.key.startswith(SURVEY_TARGETING_FLAG_PREFIX) for flag in parsed_flags
+            ):
+                increment_request_count(self.team.pk, 1, FlagRequestType.LOCAL_EVALUATION)
 
             duration = time.time() - start_time
             logger.info(
@@ -1196,10 +1201,10 @@ class FeatureFlagViewSet(
                 else FeatureFlag.objects.get(key=kwargs["pk"], team__project_id=self.project_id)
             )
         except FeatureFlag.DoesNotExist:
-            return Response("", status=status.HTTP_404_NOT_FOUND)
+            return Response(status=status.HTTP_404_NOT_FOUND)
 
         if not feature_flag.is_remote_configuration:
-            return Response("", status=status.HTTP_404_NOT_FOUND)
+            return Response(status=status.HTTP_404_NOT_FOUND)
 
         if not feature_flag.has_encrypted_payloads:
             payloads = feature_flag.filters.get("payloads", {})
@@ -1222,7 +1227,7 @@ class FeatureFlagViewSet(
 
         item_id = kwargs["pk"]
         if not FeatureFlag.objects.filter(id=item_id, team__project_id=self.project_id).exists():
-            return Response("", status=status.HTTP_404_NOT_FOUND)
+            return Response(status=status.HTTP_404_NOT_FOUND)
 
         activity_page = load_activity(
             scope="FeatureFlag",

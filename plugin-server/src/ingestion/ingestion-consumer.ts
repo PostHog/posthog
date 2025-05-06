@@ -3,7 +3,7 @@ import { Counter } from 'prom-client'
 import { z } from 'zod'
 
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
-import { KafkaConsumer } from '../kafka/consumer'
+import { KafkaConsumer, parseKafkaHeaders } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { ingestionOverflowingMessagesTotal } from '../main/ingestion-queues/batch-processing/metrics'
 import {
@@ -21,11 +21,11 @@ import {
     PluginsServerConfig,
 } from '../types'
 import { normalizeEvent } from '../utils/event'
+import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restriction-manager'
 import { parseJSON } from '../utils/json-parse'
 import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
 import { retryIfRetriable } from '../utils/retries'
-import { UUIDT } from '../utils/utils'
 import { EventPipelineResult, EventPipelineRunner } from '../worker/ingestion/event-pipeline/runner'
 import { MeasuringPersonsStore } from '../worker/ingestion/persons/measuring-person-store'
 import { PersonsStoreForDistinctIdBatch } from '../worker/ingestion/persons/persons-store-for-distinct-id-batch'
@@ -89,8 +89,8 @@ export class IngestionConsumer {
     private tokenDistinctIdsToDrop: string[] = []
     private tokenDistinctIdsToSkipPersons: string[] = []
     private tokenDistinctIdsToForceOverflow: string[] = []
-
     private personStore: MeasuringPersonsStore
+    private eventIngestionRestrictionManager: EventIngestionRestrictionManager
 
     constructor(
         private hub: Hub,
@@ -117,6 +117,11 @@ export class IngestionConsumer {
         this.tokenDistinctIdsToForceOverflow = hub.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID.split(',').filter(
             (x) => !!x
         )
+        this.eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
+            staticDropEventTokens: this.tokenDistinctIdsToDrop,
+            staticSkipPersonTokens: this.tokenDistinctIdsToSkipPersons,
+            staticForceOverflowTokens: this.tokenDistinctIdsToForceOverflow,
+        })
         this.testingTopic = overrides.INGESTION_CONSUMER_TESTING_TOPIC ?? hub.INGESTION_CONSUMER_TESTING_TOPIC
 
         this.name = `ingestion-consumer-${this.topic}`
@@ -148,12 +153,10 @@ export class IngestionConsumer {
             this.hogTransformer.start(),
             KafkaProducerWrapper.create(this.hub).then((producer) => {
                 this.kafkaProducer = producer
-                this.kafkaProducer.producer.connect()
             }),
             // TRICKY: When we produce overflow events they are back to the kafka we are consuming from
-            KafkaProducerWrapper.create(this.hub, 'consumer').then((producer) => {
+            KafkaProducerWrapper.create(this.hub, 'CONSUMER').then((producer) => {
                 this.kafkaOverflowProducer = producer
-                this.kafkaOverflowProducer.producer.connect()
             }),
         ])
 
@@ -312,7 +315,7 @@ export class IngestionConsumer {
         const kafkaTimestamp = eventsForDistinctId.events[0].message.timestamp
         const eventKey = `${token}:${distinctId}`
 
-        // Check if this token is in the force overflow list
+        // Check if this token is in the force overflow static/dynamic config list
         const shouldForceOverflow = this.shouldForceOverflow(token, distinctId)
 
         // Check the rate limiter and emit to overflow if necessary
@@ -453,14 +456,14 @@ export class IngestionConsumer {
 
         if (error?.isRetriable === false) {
             captureException(error)
-            const headers: MessageHeader[] = message.headers ?? []
-            headers.push({ ['event-id']: event.uuid })
             try {
                 await this.kafkaProducer!.produce({
                     topic: this.dlqTopic,
                     value: message.value,
                     key: message.key ?? null, // avoid undefined, just to be safe
-                    headers: headers,
+                    headers: {
+                        'event-id': event.uuid,
+                    },
                 })
             } catch (error) {
                 // If we can't send to the DLQ and it's not retriable, just continue. We'll commit the
@@ -524,11 +527,9 @@ export class IngestionConsumer {
                 continue
             }
 
-            let eventKey = `${event.token}:${event.distinct_id}`
+            const eventKey = `${event.token}:${event.distinct_id}`
 
             if (this.shouldSkipPerson(event.token, event.distinct_id)) {
-                // If we are skipping person processing, then we can parallelize processing of this event for dramatic performance gains
-                eventKey = new UUIDT().toString()
                 event.properties = {
                     ...(event.properties ?? {}),
                     $process_person_profile: false,
@@ -565,24 +566,24 @@ export class IngestionConsumer {
     }
 
     private shouldDropEvent(token?: string, distinctId?: string) {
-        return (
-            (token && this.tokenDistinctIdsToDrop.includes(token)) ||
-            (token && distinctId && this.tokenDistinctIdsToDrop.includes(`${token}:${distinctId}`))
-        )
+        if (!token) {
+            return false
+        }
+        return this.eventIngestionRestrictionManager.shouldDropEvent(token, distinctId)
     }
 
     private shouldSkipPerson(token?: string, distinctId?: string) {
-        return (
-            (token && this.tokenDistinctIdsToSkipPersons.includes(token)) ||
-            (token && distinctId && this.tokenDistinctIdsToSkipPersons.includes(`${token}:${distinctId}`))
-        )
+        if (!token) {
+            return false
+        }
+        return this.eventIngestionRestrictionManager.shouldSkipPerson(token, distinctId)
     }
 
     private shouldForceOverflow(token?: string, distinctId?: string) {
-        return (
-            (token && this.tokenDistinctIdsToForceOverflow.includes(token)) ||
-            (token && distinctId && this.tokenDistinctIdsToForceOverflow.includes(`${token}:${distinctId}`))
-        )
+        if (!token) {
+            return false
+        }
+        return this.eventIngestionRestrictionManager.shouldForceOverflow(token, distinctId)
     }
 
     private overflowEnabled() {
@@ -622,7 +623,7 @@ export class IngestionConsumer {
                     // (extremely) unlikely event that it is, set it to ``null``
                     // instead as that behavior is safer.
                     key: preservePartitionLocality ? message.key ?? null : null,
-                    headers: headers,
+                    headers: parseKafkaHeaders(headers),
                 })
             })
         )
@@ -640,7 +641,7 @@ export class IngestionConsumer {
                     topic: this.testingTopic!,
                     value: message.value,
                     key: message.key ?? null,
-                    headers: message.headers,
+                    headers: parseKafkaHeaders(message.headers),
                 })
             )
         )

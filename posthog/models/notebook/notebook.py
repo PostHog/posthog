@@ -43,7 +43,7 @@ class Notebook(FileSystemSyncMixin, RootTeamMixin, UUIDModel):
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(
-            base_folder="Unfiled/Notebooks",
+            base_folder=self._create_in_folder or "Unfiled/Notebooks",
             type="notebook",  # sync with APIScopeObject in scopes.py
             ref=str(self.short_id),
             name=self.title or "Untitled",
