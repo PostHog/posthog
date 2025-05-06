@@ -73,7 +73,7 @@ export class CyclotronJobQueueKafka {
 
         const producer = this.getKafkaProducer()
 
-        const messages = await Promise.all(
+        await Promise.all(
             invocations.map(async (x) => {
                 const serialized = serializeHogFunctionInvocation(x)
 
@@ -83,25 +83,29 @@ export class CyclotronJobQueueKafka {
 
                 cdpJobSizeKb.observe(value.length / 1024)
 
-                return {
-                    topic: `cdp_cyclotron_${x.queue}`,
-                    messages: [
-                        {
-                            value,
-                            key: x.id,
-                            headers: {
-                                hogFunctionId: x.hogFunction.id,
-                                teamId: x.globals.project.id.toString(),
-                            },
+                await producer
+                    .produce({
+                        value: Buffer.from(value),
+                        key: Buffer.from(x.id),
+                        topic: `cdp_cyclotron_${x.queue}`,
+                        headers: {
+                            hogFunctionId: x.hogFunction.id,
+                            teamId: x.globals.project.id.toString(),
                         },
-                    ],
-                }
+                    })
+                    .catch((e) => {
+                        logger.error('🔄', 'Error producing kafka message', {
+                            error: String(e),
+                            teamId: x.teamId,
+                            hogFunctionId: x.hogFunction.id,
+                            payloadSizeKb: value.length / 1024,
+                            eventUrl: x.globals.event.url,
+                        })
+
+                        throw e
+                    })
             })
         )
-
-        logger.debug('🔄', 'Queueing kafka jobs', { messages })
-
-        await producer.queueMessages(messages)
     }
 
     public async queueInvocationResults(invocationResults: HogFunctionInvocationResult[]) {
