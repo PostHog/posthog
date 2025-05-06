@@ -5,7 +5,11 @@ import { router } from 'kea-router'
 import { maxLogic } from './maxLogic'
 import { formatConversationDate, getConversationUrl } from './utils'
 
-export function HistoryPreview(): JSX.Element | null {
+interface HistoryPreviewProps {
+    sidePanel?: boolean
+}
+
+export function HistoryPreview({ sidePanel = false }: HistoryPreviewProps): JSX.Element | null {
     const { location } = useValues(router)
     const { conversationHistory, conversationHistoryLoading } = useValues(maxLogic)
     const { toggleConversationHistory } = useActions(maxLogic)
@@ -42,6 +46,7 @@ export function HistoryPreview(): JSX.Element | null {
                             pathname: location.pathname,
                             search: location.search,
                             conversationId: conversation.id,
+                            includeHash: sidePanel,
                         })}
                     >
                         <span className="flex-1 line-clamp-1">{conversation.title}</span>

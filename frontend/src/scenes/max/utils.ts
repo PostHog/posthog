@@ -86,17 +86,19 @@ export function getConversationUrl({
     pathname,
     search,
     conversationId,
+    includeHash = true,
 }: {
     pathname: string
     search: string
     conversationId: string
+    includeHash?: boolean
 }): string {
     const params = decodeParams(search, '?')
     const strParams = encodeParams({
         ...params,
         chat: conversationId,
     })
-    return `${pathname}${strParams ? `?${strParams}` : ''}#panel=${SidePanelTab.Max}`
+    return `${pathname}${strParams ? `?${strParams}` : ''}${includeHash ? `#panel=${SidePanelTab.Max}` : ''}`
 }
 
 export function formatConversationDate(updatedAt: string | null): string {

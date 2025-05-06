@@ -737,25 +737,27 @@ export const maxLogic = kea<maxLogicType>([
          * When the URL contains a conversation ID, we want to make that conversation the active one.
          */
         '*': (_, search) => {
-            if (search.chat) {
-                if (!values.sidePanelOpen) {
-                    actions.openSidePanel(SidePanelTab.Max)
-                }
+            if (!search.chat) {
+                return
+            }
 
-                const conversation = values.conversationHistory.find((c) => c.id === search.chat)
+            if (!values.sidePanelOpen && !router.values.location.pathname.includes('/max')) {
+                actions.openSidePanel(SidePanelTab.Max)
+            }
 
-                if (conversation) {
-                    actions.loadThread(conversation)
-                    actions.scrollThreadToBottom('instant')
-                } else if (values.conversationHistoryLoading) {
-                    // Conversation hasn't been loaded yet, so we handle it in `loadConversationHistory`
-                    actions.setConversationId(search.chat)
-                }
+            const conversation = values.conversationHistory.find((c) => c.id === search.chat)
 
-                if (values.conversationHistoryVisible) {
-                    actions.toggleConversationHistory(false)
-                    actions.setBackScreen('history')
-                }
+            if (conversation) {
+                actions.loadThread(conversation)
+                actions.scrollThreadToBottom('instant')
+            } else if (values.conversationHistoryLoading) {
+                // Conversation hasn't been loaded yet, so we handle it in `loadConversationHistory`
+                actions.setConversationId(search.chat)
+            }
+
+            if (values.conversationHistoryVisible) {
+                actions.toggleConversationHistory(false)
+                actions.setBackScreen('history')
             }
         },
     })),

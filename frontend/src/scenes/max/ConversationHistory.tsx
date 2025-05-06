@@ -1,4 +1,4 @@
-import { IconPlus } from '@posthog/icons'
+import { IconChevronLeft, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -11,18 +11,29 @@ import { maxLogic } from './maxLogic'
 import { formatConversationDate, getConversationUrl } from './utils'
 
 export interface ConversationHistoryProps {
-    displayHeader?: boolean
+    sidePanel?: boolean
 }
 
-export function ConversationHistory({ displayHeader = false }: ConversationHistoryProps): JSX.Element {
+export function ConversationHistory({ sidePanel = false }: ConversationHistoryProps): JSX.Element {
     const { location } = useValues(router)
     const { conversationHistory, conversationHistoryLoading } = useValues(maxLogic)
-    const { toggleConversationHistory } = useActions(maxLogic)
+    const { toggleConversationHistory, startNewConversation } = useActions(maxLogic)
     const { updateHasSeenProductIntroFor } = useActions(userLogic)
 
     return (
         <div className="@container/chat-history flex flex-col gap-4 w-full self-center px-4 py-8 grow max-w-screen-lg">
-            {displayHeader && <h2 className="text-xl font-bold">Chat history</h2>}
+            {!sidePanel && (
+                <div className="flex items-center gap-4 mb-4">
+                    <LemonButton
+                        size="small"
+                        icon={<IconChevronLeft />}
+                        onClick={() => startNewConversation()}
+                        tooltip="Go back to home"
+                        tooltipPlacement="bottom"
+                    />
+                    <h2 className="text-xl font-bold mb-0">Chat history</h2>
+                </div>
+            )}
             {conversationHistory.length > 0 ? (
                 conversationHistory.map((conversation) => (
                     <ConversationCard
@@ -30,6 +41,7 @@ export function ConversationHistory({ displayHeader = false }: ConversationHisto
                         conversation={conversation}
                         pathname={location.pathname}
                         search={location.search}
+                        includeHash={sidePanel}
                     />
                 ))
             ) : conversationHistoryLoading ? (
@@ -75,15 +87,17 @@ function ConversationCard({
     conversation,
     pathname,
     search,
+    includeHash,
 }: {
     conversation: Conversation
     pathname: string
     search: string
+    includeHash: boolean
 }): JSX.Element {
     return (
         <Link
             className="p-4 flex flex-row bg-surface-primary rounded-lg gap-2 w-full min-h-14 items-center"
-            to={getConversationUrl({ pathname, search, conversationId: conversation.id })}
+            to={getConversationUrl({ pathname, search, conversationId: conversation.id, includeHash })}
         >
             <span className="flex-1 line-clamp-1">{conversation.title}</span>
             <span className="text-secondary">{formatConversationDate(conversation.updated_at)}</span>
