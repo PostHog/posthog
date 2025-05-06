@@ -7,15 +7,12 @@ from django.apps import AppConfig
 from django.conf import settings
 from posthoganalytics.client import Client
 from posthoganalytics.exception_capture import Integrations
+from posthog.redis import get_client
 
 from posthog.git import get_git_branch, get_git_commit_short
-from posthog.tasks.tasks import sync_all_organization_available_product_features
+from posthog.tasks.tasks import sync_all_organization_available_product_features, sync_hog_function_templates_task
 from posthog.utils import get_machine_id, initialize_self_capture_api_token, get_instance_region
 
-from django.core.management import call_command
-
-import time
-import requests
 
 logger = structlog.get_logger(__name__)
 
@@ -46,18 +43,6 @@ class PostHogConfig(AppConfig):
             posthoganalytics.disabled = True
             if settings.SERVER_GATEWAY_INTERFACE == "WSGI":
                 async_to_sync(initialize_self_capture_api_token)()
-
-            # This runs for ALL Django startups in DEBUG mode
-            try:
-                logger.info("Waiting for plugin-server to be ready...")
-                if wait_for_plugin_server():
-                    logger.info("Running sync_hog_function_templates command...")
-                    call_command("sync_hog_function_templates")
-                else:
-                    logger.warning("Plugin-server not available, skipping sync_hog_function_templates")
-            except Exception as e:
-                logger.exception(f"Startup sync_hog_function_templates failed: {e}")
-
             # log development server launch to posthog
             if os.getenv("RUN_MAIN") == "true":
                 # Sync all organization.available_product_features once on launch, in case plans changed
@@ -71,7 +56,6 @@ class PostHogConfig(AppConfig):
                     "development server launched",
                     {"git_rev": get_git_commit_short(), "git_branch": get_git_branch()},
                 )
-
         # load feature flag definitions if not already loaded
         if not posthoganalytics.disabled and posthoganalytics.feature_flag_definitions() is None:
             posthoganalytics.load_feature_flags()
@@ -83,18 +67,15 @@ class PostHogConfig(AppConfig):
         else:
             setup_async_migrations()
 
-
-def wait_for_plugin_server(host="localhost", port=6738, path="/api/hog_function_templates", timeout=30):
-    url = f"http://{host}:{port}{path}"
-    start = time.time()
-    while True:
         try:
-            resp = requests.get(url, timeout=2)
-            if resp.status_code == 200:
-                return True
-        except Exception:
-            pass
-        if time.time() - start > timeout:
-            logger.warning(f"Timed out waiting for plugin-server at {url}")
-            return False
-        time.sleep(1)
+            r = get_client()
+            lock_key = "posthog_sync_hog_function_templates_task_lock"
+            # setnx returns True if the key was set, False if it already exists
+            if r.setnx(lock_key, 1):
+                r.expire(lock_key, 60 * 60)  # expire after 1 hour
+                logger.info("Queuing sync_hog_function_templates celery task (redis lock)...")
+                sync_hog_function_templates_task.delay()
+            else:
+                logger.info("Not queuing sync_hog_function_templates task: lock already set")
+        except Exception as e:
+            logger.exception(f"Failed to queue sync_hog_function_templates celery task: {e}")

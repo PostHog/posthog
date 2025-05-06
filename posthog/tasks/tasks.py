@@ -925,6 +925,16 @@ def calculate_external_data_rows_synced() -> None:
         capture_external_data_rows_synced()
 
 
-@shared_task(ignore_result=True)
-def sync_hog_function_templates_task() -> None:
-    call_command("sync_hog_function_templates")
+@shared_task(
+    ignore_result=True,
+    autoretry_for=(Exception,),
+    max_retries=5,
+    default_retry_delay=30,  # retry every 30 seconds
+)
+def sync_hog_function_templates_task():
+    try:
+        logger.info("Running sync_hog_function_templates command (celery task)...")
+        call_command("sync_hog_function_templates")
+    except Exception as e:
+        logger.exception(f"Celery task sync_hog_function_templates failed: {e}")
+        raise  # Needed for Celery to trigger a retry

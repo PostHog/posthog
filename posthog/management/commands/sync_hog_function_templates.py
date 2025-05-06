@@ -83,6 +83,7 @@ class Command(BaseCommand):
                 self.stdout.write(
                     self.style.WARNING(f"Failed to fetch Node.js templates. Status code: {response.status_code}")
                 )
+                raise Exception(f"Failed to fetch Node.js templates. Status code: {response.status_code}")
         except Exception as e:
             self.stdout.write(self.style.ERROR(f"Error fetching Node.js templates: {str(e)}"))
 
