@@ -475,6 +475,8 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.OAuthAuthorize]: {
         name: 'Authorize',
         layout: 'plain',
+        projectBased: false,
+        organizationBased: false,
     },
     ...productConfiguration,
 }

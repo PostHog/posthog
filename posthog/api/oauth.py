@@ -11,7 +11,7 @@ from posthog.utils import render_template
 
 
 class OAuthAuthorizationView(AuthorizationView):
-    template_name = None
+    template_name = "authorize.html"
 
     authentication_classes = [SessionAuthentication]  # We want the user to have an active session to authorize
     permission_classes = [IsAuthenticated]

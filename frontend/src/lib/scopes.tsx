@@ -1,0 +1,147 @@
+import type { APIScope, APIScopeAction, APIScopePreset } from '~/types'
+
+export const APIScopes: APIScope[] = [
+    { key: 'action', objectPlural: 'actions' },
+    { key: 'activity_log', objectPlural: 'activity logs' },
+    { key: 'annotation', objectPlural: 'annotations' },
+    { key: 'batch_export', objectPlural: 'batch exports' },
+    { key: 'cohort', objectPlural: 'cohorts' },
+    { key: 'dashboard', objectPlural: 'dashboards' },
+    { key: 'dashboard_template', objectPlural: 'dashboard templates' },
+    { key: 'early_access_feature', objectPlural: 'early access features' },
+    { key: 'event_definition', objectPlural: 'event definitions' },
+    { key: 'error_tracking', objectPlural: 'error tracking' },
+    { key: 'experiment', objectPlural: 'experiments' },
+    { key: 'export', objectPlural: 'exports' },
+    { key: 'feature_flag', objectPlural: 'feature flags' },
+    { key: 'group', objectPlural: 'groups' },
+    { key: 'hog_function', objectPlural: 'hog functions' },
+    { key: 'insight', objectPlural: 'insights' },
+    { key: 'notebook', objectPlural: 'notebooks' },
+    { key: 'organization', disabledWhenProjectScoped: true, objectPlural: 'organizations' },
+    {
+        key: 'organization_member',
+        disabledWhenProjectScoped: true,
+        objectPlural: 'organization members',
+        warnings: {
+            write: (
+                <>
+                    This scope can be used to invite users to your organization,
+                    <br />
+                    effectively <strong> allowing access to other scopes via the added user</strong>.
+                </>
+            ),
+        },
+    },
+    { key: 'person', objectPlural: 'persons' },
+    { key: 'plugin', objectPlural: 'plugins' },
+    {
+        key: 'project',
+        objectPlural: 'projects',
+        warnings: {
+            write: 'This scope can be used to create or modify projects, including settings about how data is ingested.',
+        },
+    },
+    { key: 'property_definition', objectPlural: 'property definitions' },
+    { key: 'query', disabledActions: ['write'], objectPlural: 'queries' },
+    { key: 'session_recording', objectPlural: 'session recordings' },
+    { key: 'session_recording_playlist', objectPlural: 'session recording playlists' },
+    { key: 'sharing_configuration', objectPlural: 'sharing configurations' },
+    { key: 'subscription', objectPlural: 'subscriptions' },
+    { key: 'survey', objectPlural: 'surveys' },
+    {
+        key: 'user',
+        disabledActions: ['write'],
+        objectPlural: 'your account',
+        warnings: {
+            read: (
+                <>
+                    This scope allows you to retrieve your own user object.
+                    <br />
+                    Note that the user object <strong> lists all organizations and projects you're in</strong>.
+                </>
+            ),
+        },
+    },
+    {
+        key: 'webhook',
+        objectPlural: 'webhooks',
+        info: 'Webhook configuration is currently only enabled for the Zapier integration.',
+    },
+]
+
+export const APIScopeActionLabels: Record<APIScopeAction, string> = {
+    read: 'Read',
+    write: 'Write',
+}
+
+export const MAX_API_KEYS_PER_USER = 10 // Same as in posthog/api/personal_api_key.py
+
+export const API_KEY_SCOPE_PRESETS: APIScopePreset[] = [
+    { value: 'local_evaluation', label: 'Local feature flag evaluation', scopes: ['feature_flag:read'] },
+    {
+        value: 'zapier',
+        label: 'Zapier integration',
+        scopes: ['action:read', 'query:read', 'project:read', 'organization:read', 'user:read', 'webhook:write'],
+    },
+    { value: 'analytics', label: 'Performing analytics queries', scopes: ['query:read'] },
+    {
+        value: 'project_management',
+        label: 'Project & user management',
+        scopes: ['project:write', 'organization:read', 'organization_member:write'],
+    },
+    {
+        value: 'editor',
+        label: 'PostHog Editor',
+        scopes: ['feature_flag:write', 'insight:read', 'project:read', 'organization:read', 'user:read'],
+        isCloudOnly: true,
+    },
+    { value: 'all_access', label: 'All access', scopes: ['*'] },
+]
+
+export const DEFAULT_OAUTH_SCOPES = ['openid']
+
+export const getScopeDescription = (scope: string): string => {
+    if (scope === '*') {
+        return 'Read and write access to all PostHog data'
+    }
+
+    if (scope === 'openid') {
+        return 'Access to your user profile'
+    }
+
+    const [object, action] = scope.split(':')
+
+    if (!object || !action) {
+        return scope
+    }
+
+    const scopeObject = APIScopes.find((s) => s.key === object)
+    const actionWord = action === 'write' ? 'Write' : 'Read'
+
+    return `${actionWord} access to ${scopeObject?.objectPlural ?? scope}`
+}
+
+export const getMinimumEquivalentScopes = (scopes: string[]): string[] => {
+    if (scopes.includes('*')) {
+        return ['*']
+    }
+
+    const highestScopes: Record<string, string> = {}
+
+    if (scopes.includes('openid')) {
+        highestScopes['user'] = 'read'
+    }
+
+    for (const scope of scopes) {
+        const [object, action] = scope.split(':')
+        if (!object || !action) {
+            continue
+        }
+        if (!highestScopes[object] || (action === 'write' && highestScopes[object] === 'read')) {
+            highestScopes[object] = action
+        }
+    }
+
+    return Object.entries(highestScopes).map(([object, action]) => `${object}:${action}`)
+}
