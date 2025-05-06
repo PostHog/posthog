@@ -37,7 +37,7 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
     # TODO: this could be made more efficient/to run in fewer round trips
     event_property_values = (
         property_definitions.backend.get(
-            context.team.pk, property_definitions.PropertyDefinitionType.Event, names=property_finder.event_properties
+            context.team.pk, property_definitions.PropertyDefinitionType.EVENT, names=property_finder.event_properties
         )
         if property_finder.event_properties
         else []
@@ -46,7 +46,7 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
 
     person_property_values = (
         property_definitions.backend.get(
-            context.team.pk, property_definitions.PropertyDefinitionType.Person, names=property_finder.person_properties
+            context.team.pk, property_definitions.PropertyDefinitionType.PERSON, names=property_finder.person_properties
         )
         if property_finder.person_properties
         else []
@@ -59,7 +59,7 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
             continue
         group_property_values = property_definitions.backend.get(
             context.team.pk,
-            property_definitions.PropertyDefinitionType.Group,
+            property_definitions.PropertyDefinitionType.GROUP,
             group_type_index=group_id,
             names=properties,
         )

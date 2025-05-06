@@ -1,4 +1,3 @@
-import enum
 from collections.abc import Iterable, Sequence
 
 from django.db import models
@@ -6,22 +5,10 @@ from django.db.models.functions import Coalesce
 
 from posthog.models import Team
 from posthog.models.property import PropertyName
-from posthog.models.property_definition import PropertyDefinition as _PropertyDefinition
+from posthog.models.property_definition import PropertyDefinition as _PropertyDefinition, PropertyType
 
 
-class PropertyDefinitionType(enum.Enum):  # TODO: unify with model definition
-    Event = 1
-    Person = 2
-    Group = 3
-    Session = 4
-
-
-class PropertyType(enum.StrEnum):  # TODO: unify with model definition, taxonomy.py
-    Datetime = "DateTime"
-    String = "String"
-    Numeric = "Numeric"
-    Boolean = "Boolean"
-    Duration = "Duration"
+PropertyDefinitionType = _PropertyDefinition.Type
 
 
 class PropertyDefinitionDoesNotExist(Exception):
@@ -43,7 +30,7 @@ class PropertyDefinitionsBackend:
         names: Iterable[PropertyName] | None = None,
     ) -> Iterable[tuple[PropertyName, PropertyType]]:
         qs = self.__get_queryset_for_team(team).filter(type=type)
-        if type == PropertyDefinitionType.Group:
+        if type == PropertyDefinitionType.GROUP:
             assert group_type_index is not None
             qs = qs.filter(group_type_index=group_type_index)
         else:
@@ -61,7 +48,7 @@ class PropertyDefinitionsBackend:
         group_type_index: int | None = None,
     ) -> PropertyType:
         qs = self.__get_queryset_for_team(team).filter(type=type, name=name)
-        if type == PropertyDefinitionType.Group:
+        if type == PropertyDefinitionType.GROUP:
             assert group_type_index is not None
             qs = qs.filter(group_type_index=group_type_index)
         else:

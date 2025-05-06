@@ -956,11 +956,11 @@ class TrendsQueryRunner(QueryRunner):
             return False
 
         if breakdown_type == "person":
-            property_type = property_definitions.PropertyDefinitionType.Person
+            property_type = property_definitions.PropertyDefinitionType.PERSON
         elif breakdown_type == "group":
-            property_type = property_definitions.PropertyDefinitionType.Group
+            property_type = property_definitions.PropertyDefinitionType.GROUP
         else:
-            property_type = property_definitions.PropertyDefinitionType.Event
+            property_type = property_definitions.PropertyDefinitionType.EVENT
 
         try:
             field_type = property_definitions.backend.get_property_type(

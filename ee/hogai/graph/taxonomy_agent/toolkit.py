@@ -307,7 +307,7 @@ class TaxonomyAgentToolkit(ABC):
             props = self._enrich_props_with_descriptions(
                 "person",
                 property_definitions.backend.get_property_types(
-                    self._team, property_definitions.PropertyDefinitionType.Person
+                    self._team, property_definitions.PropertyDefinitionType.PERSON
                 ),
             )
         elif entity == "session":
@@ -330,7 +330,7 @@ class TaxonomyAgentToolkit(ABC):
                 entity,
                 property_definitions.backend.get_property_types(
                     self._team,
-                    property_definitions.PropertyDefinitionType.Group,
+                    property_definitions.PropertyDefinitionType.GROUP,
                     group_type_index=group_type_index,
                 ),
             )
@@ -373,7 +373,7 @@ class TaxonomyAgentToolkit(ABC):
         property_to_type = dict(
             property_definitions.backend.get_property_types(
                 self._team,
-                property_definitions.PropertyDefinitionType.Event,
+                property_definitions.PropertyDefinitionType.EVENT,
                 names=[item.property for item in response.results],
             )
         )
@@ -420,7 +420,7 @@ class TaxonomyAgentToolkit(ABC):
     def retrieve_event_or_action_property_values(self, event_name_or_action_id: str | int, property_name: str) -> str:
         try:
             property_type = property_definitions.backend.get_property_type(
-                self._team, property_definitions.PropertyDefinitionType.Event, property_name
+                self._team, property_definitions.PropertyDefinitionType.EVENT, property_name
             )
         except property_definitions.PropertyDefinitionDoesNotExist:
             return f"The property {property_name} does not exist in the taxonomy."
@@ -488,10 +488,10 @@ class TaxonomyAgentToolkit(ABC):
 
         try:
             if query.group_type_index is not None:
-                prop_type = property_definitions.PropertyDefinitionType.Group
+                prop_type = property_definitions.PropertyDefinitionType.GROUP
                 group_type_index = query.group_type_index
             else:
-                prop_type = property_definitions.PropertyDefinitionType.Person
+                prop_type = property_definitions.PropertyDefinitionType.PERSON
                 group_type_index = None
 
             property_type = property_definitions.backend.get_property_type(

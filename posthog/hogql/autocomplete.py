@@ -551,13 +551,13 @@ def get_hogql_autocomplete(
                             if isinstance(field, StringJSONDatabaseField):
                                 if last_table.to_printed_hogql() == "events":
                                     if field.name == "person_properties":
-                                        property_type = property_definitions.PropertyDefinitionType.Person
+                                        property_type = property_definitions.PropertyDefinitionType.PERSON
                                     else:
-                                        property_type = property_definitions.PropertyDefinitionType.Event
+                                        property_type = property_definitions.PropertyDefinitionType.EVENT
                                 elif last_table.to_printed_hogql() == "persons":
-                                    property_type = property_definitions.PropertyDefinitionType.Person
+                                    property_type = property_definitions.PropertyDefinitionType.PERSON
                                 elif last_table.to_printed_hogql() == "groups":
-                                    property_type = property_definitions.PropertyDefinitionType.Group
+                                    property_type = property_definitions.PropertyDefinitionType.GROUP
                                 else:
                                     property_type = None
 
