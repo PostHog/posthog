@@ -1,5 +1,7 @@
-from __future__ import annotations
+# This is a temporary API for the LLM Playground testing.
+# It is not used in production and will be removed in the future.
 
+from __future__ import annotations
 
 from rest_framework import viewsets, serializers
 from rest_framework.decorators import action
