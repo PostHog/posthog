@@ -4376,6 +4376,7 @@ export interface DataWarehouseSavedQuery {
     sync_frequency: string
     status?: string
     latest_error: string | null
+    latest_history_id?: string
 }
 
 export interface DataWarehouseViewLink {
