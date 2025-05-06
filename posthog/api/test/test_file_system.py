@@ -6,6 +6,7 @@ from posthog.models import User, FeatureFlag, Dashboard, Experiment, Insight, No
 from posthog.models.file_system.file_system import FileSystem
 from unittest.mock import patch
 from ee.models.rbac.access_control import AccessControl
+from datetime import UTC
 
 
 class TestFileSystemAPI(APIBaseTest):
@@ -760,7 +761,7 @@ class TestFileSystemAPI(APIBaseTest):
         FileSystem.objects.create(team=self.team, path="Current/Reports/Now.txt", type="doc", created_by=self.user)
         FileSystem.objects.create(team=self.team, path="Old/Reports/Old.txt", type="doc", created_by=self.user)
 
-        url = f"/api/projects/{self.team.id}/file_system/?search=path:Reports+-folder:Old"
+        url = f"/api/projects/{self.team.id}/file_system/?search=path:Reports+-path:Old"
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.json())
         self.assertEqual(resp.json()["count"], 1)
@@ -779,6 +780,90 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.json())
         paths = {item["path"] for item in resp.json()["results"]}
         self.assertSetEqual(paths, {"Doc1", "Doc2"})
+
+    def test_meta_sync_create_or_update_file(self):
+        """
+        When `create_or_update_file` is called with explicit `created_at`
+        and `created_by_id`, those values must be stored both in the top-level
+        columns *and* duplicated inside the `meta` dictionary.
+        Updating the same file a second time must overwrite the fields.
+        """
+        from datetime import datetime
+        from posthog.models.file_system.file_system import create_or_update_file, FileSystem
+
+        # Fixed timestamp for determinism
+        ts_1 = datetime(2021, 5, 4, 12, 34, 56, tzinfo=UTC)
+        path = "Synced/Item.txt"
+
+        create_or_update_file(
+            team=self.team,
+            base_folder="Synced",
+            name="Item.txt",
+            file_type="doc",
+            ref="Ref-123",
+            href="/any",
+            meta={"created_at": ts_1.isoformat(), "created_by": self.user.pk},
+            created_at=ts_1,
+            created_by_id=self.user.pk,
+        )
+
+        fs = FileSystem.objects.get(team=self.team, path=path)
+        self.assertEqual(fs.created_by_id, self.user.pk)
+        self.assertEqual(fs.created_at, ts_1)
+        self.assertEqual(fs.meta["created_by"], self.user.pk)
+        self.assertEqual(fs.meta["created_at"], ts_1.isoformat())
+
+        # Second update – should overwrite timestamps
+        ts_2 = datetime(2021, 6, 1, 9, 0, 0, tzinfo=UTC)
+
+        create_or_update_file(
+            team=self.team,
+            base_folder="Synced",
+            name="Item.txt",
+            file_type="doc",
+            ref="Ref-123",
+            href="/any",
+            meta={"created_at": ts_2.isoformat(), "created_by": self.user.pk},
+            created_at=ts_2,
+            created_by_id=self.user.pk,
+        )
+
+        fs.refresh_from_db()
+        self.assertEqual(fs.created_at, ts_2)
+        self.assertEqual(fs.meta["created_at"], ts_2.isoformat())
+
+    def test_meta_sync_via_unfiled_endpoint(self):
+        """
+        The `/file_system/unfiled/` endpoint must copy the source object's
+        `created_at` and `created_by` into both the FileSystem columns and the
+        `meta` dict.
+        """
+        from django.utils import timezone
+        from freezegun import freeze_time
+
+        # Create a FeatureFlag at a known moment in time
+        with freeze_time("2023-02-10 15:00:00"):
+            flag = FeatureFlag.objects.create(team=self.team, key="Synced-Flag", created_by=self.user)
+
+        FileSystem.objects.all().delete()
+
+        # Trigger unfiled sync
+        resp = self.client.get(f"/api/projects/{self.team.id}/file_system/unfiled/")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.json())
+        self.assertEqual(resp.json()["count"], 1)
+
+        fs = FileSystem.objects.exclude(type="folder").get()
+
+        # created_at matches (ignore possible micro-second differences)
+        self.assertEqual(
+            timezone.make_naive(fs.created_at, UTC).replace(microsecond=0),
+            timezone.make_naive(flag.created_at, UTC).replace(microsecond=0),
+        )
+        self.assertEqual(fs.created_by_id, flag.created_by_id)
+
+        # meta mirrors those values
+        self.assertEqual(fs.meta.get("created_by"), flag.created_by_id)
+        self.assertTrue(fs.meta.get("created_at").startswith(flag.created_at.isoformat().replace("T", " ")[:19]))
 
 
 @pytest.mark.ee  # Mark these tests to run only if EE code is available (for AccessControl)

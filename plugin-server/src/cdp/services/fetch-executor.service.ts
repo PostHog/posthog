@@ -1,9 +1,9 @@
 import { DateTime } from 'luxon'
-import { FetchError, RequestInit } from 'node-fetch'
+import { Counter } from 'prom-client'
 
 import { PluginsServerConfig } from '../../types'
-import { trackedFetch } from '../../utils/fetch'
 import { logger } from '../../utils/logger'
+import { fetch, FetchOptions } from '../../utils/request'
 import {
     CyclotronFetchFailureInfo,
     CyclotronFetchFailureKind,
@@ -11,6 +11,12 @@ import {
     HogFunctionInvocationResult,
     HogFunctionQueueParametersFetchRequest,
 } from '../types'
+
+const cdpHttpRequests = new Counter({
+    name: 'cdp_http_requests',
+    help: 'HTTP requests and their outcomes',
+    labelNames: ['status'],
+})
 
 /**
  * This class is only used by the kafka based queuing system. For the Cyclotron system there is no need for this.
@@ -84,7 +90,6 @@ export class FetchExecutorService {
         }
 
         const params = invocation.queueParameters as HogFunctionQueueParametersFetchRequest
-        let responseBody = ''
 
         // Get existing metadata from previous attempts if any
         const metadata = (invocation.queueMetadata as { tries: number; trace: CyclotronFetchFailureInfo[] }) || {
@@ -95,21 +100,18 @@ export class FetchExecutorService {
         try {
             const start = performance.now()
             const method = params.method.toUpperCase()
-            const fetchParams: RequestInit = {
+            const fetchParams: FetchOptions = {
                 method,
                 headers: params.headers,
-                timeout: this.serverConfig.CDP_FETCH_TIMEOUT_MS,
+                timeoutMs: this.serverConfig.CDP_FETCH_TIMEOUT_MS,
             }
             if (!['GET', 'HEAD'].includes(method) && params.body) {
                 fetchParams.body = params.body
             }
-
-            const fetchResponse = await trackedFetch(params.url, fetchParams)
-
-            responseBody = await fetchResponse.text()
-
+            const fetchResponse = await fetch(params.url, fetchParams)
             const duration = performance.now() - start
-            const headers = Object.fromEntries(fetchResponse.headers.entries())
+
+            cdpHttpRequests.inc({ status: fetchResponse.status.toString() })
 
             // Match Rust implementation: Only return response for success status codes (<400)
             if (fetchResponse.status && fetchResponse.status < 400) {
@@ -120,9 +122,9 @@ export class FetchExecutorService {
                         queueParameters: {
                             response: {
                                 status: fetchResponse.status,
-                                headers,
+                                headers: fetchResponse.headers,
                             },
-                            body: responseBody,
+                            body: await fetchResponse.text(),
                             timings: [
                                 {
                                     kind: 'async_function',
@@ -139,19 +141,19 @@ export class FetchExecutorService {
                 const failure: CyclotronFetchFailureInfo = {
                     kind: 'failurestatus' as CyclotronFetchFailureKind,
                     message: `Received failure status: ${fetchResponse.status}`,
-                    headers,
+                    headers: fetchResponse.headers,
                     status: fetchResponse.status,
                     timestamp: DateTime.utc(),
                 }
                 return this.handleFetchFailure(invocation, failure, metadata)
             }
         } catch (err) {
+            cdpHttpRequests.inc({ status: 'error' })
+
             let kind: CyclotronFetchFailureKind = 'requesterror'
 
-            if (err instanceof FetchError) {
-                if (err.type === 'request-timeout') {
-                    kind = 'timeout'
-                }
+            if (err.message.toLowerCase().includes('timeout')) {
+                kind = 'timeout'
             }
 
             // Match Rust implementation: Create a failure trace for errors
