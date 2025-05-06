@@ -1,6 +1,4 @@
 from datetime import datetime, timedelta
-import os
-from typing import Optional
 from collections.abc import Callable
 
 import dagster
@@ -15,24 +13,26 @@ from posthog.models.web_preaggregated.sql import (
     DISTRIBUTED_WEB_STATS_DAILY_SQL,
     WEB_OVERVIEW_INSERT_SQL,
     WEB_STATS_INSERT_SQL,
+    format_team_ids,
 )
 from posthog.clickhouse.cluster import ClickhouseCluster
 
-WEB_ANALYTICS_DAILY_PARTITION_DEFINITION = dagster.WeeklyPartitionsDefinition(
+# The average pageviews volumes we want to process in each batch.
+# We want to use the actual pageview volumes instead of splitting by amount of teams.
+DEFAULT_PAGEVIEW_VOLUME_PER_BATCH = 1_000_000
+
+WEB_ANALYTICS_DATE_PARTITION_DEFINITION = dagster.WeeklyPartitionsDefinition(
     start_date="2025-01-01",
     fmt="%Y-%m-%d",
     timezone="UTC",
 )
 
-DEFAULT_TEAM_IDS = [int(id) for id in os.getenv("WEB_ANALYTICS_TEAM_IDS", "").split(",") if id]
-
 WEB_ANALYTICS_CONFIG_SCHEMA = {
     "team_ids": Field(
         Array(int),
-        default_value=DEFAULT_TEAM_IDS,
+        default_value=[],
         description="List of team IDs to process - leave empty to process all teams :fire:",
     ),
-    "timezone": Field(str, default_value="UTC", description="Timezone to use for date calculations"),
     "clickhouse_settings": Field(
         str,
         default_value="max_execution_time=240, max_bytes_before_external_group_by=21474836480, distributed_aggregation_memory_efficient=1",
@@ -46,147 +46,153 @@ def web_analytics_preaggregated_tables(
     context: dagster.AssetExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> bool:
-    overview_table = f"web_overview_daily"
-    stats_table = f"web_stats_table_daily"
+    """Create or ensure the preaggregated tables exist."""
+    overview_table = "web_overview_daily"
+    stats_table = "web_stats_daily"
 
     def create_tables(client: Client) -> None:
-        context.log.info(f"Creating or ensuring {overview_table} exists")
         client.execute(WEB_OVERVIEW_METRICS_DAILY_SQL(table_name=overview_table))
-
-        context.log.info(f"Creating or ensuring {stats_table} exists")
         client.execute(WEB_STATS_DAILY_SQL(table_name=stats_table))
-
-        context.log.info(f"Creating or ensuring distributed tables exist")
         client.execute(DISTRIBUTED_WEB_OVERVIEW_METRICS_DAILY_SQL())
         client.execute(DISTRIBUTED_WEB_STATS_DAILY_SQL())
 
     cluster.map_all_hosts(create_tables).result()
-
     return True
 
 
-# Not being used so far. Let's test the materialization of the assets first
-def get_active_teams(
-    context: dagster.AssetExecutionContext,
-    cluster: dagster.ResourceParam[ClickhouseCluster],
-) -> list[int]:
-    """Determine active teams for web analytics processing."""
-
-    # Querying clickhouse for teams that have web analytics events in the period
-    # this is used to only process teams that still have events in the period.
-    # If this proves too slow, we can query postgres directly.
-    def fetch_active_teams(client: Client) -> list:
-        query = """
-        SELECT DISTINCT team_id
+def get_team_pageview_volumes(client: Client) -> dict:
+    """Get average daily pageview counts for each team over the last 7 days."""
+    query = """
+    SELECT
+        team_id,
+        avg(daily_pageviews) AS avg_daily_pageviews
+    FROM (
+        SELECT
+            team_id,
+            toDate(timestamp) AS day,
+            count() AS daily_pageviews
         FROM events
-        WHERE event IN ('$pageview', '$screen')
-          AND timestamp >= '2025-01-01 00:00:00'
-        ORDER BY team_id
-        """
-        result = client.execute(query)
-        return [row[0] for row in result]
+        WHERE timestamp >= (now() - toIntervalDay(7))
+          AND event = '$pageview'
+        GROUP BY team_id, day
+    ) AS daily_counts
+    GROUP BY team_id
+    ORDER BY avg_daily_pageviews DESC
+    """
 
-    active_teams = cluster.any_host(fetch_active_teams).result()
+    result = client.execute(query)
+    result = dict(result)
+    return result
 
-    for team_id in active_teams:
-        context.instance.add_dynamic_partitions("teams", [str(team_id)])
 
-    return active_teams
+def get_batches_per_pageview_volume(teams_with_volumes: dict, target_batch_size: int = 1_000_000) -> list[list[int]]:
+    """Create batches of teams based on pageview volume."""
+    teams_sorted = sorted(
+        ((team_id, volume) for team_id, volume in teams_with_volumes.items()),
+        key=lambda x: x[1],
+        reverse=True,
+    )
+
+    batches = []
+    current_batch = []
+    current_batch_volume = 0
+
+    for team_id, volume in teams_sorted:
+        if current_batch_volume + volume > target_batch_size and current_batch:
+            batches.append(current_batch)
+            current_batch = [team_id]
+            current_batch_volume = volume
+        else:
+            current_batch.append(team_id)
+            current_batch_volume += volume
+
+    if current_batch:
+        batches.append(current_batch)
+
+    return batches
 
 
 def _process_web_analytics_data(
     context: dagster.AssetExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
-    partition_date: str,
-    team_partition: Optional[str],
     table_name: str,
     sql_generator: Callable,
-    team_id: Optional[int] = None,
 ) -> str:
-    """Common function to process web analytics data for both overview and stats tables."""
+    """Process web analytics data for the given date."""
     config = context.op_config
+    team_ids = config.get("team_ids", [])
 
-    if team_id is not None:
-        team_id_list = str(team_id)
-        log_teams = f"team {team_id}"
-    elif team_partition is not None and team_partition != "all":
-        team_id_list = team_partition
-        log_teams = f"team {team_partition}"
-    else:
-        team_id_list = ", ".join(str(team_id) for team_id in config["team_ids"]) if config["team_ids"] else ""
-        log_teams = team_id_list or "ALL TEAMS"
-
+    partition_date = context.partition_key
     start_date = datetime.strptime(partition_date, "%Y-%m-%d")
-    end_date = datetime.now() + timedelta(days=1)
-
+    end_date = start_date + timedelta(days=7)
     start_date_str = start_date.strftime("%Y-%m-%d 00:00:00")
     end_date_str = end_date.strftime("%Y-%m-%d 00:00:00")
 
-    context.log.info(f"Processing data for {table_name}, date: {partition_date}, teams: {log_teams}")
+    # Get team pageview volume data
+    def fetch_pageview_data(client: Client) -> dict:
+        return get_team_pageview_volumes(client)
 
-    # First, delete existing data for this date/team combination to ensure idempotency
-    # TODO: Check this is ok with clickhouse team or if we should use a CollapsingMergeTree or other technique
-    delete_query = f"""
-    ALTER TABLE {table_name}
-    DELETE WHERE day = toDate('{partition_date}')
-    """
+    pageview_volumes = cluster.any_host(fetch_pageview_data).result()
+    context.log.info(f"Retrieved pageview volume data for {len(pageview_volumes)} teams")
 
-    # Add team filter if team_ids are specified
-    if team_id_list:
-        if "," in team_id_list:
-            delete_query += f" AND team_id IN ({team_id_list})"
-        else:
-            delete_query += f" AND team_id = {team_id_list}"
+    if team_ids:
+        filtered_pageview_volumes = {team_id: pageview_volumes.get(team_id, 1) for team_id in team_ids}
+        context.log.info(f"Filtering to {len(filtered_pageview_volumes)} teams specified in config")
+    else:
+        filtered_pageview_volumes = pageview_volumes
+        context.log.info(f"Processing all {len(filtered_pageview_volumes)} teams with pageview data")
 
-    context.log.info(f"Deleting existing data for {table_name}, date: {partition_date}, teams: {log_teams}")
-    context.log.debug(delete_query)
+    batches = get_batches_per_pageview_volume(filtered_pageview_volumes)
+    context.log.info(f"Created {len(batches)} batches based on pageview volume")
 
-    query = sql_generator(
-        date_start=start_date_str,
-        date_end=end_date_str,
-        team_ids=team_id_list,
-        timezone=config["timezone"],
-        settings=config["clickhouse_settings"],
-    )
+    total_batches = len(batches)
 
-    # Log the query for debugging
-    context.log.debug(query)
+    for batch_idx, batch_teams in enumerate(batches):
+        batch_num = batch_idx + 1
 
-    def execute_queries(client: Client) -> None:
-        try:
-            # First delete existing data
+        estimated_pageviews = sum(filtered_pageview_volumes.get(team_id, 1) for team_id in batch_teams)
+
+        context.log.info(
+            f"Processing batch {batch_num}/{total_batches} with {len(batch_teams)} teams "
+            f"(~{int(estimated_pageviews)} avg daily pageviews) for {table_name}"
+        )
+
+        # Delete existing data for this batch and partition
+        delete_query = f"""
+        ALTER TABLE {table_name} DELETE WHERE
+        toDate(day_bucket) >= toDate('{partition_date}')
+        AND toDate(day_bucket) < toDate('{end_date_str}')
+        AND team_id IN ({format_team_ids(team_ids)})
+        """
+
+        # Generate insertion SQL
+        query = sql_generator(
+            date_start=start_date_str,
+            date_end=end_date_str,
+            team_ids=team_ids,
+            settings=config["clickhouse_settings"],
+            table_name=table_name,
+        )
+
+        # Define the callback to process the batch using the cluster executor
+        # Use default arguments to capture the current values of the variables
+        def process_batch(client: Client, delete_query=delete_query, query=query):
             client.execute(delete_query)
-            # Then insert new data
             client.execute(query)
-        except Exception as e:
-            context.log.info(f"\n\nERROR EXECUTING {table_name.upper()} QUERY: {str(e)}\n\n")
-            context.log.exception(f"Error executing query: {str(e)}")
+
+        try:
+            cluster.map_all_hosts(process_batch).result()
+            context.log.info(f"Successfully processed batch {batch_num}/{total_batches} for {table_name}")
+        except Exception:
+            context.log.exception(f"Error processing batch {batch_num}/{total_batches} for {table_name}")
             raise
 
-    try:
-        cluster.any_host(execute_queries).result()
-        context.log.info(f"Successfully processed data for {table_name} on {partition_date}")
-    except Exception as e:
-        context.log.info(f"\n\nERROR IN {table_name.upper()}: {str(e)}\n\n")
-        context.log.exception(f"Error in {table_name}: {str(e)}")
-        raise
-
-    return team_id if team_id is not None else partition_date
-
-
-def _handle_partition_key(partition_key: str | dict) -> tuple[str, Optional[str]]:
-    if isinstance(partition_key, dict):
-        partition_date = partition_key["date"]
-        team_partition = partition_key.get("team")
-    else:
-        partition_date = partition_key
-        team_partition = None
-
-    return partition_date, team_partition
+    context.log.info(f"Completed processing all {len(filtered_pageview_volumes)} teams for {table_name}")
+    return partition_date
 
 
 @dagster.asset(
-    partitions_def=WEB_ANALYTICS_DAILY_PARTITION_DEFINITION,
+    partitions_def=WEB_ANALYTICS_DATE_PARTITION_DEFINITION,
     config_schema=WEB_ANALYTICS_CONFIG_SCHEMA,
     deps=["web_analytics_preaggregated_tables"],
 )
@@ -194,22 +200,17 @@ def web_overview_daily(
     context: dagster.AssetExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ):
-    """Aggregates the summarized metrics including pageviews, users, bounce rate, and session duration for the top overview tiles on Web Analytics. Used by the WebOverviewQueryRunner."""
-
-    partition_date, team_partition = _handle_partition_key(context.partition_key)
-
+    """Process web overview metrics for all teams on the given date."""
     return _process_web_analytics_data(
         context=context,
         cluster=cluster,
-        partition_date=partition_date,
-        team_partition=team_partition,
         table_name="web_overview_daily",
         sql_generator=WEB_OVERVIEW_INSERT_SQL,
     )
 
 
 @dagster.asset(
-    partitions_def=WEB_ANALYTICS_DAILY_PARTITION_DEFINITION,
+    partitions_def=WEB_ANALYTICS_DATE_PARTITION_DEFINITION,
     config_schema=WEB_ANALYTICS_CONFIG_SCHEMA,
     deps=["web_analytics_preaggregated_tables"],
 )
@@ -217,16 +218,27 @@ def web_stats_daily(
     context: dagster.AssetExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ):
-    """Aggregates detailed dimensional data used by the WebStatsTableQueryRunner and are used for the web analytics breakdown tables."""
-    partition_date, team_partition = _handle_partition_key(context.partition_key)
-
+    """Process web stats for all teams on the given date."""
     return _process_web_analytics_data(
         context=context,
         cluster=cluster,
-        partition_date=partition_date,
-        team_partition=team_partition,
         table_name="web_stats_daily",
         sql_generator=WEB_STATS_INSERT_SQL,
+    )
+
+
+@dagster.schedule(
+    cron_schedule="0 1 * * *",
+    job_name="web_analytics_daily_job",
+    execution_timezone="UTC",
+)
+def web_analytics_daily_schedule(context: dagster.ScheduleEvaluationContext):
+    """Schedule daily runs for the previous day."""
+    date = (context.scheduled_execution_time.date() - timedelta(days=1)).strftime("%Y-%m-%d")
+    return dagster.RunRequest(
+        run_key=date,
+        asset_selection=[web_overview_daily, web_stats_daily],
+        partition_key=date,
     )
 
 

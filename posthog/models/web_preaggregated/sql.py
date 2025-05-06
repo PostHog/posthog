@@ -87,12 +87,17 @@ def DISTRIBUTED_WEB_STATS_DAILY_SQL():
     return DISTRIBUTED_TABLE_TEMPLATE("web_stats_daily_distributed", "web_stats_daily", WEB_STATS_COLUMNS)
 
 
+def format_team_ids(team_ids):
+    return ", ".join(str(team_id) for team_id in team_ids)
+
+
 def WEB_OVERVIEW_INSERT_SQL(
     date_start, date_end, team_ids=None, timezone="UTC", settings="", table_name="web_overview_daily"
 ):
-    team_filter = f"raw_sessions.team_id IN({team_ids})" if team_ids else "1=1"
-    person_team_filter = f"person_distinct_id_overrides.team_id IN({team_ids})" if team_ids else "1=1"
-    events_team_filter = f"e.team_id IN({team_ids})" if team_ids else "1=1"
+    team_ids_str = format_team_ids(team_ids)
+    team_filter = f"raw_sessions.team_id IN({team_ids_str})" if team_ids else "1=1"
+    person_team_filter = f"person_distinct_id_overrides.team_id IN({team_ids_str})" if team_ids else "1=1"
+    events_team_filter = f"e.team_id IN({team_ids_str})" if team_ids else "1=1"
 
     return f"""
     INSERT INTO {table_name}
@@ -169,9 +174,10 @@ def WEB_OVERVIEW_INSERT_SQL(
 def WEB_STATS_INSERT_SQL(
     date_start, date_end, team_ids=None, timezone="UTC", settings="", table_name="web_stats_daily"
 ):
-    team_filter = f"raw_sessions.team_id IN({team_ids})" if team_ids else "1=1"
-    person_team_filter = f"person_distinct_id_overrides.team_id IN({team_ids})" if team_ids else "1=1"
-    events_team_filter = f"e.team_id IN({team_ids})" if team_ids else "1=1"
+    team_ids_str = format_team_ids(team_ids) if team_ids else ""
+    team_filter = f"raw_sessions.team_id IN({team_ids_str})" if team_ids else "1=1"
+    person_team_filter = f"person_distinct_id_overrides.team_id IN({team_ids_str})" if team_ids else "1=1"
+    events_team_filter = f"e.team_id IN({team_ids_str})" if team_ids else "1=1"
 
     return f"""
     INSERT INTO {table_name}
