@@ -8,6 +8,7 @@ type ResizableElementProps = {
     onResize: (width: number) => void
     children?: React.ReactNode
     className?: string
+    innerClassName?: string
     style?: React.CSSProperties
     borderPosition?: 'center' | 'left' | 'right'
     hidden?: boolean
@@ -20,6 +21,7 @@ export function ResizableElement({
     onResize,
     children,
     className,
+    innerClassName,
     style,
     borderPosition = 'center',
     hidden = false,
@@ -140,7 +142,7 @@ export function ResizableElement({
             ref={containerRef}
             // eslint-disable-next-line react/forbid-dom-props
             style={{ width, ...style }}
-            className="relative"
+            className={cn('relative', className)}
         >
             {children}
             <div
@@ -154,7 +156,7 @@ export function ResizableElement({
                         'after:left-full': borderPosition === 'right',
                         'hidden pointer-events-none': hidden,
                     },
-                    className
+                    innerClassName
                 )}
                 role="separator"
                 tabIndex={0}

@@ -164,7 +164,7 @@ export function PanelLayoutPanel({ searchPlaceholder, panelActions, children }: 
             }}
             aria-label="Resize handle for panel layout panel"
             borderPosition="right"
-            className="z-[var(--z-layout-panel)]"
+            innerClassName="z-[var(--z-layout-panel)]"
         >
             {panelContents}
         </ResizableElement>
