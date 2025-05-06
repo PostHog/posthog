@@ -250,12 +250,24 @@ class TestWebAnalyticsPartitions:
 
 
 class TestWebAnalyticsAggregation:
-    """Tests for the data aggregation functionality across different web analytics tables."""
+    """Tests for web analytics aggregation processes, including error handling and result validation."""
 
     @pytest.mark.partition_key("2025-01-08")
     def test_web_overview_daily_processes_data(self):
         with mock.patch("dags.web_preaggregated._process_web_analytics_data") as mock_process:
-            mock_process.return_value = "2025-01-08"
+            # Mock the structured return value
+            mock_return_value = {
+                "partition_date": "2025-01-08",
+                "processing_results": {
+                    "total_teams": 10,
+                    "successful_teams": 8,
+                    "failed_teams": 2,
+                    "success_rate": 0.8,
+                    "successful_batches": 2,
+                    "failed_batches": 1,
+                },
+            }
+            mock_process.return_value = mock_return_value
 
             context = mock.MagicMock(partition_key="2025-01-08")
             cluster = mock.MagicMock()
@@ -264,12 +276,29 @@ class TestWebAnalyticsAggregation:
 
             mock_process.assert_called_once()
             assert mock_process.call_args[1]["table_name"] == "web_overview_daily"
-            assert result == "2025-01-08"
+            # Check the full structure is returned
+            assert result == mock_return_value
+            # Check specific values
+            assert result["partition_date"] == "2025-01-08"
+            assert result["processing_results"]["total_teams"] == 10
+            assert result["processing_results"]["successful_teams"] == 8
 
     @pytest.mark.partition_key("2025-01-08")
     def test_web_stats_daily_processes_data(self):
         with mock.patch("dags.web_preaggregated._process_web_analytics_data") as mock_process:
-            mock_process.return_value = "2025-01-08"
+            # Mock the structured return value
+            mock_return_value = {
+                "partition_date": "2025-01-08",
+                "processing_results": {
+                    "total_teams": 5,
+                    "successful_teams": 5,
+                    "failed_teams": 0,
+                    "success_rate": 1.0,
+                    "successful_batches": 1,
+                    "failed_batches": 0,
+                },
+            }
+            mock_process.return_value = mock_return_value
 
             context = mock.MagicMock(partition_key="2025-01-08")
             cluster = mock.MagicMock()
@@ -278,7 +307,11 @@ class TestWebAnalyticsAggregation:
 
             mock_process.assert_called_once()
             assert mock_process.call_args[1]["table_name"] == "web_stats_daily"
-            assert result == "2025-01-08"
+            # Check the full structure is returned
+            assert result == mock_return_value
+            # Check specific values
+            assert result["partition_date"] == "2025-01-08"
+            assert result["processing_results"]["success_rate"] == 1.0
 
 
 # This is just a smoke test to make sure the placeholders are correctly placed when using batches.
