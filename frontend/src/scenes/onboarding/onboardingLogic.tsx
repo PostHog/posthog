@@ -116,6 +116,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
         goToPreviousStep: true,
         resetStepKey: true,
         setOnCompleteOnboardingRedirectUrl: (url: string | null) => ({ url }),
+        skipOnboarding: true,
     }),
     reducers(() => ({
         productKey: [
@@ -230,6 +231,12 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 return !billingProduct?.subscribed || subscribedDuringOnboarding
             },
         ],
+        hasIngestedEvent: [
+            (s) => [s.currentTeam],
+            (currentTeam) => {
+                return currentTeam?.ingested_event
+            },
+        ],
         shouldShowReverseProxyStep: [
             (s) => [s.productKey],
             (productKey) => {
@@ -332,6 +339,9 @@ export const onboardingLogic = kea<onboardingLogicType>([
             if (values.isFirstProductOnboarding && !values.modalMode) {
                 actions.openSidePanel(SidePanelTab.Activation)
             }
+        },
+        skipOnboarding: () => {
+            router.actions.push(values.onCompleteOnboardingRedirectUrl)
         },
         setAllOnboardingSteps: () => {
             if (values.isStepKeyInvalid) {

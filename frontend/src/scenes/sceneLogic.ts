@@ -40,6 +40,7 @@ export const productUrlMapping: Partial<Record<ProductKey, string[]>> = {
     [ProductKey.PRODUCT_ANALYTICS]: [urls.insights()],
     [ProductKey.DATA_WAREHOUSE]: [urls.sqlEditor(), urls.pipeline(PipelineTab.Sources)],
     [ProductKey.WEB_ANALYTICS]: [urls.webAnalytics()],
+    [ProductKey.ERROR_TRACKING]: [urls.errorTracking()],
 }
 
 const pathPrefixesOnboardingNotRequiredFor = [
@@ -293,7 +294,10 @@ export const sceneLogic = kea<sceneLogicType>([
                         const allProductUrls = Object.values(productUrlMapping).flat()
                         if (
                             !teamLogic.values.hasOnboardedAnyProduct &&
-                            !allProductUrls.some((path) => removeProjectIdIfPresent(location.pathname).startsWith(path))
+                            !allProductUrls.some((path) =>
+                                removeProjectIdIfPresent(location.pathname).startsWith(path)
+                            ) &&
+                            !teamLogic.values.currentTeam?.ingested_event
                         ) {
                             console.warn('No onboarding completed, redirecting to /products')
 
@@ -320,7 +324,10 @@ export const sceneLogic = kea<sceneLogicType>([
                             !teamLogic.values.currentTeam?.has_completed_onboarding_for?.[productKeyFromUrl]
                             // cloud mode? What is the experience for self-hosted?
                         ) {
-                            if (!teamLogic.values.hasOnboardedAnyProduct) {
+                            if (
+                                !teamLogic.values.hasOnboardedAnyProduct &&
+                                !teamLogic.values.currentTeam?.ingested_event
+                            ) {
                                 console.warn(
                                     `Onboarding not completed for ${productKeyFromUrl}, redirecting to onboarding intro`
                                 )
