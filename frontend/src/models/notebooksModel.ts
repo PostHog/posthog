@@ -12,7 +12,7 @@ import { LOCAL_NOTEBOOK_TEMPLATES } from 'scenes/notebooks/NotebookTemplates/not
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
-import { getLastNewFolder } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { deleteFromTree, getLastNewFolder, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { InsightVizNode, Node } from '~/queries/schema/schema-general'
 import { DashboardType, NotebookListItemType, NotebookNodeType, NotebookTarget, QueryBasedInsightModel } from '~/types'
 
@@ -109,6 +109,13 @@ export const notebooksModel = kea<notebooksModelType>([
                     await deleteWithUndo({
                         endpoint: `projects/${values.currentProjectId}/notebooks`,
                         object: { name: title || shortId, id: shortId },
+                        callback: (undo) => {
+                            if (undo) {
+                                refreshTreeItem('notebook', shortId)
+                            } else {
+                                deleteFromTree('notebook', shortId)
+                            }
+                        },
                     })
 
                     const panelLogic = notebookPanelLogic.findMounted()
