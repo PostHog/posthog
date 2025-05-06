@@ -347,6 +347,42 @@ export class KafkaConsumer {
         })
     }
 
+    /**
+     * Special version of connect that allows you to increase throughput by processing a second batch, even if work from a previous batch is still in progress.
+     */
+    public async connectThreaded(eachBatch: (messages: Message[]) => Promise<{ backgroundWork: Promise<any> }>) {
+        if (this.config.autoOffsetStore) {
+            throw new Error('autoOffsetStore must be false when using connectThreaded')
+        }
+
+        const MAX_BACKGROUND_TASKS = 3 // TODO: Move this to main config
+
+        let backgroundBatches: Promise<void>[] = []
+
+        await this.connect(async (messages) => {
+            const { backgroundWork } = await eachBatch(messages)
+
+            // At first we just add the background work to the queue
+            backgroundBatches.push(
+                backgroundWork.finally(() => {
+                    // Only when we are fully done with the background work we store the offsets
+                    // TODO: Test if this fully works as expected - like what if backgroundBatches[1] finishes after backgroundBatches[0]
+                    this.storeOffsetsForMessages(messages)
+                    // Remove the background work from the queue when it is finished
+                    void (backgroundBatches = backgroundBatches.filter((task) => task !== backgroundWork))
+                })
+            )
+
+            // If we have too much "backpressure" we need to await one of the background tasks. We await the oldest one on purpose
+            if (backgroundBatches.length > MAX_BACKGROUND_TASKS) {
+                // If we have more than the max, we need to await one
+                await backgroundBatches[0]
+            }
+        })
+
+        await Promise.all(backgroundBatches)
+    }
+
     public async disconnect() {
         if (this.isStopping) {
             return

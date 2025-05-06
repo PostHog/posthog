@@ -31,19 +31,23 @@ export class CdpEventsConsumer extends CdpConsumerBase {
         this.kafkaConsumer = new KafkaConsumer({ groupId, topic })
     }
 
-    public async processBatch(invocationGlobals: HogFunctionInvocationGlobals[]): Promise<HogFunctionInvocation[]> {
+    public async processBatch(
+        invocationGlobals: HogFunctionInvocationGlobals[]
+    ): Promise<{ backgroundWork: Promise<any> }> {
         if (!invocationGlobals.length) {
-            return []
+            return { backgroundWork: Promise.resolve() }
         }
 
         const invocationsToBeQueued = await this.runWithHeartbeat(() =>
             this.createHogFunctionInvocations(invocationGlobals)
         )
 
-        await this.cyclotronJobQueue.queueInvocations(invocationsToBeQueued)
-        await this.hogFunctionMonitoringService.produceQueuedMessages()
-
-        return invocationsToBeQueued
+        return {
+            backgroundWork: Promise.all([
+                this.cyclotronJobQueue.queueInvocations(invocationsToBeQueued),
+                this.hogFunctionMonitoringService.produceQueuedMessages(),
+            ]),
+        }
     }
 
     /**
@@ -168,14 +172,16 @@ export class CdpEventsConsumer extends CdpConsumerBase {
         // Make sure we are ready to produce to cyclotron first
         await this.cyclotronJobQueue.startAsProducer()
         // Start consuming messages
-        await this.kafkaConsumer.connect(async (messages) => {
+        await this.kafkaConsumer.connectThreaded(async (messages) => {
             logger.info('🔁', `${this.name} - handling batch`, {
                 size: messages.length,
             })
 
             return await this.runInstrumented('handleEachBatch', async () => {
                 const invocationGlobals = await this._parseKafkaBatch(messages)
-                await this.processBatch(invocationGlobals)
+                const { backgroundWork } = await this.processBatch(invocationGlobals)
+
+                return { backgroundWork }
             })
         })
     }
