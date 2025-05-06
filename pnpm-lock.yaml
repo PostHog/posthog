@@ -7,6 +7,7 @@ settings:
 overrides:
   playwright: 1.45.0
   typescript: ~4.9.5
+  '@posthog/icons': 0.13.1
 
 patchedDependencies:
   dayjs@1.11.11:
@@ -42,10 +43,10 @@ importers:
     devDependencies:
       '@parcel/packager-ts':
         specifier: 2.13.3
-        version: 2.13.3(@parcel/core@2.13.3(@swc/helpers@0.5.15))
+        version: 2.13.3(@parcel/core@2.13.3)
       '@parcel/transformer-typescript-types':
         specifier: 2.13.3
-        version: 2.13.3(@parcel/core@2.13.3(@swc/helpers@0.5.15))(typescript@4.9.5)
+        version: 2.13.3(@parcel/core@2.13.3)(typescript@4.9.5)
       eslint:
         specifier: ^8.57.0
         version: 8.57.0
@@ -66,7 +67,7 @@ importers:
         version: 2.29.0(@typescript-eslint/parser@7.1.1(eslint@8.57.0)(typescript@4.9.5))(eslint@8.57.0)
       eslint-plugin-jest:
         specifier: ^28.6.0
-        version: 28.6.0(@typescript-eslint/eslint-plugin@7.1.1(@typescript-eslint/parser@7.1.1(eslint@8.57.0)(typescript@4.9.5))(eslint@8.57.0)(typescript@4.9.5))(eslint@8.57.0)(jest@29.7.0(@types/node@18.18.4)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@18.18.4)(typescript@4.9.5)))(typescript@4.9.5)
+        version: 28.6.0(@typescript-eslint/eslint-plugin@7.1.1(@typescript-eslint/parser@7.1.1(eslint@8.57.0)(typescript@4.9.5))(eslint@8.57.0)(typescript@4.9.5))(eslint@8.57.0)(jest@29.7.0)(typescript@4.9.5)
       eslint-plugin-posthog:
         specifier: workspace:*
         version: link:common/eslint_rules
@@ -99,7 +100,7 @@ importers:
         version: 4.3.0(stylelint@15.11.0(typescript@4.9.5))
       stylelint-config-standard-scss:
         specifier: ^11.1.0
-        version: 11.1.0(postcss@8.4.31)(stylelint@15.11.0(typescript@4.9.5))
+        version: 11.1.0(postcss@8.5.3)(stylelint@15.11.0(typescript@4.9.5))
       stylelint-order:
         specifier: ^6.0.3
         version: 6.0.3(stylelint@15.11.0(typescript@4.9.5))
@@ -198,7 +199,7 @@ importers:
         version: 3.12.1
       jest:
         specifier: ^29.7.0
-        version: 29.7.0(@types/node@18.18.4)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@18.18.4)(typescript@4.9.5))
+        version: 29.7.0(@types/node@18.18.4)(ts-node@10.9.1(@swc/core@1.10.14(@swc/helpers@0.5.15))(@types/node@18.18.4)(typescript@4.9.5))
       parcel:
         specifier: ^2.13.3
         version: 2.13.3(@swc/helpers@0.5.15)(cssnano@7.0.6(postcss@8.5.3))(postcss@8.5.3)(relateurl@0.2.7)(svgo@3.3.2)(terser@5.19.1)(typescript@4.9.5)
@@ -306,7 +307,7 @@ importers:
         version: 7.6.4(@babel/core@7.26.0)(@swc/core@1.11.4(@swc/helpers@0.5.15))(@swc/helpers@0.5.15)(encoding@0.1.13)(esbuild@0.18.20)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(type-fest@3.5.3)(typescript@4.9.5)(webpack-cli@5.1.4)(webpack-hot-middleware@2.25.4)
       '@storybook/test-runner':
         specifier: ^0.16.0
-        version: 0.16.0(@swc/helpers@0.5.15)(@types/node@18.18.4)(encoding@0.1.13)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@18.18.4)(typescript@4.9.5))
+        version: 0.16.0(@swc/helpers@0.5.15)(encoding@0.1.13)
       '@storybook/theming':
         specifier: ^7.6.4
         version: 7.6.20(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
@@ -382,7 +383,7 @@ importers:
         version: 7.24.0
       '@cypress/webpack-preprocessor':
         specifier: ^6.0.2
-        version: 6.0.2(@babel/core@7.26.0)(@babel/preset-env@7.23.5(@babel/core@7.26.0))(babel-loader@8.3.0(@babel/core@7.26.0)(webpack@5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15))))(webpack@5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15)))
+        version: 6.0.2(@babel/core@7.26.0)(@babel/preset-env@7.23.5(@babel/core@7.26.0))(babel-loader@8.3.0(@babel/core@7.26.0)(webpack@5.88.2))(webpack@5.88.2)
       '@posthog/frontend':
         specifier: workspace:*
         version: link:../frontend
@@ -391,7 +392,7 @@ importers:
         version: link:../common/storybook
       css-loader:
         specifier: '*'
-        version: 3.6.0(webpack@5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15)))
+        version: 3.6.0(webpack@5.88.2)
       cypress:
         specifier: ^13.11.0
         version: 13.11.0
@@ -409,28 +410,28 @@ importers:
         version: link:../common/eslint_rules
       file-loader:
         specifier: '*'
-        version: 6.2.0(webpack@5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15)))
+        version: 6.2.0(webpack@5.88.2)
       less-loader:
         specifier: '*'
-        version: 7.3.0(less@4.2.2)(webpack@5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15)))
+        version: 7.3.0(less@4.2.2)(webpack@5.88.2)
       postcss-loader:
         specifier: '*'
-        version: 4.3.0(postcss@8.5.3)(webpack@5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15)))
+        version: 4.3.0(postcss@8.5.3)(webpack@5.88.2)
       posthog-js:
         specifier: '*'
         version: 1.217.2
       sass-loader:
         specifier: '*'
-        version: 10.3.1(sass@1.56.0)(webpack@5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15)))
+        version: 10.3.1(sass@1.56.0)(webpack@5.88.2)
       style-loader:
         specifier: '*'
-        version: 2.0.0(webpack@5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15)))
+        version: 2.0.0(webpack@5.88.2)
       typescript:
         specifier: ~4.9.5
         version: 4.9.5
       webpack:
         specifier: '*'
-        version: 5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15))
+        version: 5.88.2
     devDependencies:
       '@babel/core':
         specifier: ^7.22.10
@@ -461,7 +462,7 @@ importers:
         version: 7.23.3(@babel/core@7.26.0)
       babel-loader:
         specifier: ^8.0.6
-        version: 8.3.0(@babel/core@7.26.0)(webpack@5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15)))
+        version: 8.3.0(@babel/core@7.26.0)(webpack@5.88.2)
       babel-plugin-import:
         specifier: ^1.13.0
         version: 1.13.8
@@ -563,8 +564,8 @@ importers:
         specifier: workspace:*
         version: link:../common/hogvm/typescript
       '@posthog/icons':
-        specifier: 0.12.1
-        version: 0.12.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.13.1
+        version: 0.13.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@posthog/plugin-scaffold':
         specifier: ^1.4.4
         version: 1.4.4
@@ -848,8 +849,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.237.0
-        version: 1.237.0(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.239.1
+        version: 1.239.1(@rrweb/types@2.0.0-alpha.17)
       posthog-js-lite:
         specifier: 3.0.0
         version: 3.0.0
@@ -1184,7 +1185,7 @@ importers:
         version: 4.3.0(stylelint@15.11.0(typescript@4.9.5))
       stylelint-config-standard-scss:
         specifier: ^11.1.0
-        version: 11.1.0(postcss@8.5.3)(stylelint@15.11.0(typescript@4.9.5))
+        version: 11.1.0(postcss@8.4.31)(stylelint@15.11.0(typescript@4.9.5))
       stylelint-order:
         specifier: ^6.0.3
         version: 6.0.3(stylelint@15.11.0(typescript@4.9.5))
@@ -1371,6 +1372,9 @@ importers:
       typescript:
         specifier: ~4.9.5
         version: 4.9.5
+      undici:
+        specifier: ^7.8.0
+        version: 7.8.0
       undici-types:
         specifier: ^7.3.0
         version: 7.3.0
@@ -1532,8 +1536,8 @@ importers:
   products/actions:
     dependencies:
       '@posthog/icons':
-        specifier: '*'
-        version: 0.11.6(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.13.1
+        version: 0.13.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1559,8 +1563,8 @@ importers:
   products/dashboards:
     dependencies:
       '@posthog/icons':
-        specifier: '*'
-        version: 0.11.6(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.13.1
+        version: 0.13.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1586,8 +1590,8 @@ importers:
   products/early_access_features:
     dependencies:
       '@posthog/icons':
-        specifier: '*'
-        version: 0.11.6(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.13.1
+        version: 0.13.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@storybook/react':
         specifier: '*'
         version: 7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@4.9.5)
@@ -1618,8 +1622,8 @@ importers:
   products/experiments:
     dependencies:
       '@posthog/icons':
-        specifier: '*'
-        version: 0.11.6(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.13.1
+        version: 0.13.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1645,8 +1649,8 @@ importers:
   products/feature_flags:
     dependencies:
       '@posthog/icons':
-        specifier: '*'
-        version: 0.11.6(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.13.1
+        version: 0.13.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1672,8 +1676,8 @@ importers:
   products/groups:
     dependencies:
       '@posthog/icons':
-        specifier: '*'
-        version: 0.11.6(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.13.1
+        version: 0.13.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1699,8 +1703,8 @@ importers:
   products/llm_observability:
     dependencies:
       '@posthog/icons':
-        specifier: '*'
-        version: 0.11.6(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.13.1
+        version: 0.13.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@storybook/react':
         specifier: '*'
         version: 7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@4.9.5)
@@ -1721,7 +1725,7 @@ importers:
         version: link:../../common/eslint_rules
       jest:
         specifier: '*'
-        version: 29.7.0(@types/node@18.18.4)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@18.18.4)(typescript@4.9.5))
+        version: 29.7.0(@types/node@18.18.4)(ts-node@10.9.1(@swc/core@1.10.14(@swc/helpers@0.5.15))(@types/node@18.18.4)(typescript@4.9.5))
       kea:
         specifier: '*'
         version: 3.1.5(react@18.2.0)
@@ -1747,8 +1751,8 @@ importers:
   products/messaging:
     dependencies:
       '@posthog/icons':
-        specifier: '*'
-        version: 0.11.6(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.13.1
+        version: 0.13.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1777,8 +1781,8 @@ importers:
   products/notebooks:
     dependencies:
       '@posthog/icons':
-        specifier: '*'
-        version: 0.11.6(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.13.1
+        version: 0.13.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1804,8 +1808,8 @@ importers:
   products/persons:
     dependencies:
       '@posthog/icons':
-        specifier: '*'
-        version: 0.11.6(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.13.1
+        version: 0.13.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1831,8 +1835,8 @@ importers:
   products/product_analytics:
     dependencies:
       '@posthog/icons':
-        specifier: '*'
-        version: 0.11.6(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.13.1
+        version: 0.13.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1858,8 +1862,8 @@ importers:
   products/replay:
     dependencies:
       '@posthog/icons':
-        specifier: '*'
-        version: 0.11.6(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.13.1
+        version: 0.13.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1885,8 +1889,8 @@ importers:
   products/revenue_analytics:
     dependencies:
       '@posthog/icons':
-        specifier: '*'
-        version: 0.11.7(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.13.1
+        version: 0.13.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@storybook/react':
         specifier: '*'
         version: 7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@4.9.5)
@@ -1915,8 +1919,8 @@ importers:
   products/web_analytics:
     dependencies:
       '@posthog/icons':
-        specifier: '*'
-        version: 0.11.6(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.13.1
+        version: 0.13.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -4437,20 +4441,8 @@ packages:
     resolution: {integrity: sha512-B8hZ8Dh2EoJoDb7Gx38ylBQM92oON/X2IxXCb7BfYStk3m17nStcAyaCsc2zbvxC0fFfTMU8lFRiFSEJmijkyg==}
     engines: {node: '>=12'}
 
-  '@posthog/icons@0.11.6':
-    resolution: {integrity: sha512-AQxDzr3W5ukP3k7ECxu6aTwTP765XticGE6zUMI2Fb8/4nPD8xzautY48W8d3NUFQkODSfedezIPmgZmgL4FHw==}
-    peerDependencies:
-      react: '>=16.14.0'
-      react-dom: '>=16.14.0'
-
-  '@posthog/icons@0.11.7':
-    resolution: {integrity: sha512-gx/2NkYmK8c8ZXovk3lLV2xuwUb8LbrhLpG9/5La5pt+OanVisDjR81yP6dDoYFO3BiBVFqnGLsSxuGqpTgpmg==}
-    peerDependencies:
-      react: '>=16.14.0'
-      react-dom: '>=16.14.0'
-
-  '@posthog/icons@0.12.1':
-    resolution: {integrity: sha512-Vix+4L8h2hawu2bZ2QaJOeDbw7lMx5Q/eiPit9fcH2e0UEl/oYFH80/hffNEQPtJ+op9IMY0TKfxJza9sCzNBw==}
+  '@posthog/icons@0.13.1':
+    resolution: {integrity: sha512-A/feFWVvdBpbDEyxzJzRZUuM+w3UlgNXpRfIGu3BS04PJrlhdh7V5LfsIBe9H/qirMt92I4z4117U+SUilC9FQ==}
     peerDependencies:
       react: '>=16.14.0'
       react-dom: '>=16.14.0'
@@ -13230,8 +13222,8 @@ packages:
       rrweb-snapshot:
         optional: true
 
-  posthog-js@1.237.0:
-    resolution: {integrity: sha512-DyZfwDRz405cKKskL22CXvc9EpkBmuM9lCOYsZO3L1/zXu7IGiP9nNlLaxlzy7K/8mHxQ3szoy/DBSw/zXL1pw==}
+  posthog-js@1.239.1:
+    resolution: {integrity: sha512-4cN3A02e9uyyTVQ/9+bGVfvoAmpM1mlVXlq2DsujCQjloMMSbEb+6Uwv6fro3Q5qk7NEU62kQqZHyvqQIqv9zA==}
     peerDependencies:
       '@rrweb/types': 2.0.0-alpha.17
       rrweb-snapshot: 2.0.0-alpha.17
@@ -15387,6 +15379,10 @@ packages:
   undici-types@7.3.0:
     resolution: {integrity: sha512-z2pHpkN2BEJl3QlQo0GtfGCyuhuBbWX60vzGwyn7ex/seM2UkvyGEfEV0Qb9pXc5StNfcJpsstgaf2YTEJa63Q==}
 
+  undici@7.8.0:
+    resolution: {integrity: sha512-vFv1GA99b7eKO1HG/4RPu2Is3FBTWBrmzqzO0mz+rLxN3yXkE4mqRcb8g8fHxzX4blEysrNZLqg5RbJLqX5buA==}
+    engines: {node: '>=20.18.1'}
+
   unicode-canonical-property-names-ecmascript@2.0.0:
     resolution: {integrity: sha512-yY5PpDlfVIU5+y/BSCxAJRBIS1Zc2dDG3Ujq+sR0U+JjUevW2JhocOF+soROYDSaAezOzOKuyyixhD6mBknSmQ==}
     engines: {node: '>=4'}
@@ -15457,8 +15453,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.251.0:
-    resolution: {integrity: sha512-HPu4I6+mq8kSEHvtzOb8OUsxw4mQagKB4d+Ukg3Vp6OVWibwi6GGdDpsI1xKXAYcrIGLgKrOAzJ3MfD98HRCLA==}
+  unlayer-types@1.252.0:
+    resolution: {integrity: sha512-9Bm1Daolzx9hxIM+G4xAqsZDEbp5wX/CkCkqUvccQhjwu3g62UhIKgsFnQvAHeO3dG5s9A/5jvZahbXrz0V2Fg==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -17853,15 +17849,15 @@ snapshots:
       tunnel-agent: 0.6.0
       uuid: 8.3.2
 
-  '@cypress/webpack-preprocessor@6.0.2(@babel/core@7.26.0)(@babel/preset-env@7.23.5(@babel/core@7.26.0))(babel-loader@8.3.0(@babel/core@7.26.0)(webpack@5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15))))(webpack@5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15)))':
+  '@cypress/webpack-preprocessor@6.0.2(@babel/core@7.26.0)(@babel/preset-env@7.23.5(@babel/core@7.26.0))(babel-loader@8.3.0(@babel/core@7.26.0)(webpack@5.88.2))(webpack@5.88.2)':
     dependencies:
       '@babel/core': 7.26.0
       '@babel/preset-env': 7.23.5(@babel/core@7.26.0)
-      babel-loader: 8.3.0(@babel/core@7.26.0)(webpack@5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15)))
+      babel-loader: 8.3.0(@babel/core@7.26.0)(webpack@5.88.2)
       bluebird: 3.7.1
       debug: 4.4.0(supports-color@8.1.1)
       lodash: 4.17.21
-      webpack: 5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15))
+      webpack: 5.88.2
     transitivePeerDependencies:
       - supports-color
 
@@ -18772,6 +18768,14 @@ snapshots:
       '@parcel/utils': 2.13.3
       lmdb: 2.8.5
 
+  '@parcel/cache@2.13.3(@parcel/core@2.13.3)':
+    dependencies:
+      '@parcel/core': 2.13.3
+      '@parcel/fs': 2.13.3(@parcel/core@2.13.3)
+      '@parcel/logger': 2.13.3
+      '@parcel/utils': 2.13.3
+      lmdb: 2.8.5
+
   '@parcel/codeframe@2.13.3':
     dependencies:
       chalk: 4.1.2
@@ -18828,6 +18832,36 @@ snapshots:
       - typescript
       - uncss
 
+  '@parcel/core@2.13.3':
+    dependencies:
+      '@mischnic/json-sourcemap': 0.1.1
+      '@parcel/cache': 2.13.3(@parcel/core@2.13.3)
+      '@parcel/diagnostic': 2.13.3
+      '@parcel/events': 2.13.3
+      '@parcel/feature-flags': 2.13.3
+      '@parcel/fs': 2.13.3(@parcel/core@2.13.3)
+      '@parcel/graph': 3.3.3
+      '@parcel/logger': 2.13.3
+      '@parcel/package-manager': 2.13.3(@parcel/core@2.13.3)
+      '@parcel/plugin': 2.13.3(@parcel/core@2.13.3)
+      '@parcel/profiler': 2.13.3
+      '@parcel/rust': 2.13.3
+      '@parcel/source-map': 2.1.1
+      '@parcel/types': 2.13.3(@parcel/core@2.13.3)
+      '@parcel/utils': 2.13.3
+      '@parcel/workers': 2.13.3(@parcel/core@2.13.3)
+      base-x: 3.0.10
+      browserslist: 4.24.3
+      clone: 2.1.2
+      dotenv: 16.4.7
+      dotenv-expand: 11.0.7
+      json5: 2.2.3
+      msgpackr: 1.11.2
+      nullthrows: 1.1.1
+      semver: 7.7.0
+    transitivePeerDependencies:
+      - '@swc/helpers'
+
   '@parcel/core@2.13.3(@swc/helpers@0.5.15)':
     dependencies:
       '@mischnic/json-sourcemap': 0.1.1
@@ -18877,6 +18911,16 @@ snapshots:
       '@parcel/watcher': 2.5.1
       '@parcel/workers': 2.13.3(@parcel/core@2.13.3(@swc/helpers@0.5.15))
 
+  '@parcel/fs@2.13.3(@parcel/core@2.13.3)':
+    dependencies:
+      '@parcel/core': 2.13.3
+      '@parcel/feature-flags': 2.13.3
+      '@parcel/rust': 2.13.3
+      '@parcel/types-internal': 2.13.3
+      '@parcel/utils': 2.13.3
+      '@parcel/watcher': 2.5.1
+      '@parcel/workers': 2.13.3(@parcel/core@2.13.3)
+
   '@parcel/graph@3.3.3':
     dependencies:
       '@parcel/feature-flags': 2.13.3
@@ -18904,6 +18948,18 @@ snapshots:
       '@mischnic/json-sourcemap': 0.1.1
       '@parcel/diagnostic': 2.13.3
       '@parcel/fs': 2.13.3(@parcel/core@2.13.3(@swc/helpers@0.5.15))
+      '@parcel/rust': 2.13.3
+      '@parcel/utils': 2.13.3
+      nullthrows: 1.1.1
+      semver: 7.7.0
+    transitivePeerDependencies:
+      - '@parcel/core'
+
+  '@parcel/node-resolver-core@3.4.3(@parcel/core@2.13.3)':
+    dependencies:
+      '@mischnic/json-sourcemap': 0.1.1
+      '@parcel/diagnostic': 2.13.3
+      '@parcel/fs': 2.13.3(@parcel/core@2.13.3)
       '@parcel/rust': 2.13.3
       '@parcel/utils': 2.13.3
       nullthrows: 1.1.1
@@ -18987,6 +19043,21 @@ snapshots:
     transitivePeerDependencies:
       - '@swc/helpers'
 
+  '@parcel/package-manager@2.13.3(@parcel/core@2.13.3)':
+    dependencies:
+      '@parcel/core': 2.13.3
+      '@parcel/diagnostic': 2.13.3
+      '@parcel/fs': 2.13.3(@parcel/core@2.13.3)
+      '@parcel/logger': 2.13.3
+      '@parcel/node-resolver-core': 3.4.3(@parcel/core@2.13.3)
+      '@parcel/types': 2.13.3(@parcel/core@2.13.3)
+      '@parcel/utils': 2.13.3
+      '@parcel/workers': 2.13.3(@parcel/core@2.13.3)
+      '@swc/core': 1.11.4(@swc/helpers@0.5.15)
+      semver: 7.7.0
+    transitivePeerDependencies:
+      - '@swc/helpers'
+
   '@parcel/packager-css@2.13.3(@parcel/core@2.13.3(@swc/helpers@0.5.15))':
     dependencies:
       '@parcel/diagnostic': 2.13.3
@@ -19042,6 +19113,12 @@ snapshots:
     transitivePeerDependencies:
       - '@parcel/core'
 
+  '@parcel/packager-ts@2.13.3(@parcel/core@2.13.3)':
+    dependencies:
+      '@parcel/plugin': 2.13.3(@parcel/core@2.13.3)
+    transitivePeerDependencies:
+      - '@parcel/core'
+
   '@parcel/packager-wasm@2.13.3(@parcel/core@2.13.3(@swc/helpers@0.5.15))':
     dependencies:
       '@parcel/plugin': 2.13.3(@parcel/core@2.13.3(@swc/helpers@0.5.15))
@@ -19051,6 +19128,12 @@ snapshots:
   '@parcel/plugin@2.13.3(@parcel/core@2.13.3(@swc/helpers@0.5.15))':
     dependencies:
       '@parcel/types': 2.13.3(@parcel/core@2.13.3(@swc/helpers@0.5.15))
+    transitivePeerDependencies:
+      - '@parcel/core'
+
+  '@parcel/plugin@2.13.3(@parcel/core@2.13.3)':
+    dependencies:
+      '@parcel/types': 2.13.3(@parcel/core@2.13.3)
     transitivePeerDependencies:
       - '@parcel/core'
 
@@ -19266,6 +19349,18 @@ snapshots:
     transitivePeerDependencies:
       - '@parcel/core'
 
+  '@parcel/transformer-typescript-types@2.13.3(@parcel/core@2.13.3)(typescript@4.9.5)':
+    dependencies:
+      '@parcel/diagnostic': 2.13.3
+      '@parcel/plugin': 2.13.3(@parcel/core@2.13.3)
+      '@parcel/source-map': 2.1.1
+      '@parcel/ts-utils': 2.13.3(typescript@4.9.5)
+      '@parcel/utils': 2.13.3
+      nullthrows: 1.1.1
+      typescript: 4.9.5
+    transitivePeerDependencies:
+      - '@parcel/core'
+
   '@parcel/ts-utils@2.13.3(typescript@4.9.5)':
     dependencies:
       nullthrows: 1.1.1
@@ -19282,6 +19377,13 @@ snapshots:
     dependencies:
       '@parcel/types-internal': 2.13.3
       '@parcel/workers': 2.13.3(@parcel/core@2.13.3(@swc/helpers@0.5.15))
+    transitivePeerDependencies:
+      - '@parcel/core'
+
+  '@parcel/types@2.13.3(@parcel/core@2.13.3)':
+    dependencies:
+      '@parcel/types-internal': 2.13.3
+      '@parcel/workers': 2.13.3(@parcel/core@2.13.3)
     transitivePeerDependencies:
       - '@parcel/core'
 
@@ -19366,6 +19468,16 @@ snapshots:
       '@parcel/utils': 2.13.3
       nullthrows: 1.1.1
 
+  '@parcel/workers@2.13.3(@parcel/core@2.13.3)':
+    dependencies:
+      '@parcel/core': 2.13.3
+      '@parcel/diagnostic': 2.13.3
+      '@parcel/logger': 2.13.3
+      '@parcel/profiler': 2.13.3
+      '@parcel/types-internal': 2.13.3
+      '@parcel/utils': 2.13.3
+      nullthrows: 1.1.1
+
   '@pkgjs/parseargs@0.11.0':
     optional: true
 
@@ -19394,17 +19506,7 @@ snapshots:
 
   '@posthog/clickhouse@1.7.0': {}
 
-  '@posthog/icons@0.11.6(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
-    dependencies:
-      react: 18.2.0
-      react-dom: 18.2.0(react@18.2.0)
-
-  '@posthog/icons@0.11.7(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
-    dependencies:
-      react: 18.2.0
-      react-dom: 18.2.0(react@18.2.0)
-
-  '@posthog/icons@0.12.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
+  '@posthog/icons@0.13.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
     dependencies:
       react: 18.2.0
       react-dom: 18.2.0(react@18.2.0)
@@ -21311,7 +21413,7 @@ snapshots:
       - encoding
       - supports-color
 
-  '@storybook/test-runner@0.16.0(@swc/helpers@0.5.15)(@types/node@18.18.4)(encoding@0.1.13)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@18.18.4)(typescript@4.9.5))':
+  '@storybook/test-runner@0.16.0(@swc/helpers@0.5.15)(encoding@0.1.13)':
     dependencies:
       '@babel/core': 7.26.0
       '@babel/generator': 7.26.3
@@ -21328,14 +21430,14 @@ snapshots:
       commander: 9.4.1
       expect-playwright: 0.8.0
       glob: 10.4.5
-      jest: 29.7.0(@types/node@18.18.4)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@18.18.4)(typescript@4.9.5))
+      jest: 29.7.0(@types/node@18.18.4)(ts-node@10.9.1(@swc/core@1.10.14(@swc/helpers@0.5.15))(@types/node@18.18.4)(typescript@4.9.5))
       jest-circus: 29.7.0
       jest-environment-node: 29.7.0
       jest-junit: 16.0.0
-      jest-playwright-preset: 4.0.0(jest-circus@29.7.0)(jest-environment-node@29.7.0)(jest-runner@29.7.0)(jest@29.7.0(@types/node@18.18.4)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@18.18.4)(typescript@4.9.5)))
+      jest-playwright-preset: 4.0.0(jest-circus@29.7.0)(jest-environment-node@29.7.0)(jest-runner@29.7.0)(jest@29.7.0)
       jest-runner: 29.7.0
       jest-serializer-html: 7.1.0
-      jest-watch-typeahead: 2.2.2(jest@29.7.0(@types/node@18.18.4)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@18.18.4)(typescript@4.9.5)))
+      jest-watch-typeahead: 2.2.2(jest@29.7.0)
       node-fetch: 2.6.9(encoding@0.1.13)
       playwright: 1.45.0
       read-pkg-up: 7.0.1
@@ -23242,15 +23344,6 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  babel-loader@8.3.0(@babel/core@7.26.0)(webpack@5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15))):
-    dependencies:
-      '@babel/core': 7.26.0
-      find-cache-dir: 3.3.2
-      loader-utils: 2.0.4
-      make-dir: 3.1.0
-      schema-utils: 2.7.1
-      webpack: 5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15))
-
   babel-loader@8.3.0(@babel/core@7.26.0)(webpack@5.88.2):
     dependencies:
       '@babel/core': 7.26.0
@@ -24307,23 +24400,6 @@ snapshots:
       postcss: 8.5.2
       postcss-selector-parser: 7.1.0
       postcss-value-parser: 4.2.0
-
-  css-loader@3.6.0(webpack@5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15))):
-    dependencies:
-      camelcase: 5.3.1
-      cssesc: 3.0.0
-      icss-utils: 4.1.1
-      loader-utils: 1.4.2
-      normalize-path: 3.0.0
-      postcss: 7.0.39
-      postcss-modules-extract-imports: 2.0.0
-      postcss-modules-local-by-default: 3.0.3
-      postcss-modules-scope: 2.2.0
-      postcss-modules-values: 3.0.0
-      postcss-value-parser: 4.2.0
-      schema-utils: 2.7.1
-      semver: 6.3.1
-      webpack: 5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15))
 
   css-loader@3.6.0(webpack@5.88.2):
     dependencies:
@@ -25603,7 +25679,7 @@ snapshots:
 
   eslint-import-resolver-node@0.3.9:
     dependencies:
-      debug: 3.2.7(supports-color@5.5.0)
+      debug: 3.2.7(supports-color@8.1.1)
       is-core-module: 2.13.1
       resolve: 1.22.8
     transitivePeerDependencies:
@@ -25611,7 +25687,7 @@ snapshots:
 
   eslint-module-utils@2.8.0(@typescript-eslint/parser@7.1.1(eslint@8.57.0)(typescript@4.9.5))(eslint-import-resolver-node@0.3.9)(eslint@8.57.0):
     dependencies:
-      debug: 3.2.7(supports-color@5.5.0)
+      debug: 3.2.7(supports-color@8.1.1)
     optionalDependencies:
       '@typescript-eslint/parser': 7.1.1(eslint@8.57.0)(typescript@4.9.5)
       eslint: 8.57.0
@@ -25653,7 +25729,7 @@ snapshots:
       array.prototype.findlastindex: 1.2.3
       array.prototype.flat: 1.3.2
       array.prototype.flatmap: 1.3.2
-      debug: 3.2.7(supports-color@5.5.0)
+      debug: 3.2.7(supports-color@8.1.1)
       doctrine: 2.1.0
       eslint: 8.57.0
       eslint-import-resolver-node: 0.3.9
@@ -25681,6 +25757,17 @@ snapshots:
     optionalDependencies:
       '@typescript-eslint/eslint-plugin': 7.1.1(@typescript-eslint/parser@7.1.1(eslint@8.57.0)(typescript@4.9.5))(eslint@8.57.0)(typescript@4.9.5)
       jest: 29.7.0(@types/node@18.18.4)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@18.18.4)(typescript@4.9.5))
+    transitivePeerDependencies:
+      - supports-color
+      - typescript
+
+  eslint-plugin-jest@28.6.0(@typescript-eslint/eslint-plugin@7.1.1(@typescript-eslint/parser@7.1.1(eslint@8.57.0)(typescript@4.9.5))(eslint@8.57.0)(typescript@4.9.5))(eslint@8.57.0)(jest@29.7.0)(typescript@4.9.5):
+    dependencies:
+      '@typescript-eslint/utils': 7.1.1(eslint@8.57.0)(typescript@4.9.5)
+      eslint: 8.57.0
+    optionalDependencies:
+      '@typescript-eslint/eslint-plugin': 7.1.1(@typescript-eslint/parser@7.1.1(eslint@8.57.0)(typescript@4.9.5))(eslint@8.57.0)(typescript@4.9.5)
+      jest: 29.7.0(@types/node@18.18.4)(ts-node@10.9.1(@swc/core@1.10.14(@swc/helpers@0.5.15))(@types/node@18.18.4)(typescript@4.9.5))
     transitivePeerDependencies:
       - supports-color
       - typescript
@@ -26105,12 +26192,6 @@ snapshots:
   file-entry-cache@7.0.1:
     dependencies:
       flat-cache: 3.2.0
-
-  file-loader@6.2.0(webpack@5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15))):
-    dependencies:
-      loader-utils: 2.0.4
-      schema-utils: 3.3.0
-      webpack: 5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15))
 
   file-loader@6.2.0(webpack@5.88.2):
     dependencies:
@@ -27883,10 +27964,10 @@ snapshots:
       '@types/node': 18.18.4
       jest-util: 29.7.0
 
-  jest-playwright-preset@4.0.0(jest-circus@29.7.0)(jest-environment-node@29.7.0)(jest-runner@29.7.0)(jest@29.7.0(@types/node@18.18.4)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@18.18.4)(typescript@4.9.5))):
+  jest-playwright-preset@4.0.0(jest-circus@29.7.0)(jest-environment-node@29.7.0)(jest-runner@29.7.0)(jest@29.7.0):
     dependencies:
       expect-playwright: 0.8.0
-      jest: 29.7.0(@types/node@18.18.4)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@18.18.4)(typescript@4.9.5))
+      jest: 29.7.0(@types/node@18.18.4)(ts-node@10.9.1(@swc/core@1.10.14(@swc/helpers@0.5.15))(@types/node@18.18.4)(typescript@4.9.5))
       jest-circus: 29.7.0
       jest-environment-node: 29.7.0
       jest-process-manager: 0.4.0
@@ -28040,11 +28121,11 @@ snapshots:
       leven: 3.1.0
       pretty-format: 29.7.0
 
-  jest-watch-typeahead@2.2.2(jest@29.7.0(@types/node@18.18.4)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@18.18.4)(typescript@4.9.5))):
+  jest-watch-typeahead@2.2.2(jest@29.7.0):
     dependencies:
       ansi-escapes: 6.0.0
       chalk: 5.4.1
-      jest: 29.7.0(@types/node@18.18.4)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@18.18.4)(typescript@4.9.5))
+      jest: 29.7.0(@types/node@18.18.4)(ts-node@10.9.1(@swc/core@1.10.14(@swc/helpers@0.5.15))(@types/node@18.18.4)(typescript@4.9.5))
       jest-regex-util: 29.6.3
       jest-watcher: 29.7.0
       slash: 5.1.0
@@ -28375,14 +28456,6 @@ snapshots:
       app-root-dir: 1.0.2
       dotenv: 16.4.7
       dotenv-expand: 10.0.0
-
-  less-loader@7.3.0(less@4.2.2)(webpack@5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15))):
-    dependencies:
-      klona: 2.0.5
-      less: 4.2.2
-      loader-utils: 2.0.4
-      schema-utils: 3.3.0
-      webpack: 5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15))
 
   less-loader@7.3.0(less@4.2.2)(webpack@5.88.2):
     dependencies:
@@ -30225,16 +30298,6 @@ snapshots:
       '@csstools/utilities': 2.0.0(postcss@8.5.2)
       postcss: 8.5.2
 
-  postcss-loader@4.3.0(postcss@8.5.3)(webpack@5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15))):
-    dependencies:
-      cosmiconfig: 7.1.0
-      klona: 2.0.5
-      loader-utils: 2.0.4
-      postcss: 8.5.3
-      schema-utils: 3.3.0
-      semver: 7.7.0
-      webpack: 5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15))
-
   postcss-loader@4.3.0(postcss@8.5.3)(webpack@5.88.2):
     dependencies:
       cosmiconfig: 7.1.0
@@ -30730,7 +30793,7 @@ snapshots:
     optionalDependencies:
       '@rrweb/types': 2.0.0-alpha.17
 
-  posthog-js@1.237.0(@rrweb/types@2.0.0-alpha.17):
+  posthog-js@1.239.1(@rrweb/types@2.0.0-alpha.17):
     dependencies:
       core-js: 3.40.0
       fflate: 0.4.8
@@ -31235,7 +31298,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.2.0):
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.251.0
+      unlayer-types: 1.252.0
 
   react-error-overlay@6.0.9: {}
 
@@ -31890,17 +31953,6 @@ snapshots:
       sass-embedded-win32-ia32: 1.70.0
       sass-embedded-win32-x64: 1.70.0
 
-  sass-loader@10.3.1(sass@1.56.0)(webpack@5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15))):
-    dependencies:
-      klona: 2.0.5
-      loader-utils: 2.0.4
-      neo-async: 2.6.2
-      schema-utils: 3.3.0
-      semver: 7.7.0
-      webpack: 5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15))
-    optionalDependencies:
-      sass: 1.56.0
-
   sass-loader@10.3.1(sass@1.56.0)(webpack@5.88.2):
     dependencies:
       klona: 2.0.5
@@ -32525,12 +32577,6 @@ snapshots:
 
   stubs@3.0.0: {}
 
-  style-loader@2.0.0(webpack@5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15))):
-    dependencies:
-      loader-utils: 2.0.4
-      schema-utils: 3.3.0
-      webpack: 5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15))
-
   style-loader@2.0.0(webpack@5.88.2):
     dependencies:
       loader-utils: 2.0.4
@@ -32874,16 +32920,14 @@ snapshots:
       '@swc/core': 1.11.4(@swc/helpers@0.5.15)
       esbuild: 0.18.20
 
-  terser-webpack-plugin@5.3.9(@swc/core@1.11.4(@swc/helpers@0.5.15))(webpack@5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15))):
+  terser-webpack-plugin@5.3.9(webpack@5.88.2):
     dependencies:
       '@jridgewell/trace-mapping': 0.3.25
       jest-worker: 27.5.1
       schema-utils: 3.3.0
       serialize-javascript: 6.0.1
       terser: 5.19.1
-      webpack: 5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15))
-    optionalDependencies:
-      '@swc/core': 1.11.4(@swc/helpers@0.5.15)
+      webpack: 5.88.2
 
   terser@5.19.1:
     dependencies:
@@ -33282,6 +33326,8 @@ snapshots:
 
   undici-types@7.3.0: {}
 
+  undici@7.8.0: {}
+
   unicode-canonical-property-names-ecmascript@2.0.0: {}
 
   unicode-match-property-ecmascript@2.0.0:
@@ -33355,7 +33401,7 @@ snapshots:
 
   universalify@2.0.0: {}
 
-  unlayer-types@1.251.0: {}
+  unlayer-types@1.252.0: {}
 
   unpipe@1.0.0: {}
 
@@ -33664,7 +33710,7 @@ snapshots:
 
   webpack-virtual-modules@0.5.0: {}
 
-  webpack@5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15)):
+  webpack@5.88.2:
     dependencies:
       '@types/eslint-scope': 3.7.4
       '@types/estree': 1.0.1
@@ -33687,7 +33733,7 @@ snapshots:
       neo-async: 2.6.2
       schema-utils: 3.3.0
       tapable: 2.2.1
-      terser-webpack-plugin: 5.3.9(@swc/core@1.11.4(@swc/helpers@0.5.15))(webpack@5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15)))
+      terser-webpack-plugin: 5.3.9(webpack@5.88.2)
       watchpack: 2.4.0
       webpack-sources: 3.2.3
     transitivePeerDependencies:

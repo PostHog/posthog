@@ -206,6 +206,12 @@ export type HogFunctionInvocationQueueParameters =
     | HogFunctionQueueParametersFetchRequest
     | HogFunctionQueueParametersFetchResponse
 
+export const HOG_FUNCTION_INVOCATION_JOB_QUEUES = ['hog', 'fetch', 'plugin'] as const
+export type HogFunctionInvocationJobQueue = (typeof HOG_FUNCTION_INVOCATION_JOB_QUEUES)[number]
+
+export const CYCLOTRON_JOB_QUEUE_KINDS = ['postgres', 'kafka'] as const
+export type CyclotronJobQueueKind = (typeof CYCLOTRON_JOB_QUEUE_KINDS)[number]
+
 export type HogFunctionInvocation = {
     id: string
     globals: HogFunctionInvocationGlobalsWithInputs
@@ -215,11 +221,12 @@ export type HogFunctionInvocation = {
     vmState?: VMState
     timings: HogFunctionTiming[]
     // Params specific to the queueing system
-    queue: 'hog' | 'fetch' | 'plugins'
+    queue: HogFunctionInvocationJobQueue
     queueParameters?: HogFunctionInvocationQueueParameters
     queuePriority: number
     queueScheduledAt?: DateTime
     queueMetadata?: Record<string, any>
+    queueSource?: CyclotronJobQueueKind
 }
 
 export type HogFunctionAsyncFunctionRequest = {
@@ -255,8 +262,7 @@ export type HogHooksFetchResponse = {
 
 export type HogFunctionInvocationSerialized = Omit<HogFunctionInvocation, 'hogFunction'> & {
     // When serialized to kafka / cyclotron we only store the ID
-    hogFunctionId?: HogFunctionType['id']
-    hogFunction?: HogFunctionType
+    hogFunctionId: HogFunctionType['id']
 }
 
 // Mostly copied from frontend types

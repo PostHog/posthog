@@ -1,4 +1,5 @@
-import dataclasses
+from __future__ import annotations
+
 import math
 from collections.abc import Iterator
 from typing import Any, LiteralString, Optional, cast
@@ -20,6 +21,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     build_pyarrow_decimal_type,
     table_from_iterator,
 )
+from posthog.temporal.data_imports.pipelines.source.sql import Column, Table
 from posthog.temporal.data_imports.pipelines.sql_database.settings import DEFAULT_CHUNK_SIZE, DEFAULT_TABLE_SIZE_BYTES
 from posthog.warehouse.models import IncrementalFieldType
 from posthog.warehouse.types import PartitionSettings
@@ -127,15 +129,6 @@ def _get_table_chunk_size(
         return DEFAULT_CHUNK_SIZE
 
 
-@dataclasses.dataclass
-class TableStructureRow:
-    column_name: str
-    data_type: str
-    is_nullable: bool
-    numeric_precision: Optional[int]
-    numeric_scale: Optional[int]
-
-
 def _get_partition_settings(cursor: psycopg.Cursor, schema: str, table_name: str) -> PartitionSettings | None:
     query = sql.SQL("""
         SELECT
@@ -170,41 +163,40 @@ def _get_partition_settings(cursor: psycopg.Cursor, schema: str, table_name: str
     return PartitionSettings(partition_count=partition_count, partition_size=partition_size)
 
 
-def _get_table_structure(cursor: psycopg.Cursor, schema: str, table_name: str) -> list[TableStructureRow]:
-    query = sql.SQL("""
-        SELECT
-            column_name,
-            data_type,
-            is_nullable,
-            numeric_precision,
-            numeric_scale
-        FROM
-            information_schema.columns
-        WHERE
-            table_schema = {schema}
-            AND table_name = {table}""").format(schema=sql.Literal(schema), table=sql.Literal(table_name))
+class PostgreSQLColumn(Column):
+    """Implementation of the `Column` protocol for a PostgreSQL source.
 
-    cursor.execute(query)
-    rows = cursor.fetchall()
-    return [
-        TableStructureRow(
-            column_name=row[0], data_type=row[1], is_nullable=row[2], numeric_precision=row[3], numeric_scale=row[4]
-        )
-        for row in rows
-    ]
+    Attributes:
+        name: The column's name.
+        data_type: The name of the column's data type as described in
+            https://www.postgresql.org/docs/current/datatype.html.
+        nullable: Whether the column is nullable or not.
+        numeric_precision: The number of significant digits. Only used with
+            numeric `data_type`s, otherwise `None`.
+        numeric_scale: The number of significant digits to the right of
+            decimal point. Only used with numeric `data_type`s, otherwise
+            `None`.
+    """
 
+    def __init__(
+        self,
+        name: str,
+        data_type: str,
+        nullable: bool,
+        numeric_precision: int | None = None,
+        numeric_scale: int | None = None,
+    ) -> None:
+        self.name = name
+        self.data_type = data_type
+        self.nullable = nullable
+        self.numeric_precision = numeric_precision
+        self.numeric_scale = numeric_scale
 
-def _get_arrow_schema_from_type_name(table_structure: list[TableStructureRow]) -> pa.Schema:
-    fields = []
-
-    for col in table_structure:
-        name = col.column_name
-        pg_type = col.data_type
-
+    def to_arrow_field(self) -> pa.Field[pa.DataType]:
+        """Return a `pyarrow.Field` that closely matches this column."""
         arrow_type: pa.DataType
 
-        # Map PostgreSQL type names to PyArrow types
-        match pg_type:
+        match self.data_type.lower():
             case "bigint":
                 arrow_type = pa.int64()
             case "integer":
@@ -212,10 +204,10 @@ def _get_arrow_schema_from_type_name(table_structure: list[TableStructureRow]) -
             case "smallint":
                 arrow_type = pa.int16()
             case "numeric" | "decimal":
-                precision = col.numeric_precision if col.numeric_precision is not None else DEFAULT_NUMERIC_PRECISION
-                scale = col.numeric_scale if col.numeric_scale is not None else DEFAULT_NUMERIC_SCALE
+                if not self.numeric_precision or not self.numeric_scale:
+                    raise TypeError("expected `numeric_precision` and `numeric_scale` to be `int`, got `NoneType`")
 
-                arrow_type = build_pyarrow_decimal_type(precision, scale)
+                arrow_type = build_pyarrow_decimal_type(self.numeric_precision, self.numeric_scale)
             case "real":
                 arrow_type = pa.float32()
             case "double precision":
@@ -240,14 +232,55 @@ def _get_arrow_schema_from_type_name(table_structure: list[TableStructureRow]) -
                 arrow_type = pa.string()
             case "json" | "jsonb":
                 arrow_type = pa.string()
-            case _ if pg_type.endswith("[]"):  # Array types
+            case _ if self.data_type.endswith("[]"):  # Array types
                 arrow_type = pa.string()
             case _:
                 arrow_type = pa.string()
 
-        fields.append(pa.field(name, arrow_type, nullable=col.is_nullable))
+        return pa.field(self.name, arrow_type, nullable=self.nullable)
 
-    return pa.schema(fields)
+
+def _get_table(cursor: psycopg.Cursor, schema: str, table_name: str) -> Table[PostgreSQLColumn]:
+    query = sql.SQL("""
+        SELECT
+            column_name,
+            data_type,
+            is_nullable,
+            numeric_precision,
+            numeric_scale
+        FROM
+            information_schema.columns
+        WHERE
+            table_schema = {schema}
+            AND table_name = {table}""").format(schema=sql.Literal(schema), table=sql.Literal(table_name))
+
+    cursor.execute(query)
+
+    numeric_data_types = {"numeric", "decimal"}
+    columns = []
+    for name, data_type, nullable, numeric_precision_candidate, numeric_scale_candidate in cursor:
+        if data_type in numeric_data_types:
+            numeric_precision = numeric_precision_candidate or DEFAULT_NUMERIC_PRECISION
+            numeric_scale = numeric_scale_candidate or DEFAULT_NUMERIC_SCALE
+        else:
+            numeric_precision = None
+            numeric_scale = None
+
+        columns.append(
+            PostgreSQLColumn(
+                name=name,
+                data_type=data_type,
+                nullable=nullable,
+                numeric_precision=numeric_precision,
+                numeric_scale=numeric_scale,
+            )
+        )
+
+    return Table(
+        name=table_name,
+        parents=(schema,),
+        columns=columns,
+    )
 
 
 def postgres_source(
@@ -294,17 +327,16 @@ def postgres_source(
             )
 
             primary_keys = _get_primary_keys(cursor, schema, table_name)
-            table_structure = _get_table_structure(cursor, schema, table_name)
+            table = _get_table(cursor, schema, table_name)
             chunk_size = _get_table_chunk_size(cursor, inner_query, schema, table_name, logger)
             partition_settings = _get_partition_settings(cursor, schema, table_name) if is_incremental else None
 
-            # Falback on checking for an `id` field on the table
-            if primary_keys is None:
-                if any(ts.column_name == "id" for ts in table_structure):
-                    primary_keys = ["id"]
+            # Fallback on checking for an `id` field on the table
+            if primary_keys is None and "id" in table:
+                primary_keys = ["id"]
 
     def get_rows(chunk_size: int) -> Iterator[Any]:
-        arrow_schema = _get_arrow_schema_from_type_name(table_structure)
+        arrow_schema = table.to_arrow_schema()
 
         with psycopg.connect(
             host=host,

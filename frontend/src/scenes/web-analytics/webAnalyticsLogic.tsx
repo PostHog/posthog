@@ -342,7 +342,7 @@ export const webStatsBreakdownToPropertyName = (
         case WebStatsBreakdown.Timezone:
             return { key: '$timezone', type: PropertyFilterType.Event }
         case WebStatsBreakdown.Language:
-            return { key: '$geoip_language', type: PropertyFilterType.Event }
+            return { key: '$browser_language', type: PropertyFilterType.Event }
         case WebStatsBreakdown.FrustrationMetrics:
             return { key: '$pathname', type: PropertyFilterType.Event }
         case WebStatsBreakdown.InitialUTMSourceMediumCampaign:
@@ -834,16 +834,16 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 s.pathTab,
                 s.geographyTab,
                 s.activeHoursTab,
-                () => values.shouldShowGeographyTile,
+                () => values.shouldShowGeoIPQueries,
             ],
-            (graphsTab, sourceTab, deviceTab, pathTab, geographyTab, activeHoursTab, shouldShowGeographyTile) => ({
+            (graphsTab, sourceTab, deviceTab, pathTab, geographyTab, activeHoursTab, shouldShowGeoIPQueries) => ({
                 graphsTab,
                 sourceTab,
                 deviceTab,
                 pathTab,
                 geographyTab,
                 activeHoursTab,
-                shouldShowGeographyTile,
+                shouldShowGeoIPQueries,
             }),
         ],
         controls: [
@@ -898,7 +898,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             ],
             (
                 productTab,
-                { graphsTab, sourceTab, deviceTab, pathTab, geographyTab, shouldShowGeographyTile, activeHoursTab },
+                { graphsTab, sourceTab, deviceTab, pathTab, geographyTab, shouldShowGeoIPQueries, activeHoursTab },
                 { isPathCleaningEnabled, filterTestAccounts, shouldStripQueryParams },
                 {
                     webAnalyticsFilters,
@@ -1690,89 +1690,99 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             ),
                         ],
                     },
-                    shouldShowGeographyTile
-                        ? {
-                              kind: 'tabs',
-                              tileId: TileId.GEOGRAPHY,
-                              layout: {
-                                  colSpanClassName: 'md:col-span-full',
-                              },
-                              activeTabId: geographyTab || GeographyTab.MAP,
-                              setTabId: actions.setGeographyTab,
-                              tabs: [
-                                  {
-                                      id: GeographyTab.MAP,
-                                      title: 'World map',
-                                      linkText: 'Map',
-                                      query: {
-                                          kind: NodeKind.InsightVizNode,
-                                          source: {
-                                              kind: NodeKind.TrendsQuery,
-                                              breakdownFilter: {
-                                                  // use the event level country code rather than person, to work better with personless users
-                                                  breakdown: '$geoip_country_code',
-                                                  breakdown_type: 'event',
-                                              },
-                                              dateRange,
-                                              series: [
-                                                  {
-                                                      event: '$pageview',
-                                                      name: 'Pageview',
-                                                      kind: NodeKind.EventsNode,
-                                                      math: BaseMathType.UniqueUsers,
+
+                    {
+                        kind: 'tabs',
+                        tileId: TileId.GEOGRAPHY,
+                        layout: {
+                            colSpanClassName: 'md:col-span-full',
+                        },
+                        activeTabId:
+                            geographyTab || (shouldShowGeoIPQueries ? GeographyTab.MAP : GeographyTab.LANGUAGES),
+                        setTabId: actions.setGeographyTab,
+                        tabs: (
+                            [
+                                shouldShowGeoIPQueries
+                                    ? {
+                                          id: GeographyTab.MAP,
+                                          title: 'World map',
+                                          linkText: 'Map',
+                                          query: {
+                                              kind: NodeKind.InsightVizNode,
+                                              source: {
+                                                  kind: NodeKind.TrendsQuery,
+                                                  breakdownFilter: {
+                                                      // use the event level country code rather than person, to work better with personless users
+                                                      breakdown: '$geoip_country_code',
+                                                      breakdown_type: 'event',
                                                   },
-                                              ],
-                                              trendsFilter: {
-                                                  display: ChartDisplayType.WorldMap,
+                                                  dateRange,
+                                                  series: [
+                                                      {
+                                                          event: '$pageview',
+                                                          name: 'Pageview',
+                                                          kind: NodeKind.EventsNode,
+                                                          math: BaseMathType.UniqueUsers,
+                                                      },
+                                                  ],
+                                                  trendsFilter: {
+                                                      display: ChartDisplayType.WorldMap,
+                                                  },
+                                                  conversionGoal,
+                                                  filterTestAccounts,
+                                                  properties: webAnalyticsFilters,
                                               },
-                                              conversionGoal,
-                                              filterTestAccounts,
-                                              properties: webAnalyticsFilters,
+                                              hidePersonsModal: true,
+                                              embedded: true,
                                           },
-                                          hidePersonsModal: true,
-                                          embedded: true,
-                                      },
-                                      insightProps: createInsightProps(TileId.GEOGRAPHY, GeographyTab.MAP),
-                                      canOpenInsight: true,
-                                  },
-                                  createTableTab(
-                                      TileId.GEOGRAPHY,
-                                      GeographyTab.COUNTRIES,
-                                      'Countries',
-                                      'Countries',
-                                      WebStatsBreakdown.Country
-                                  ),
-                                  createTableTab(
-                                      TileId.GEOGRAPHY,
-                                      GeographyTab.REGIONS,
-                                      'Regions',
-                                      'Regions',
-                                      WebStatsBreakdown.Region
-                                  ),
-                                  createTableTab(
-                                      TileId.GEOGRAPHY,
-                                      GeographyTab.CITIES,
-                                      'Cities',
-                                      'Cities',
-                                      WebStatsBreakdown.City
-                                  ),
-                                  createTableTab(
-                                      TileId.GEOGRAPHY,
-                                      GeographyTab.TIMEZONES,
-                                      'Timezones',
-                                      'Timezones',
-                                      WebStatsBreakdown.Timezone
-                                  ),
-                                  createTableTab(
-                                      TileId.GEOGRAPHY,
-                                      GeographyTab.LANGUAGES,
-                                      'Languages',
-                                      'Languages',
-                                      WebStatsBreakdown.Language
-                                  ),
-                              ],
-                          }
-                        : null,
+                                          insightProps: createInsightProps(TileId.GEOGRAPHY, GeographyTab.MAP),
+                                          canOpenInsight: true,
+                                      }
+                                    : null,
+                                shouldShowGeoIPQueries
+                                    ? createTableTab(
+                                          TileId.GEOGRAPHY,
+                                          GeographyTab.COUNTRIES,
+                                          'Countries',
+                                          'Countries',
+                                          WebStatsBreakdown.Country
+                                      )
+                                    : null,
+                                shouldShowGeoIPQueries
+                                    ? createTableTab(
+                                          TileId.GEOGRAPHY,
+                                          GeographyTab.REGIONS,
+                                          'Regions',
+                                          'Regions',
+                                          WebStatsBreakdown.Region
+                                      )
+                                    : null,
+                                shouldShowGeoIPQueries
+                                    ? createTableTab(
+                                          TileId.GEOGRAPHY,
+                                          GeographyTab.CITIES,
+                                          'Cities',
+                                          'Cities',
+                                          WebStatsBreakdown.City
+                                      )
+                                    : null,
+                                createTableTab(
+                                    TileId.GEOGRAPHY,
+                                    GeographyTab.LANGUAGES,
+                                    'Languages',
+                                    'Languages',
+                                    WebStatsBreakdown.Language
+                                ),
+                                createTableTab(
+                                    TileId.GEOGRAPHY,
+                                    GeographyTab.TIMEZONES,
+                                    'Timezones',
+                                    'Timezones',
+                                    WebStatsBreakdown.Timezone
+                                ),
+                            ] as (TabsTileTab | null)[]
+                        ).filter(isNotNil),
+                    },
                     !conversionGoal
                         ? {
                               kind: 'query',
@@ -2260,9 +2270,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 }
             },
         },
-        shouldShowGeographyTile: {
+        shouldShowGeoIPQueries: {
             _default: null as boolean | null,
-            loadShouldShowGeographyTile: async (): Promise<boolean> => {
+            loadShouldShowGeoIPQueries: async (): Promise<boolean> => {
                 // Always display on dev mode, we don't always have events and/or hogQL functions
                 // but we want the map to be there for debugging purposes
                 if (values.isDev) {
@@ -2306,7 +2316,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     // start the loaders after mounting the logic
     afterMount(({ actions }) => {
         actions.loadStatusCheck()
-        actions.loadShouldShowGeographyTile()
+        actions.loadShouldShowGeoIPQueries()
     }),
     windowValues({
         isGreaterThanMd: (window: Window) => window.innerWidth > 768,
