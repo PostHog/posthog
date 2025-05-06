@@ -173,7 +173,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
                     team_error,
                 )
 
-            # The path is deprecated, and will be removed soon
+            # This path is deprecated, and will be removed soon
             if team.access_control:
                 try:
                     team_membership: ExplicitTeamMembership | OrganizationMembership = (

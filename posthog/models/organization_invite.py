@@ -125,7 +125,7 @@ class OrganizationInvite(UUIDModel):
                 # if the team doesn't exist, it was probably deleted. We can still continue with the invite.
                 continue
 
-            # The path is deprecated, and will be removed soon
+            # This path is deprecated, and will be removed soon
             if team.access_control:
                 ExplicitTeamMembership.objects.create(
                     team=team,
