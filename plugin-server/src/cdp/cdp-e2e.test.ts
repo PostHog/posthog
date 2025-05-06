@@ -244,7 +244,7 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
             ])
         })
 
-        it.only('should handle fetch failures with retries', async () => {
+        it('should handle fetch failures with retries', async () => {
             mockFetch.mockImplementation(() => {
                 return Promise.resolve({
                     status: 500,
