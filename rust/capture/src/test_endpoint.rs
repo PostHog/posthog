@@ -41,9 +41,9 @@ pub async fn test_black_hole(
 ) -> Result<Json<CaptureResponse>, CaptureError> {
     metrics::counter!(REQUEST_SEEN).increment(1);
     let comp = match meta.compression {
-        None => String::from("unknown"),
         Some(Compression::Gzip) => String::from("gzip"),
         Some(Compression::Unsupported) => String::from("unsupported"),
+        _ => String::from("unknown"),
     };
 
     metrics::counter!(COMPRESSION_TYPE, "type" => comp.clone()).increment(1);
@@ -66,6 +66,11 @@ pub async fn test_black_hole(
                     )));
                 }
             };
+            if input.data.is_empty() {
+                error!("unexpected missing EventFormData payload");
+                return Err(CaptureError::EmptyPayload);
+            }
+
             let payload = match base64::engine::general_purpose::STANDARD.decode(input.data) {
                 Ok(payload) => payload,
                 Err(e) => {

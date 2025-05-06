@@ -1,24 +1,25 @@
 import { LemonSkeleton } from '@posthog/lemon-ui'
+import { useValues } from 'kea'
+import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { FingerprintRecordPartDisplay } from 'lib/components/Errors/FingerprintRecordPartDisplay'
 import { ChainedStackTraces, ExceptionHeaderProps } from 'lib/components/Errors/StackTraces'
-import { hasStacktrace } from 'lib/components/Errors/utils'
 import { cn } from 'lib/utils/css-classes'
 import { useCallback } from 'react'
 
-import { cancelEvent } from '../../utils'
-import { RuntimeIcon } from '../RuntimeIcon'
+import { cancelEvent } from '../../../utils'
+import { RuntimeIcon } from '../../RuntimeIcon'
+import { exceptionCardLogic } from '../exceptionCardLogic'
 import { StacktraceBaseDisplayProps, StacktraceBaseExceptionHeaderProps } from './StacktraceBase'
 
 export function StacktraceGenericDisplay({
     className,
     truncateMessage,
-    loading,
     renderLoading,
     renderEmpty,
-    showAllFrames,
-    attributes,
 }: StacktraceBaseDisplayProps): JSX.Element {
-    const { runtime, exceptionList, fingerprintRecords } = attributes || {}
+    const { exceptionAttributes, hasStacktrace } = useValues(errorPropertiesLogic)
+    const { loading, showAllFrames } = useValues(exceptionCardLogic)
+    const { runtime } = exceptionAttributes || {}
     const renderExceptionHeader = useCallback(
         ({ type, value, loading, part }: ExceptionHeaderProps): JSX.Element => {
             return (
@@ -34,21 +35,18 @@ export function StacktraceGenericDisplay({
         },
         [runtime, truncateMessage]
     )
-    const isEmpty = !hasStacktrace(exceptionList || [])
     return (
         <div className={className}>
-            {loading
-                ? renderLoading(renderExceptionHeader)
-                : exceptionList && (
-                      <ChainedStackTraces
-                          showAllFrames={showAllFrames}
-                          exceptionList={exceptionList}
-                          renderExceptionHeader={renderExceptionHeader}
-                          fingerprintRecords={fingerprintRecords}
-                          onFrameContextClick={(_, e) => cancelEvent(e)}
-                      />
-                  )}
-            {!loading && isEmpty && renderEmpty()}
+            {loading ? (
+                renderLoading(renderExceptionHeader)
+            ) : (
+                <ChainedStackTraces
+                    showAllFrames={showAllFrames}
+                    renderExceptionHeader={renderExceptionHeader}
+                    onFrameContextClick={(_, e) => cancelEvent(e)}
+                />
+            )}
+            {!loading && !hasStacktrace && renderEmpty()}
         </div>
     )
 }

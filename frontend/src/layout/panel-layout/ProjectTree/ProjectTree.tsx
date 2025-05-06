@@ -1,9 +1,7 @@
 import { IconCheckbox, IconChevronRight, IconFolder, IconFolderPlus, IconX } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { MoveFilesModal } from 'lib/components/FileSystem/MoveFilesModal'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { ResizableDiv } from 'lib/components/ResizeElement/ResizeElement'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { LemonTree, LemonTreeRef, TreeDataItem, TreeMode } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { Tooltip } from 'lib/lemon-ui/Tooltip/Tooltip'
@@ -31,10 +29,14 @@ import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import { PanelLayoutPanel } from '../PanelLayoutPanel'
-import { projectTreeLogic } from './projectTreeLogic'
+import { projectTreeLogic, ProjectTreeSortMethod } from './projectTreeLogic'
 import { calculateMovePath } from './utils'
 
-export function ProjectTree(): JSX.Element {
+export interface ProjectTreeProps {
+    sortMethod: ProjectTreeSortMethod
+}
+
+export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
     const {
         treeData,
         treeTableKeys,
@@ -54,7 +56,10 @@ export function ProjectTree(): JSX.Element {
         movingItems,
         treeTableColumnSizes,
         treeTableTotalWidth,
+        sortMethod: projectSortMethod,
         selectMode,
+        projectTreeRef,
+        projectTreeRefEntry,
     } = useValues(projectTreeLogic)
 
     const {
@@ -76,6 +81,7 @@ export function ProjectTree(): JSX.Element {
         clearScrollTarget,
         setEditingItemId,
         setMovingItems,
+        setSortMethod,
         setTreeTableColumnSizes,
         setSelectMode,
     } = useActions(projectTreeLogic)
@@ -94,6 +100,12 @@ export function ProjectTree(): JSX.Element {
     useEffect(() => {
         setPanelTreeRef(treeRef)
     }, [treeRef, setPanelTreeRef])
+
+    useEffect(() => {
+        if (projectSortMethod !== sortMethod) {
+            setSortMethod(sortMethod)
+        }
+    }, [sortMethod, projectSortMethod])
 
     // When logic requests a scroll, focus the item and clear the request
     useEffect(() => {
@@ -339,12 +351,14 @@ export function ProjectTree(): JSX.Element {
 
     return (
         <PanelLayoutPanel
-            searchPlaceholder="Search your project"
+            searchPlaceholder={sortMethod === 'recent' ? 'Search recent items' : 'Search your project'}
             panelActions={
                 <>
-                    <ButtonPrimitive onClick={() => createFolder('')} tooltip="New root folder" iconOnly>
-                        <IconFolderPlus className="text-tertiary" />
-                    </ButtonPrimitive>
+                    {sortMethod !== 'recent' ? (
+                        <ButtonPrimitive onClick={() => createFolder('')} tooltip="New root folder" iconOnly>
+                            <IconFolderPlus className="text-tertiary" />
+                        </ButtonPrimitive>
+                    ) : null}
 
                     {selectMode === 'default' && checkedItemCountNumeric === 0 ? (
                         <ButtonPrimitive onClick={() => setSelectMode('multi')} tooltip="Enable multi-select" iconOnly>
@@ -376,20 +390,22 @@ export function ProjectTree(): JSX.Element {
                 </>
             }
         >
-            <FlaggedFeature flag={FEATURE_FLAGS.TREE_VIEW_TABLE_MODE}>
-                <ButtonPrimitive
-                    tooltip={projectTreeMode === 'tree' ? 'Switch to table view' : 'Switch to tree view'}
-                    onClick={() => setProjectTreeMode(projectTreeMode === 'tree' ? 'table' : 'tree')}
-                    className="absolute top-1/2 translate-y-1/2 right-0 translate-x-1/2 z-top w-fit bg-surface-primary border border-primary"
-                >
-                    <IconChevronRight
-                        className={cn('size-4', {
-                            'rotate-180': projectTreeMode === 'table',
-                            'rotate-0': projectTreeMode === 'tree',
-                        })}
-                    />
-                </ButtonPrimitive>
-            </FlaggedFeature>
+            <ButtonPrimitive
+                tooltip={projectTreeMode === 'tree' ? 'Switch to table view' : 'Switch to tree view'}
+                onClick={() => setProjectTreeMode(projectTreeMode === 'tree' ? 'table' : 'tree')}
+                className="absolute top-1/2 translate-y-1/2 right-0 translate-x-1/2 z-top w-fit bg-surface-primary border border-primary"
+            >
+                <IconChevronRight
+                    className={cn('size-4', {
+                        'rotate-180': projectTreeMode === 'table',
+                        'rotate-0': projectTreeMode === 'tree',
+                    })}
+                />
+            </ButtonPrimitive>
+
+            <div role="status" aria-live="polite" className="sr-only">
+                Sorted {sortMethod === 'recent' ? 'by creation date' : 'alphabetically'}
+            </div>
 
             <LemonTree
                 ref={treeRef}
@@ -441,7 +457,7 @@ export function ProjectTree(): JSX.Element {
                 }}
                 expandedItemIds={searchTerm ? expandedSearchFolders : expandedFolders}
                 onSetExpandedItemIds={searchTerm ? setExpandedSearchFolders : setExpandedFolders}
-                enableDragAndDrop={true}
+                enableDragAndDrop={sortMethod === 'folder'}
                 onDragEnd={(dragEvent) => {
                     const itemToId = (item: FileSystemEntry): string =>
                         item.type === 'folder' ? 'project-folder/' + item.path : 'project/' + item.id
@@ -602,7 +618,11 @@ export function ProjectTree(): JSX.Element {
                                                     }
                                                 )}
                                             >
-                                                {header.formatFunction ? header.formatFunction(value) : value}
+                                                {header.formatComponent
+                                                    ? header.formatComponent(value, item)
+                                                    : header.formatString
+                                                    ? header.formatString(value, item)
+                                                    : value}
                                             </span>
                                         </Tooltip>
                                     </span>
@@ -617,6 +637,11 @@ export function ProjectTree(): JSX.Element {
                 <MoveFilesModal
                     items={movingItems}
                     handleMove={(destinationFolder) => {
+                        // When moving the current item, remember its ref so that we could open the destination folder later on
+                        const movingCurrentRef = movingItems.some((item) => item === projectTreeRefEntry)
+                            ? projectTreeRef
+                            : null
+
                         if (checkedItemCountNumeric > 0) {
                             moveCheckedItems(destinationFolder)
                         } else if (movingItems.length > 0) {
@@ -630,6 +655,9 @@ export function ProjectTree(): JSX.Element {
                         }
                         // Clear the moving items and close the modal
                         setMovingItems([])
+                        if (movingCurrentRef) {
+                            assureVisibility(movingCurrentRef)
+                        }
                     }}
                     closeModal={() => setMovingItems([])}
                 />

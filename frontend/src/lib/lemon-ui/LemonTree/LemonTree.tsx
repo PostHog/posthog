@@ -6,6 +6,7 @@ import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimi
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
 import {
+    CSSProperties,
     ForwardedRef,
     forwardRef,
     HTMLAttributes,
@@ -77,9 +78,11 @@ export type TreeTableViewKeys = {
         /** Display title for the column */
         title: string
         /** Format function for the column */
-        formatFunction?: (value: any) => string
+        formatString?: (value: any, item?: TreeDataItem) => string
+        /** Format function for the column */
+        formatComponent?: (value: any, item?: TreeDataItem) => React.ReactNode
         /** Tooltip function for the column */
-        tooltip?: string | ((value: any) => string)
+        tooltip?: string | ((value: any, item?: TreeDataItem) => React.ReactNode)
         /** Width of the column */
         width?: number
         /** Offset of the column */
@@ -254,11 +257,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
         }
 
         return (
-            <div
-                className={cn('flex flex-col gap-y-px list-none m-0 p-0 h-full overflow-hidden', className, {
-                    'overflow-x-auto pt-0': mode === 'table' && depth === 0,
-                })}
-            >
+            <div className={cn('list-none m-0 p-0 h-full w-full', className)}>
                 {data.map((item, index) => {
                     const displayName = item.displayName ?? item.name
                     const isFolder = item.record?.type === 'folder'
@@ -281,8 +280,8 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                       const value = header.key
                                           .split('.')
                                           .reduce((obj, key) => (obj as any)?.[key], item)
-                                      const formattedValue = header.formatFunction
-                                          ? header.formatFunction(value)
+                                      const formattedValue = header.formatString
+                                          ? header.formatString(value, item)
                                           : value
                                       // Add null/undefined check and handle object values properly
                                       const displayValue =
@@ -551,19 +550,6 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                             <TreeNodeDroppable id={item.id} isDroppable={item.record?.type === 'folder'}>
                                 {wrappedContent}
                             </TreeNodeDroppable>
-                        )
-                    }
-
-                    // If table and first level, show table headers
-                    if (index === 0 && depth === 0 && mode === 'table') {
-                        return (
-                            <div className="flex flex-col gap-1 sticky top-0" key={`table-header-${item.id}`}>
-                                <div className="relative h-[30px] opacity-100 border-b border-primary -ml-[3px] motion-safe:transition-[height,display] duration-200 starting:h-0 [transition-behavior:allow-discrete] z-5">
-                                    {tableModeHeader?.()}
-                                </div>
-
-                                {wrappedContent}
-                            </div>
                         )
                     }
 
@@ -1232,10 +1218,35 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                     aria-label="Tree navigation"
                     onKeyDown={handleKeyDown}
                     className="flex-1"
-                    innerClassName="relative"
+                    innerClassName="relative overflow-x-auto"
                     styledScrollbars
+                    style={
+                        {
+                            '--scrollable-shadows-offset-top': mode === 'table' ? '30px' : '0px',
+                        } as CSSProperties
+                    }
                 >
-                    <TreeNodeDroppable id="" isDroppable={enableDragAndDrop} isRoot isDragging={isDragging}>
+                    {mode === 'table' && (
+                        <div
+                            className="h-[30px] sticky top-0 z-20 border-b border-primary bg-surface-secondary"
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{
+                                width: mode === 'table' ? `${tableModeTotalWidth}px` : undefined,
+                            }}
+                        >
+                            {tableModeHeader?.()}
+                        </div>
+                    )}
+
+                    <TreeNodeDroppable
+                        id=""
+                        isDroppable={enableDragAndDrop}
+                        isRoot
+                        isDragging={isDragging}
+                        style={{
+                            width: mode === 'table' ? `${tableModeTotalWidth}px` : undefined,
+                        }}
+                    >
                         <LemonTreeNode
                             data={data}
                             mode={mode}

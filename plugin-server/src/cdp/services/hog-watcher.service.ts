@@ -4,7 +4,7 @@ import { Hub } from '../../types'
 import { now } from '../../utils/now'
 import { UUIDT } from '../../utils/utils'
 import { CdpRedis } from '../redis'
-import { HogFunctionInvocationResult, HogFunctionType } from '../types'
+import { HogFunctionInvocationResult, HogFunctionTiming, HogFunctionType } from '../types'
 
 export const BASE_REDIS_KEY = process.env.NODE_ENV == 'test' ? '@posthog-test/hog-watcher' : '@posthog/hog-watcher'
 const REDIS_KEY_TOKENS = `${BASE_REDIS_KEY}/tokens`
@@ -36,12 +36,38 @@ export const hogFunctionStateChange = new Counter({
     labelNames: ['state', 'kind'],
 })
 
+type HogFunctionTimingCost = {
+    lowerBound: number
+    upperBound: number
+    cost: number
+}
+
+type HogFunctionTimingCosts = Partial<Record<HogFunctionTiming['kind'], HogFunctionTimingCost>>
+
 // TODO: Future follow up - we should swap this to an API call or something.
 // Having it as a celery task ID based on a file path is brittle and hard to test.
 export const CELERY_TASK_ID = 'posthog.tasks.plugin_server.hog_function_state_transition'
 
 export class HogWatcherService {
-    constructor(private hub: Hub, private redis: CdpRedis) {}
+    private costsMapping: HogFunctionTimingCosts
+
+    constructor(private hub: Hub, private redis: CdpRedis) {
+        this.costsMapping = {
+            hog: {
+                lowerBound: this.hub.CDP_WATCHER_COST_TIMING_LOWER_MS,
+                upperBound: this.hub.CDP_WATCHER_COST_TIMING_UPPER_MS,
+                cost: this.hub.CDP_WATCHER_COST_TIMING,
+            },
+        }
+
+        for (const [kind, mapping] of Object.entries(this.costsMapping)) {
+            if (mapping.lowerBound >= this.hub.CDP_WATCHER_COST_TIMING_UPPER_MS) {
+                throw new Error(
+                    `Lower bound for kind ${kind} of ${mapping.lowerBound}ms must be lower than upper bound of ${mapping.upperBound}ms. This is a configuration error.`
+                )
+            }
+        }
+    }
 
     private async onStateChange(id: HogFunctionType['id'], state: HogWatcherState) {
         await this.hub.celery.applyAsync(CELERY_TASK_ID, [id, state])
@@ -137,6 +163,8 @@ export class HogWatcherService {
     }
 
     public async observeResults(results: HogFunctionInvocationResult[]): Promise<void> {
+        // NOTE: Currently we only monitor hog code timings. We will have a separate config for async functions
+
         const costs: Record<HogFunctionType['id'], number> = {}
         // Create a map to store the function types
         const functionTypes: Record<HogFunctionType['id'], HogFunctionType['type']> = {}
@@ -151,17 +179,20 @@ export class HogWatcherService {
                 let costForTimings = 0
 
                 // Calculate cost for this individual timing
-                const lowerBound = this.hub.CDP_WATCHER_COST_TIMING_LOWER_MS
-                const upperBound = this.hub.CDP_WATCHER_COST_TIMING_UPPER_MS
-                const costTiming = this.hub.CDP_WATCHER_COST_TIMING
 
                 for (const timing of result.invocation.timings) {
                     // Record metrics for this timing entry
                     hogFunctionExecutionTimeSummary.labels({ kind: timing.kind }).observe(timing.duration_ms)
-                    const ratio = Math.max(timing.duration_ms - lowerBound, 0) / (upperBound - lowerBound)
 
-                    // Add to the total cost for this result
-                    costForTimings += Math.round(costTiming * ratio)
+                    const costMapping = this.costsMapping[timing.kind]
+
+                    if (costMapping) {
+                        const ratio =
+                            Math.max(timing.duration_ms - costMapping.lowerBound, 0) /
+                            (costMapping.upperBound - costMapping.lowerBound)
+                        // Add to the total cost for this result
+                        costForTimings += Math.round(costMapping.cost * ratio)
+                    }
                 }
 
                 cost += costForTimings
