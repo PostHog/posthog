@@ -95,7 +95,7 @@ function MessageSenders(): JSX.Element {
         useValues(messageSendersLogic)
     const { openNewSenderModal, closeNewSenderModal, clearSelectedIntegration } = useActions(messageSendersLogic)
 
-    const emailIntegrations = integrations?.filter((integration) => integration.kind === 'email')
+    const emailIntegrations = integrations?.filter((integration) => integration.kind === 'email') ?? []
 
     return (
         <div className="messaging-senders">
