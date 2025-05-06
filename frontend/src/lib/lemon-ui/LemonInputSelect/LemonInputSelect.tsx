@@ -374,11 +374,11 @@ export function LemonInputSelect({
         return values.length === 0 ? (
             <span className="-ml-2 text-muted">None selected</span>
         ) : (
-            <LemonSnack className="-ml-2">
+            <span className="-ml-2">
                 {values.length === options.length
                     ? `All ${options.length} selected`
                     : `${values.length}/${options.length} selected`}
-            </LemonSnack>
+            </span>
         )
     }, [displayMode, mode, inputValue, values.length, options.length])
 
@@ -405,19 +405,18 @@ export function LemonInputSelect({
                     {title && <h5 className="mx-2 my-1">{title}</h5>}
 
                     {bulkActions && mode === 'multiple' && (
-                        <div
-                            className="flex justify-between items-center mb-0.5"
-                            onMouseEnter={() => setSelectedIndex(-1)}
-                        >
+                        <div className="flex items-center mb-0.5" onMouseEnter={() => setSelectedIndex(-1)}>
                             {bulkActions === 'select-and-clear-all' && (
                                 <LemonButton
                                     size="small"
+                                    className="flex-1"
                                     disabledReason={
                                         values.length === allOptionsMap.size
                                             ? 'All options are already selected'
                                             : undefined
                                     }
                                     tooltipPlacement="top-start"
+                                    tooltipArrowOffset={50}
                                     onClick={() => onChange?.(Array.from(allOptionsMap.keys()))}
                                     icon={
                                         <LemonCheckbox
@@ -431,14 +430,15 @@ export function LemonInputSelect({
                                             className="pointer-events-none"
                                         />
                                     }
-                                    className="flex-1"
                                 >
                                     Select all
                                 </LemonButton>
                             )}
                             <LemonButton
                                 size="small"
+                                className={clsx({ 'flex-1': bulkActions === 'clear-all' })}
                                 tooltipPlacement={bulkActions === 'select-and-clear-all' ? 'top-end' : 'top-start'}
+                                tooltipArrowOffset={bulkActions === 'clear-all' ? 30 : undefined}
                                 disabledReason={values.length === 0 ? 'No options are selected' : undefined}
                                 onClick={() => onChange?.([])}
                             >
