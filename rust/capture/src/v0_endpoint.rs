@@ -1,4 +1,5 @@
 use std::ops::Deref;
+use std::string::FromUtf8Error;
 use std::sync::Arc;
 
 use axum::{debug_handler, Json};
@@ -155,18 +156,23 @@ async fn handle_legacy(
             }
         }
 
-        unexpected_ct => {
-            // headers should be included in this log already to see what happened
-            warn!(
-                "handle_legacy: unexpected req Content-Type {}, applying best-effort processing",
-                unexpected_ct
-            );
+        _ => {
+            debug!("handle_legacy: non-form payload");
 
-            // make a best-effort attempt to get this parsed downstream
+            // if the entire payload is base64 encoded, attempt to
+            // decode into the form struct which takes precedence over
+            // raw payloads downstream
             let mut payload: Option<String> = None;
             if is_likely_base64(&raw_payload, Base64Option::Strict) {
                 let tmp = decode_base64(&raw_payload)?;
-                payload = String::from_utf8(tmp).ok();
+                payload = String::from_utf8(tmp)
+                    .map_err(|e: FromUtf8Error| {
+                        debug!(
+                            "optimistic attempt to base64 decode non-form payload failed: {}",
+                            &e
+                        )
+                    })
+                    .ok();
             }
             EventFormData {
                 data: payload,
