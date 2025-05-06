@@ -304,7 +304,10 @@ class Team(UUIDClassicModel):
     session_recording_version = models.CharField(null=True, blank=True, max_length=24)
     signup_token = models.CharField(max_length=200, null=True, blank=True)
     is_demo = models.BooleanField(default=False)
+
+    # DEPRECATED - do not use
     access_control = models.BooleanField(default=False)
+
     week_start_day = models.SmallIntegerField(null=True, blank=True, choices=WeekStartDay.choices)
     # This is not a manual setting. It's updated automatically to reflect if the team uses site apps or not.
     inject_web_apps = models.BooleanField(null=True)
