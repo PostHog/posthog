@@ -7,6 +7,7 @@ from django.utils import timezone
 from rest_framework import exceptions
 
 from ee.models.explicit_team_membership import ExplicitTeamMembership
+from ee.models.rbac.access_control import AccessControl
 from posthog.constants import INVITE_DAYS_VALIDITY
 from posthog.email import is_email_available
 from posthog.models.organization import OrganizationMembership
@@ -131,9 +132,15 @@ class OrganizationInvite(UUIDModel):
                     parent_membership=parent_membership,
                     level=item["level"],
                 )
-
-            # TODO(@zach): add new access control support
-            # If access control row with team matching, resource = 'team' and access level = 'none' | 'member' then need to create an access control row
+            else:
+                # New access control
+                AccessControl.objects.create(
+                    team=team,
+                    resource="team",
+                    resource_id=str(team.id),
+                    organization_member=parent_membership,
+                    access_level="admin" if item["level"] == OrganizationMembership.Level.ADMIN else "member",
+                )
 
         if is_email_available(with_absolute_urls=True) and self.organization.is_member_join_email_enabled:
             from posthog.tasks.email import send_member_join
