@@ -60,7 +60,7 @@ export type TreeDataItem = {
      * Type node, normal behavior
      * Type separator, render as separator
      */
-    type?: 'node' | 'separator' | 'empty-folder'
+    type?: 'node' | 'separator' | 'empty-folder' | 'loading-indicator'
 
     /**
      * Handle a click on the item.
