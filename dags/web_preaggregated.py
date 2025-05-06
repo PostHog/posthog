@@ -126,7 +126,7 @@ def _process_single_team(
     date_info: dict,
     settings: str,
 ) -> dict:
-    """Process a single team. This function is indepondent in the sense that it deletes previous existing data
+    """Process a single team. This function is independent in the sense that it deletes previous existing data
     so we can safely use to backfill periods and replace the current week data everyday so we can guarantee the data is always up to date.
     """
     start_time = datetime.now()
