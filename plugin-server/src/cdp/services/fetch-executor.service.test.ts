@@ -2,6 +2,7 @@ import { createServer } from 'http'
 import { AddressInfo } from 'net'
 
 import { logger } from '~/src/utils/logger'
+import { SecureRequestError } from '~/src/utils/request'
 
 import { defaultConfig } from '../../config/config'
 import { promisifyCallback } from '../../utils/utils'
@@ -157,6 +158,32 @@ describe('FetchExecutorService', () => {
                 kind: 'requesterror',
             })
         )
+    })
+
+    it('handles security errors', async () => {
+        process.env.NODE_ENV = 'production' // Make sure the security features are enabled
+
+        const invocation = createInvocation({
+            url: 'http://localhost',
+            method: 'GET',
+            return_queue: 'hog',
+        })
+
+        const result = await service.execute(invocation)
+
+        // Should be scheduled for retry
+        expect(result.invocation.queue).toBe('hog')
+        expect(result.invocation.queueParameters).toMatchObject({
+            body: null,
+            response: null,
+            timings: [],
+            trace: [
+                {
+                    kind: 'requesterror',
+                    message: 'SecureRequestError: Internal hostname',
+                },
+            ],
+        })
     })
 
     it('handles timeouts', async () => {

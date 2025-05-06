@@ -3,7 +3,7 @@ import { Counter } from 'prom-client'
 
 import { PluginsServerConfig } from '../../types'
 import { logger } from '../../utils/logger'
-import { fetch, FetchOptions, FetchResponse } from '../../utils/request'
+import { fetch, FetchOptions, FetchResponse, InvalidRequestError, SecureRequestError } from '../../utils/request'
 import {
     CyclotronFetchFailureInfo,
     CyclotronFetchFailureKind,
@@ -69,7 +69,12 @@ export class FetchExecutorService {
         }
 
         // We want to retry if we got a general error (like network unreachable) or a retriable status code
-        const canRetry = error || (!!response?.status && RETRIABLE_STATUS_CODES.includes(response.status))
+        let canRetry = error || (!!response?.status && RETRIABLE_STATUS_CODES.includes(response.status))
+
+        if (error instanceof SecureRequestError || error instanceof InvalidRequestError) {
+            // We don't want to retry on security errors or invalid requests
+            canRetry = false
+        }
 
         // If we haven't exceeded retry limit, schedule a retry with backoff
         if (canRetry && updatedMetadata.tries < maxTries) {
