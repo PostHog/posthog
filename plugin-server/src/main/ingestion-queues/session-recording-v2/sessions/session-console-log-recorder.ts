@@ -87,7 +87,8 @@ export class SessionConsoleLogRecorder {
         public readonly sessionId: string,
         public readonly teamId: number,
         public readonly batchId: string,
-        private readonly store: SessionConsoleLogStore
+        private readonly store: SessionConsoleLogStore,
+        private readonly metadataSwitchoverDate?: Date | null
     ) {}
 
     /**

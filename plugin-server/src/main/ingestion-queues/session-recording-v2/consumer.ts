@@ -62,6 +62,24 @@ export class SessionRecordingIngester {
         this.consumerGroupId = this.consumeOverflow ? KAFKA_CONSUMER_GROUP_ID_OVERFLOW : KAFKA_CONSUMER_GROUP_ID
         this.isDebugLoggingEnabled = buildIntegerMatcher(config.SESSION_RECORDING_DEBUG_PARTITION, true)
 
+        // Parse SESSION_RECORDING_V2_METADATA_SWITCHOVER as ISO datetime
+        let metadataSwitchoverDate: Date | null = null
+        if (config.SESSION_RECORDING_V2_METADATA_SWITCHOVER) {
+            const parsed = Date.parse(config.SESSION_RECORDING_V2_METADATA_SWITCHOVER)
+            if (!isNaN(parsed)) {
+                metadataSwitchoverDate = new Date(parsed)
+                logger.info('SESSION_RECORDING_V2_METADATA_SWITCHOVER enabled', {
+                    value: config.SESSION_RECORDING_V2_METADATA_SWITCHOVER,
+                    parsedDate: metadataSwitchoverDate.toISOString(),
+                })
+            } else {
+                logger.warn('SESSION_RECORDING_V2_METADATA_SWITCHOVER is not a valid ISO datetime', {
+                    value: config.SESSION_RECORDING_V2_METADATA_SWITCHOVER,
+                })
+                metadataSwitchoverDate = null
+            }
+        }
+
         this.promiseScheduler = new PromiseScheduler()
 
         this.kafkaConsumer = new KafkaConsumer({
@@ -127,6 +145,7 @@ export class SessionRecordingIngester {
             fileStorage: this.fileStorage,
             metadataStore,
             consoleLogStore,
+            metadataSwitchoverDate,
         })
     }
 
