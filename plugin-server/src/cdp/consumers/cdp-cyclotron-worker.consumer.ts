@@ -30,9 +30,11 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
         return await this.runManyWithHeartbeat(invocations, (item) => this.hogExecutor.execute(item))
     }
 
-    public async processBatch(invocations: HogFunctionInvocation[]): Promise<HogFunctionInvocationResult[]> {
+    public async processBatch(
+        invocations: HogFunctionInvocation[]
+    ): Promise<{ backgroundWork: Promise<any>; invocationResults: HogFunctionInvocationResult[] }> {
         if (!invocations.length) {
-            return []
+            return { backgroundWork: Promise.resolve(), invocationResults: [] }
         }
 
         const invocationResults = await this.runInstrumented(
@@ -41,15 +43,15 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
         )
 
         await this.queueInvocationResults(invocationResults)
-        await this.hogFunctionMonitoringService.processInvocationResults(invocationResults)
 
         // After this point we parallelize and any issues are logged rather than thrown as retrying now would end up in duplicate messages
-        await Promise.allSettled([
+        const backgroundWork = Promise.allSettled([
+            this.hogFunctionMonitoringService.processInvocationResults(invocationResults),
             this.hogWatcher.observeResults(invocationResults),
             this.hogFunctionMonitoringService.produceQueuedMessages(),
         ])
 
-        return invocationResults
+        return { backgroundWork, invocationResults }
     }
 
     protected async queueInvocationResults(invocations: HogFunctionInvocationResult[]) {

@@ -32,6 +32,12 @@ const consumedBatchDuration = new Histogram({
     labelNames: ['topic', 'groupId'],
 })
 
+const consumedBatchBackgroundDuration = new Histogram({
+    name: 'consumed_batch_background_duration_ms',
+    help: 'Main loop consumer batch processing duration in ms',
+    labelNames: ['topic', 'groupId'],
+})
+
 const gaugeBatchUtilization = new Gauge({
     name: 'consumer_batch_utilization',
     help: 'Indicates how big batches are we are processing compared to the max batch size. Useful as a scaling metric',
@@ -355,6 +361,7 @@ export class KafkaConsumer {
             throw new Error('autoOffsetStore must be false when using connectThreaded')
         }
 
+        // TODO: Perhaps change the signature of the backgroundWork so that we do one at a time and call them :thinking:
         const MAX_BACKGROUND_TASKS = 3 // TODO: Move this to main config
 
         let backgroundBatches: Promise<void>[] = []
@@ -362,14 +369,21 @@ export class KafkaConsumer {
         await this.connect(async (messages) => {
             const { backgroundWork } = await eachBatch(messages)
 
+            const startBackgroundTime = performance.now()
+
             // At first we just add the background work to the queue
             backgroundBatches.push(
                 backgroundWork.finally(() => {
                     // Only when we are fully done with the background work we store the offsets
                     // TODO: Test if this fully works as expected - like what if backgroundBatches[1] finishes after backgroundBatches[0]
-                    this.storeOffsetsForMessages(messages)
                     // Remove the background work from the queue when it is finished
+                    this.storeOffsetsForMessages(messages)
                     void (backgroundBatches = backgroundBatches.filter((task) => task !== backgroundWork))
+
+                    const backgroundTime = performance.now() - startBackgroundTime
+                    consumedBatchBackgroundDuration
+                        .labels({ topic: this.config.topic, groupId: this.config.groupId })
+                        .observe(backgroundTime)
                 })
             )
 

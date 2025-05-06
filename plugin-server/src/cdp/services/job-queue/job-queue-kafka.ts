@@ -29,7 +29,7 @@ export class CyclotronJobQueueKafka {
         private config: PluginsServerConfig,
         private queue: HogFunctionInvocationJobQueue,
         private hogFunctionManager: HogFunctionManagerService,
-        private consumeBatch: (invocations: HogFunctionInvocation[]) => Promise<any>
+        private consumeBatch: (invocations: HogFunctionInvocation[]) => Promise<{ backgroundWork: Promise<any> }>
     ) {}
 
     /**
@@ -53,8 +53,9 @@ export class CyclotronJobQueueKafka {
         this.kafkaConsumer = new KafkaConsumer({ groupId, topic, callEachBatchWhenEmpty: true })
 
         logger.info('🔄', 'Connecting kafka consumer', { groupId, topic })
-        await this.kafkaConsumer.connect(async (messages) => {
-            await this.consumeKafkaBatch(messages)
+        await this.kafkaConsumer.connectThreaded(async (messages) => {
+            const { backgroundWork } = await this.consumeKafkaBatch(messages)
+            return { backgroundWork }
         })
     }
 
@@ -132,7 +133,7 @@ export class CyclotronJobQueueKafka {
         return this.kafkaProducer
     }
 
-    private async consumeKafkaBatch(messages: Message[]) {
+    private async consumeKafkaBatch(messages: Message[]): Promise<{ backgroundWork: Promise<any> }> {
         if (messages.length === 0) {
             return await this.consumeBatch([])
         }
@@ -181,7 +182,7 @@ export class CyclotronJobQueueKafka {
             invocations.push(invocation)
         }
 
-        await this.consumeBatch(invocations)
+        return await this.consumeBatch(invocations)
     }
 }
 
