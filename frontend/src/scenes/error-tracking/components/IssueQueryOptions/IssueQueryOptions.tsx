@@ -38,7 +38,6 @@ export const IssueQueryOptions = (): JSX.Element => {
                 <div className="flex items-center gap-1">
                     <span>Sort by:</span>
                     <LemonSelect
-                        onSelect={setOrderBy}
                         onChange={setOrderBy}
                         value={orderBy}
                         options={[
@@ -66,7 +65,6 @@ export const IssueQueryOptions = (): JSX.Element => {
                         size="small"
                     />
                     <LemonSelect
-                        onSelect={setOrderDirection}
                         onChange={setOrderDirection}
                         value={orderDirection}
                         options={[
