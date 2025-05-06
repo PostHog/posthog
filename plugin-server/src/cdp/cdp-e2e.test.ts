@@ -1,6 +1,6 @@
 // eslint-disable-next-line simple-import-sort/imports
 import { MockKafkaProducerWrapper } from '~/tests/helpers/mocks/producer.mock'
-import { mockSecureRequest } from '~/tests/helpers/mocks/request.mock'
+import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { CdpCyclotronWorker } from '../../src/cdp/consumers/cdp-cyclotron-worker.consumer'
 import { CdpCyclotronWorkerFetch } from '../../src/cdp/consumers/cdp-cyclotron-worker-fetch.consumer'
@@ -99,9 +99,10 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
                 } as any,
             })
 
-            mockSecureRequest.mockResolvedValue({
+            mockFetch.mockResolvedValue({
                 status: 200,
-                body: JSON.stringify({ success: true }),
+                json: () => Promise.resolve({ success: true }),
+                text: () => Promise.resolve(JSON.stringify({ success: true })),
                 headers: { 'Content-Type': 'application/json' },
             })
 
@@ -143,9 +144,9 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
                 throw e
             }
 
-            expect(mockSecureRequest).toHaveBeenCalledTimes(1)
+            expect(mockFetch).toHaveBeenCalledTimes(1)
 
-            expect(mockSecureRequest.mock.calls[0]).toMatchInlineSnapshot(`
+            expect(mockFetch.mock.calls[0]).toMatchInlineSnapshot(`
                 [
                   "https://example.com/posthog-webhook",
                   {
@@ -244,7 +245,7 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
         })
 
         it('should handle fetch failures with retries', async () => {
-            mockSecureRequest.mockRejectedValue(new errors.ConnectTimeoutError())
+            mockFetch.mockRejectedValue(new errors.ConnectTimeoutError())
 
             const invocations = await eventsConsumer.processBatch([globals])
 

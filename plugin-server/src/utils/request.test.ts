@@ -8,9 +8,9 @@ jest.mock('dns/promises', () => ({
 import dns from 'dns/promises'
 import { range } from 'lodash'
 
-import { raiseIfUserProvidedUrlUnsafe, secureRequest, SecureRequestError } from './request'
+import { fetch, raiseIfUserProvidedUrlUnsafe, SecureRequestError } from './request'
 
-describe('secureRequest', () => {
+describe('fetch', () => {
     beforeEach(() => {
         jest.setTimeout(1000)
         jest.mocked(dns.lookup).mockImplementation(realDnsLookup)
@@ -44,24 +44,24 @@ describe('secureRequest', () => {
         })
     })
 
-    describe('trackedFetch', () => {
+    describe('fetch call', () => {
         // By default security features are only enabled in production but for tests we want to enable them
 
         it('should raise if the URL is unsafe', async () => {
-            await expect(secureRequest('http://localhost')).rejects.toMatchInlineSnapshot(
+            await expect(fetch('http://localhost')).rejects.toMatchInlineSnapshot(
                 `[SecureRequestError: Internal hostname]`
             )
         })
 
         it('should raise if the URL is unknown', async () => {
-            await expect(secureRequest('http://unknown.domain.unknown')).rejects.toMatchInlineSnapshot(
+            await expect(fetch('http://unknown.domain.unknown')).rejects.toMatchInlineSnapshot(
                 `[SecureRequestError: Invalid hostname]`
             )
         })
 
         it('should successfully fetch from safe URLs', async () => {
             // This will make a real HTTP request
-            const response = await secureRequest('https://example.com')
+            const response = await fetch('https://example.com')
             expect(response.status).toBe(200)
         })
     })
@@ -86,9 +86,7 @@ describe('secureRequest', () => {
         ])('should block requests to %s (%s)', async (ip) => {
             jest.mocked(dns.lookup).mockResolvedValue([{ address: ip, family: 4 }] as any)
 
-            await expect(secureRequest(`http://example.com`)).rejects.toThrow(
-                new SecureRequestError(`Internal hostname`)
-            )
+            await expect(fetch(`http://example.com`)).rejects.toThrow(new SecureRequestError(`Internal hostname`))
         })
     })
 
@@ -100,7 +98,7 @@ describe('secureRequest', () => {
             const parallelRequests = 100
 
             const requests = range(parallelRequests).map(() =>
-                secureRequest('https://example.com').then(() => {
+                fetch('https://example.com').then(() => {
                     timings.push(performance.now() - start)
                 })
             )
