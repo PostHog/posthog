@@ -14,10 +14,8 @@ export const messageSendersLogic = kea<messageSendersLogicType>([
         actions: [integrationsLogic, ['deleteIntegration']],
     })),
     actions({
-        openNewSenderModal: true,
-        closeNewSenderModal: true,
-        setSelectedIntegration: (integration: IntegrationType) => ({ integration }),
-        clearSelectedIntegration: () => null,
+        openNewSenderModal: (integration?: IntegrationType) => ({ integration }),
+        closeNewSenderModal: () => null,
     }),
     reducers(() => ({
         isNewSenderModalOpen: [
@@ -25,14 +23,13 @@ export const messageSendersLogic = kea<messageSendersLogicType>([
             {
                 openNewSenderModal: () => true,
                 closeNewSenderModal: () => false,
-                setSelectedIntegration: () => true,
             },
         ],
         selectedIntegration: [
             null as IntegrationType | null,
             {
-                setSelectedIntegration: (_, { integration }) => integration,
-                clearSelectedIntegration: () => null,
+                openNewSenderModal: (_, { integration }) => integration || null,
+                closeNewSenderModal: () => null,
             },
         ],
     })),

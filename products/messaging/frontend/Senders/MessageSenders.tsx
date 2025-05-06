@@ -14,7 +14,7 @@ import { MessagingTabs } from '../MessagingTabs'
 import { messageSendersLogic } from './messageSendersLogic'
 
 function MessageSender({ integration }: { integration: IntegrationType }): JSX.Element {
-    const { setSelectedIntegration, deleteIntegration } = useActions(messageSendersLogic)
+    const { openNewSenderModal, deleteIntegration } = useActions(messageSendersLogic)
 
     const onDeleteClick = (integration: IntegrationType): void => {
         LemonDialog.open({
@@ -69,7 +69,7 @@ function MessageSender({ integration }: { integration: IntegrationType }): JSX.E
                         <LemonButton
                             type="primary"
                             onClick={() => {
-                                setSelectedIntegration(integration)
+                                openNewSenderModal(integration)
                             }}
                             icon={<IconWarning />}
                         >
@@ -93,7 +93,7 @@ function MessageSender({ integration }: { integration: IntegrationType }): JSX.E
 function MessageSenders(): JSX.Element {
     const { isNewSenderModalOpen, selectedIntegration, integrations, integrationsLoading } =
         useValues(messageSendersLogic)
-    const { openNewSenderModal, closeNewSenderModal, clearSelectedIntegration } = useActions(messageSendersLogic)
+    const { openNewSenderModal, closeNewSenderModal } = useActions(messageSendersLogic)
 
     const emailIntegrations = integrations?.filter((integration) => integration.kind === 'email') ?? []
 
@@ -108,7 +108,7 @@ function MessageSenders(): JSX.Element {
                         icon={<IconPlusSmall />}
                         size="small"
                         type="primary"
-                        onClick={openNewSenderModal}
+                        onClick={() => openNewSenderModal()}
                     >
                         New sender
                     </LemonButton>
@@ -118,7 +118,6 @@ function MessageSenders(): JSX.Element {
                 <EmailSetupModal
                     integration={selectedIntegration}
                     onComplete={() => {
-                        clearSelectedIntegration()
                         closeNewSenderModal()
                     }}
                 />
@@ -137,7 +136,7 @@ function MessageSenders(): JSX.Element {
                                 thingName="sender domain"
                                 description="Configure domains to send emails from. This ensures your emails are delivered to inboxes and not marked as spam."
                                 docsURL="https://posthog.com/docs/messaging"
-                                action={openNewSenderModal}
+                                action={() => openNewSenderModal()}
                                 isEmpty
                             />
                         ))}
