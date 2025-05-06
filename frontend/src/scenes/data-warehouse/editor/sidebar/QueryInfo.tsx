@@ -1,5 +1,5 @@
 import { IconX } from '@posthog/icons'
-import { LemonTable, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonDialog, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
 import { useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -155,18 +155,34 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                         loading={updatingDataWarehouseSavedQuery}
                                         options={OPTIONS}
                                     />
-                                    <Tooltip title="Revert materialized view to view">
-                                        <LemonButton
-                                            type="secondary"
-                                            size="small"
-                                            icon={<IconX />}
-                                            onClick={() => {
-                                                if (editingView) {
-                                                    revertMaterialization(editingView.id)
-                                                }
-                                            }}
-                                        />
-                                    </Tooltip>
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        tooltip="Revert materialized view to view"
+                                        disabledReason={
+                                            savedQuery?.status === 'Running' &&
+                                            'Cannot revert while materialization is running'
+                                        }
+                                        icon={<IconX />}
+                                        onClick={() => {
+                                            if (editingView) {
+                                                LemonDialog.open({
+                                                    title: 'Revert materialization',
+                                                    maxWidth: '30rem',
+                                                    description:
+                                                        'Are you sure you want to revert this materialized view to a regular view? This will stop all future materializations and remove the materialized table. You will always be able to go back to a materialized view at any time.',
+                                                    primaryButton: {
+                                                        status: 'danger',
+                                                        children: 'Revert materialization',
+                                                        onClick: () => revertMaterialization(editingView.id),
+                                                    },
+                                                    secondaryButton: {
+                                                        children: 'Cancel',
+                                                    },
+                                                })
+                                            }
+                                        }}
+                                    />
                                 </div>
                             </div>
                         ) : (
