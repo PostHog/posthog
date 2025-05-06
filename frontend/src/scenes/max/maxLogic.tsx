@@ -71,8 +71,6 @@ export const maxLogic = kea<maxLogicType>([
             // Actions are lazy-loaded. In order to display their names in the UI, we're loading them here.
             actionsModel({ params: 'include_count=1' }),
             ['actions'],
-            router,
-            ['location as routerLocation'],
         ],
         actions: [sidePanelStateLogic, ['openSidePanel', 'closeSidePanel']],
     })),
@@ -762,10 +760,10 @@ export const maxLogic = kea<maxLogicType>([
         },
     })),
 
-    actionToUrl(({ values }) => ({
+    actionToUrl(() => ({
         cleanThread: () => {
-            const { chat, ...params } = decodeParams(values.routerLocation.search, '?')
-            return [values.routerLocation.pathname, params, values.routerLocation.hash]
+            const { chat, ...params } = decodeParams(router.values.location.search, '?')
+            return [router.values.location.pathname, params, router.values.location.hash]
         },
     })),
 
