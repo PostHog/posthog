@@ -119,22 +119,21 @@ def select_from_persons_table(
         if filter is not None:
             cast(ast.SelectQuery, cast(ast.CompareOperation, select.where).right).where = filter
 
-        if select.where and select.where.right:
-            if node.order_by:
-                select.where.right.order_by = [CloningVisitor(clear_locations=True).visit(x) for x in node.order_by]
-                for order_by in select.where.right.order_by:
-                    order_by.expr = ast.Call(
-                        name="argMax", args=[order_by.expr, ast.Field(chain=["raw_persons", "version"])]
-                    )
-
-            # Patch: push limit+offset+1 to inner subquery for correct pagination, always set offset=0
-            if node.limit:
-                effective_limit = (
-                    (node.limit.value if node.limit else 100) + (node.offset.value if node.offset else 0) + 1
+        compare = cast(ast.CompareOperation, select.where)
+        right_select = cast(ast.SelectQuery, compare.right)
+        if node.order_by:
+            right_select.order_by = [CloningVisitor(clear_locations=True).visit(x) for x in node.order_by]
+            for order_by in right_select.order_by:
+                order_by.expr = ast.Call(
+                    name="argMax", args=[order_by.expr, ast.Field(chain=["raw_persons", "version"])]
                 )
-                select.where.right.limit = ast.Constant(value=effective_limit)
-                select.where.right.offset = ast.Constant(value=0)
-                # Do NOT set node.limit/node.offset directly, outer paginator will slice results
+
+        # Patch: push limit+offset+1 to inner subquery for correct pagination, always set offset=0
+        if node.limit:
+            effective_limit = (node.limit.value if node.limit else 100) + (node.offset.value if node.offset else 0) + 1
+            right_select.limit = ast.Constant(value=effective_limit)
+            right_select.offset = ast.Constant(value=0)
+            # Do NOT set node.limit/node.offset directly, outer paginator will slice results
 
         for field_name, field_chain in join_or_table.fields_accessed.items():
             # We need to always select the 'id' field for the join constraint. The field name here is likely to
