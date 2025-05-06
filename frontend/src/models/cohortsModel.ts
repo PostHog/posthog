@@ -12,6 +12,7 @@ import { personsLogic } from 'scenes/persons/personsLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import {
     AnyCohortCriteriaType,
     BehavioralCohortType,
@@ -249,7 +250,16 @@ export const cohortsModel = kea<cohortsModelType>([
             await deleteWithUndo({
                 endpoint: api.cohorts.determineDeleteEndpoint(),
                 object: cohort,
-                callback: actions.loadCohorts,
+                callback: (undo) => {
+                    actions.loadCohorts()
+                    if (cohort.id && cohort.id !== 'new') {
+                        if (undo) {
+                            refreshTreeItem('cohort', String(cohort.id))
+                        } else {
+                            deleteFromTree('cohort', String(cohort.id))
+                        }
+                    }
+                },
             })
         },
         setCohortFilters: async () => {

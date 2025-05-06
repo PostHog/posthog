@@ -96,7 +96,7 @@ export function IntegrationChoice({
                     ? {
                           items: [
                               {
-                                  to: urls.messageSenders(),
+                                  to: urls.messagingSenders(),
                                   label: 'Configure new email sender domain',
                               },
                           ],

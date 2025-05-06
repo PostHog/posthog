@@ -2067,3 +2067,36 @@ export const getJSHeapMemory = (): {
     }
     return {}
 }
+
+export function getRelativeNextPath(nextPath: string | null | undefined, location: Location): string | null {
+    if (!nextPath || typeof nextPath !== 'string') {
+        return null
+    }
+    let decoded: string
+    try {
+        decoded = decodeURIComponent(nextPath)
+    } catch {
+        decoded = nextPath
+    }
+
+    // Protocol-relative URLs (e.g., //evil.com/test) are not allowed
+    if (decoded.startsWith('//')) {
+        return null
+    }
+
+    // Root-relative path
+    if (decoded.startsWith('/')) {
+        return decoded
+    }
+
+    // Try to parse as a full URL
+    try {
+        const url = new URL(decoded)
+        if ((url.protocol === 'http:' || url.protocol === 'https:') && url.origin === location.origin) {
+            return url.pathname + url.search + url.hash
+        }
+        return null
+    } catch {
+        return null
+    }
+}
