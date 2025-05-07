@@ -10,7 +10,7 @@ import { useResizeObserver } from '~/lib/hooks/useResizeObserver'
 import { QueryContext } from '~/queries/types'
 
 import { CalendarHeatMapCell, HeatMapValues } from './CalendarHeatMapCell'
-interface CalendarHeatMapProps {
+export interface CalendarHeatMapProps {
     context: QueryContext
     isLoading: boolean
     queryId: string | null
