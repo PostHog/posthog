@@ -785,7 +785,11 @@ function parseResponse<T>(response: string): T | null | undefined {
     }
 }
 
-function getScrollableContainer(element: Element): HTMLElement | null {
+function getScrollableContainer(element?: Element | null): HTMLElement | null {
+    if (!element) {
+        return null
+    }
+
     const scrollableEl = element.parentElement // .Navigation3000__scene or .SidePanel3000__content
     if (scrollableEl && !scrollableEl.classList.contains('SidePanel3000__content')) {
         // In this case we need to go up to <main>, since .Navigation3000__scene is not scrollable
