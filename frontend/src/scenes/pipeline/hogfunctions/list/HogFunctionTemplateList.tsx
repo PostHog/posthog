@@ -1,5 +1,5 @@
 import { IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonTable, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTable, Link, LemonBanner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PayGateButton } from 'lib/components/PayGateMini/PayGateButton'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -36,6 +36,13 @@ export function HogFunctionTemplateList({
                 <div className="flex-1" />
                 {extraControls}
             </div>
+
+            {filteredTemplates.some(template => template.status === 'beta') && (
+                <LemonBanner type="info" className="mb-4">
+                    This destination is in beta. It may have rough edges or undocumented features, and we'd{' '}
+                    <Link to="http://app.posthog.com/home#supportModal">love your feedback</Link> to help continue improving it.
+                </LemonBanner>
+            )}
 
             <LemonTable
                 dataSource={filteredTemplates}
