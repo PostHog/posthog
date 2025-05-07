@@ -168,9 +168,7 @@ def get_app_org_rate_limiter():
             max_concurrency=10,
             limit_name="app_per_org",
             get_task_name=lambda *args, **kwargs: f"app:query:per-org:{kwargs.get('org_id')}",
-            get_task_id=lambda *args, **kwargs: (
-                current_task.request.id if current_task else (kwargs.get("task_id") or generate_short_id())
-            ),
+            get_task_id=lambda *args, **kwargs: kwargs.get("task_id") or generate_short_id(),
             ttl=600,
         )
     return __APP_CONCURRENT_QUERY_PER_ORG

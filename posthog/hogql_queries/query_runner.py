@@ -861,8 +861,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 tag_queries(chargeable=1)
 
             with get_app_org_rate_limiter().run(
-                org_id=self.team.organization_id,
-                task_id=self.query_id,
+                org_id=self.team.organization_id, task_id=self.query_id, team_id=self.team.id
             ):
                 fresh_response_dict = {
                     **self.calculate().model_dump(),
