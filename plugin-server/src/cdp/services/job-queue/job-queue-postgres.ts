@@ -246,7 +246,7 @@ function invocationToCyclotronJobInitial(invocation: HogFunctionInvocation): Cyc
         parameters,
         blob,
         metadata: invocation.queueMetadata ?? null,
-        scheduled: invocation.queueScheduledAt?.toISO() ?? null,
+        scheduled: invocation.queueScheduledAt?.toISO() ?? DateTime.now().toISO(),
     }
     return job
 }
