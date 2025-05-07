@@ -14,6 +14,7 @@ from langgraph.graph.state import CompiledStateGraph
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from pydantic import BaseModel
 
+from ee.hogai.api.serializers import ConversationMinimalSerializer
 from ee.hogai.graph import (
     AssistantGraph,
     FunnelGeneratorNode,
@@ -29,6 +30,7 @@ from ee.hogai.graph.base import AssistantNode
 from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
 from ee.hogai.utils.asgi import SyncIterableToAsync
 from ee.hogai.utils.exceptions import GenerationCanceled
+from ee.hogai.utils.helpers import should_output_assistant_message
 from ee.hogai.utils.state import (
     GraphMessageUpdateTuple,
     GraphTaskStartedUpdateTuple,
@@ -54,7 +56,6 @@ from posthog.schema import (
     AssistantGenerationStatusEvent,
     AssistantGenerationStatusType,
     AssistantMessage,
-    AssistantToolCallMessage,
     FailureMessage,
     HumanMessage,
     ReasoningMessage,
@@ -400,16 +401,7 @@ class Assistant:
                     self._chunks = AIMessageChunk(content="")
                     _messages: list[BaseModel] = []
                     for candidate_message in node_val.messages:
-                        if (
-                            # Filter out tool calls without a UI payload
-                            not isinstance(candidate_message, AssistantToolCallMessage)
-                            or candidate_message.ui_payload is not None
-                        ) and (
-                            # Also filter out empty assistant messages
-                            not isinstance(candidate_message, AssistantMessage)
-                            or isinstance(candidate_message, AssistantMessage)
-                            and candidate_message.content
-                        ):
+                        if should_output_assistant_message(candidate_message):
                             _messages.append(candidate_message)
                     return _messages
 
@@ -451,7 +443,7 @@ class Assistant:
 
     def _serialize_conversation(self) -> str:
         output = f"event: {AssistantEventType.CONVERSATION}\n"
-        json_conversation = json.dumps({"id": str(self._conversation.id)})
+        json_conversation = json.dumps(ConversationMinimalSerializer(self._conversation).data)
         output += f"data: {json_conversation}\n\n"
         return output
 

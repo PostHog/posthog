@@ -10,14 +10,16 @@ import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardSh
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 
-export function QuestionInput(): JSX.Element {
+interface QuestionInputProps {
+    isFloating?: boolean
+}
+
+export function QuestionInput({ isFloating }: QuestionInputProps): JSX.Element {
     const { tools } = useValues(maxGlobalLogic)
-    const { question, threadGrouped, threadLoading, inputDisabled, submissionDisabledReason } = useValues(maxLogic)
+    const { question, threadLoading, inputDisabled, submissionDisabledReason } = useValues(maxLogic)
     const { askMax, setQuestion, stopGeneration } = useActions(maxLogic)
 
     const textAreaRef = useRef<HTMLTextAreaElement | null>(null)
-
-    const isFloating = threadGrouped.length > 0
 
     useEffect(() => {
         if (threadLoading) {
