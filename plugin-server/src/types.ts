@@ -1286,7 +1286,7 @@ export interface Workflow {
     id: string
     name: string
     description: string
-    json: ReactFlowJsonObject<WorkflowNode, WorkflowEdge>
+    json: Pick<ReactFlowJsonObject<WorkflowNode, WorkflowEdge>, 'nodes' | 'edges'>
     created_at: string | null
     updated_at: string | null
     created_by: {
