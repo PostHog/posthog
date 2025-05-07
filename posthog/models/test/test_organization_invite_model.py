@@ -85,11 +85,10 @@ class TestOrganizationInvite(BaseTest):
         access_control = AccessControl.objects.filter(
             team=team, resource="team", resource_id=str(team.id), organization_member=org_membership
         ).first()
+        if not access_control:
+            raise Exception("Access control not found")
 
-        self.assertIsNotNone(access_control)
-        self.assertIsNotNone(access_control)
-        if access_control:  # Add null check before accessing attribute
-            self.assertEqual(access_control.access_level, "admin")
+        self.assertEqual(access_control.access_level, "admin")
 
         # Verify the invite has been deleted
         self.assertFalse(OrganizationInvite.objects.filter(target_email="test@posthog.com").exists())
@@ -117,11 +116,13 @@ class TestOrganizationInvite(BaseTest):
         self.assertIsNotNone(org_membership)
 
         # Verify the access control has been created with member level
-        access_control: AccessControl = AccessControl.objects.filter(
+        access_control = AccessControl.objects.filter(
             team=team, resource="team", resource_id=str(team.id), organization_member=org_membership
         ).first()
 
-        self.assertIsNotNone(access_control)
+        if not access_control:
+            raise Exception("Access control not found")
+
         self.assertEqual(access_control.access_level, "member")
 
         # Verify the invite has been deleted
@@ -163,11 +164,12 @@ class TestOrganizationInvite(BaseTest):
             self.assertEqual(legacy_team_membership.level, OrganizationMembership.Level.ADMIN)
 
         # Verify the access control has been created correctly for the new team
-        access_control: AccessControl = AccessControl.objects.filter(
+        access_control = AccessControl.objects.filter(
             team=new_team, resource="team", resource_id=str(new_team.id), organization_member=org_membership
         ).first()
+        if not access_control:
+            raise Exception("Access control not found")
 
-        self.assertIsNotNone(access_control)
         self.assertEqual(access_control.access_level, "member")
 
         # Verify the invite has been deleted
