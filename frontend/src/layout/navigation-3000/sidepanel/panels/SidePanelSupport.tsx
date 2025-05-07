@@ -33,7 +33,7 @@ const Section = ({ title, children }: { title: string; children: React.ReactNode
 //Support offsite messaging
 const SUPPORT_MESSAGE_OVERRIDE_TITLE = "We're making improvements:"
 const SUPPORT_MESSAGE_OVERRIDE_BODY =
-    "Many of our support engineers are attending an offsite (from 12th to 16th May) so we can make long-term enhancements. We're working different hours, so non-urgent inquiries without priority support may experience a slight delay. We’ll be back to full speed from the 19th!"
+    "Many of our support engineers are attending an offsite (from 12th to 16th May) so we can make long-term enhancements. We're working different hours, so non-urgent inquiries without priority support may experience a slight delay. We'll be back to full speed from the 19th!"
 
 //Support Christmas messaging
 //const SUPPORT_MESSAGE_OVERRIDE_TITLE = '🎄 🎅 Support during the holidays 🎁 ⛄'

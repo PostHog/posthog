@@ -11,7 +11,7 @@ use tracing::{debug, error, instrument};
 
 use crate::{
     api::CaptureError, prometheus::report_dropped_events, token::validate_token,
-    v0_endpoint::MAX_CHARS_TO_CHECK,
+    v0_endpoint::MAX_PAYLOAD_SNIPPET_SIZE,
 };
 
 #[derive(Deserialize, Default, Clone, Copy, PartialEq, Eq)]
@@ -41,7 +41,7 @@ pub struct EventQuery {
     pub compression: Option<Compression>,
 
     // legacy GET requests can include data as query param
-    pub data: Option<Vec<u8>>,
+    pub data: Option<String>,
 
     #[serde(alias = "ver")]
     pub lib_version: Option<String>,
@@ -71,7 +71,7 @@ impl EventQuery {
 // Some SDKs like posthog-js-lite can include metadata in the POST body
 #[derive(Deserialize)]
 pub struct EventFormData {
-    pub data: String,
+    pub data: Option<String>,
     pub compression: Option<Compression>,
     #[serde(alias = "ver")]
     pub lib_version: Option<String>,
@@ -226,7 +226,7 @@ fn decompress_lz64(payload: &[u8], limit: usize) -> Result<String, CaptureError>
     let decomp_utf16 = match lz_str::decompress_from_base64(b64_payload) {
         Some(v) => v,
         None => {
-            let max_chars: usize = std::cmp::min(payload.len(), MAX_CHARS_TO_CHECK);
+            let max_chars: usize = std::cmp::min(payload.len(), MAX_PAYLOAD_SNIPPET_SIZE);
             let form_data_snippet = String::from_utf8(payload[..max_chars].to_vec())
                 .unwrap_or(String::from("INVALID_UTF8"));
             error!(

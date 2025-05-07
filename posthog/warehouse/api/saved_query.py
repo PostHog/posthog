@@ -11,7 +11,7 @@ from rest_framework.decorators import action
 from loginas.utils import is_impersonated_session
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
+from posthog.constants import DATA_MODELING_TASK_QUEUE
 from posthog.models import Team
 from posthog.models.activity_logging.activity_log import (
     Detail,
@@ -397,7 +397,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             "data-modeling-run",  # type: ignore
             inputs,  # type: ignore
             id=workflow_id,
-            task_queue=DATA_WAREHOUSE_TASK_QUEUE,
+            task_queue=DATA_MODELING_TASK_QUEUE,
         )
 
         return response.Response(status=status.HTTP_200_OK)

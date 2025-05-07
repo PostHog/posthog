@@ -66,12 +66,14 @@ pub async fn test_black_hole(
                     )));
                 }
             };
-            if input.data.is_empty() {
+            if input.data.is_none() || input.data.as_ref().is_some_and(|d| d.is_empty()) {
                 error!("unexpected missing EventFormData payload");
                 return Err(CaptureError::EmptyPayload);
             }
 
-            let payload = match base64::engine::general_purpose::STANDARD.decode(input.data) {
+            let payload = match base64::engine::general_purpose::STANDARD
+                .decode(input.data.unwrap())
+            {
                 Ok(payload) => payload,
                 Err(e) => {
                     error!("failed to decode form data: {}", e);
