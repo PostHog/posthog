@@ -343,6 +343,10 @@ const HIDDEN_DESTINATIONS = [
     'segment-attio',
     'segment-braze-cloud',
     'segment-klaviyo',
+    'segment-tiktok-conversions',
+    'segment-tiktok-conversions-sandbox',
+    'segment-tiktok-offline-conversions',
+    'segment-tiktok-offline-conversions-sandbox',
 ]
 
 export const SEGMENT_DESTINATIONS = Object.entries(destinations)
@@ -356,7 +360,7 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations)
             return false
         }
         if (
-            Object.keys(destination.authentication?.fields ?? {}).length === 0 &&
+            Object.keys(destination.authentication?.fields ?? {}).length === 0 ||
             (destination?.presets ?? []).length === 0
         ) {
             return false
@@ -385,7 +389,6 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations)
                                 payload: config as any,
                             })
                             const headers: Record<string, string> = {
-                                endpoint: endpoint,
                                 ...options?.headers,
                                 ...requestExtension?.headers,
                             }
@@ -403,7 +406,22 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations)
                                 headers['Content-Type'] = 'application/json'
                             }
 
-                            await fetch(endpoint, {
+                            const params = new URLSearchParams()
+
+                            if (options?.searchParams && typeof options.searchParams === 'object') {
+                                Object.entries(options.searchParams as Record<string, string>).forEach(([key, value]) =>
+                                    params.append(key, value)
+                                )
+                            }
+
+                            if (requestExtension?.searchParams && typeof requestExtension.searchParams === 'object') {
+                                Object.entries(requestExtension.searchParams as Record<string, string>).forEach(
+                                    ([key, value]) => params.append(key, value)
+                                )
+                            }
+                            headers['endpoint'] = `${endpoint}?${params.toString()}`
+
+                            await fetch('http://localhost:2080/e352fab0-49d7-456f-90e7-9678245bd507', {
                                 method: options?.method ?? 'POST',
                                 headers,
                                 body,
