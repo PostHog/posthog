@@ -165,16 +165,16 @@ pub async fn filter_builder(ctx: Arc<Context>, mut filter_row: FilterRow) {
 
                     // only add the key to a filter if it's missing, and
                     // only update the prop count once for this step
-                    let mut exists = false;
+                    let mut exists = true;
                     if !fwd_filter.contains_hash(fwd_hash) {
-                        exists = true;
+                        exists = false;
                         fwd_filter.insert_hash(fwd_hash);
                     }
                     if !rev_filter.contains_hash(rev_hash) {
-                        exists = true;
+                        exists = false;
                         rev_filter.insert_hash(rev_hash);
                     }
-                    if exists {
+                    if !exists {
                         insert_count += 1;
                         filter_row.property_count += 1;
                     }
