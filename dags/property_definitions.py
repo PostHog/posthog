@@ -38,6 +38,7 @@ def format_datetime_for_clickhouse(dt: datetime.datetime) -> str:
 def ingest_event_properties(
     context: dagster.OpExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
+    config: PropertyDefinitionsConfig,
 ) -> tuple[int, tuple[str, str]]:
     """
     Ingest event properties from events_recent table into property_definitions table.
@@ -45,16 +46,6 @@ def ingest_event_properties(
     Uses the JSONExtractKeysAndValuesRaw function to extract property keys and values,
     then determines the property type using JSONType.
     """
-    # Get config from context
-    config_dict = getattr(context, "op_config", {}) or {}
-
-    # Convert to PropertyDefinitionsConfig
-    config = PropertyDefinitionsConfig(
-        target_hour=config_dict.get("target_hour"),
-        start_date=config_dict.get("start_date"),
-        end_date=config_dict.get("end_date"),
-    )
-
     # Build the time filter based on config
     if config.start_date and config.end_date:
         # For backfill runs - these should already be in the right format
@@ -135,6 +126,7 @@ def ingest_event_properties(
 def ingest_person_properties(
     context: dagster.OpExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
+    config: PropertyDefinitionsConfig,
     event_time_window: tuple[str, str],
 ) -> tuple[int, tuple[str, str]]:
     """
@@ -143,16 +135,6 @@ def ingest_person_properties(
     Uses the JSONExtractKeysAndValuesRaw function to extract property keys and values,
     then determines the property type using JSONType.
     """
-    # Get config from context
-    config_dict = getattr(context, "op_config", {}) or {}
-
-    # Convert to PropertyDefinitionsConfig
-    config = PropertyDefinitionsConfig(
-        target_hour=config_dict.get("target_hour"),
-        start_date=config_dict.get("start_date"),
-        end_date=config_dict.get("end_date"),
-    )
-
     # Build the time filter based on config
     if config.start_date and config.end_date:
         # For backfill runs - these should already be in the right format
