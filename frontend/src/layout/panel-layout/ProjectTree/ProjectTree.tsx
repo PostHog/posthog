@@ -659,7 +659,7 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                                         </Tooltip>
                                     </span>
                                     {item.record?.user ? (
-                                        <span className="flex items-end justify-end row-span-2 self-center grayscale opacity-30 group-hover/lemon-tree-button:opacity-100 group-hover/lemon-tree-button:grayscale-0 transition-opacity duration-100">
+                                        <span className="flex items-end justify-end row-span-2 self-center grayscale opacity-30 group-hover/lemon-tree-button:opacity-100 group-hover/lemon-tree-button:grayscale-0">
                                             <Tooltip
                                                 title={
                                                     <>
