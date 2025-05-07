@@ -526,7 +526,7 @@ export const maxLogic = kea<maxLogicType>([
                 if (scrollableEl) {
                     scrollableEl.scrollTo({
                         top: 0,
-                        behavior: 'instant',
+                        behavior: 'instant' as ScrollBehavior,
                     })
                 }
             } else {

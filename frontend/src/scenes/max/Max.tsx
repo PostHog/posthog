@@ -14,7 +14,6 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import React from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 

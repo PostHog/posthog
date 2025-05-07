@@ -303,6 +303,11 @@ export const ChatHistory: StoryFn = () => {
 
     return <Template sidePanel />
 }
+ChatHistory.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
 
 export const ChatHistoryEmpty: StoryFn = () => {
     useStorybookMocks({
@@ -318,6 +323,11 @@ export const ChatHistoryEmpty: StoryFn = () => {
     }, [])
 
     return <Template sidePanel />
+}
+ChatHistoryEmpty.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
 }
 
 export const ChatHistoryLoading: StoryFn = () => {
