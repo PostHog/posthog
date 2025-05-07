@@ -118,8 +118,11 @@ export class KafkaConsumer {
     private maxHealthHeartbeatIntervalMs: number
     private maxBackgroundTasks: number
     private consumerLoop: Promise<void> | undefined
+    private backgroundWork: Promise<void>[]
 
     constructor(private config: KafkaConsumerConfig, rdKafkaConfig: RdKafkaConsumerConfig = {}) {
+        this.backgroundWork = []
+
         this.config.autoCommit ??= true
         this.config.autoOffsetStore ??= true
         this.config.callEachBatchWhenEmpty ??= false
@@ -270,7 +273,7 @@ export class KafkaConsumer {
         }
     }
 
-    public async connect(eachBatch: (messages: Message[]) => Promise<void>) {
+    public async connect(eachBatch: (messages: Message[]) => Promise<{ backgroundWork?: Promise<any> } | void>) {
         const { topic, groupId, callEachBatchWhenEmpty = false } = this.config
 
         try {
@@ -321,7 +324,7 @@ export class KafkaConsumer {
                     }
 
                     const startProcessingTimeMs = new Date().valueOf()
-                    await eachBatch(messages)
+                    const result = await eachBatch(messages)
 
                     const processingTimeMs = new Date().valueOf() - startProcessingTimeMs
                     consumedBatchDuration.labels({ topic, groupId }).observe(processingTimeMs)
@@ -333,8 +336,42 @@ export class KafkaConsumer {
                         logger.warn('🕒', `Slow batch: ${logSummary}`)
                     }
 
+                    // TODO: fix this so that we only do the subsequent store of offsets if the background work is actually done
+                    if (result?.backgroundWork) {
+                        const stopTimer = consumedBatchBackgroundDuration.startTimer({
+                            topic: this.config.topic,
+                            groupId: this.config.groupId,
+                        })
+
+                        // At first we just add the background work to the queue
+                        this.backgroundWork.push(
+                            result.backgroundWork.finally(() => {
+                                // Only when we are fully done with the background work we store the offsets
+                                // TODO: Test if this fully works as expected - like what if backgroundBatches[1] finishes after backgroundBatches[0]
+                                // Remove the background work from the queue when it is finished
+                                this.storeOffsetsForMessages(messages)
+                                void (this.backgroundWork = this.backgroundWork.filter(
+                                    (task) => task !== result.backgroundWork
+                                ))
+
+                                stopTimer()
+                            })
+                        )
+                    }
+
                     if (this.config.autoCommit && this.config.autoOffsetStore) {
                         this.storeOffsetsForMessages(messages)
+                    }
+
+                    // If we have too much "backpressure" we need to await one of the background tasks. We await the oldest one on purpose
+                    if (this.backgroundWork.length > this.maxBackgroundTasks) {
+                        const stopTimer = consumedBatchBackpressureDuration.startTimer({
+                            topic: this.config.topic,
+                            groupId: this.config.groupId,
+                        })
+                        // If we have more than the max, we need to await one
+                        await this.backgroundWork[0]
+                        stopTimer()
                     }
                 }
             } catch (error) {
@@ -359,54 +396,6 @@ export class KafkaConsumer {
             // We re-throw the error as that way it will be caught in server.ts and trigger a full shutdown
             throw error
         })
-    }
-
-    /**
-     * Special version of connect that allows you to increase throughput by processing a second batch, even if work from a previous batch is still in progress.
-     */
-    public async connectThreaded(eachBatch: (messages: Message[]) => Promise<{ backgroundWork: Promise<any> }>) {
-        if (this.config.autoOffsetStore) {
-            throw new Error('autoOffsetStore must be false when using connectThreaded')
-        }
-
-        // TODO: Perhaps change the signature of the backgroundWork so that we do one at a time and call them :thinking:
-
-        let backgroundBatches: Promise<void>[] = []
-
-        await this.connect(async (messages) => {
-            const { backgroundWork } = await eachBatch(messages)
-
-            const startBackgroundTime = performance.now()
-
-            // At first we just add the background work to the queue
-            backgroundBatches.push(
-                backgroundWork.finally(() => {
-                    // Only when we are fully done with the background work we store the offsets
-                    // TODO: Test if this fully works as expected - like what if backgroundBatches[1] finishes after backgroundBatches[0]
-                    // Remove the background work from the queue when it is finished
-                    this.storeOffsetsForMessages(messages)
-                    void (backgroundBatches = backgroundBatches.filter((task) => task !== backgroundWork))
-
-                    const backgroundTime = performance.now() - startBackgroundTime
-                    consumedBatchBackgroundDuration
-                        .labels({ topic: this.config.topic, groupId: this.config.groupId })
-                        .observe(backgroundTime)
-                })
-            )
-
-            // If we have too much "backpressure" we need to await one of the background tasks. We await the oldest one on purpose
-            if (backgroundBatches.length > this.maxBackgroundTasks) {
-                const stopTimer = consumedBatchBackpressureDuration.startTimer({
-                    topic: this.config.topic,
-                    groupId: this.config.groupId,
-                })
-                // If we have more than the max, we need to await one
-                await backgroundBatches[0]
-                stopTimer()
-            }
-        })
-
-        await Promise.all(backgroundBatches)
     }
 
     public async disconnect() {

@@ -53,7 +53,7 @@ export class CyclotronJobQueueKafka {
         this.kafkaConsumer = new KafkaConsumer({ groupId, topic, callEachBatchWhenEmpty: true })
 
         logger.info('🔄', 'Connecting kafka consumer', { groupId, topic })
-        await this.kafkaConsumer.connectThreaded(async (messages) => {
+        await this.kafkaConsumer.connect(async (messages) => {
             const { backgroundWork } = await this.consumeKafkaBatch(messages)
             return { backgroundWork }
         })

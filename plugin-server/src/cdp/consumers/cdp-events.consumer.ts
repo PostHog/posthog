@@ -33,9 +33,9 @@ export class CdpEventsConsumer extends CdpConsumerBase {
 
     public async processBatch(
         invocationGlobals: HogFunctionInvocationGlobals[]
-    ): Promise<{ backgroundWork: Promise<any> }> {
+    ): Promise<{ backgroundWork: Promise<any>; invocations: HogFunctionInvocation[] }> {
         if (!invocationGlobals.length) {
-            return { backgroundWork: Promise.resolve() }
+            return { backgroundWork: Promise.resolve(), invocations: [] }
         }
 
         const invocationsToBeQueued = await this.runWithHeartbeat(() =>
@@ -49,6 +49,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                 // TODO: Decide if this should ignore errors (as we would essentially re run the batch and double queue )
                 this.hogFunctionMonitoringService.produceQueuedMessages(),
             ]),
+            invocations: invocationsToBeQueued,
         }
     }
 
@@ -174,7 +175,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
         // Make sure we are ready to produce to cyclotron first
         await this.cyclotronJobQueue.startAsProducer()
         // Start consuming messages
-        await this.kafkaConsumer.connectThreaded(async (messages) => {
+        await this.kafkaConsumer.connect(async (messages) => {
             logger.info('🔁', `${this.name} - handling batch`, {
                 size: messages.length,
             })
