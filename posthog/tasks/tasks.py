@@ -11,7 +11,6 @@ from django.utils import timezone
 from prometheus_client import Gauge
 from redis import Redis
 from structlog import get_logger
-from django.core.management import call_command
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_concurrency
 from posthog.clickhouse.query_tagging import tag_queries
@@ -923,18 +922,3 @@ def calculate_external_data_rows_synced() -> None:
         pass
     else:
         capture_external_data_rows_synced()
-
-
-@shared_task(
-    ignore_result=True,
-    autoretry_for=(Exception,),
-    max_retries=5,
-    default_retry_delay=30,  # retry every 30 seconds
-)
-def sync_hog_function_templates_task():
-    try:
-        logger.info("Running sync_hog_function_templates command (celery task)...")
-        call_command("sync_hog_function_templates")
-    except Exception as e:
-        logger.exception(f"Celery task sync_hog_function_templates failed: {e}")
-        raise  # Needed for Celery to trigger a retry

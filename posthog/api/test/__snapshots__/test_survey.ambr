@@ -5,25 +5,9 @@
   SELECT JSONExtractString(properties, '$survey_id') as survey_id,
          count()
   FROM events
-  WHERE team_id = 99999
-    AND event = 'survey sent'
+  WHERE event = 'survey sent'
+    AND team_id = 99999
     AND timestamp >= '2024-01-21 14:40:09'
-    AND uuid IN (
-                   (SELECT uuid
-                    FROM events
-                    WHERE team_id = 99999
-                      AND event = 'survey sent'
-                      AND timestamp >= '2024-01-21 14:40:09'
-                      AND COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') = '' )
-                 UNION ALL
-                   (SELECT argMax(uuid, timestamp)
-                    FROM events
-                    WHERE team_id = 99999
-                      AND event = 'survey sent'
-                      AND timestamp >= '2024-01-21 14:40:09'
-                      AND COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') != ''
-                    GROUP BY JSONExtractString(properties, '$survey_id'),
-                             JSONExtractString(properties, '$survey_submission_id')))
   GROUP BY survey_id
   '''
 # ---
@@ -33,53 +17,9 @@
   SELECT JSONExtractString(properties, '$survey_id') as survey_id,
          count()
   FROM events
-  WHERE team_id = 99999
-    AND event = 'survey sent'
+  WHERE event = 'survey sent'
+    AND team_id = 99999
     AND timestamp >= '2024-04-25 14:40:09'
-    AND uuid IN (
-                   (SELECT uuid
-                    FROM events
-                    WHERE team_id = 99999
-                      AND event = 'survey sent'
-                      AND timestamp >= '2024-04-25 14:40:09'
-                      AND COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') = '' )
-                 UNION ALL
-                   (SELECT argMax(uuid, timestamp)
-                    FROM events
-                    WHERE team_id = 99999
-                      AND event = 'survey sent'
-                      AND timestamp >= '2024-04-25 14:40:09'
-                      AND COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') != ''
-                    GROUP BY JSONExtractString(properties, '$survey_id'),
-                             JSONExtractString(properties, '$survey_submission_id')))
-  GROUP BY survey_id
-  '''
-# ---
-# name: TestResponsesCount.test_responses_count_with_partial_responses
-  '''
-  /* user_id:0 request:_snapshot_ */
-  SELECT JSONExtractString(properties, '$survey_id') as survey_id,
-         count()
-  FROM events
-  WHERE team_id = 99999
-    AND event = 'survey sent'
-    AND timestamp >= '2024-06-10 11:00:00'
-    AND uuid IN (
-                   (SELECT uuid
-                    FROM events
-                    WHERE team_id = 99999
-                      AND event = 'survey sent'
-                      AND timestamp >= '2024-06-10 11:00:00'
-                      AND COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') = '' )
-                 UNION ALL
-                   (SELECT argMax(uuid, timestamp)
-                    FROM events
-                    WHERE team_id = 99999
-                      AND event = 'survey sent'
-                      AND timestamp >= '2024-06-10 11:00:00'
-                      AND COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') != ''
-                    GROUP BY JSONExtractString(properties, '$survey_id'),
-                             JSONExtractString(properties, '$survey_submission_id')))
   GROUP BY survey_id
   '''
 # ---
@@ -129,6 +69,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -214,6 +156,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -343,6 +287,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -477,6 +423,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -562,6 +510,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -703,6 +653,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -837,6 +789,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -922,6 +876,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -1027,6 +983,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -1131,6 +1089,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -1237,6 +1197,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -1322,6 +1284,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -1451,6 +1415,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -1568,6 +1534,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -1819,6 +1787,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -1953,6 +1923,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
