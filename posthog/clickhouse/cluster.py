@@ -118,15 +118,7 @@ class ClickhouseCluster:
         self.__shards: dict[int, set[HostInfo]] = defaultdict(set)
         self.__extra_hosts: set[HostInfo] = set()
 
-        cluster_hosts = bootstrap_client.execute(
-            """
-            SELECT host_name, port, shard_num, replica_num, getMacro('hostClusterType') as host_cluster_type, getMacro('hostClusterRole') as host_cluster_role
-            FROM clusterAllReplicas(%(name)s, system.clusters)
-            WHERE name = %(name)s and is_local
-            ORDER BY shard_num, replica_num
-            """,
-            {"name": cluster or settings.CLICKHOUSE_CLUSTER},
-        )
+        cluster_hosts = self.__get_cluster_hosts(bootstrap_client, cluster or settings.CLICKHOUSE_CLUSTER, retry_policy)
 
         for row in cluster_hosts:
             (host_name, port, shard_num, replica_num, host_cluster_type, host_cluster_role) = row
@@ -162,6 +154,22 @@ class ClickhouseCluster:
         self.__logger = logger
         self.__client_settings = client_settings
         self.__retry_policy = retry_policy
+
+    def __get_cluster_hosts(self, client: Client, cluster: str, retry_policy: RetryPolicy | None = None):
+        get_cluster_hosts_fn = lambda client: client.execute(
+            """
+            SELECT host_name, port, shard_num, replica_num, getMacro('hostClusterType') as host_cluster_type, getMacro('hostClusterRole') as host_cluster_role
+            FROM clusterAllReplicas(%(name)s, system.clusters)
+            WHERE name = %(name)s and is_local
+            ORDER BY shard_num, replica_num
+            """,
+            {"name": cluster},
+        )
+
+        if retry_policy is not None:
+            get_cluster_hosts_fn = retry_policy(get_cluster_hosts_fn)
+
+        return get_cluster_hosts_fn(client)
 
     def __get_task_function(self, host: HostInfo, fn: Callable[[Client], T]) -> Callable[[], T]:
         pool = self.__pools.get(host)
