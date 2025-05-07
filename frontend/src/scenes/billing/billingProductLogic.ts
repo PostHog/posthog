@@ -472,19 +472,20 @@ export const billingProductLogic = kea<billingProductLogicType>([
 
                 if (props.product.current_usage && newAmountAsUsage < props.product.current_usage) {
                     LemonDialog.open({
+                        maxWidth: '600px',
                         title: 'Billing limit warning',
                         description:
-                            'The billing limit you set is below your current usage. If you proceed the new limit will not go into effect until your next billing period.',
+                            "The billing limit you set is below your current usage. If you proceed, your current period's limit will be set to your current usage (to prevent additional charges), and the new lower limit will go into effect in your next billing period. Are you sure you want to proceed?",
                         primaryButton: {
                             status: 'danger',
-                            children: 'I understand',
+                            children: 'Yes, I understand',
                             onClick: () =>
                                 actions.updateBillingLimits({
                                     [props.product.type]: input,
                                 }),
                         },
                         secondaryButton: {
-                            children: 'I changed my mind',
+                            children: 'No, I changed my mind',
                         },
                     })
                     return
@@ -492,18 +493,20 @@ export const billingProductLogic = kea<billingProductLogicType>([
 
                 if (props.product.projected_usage && newAmountAsUsage < props.product.projected_usage) {
                     LemonDialog.open({
+                        maxWidth: '600px',
                         title: 'Billing limit warning',
                         description:
-                            'Your predicted usage is above your billing limit which is likely to result in usage being throttled.',
+                            'Your predicted usage is above your billing limit which is likely to result in usage being throttled and data being dropped. Are you sure you want to proceed?',
                         primaryButton: {
-                            children: 'I understand',
+                            status: 'danger',
+                            children: 'Yes, I understand',
                             onClick: () =>
                                 actions.updateBillingLimits({
                                     [props.product.type]: input,
                                 }),
                         },
                         secondaryButton: {
-                            children: 'I changed my mind',
+                            children: 'No, I changed my mind',
                         },
                     })
                     return
