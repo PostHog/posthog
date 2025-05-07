@@ -160,6 +160,9 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         team_error = "Project does not exist on this organization, or it is private and you do not have access to it."
         if not private_project_access:
             return None
+
+        # Note: this map is not determing whether or not the project has access controls but simply
+        # checking if the inviting user has permission to invite a user to the project with the given level
         for item in private_project_access:
             # if the project is private, if user is not an admin of the team, they can't invite to it
             organization: Organization = Organization.objects.get(id=self.context["organization_id"])
@@ -169,96 +172,68 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             try:
                 team: Team = teams.get(id=item["id"])
             except Team.DoesNotExist:
-                raise exceptions.ValidationError(
-                    team_error,
+                raise exceptions.ValidationError(team_error)
+
+            try:
+                # Check if the user is an org admin/owner - org admins/owners can invite with any level
+                OrganizationMembership.objects.get(
+                    organization_id=self.context["organization_id"],
+                    user=self.context["request"].user,
+                    level__in=[OrganizationMembership.Level.ADMIN, OrganizationMembership.Level.OWNER],
                 )
+                continue
+            except OrganizationMembership.DoesNotExist:
+                # User is not an org admin/owner
+                pass
 
             # This path is deprecated, and will be removed soon
             if team.access_control:
+                team_membership: ExplicitTeamMembership | None = None
                 try:
-                    team_membership: ExplicitTeamMembership | OrganizationMembership = (
-                        ExplicitTeamMembership.objects.get(
-                            team_id=item["id"],
-                            parent_membership__user=self.context["request"].user,
-                        )
+                    team_membership = ExplicitTeamMembership.objects.get(
+                        team_id=item["id"],
+                        parent_membership__user=self.context["request"].user,
                     )
                 except ExplicitTeamMembership.DoesNotExist:
-                    try:
-                        # No explicit team membership. Try getting the implicit team membership - any org owners and admins can invite to any team
-                        team_membership = OrganizationMembership.objects.get(
-                            organization_id=self.context["organization_id"],
-                            user=self.context["request"].user,
-                            level__in=[OrganizationMembership.Level.ADMIN, OrganizationMembership.Level.OWNER],
-                        )
-                    except OrganizationMembership.DoesNotExist:
-                        raise exceptions.ValidationError(
-                            team_error,
-                        )
+                    raise exceptions.ValidationError(team_error)
                 if team_membership.level < item["level"]:
                     raise exceptions.ValidationError(
                         "You cannot invite to a private project with a higher level than your own.",
                     )
-            else:
-                # New access control checks
-                try:
-                    # Check if the user is an org admin/owner
-                    org_membership = OrganizationMembership.objects.get(
-                        organization_id=self.context["organization_id"],
-                        user=self.context["request"].user,
-                        level__in=[OrganizationMembership.Level.ADMIN, OrganizationMembership.Level.OWNER],
-                    )
+                # Legacy private project and the current user has permission to invite to it
+                continue
 
-                    # Org admins/owners can invite with any level as long as it's not higher than their own
-                    if org_membership.level < item["level"]:
-                        raise exceptions.ValidationError(
-                            "You cannot invite to a private project with a higher level than your own.",
-                        )
+            # New access control checks
+            from ee.models.rbac.access_control import AccessControl
 
-                    # Org admin/owner check passed, continue to next item
-                    continue
+            # Check if the team has an access control row that applies to the entire resource
+            team_access_controls = AccessControl.objects.filter(
+                team_id=item["id"],
+                resource="team",
+                resource_id=str(item["id"]),
+                organization_member=None,
+                role=None,
+            )
 
-                except OrganizationMembership.DoesNotExist:
-                    # User is not an org admin/owner, check for AccessControl
-                    pass
+            # If no access controls exist, continue (team can be accessed by anyone in the organization)
+            if not team_access_controls.exists():
+                continue
 
-                # Import here to avoid circular imports
-                from ee.models.rbac.access_control import AccessControl
+            # Check if there's an access control with level 'none' (private team)
+            private_team_access = team_access_controls.filter(access_level="none").exists()
 
-                # Check if the team has an access control row that applies to the entire resource
-                # (both organization_member and role are None)
-                team_access_controls = AccessControl.objects.filter(
+            if private_team_access:
+                # Team is private, check if user has admin access
+                user_access = AccessControl.objects.filter(
                     team_id=item["id"],
                     resource="team",
                     resource_id=str(item["id"]),
-                    organization_member=None,
-                    role=None,
-                )
+                    organization_member__user=self.context["request"].user,
+                    access_level="admin",
+                ).exists()
 
-                # If no access controls exist, continue (team is not private)
-                if not team_access_controls.exists():
-                    continue
-
-                # Check if there's an access control with level 'none' (private team)
-                private_team_access = team_access_controls.filter(access_level="none").exists()
-
-                if private_team_access:
-                    # Team is private, check if user has admin access
-                    user_access = AccessControl.objects.filter(
-                        team_id=item["id"],
-                        resource="team",
-                        resource_id=str(item["id"]),
-                        organization_member__user=self.context["request"].user,
-                        access_level="admin",
-                    ).exists()
-
-                    if not user_access:
-                        raise exceptions.ValidationError(
-                            team_error,
-                        )
-                else:
-                    # Team has access controls but is not private (access level is member or admin)
-                    # No additional checks needed
-                    continue
+                if not user_access:
+                    raise exceptions.ValidationError(team_error)
 
         return private_project_access
 
