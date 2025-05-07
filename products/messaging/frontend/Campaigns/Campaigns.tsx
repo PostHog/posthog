@@ -8,10 +8,10 @@ import { HogFunctionLogs } from 'scenes/pipeline/hogfunctions/logs/HogFunctionLo
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { FunctionsTable } from '../FunctionsTable'
+import { MessagingTabs } from '../MessagingTabs'
 import { campaignsLogic } from './campaignsLogic'
 import { CampaignTab, campaignTabsLogic } from './campaignTabsLogic'
-import { FunctionsTable } from './FunctionsTable'
-import { MessagingTabs } from './MessagingTabs'
 
 const Campaign = ({ campaignId }: { campaignId: string }): JSX.Element => {
     const { currentTab } = useValues(campaignTabsLogic)

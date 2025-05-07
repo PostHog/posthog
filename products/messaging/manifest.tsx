@@ -7,23 +7,28 @@ import { ProductManifest } from '../../frontend/src/types'
 export const manifest: ProductManifest = {
     name: 'Messaging',
     scenes: {
-        MessagingCampaigns: {
-            import: () => import('./frontend/Campaigns'),
-            name: 'Messaging',
-            projectBased: true,
-        },
         MessagingBroadcasts: {
             import: () => import('./frontend/Broadcasts'),
             name: 'Messaging',
             projectBased: true,
         },
         MessagingLibrary: {
-            import: () => import('./frontend/library/MessageLibrary'),
+            import: () => import('./frontend/Library/MessageLibrary'),
+            name: 'Messaging',
+            projectBased: true,
+        },
+        MessagingCampaigns: {
+            import: () => import('./frontend/Campaigns/Campaigns'),
+            name: 'Messaging',
+            projectBased: true,
+        },
+        MessagingCampaign: {
+            import: () => import('./frontend/Campaigns/Campaign'),
             name: 'Messaging',
             projectBased: true,
         },
         MessagingLibraryTemplate: {
-            import: () => import('./frontend/library/MessageTemplate'),
+            import: () => import('./frontend/Library/MessageTemplate'),
             name: 'Messaging',
             projectBased: true,
         },
@@ -31,8 +36,8 @@ export const manifest: ProductManifest = {
     routes: {
         // URL: [Scene, SceneKey]
         '/messaging/campaigns': ['MessagingCampaigns', 'messagingCampaigns'],
-        '/messaging/campaigns/:id': ['MessagingCampaigns', 'messagingCampaign'],
-        '/messaging/campaigns/new': ['MessagingCampaigns', 'messagingCampaignNew'],
+        '/messaging/campaigns/:id': ['MessagingCampaign', 'messagingCampaign'],
+        '/messaging/campaigns/new': ['MessagingCampaign', 'messagingCampaignNew'],
         '/messaging/broadcasts': ['MessagingBroadcasts', 'messagingBroadcasts'],
         '/messaging/broadcasts/:id': ['MessagingBroadcasts', 'messagingBroadcast'],
         '/messaging/broadcasts/new': ['MessagingBroadcasts', 'messagingBroadcastNew'],
