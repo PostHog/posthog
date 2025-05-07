@@ -230,6 +230,46 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual(data2["count"], 1)
         self.assertEqual(data2["results"][0]["path"], "Random/Other File")
 
+    def test_search_hog_function_types(self):
+        """
+        Ensure the search functionality is working on the 'path' field.
+        """
+        FileSystem.objects.create(
+            team=self.team, path="Analytics/Report 1", type="hog_function/source", created_by=self.user
+        )
+        FileSystem.objects.create(
+            team=self.team, path="Analytics/Report 2", type="hog_function/destination", created_by=self.user
+        )
+        FileSystem.objects.create(team=self.team, path="Random/Other File", type="misc", created_by=self.user)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/?search=type:source")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        data = response.json()
+        self.assertEqual(data["count"], 1)
+        paths = {item["path"] for item in data["results"]}
+        self.assertSetEqual(paths, {"Analytics/Report 1"})
+
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/?search=type:destination")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        data = response.json()
+        self.assertEqual(data["count"], 1)
+        paths = {item["path"] for item in data["results"]}
+        self.assertSetEqual(paths, {"Analytics/Report 2"})
+
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/?search=type:misc")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        data = response.json()
+        self.assertEqual(data["count"], 1)
+        paths = {item["path"] for item in data["results"]}
+        self.assertSetEqual(paths, {"Random/Other File"})
+
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/?search=type:hog_function/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        data = response.json()
+        self.assertEqual(data["count"], 2)
+        paths = {item["path"] for item in data["results"]}
+        self.assertSetEqual(paths, {"Analytics/Report 1", "Analytics/Report 2"})
+
     def test_depth_on_create_single_segment(self):
         """
         Creating a FileSystem with a single-segment path (like "Documents") should have depth=1.
