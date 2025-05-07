@@ -228,7 +228,7 @@ export class SegmentDestinationExecutorService {
 
             logger.error('💩', 'Segment destination errored', {
                 error: e.message,
-                segmentActionId,
+                segmentDestinationId,
                 invocationId: invocation.id,
             })
 
