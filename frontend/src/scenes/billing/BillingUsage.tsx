@@ -1,13 +1,16 @@
 import './BillingUsage.scss'
 
+import { IconInfo } from '@posthog/icons'
 import { LemonCheckbox, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import { BillingDataTable } from './BillingDataTable'
+import { BillingEmptyState } from './BillingEmptyState'
 import { BillingLineGraph } from './BillingLineGraph'
 import { billingUsageLogic } from './billingUsageLogic'
 import { USAGE_TYPES } from './constants'
@@ -20,10 +23,13 @@ export function BillingUsage(): JSX.Element {
         filters,
         dateFrom,
         dateTo,
+        billingUsageResponse,
         billingUsageResponseLoading,
         dateOptions,
         excludeEmptySeries,
         finalHiddenSeries,
+        heading,
+        headingTooltip,
     } = useValues(logic)
     const { setFilters, setDateRange, toggleSeries, toggleAllSeries, setExcludeEmptySeries, toggleTeamBreakdown } =
         useActions(logic)
@@ -134,30 +140,45 @@ export function BillingUsage(): JSX.Element {
                 </div>
             </div>
 
-            <div className="border rounded p-4 bg-white">
-                <BillingLineGraph
-                    series={series}
-                    dates={dates}
-                    isLoading={billingUsageResponseLoading}
-                    hiddenSeries={finalHiddenSeries}
-                    showLegend={false}
-                    interval={filters.interval}
-                />
+            <div className="flex items-center gap-1">
+                <h3 className="text-lg font-semibold mb-0">{heading}</h3>
+                {headingTooltip && (
+                    <Tooltip title={headingTooltip}>
+                        <IconInfo className="text-lg text-secondary shrink-0" />
+                    </Tooltip>
+                )}
             </div>
 
-            {series.length > 0 && (
-                <div className="mt-4">
-                    <h3 className="text-lg font-semibold mb-2">Detailed Results</h3>
-                    <BillingDataTable
-                        series={series}
-                        dates={dates}
-                        isLoading={billingUsageResponseLoading}
-                        hiddenSeries={finalHiddenSeries}
-                        toggleSeries={toggleSeries}
-                        toggleAllSeries={toggleAllSeries}
-                    />
-                </div>
-            )}
+            {billingUsageResponseLoading || (series && series.length > 0) ? (
+                <>
+                    <div className="border rounded p-4 bg-white">
+                        <BillingLineGraph
+                            series={series}
+                            dates={dates}
+                            isLoading={billingUsageResponseLoading}
+                            hiddenSeries={finalHiddenSeries}
+                            showLegend={false}
+                            interval={filters.interval}
+                        />
+                    </div>
+
+                    <div className="mt-4">
+                        <BillingDataTable
+                            series={series}
+                            dates={dates}
+                            isLoading={billingUsageResponseLoading}
+                            hiddenSeries={finalHiddenSeries}
+                            toggleSeries={toggleSeries}
+                            toggleAllSeries={toggleAllSeries}
+                        />
+                    </div>
+                </>
+            ) : billingUsageResponse ? (
+                <BillingEmptyState
+                    heading="I couldn't find any usage data for your current query."
+                    detail={<>If you think something is wrong, please contact us.</>}
+                />
+            ) : null}
         </div>
     )
 }

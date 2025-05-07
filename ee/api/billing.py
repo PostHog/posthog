@@ -82,8 +82,7 @@ class BillingUsageRequestSerializer(serializers.Serializer):
     def validate_start_date(self, value: Optional[str]) -> Optional[str]:
         """Validate and normalize the start_date, handling 'all'."""
         if value == "all":
-            # Currently hardcoded to avoid querying extended history
-            return "2024-01-01"
+            return "2020-01-01"
         return self._parse_date(value, "start_date")
 
     def validate_end_date(self, value: Optional[str]) -> Optional[str]:

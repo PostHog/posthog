@@ -82,8 +82,9 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                         ...(usage_types && usage_types.length > 0 ? { usage_types: JSON.stringify(usage_types) } : {}),
                         ...(team_ids && team_ids.length > 0 ? { team_ids: JSON.stringify(team_ids) } : {}),
                         ...(breakdowns && breakdowns.length > 0 ? { breakdowns: JSON.stringify(breakdowns) } : {}),
-                        start_date: values.dateFrom || dayjs().subtract(30, 'day').format('YYYY-MM-DD'),
-                        end_date: values.dateTo || dayjs().format('YYYY-MM-DD'),
+                        start_date:
+                            values.dateFrom || dayjs().subtract(1, 'month').subtract(1, 'day').format('YYYY-MM-DD'),
+                        end_date: values.dateTo || dayjs().subtract(1, 'day').format('YYYY-MM-DD'),
                         ...(interval ? { interval } : {}),
                     }
                     const response = await api.get(`api/billing/usage/?${toParams(params)}`)
@@ -109,15 +110,16 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
             },
         ],
         dateFrom: [
-            dayjs().subtract(30, 'day').format('YYYY-MM-DD'),
+            dayjs().subtract(1, 'month').subtract(1, 'day').format('YYYY-MM-DD'),
             {
-                setDateRange: (_, { dateFrom }) => dateFrom || dayjs().subtract(30, 'day').format('YYYY-MM-DD'),
+                setDateRange: (_, { dateFrom }) =>
+                    dateFrom || dayjs().subtract(1, 'month').subtract(1, 'day').format('YYYY-MM-DD'),
             },
         ],
         dateTo: [
-            dayjs().format('YYYY-MM-DD'),
+            dayjs().subtract(1, 'day').format('YYYY-MM-DD'),
             {
-                setDateRange: (_, { dateTo }) => dateTo || dayjs().format('YYYY-MM-DD'),
+                setDateRange: (_, { dateTo }) => dateTo || dayjs().subtract(1, 'day').format('YYYY-MM-DD'),
             },
         ],
         userHiddenSeries: [
@@ -184,6 +186,43 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
             (s) => [s.userHiddenSeries, s.excludeEmptySeries, s.emptySeriesIDs],
             (userHiddenSeries: number[], excludeEmptySeries: boolean, emptySeriesIDs: number[]) =>
                 excludeEmptySeries ? Array.from(new Set([...userHiddenSeries, ...emptySeriesIDs])) : userHiddenSeries,
+        ],
+        heading: [
+            (s) => [s.filters],
+            (filters: BillingUsageFilters): string => {
+                const { interval, breakdowns } = filters
+                let heading = ''
+                if (interval === 'day') {
+                    heading = 'Daily'
+                } else if (interval === 'week') {
+                    heading = 'Weekly'
+                } else if (interval === 'month') {
+                    heading = 'Monthly'
+                }
+                heading += ' usage'
+
+                const breakdownParts: string[] = []
+                if (breakdowns?.includes('type')) {
+                    breakdownParts.push('type')
+                }
+                if (breakdowns?.includes('team')) {
+                    breakdownParts.push('team')
+                }
+
+                if (breakdownParts.length > 0) {
+                    heading += ` by ${breakdownParts.join(' and ')}`
+                }
+                return heading
+            },
+        ],
+        headingTooltip: [
+            (s) => [s.dateTo],
+            (dateTo: string): string | null => {
+                if (!dayjs(dateTo).isBefore(dayjs(), 'day')) {
+                    return 'Usage is reported on a daily basis so the figures for the current day (UTC) are not available.'
+                }
+                return null
+            },
         ],
     }),
     listeners(({ actions, values }) => ({

@@ -79,8 +79,9 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
                         ...(usage_types && usage_types.length > 0 ? { usage_types: JSON.stringify(usage_types) } : {}),
                         ...(team_ids && team_ids.length > 0 ? { team_ids: JSON.stringify(team_ids) } : {}),
                         ...(breakdowns && breakdowns.length > 0 ? { breakdowns: JSON.stringify(breakdowns) } : {}),
-                        start_date: values.dateFrom || dayjs().subtract(30, 'day').format('YYYY-MM-DD'),
-                        end_date: values.dateTo || dayjs().format('YYYY-MM-DD'),
+                        start_date:
+                            values.dateFrom || dayjs().subtract(1, 'month').subtract(1, 'day').format('YYYY-MM-DD'),
+                        end_date: values.dateTo || dayjs().subtract(1, 'day').format('YYYY-MM-DD'),
                         ...(interval ? { interval } : {}),
                     }
                     const response = await api.get(`api/billing/spend/?${toParams(params)}`)
@@ -104,15 +105,16 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
             },
         ],
         dateFrom: [
-            dayjs().subtract(30, 'day').format('YYYY-MM-DD'),
+            dayjs().subtract(1, 'month').subtract(1, 'day').format('YYYY-MM-DD'),
             {
-                setDateRange: (_, { dateFrom }) => dateFrom || dayjs().subtract(30, 'day').format('YYYY-MM-DD'),
+                setDateRange: (_, { dateFrom }) =>
+                    dateFrom || dayjs().subtract(1, 'month').subtract(1, 'day').format('YYYY-MM-DD'),
             },
         ],
         dateTo: [
-            dayjs().format('YYYY-MM-DD'),
+            dayjs().subtract(1, 'day').format('YYYY-MM-DD'),
             {
-                setDateRange: (_, { dateTo }) => dateTo || dayjs().format('YYYY-MM-DD'),
+                setDateRange: (_, { dateTo }) => dateTo || dayjs().subtract(1, 'day').format('YYYY-MM-DD'),
             },
         ],
         userHiddenSeries: [
@@ -174,6 +176,43 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
             (s) => [s.userHiddenSeries, s.excludeEmptySeries, s.emptySeriesIDs],
             (userHiddenSeries: number[], excludeEmptySeries: boolean, emptySeriesIDs: number[]) =>
                 excludeEmptySeries ? Array.from(new Set([...userHiddenSeries, ...emptySeriesIDs])) : userHiddenSeries,
+        ],
+        heading: [
+            (s) => [s.filters],
+            (filters: BillingSpendFilters): string => {
+                const { interval, breakdowns } = filters
+                let headingText = ''
+                if (interval === 'day') {
+                    headingText = 'Daily'
+                } else if (interval === 'week') {
+                    headingText = 'Weekly'
+                } else if (interval === 'month') {
+                    headingText = 'Monthly'
+                }
+                headingText += ' spend'
+
+                const breakdownParts: string[] = []
+                if (breakdowns?.includes('type')) {
+                    breakdownParts.push('type')
+                }
+                if (breakdowns?.includes('team')) {
+                    breakdownParts.push('team')
+                }
+
+                if (breakdownParts.length > 0) {
+                    headingText += ` by ${breakdownParts.join(' and ')}`
+                }
+                return headingText
+            },
+        ],
+        headingTooltip: [
+            (s) => [s.dateTo],
+            (dateTo: string): string | null => {
+                if (!dayjs(dateTo).isBefore(dayjs(), 'day')) {
+                    return 'Spend is reported on a daily basis so the figures for the current day (UTC) are not available.'
+                }
+                return null
+            },
         ],
     }),
     listeners(({ actions, values }) => ({
