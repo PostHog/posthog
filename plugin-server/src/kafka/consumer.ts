@@ -374,6 +374,8 @@ export class KafkaConsumer {
                         stopTimer()
                     }
                 }
+
+                await Promise.all(this.backgroundWork)
             } catch (error) {
                 throw error
             } finally {
@@ -415,8 +417,6 @@ export class KafkaConsumer {
                 })
             })
         }
-
-        await Promise.all(this.backgroundWork)
 
         await this.disconnectConsumer()
     }
