@@ -17,24 +17,8 @@ from posthog.session_recordings.models.metadata import RecordingMetadata
 
 
 @pytest.fixture
-def mock_event_indexes() -> dict[str, int]:
-    return {
-        "event": 0,
-        "timestamp": 1,
-        "elements_chain_href": 2,
-        "elements_chain_texts": 3,
-        "elements_chain_elements": 4,
-        "$window_id": 5,
-        "$current_url": 6,
-        "$event_type": 7,
-        "elements_chain_ids": 8,
-        "elements_chain": 9,
-        "$exception_types": 10,
-        "$exception_sources": 11,
-        "$exception_values": 12,
-        "$exception_fingerprint_record": 13,
-        "$exception_functions": 14,
-    }
+def mock_event_indexes(mock_raw_events_columns: list[str]) -> dict[str, int]:
+    return {col: idx for idx, col in enumerate(mock_raw_events_columns)}
 
 
 @pytest.mark.parametrize(
