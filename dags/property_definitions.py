@@ -1,6 +1,7 @@
 import datetime
 from typing import Optional
 
+import dagster
 from dagster import schedule, job, op, Config, In, Out
 from dagster_slack import slack_resource
 
@@ -38,7 +39,7 @@ def format_datetime_for_clickhouse(dt: datetime.datetime) -> str:
     required_resource_keys={"cluster"},
     out={"inserted_count": Out(int), "time_window": Out(tuple[str, str])},
 )
-def ingest_event_properties(context) -> tuple[int, tuple[str, str]]:
+def ingest_event_properties(context: dagster.OpExecutionContext) -> tuple[int, tuple[str, str]]:
     """
     Ingest event properties from events_recent table into property_definitions table.
 
@@ -135,7 +136,9 @@ def ingest_event_properties(context) -> tuple[int, tuple[str, str]]:
     ins={"event_time_window": In(tuple[str, str])},
     out={"inserted_count": Out(int), "time_window": Out(tuple[str, str])},
 )
-def ingest_person_properties(context, event_time_window: tuple[str, str]) -> tuple[int, tuple[str, str]]:
+def ingest_person_properties(
+    context: dagster.OpExecutionContext, event_time_window: tuple[str, str]
+) -> tuple[int, tuple[str, str]]:
     """
     Ingest person properties from person table into property_definitions table.
 
@@ -232,7 +235,9 @@ def ingest_person_properties(context, event_time_window: tuple[str, str]) -> tup
     ins={"event_count": In(int), "person_count": In(int), "time_window": In(tuple[str, str])},
     out={"total_count": Out(int)},
 )
-def optimize_property_definitions(context, event_count: int, person_count: int, time_window: tuple[str, str]) -> int:
+def optimize_property_definitions(
+    context: dagster.OpExecutionContext, event_count: int, person_count: int, time_window: tuple[str, str]
+) -> int:
     """
     Run OPTIMIZE on property_definitions table to deduplicate inserted data.
 
