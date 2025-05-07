@@ -127,6 +127,7 @@ def produce_replay_summary(
     size: Optional[int] = None,
     *,
     ensure_analytics_event_in_session: bool = True,
+    block_url: str | None = None,
 ):
     if log_messages is None:
         log_messages = {}
@@ -152,6 +153,7 @@ def produce_replay_summary(
         "snapshot_source": snapshot_source,
         "snapshot_library": snapshot_library,
         "size": size or 0,
+        "block_url": block_url,
     }
 
     if settings.TEST:
