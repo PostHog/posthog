@@ -12,11 +12,11 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.RunSQL(
-            sql="CREATE UNIQUE INDEX CONCURRENTLY team_secret_api_token_unique_idx ON posthog_team (secret_api_token) WHERE secret_api_token IS NOT NULL;",
+            sql="CREATE UNIQUE INDEX CONCURRENTLY team_secret_api_token_unique_idx ON posthog_team (secret_api_token);",
             reverse_sql="DROP INDEX CONCURRENTLY team_secret_api_token_unique_idx;",
         ),
         migrations.RunSQL(
-            sql="CREATE UNIQUE INDEX CONCURRENTLY team_secret_api_token_backup_unique_idx ON posthog_team (secret_api_token_backup) WHERE secret_api_token_backup IS NOT NULL;",
+            sql="CREATE UNIQUE INDEX CONCURRENTLY team_secret_api_token_backup_unique_idx ON posthog_team (secret_api_token_backup);",
             reverse_sql="DROP INDEX CONCURRENTLY team_secret_api_token_backup_unique_idx;",
         ),
     ]
