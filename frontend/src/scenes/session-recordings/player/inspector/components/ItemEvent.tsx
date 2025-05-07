@@ -8,13 +8,15 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SimpleKeyValueList } from 'lib/components/SimpleKeyValueList'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TitledSnack } from 'lib/components/TitledSnack'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { IconLink, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { autoCaptureEventToDescription, capitalizeFirstLetter, isString } from 'lib/utils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { AutocaptureImageTab, AutocapturePreviewImage, autocaptureToImage } from 'lib/utils/event-property-utls'
 import { useState } from 'react'
 import { insightUrlForEvent } from 'scenes/insights/utils'
 import { eventPropertyFilteringLogic } from 'scenes/session-recordings/player/inspector/components/eventPropertyFilteringLogic'
+import { urls } from 'scenes/urls'
 
 import { POSTHOG_EVENT_PROMOTED_PROPERTIES } from '~/taxonomy/taxonomy'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
@@ -152,6 +154,21 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
                 {insightUrl || traceUrl ? (
                     <>
                         <div className="flex justify-end gap-2">
+                            <LemonButton
+                                size="xsmall"
+                                sideIcon={<IconLink />}
+                                data-attr="events-table-event-link"
+                                onClick={() =>
+                                    void copyToClipboard(
+                                        urls.absolute(
+                                            urls.currentProject(urls.event(String(item.data.uuid), item.data.timestamp))
+                                        ),
+                                        'link to event'
+                                    )
+                                }
+                            >
+                                Copy link to event
+                            </LemonButton>
                             {insightUrl && (
                                 <LemonButton
                                     size="xsmall"

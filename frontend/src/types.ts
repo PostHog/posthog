@@ -1505,7 +1505,7 @@ export interface RecordingTimeMixinType {
 }
 
 export interface RecordingEventType
-    extends Pick<EventType, 'id' | 'event' | 'properties' | 'timestamp' | 'elements'>,
+    extends Pick<EventType, 'uuid' | 'event' | 'properties' | 'timestamp' | 'elements'>,
         RecordingTimeMixinType {
     fullyLoaded: boolean
 }
