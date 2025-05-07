@@ -2,13 +2,12 @@ import datetime
 from typing import Optional
 
 import dagster
-from dagster import schedule, job, Config
 
 from dags.common import JobOwners
 from posthog.clickhouse.cluster import ClickhouseCluster, Query
 
 
-class PropertyDefinitionsConfig(Config):
+class PropertyDefinitionsConfig(dagster.Config):
     """Configuration for property definitions ingestion job."""
 
     # Process a specific hour (ISO format) instead of lookback
@@ -206,7 +205,7 @@ def optimize_property_definitions(
     return total
 
 
-@job(
+@dagster.job(
     name="property_definitions_ingestion",
     tags={"owner": JobOwners.TEAM_CLICKHOUSE.value},
 )
@@ -224,7 +223,7 @@ def property_definitions_ingestion_job():
     optimize_property_definitions(event_count, person_count)
 
 
-@schedule(
+@dagster.schedule(
     job=property_definitions_ingestion_job,
     cron_schedule="5 * * * *",  # Run 5 minutes after the hour
     execution_timezone="UTC",
