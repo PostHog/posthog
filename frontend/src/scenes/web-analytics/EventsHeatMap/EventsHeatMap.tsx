@@ -10,7 +10,7 @@ import { useResizeObserver } from '~/lib/hooks/useResizeObserver'
 import { QueryContext } from '~/queries/types'
 
 import { HeatMapCell, HeatMapValues } from './HeatMapCell'
-interface EventsHeatMapProps {
+export interface EventsHeatMapProps {
     context: QueryContext
     isLoading: boolean
     queryId: string | null
