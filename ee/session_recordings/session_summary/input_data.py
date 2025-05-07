@@ -25,10 +25,10 @@ EXTRA_SUMMARY_EVENT_FIELDS = [
 ]
 # Columns that are useful to building context or/and filtering, but would be excessive for the LLM
 COLUMNS_TO_REMOVE_FROM_LLM_CONTEXT = [
-    "$exception_functions",
-    "$exception_fingerprint_record",
-    "$exception_sources",
     "elements_chain",
+    "$exception_sources",
+    "$exception_fingerprint_record",
+    "$exception_functions",
 ]
 
 
