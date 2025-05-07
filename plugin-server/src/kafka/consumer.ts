@@ -416,6 +416,8 @@ export class KafkaConsumer {
             })
         }
 
+        await Promise.all(this.backgroundWork)
+
         await this.disconnectConsumer()
     }
 
