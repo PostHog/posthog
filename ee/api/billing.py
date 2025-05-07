@@ -79,11 +79,19 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         org = self._get_org_required()
         if license and org:  # for mypy
             custom_limits_usd = request.data.get("custom_limits_usd")
-            if custom_limits_usd:
-                billing_manager = self.get_billing_manager()
-                billing_manager.update_billing(org, {"custom_limits_usd": custom_limits_usd})
+            reset_limit_next_period = request.data.get("reset_limit_next_period")
 
-                if distinct_id:
+            if custom_limits_usd or reset_limit_next_period:
+                body = {}
+                if custom_limits_usd:
+                    body["custom_limits_usd"] = custom_limits_usd
+                if reset_limit_next_period:
+                    body["reset_limit_next_period"] = reset_limit_next_period
+
+                billing_manager = self.get_billing_manager()
+                billing_manager.update_billing(org, body)
+
+                if custom_limits_usd and distinct_id:
                     posthoganalytics.capture(
                         distinct_id,
                         "billing limits updated",
@@ -96,6 +104,18 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                         "organization",
                         str(org.id),
                         properties={f"billing_limits_{key}": value for key, value in custom_limits_usd.items()},
+                    )
+
+                if reset_limit_next_period and distinct_id:
+                    posthoganalytics.capture(
+                        distinct_id,
+                        "billing limits reset",
+                        properties={"reset_limit_next_period": reset_limit_next_period},
+                    )
+                    posthoganalytics.group_identify(
+                        "organization",
+                        str(org.id),
+                        properties={"reset_limit_next_period": reset_limit_next_period},
                     )
 
         return self.list(request, *args, **kwargs)
