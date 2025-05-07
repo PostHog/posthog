@@ -17,6 +17,26 @@ class PropertyDefinitionsConfig(Config):
     start_date: Optional[str] = None
     end_date: Optional[str] = None
 
+    def get_time_filter_expression(self, column: str) -> str:
+        if self.start_date and self.end_date:
+            # For backfill runs - these should already be in the right format
+            return f"{column} BETWEEN toDateTime('{self.start_date}') AND toDateTime('{self.end_date}')"
+        elif self.target_hour:
+            # For processing a specific complete hour
+            hour_start = datetime.datetime.fromisoformat(self.target_hour)
+            hour_end = hour_start + datetime.timedelta(hours=1)
+            start_formatted = format_datetime_for_clickhouse(hour_start)
+            end_formatted = format_datetime_for_clickhouse(hour_end)
+            return f"{column} BETWEEN toDateTime('{start_formatted}') AND toDateTime('{end_formatted}')"
+        else:
+            # Default to previous complete hour
+            now = datetime.datetime.now(datetime.UTC)
+            previous_hour = now.replace(minute=0, second=0, microsecond=0) - datetime.timedelta(hours=1)
+            hour_end = previous_hour + datetime.timedelta(hours=1)
+            start_formatted = format_datetime_for_clickhouse(previous_hour)
+            end_formatted = format_datetime_for_clickhouse(hour_end)
+            return f"{column} BETWEEN toDateTime('{start_formatted}') AND toDateTime('{end_formatted}')"
+
 
 def format_datetime_for_clickhouse(dt: datetime.datetime) -> str:
     """
@@ -46,25 +66,7 @@ def ingest_event_properties(
     Uses the JSONExtractKeysAndValuesRaw function to extract property keys and values,
     then determines the property type using JSONType.
     """
-    # Build the time filter based on config
-    if config.start_date and config.end_date:
-        # For backfill runs - these should already be in the right format
-        time_filter = f"timestamp BETWEEN toDateTime('{config.start_date}') AND toDateTime('{config.end_date}')"
-    elif config.target_hour:
-        # For processing a specific complete hour
-        hour_start = datetime.datetime.fromisoformat(config.target_hour)
-        hour_end = hour_start + datetime.timedelta(hours=1)
-        start_formatted = format_datetime_for_clickhouse(hour_start)
-        end_formatted = format_datetime_for_clickhouse(hour_end)
-        time_filter = f"timestamp BETWEEN toDateTime('{start_formatted}') AND toDateTime('{end_formatted}')"
-    else:
-        # Default to previous complete hour
-        now = datetime.datetime.now(datetime.UTC)
-        previous_hour = now.replace(minute=0, second=0, microsecond=0) - datetime.timedelta(hours=1)
-        hour_end = previous_hour + datetime.timedelta(hours=1)
-        start_formatted = format_datetime_for_clickhouse(previous_hour)
-        end_formatted = format_datetime_for_clickhouse(hour_end)
-        time_filter = f"timestamp BETWEEN toDateTime('{start_formatted}') AND toDateTime('{end_formatted}')"
+    time_filter = config.get_time_filter_expression("timestamp")
 
     # Log the execution parameters
     context.log.info(
@@ -135,25 +137,7 @@ def ingest_person_properties(
     Uses the JSONExtractKeysAndValuesRaw function to extract property keys and values,
     then determines the property type using JSONType.
     """
-    # Build the time filter based on config
-    if config.start_date and config.end_date:
-        # For backfill runs - these should already be in the right format
-        time_filter = f"_timestamp BETWEEN toDateTime('{config.start_date}') AND toDateTime('{config.end_date}')"
-    elif config.target_hour:
-        # For processing a specific complete hour
-        hour_start = datetime.datetime.fromisoformat(config.target_hour)
-        hour_end = hour_start + datetime.timedelta(hours=1)
-        start_formatted = format_datetime_for_clickhouse(hour_start)
-        end_formatted = format_datetime_for_clickhouse(hour_end)
-        time_filter = f"_timestamp BETWEEN toDateTime('{start_formatted}') AND toDateTime('{end_formatted}')"
-    else:
-        # Default to previous complete hour
-        now = datetime.datetime.now(datetime.UTC)
-        previous_hour = now.replace(minute=0, second=0, microsecond=0) - datetime.timedelta(hours=1)
-        hour_end = previous_hour + datetime.timedelta(hours=1)
-        start_formatted = format_datetime_for_clickhouse(previous_hour)
-        end_formatted = format_datetime_for_clickhouse(hour_end)
-        time_filter = f"_timestamp BETWEEN toDateTime('{start_formatted}') AND toDateTime('{end_formatted}')"
+    time_filter = config.get_time_filter_expression("_timestamp")
 
     # Log the execution parameters
     context.log.info(
