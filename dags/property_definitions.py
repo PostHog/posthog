@@ -5,8 +5,7 @@ import dagster
 from dagster import schedule, job, op, Config, In, Out
 
 from dags.common import JobOwners
-from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.cluster import ClickhouseCluster
+from posthog.clickhouse.cluster import ClickhouseCluster, Query
 
 
 class PropertyDefinitionsConfig(Config):
@@ -114,7 +113,7 @@ def ingest_event_properties(
     """
 
     context.log.info("Executing insert query...")
-    sync_execute(query)
+    cluster.any_host(Query(query)).result()
 
     # Parse the time range for the count query
     count_time_range = time_filter.split("BETWEEN ")[1]
@@ -126,7 +125,7 @@ def ingest_event_properties(
     WHERE type = 1 AND last_seen_at BETWEEN {start_time} AND {end_time}
     """
 
-    rows = sync_execute(count_query)[0][0]
+    rows = cluster.any_host(Query(count_query)).result()[0][0]
     context.log.info(f"Inserted {rows} event property definitions")
 
     # Return both the count and the time window for later use
@@ -214,7 +213,7 @@ def ingest_person_properties(
     """
 
     context.log.info("Executing insert query...")
-    sync_execute(query)
+    cluster.any_host(Query(query)).result()
 
     # Parse the time range for the count query
     count_time_range = time_filter.split("BETWEEN ")[1]
@@ -226,7 +225,7 @@ def ingest_person_properties(
     WHERE type = 2 AND last_seen_at BETWEEN {start_time} AND {end_time}
     """
 
-    rows = sync_execute(count_query)[0][0]
+    rows = cluster.any_host(Query(count_query)).result()[0][0]
     context.log.info(f"Inserted {rows} person property definitions")
 
     # Return both the person count and reuse the event time window (both are needed in optimize)
@@ -255,7 +254,7 @@ def optimize_property_definitions(
     context.log.info(f"Time window: {start_time} to {end_time}")
 
     # Run OPTIMIZE after all inserts to merge duplicates using the ReplacingMergeTree's version column
-    sync_execute("OPTIMIZE TABLE property_definitions FINAL")
+    cluster.any_host(Query("OPTIMIZE TABLE property_definitions FINAL")).result()
 
     # Get the total number of property definitions for this time window
     count_query = f"""
@@ -263,7 +262,7 @@ def optimize_property_definitions(
     WHERE last_seen_at BETWEEN {start_time} AND {end_time}
     """
 
-    total = sync_execute(count_query)[0][0]
+    total = cluster.any_host(Query(count_query)).result()[0][0]
     context.log.info(f"Total property definitions after optimization: {total}")
 
     return total
