@@ -494,7 +494,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                             const viewportHeight = event.length > 8 ? event[8] : undefined
 
                             return {
-                                uuid: event[0],
+                                id: event[0],
                                 event: event[1],
                                 timestamp: event[2],
                                 elements: chainToElements(event[3]),

@@ -161,7 +161,7 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
                                 onClick: () => {
                                     void copyToClipboard(
                                         urls.absolute(
-                                            urls.currentProject(urls.event(String(item.data.uuid), item.data.timestamp))
+                                            urls.currentProject(urls.event(String(item.data.id), item.data.timestamp))
                                         ),
                                         'link to event'
                                     )
