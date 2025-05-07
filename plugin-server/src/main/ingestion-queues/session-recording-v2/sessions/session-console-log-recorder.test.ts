@@ -296,6 +296,45 @@ describe('SessionConsoleLogRecorder', () => {
                 },
             ])
         })
+
+        it('should ignore logs before switchover date', async () => {
+            const switchoverDate = new Date('2024-01-01T00:00:00Z')
+            const recorder = new SessionConsoleLogRecorder(
+                'test_session_id',
+                1,
+                'test_batch_id',
+                mockConsoleLogStore,
+                switchoverDate
+            )
+
+            const events = [
+                createConsoleLogEvent({
+                    level: 'info',
+                    payload: ['Before switchover'],
+                    timestamp: new Date('2023-12-31T23:59:59Z').getTime(),
+                }),
+                createConsoleLogEvent({
+                    level: 'warn',
+                    payload: ['After switchover'],
+                    timestamp: new Date('2024-01-01T00:00:01Z').getTime(),
+                }),
+            ]
+            const message = createMessage('window1', events)
+
+            await recorder.recordMessage(message)
+            const result = recorder.end()
+
+            expect(result.consoleLogCount).toBe(0)
+            expect(result.consoleWarnCount).toBe(1)
+            expect(result.consoleErrorCount).toBe(0)
+
+            expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenCalledWith([
+                expect.objectContaining({
+                    level: ConsoleLogLevel.Warn,
+                    message: 'After switchover',
+                }),
+            ])
+        })
     })
 
     describe('Error handling', () => {

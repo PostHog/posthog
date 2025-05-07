@@ -115,6 +115,12 @@ export class SessionConsoleLogRecorder {
                     | { plugin?: unknown; payload?: { payload?: unknown; level?: unknown } }
                     | undefined
                 if (event.type === RRWebEventType.Plugin && eventData?.plugin === 'rrweb/console@1') {
+                    const timestamp = DateTime.fromMillis(event.timestamp)
+
+                    if (this.metadataSwitchoverDate && timestamp.toJSDate() < this.metadataSwitchoverDate) {
+                        continue
+                    }
+
                     const level = safeLevel(eventData?.payload?.level)
                     const maybePayload = eventData?.payload?.payload
                     const payload: unknown[] = Array.isArray(maybePayload) ? maybePayload : []
@@ -135,7 +141,7 @@ export class SessionConsoleLogRecorder {
                         log_source: 'session_replay',
                         log_source_id: this.sessionId,
                         instance_id: null,
-                        timestamp: castTimestampOrNow(DateTime.fromMillis(event.timestamp), TimestampFormat.ClickHouse),
+                        timestamp: castTimestampOrNow(timestamp, TimestampFormat.ClickHouse),
                         batch_id: this.batchId,
                     })
                 }
