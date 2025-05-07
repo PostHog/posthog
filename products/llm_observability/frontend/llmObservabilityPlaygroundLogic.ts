@@ -1,7 +1,10 @@
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 import api from 'lib/api'
 import { uuid } from 'lib/utils'
+import { isObject } from 'lib/utils'
+import { urls } from 'scenes/urls'
 
 import type { llmObservabilityPlaygroundLogicType } from './llmObservabilityPlaygroundLogicType'
 
@@ -67,6 +70,7 @@ export const llmObservabilityPlaygroundLogic = kea<llmObservabilityPlaygroundLog
         addToComparison: (item: ComparisonItem) => ({ item }),
         removeFromComparison: (id: string) => ({ id }),
         clearComparison: true,
+        setupPlaygroundFromEvent: (payload: { model?: string; input?: any }) => ({ payload }),
     }),
 
     reducers({
@@ -257,6 +261,76 @@ export const llmObservabilityPlaygroundLogic = kea<llmObservabilityPlaygroundLog
             if (values.lastRunDetails) {
                 actions.addToComparison(values.lastRunDetails)
             }
+        },
+        setupPlaygroundFromEvent: ({ payload }) => {
+            const { model, input } = payload
+
+            // Set model if available
+            if (model) {
+                actions.setModel(model)
+            }
+
+            let systemPromptContent: string | undefined = undefined
+            let conversationMessages: Message[] = []
+            let initialUserPrompt: string | undefined = undefined
+
+            if (input) {
+                try {
+                    // Case 1: Input is a standard messages array
+                    if (Array.isArray(input) && input.every((msg) => msg.role && msg.content)) {
+                        // Find and set system message
+                        const systemMessage = input.find((msg) => msg.role === 'system')
+                        if (systemMessage?.content && typeof systemMessage.content === 'string') {
+                            systemPromptContent = systemMessage.content
+                        }
+
+                        // Extract user and assistant messages for history
+                        conversationMessages = input
+                            .filter((msg) => msg.role === 'user' || msg.role === 'assistant')
+                            .map((msg) => ({
+                                role: msg.role as 'user' | 'assistant',
+                                content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content),
+                            }))
+                    }
+                    // Case 2: Input is just a single string prompt
+                    else if (typeof input === 'string') {
+                        initialUserPrompt = input
+                    }
+                    // Case 3: Input is some other object (try to extract content)
+                    else if (isObject(input)) {
+                        if (typeof input.content === 'string') {
+                            initialUserPrompt = input.content
+                        } else if (input.content && typeof input.content !== 'string') {
+                            initialUserPrompt = JSON.stringify(input.content, null, 2)
+                        } else {
+                            initialUserPrompt = JSON.stringify(input, null, 2)
+                        }
+                    }
+                } catch (e) {
+                    console.error('Error processing input for playground:', e)
+                    initialUserPrompt = String(input)
+                    conversationMessages = []
+                }
+            }
+
+            // Set state in playground logic
+            if (systemPromptContent) {
+                actions.setSystemPrompt(systemPromptContent)
+            } else {
+                // Reset to default if no system prompt found in the input
+                actions.setSystemPrompt('You are a helpful AI assistant.')
+            }
+
+            // If the input was just a string, add it as the first user message
+            if (initialUserPrompt) {
+                // Prepend it so it appears first in the playground
+                conversationMessages.unshift({ role: 'user', content: initialUserPrompt })
+            }
+
+            actions.setMessages(conversationMessages) // Set the extracted history (potentially including the initial prompt)
+
+            // Navigate to the playground
+            router.actions.push(urls.llmObservabilityPlayground())
         },
     })),
     afterMount(({ actions }) => {
