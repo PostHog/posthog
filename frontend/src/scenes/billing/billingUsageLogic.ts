@@ -218,8 +218,7 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
     afterMount(({ values, actions }: billingUsageLogicType) => {
         const org = values.currentOrganization
         if (org) {
-            // const teamIds: number[] = org.teams?.map(({ id }) => id) || []
-            const teamIds = [30393, 33266]
+            const teamIds: number[] = org.teams?.map(({ id }) => id) || []
             actions.setFilters({ usage_types: ALL_USAGE_TYPES, team_ids: teamIds })
         }
     }),
