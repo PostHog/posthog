@@ -1,4 +1,20 @@
-survey_response = "$survey_response"
+import enum
+
+
+class SurveyEventName(str, enum.Enum):
+    SHOWN = "survey shown"
+    DISMISSED = "survey dismissed"
+    SENT = "survey sent"
+
+
+class SurveyEventProperties(str, enum.Enum):
+    SURVEY_ID = "$survey_id"
+    SURVEY_RESPONSE = "$survey_response"
+    SURVEY_ITERATION = "$survey_iteration"
+    SURVEY_PARTIALLY_COMPLETED = "$survey_partially_completed"
+    SURVEY_SUBMISSION_ID = "$survey_submission_id"
+    SURVEY_RESPONDED = "$survey_responded"
+    SURVEY_DISMISSED = "$survey_dismissed"
 
 
 def get_survey_response_clickhouse_query(
@@ -25,16 +41,16 @@ def get_survey_response_clickhouse_query(
 
 def _build_id_based_key(question_index: int, question_id: str | None = None) -> str:
     if question_id:
-        return f"'{survey_response}_{question_id}'"
+        return f"'{SurveyEventProperties.SURVEY_RESPONSE.value}_{question_id}'"
 
     # Extract the ID from the question at the given index in the questions array
-    return f"CONCAT('{survey_response}_', JSONExtractString(JSONExtractArrayRaw(properties, '$survey_questions')[{question_index + 1}], 'id'))"
+    return f"CONCAT('{SurveyEventProperties.SURVEY_RESPONSE.value}_', JSONExtractString(JSONExtractArrayRaw(properties, '$survey_questions')[{question_index + 1}], 'id'))"
 
 
 def _build_index_based_key(question_index: int) -> str:
     if question_index == 0:
-        return f"{survey_response}"
-    return f"{survey_response}_{question_index}"
+        return f"{SurveyEventProperties.SURVEY_RESPONSE.value}"
+    return f"{SurveyEventProperties.SURVEY_RESPONSE.value}_{question_index}"
 
 
 def _build_coalesce_query(id_based_key: str, index_based_key: str) -> str:
@@ -71,7 +87,7 @@ def filter_survey_sent_events_by_unique_submission(survey_id: str) -> str:
         Example: "uuid IN (SELECT argMax(uuid, timestamp) FROM ... GROUP BY ...)"
     """
     # Define the column for submission ID to avoid repetition and enhance readability
-    submission_id_col = "JSONExtractString(properties, '$survey_submission_id')"
+    submission_id_col = f"JSONExtractString(properties, '{SurveyEventProperties.SURVEY_SUBMISSION_ID.value}')"
 
     # Define the grouping key expression. This determines how events are grouped for deduplication.
     # If $survey_submission_id is present, group by it. Otherwise, group by uuid (making each old event unique).
@@ -83,8 +99,8 @@ def filter_survey_sent_events_by_unique_submission(survey_id: str) -> str:
         SELECT
             argMax(uuid, timestamp) -- Selects the UUID of the event with the latest timestamp within each group
         FROM events
-        WHERE event = 'survey sent' -- Filter for 'survey sent' events
-          AND JSONExtractString(properties, '$survey_id') = '{survey_id}' -- Filter for the specific survey
+        WHERE event = '{SurveyEventName.SENT.value}' -- Filter for 'survey sent' events
+          AND JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID.value}') = '{survey_id}' -- Filter for the specific survey
           -- Date range filters from the outer query are intentionally NOT included here.
           -- This ensures we find the globally latest unique submission, which is then
           -- filtered by the outer query's date range.
@@ -122,7 +138,7 @@ def get_unique_survey_event_uuids_sql_subquery(
 
     where_clause = " AND ".join(base_conditions_sql)
 
-    submission_id_col = "JSONExtractString(properties, '$survey_submission_id')"
+    submission_id_col = f"JSONExtractString(properties, '{SurveyEventProperties.SURVEY_SUBMISSION_ID.value}')"
     deduplication_group_by_key = (
         f"CASE WHEN COALESCE({submission_id_col}, '') = '' THEN toString(uuid) ELSE {submission_id_col} END"
     )
