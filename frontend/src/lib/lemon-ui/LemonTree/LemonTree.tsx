@@ -1236,6 +1236,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                                 treeElementSize === 'lg'
                                     ? 'var(--button-height-base-tall)'
                                     : 'var(--button-height-base)',
+                            '--lemon-tree-button-icon-offset-top': treeElementSize === 'lg' ? '-4px' : '5px',
                         } as CSSProperties
                     }
                 >
