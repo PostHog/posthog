@@ -59,6 +59,7 @@ from posthog.schema import (
 )
 from posthog.hogql.constants import LimitContext
 from typing import cast
+from posthog.clickhouse.client.execute import sync_execute
 
 # Create a dedicated thread pool for query processing
 # Setting max_workers to ensure we don't overwhelm the system
@@ -255,6 +256,52 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             return
 
         tag_queries(client_query_id=query_id)
+
+    @action(detail=True, methods=["get"])
+    def progress(self, request: Request, pk=None, *args, **kwargs) -> Response:
+        """
+        Get the progress of a query directly from ClickHouse's system.processes table.
+        This bypasses the QueryStatusManager and Redis caching.
+        """
+        try:
+            # Query system.processes for the query progress
+            results = sync_execute(
+                """
+                SELECT
+                    read_rows,
+                    read_bytes,
+                    total_rows_approx,
+                    elapsed,
+                    ProfileEvents['OSCPUVirtualTimeMicroseconds'] as OSCPUVirtualTimeMicroseconds
+                FROM system.processes
+                WHERE query_id LIKE %(query_id)s and query LIKE %(user_id)s
+                """,
+                {"query_id": f"{request.user.id}_{pk}_%", "user_id": f"/* user_id:{request.user.id} %"},
+            )
+
+            if not results:
+                return Response(
+                    {"error": "No running query found with this ID"},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            # Format the results to match ClickhouseQueryProgress
+            progress = {
+                "bytes_read": int(results[0][1]),
+                "rows_read": int(results[0][0]),
+                "estimated_rows_total": int(results[0][2]),
+                "time_elapsed": int(results[0][3]),
+                "active_cpu_time": int(results[0][4]),
+            }
+
+            return Response(progress)
+
+        except Exception as e:
+            capture_exception(e)
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
 
 MAX_QUERY_TIMEOUT = 600
