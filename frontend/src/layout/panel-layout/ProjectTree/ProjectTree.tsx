@@ -646,7 +646,7 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                         <>
                             {sortMethod === 'recent' && projectTreeMode === 'tree' ? (
                                 <span className="grid grid-cols-[1fr_auto] grid-rows-2 gap-px">
-                                    <span className="flex flex-col gap-1 flex-1 row-span-2 max-w-[213px]">
+                                    <span className="flex flex-col gap-1 flex-1 row-span-2 max-w-[213px] truncate">
                                         <Tooltip title={children}>
                                             <span className="text-primary leading-[1.1] truncate w-fit max-w-full">
                                                 {children}
