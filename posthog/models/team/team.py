@@ -304,7 +304,10 @@ class Team(UUIDClassicModel):
     session_recording_version = models.CharField(null=True, blank=True, max_length=24)
     signup_token = models.CharField(max_length=200, null=True, blank=True)
     is_demo = models.BooleanField(default=False)
+
+    # DEPRECATED - do not use
     access_control = models.BooleanField(default=False)
+
     week_start_day = models.SmallIntegerField(null=True, blank=True, choices=WeekStartDay.choices)
     # This is not a manual setting. It's updated automatically to reflect if the team uses site apps or not.
     inject_web_apps = models.BooleanField(null=True)
@@ -557,14 +560,13 @@ class Team(UUIDClassicModel):
 
     def all_users_with_access(self) -> QuerySet["User"]:
         from ee.models.explicit_team_membership import ExplicitTeamMembership
+        from ee.models.rbac.access_control import AccessControl
+        from ee.models.rbac.role import RoleMembership
         from posthog.models.organization import OrganizationMembership
         from posthog.models.user import User
 
-        if not self.access_control:
-            user_ids_queryset = OrganizationMembership.objects.filter(organization_id=self.organization_id).values_list(
-                "user_id", flat=True
-            )
-        else:
+        # This path is deprecated, and will be removed soon
+        if self.access_control:
             user_ids_queryset = (
                 OrganizationMembership.objects.filter(
                     organization_id=self.organization_id, level__gte=OrganizationMembership.Level.ADMIN
@@ -576,6 +578,67 @@ class Team(UUIDClassicModel):
                     )
                 )
             )
+            return User.objects.filter(is_active=True, id__in=user_ids_queryset)
+
+        # New access control checks
+
+        # First, check if the team is private
+        team_is_private = AccessControl.objects.filter(
+            team_id=self.id,
+            resource="team",
+            resource_id=str(self.id),
+            organization_member=None,
+            role=None,
+            access_level="none",
+        ).exists()
+
+        if not team_is_private:
+            # If team is not private, all organization members have access
+            user_ids_queryset = OrganizationMembership.objects.filter(organization_id=self.organization_id).values_list(
+                "user_id", flat=True
+            )
+        else:
+            # Team is private, need to check specific access
+
+            # Get all organization admins and owners
+            admin_user_ids = OrganizationMembership.objects.filter(
+                organization_id=self.organization_id, level__gte=OrganizationMembership.Level.ADMIN
+            ).values_list("user_id", flat=True)
+
+            # Get users with specific access control entries for this team
+            # First, get organization memberships with access to this team
+            org_memberships_with_access = AccessControl.objects.filter(
+                team_id=self.id,
+                resource="team",
+                resource_id=str(self.id),
+                organization_member__isnull=False,
+                access_level__in=["member", "admin"],
+            ).values_list("organization_member", flat=True)
+
+            # Then get the user IDs from those memberships
+            member_access_user_ids = OrganizationMembership.objects.filter(
+                id__in=org_memberships_with_access
+            ).values_list("user_id", flat=True)
+
+            # Get roles with access to this team
+            roles_with_access = AccessControl.objects.filter(
+                team_id=self.id,
+                resource="team",
+                resource_id=str(self.id),
+                role__isnull=False,
+                access_level__in=["member", "admin"],
+            ).values_list("role", flat=True)
+
+            # Get users who have these roles
+            role_user_ids = (
+                RoleMembership.objects.filter(role_id__in=roles_with_access)
+                .values_list("organization_member__user_id", flat=True)
+                .distinct()
+            )
+
+            # Union all sets of user IDs
+            user_ids_queryset = admin_user_ids.union(member_access_user_ids).union(role_user_ids)
+
         return User.objects.filter(is_active=True, id__in=user_ids_queryset)
 
     def __str__(self):
