@@ -1451,7 +1451,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                 insight.query!,
                                 undefined,
                                 queryId,
-                                'blocking',
+                                'blocking', // Use 'blocking' mode to leverage caching but calculate synchronously if stale
                                 filtersOverride,
                                 variablesOverride
                             )
