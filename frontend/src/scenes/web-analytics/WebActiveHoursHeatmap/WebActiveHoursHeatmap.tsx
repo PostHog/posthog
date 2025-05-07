@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
+import { CalendarHeatMap } from 'scenes/web-analytics/CalendarHeatMap/CalendarHeatMap'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import {
@@ -12,7 +13,6 @@ import {
 import { EventsHeatMapQuery } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
-import { EventsHeatMap } from '../EventsHeatMap/EventsHeatMap'
 import {
     AggregationLabel,
     getColumnAggregationTooltip,
@@ -44,7 +44,7 @@ export function WebActiveHoursHeatmap(props: WebActiveHoursHeatmapProps): JSX.El
 
     const data = processData(weekStartDay, response?.results ?? {}, HoursAbbreviated.values, rowLabels(weekStartDay))
     return (
-        <EventsHeatMap
+        <CalendarHeatMap
             {...props}
             isLoading={responseLoading}
             queryId={queryId}

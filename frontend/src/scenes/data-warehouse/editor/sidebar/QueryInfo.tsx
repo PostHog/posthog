@@ -123,7 +123,7 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                                 savedQuery?.status !== 'Running' && 'Materialization is not running',
                                         }}
                                     >
-                                        Sync now
+                                        {savedQuery?.status === 'Running' ? 'Running...' : 'Sync now'}
                                     </LemonButton>
                                     <LemonSelect
                                         className="h-9"
