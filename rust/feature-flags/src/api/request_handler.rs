@@ -1,5 +1,11 @@
 use crate::{
-    api::{errors::FlagError, types::FlagsResponse},
+    api::{
+        errors::FlagError,
+        types::{
+            FlagsCore, FlagsPlusConfigResponse, FlagsResponse, SessionRecordingConfig,
+            SessionRecordingField,
+        },
+    },
     cohorts::cohort_cache_manager::CohortCacheManager,
     flags::{
         flag_analytics::{increment_request_count, SURVEY_TARGETING_FLAG_PREFIX},
@@ -62,7 +68,7 @@ impl Compression {
 
 #[derive(Clone, Deserialize, Default)]
 pub struct FlagsQueryParams {
-    /// Optional API version identifier
+    /// Optional API version identifier, defaults to None (which returns a legacy response)
     #[serde(alias = "v")]
     pub version: Option<String>,
 
@@ -76,6 +82,9 @@ pub struct FlagsQueryParams {
     /// Optional timestamp indicating when the request was sent
     #[serde(alias = "_")]
     pub sent_at: Option<i64>,
+
+    #[serde(default)]
+    pub config: Option<bool>,
 }
 pub struct RequestContext {
     /// Shared state holding services (DB, Redis, GeoIP, etc.)
@@ -112,7 +121,9 @@ pub type RequestPropertyOverrides = (
 /// 3) Prepares property overrides,
 /// 4) Evaluates the requested flags,
 /// 5) Returns a [`ServiceResponse`] or an error.
-pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, FlagError> {
+pub async fn process_request(
+    context: RequestContext,
+) -> Result<FlagsPlusConfigResponse, FlagError> {
     let flag_service = FlagService::new(context.state.redis.clone(), context.state.reader.clone());
 
     let (original_distinct_id, verified_token, request) =
@@ -127,17 +138,20 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
     if billing_limited {
         // return an empty FlagsResponse with a quotaLimited field called "feature_flags"
         // TODO docs
-        return Ok(FlagsResponse {
-            flags: HashMap::new(),
-            errors_while_computing_flags: false,
-            quota_limited: Some(vec![ServiceName::FeatureFlags.as_string()]),
-            request_id: context.request_id,
+        return Ok(FlagsPlusConfigResponse {
+            core: FlagsCore {
+                errors_while_computing_flags: false,
+                flags: HashMap::new(),
+                quota_limited: Some(vec![ServiceName::FeatureFlags.as_string()]),
+                request_id: Some(context.request_id),
+            },
             ..Default::default()
         });
     }
 
     // again, now we can start doing heavier queries, since at this point most stuff has been from redis
 
+    // TODO: add support for config=true
     let team = flag_service
         .get_team_from_cache_or_pg(&verified_token)
         .await?;
@@ -154,64 +168,9 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
     let (person_prop_overrides, group_prop_overrides, groups, hash_key_override) =
         prepare_property_overrides(&context, &request)?;
 
-    // config: {"enable_collect_everything": true}
-    let mut config_map = HashMap::new();
-    config_map.insert("enable_collect_everything".to_string(), json!(true));
-    let config = Some(config_map);
+    let config_requested = context.meta.config.unwrap_or(false);
 
-    // toolbar_params: empty object
-    let toolbar_params = Some(HashMap::<String, Value>::new());
-    let is_authenticated = false;
-
-    // supported_compression: ["gzip", "gzip-js"]
-    let supported_compression = Some(vec!["gzip".to_string(), "gzip-js".to_string()]);
-
-    // autocapture_opt_out
-    let autocapture_opt_out = team.autocapture_opt_out.unwrap_or(false);
-
-    let capture_dead_clicks = team.capture_dead_clicks.unwrap_or(false);
-
-    let capture_web_vitals = team.autocapture_web_vitals_opt_in.unwrap_or(false);
-    let autocapture_web_vitals_allowed_metrics =
-        team.autocapture_web_vitals_allowed_metrics.as_ref();
-    let capture_network_timing = team.capture_performance_opt_in.unwrap_or(false);
-
-    let capture_performance = match (capture_network_timing, capture_web_vitals) {
-        (false, false) => Some(json!(false)),
-        (network, web_vitals) => {
-            let mut perf_map = HashMap::new();
-            perf_map.insert("network_timing".to_string(), json!(network));
-            perf_map.insert("web_vitals".to_string(), json!(web_vitals));
-            if web_vitals {
-                perf_map.insert(
-                    "web_vitals_allowed_metrics".to_string(),
-                    json!(autocapture_web_vitals_allowed_metrics.cloned()),
-                );
-            }
-            Some(json!(perf_map))
-        }
-    };
-
-    // autocapture_exceptions: object if opt_in, false if not
-    let autocapture_exceptions = if team.autocapture_exceptions_opt_in.unwrap_or(false) {
-        let mut exceptions_map = HashMap::new();
-        exceptions_map.insert("endpoint".to_string(), json!("/e/"));
-        Some(json!(exceptions_map))
-    } else {
-        Some(json!(false))
-    };
-
-    let surveys = team.surveys_opt_in.unwrap_or(false);
-
-    let heatmaps = team.heatmaps_opt_in.unwrap_or(false);
-
-    let flags_persistence_default = team.flags_persistence_default.unwrap_or(true);
-
-    let default_identified_only = true;
-
-    let session_recording_config_response = session_recording_config_response(&team, &context);
-
-    let response = evaluate_flags_for_request(
+    let flags_response = evaluate_flags_for_request(
         &context.state,
         team_id,
         project_id,
@@ -224,6 +183,72 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
         context.request_id,
     )
     .await;
+
+    let mut response = FlagsPlusConfigResponse {
+        core: FlagsCore {
+            errors_while_computing_flags: flags_response.core.errors_while_computing_flags,
+            flags: flags_response.core.flags.clone(),
+            quota_limited: flags_response.core.quota_limited.clone(),
+            request_id: flags_response.core.request_id,
+        },
+        feature_flags: flags_response
+            .core
+            .flags
+            .iter()
+            .map(|(k, v)| (k.clone(), v.to_value()))
+            .collect(),
+        feature_flag_payloads: flags_response
+            .core
+            .flags
+            .iter()
+            .filter_map(|(k, v)| v.metadata.payload.clone().map(|p| (k.clone(), p)))
+            .collect(),
+        ..Default::default()
+    };
+
+    // Only populate config fields if requested
+    if config_requested {
+        response.supported_compression = vec!["gzip".to_string(), "gzip-js".to_string()];
+        response.autocapture_opt_out = team.autocapture_opt_out;
+        let capture_web_vitals = team.autocapture_web_vitals_opt_in.unwrap_or(false);
+        let autocapture_web_vitals_allowed_metrics =
+            team.autocapture_web_vitals_allowed_metrics.as_ref();
+        let capture_network_timing = team.capture_performance_opt_in.unwrap_or(false);
+
+        response.capture_performance = match (capture_network_timing, capture_web_vitals) {
+            (false, false) => Some(serde_json::json!(false)),
+            (network, web_vitals) => {
+                let mut perf_map = std::collections::HashMap::new();
+                perf_map.insert("network_timing".to_string(), serde_json::json!(network));
+                perf_map.insert("web_vitals".to_string(), serde_json::json!(web_vitals));
+                if web_vitals {
+                    perf_map.insert(
+                        "web_vitals_allowed_metrics".to_string(),
+                        serde_json::json!(autocapture_web_vitals_allowed_metrics.cloned()),
+                    );
+                }
+                Some(serde_json::json!(perf_map))
+            }
+        };
+
+        response.autocapture_exceptions = if team.autocapture_exceptions_opt_in.unwrap_or(false) {
+            let mut exceptions_map = std::collections::HashMap::new();
+            exceptions_map.insert("endpoint".to_string(), serde_json::json!("/e/"));
+            Some(serde_json::json!(exceptions_map))
+        } else {
+            Some(serde_json::json!(false))
+        };
+
+        response.surveys = Some(serde_json::json!(team.surveys_opt_in.unwrap_or(false)));
+        response.heatmaps = Some(team.heatmaps_opt_in.unwrap_or(false));
+        response.default_identified_only = Some(true);
+        response.session_recording = session_recording_config_response(&team, &context);
+        response.toolbar_params =
+            serde_json::json!(std::collections::HashMap::<String, serde_json::Value>::new());
+        response.is_authenticated = false; // TODO?
+        response.site_apps = vec![]; // TODO
+        response.capture_dead_clicks = team.capture_dead_clicks;
+    }
 
     // bill the flag request
     if filtered_flags
@@ -247,6 +272,8 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
             );
         }
     }
+
+    println!("response: {:?}", response);
 
     Ok(response)
 }
@@ -714,10 +741,10 @@ fn on_permitted_recording_domain(
 fn session_recording_config_response(
     team: &Team,
     request_context: &RequestContext,
-) -> Option<serde_json::Value> {
+) -> Option<SessionRecordingField> {
     if !team.session_recording_opt_in || session_recording_domain_not_allowed(team, request_context)
     {
-        return Some(json!(false));
+        return Some(SessionRecordingField::Disabled(false));
     }
 
     let capture_console_logs = team.capture_console_log_opt_in.unwrap_or(false);
@@ -734,7 +761,6 @@ fn session_recording_config_response(
     // linked_flag logic
     let linked_flag = match &team.session_recording_linked_flag {
         Some(cfg) => {
-            // Assuming this is a serde_json::Value::Object
             let key = cfg.get("key");
             let variant = cfg.get("variant");
             match (key, variant) {
@@ -749,41 +775,63 @@ fn session_recording_config_response(
     // rrweb_script_config logic (stub, you may want to wire this up to settings)
     let rrweb_script_config = None::<serde_json::Value>; // TODO: implement if you have settings
 
-    let mut resp = serde_json::json!({
-        "endpoint": "/s/",
-        "consoleLogRecordingEnabled": capture_console_logs,
-        "recorderVersion": "v2",
-        "sampleRate": sample_rate,
-        "minimumDurationMilliseconds": minimum_duration,
-        "linkedFlag": linked_flag,
-        "networkPayloadCapture": team.session_recording_network_payload_capture_config.clone(),
-        "masking": team.session_recording_masking_config.clone(),
-        "urlTriggers": team.session_recording_url_trigger_config.clone(),
-        "urlBlocklist": team.session_recording_url_blocklist_config.clone(),
-        "eventTriggers": team.session_recording_event_trigger_config.clone(),
-        "triggerMatchType": team.session_recording_trigger_match_type_config.clone(),
-        "scriptConfig": rrweb_script_config,
-    });
-
-    // session_replay_config logic (assume Option<HashMap<String, Value>>)
-    if let Some(cfg) = &team.session_replay_config {
+    // session_replay_config logic
+    let (record_canvas, canvas_fps, canvas_quality) = if let Some(cfg) = &team.session_replay_config
+    {
         if let Some(record_canvas) = cfg.get("record_canvas") {
             let record_canvas_bool = record_canvas.as_bool().unwrap_or(false);
-            resp["recordCanvas"] = json!(record_canvas_bool);
-            resp["canvasFps"] = if record_canvas_bool {
-                json!(3)
+            let fps = if record_canvas_bool { Some(3) } else { None };
+            let quality = if record_canvas_bool {
+                Some("0.4".to_string())
             } else {
-                json!(null)
+                None
             };
-            resp["canvasQuality"] = if record_canvas_bool {
-                json!("0.4")
-            } else {
-                json!(null)
-            };
+            (Some(record_canvas_bool), fps, quality)
+        } else {
+            (None, None, None)
         }
-    }
+    } else {
+        (None, None, None)
+    };
 
-    Some(resp)
+    let config = SessionRecordingConfig {
+        endpoint: Some("/s/".to_string()),
+        console_log_recording_enabled: Some(capture_console_logs),
+        recorder_version: Some("v2".to_string()),
+        sample_rate,
+        minimum_duration_milliseconds: minimum_duration,
+        linked_flag,
+        network_payload_capture: team
+            .session_recording_network_payload_capture_config
+            .as_ref()
+            .map(|j| j.0.clone()),
+        masking: team
+            .session_recording_masking_config
+            .as_ref()
+            .map(|j| j.0.clone()),
+        url_triggers: team
+            .session_recording_url_trigger_config
+            .as_ref()
+            .map(|vec| Value::Array(vec.iter().map(|j| j.0.clone()).collect())),
+        url_blocklist: team
+            .session_recording_url_blocklist_config
+            .as_ref()
+            .map(|vec| Value::Array(vec.iter().map(|j| j.0.clone()).collect())),
+        event_triggers: team
+            .session_recording_event_trigger_config
+            .as_ref()
+            .map(|vec| Value::Array(vec.iter().map(|s| Value::String(s.clone())).collect())),
+        trigger_match_type: team
+            .session_recording_trigger_match_type_config
+            .as_ref()
+            .map(|s| Value::String(s.clone())),
+        script_config: rrweb_script_config,
+        record_canvas,
+        canvas_fps,
+        canvas_quality,
+    };
+
+    Some(SessionRecordingField::Config(config))
 }
 
 #[cfg(test)]
@@ -959,9 +1007,9 @@ mod tests {
 
         let result = evaluate_feature_flags(evaluation_context, request_id).await;
 
-        assert!(!result.errors_while_computing_flags);
-        assert!(result.flags.contains_key("test_flag"));
-        assert!(result.flags["test_flag"].enabled);
+        assert!(!result.core.errors_while_computing_flags);
+        assert!(result.core.flags.contains_key("test_flag"));
+        assert!(result.core.flags["test_flag"].enabled);
         let legacy_response = LegacyFlagsResponse::from_response(result);
         assert!(!legacy_response.errors_while_computing_flags);
         assert!(legacy_response.feature_flags.contains_key("test_flag"));
@@ -1038,7 +1086,7 @@ mod tests {
         let request_id = Uuid::new_v4();
 
         let result = evaluate_feature_flags(evaluation_context, request_id).await;
-        let error_flag = result.flags.get("error-flag");
+        let error_flag = result.core.flags.get("error-flag");
         assert!(error_flag.is_some());
         assert_eq!(
             error_flag.unwrap(),
@@ -1431,9 +1479,9 @@ mod tests {
         let request_id = Uuid::new_v4();
         let result = evaluate_feature_flags(evaluation_context, request_id).await;
 
-        assert!(!result.errors_while_computing_flags);
-        assert!(result.flags["flag_1"].enabled);
-        assert!(!result.flags["flag_2"].enabled);
+        assert!(!result.core.errors_while_computing_flags);
+        assert!(result.core.flags["flag_1"].enabled);
+        assert!(!result.core.flags["flag_2"].enabled);
         let legacy_response = LegacyFlagsResponse::from_response(result);
         assert!(!legacy_response.errors_while_computing_flags);
         assert_eq!(
@@ -1523,10 +1571,10 @@ mod tests {
         let request_id = Uuid::new_v4();
         let result = evaluate_feature_flags(evaluation_context, request_id).await;
 
-        assert!(!result.errors_while_computing_flags);
+        assert!(!result.core.errors_while_computing_flags);
 
         assert_eq!(
-            result.flags["flag_1"],
+            result.core.flags["flag_1"],
             FlagDetails {
                 key: "flag_1".to_string(),
                 enabled: true,
@@ -1545,7 +1593,7 @@ mod tests {
             }
         );
         assert_eq!(
-            result.flags["flag_2"],
+            result.core.flags["flag_2"],
             FlagDetails {
                 key: "flag_2".to_string(),
                 enabled: false,
@@ -1668,7 +1716,7 @@ mod tests {
         let result = evaluate_feature_flags(evaluation_context, request_id).await;
 
         assert!(
-            result.flags.contains_key("test_flag"),
+            result.core.flags.contains_key("test_flag"),
             "test_flag not found in result flags"
         );
         let legacy_response = LegacyFlagsResponse::from_response(result);
