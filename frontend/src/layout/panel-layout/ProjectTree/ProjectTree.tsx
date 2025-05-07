@@ -424,6 +424,7 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                 className="px-0 py-1"
                 data={treeData}
                 mode={projectTreeMode as TreeMode}
+                selectMode={selectMode}
                 tableViewKeys={treeTableKeys}
                 defaultSelectedFolderOrNodeId={lastViewedId || undefined}
                 isItemActive={(item) => {
