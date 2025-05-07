@@ -189,6 +189,8 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
     3. Request query string.
     """
 
+    keyword = "Bearer"
+
     @classmethod
     def find_secret_api_token(
         cls,
@@ -196,7 +198,7 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
     ) -> Optional[str]:
         """Try to find project secret API key in request and return it"""
         if "HTTP_AUTHORIZATION" in request.META:
-            authorization_match = re.match(rf"^Bearer\s+(phs_[a-zA-Z0-9]+)$", request.META["HTTP_AUTHORIZATION"])
+            authorization_match = re.match(rf"^{cls.keyword}\s+(phs_[a-zA-Z0-9]+)$", request.META["HTTP_AUTHORIZATION"])
             if authorization_match:
                 return authorization_match.group(1).strip()
 
@@ -233,6 +235,10 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
             return (ProjectSecretAPIKeyUser(team), None)
         except Team.DoesNotExist:
             return None
+
+    @classmethod
+    def authenticate_header(cls, request) -> str:
+        return cls.keyword
 
 
 class ProjectSecretAPIKeyUser:
