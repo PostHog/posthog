@@ -553,6 +553,9 @@ export const maxLogic = kea<maxLogicType>([
                 for (let i = 0; i < thread.length; i++) {
                     const currentMessage: ThreadMessage = thread[i]
                     const previousMessage: ThreadMessage | undefined = thread[i - 1]
+                    if (currentMessage.type === AssistantMessageType.ToolCall && !currentMessage.visible) {
+                        continue
+                    }
                     if (isHumanMessage(currentMessage) === isHumanMessage(previousMessage)) {
                         const lastThreadSoFar = threadGrouped[threadGrouped.length - 1]
                         if (currentMessage.id && previousMessage.type === AssistantMessageType.Reasoning) {
