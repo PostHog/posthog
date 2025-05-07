@@ -375,6 +375,7 @@ export class KafkaConsumer {
                     }
                 }
 
+                // Once we are stopping, make sure that we wait for all background work to finish
                 await Promise.all(this.backgroundWork)
             } catch (error) {
                 throw error
