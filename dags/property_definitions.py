@@ -16,8 +16,6 @@ class PropertyDefinitionsConfig(Config):
     # For backfill runs, we can specify a start and end date
     start_date: Optional[str] = None
     end_date: Optional[str] = None
-    # Timeout for query execution in seconds
-    max_execution_time: int = 6000
 
 
 def format_datetime_for_clickhouse(dt: datetime.datetime) -> str:
@@ -55,7 +53,6 @@ def ingest_event_properties(
         target_hour=config_dict.get("target_hour"),
         start_date=config_dict.get("start_date"),
         end_date=config_dict.get("end_date"),
-        max_execution_time=config_dict.get("max_execution_time", 6000),
     )
 
     # Build the time filter based on config
@@ -109,7 +106,6 @@ def ingest_event_properties(
     GROUP BY team_id, event, name, property_type
     ORDER BY team_id, event, name, property_type NULLS LAST
     LIMIT 1 by team_id, event, name
-    SETTINGS max_execution_time = {config.max_execution_time}
     """
 
     context.log.info("Executing insert query...")
@@ -155,7 +151,6 @@ def ingest_person_properties(
         target_hour=config_dict.get("target_hour"),
         start_date=config_dict.get("start_date"),
         end_date=config_dict.get("end_date"),
-        max_execution_time=config_dict.get("max_execution_time", 6000),
     )
 
     # Build the time filter based on config
@@ -209,7 +204,6 @@ def ingest_person_properties(
     GROUP BY team_id, name, property_type
     ORDER BY team_id, name, property_type NULLS LAST
     LIMIT 1 by team_id, name
-    SETTINGS max_execution_time = {config.max_execution_time}
     """
 
     context.log.info("Executing insert query...")
