@@ -69,16 +69,12 @@ class BillingUsageRequestSerializer(serializers.Serializer):
     interval = serializers.CharField(required=False, allow_blank=True, allow_null=True)
 
     def _parse_date(self, date_str: Optional[str], field_name: str) -> Optional[str]:
-        """Shared date parsing logic for validation methods."""
+        """Shared date parsing logic into YYYY-MM-DD format. Handles relative dates too."""
         if not date_str:
             return None
 
-        if not isinstance(date_str, str):
-            raise serializers.ValidationError({field_name: "Date must be a string."})
-
-        utc_zone = ZoneInfo("UTC")
         try:
-            parsed_date = relative_date_parse(date_str, utc_zone)
+            parsed_date = relative_date_parse(date_str, ZoneInfo("UTC"))
             return parsed_date.strftime("%Y-%m-%d")
         except Exception:
             raise serializers.ValidationError({field_name: f"Could not parse date '{date_str}'."})
