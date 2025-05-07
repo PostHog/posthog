@@ -1490,6 +1490,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-models"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum 0.7.5",
+ "common-database",
+ "common-redis",
+ "common-types",
+ "rand",
+ "redis",
+ "rust_decimal",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "common-redis"
 version = "0.1.0"
 dependencies = [
@@ -2249,6 +2270,7 @@ dependencies = [
  "common-database",
  "common-geoip",
  "common-metrics",
+ "common-models",
  "common-redis",
  "common-types",
  "dateparser",
@@ -2264,11 +2286,9 @@ dependencies = [
  "petgraph",
  "rand",
  "rayon",
- "redis",
  "regex",
  "reqwest 0.12.3",
  "rstest",
- "rust_decimal",
  "serde",
  "serde_json",
  "sha1",

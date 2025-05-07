@@ -131,10 +131,9 @@ mod tests {
 
     use crate::flags::flag_request::FlagRequest;
     use crate::flags::flag_service::FlagService;
-    use crate::utils::test_utils::{
-        insert_new_team_in_redis, setup_pg_reader_client, setup_redis_client,
-    };
+    use crate::utils::test_utils::setup_pg_reader_client;
     use bytes::Bytes;
+    use common_models::test_utils::{insert_new_team_in_redis, setup_redis_client};
     use serde_json::json;
 
     #[test]

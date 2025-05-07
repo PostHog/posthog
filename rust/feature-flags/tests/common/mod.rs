@@ -3,8 +3,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use common_database::get_pool;
+use common_models::team_models::{Team, TEAM_TOKEN_CACHE_PREFIX};
 use common_redis::MockRedisClient;
-use feature_flags::team::team_models::{Team, TEAM_TOKEN_CACHE_PREFIX};
 use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, QUOTA_LIMITER_CACHE_KEY};
 use reqwest::header::CONTENT_TYPE;
 use tokio::net::TcpListener;

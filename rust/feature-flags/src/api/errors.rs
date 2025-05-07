@@ -2,6 +2,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use common_cookieless::CookielessManagerError;
 use common_database::CustomDatabaseError;
+use common_models::errors::ModelError;
 use common_redis::CustomRedisError;
 use thiserror::Error;
 
@@ -256,6 +257,20 @@ impl From<sqlx::Error> for FlagError {
                 tracing::error!("Database error occurred: {}", e);
                 FlagError::DatabaseError(e.to_string())
             }
+        }
+    }
+}
+
+impl From<ModelError> for FlagError {
+    fn from(e: ModelError) -> Self {
+        match e {
+            ModelError::TokenValidationError => FlagError::TokenValidationError,
+            ModelError::RowNotFound => FlagError::RowNotFound,
+            ModelError::RedisDataParsingError => FlagError::RedisDataParsingError,
+            ModelError::CacheUpdateError => FlagError::CacheUpdateError,
+            ModelError::RedisUnavailable => FlagError::RedisUnavailable,
+            ModelError::DatabaseUnavailable => FlagError::DatabaseUnavailable,
+            ModelError::TimeoutError => FlagError::TimeoutError,
         }
     }
 }

@@ -1,0 +1,28 @@
+[package]
+name = "common-models"
+version = "0.1.0"
+edition = "2021"
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+axum = { workspace = true }
+common-database = { path = "../database" }
+common-redis = { path = "../redis" }
+common-types = { path = "../types" }
+rand = { workspace = true }
+redis = { version = "0.23.3", features = [
+    "tokio-comp",
+    "cluster",
+    "cluster-async",
+] }
+rust_decimal = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true, features = ["rust_decimal"] }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
