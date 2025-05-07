@@ -22,7 +22,6 @@ import { ensureTopicExists } from './admin'
 import { getKafkaConfigFromEnv } from './config'
 
 const DEFAULT_BATCH_TIMEOUT_MS = 500
-const DEFAULT_FETCH_BATCH_SIZE = 1000
 const SLOW_BATCH_PROCESSING_LOG_THRESHOLD_MS = 10000
 const MAX_HEALTH_HEARTBEAT_INTERVAL_MS = 60_000
 
@@ -126,7 +125,7 @@ export class KafkaConsumer {
         this.config.autoOffsetStore ??= true
         this.config.callEachBatchWhenEmpty ??= false
         this.maxBackgroundTasks = defaultConfig.CONSUMER_MAX_BACKGROUND_TASKS
-        this.fetchBatchSize = defaultConfig.CONSUMER_BATCH_SIZE || DEFAULT_FETCH_BATCH_SIZE
+        this.fetchBatchSize = defaultConfig.CONSUMER_BATCH_SIZE
         this.maxHealthHeartbeatIntervalMs =
             defaultConfig.CONSUMER_MAX_HEARTBEAT_INTERVAL_MS || MAX_HEALTH_HEARTBEAT_INTERVAL_MS
 
