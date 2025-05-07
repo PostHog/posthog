@@ -53,6 +53,11 @@ class RoleSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("There is already a role with this name.", code="unique")
         return name
 
+    def create(self, validated_data):
+        organization = self.context["request"].user.organization
+        validated_data["organization"] = organization
+        return super().create(validated_data)
+
     def get_members(self, role: Role):
         members = RoleMembership.objects.filter(role=role)
         return RoleMembershipSerializer(members, many=True).data
