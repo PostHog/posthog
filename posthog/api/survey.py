@@ -75,12 +75,13 @@ class SurveyRates(TypedDict):
     unique_users_dismissal_rate: float
 
 
+# Ideally we'd use SurveyEventName here, but enum values are not valid as keys in TypedDicts
 SurveyStats = TypedDict(
     "SurveyStats",
     {
-        SurveyEventName.SHOWN.value: EventStats,
-        SurveyEventName.DISMISSED.value: EventStats,
-        SurveyEventName.SENT.value: EventStats,
+        "survey shown": EventStats,
+        "survey dismissed": EventStats,
+        "survey sent": EventStats,
     },
 )
 
