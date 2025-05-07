@@ -278,9 +278,11 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                             } and the remaining time left in this billing period. This number updates once daily. ${
                                                                 product.projected_amount_usd_with_limit !==
                                                                 product.projected_amount_usd
-                                                                    ? ` This is capped at your current billing limit, we will never charge you more than your billing limit. If you did not have a billing limit set then this would be an estimate of $${parseFloat(
-                                                                          product.projected_amount_usd || '0'
-                                                                      ).toFixed(2)}`
+                                                                    ? ` This value is capped at your current billing limit, we will never charge you more than your billing limit. If you did not have a billing limit set then your projected total would be ${humanFriendlyCurrency(
+                                                                          parseFloat(
+                                                                              product.projected_amount_usd || '0'
+                                                                          )
+                                                                      )}`
                                                                     : ''
                                                             }`}
                                                         >
@@ -307,7 +309,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                             ) : null}
                                         </>
                                     ) : product.current_amount_usd ? (
-                                        <div className="my-8">
+                                        <div className="mt-8 mb-4 flex justify-end w-full">
                                             <Tooltip
                                                 title={`The current amount you will be billed for this ${billing?.billing_period?.interval}.`}
                                             >
