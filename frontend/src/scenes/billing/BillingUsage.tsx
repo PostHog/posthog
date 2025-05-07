@@ -42,7 +42,7 @@ export function BillingUsage(): JSX.Element {
                 <div className="flex gap-4 items-start flex-wrap">
                     {/* Usage Types */}
                     <div className="flex flex-col gap-1">
-                        <LemonLabel>Usage Types</LemonLabel>
+                        <LemonLabel>Products</LemonLabel>
                         <LemonInputSelect
                             mode="multiple"
                             displayMode="count"
@@ -50,7 +50,7 @@ export function BillingUsage(): JSX.Element {
                             className="w-50 h-10"
                             value={filters.usage_types || []}
                             onChange={(value) => setFilters({ usage_types: value })}
-                            placeholder="All usage types"
+                            placeholder="All products"
                             options={USAGE_TYPES.map((opt) => ({ key: opt.value, label: opt.label }))}
                             allowCustomValues={false}
                         />
@@ -58,7 +58,7 @@ export function BillingUsage(): JSX.Element {
 
                     {/* Teams */}
                     <div className="flex flex-col gap-1">
-                        <LemonLabel>Teams</LemonLabel>
+                        <LemonLabel>Projects</LemonLabel>
                         <LemonInputSelect
                             mode="multiple"
                             displayMode="count"
@@ -66,7 +66,7 @@ export function BillingUsage(): JSX.Element {
                             className="w-50 h-10"
                             value={(filters.team_ids || []).map(String)}
                             onChange={(value) => setFilters({ team_ids: value.map(Number).filter((n) => !isNaN(n)) })}
-                            placeholder="All teams"
+                            placeholder="All projects"
                             options={
                                 currentOrganization?.teams?.map((team) => ({
                                     key: String(team.id),
@@ -84,13 +84,13 @@ export function BillingUsage(): JSX.Element {
                         <div className="flex gap-2 items-center min-h-10">
                             <span className="opacity-70">
                                 <LemonCheckbox
-                                    label="Type"
+                                    label="Product"
                                     checked={true}
-                                    disabledReason="Breakdown by Type is required for usage volume, as summing different units (e.g., events + recordings) doesn't produce a meaningful total."
+                                    disabledReason="Breakdown by Product is required for usage volume, as summing different units (e.g., events + recordings) doesn't produce a meaningful total."
                                 />
                             </span>
                             <LemonCheckbox
-                                label="Team"
+                                label="Project"
                                 checked={(filters.breakdowns || []).includes('team')}
                                 onChange={toggleTeamBreakdown}
                             />

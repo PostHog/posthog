@@ -203,10 +203,10 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
 
                 const breakdownParts: string[] = []
                 if (breakdowns?.includes('type')) {
-                    breakdownParts.push('type')
+                    breakdownParts.push('product')
                 }
                 if (breakdowns?.includes('team')) {
-                    breakdownParts.push('team')
+                    breakdownParts.push('project')
                 }
 
                 if (breakdownParts.length > 0) {

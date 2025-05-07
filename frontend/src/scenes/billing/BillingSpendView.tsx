@@ -45,9 +45,9 @@ export function BillingSpendView(): JSX.Element {
         <div className="space-y-4">
             <div className="border rounded p-4 bg-white space-y-4">
                 <div className="flex gap-4 items-start flex-wrap">
-                    {/* Usage Types */}
+                    {/* Products */}
                     <div className="flex flex-col gap-1">
-                        <LemonLabel>Usage Types</LemonLabel>
+                        <LemonLabel>Products</LemonLabel>
                         <LemonInputSelect
                             mode="multiple"
                             displayMode="count"
@@ -55,15 +55,15 @@ export function BillingSpendView(): JSX.Element {
                             className="w-50 h-10"
                             value={filters.usage_types || []}
                             onChange={(value: string[]) => setFilters({ usage_types: value })}
-                            placeholder="All usage types"
+                            placeholder="All products"
                             options={USAGE_TYPES.map((opt) => ({ key: opt.value, label: opt.label }))}
                             allowCustomValues={false}
                         />
                     </div>
 
-                    {/* Teams */}
+                    {/* Projects */}
                     <div className="flex flex-col gap-1">
-                        <LemonLabel>Teams</LemonLabel>
+                        <LemonLabel>Projects</LemonLabel>
                         <LemonInputSelect
                             mode="multiple"
                             displayMode="count"
@@ -73,7 +73,7 @@ export function BillingSpendView(): JSX.Element {
                             onChange={(value: string[]) =>
                                 setFilters({ team_ids: value.map(Number).filter((n: number) => !isNaN(n)) })
                             }
-                            placeholder="All teams"
+                            placeholder="All projects"
                             options={
                                 currentOrganization?.teams?.map((team) => ({
                                     key: String(team.id),
@@ -90,12 +90,12 @@ export function BillingSpendView(): JSX.Element {
                         <LemonLabel>Break down by</LemonLabel>
                         <div className="flex gap-2 items-center min-h-10">
                             <LemonCheckbox
-                                label="Type"
+                                label="Product"
                                 checked={filters.breakdowns?.includes('type')}
                                 onChange={() => toggleBreakdown('type')}
                             />
                             <LemonCheckbox
-                                label="Team"
+                                label="Project"
                                 checked={filters.breakdowns?.includes('team')}
                                 onChange={() => toggleBreakdown('team')}
                             />
