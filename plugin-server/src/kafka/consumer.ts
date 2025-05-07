@@ -116,10 +116,10 @@ export class KafkaConsumer {
     private maxHealthHeartbeatIntervalMs: number
     private maxBackgroundTasks: number
     private consumerLoop: Promise<void> | undefined
-    private backgroundWork: Promise<void>[]
+    private backgroundTask: Promise<void>[]
 
     constructor(private config: KafkaConsumerConfig, rdKafkaConfig: RdKafkaConsumerConfig = {}) {
-        this.backgroundWork = []
+        this.backgroundTask = []
 
         this.config.autoCommit ??= true
         this.config.autoOffsetStore ??= true
@@ -271,7 +271,7 @@ export class KafkaConsumer {
         }
     }
 
-    public async connect(eachBatch: (messages: Message[]) => Promise<{ backgroundWork?: Promise<any> } | void>) {
+    public async connect(eachBatch: (messages: Message[]) => Promise<{ backgroundTask?: Promise<any> } | void>) {
         const { topic, groupId, callEachBatchWhenEmpty = false } = this.config
 
         try {
@@ -336,47 +336,62 @@ export class KafkaConsumer {
                         logger.warn('🕒', `Slow batch: ${logSummary}`)
                     }
 
-                    // TODO: fix this so that we only do the subsequent store of offsets if the background work is actually done
-                    if (result?.backgroundWork) {
-                        const stopTimer = consumedBatchBackgroundDuration.startTimer({
-                            topic: this.config.topic,
-                            groupId: this.config.groupId,
-                        })
+                    // TRICKY: The commit logic needs to be aware of background work. If we were to just store offsets here,
+                    // it would be hard to mix background work with non-background work.
+                    // So we just create pretend work to simplify the rest of the logic
+                    const backgroundTask = result?.backgroundTask ?? Promise.resolve()
 
-                        // At first we just add the background work to the queue
-                        this.backgroundWork.push(
-                            result.backgroundWork.finally(() => {
-                                // Only when we are fully done with the background work we store the offsets
-                                // TODO: Test if this fully works as expected - like what if backgroundBatches[1] finishes after backgroundBatches[0]
-                                // Remove the background work from the queue when it is finished
-                                this.storeOffsetsForMessages(messages)
-                                void (this.backgroundWork = this.backgroundWork.filter(
-                                    (task) => task !== result.backgroundWork
-                                ))
+                    const backgroundTaskStart = performance.now()
 
-                                stopTimer()
-                            })
-                        )
-                    }
+                    void backgroundTask.finally(async () => {
+                        // Only when we are fully done with the background work we store the offsets
+                        // TODO: Test if this fully works as expected - like what if backgroundBatches[1] finishes after backgroundBatches[0]
+                        // Remove the background work from the queue when it is finished
 
-                    if (this.config.autoCommit && this.config.autoOffsetStore) {
-                        this.storeOffsetsForMessages(messages)
-                    }
+                        // First of all clear ourselves from the queue
+                        const index = this.backgroundTask.indexOf(backgroundTask)
+                        void this.backgroundTask.splice(index, 1)
+
+                        // TRICKY: We need to wait for all promises ahead of us in the queue before we store the offsets
+                        await Promise.all(this.backgroundTask.slice(0, index))
+
+                        if (this.config.autoCommit && this.config.autoOffsetStore) {
+                            console.log(
+                                'storing offsets',
+                                messages.map((m) => m.offset)
+                            )
+                            this.storeOffsetsForMessages(messages)
+                        }
+
+                        if (result?.backgroundTask) {
+                            // We only want to count the time spent in the background work if it was real
+                            consumedBatchBackgroundDuration
+                                .labels({
+                                    topic: this.config.topic,
+                                    groupId: this.config.groupId,
+                                })
+                                .observe(performance.now() - backgroundTaskStart)
+                        }
+                    })
+
+                    // At first we just add the background work to the queue
+                    this.backgroundTask.push(backgroundTask)
 
                     // If we have too much "backpressure" we need to await one of the background tasks. We await the oldest one on purpose
-                    if (this.backgroundWork.length >= this.maxBackgroundTasks) {
+
+                    if (this.backgroundTask.length >= this.maxBackgroundTasks) {
                         const stopTimer = consumedBatchBackpressureDuration.startTimer({
                             topic: this.config.topic,
                             groupId: this.config.groupId,
                         })
                         // If we have more than the max, we need to await one
-                        await this.backgroundWork[0]
+                        await this.backgroundTask[0]
                         stopTimer()
                     }
                 }
 
                 // Once we are stopping, make sure that we wait for all background work to finish
-                await Promise.all(this.backgroundWork)
+                await Promise.all(this.backgroundTask)
             } catch (error) {
                 throw error
             } finally {

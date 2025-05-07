@@ -33,9 +33,9 @@ export class CdpEventsConsumer extends CdpConsumerBase {
 
     public async processBatch(
         invocationGlobals: HogFunctionInvocationGlobals[]
-    ): Promise<{ backgroundWork: Promise<any>; invocations: HogFunctionInvocation[] }> {
+    ): Promise<{ backgroundTask: Promise<any>; invocations: HogFunctionInvocation[] }> {
         if (!invocationGlobals.length) {
-            return { backgroundWork: Promise.resolve(), invocations: [] }
+            return { backgroundTask: Promise.resolve(), invocations: [] }
         }
 
         const invocationsToBeQueued = await this.runWithHeartbeat(() =>
@@ -44,7 +44,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
 
         return {
             // This is all IO so we can set them off in the background and start processing the next batch
-            backgroundWork: Promise.all([
+            backgroundTask: Promise.all([
                 this.cyclotronJobQueue.queueInvocations(invocationsToBeQueued),
                 // TODO: Decide if this should ignore errors (as we would essentially re run the batch and double queue )
                 this.hogFunctionMonitoringService.produceQueuedMessages(),
@@ -182,9 +182,9 @@ export class CdpEventsConsumer extends CdpConsumerBase {
 
             return await this.runInstrumented('handleEachBatch', async () => {
                 const invocationGlobals = await this._parseKafkaBatch(messages)
-                const { backgroundWork } = await this.processBatch(invocationGlobals)
+                const { backgroundTask } = await this.processBatch(invocationGlobals)
 
-                return { backgroundWork }
+                return { backgroundTask }
             })
         })
     }

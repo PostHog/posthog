@@ -32,9 +32,9 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
 
     public async processBatch(
         invocations: HogFunctionInvocation[]
-    ): Promise<{ backgroundWork: Promise<any>; invocationResults: HogFunctionInvocationResult[] }> {
+    ): Promise<{ backgroundTask: Promise<any>; invocationResults: HogFunctionInvocationResult[] }> {
         if (!invocations.length) {
-            return { backgroundWork: Promise.resolve(), invocationResults: [] }
+            return { backgroundTask: Promise.resolve(), invocationResults: [] }
         }
 
         const invocationResults = await this.runInstrumented(
@@ -43,7 +43,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
         )
 
         // NOTE: We can queue and publish all metrics in the background whilst processing the next batch of invocations
-        const backgroundWork = this.queueInvocationResults(invocationResults).then(() => {
+        const backgroundTask = this.queueInvocationResults(invocationResults).then(() => {
             // After this point we parallelize and any issues are logged rather than thrown as retrying now would end up in duplicate messages
             return Promise.allSettled([
                 this.hogFunctionMonitoringService.processInvocationResults(invocationResults),
@@ -52,7 +52,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
             ])
         })
 
-        return { backgroundWork, invocationResults }
+        return { backgroundTask, invocationResults }
     }
 
     protected async queueInvocationResults(invocations: HogFunctionInvocationResult[]) {

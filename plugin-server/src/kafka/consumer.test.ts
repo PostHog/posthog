@@ -1,7 +1,6 @@
 import { KafkaConsumer as RdKafkaConsumer, Message } from 'node-rdkafka'
 
-import { waitForExpect } from '~/tests/helpers/expectations'
-
+import { delay } from '../utils/utils'
 import { KafkaConsumer } from './consumer'
 
 jest.mock('./admin', () => ({
@@ -34,9 +33,28 @@ const createKafkaMessage = (message: Partial<Message> = {}): Message => ({
 
 jest.setTimeout(3000)
 
+const triggerablePromise = () => {
+    const result: {
+        promise: Promise<any>
+        resolve: (value?: any) => void
+        reject: (reason?: any) => void
+    } = {
+        promise: null as any,
+        resolve: () => {},
+        reject: () => {},
+    }
+
+    result.promise = new Promise((resolve, reject) => {
+        result.resolve = resolve
+        result.reject = reject
+    })
+    return result
+}
+
 describe('consumer', () => {
     let consumer: KafkaConsumer
     let mockRdKafkaConsumer: jest.Mocked<RdKafkaConsumer>
+    let consumeCallback: (error: Error | null, messages: Message[]) => void
 
     beforeEach(() => {
         consumer = new KafkaConsumer({
@@ -48,29 +66,125 @@ describe('consumer', () => {
 
         // @ts-expect-error mock implementation
         mockRdKafkaConsumer.consume.mockImplementation((_, cb) => {
-            setTimeout(() => {
-                cb(null, [createKafkaMessage()])
-            }, 1)
+            // We assign the callback to a variable so we can control it
+            consumeCallback = cb
         })
     })
 
     afterEach(async () => {
-        console.log('afterEach')
         if (consumer) {
-            await consumer.disconnect()
+            const promise = consumer.disconnect()
+            // TRICKY: We need to call the callback so that the consumer loop exits
+            consumeCallback(null, [])
+            await promise
         }
     })
 
-    it('should create a consumer with correct config', async () => {
+    it('should create a consumer and process messages', async () => {
         const eachBatch = jest.fn(() => Promise.resolve({}))
         await consumer.connect(eachBatch)
         expect(mockRdKafkaConsumer.connect).toHaveBeenCalled()
         expect(mockRdKafkaConsumer.subscribe).toHaveBeenCalledWith(['test-topic'])
 
-        await waitForExpect(() => {
-            expect(eachBatch).toHaveBeenCalled()
-        }, 500)
+        consumeCallback(null, [createKafkaMessage()])
+        await delay(1)
 
         expect(eachBatch).toHaveBeenCalledWith([createKafkaMessage()])
+
+        expect(mockRdKafkaConsumer.offsetsStore.mock.calls).toMatchObject([
+            [[{ offset: 2, partition: 0, topic: 'test-topic' }]],
+        ])
+    })
+
+    describe('background work', () => {
+        let eachBatch: jest.Mock
+
+        beforeEach(async () => {
+            consumer['maxBackgroundTasks'] = 3
+
+            eachBatch = jest.fn(() => Promise.resolve({}))
+
+            // Hard test to simulate... We want to control each batch and return
+            await consumer.connect(eachBatch)
+        })
+
+        // TRICKY: When this runs, the consumeCallback will run sync through to the "eachBatch"
+        // function being called. That function call sets the
+        const runWithBackgroundTask = async (messages: Message[], p: Promise<any>) => {
+            const eachBatchTrigger = triggerablePromise()
+            eachBatch.mockImplementation(() => eachBatchTrigger.promise)
+            consumeCallback(null, messages)
+            eachBatchTrigger.resolve({
+                backgroundTask: p,
+            })
+        }
+
+        it('should receive background work and wait for them all to be completed before committing offsets', async () => {
+            // First of all call the callback with background work - and check that
+            const p1 = triggerablePromise()
+            await runWithBackgroundTask([createKafkaMessage({ offset: 1, partition: 0 })], p1.promise)
+            await delay(1)
+
+            const p2 = triggerablePromise()
+            await runWithBackgroundTask([createKafkaMessage({ offset: 2, partition: 0 })], p2.promise)
+            await delay(1)
+
+            const p3 = triggerablePromise()
+            await runWithBackgroundTask([createKafkaMessage({ offset: 3, partition: 0 })], p3.promise)
+            await delay(1)
+
+            // At this point we have 3 background work items so we must be waiting for one of them
+            expect(consumer['backgroundTask']).toEqual([p1.promise, p2.promise, p3.promise])
+
+            expect(mockRdKafkaConsumer.offsetsStore).not.toHaveBeenCalled()
+
+            p1.resolve()
+            await delay(1) // Let the promises callbacks trigger
+            p2.resolve()
+            await delay(1) // Let the promises callbacks trigger
+            p3.resolve()
+            await delay(1) // Let the promises callbacks trigger
+
+            expect(consumer['backgroundTask']).toEqual([])
+            expect(mockRdKafkaConsumer.offsetsStore.mock.calls).toMatchObject([
+                [[{ offset: 2, partition: 0, topic: 'test-topic' }]],
+                [[{ offset: 3, partition: 0, topic: 'test-topic' }]],
+                [[{ offset: 4, partition: 0, topic: 'test-topic' }]],
+            ])
+        })
+
+        it('should handle background work that finishes out of order', async () => {
+            // First of all call the callback with background work - and check that
+            const p1 = triggerablePromise()
+            await runWithBackgroundTask([createKafkaMessage({ offset: 1, partition: 0 })], p1.promise)
+            await delay(1)
+
+            const p2 = triggerablePromise()
+            await runWithBackgroundTask([createKafkaMessage({ offset: 2, partition: 0 })], p2.promise)
+            await delay(1)
+
+            const p3 = triggerablePromise()
+            await runWithBackgroundTask([createKafkaMessage({ offset: 3, partition: 0 })], p3.promise)
+            await delay(1)
+
+            // At this point we have 3 background work items so we must be waiting for one of them
+
+            expect(consumer['backgroundTask']).toEqual([p1.promise, p2.promise, p3.promise])
+            expect(mockRdKafkaConsumer.offsetsStore).not.toHaveBeenCalled()
+
+            p1.resolve()
+            await delay(1) // Let the promises callbacks trigger
+            p3.resolve()
+            await delay(1) // Let the promises callbacks trigger
+            p2.resolve()
+            await delay(1) // Let the promises callbacks trigger
+
+            expect(consumer['backgroundTask']).toEqual([])
+            expect(mockRdKafkaConsumer.offsetsStore.mock.calls).toMatchObject([
+                [[{ offset: 2, partition: 0, topic: 'test-topic' }]],
+                [[{ offset: 3, partition: 0, topic: 'test-topic' }]],
+                [[{ offset: 4, partition: 0, topic: 'test-topic' }]],
+            ])
+        })
     })
 })

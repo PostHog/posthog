@@ -54,7 +54,7 @@ export class CyclotronJobQueue {
         private config: PluginsServerConfig,
         private queue: HogFunctionInvocationJobQueue,
         private hogFunctionManager: HogFunctionManagerService,
-        private _consumeBatch?: (invocations: HogFunctionInvocation[]) => Promise<{ backgroundWork: Promise<any> }>
+        private _consumeBatch?: (invocations: HogFunctionInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
     ) {
         this.consumerMode = this.config.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE
         this.producerMapping = getProducerMapping(this.config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING)
@@ -83,7 +83,7 @@ export class CyclotronJobQueue {
     private async consumeBatch(
         invocations: HogFunctionInvocation[],
         source: CyclotronJobQueueKind
-    ): Promise<{ backgroundWork: Promise<any> }> {
+    ): Promise<{ backgroundTask: Promise<any> }> {
         cyclotronBatchUtilizationGauge
             .labels({ queue: this.queue, source })
             .set(invocations.length / this.config.CDP_CYCLOTRON_BATCH_SIZE)
