@@ -194,8 +194,35 @@ pub fn router<
                 post(v0_endpoint::event_legacy)
                     .get(v0_endpoint::event_legacy)
                     .options(v0_endpoint::options),
+            )
+            .route(
+                "/track",
+                post(v0_endpoint::event_legacy)
+                    .get(v0_endpoint::event_legacy)
+                    .options(v0_endpoint::options),
+            )
+            .route(
+                "/track/",
+                post(v0_endpoint::event_legacy)
+                    .get(v0_endpoint::event_legacy)
+                    .options(v0_endpoint::options),
+            )
+            .route(
+                "/capture",
+                post(v0_endpoint::event_legacy)
+                    .get(v0_endpoint::event_legacy)
+                    .options(v0_endpoint::options),
+            )
+            .route(
+                "/capture/",
+                post(v0_endpoint::event_legacy)
+                    .get(v0_endpoint::event_legacy)
+                    .options(v0_endpoint::options),
             );
     } else {
+        // TODO: once mirror testing has validated the legacy endpoints
+        // can be served safely from capture-rs and event_legacy, we may
+        // unite the new and old codepaths and dedup this routing
         event_router = event_router
             .route(
                 "/e",
