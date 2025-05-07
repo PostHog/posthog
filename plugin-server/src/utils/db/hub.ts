@@ -9,7 +9,6 @@ import { ConnectionOptions } from 'tls'
 
 import { getPluginServerCapabilities } from '../../capabilities'
 import { EncryptedFields } from '../../cdp/encryption-utils'
-import { LegacyOneventCompareService } from '../../cdp/services/legacy-onevent-compare.service'
 import { buildIntegerMatcher, defaultConfig } from '../../config/config'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from '../../config/constants'
 import { CookielessManager } from '../../ingestion/cookieless/cookieless-manager'
@@ -136,7 +135,7 @@ export async function createHub(
 
     const cookielessManager = new CookielessManager(serverConfig, redisPool, teamManager)
 
-    const hub: Omit<Hub, 'legacyOneventCompareService'> = {
+    const hub: Hub = {
         ...serverConfig,
         instanceId,
         capabilities,
@@ -181,10 +180,7 @@ export async function createHub(
     // NOTE: For whatever reason loading at this point is really fast versus lazy loading it when needed
     await hub.geoipService.get()
 
-    return {
-        ...hub,
-        legacyOneventCompareService: new LegacyOneventCompareService(hub as Hub),
-    }
+    return hub
 }
 
 export const closeHub = async (hub: Hub): Promise<void> => {
@@ -203,27 +199,6 @@ export const closeHub = async (hub: Hub): Promise<void> => {
     }
 }
 
-export type KafkaConfig = Pick<
-    PluginsServerConfig,
-    | 'KAFKA_HOSTS'
-    | 'KAFKA_PRODUCER_HOSTS'
-    | 'KAFKA_SECURITY_PROTOCOL'
-    | 'KAFKA_PRODUCER_SECURITY_PROTOCOL'
-    | 'KAFKA_CLIENT_ID'
-    | 'KAFKA_PRODUCER_CLIENT_ID'
-    | 'KAFKA_CLIENT_RACK'
-    | 'KAFKAJS_LOG_LEVEL'
-    | 'KAFKA_CLIENT_CERT_B64'
-    | 'KAFKA_CLIENT_CERT_KEY_B64'
-    | 'KAFKA_TRUSTED_CERT_B64'
-    | 'KAFKA_SASL_MECHANISM'
-    | 'KAFKA_SASL_USER'
-    | 'KAFKA_SASL_PASSWORD'
-    | 'KAFKA_CDP_PRODUCER_HOSTS'
-    | 'KAFKA_CDP_PRODUCER_SECURITY_PROTOCOL'
-    | 'KAFKA_CDP_PRODUCER_CLIENT_ID'
->
-
 export function createKafkaClient({
     KAFKA_HOSTS,
     KAFKAJS_LOG_LEVEL,
@@ -234,7 +209,7 @@ export function createKafkaClient({
     KAFKA_SASL_MECHANISM,
     KAFKA_SASL_USER,
     KAFKA_SASL_PASSWORD,
-}: KafkaConfig) {
+}: PluginsServerConfig) {
     let kafkaSsl: ConnectionOptions | boolean | undefined
     if (KAFKA_CLIENT_CERT_B64 && KAFKA_CLIENT_CERT_KEY_B64 && KAFKA_TRUSTED_CERT_B64) {
         kafkaSsl = {

@@ -18,20 +18,6 @@ import { CdpEventsConsumer } from './cdp-events.consumer'
 import { CdpInternalEventsConsumer } from './cdp-internal-event.consumer'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 
-jest.mock('../../../src/utils/fetch', () => {
-    return {
-        trackedFetch: jest.fn(() =>
-            Promise.resolve({
-                status: 200,
-                text: () => Promise.resolve(JSON.stringify({ success: true })),
-                json: () => Promise.resolve({ success: true }),
-            })
-        ),
-    }
-})
-
-const mockFetch: jest.Mock = require('../../../src/utils/fetch').trackedFetch
-
 jest.setTimeout(1000)
 
 /**
@@ -82,8 +68,6 @@ describe.each([
         mockQueueInvocations = jest.mocked(processor['cyclotronJobQueue']['queueInvocations'])
 
         await processor.start()
-
-        mockFetch.mockClear()
     })
 
     afterEach(async () => {

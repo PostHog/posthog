@@ -2447,6 +2447,7 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
                             "key": "$pageview",
                             "value": "http://example.com",
                             "type": "person",
+                            "operator": "exact",
                         },
                     ],
                 }
@@ -2590,6 +2591,7 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
                             "key": "$pageview",
                             "value": "http://example.com",
                             "type": "person",
+                            "operator": "exact",
                         },
                     ],
                 }

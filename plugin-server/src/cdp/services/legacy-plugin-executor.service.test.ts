@@ -1,5 +1,7 @@
 import { DateTime } from 'luxon'
 
+import { FetchResponse } from '~/src/utils/request'
+import { fetch } from '~/src/utils/request'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
@@ -33,7 +35,7 @@ describe('LegacyPluginExecutorService', () => {
     let team: Team
     let globals: HogFunctionInvocationGlobalsWithInputs
     let fn: HogFunctionType
-    let mockFetch: jest.Mock
+    let mockFetch: jest.Mock<Promise<FetchResponse>, Parameters<typeof fetch>>
     let pluginConfig: PluginConfig
 
     const customerIoPlugin = DESTINATION_PLUGINS_BY_ID['plugin-customerio-plugin']
@@ -71,14 +73,21 @@ describe('LegacyPluginExecutorService', () => {
             plugin_id: plugin.id,
         } as any)
 
-        mockFetch = jest.fn(() =>
+        mockFetch = jest.fn((_url, _options) =>
             Promise.resolve({
                 status: 200,
                 json: () =>
                     Promise.resolve({
                         status: 200,
                     }),
-            } as any)
+                text: () =>
+                    Promise.resolve(
+                        JSON.stringify({
+                            status: 200,
+                        })
+                    ),
+                headers: {},
+            })
         )
 
         jest.spyOn(service, 'fetch').mockImplementation(mockFetch)
@@ -172,7 +181,17 @@ describe('LegacyPluginExecutorService', () => {
 
             mockFetch.mockResolvedValue({
                 status: 200,
-                json: () => Promise.resolve({ total_count: 1 }),
+                json: () =>
+                    Promise.resolve({
+                        total_count: 1,
+                    }),
+                text: () =>
+                    Promise.resolve(
+                        JSON.stringify({
+                            total_count: 1,
+                        })
+                    ),
+                headers: {},
             })
 
             const res = await service.execute(invocation)
@@ -293,12 +312,22 @@ describe('LegacyPluginExecutorService', () => {
             // First fetch is successful (setup)
             // Second one not
 
-            mockFetch.mockImplementation((url) => {
+            mockFetch.mockImplementation((url, _options) => {
                 if (url.includes('customers')) {
-                    return Promise.resolve({ status: 500, json: () => Promise.resolve({}) })
+                    return Promise.resolve({
+                        status: 500,
+                        json: () => Promise.resolve({}),
+                        text: () => Promise.resolve(JSON.stringify({})),
+                        headers: {},
+                    })
                 }
 
-                return Promise.resolve({ status: 200 })
+                return Promise.resolve({
+                    status: 200,
+                    json: () => Promise.resolve({}),
+                    text: () => Promise.resolve(JSON.stringify({})),
+                    headers: {},
+                })
             })
 
             const res = await service.execute(invocation)
