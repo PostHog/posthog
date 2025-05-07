@@ -38,7 +38,6 @@ import { taxonomyPlugin } from './_transformations/taxonomy-plugin/template'
 import { timestampParserPlugin } from './_transformations/timestamp-parser-plugin/template'
 import { urlParserPlugin } from './_transformations/url-parser/template'
 import { userAgentPlugin } from './_transformations/user-agent-plugin/template'
-import { SEGMENT_DESTINATIONS } from './segmentTemplates'
 import { LegacyDestinationPlugin, LegacyTransformationPlugin } from './types'
 
 export const DESTINATION_PLUGINS: LegacyDestinationPlugin[] = [
@@ -57,7 +56,6 @@ export const DESTINATION_PLUGINS: LegacyDestinationPlugin[] = [
     rudderstackPlugin,
     salesforcePlugin,
     sendgridPlugin,
-    ...SEGMENT_DESTINATIONS,
 ]
 
 export const TRANSFORMATION_PLUGINS: LegacyTransformationPlugin[] = [

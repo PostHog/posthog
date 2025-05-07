@@ -1,9 +1,13 @@
-import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
-import { destinations } from '@segment/action-destinations'
+import { DestinationDefinition, destinations } from '@segment/action-destinations'
 
 import { HogFunctionFilterEvent, HogFunctionInputSchemaType } from '~/src/cdp/types'
 
-import { SegmentDestinationPlugin, SegmentDestinationPluginMeta } from '../services/segment-plugin-executor.service'
+import { HogFunctionTemplate } from '../templates/types'
+
+export type SegmentDestination = {
+    template: HogFunctionTemplate
+    destination: DestinationDefinition
+}
 
 const translateFilters = (subscribe: string): { events: HogFunctionFilterEvent[] } => {
     const mapped = subscribe
@@ -375,68 +379,7 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations)
         const name = destination.name.replace(' (Actions)', '').replace('Actions ', '')
 
         return {
-            /* eslint-disable-next-line @typescript-eslint/require-await */
-            onEvent: async (
-                _event: ProcessedPluginEvent,
-                { config, fetch, logger }: SegmentDestinationPluginMeta
-            ): Promise<void> => {
-                try {
-                    destination.actions[config.internal_partner_action as keyof typeof destination.actions].perform(
-                        async (endpoint, options) => {
-                            const requestExtension = destination.extendRequest?.({
-                                settings: config as any,
-                                auth: config as any,
-                                payload: config as any,
-                            })
-                            const headers: Record<string, string> = {
-                                ...options?.headers,
-                                ...requestExtension?.headers,
-                            }
-
-                            let body: string | URLSearchParams = ''
-
-                            if (options?.json) {
-                                body = JSON.stringify(options.json)
-                                headers['Content-Type'] = 'application/json'
-                            } else if (options?.body && options.body instanceof URLSearchParams) {
-                                body = options.body
-                                headers['Content-Type'] = 'application/x-www-form-urlencoded'
-                            } else if (options?.body && typeof options.body === 'string') {
-                                body = options.body
-                                headers['Content-Type'] = 'application/json'
-                            }
-
-                            const params = new URLSearchParams()
-
-                            if (options?.searchParams && typeof options.searchParams === 'object') {
-                                Object.entries(options.searchParams as Record<string, string>).forEach(([key, value]) =>
-                                    params.append(key, value)
-                                )
-                            }
-
-                            if (requestExtension?.searchParams && typeof requestExtension.searchParams === 'object') {
-                                Object.entries(requestExtension.searchParams as Record<string, string>).forEach(
-                                    ([key, value]) => params.append(key, value)
-                                )
-                            }
-                            headers['endpoint'] = `${endpoint}?${params.toString()}`
-
-                            await fetch('http://localhost:2080/e352fab0-49d7-456f-90e7-9678245bd507', {
-                                method: options?.method ?? 'POST',
-                                headers,
-                                body,
-                            })
-                            return Promise.resolve({} as any)
-                        },
-                        {
-                            payload: config,
-                            settings: config,
-                        }
-                    )
-                } catch (e) {
-                    logger.error('error', e)
-                }
-            },
+            destination,
             template: {
                 free: false,
                 status: APPROVED_DESTINATIONS.includes(id) ? 'beta' : 'alpha',
@@ -478,5 +421,10 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations)
                         ],
                     })),
             },
-        } as SegmentDestinationPlugin
+        } as SegmentDestination
     })
+
+export const SEGMENT_DESTINATIONS_BY_ID = SEGMENT_DESTINATIONS.reduce((acc, plugin) => {
+    acc[plugin.template.id] = plugin
+    return acc
+}, {} as Record<string, SegmentDestination>)

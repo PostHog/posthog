@@ -15758,6 +15758,10 @@ packages:
   undici-types@7.3.0:
     resolution: {integrity: sha512-z2pHpkN2BEJl3QlQo0GtfGCyuhuBbWX60vzGwyn7ex/seM2UkvyGEfEV0Qb9pXc5StNfcJpsstgaf2YTEJa63Q==}
 
+  undici@6.21.2:
+    resolution: {integrity: sha512-uROZWze0R0itiAKVPsYhFov9LxrPMHLMEQFszeI2gCN6bnIIZ8twzBCJcN2LJrBBLfrP0t1FW0g+JmKVl8Vk1g==}
+    engines: {node: '>=18.17'}
+
   undici@7.8.0:
     resolution: {integrity: sha512-vFv1GA99b7eKO1HG/4RPu2Is3FBTWBrmzqzO0mz+rLxN3yXkE4mqRcb8g8fHxzX4blEysrNZLqg5RbJLqX5buA==}
     engines: {node: '>=20.18.1'}
@@ -34590,6 +34594,8 @@ snapshots:
   undici-types@6.21.0: {}
 
   undici-types@7.3.0: {}
+
+  undici@6.21.2: {}
 
   undici@7.8.0: {}
 
