@@ -4,6 +4,7 @@ from unittest.mock import patch, MagicMock
 from datetime import datetime
 
 from ee.session_recordings.session_summary.input_data import (
+    COLUMNS_TO_REMOVE_FROM_LLM_CONTEXT,
     _skip_event_without_valid_context,
     _get_improved_elements_chain_texts,
     _get_improved_elements_chain_elements,
@@ -105,9 +106,27 @@ def test_add_context_and_filter_events(mock_event_indexes: dict[str, int]):
     test_columns = list(mock_event_indexes.keys())
     events: list[tuple[Any, ...]] = [
         # Should keep event with context
-        ("$autocapture", None, "", ["Click me"], [], None, None, "click", [], "button:text='Click me'", None, None),
+        (
+            "$autocapture",
+            None,
+            "",
+            ["Click me"],
+            [],
+            None,
+            None,
+            "click",
+            [],
+            "button:text='Click me'",
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+        ),
         # Should skip event without context
-        ("$autocapture", None, "", [], [], None, None, "click", [], "", None, None),
+        ("$autocapture", None, "", [], [], None, None, "click", [], "", [], [], [], [], [], [], []),
         # Should improve context from chain
         (
             "$autocapture",
@@ -120,19 +139,25 @@ def test_add_context_and_filter_events(mock_event_indexes: dict[str, int]):
             "click",
             [],
             '"svg.c_gray.80.d_flex.flex-sh_0:nth-child=""1""nth-of-type=""1""href=""/project/new""attr__fill=""none""attr__focusable=""false""attr__height=""24""attr__role=""img""attr__stroke-width=""1""attr__viewBox=""0 0 24 24""attr__width=""24""attr__class=""c_gray.80 d_flex flex-sh_0";button:text="Click me""attr__href=""/project/new"";a.[&:hover,_&:focus,_&:focus-visible,_&:focus-within,_&:active]:bg-c_gray.30.ai_center.bdr_100%.bg-c_gray.10.d_flex.flex-sh_0.h_47px.jc_center.trs_background-color_0.2s_ease-out.w_47px.white-space_nowrap:nth-child=""1""nth-of-type=""1""href=""/project/new""attr__aria-label=""Create project""',
-            None,
-            None,
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
         ),
         # Should keep custom event with complex name
-        ("user_clicked_button", None, "", [], [], None, None, "click", [], "", None, None),
+        ("user_clicked_button", None, "", [], [], None, None, "click", [], "", [], [], [], [], [], [], []),
     ]
     updated_columns, updated_events = add_context_and_filter_events(test_columns, events)
-    # Check columns are updated (elements_chain removed)
-    assert len(updated_columns) == len(test_columns) - 1
-    assert "elements_chain" not in updated_columns
+    # Check columns are updated (and columns excessive from LLM context are removed)
+    assert len(updated_columns) == len(test_columns) - len(COLUMNS_TO_REMOVE_FROM_LLM_CONTEXT)
+    for column in COLUMNS_TO_REMOVE_FROM_LLM_CONTEXT:
+        assert column not in updated_columns
     # Check events are filtered and updated, one event should be filtered out
     assert len(updated_events) == 3
-    # First event should be unchanged except for chain removal
+    # First event should be unchanged (except removing excessive columns)
     assert updated_events[0] == (
         "$autocapture",
         None,
@@ -143,9 +168,11 @@ def test_add_context_and_filter_events(mock_event_indexes: dict[str, int]):
         None,
         "click",
         [],
-        None,
-        None,
+        [],
+        [],
+        [],
     )
+    # Second event should've been filtered out due to no context
     # Third event should have improved context from chain
     assert updated_events[1] == (
         "$autocapture",
@@ -157,23 +184,12 @@ def test_add_context_and_filter_events(mock_event_indexes: dict[str, int]):
         None,
         "click",
         [],
-        None,
-        None,
+        [],
+        [],
+        [],
     )
-    # Last event should be kept due to complex name
-    assert updated_events[2] == (
-        "user_clicked_button",
-        None,
-        "",
-        [],
-        [],
-        None,
-        None,
-        "click",
-        [],
-        None,
-        None,
-    )
+    # Last event should be kept unchanged due to complex name
+    assert updated_events[2] == ("user_clicked_button", None, "", [], [], None, None, "click", [], [], [], [])
 
 
 @pytest.mark.parametrize(
@@ -306,7 +322,7 @@ def test_get_paginated_session_events(
     items_per_page = 2
     max_pages = 3
     mock_metadata = RecordingMetadata(**mock_raw_metadata)  # type: ignore
-    mock_columns = mock_events_columns[:10]
+    mock_columns = mock_events_columns
     # Prepare mock pages data (add columns to each page)
     processed_pages_data = [(mock_columns, events) if events is not None else (None, None) for events in pages_data]
     with patch("ee.session_recordings.session_summary.input_data.SessionReplayEvents") as mock_replay_events:
