@@ -142,7 +142,7 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
                         )}
                     </div>
                     {billingLimitNextPeriod ? (
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1">
                             <span className="text-sm xl:text-right">
                                 Your limit for next period: <b>${billingLimitNextPeriod.toLocaleString()}</b>.
                             </span>
