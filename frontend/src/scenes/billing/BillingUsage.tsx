@@ -91,7 +91,7 @@ export function BillingUsage(): JSX.Element {
 
                 {/* Date Range */}
                 <div className="flex flex-col gap-1">
-                    <LemonLabel>Date range</LemonLabel>
+                    <LemonLabel>Date range (UTC)</LemonLabel>
                     <div className="bg-bg-light rounded-md">
                         <DateFilter
                             className="h-8 flex items-center"

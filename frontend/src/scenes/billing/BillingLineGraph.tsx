@@ -1,6 +1,8 @@
+import 'chartjs-adapter-dayjs-3'
+
 import { Chart, ChartDataset, ChartOptions, TooltipModel } from 'chart.js'
 import { getSeriesColor } from 'lib/colors'
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { createRoot, Root } from 'react-dom/client'
 
 import { BillingLineGraphTooltip } from './BillingLineGraphTooltip'
@@ -26,6 +28,47 @@ export interface BillingLineGraphProps {
 
 const defaultFormatter = (value: number): string => value.toLocaleString()
 
+function useBillingTooltip(): {
+    ensureBillingTooltip: () => [Root, HTMLElement]
+    hideBillingTooltip: () => void
+} {
+    const tooltipElRef = useRef<HTMLElement | null>(null)
+    const tooltipRootRef = useRef<Root | null>(null)
+
+    const ensureBillingTooltip = useCallback((): [Root, HTMLElement] => {
+        if (!tooltipElRef.current) {
+            tooltipElRef.current = document.createElement('div')
+            tooltipElRef.current.id = 'BillingTooltipWrapper'
+            tooltipElRef.current.className =
+                'BillingTooltipWrapper hidden absolute z-10 p-2 bg-bg-light rounded shadow-md text-xs pointer-events-none border border-border'
+            document.body.appendChild(tooltipElRef.current)
+        }
+        if (!tooltipRootRef.current) {
+            tooltipRootRef.current = createRoot(tooltipElRef.current)
+        }
+        return [tooltipRootRef.current, tooltipElRef.current]
+    }, [])
+
+    const hideBillingTooltip = useCallback((): void => {
+        if (tooltipElRef.current) {
+            tooltipElRef.current.classList.add('hidden')
+            tooltipElRef.current.classList.remove('block')
+        }
+    }, [])
+
+    useEffect(
+        () => () => {
+            if (tooltipRootRef.current) {
+                setTimeout(() => tooltipRootRef.current?.unmount(), 0)
+            }
+            tooltipElRef.current?.remove()
+        },
+        []
+    )
+
+    return { ensureBillingTooltip, hideBillingTooltip }
+}
+
 export function SeriesColorDot({ colorIndex }: { colorIndex: number }): JSX.Element {
     return <div className={`series-color-dot series-color-dot-${colorIndex % 15}`} />
 }
@@ -41,44 +84,7 @@ export function BillingLineGraph({
 }: BillingLineGraphProps): JSX.Element {
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const chartRef = useRef<Chart | null>(null)
-
-    const tooltipRootRef = useRef<Root | null>(null)
-    const tooltipElRef = useRef<HTMLElement | null>(null)
-
-    // Ensure tooltip elements exist
-    function ensureBillingTooltip(): [Root, HTMLElement] {
-        if (!tooltipElRef.current) {
-            tooltipElRef.current = document.createElement('div')
-            tooltipElRef.current.id = 'BillingTooltipWrapper'
-            // Initial style: hidden but present
-            tooltipElRef.current.className =
-                'BillingTooltipWrapper hidden absolute z-10 p-2 bg-bg-light rounded shadow-md text-xs pointer-events-none border border-border'
-            document.body.appendChild(tooltipElRef.current)
-        }
-        if (!tooltipRootRef.current) {
-            tooltipRootRef.current = createRoot(tooltipElRef.current)
-        }
-        return [tooltipRootRef.current, tooltipElRef.current]
-    }
-
-    // Hide tooltip
-    function hideBillingTooltip(): void {
-        if (tooltipElRef.current) {
-            tooltipElRef.current.classList.add('hidden')
-            tooltipElRef.current.classList.remove('block') // Ensure block is removed
-        }
-    }
-
-    // Cleanup tooltip on unmount
-    useEffect(() => {
-        return () => {
-            if (tooltipRootRef.current) {
-                // Wait for potential renders to finish before unmounting
-                setTimeout(() => tooltipRootRef.current?.unmount(), 0)
-            }
-            tooltipElRef.current?.remove()
-        }
-    }, [])
+    const { ensureBillingTooltip, hideBillingTooltip } = useBillingTooltip()
 
     useEffect(() => {
         if (!canvasRef.current) {
@@ -191,24 +197,26 @@ export function BillingLineGraph({
                             const tooltipWidth = tooltipEl.offsetWidth
                             const tooltipHeight = tooltipEl.offsetHeight
 
-                            let tooltipX = bounds.left + window.pageXOffset + tooltip.caretX + 8
-                            let tooltipY = bounds.top + window.pageYOffset + tooltip.caretY - tooltipHeight / 2 // Center vertically
+                            const scrollX = window.scrollX
+                            const scrollY = window.scrollY
+
+                            let tooltipX = bounds.left + scrollX + tooltip.caretX + 8
+                            let tooltipY = bounds.top + scrollY + tooltip.caretY - tooltipHeight / 2 // Center vertically
 
                             // Prevent tooltip going off-screen right
-                            if (tooltipX + tooltipWidth > bounds.right + window.pageXOffset) {
-                                tooltipX = bounds.left + window.pageXOffset + tooltip.caretX - tooltipWidth - 8
+                            if (tooltipX + tooltipWidth > bounds.right + scrollX) {
+                                tooltipX = bounds.left + scrollX + tooltip.caretX - tooltipWidth - 8
                             }
                             // Prevent tooltip going off-screen left
-                            tooltipX = Math.max(tooltipX, bounds.left + window.pageXOffset)
+                            tooltipX = Math.max(tooltipX, bounds.left + scrollX)
                             // Prevent tooltip going off-screen top
-                            tooltipY = Math.max(tooltipY, bounds.top + window.pageYOffset)
+                            tooltipY = Math.max(tooltipY, bounds.top + scrollY)
                             // Prevent tooltip going off-screen bottom
-                            tooltipY = Math.min(tooltipY, bounds.bottom + window.pageYOffset - tooltipHeight)
+                            tooltipY = Math.min(tooltipY, bounds.bottom + scrollY - tooltipHeight)
 
                             tooltipEl.style.top = `${tooltipY}px`
                             tooltipEl.style.left = `${tooltipX}px`
                         } catch (e) {
-                            console.error('[Billing Tooltip] Error during rendering:', e)
                             hideBillingTooltip()
                         }
                     },
@@ -243,7 +251,7 @@ export function BillingLineGraph({
                 chartRef.current.destroy()
             }
         }
-    }, [series, dates, hiddenSeries, valueFormatter, showLegend, interval])
+    }, [series, dates, hiddenSeries, valueFormatter, showLegend, interval, ensureBillingTooltip, hideBillingTooltip])
 
     return (
         <div className="relative h-96">

@@ -177,13 +177,12 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
-        setFilters: () => {
+        setFilters: async (_payload, breakpoint) => {
+            await breakpoint(300)
             actions.loadBillingSpend()
         },
-        setDateRange: () => {
-            actions.loadBillingSpend()
-        },
-        toggleSeries: () => {
+        setDateRange: async (_payload, breakpoint) => {
+            await breakpoint(300)
             actions.loadBillingSpend()
         },
         toggleAllSeries: () => {
@@ -201,10 +200,8 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
                 userHiddenSeries.forEach((id) => actions.toggleSeries(id))
             }
         },
-        setExcludeEmptySeries: () => {
-            actions.loadBillingSpend()
-        },
-        toggleBreakdown: () => {
+        toggleBreakdown: async (_payload, breakpoint) => {
+            await breakpoint(300)
             actions.loadBillingSpend()
         },
     })),
