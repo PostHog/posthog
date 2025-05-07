@@ -26,8 +26,12 @@ def mock_event_indexes() -> dict[str, int]:
         "$event_type": 7,
         "elements_chain_ids": 8,
         "elements_chain": 9,
-        "event_index": 10,
-        "event_id": 11,
+        "$exception_types": 10,
+        "$exception_sources": 11,
+        "$exception_values": 12,
+        "$exception_list": 13,
+        "$exception_fingerprint_record": 14,
+        "$exception_functions": 15,
     }
 
 
@@ -35,17 +39,17 @@ def mock_event_indexes() -> dict[str, int]:
     "event_tuple,expected_skip",
     [
         # Should skip autocapture event with no context
-        (("$autocapture", None, "", [], [], None, None, "click", [], "", None, None), True),
+        (("$autocapture", None, "", [], [], None, None, "click", [], "", [], [], [], [], [], [], []), True),
         # Should not skip autocapture event with text context
-        (("$autocapture", None, "", ["Click me"], [], None, None, "click", [], "", None, None), False),
+        (("$autocapture", None, "", ["Click me"], [], None, None, "click", [], "", [], [], [], [], [], [], []), False),
         # Should not skip autocapture event with element context
-        (("$autocapture", None, "", [], ["button"], None, None, "click", [], "", None, None), False),
+        (("$autocapture", None, "", [], ["button"], None, None, "click", [], "", [], [], [], [], [], [], []), False),
         # Should skip custom event with no context and simple name
-        (("click", None, "", [], [], None, None, "click", [], "", None, None), True),
+        (("click", None, "", [], [], None, None, "click", [], "", [], [], [], [], [], [], []), True),
         # Should not skip custom event with context
-        (("click", None, "", ["Click me"], [], None, None, "click", [], "", None, None), False),
+        (("click", None, "", ["Click me"], [], None, None, "click", [], "", [], [], [], [], [], [], []), False),
         # Should not skip custom event with complex name
-        (("user.clicked_button", None, "", [], [], None, None, "click", [], "", None, None), False),
+        (("user.clicked_button", None, "", [], [], None, None, "click", [], "", [], [], [], [], [], [], []), False),
     ],
 )
 def test_skip_event_without_context(
