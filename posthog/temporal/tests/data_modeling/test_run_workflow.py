@@ -668,7 +668,7 @@ async def test_run_workflow_with_minio_bucket(
     ):
         async with temporalio.worker.Worker(
             temporal_client,
-            task_queue=constants.DATA_WAREHOUSE_TASK_QUEUE,
+            task_queue=constants.DATA_MODELING_TASK_QUEUE,
             workflows=[RunWorkflow],
             activities=[
                 start_run_activity,
@@ -683,7 +683,7 @@ async def test_run_workflow_with_minio_bucket(
                 RunWorkflow.run,
                 inputs,
                 id=workflow_id,
-                task_queue=constants.DATA_WAREHOUSE_TASK_QUEUE,
+                task_queue=constants.DATA_MODELING_TASK_QUEUE,
                 retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
                 execution_timeout=dt.timedelta(seconds=30),
             )
