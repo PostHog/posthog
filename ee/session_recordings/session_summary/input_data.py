@@ -24,6 +24,13 @@ EXTRA_SUMMARY_EVENT_FIELDS = [
     "properties.$exception_fingerprint_record",
     "properties.$exception_functions",
 ]
+# Columns that are useful to building context or/and filtering, but would be excessive for the LLM
+COLUMNS_TO_REMOVE_FROM_LLM_CONTEXT = [
+    "$exception_functions",
+    "$exception_fingerprint_record",
+    "$exception_sources",
+    "elements_chain",
+]
 
 
 def get_session_metadata(session_id: str, team: Team, local_reads_prod: bool = False) -> RecordingMetadata:
@@ -182,15 +189,10 @@ def add_context_and_filter_events(
         "$exception_fingerprint_record": get_column_index(session_events_columns, "$exception_fingerprint_record"),
         "$exception_functions": get_column_index(session_events_columns, "$exception_functions"),
     }
-    # Columns that are useful to building context or/and filtering, but would be excessive for the LLM
-    columns_to_remove = {
-        "$exception_functions",
-        "$exception_fingerprint_record",
-        "$exception_sources",
-        "elements_chain",
-    }
     # Columns to go into the LLM
-    columns_to_keep = [i for i, col in enumerate(session_events_columns) if col not in columns_to_remove]
+    columns_to_keep = [
+        i for i, col in enumerate(session_events_columns) if col not in COLUMNS_TO_REMOVE_FROM_LLM_CONTEXT
+    ]
     updated_events = []
     for event in session_events:
         updated_event: list[str | datetime.datetime | list[str] | None] = list(event)
