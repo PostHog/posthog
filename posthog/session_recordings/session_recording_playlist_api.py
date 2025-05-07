@@ -156,6 +156,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
             "last_modified_at",
             "last_modified_by",
             "recordings_counts",
+            "type",
         ]
 
     created_by = UserBasicSerializer(read_only=True)
