@@ -123,12 +123,18 @@ envsubst > Caddyfile <<EOF
 {
 $TLS_BLOCK
 }
-$DOMAIN, http://, https:// {
-encode gzip zstd
-reverse_proxy http://web:8000
-reverse_proxy http://livestream:8666
+https://$DOMAIN {
+    encode gzip zstd
+    reverse_proxy http://web:8000
+}
+https://$DOMAIN:8666 {
+    encode gzip zstd
+    reverse_proxy http://livestream:8080
 }
 EOF
+
+# rewrite Livestream config
+sed "s|<randomly generated secret key>|$POSTHOG_SECRET|g" ./posthog/docker/livestream/configs-dev.yml > ./livestream-config.yml
 
 # Write .env file
 envsubst > .env <<EOF
