@@ -355,7 +355,6 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                             aria-roledescription="tree item"
                             aria-rolemap={`item-${item.id}`}
                             aria-label={ariaLabel}
-                            // tooltip={isDragging || isEmptyFolder || mode === 'table' ? undefined : displayName}
                             tooltip={
                                 isDragging || isEmptyFolder || mode === 'table' ? undefined : renderItemTooltip?.(item)
                             }
