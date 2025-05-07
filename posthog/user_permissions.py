@@ -182,62 +182,62 @@ class UserTeamPermissions:
                 return None
             else:
                 return organization_membership.level
+
         # New access control system
-        else:
-            from ee.models.rbac.access_control import AccessControl
+        from ee.models.rbac.access_control import AccessControl
 
-            # Check if the team is private
-            team_is_private = AccessControl.objects.filter(
-                team_id=self.team.id,
-                resource="team",
-                resource_id=str(self.team.id),
-                organization_member=None,
-                role=None,
-                access_level="none",
-            ).exists()
+        # Check if the team is private
+        team_is_private = AccessControl.objects.filter(
+            team_id=self.team.id,
+            resource="team",
+            resource_id=str(self.team.id),
+            organization_member=None,
+            role=None,
+            access_level="none",
+        ).exists()
 
-            # If team is not private, all organization members have access
-            if not team_is_private:
-                return organization_membership.level
+        # If team is not private, all organization members have access
+        if not team_is_private:
+            return organization_membership.level
 
-            # For private teams, check if the user has specific access
+        # For private teams, check if the user has specific access
 
-            # Organization admins and owners always have access
-            if organization_membership.level >= OrganizationMembership.Level.ADMIN:
-                return organization_membership.level
+        # Organization admins and owners always have access
+        if organization_membership.level >= OrganizationMembership.Level.ADMIN:
+            return organization_membership.level
 
-            # Check for direct member access through AccessControl entries
-            user_has_access = AccessControl.objects.filter(
-                team_id=self.team.id,
-                resource="team",
-                resource_id=str(self.team.id),
-                organization_member=organization_membership.id,
-                access_level__in=["member", "admin"],
-            ).exists()
+        # Check for direct member access through AccessControl entries
+        user_has_access = AccessControl.objects.filter(
+            team_id=self.team.id,
+            resource="team",
+            resource_id=str(self.team.id),
+            organization_member=organization_membership.id,
+            access_level__in=["member", "admin"],
+        ).exists()
 
-            if user_has_access:
-                return organization_membership.level
+        if user_has_access:
+            return organization_membership.level
 
-            # Check for role-based access
-            from ee.models.rbac.role import RoleMembership
+        # Check for role-based access
+        from ee.models.rbac.role import RoleMembership
 
-            user_roles = RoleMembership.objects.filter(organization_member=organization_membership.id).values_list(
-                "role", flat=True
-            )
+        user_roles = RoleMembership.objects.filter(organization_member=organization_membership.id).values_list(
+            "role", flat=True
+        )
 
-            role_has_access = AccessControl.objects.filter(
-                team_id=self.team.id,
-                resource="team",
-                resource_id=str(self.team.id),
-                role__in=user_roles,
-                access_level__in=["member", "admin"],
-            ).exists()
+        role_has_access = AccessControl.objects.filter(
+            team_id=self.team.id,
+            resource="team",
+            resource_id=str(self.team.id),
+            role__in=user_roles,
+            access_level__in=["member", "admin"],
+        ).exists()
 
-            if role_has_access:
-                return organization_membership.level
+        if role_has_access:
+            return organization_membership.level
 
-            # No access found
-            return None
+        # No access found
+        return None
 
 
 class UserDashboardPermissions:
