@@ -35,6 +35,7 @@ class OAuthApplication(AbstractApplication, UUIDModel):
         choices=[
             ("RS256", "RSA with SHA-2 256"),
         ],
+        default="RS256",
     )
 
     authorization_grant_type = models.CharField(
@@ -42,6 +43,7 @@ class OAuthApplication(AbstractApplication, UUIDModel):
         choices=[
             (AbstractApplication.GRANT_AUTHORIZATION_CODE, "Authorization code"),
         ],
+        default=AbstractApplication.GRANT_AUTHORIZATION_CODE,
     )
 
 
