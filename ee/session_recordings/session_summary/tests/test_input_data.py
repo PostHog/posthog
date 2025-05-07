@@ -2,6 +2,7 @@ from typing import Any
 import pytest
 from unittest.mock import patch, MagicMock
 from datetime import datetime
+import json
 
 from ee.session_recordings.session_summary.input_data import (
     COLUMNS_TO_REMOVE_FROM_LLM_CONTEXT,
@@ -10,6 +11,7 @@ from ee.session_recordings.session_summary.input_data import (
     _get_improved_elements_chain_elements,
     add_context_and_filter_events,
     get_session_events,
+    _skip_exception_without_valid_context,
 )
 from posthog.session_recordings.models.metadata import RecordingMetadata
 
@@ -447,3 +449,136 @@ def test_get_paginated_session_events(
         for i, call in enumerate(mock_instance.get_events.call_args_list):
             assert call.kwargs["limit"] == items_per_page
             assert call.kwargs["page"] == i
+
+
+@pytest.mark.parametrize(
+    "exception_data,expected_skip",
+    [
+        # Should keep exception with many traces (5+)
+        (
+            {
+                "$exception_fingerprint_record": [
+                    {"type": "exception", "id": "1", "pieces": ["Error"]},
+                    {"type": "frame", "id": "2", "pieces": ["func1", "file1"]},
+                    {"type": "frame", "id": "3", "pieces": ["func2", "file2"]},
+                    {"type": "frame", "id": "4", "pieces": ["func3", "file3"]},
+                    {"type": "frame", "id": "5", "pieces": ["func4", "file4"]},
+                    {"type": "frame", "id": "6", "pieces": ["func5", "file5"]},
+                ],
+                "$exception_types": ["Error"],
+                "$exception_values": ["Something went wrong"],
+                "$exception_sources": ["file1.ts"],
+                "$exception_functions": ["func1"],
+            },
+            False,
+        ),
+        # Should keep API-related exception in functions
+        (
+            {
+                "$exception_fingerprint_record": [{"type": "exception", "id": "1", "pieces": ["Error"]}],
+                "$exception_types": ["Error"],
+                "$exception_values": ["Something went wrong"],
+                "$exception_sources": ["file1.ts"],
+                "$exception_functions": ["api.fetchData", "handleResponse"],
+            },
+            False,
+        ),
+        # Should keep API-related exception in sources
+        (
+            {
+                "$exception_fingerprint_record": [{"type": "exception", "id": "1", "pieces": ["Error"]}],
+                "$exception_types": ["Error"],
+                "$exception_values": ["Something went wrong"],
+                "$exception_sources": ["api/client.ts", "utils.ts"],
+                "$exception_functions": ["func1"],
+            },
+            False,
+        ),
+        # Should keep API-related exception in values
+        (
+            {
+                "$exception_fingerprint_record": [{"type": "exception", "id": "1", "pieces": ["Error"]}],
+                "$exception_types": ["Error"],
+                "$exception_values": ["Failed to fetch API data", "Network error"],
+                "$exception_sources": ["file1.ts"],
+                "$exception_functions": ["func1"],
+            },
+            False,
+        ),
+        # Should skip non-API exception with few traces
+        (
+            {
+                "$exception_fingerprint_record": [
+                    {"type": "exception", "id": "1", "pieces": ["Error"]},
+                    {"type": "frame", "id": "2", "pieces": ["func1", "file1"]},
+                ],
+                "$exception_types": ["Error"],
+                "$exception_values": ["Something went wrong"],
+                "$exception_sources": ["file1.ts"],
+                "$exception_functions": ["func1"],
+            },
+            True,
+        ),
+        # Should skip empty exception data
+        (
+            {
+                "$exception_fingerprint_record": [],
+                "$exception_types": [],
+                "$exception_values": [],
+                "$exception_sources": [],
+                "$exception_functions": [],
+            },
+            True,
+        ),
+        # Should skip exception with null/None values
+        (
+            {
+                "$exception_fingerprint_record": None,
+                "$exception_types": None,
+                "$exception_values": None,
+                "$exception_sources": None,
+                "$exception_functions": None,
+            },
+            True,
+        ),
+        # Should skip exception with no matching patterns in any field
+        (
+            {
+                "$exception_fingerprint_record": [{"type": "exception", "id": "1", "pieces": ["Error"]}],
+                "$exception_types": ["Error"],
+                "$exception_values": ["Generic error"],
+                "$exception_sources": ["src/utils.ts"],
+                "$exception_functions": ["processData"],
+            },
+            True,
+        ),
+        # Should skip exception with invalid JSON in fields
+        (
+            {
+                "$exception_fingerprint_record": "invalid json",
+                "$exception_types": "invalid json",
+                "$exception_values": "invalid json",
+                "$exception_sources": "invalid json",
+                "$exception_functions": "invalid json",
+            },
+            True,
+        ),
+    ],
+)
+def test_skip_exception_without_valid_context(exception_data: dict[str, Any], expected_skip: bool):
+    # Convert exception data to event row format
+    event_row: list[str | None | dict] = [None] * 15  # Match the number of columns in mock_event_indexes
+    indexes = {
+        "$exception_types": 10,
+        "$exception_sources": 11,
+        "$exception_values": 12,
+        "$exception_fingerprint_record": 13,
+        "$exception_functions": 14,
+    }
+    # Set event type to $exception
+    event_row[0] = "$exception"
+    # Convert exception data to JSON strings
+    for key, index in indexes.items():
+        event_row[index] = json.dumps(exception_data[key]) if exception_data[key] else None
+
+    assert _skip_exception_without_valid_context(event_row, indexes) is expected_skip

@@ -115,8 +115,14 @@ def _skip_exception_without_valid_context(
     """
 
     def load_json_list(row, indexes, key):
-        raw = row[indexes[key]]
-        return json.loads(raw) if raw else []
+        raw_list = row[indexes[key]]
+        try:
+            json_list = json.loads(raw_list)
+            if not json_list or not isinstance(json_list, list):
+                return []
+            return json_list
+        except Exception:
+            return []
 
     exception_sources = load_json_list(event_row, indexes, "$exception_sources")
     exception_values = load_json_list(event_row, indexes, "$exception_values")
