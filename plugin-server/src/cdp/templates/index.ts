@@ -1,5 +1,5 @@
 import { DESTINATION_PLUGINS, TRANSFORMATION_PLUGINS } from '../legacy-plugins'
-import { SEGMENT_DESTINATIONS } from '../segment/segmentTemplates'
+import { SEGMENT_DESTINATIONS } from '../segment/segment-templates'
 import { template as linearTemplate } from './_destinations/linear/linear.template'
 import { template as tiktokAdsTemplate } from './_destinations/tiktok_ads/tiktok.template'
 import { template as webhookTemplate } from './_destinations/webhook/webhook.template'

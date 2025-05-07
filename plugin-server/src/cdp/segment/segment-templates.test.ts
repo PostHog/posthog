@@ -1,4 +1,4 @@
-import { SEGMENT_DESTINATIONS } from './segmentTemplates'
+import { SEGMENT_DESTINATIONS } from './segment-templates'
 
 const destinationEntries = Object.entries(SEGMENT_DESTINATIONS).filter(([_, destination]) => destination.template)
 
