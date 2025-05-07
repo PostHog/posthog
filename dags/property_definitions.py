@@ -102,14 +102,10 @@ def ingest_event_properties(
     context.log.info("Executing insert query...")
     cluster.any_host(Query(query)).result()
 
-    # Parse the time range for the count query
-    count_time_range = time_filter.split("BETWEEN ")[1]
-    start_time, end_time = count_time_range.split(" AND ")
-
     # Get the number of rows inserted for this specific time window
     count_query = f"""
     SELECT count() FROM property_definitions
-    WHERE type = 1 AND last_seen_at BETWEEN {start_time} AND {end_time}
+    WHERE type = 1 AND {config.get_time_filter_expression("last_seen_at")}
     """
 
     rows = cluster.any_host(Query(count_query)).result()[0][0]
@@ -168,14 +164,10 @@ def ingest_person_properties(
     context.log.info("Executing insert query...")
     cluster.any_host(Query(query)).result()
 
-    # Parse the time range for the count query
-    count_time_range = time_filter.split("BETWEEN ")[1]
-    start_time, end_time = count_time_range.split(" AND ")
-
     # Get the number of rows inserted for this specific time window
     count_query = f"""
     SELECT count() FROM property_definitions
-    WHERE type = 2 AND last_seen_at BETWEEN {start_time} AND {end_time}
+    WHERE type = 2 AND {config.get_time_filter_expression("last_seen_at")}
     """
 
     rows = cluster.any_host(Query(count_query)).result()[0][0]
