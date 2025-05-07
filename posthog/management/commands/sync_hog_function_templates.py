@@ -1,6 +1,7 @@
 from django.core.management.base import BaseCommand
 import structlog
 import time
+from django.conf import settings
 from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES
 from posthog.models.hog_function_template import HogFunctionTemplate as DBHogFunctionTemplate
 from posthog.plugins.plugin_server_api import get_hog_function_templates
@@ -11,9 +12,27 @@ logger = structlog.get_logger(__name__)
 
 TYPES_WITH_JAVASCRIPT_SOURCE = (HogFunctionType.SITE_DESTINATION, HogFunctionType.SITE_APP)
 
+# Templates to include in test mode
+TEST_INCLUDE_PYTHON_TEMPLATE_IDS = ["template-slack"]
+TEST_INCLUDE_NODEJS_TEMPLATE_IDS = ["template-webhook", "template-geoip"]
+
 
 class Command(BaseCommand):
     help = "Sync HogFunction templates from in-memory and node.js to database"
+
+    def should_include_python_template(self, template):
+        """Determine if a Python template should be included based on test mode"""
+        if not settings.TEST:
+            return True
+
+        return template.type in TYPES_WITH_JAVASCRIPT_SOURCE or template.id in TEST_INCLUDE_PYTHON_TEMPLATE_IDS
+
+    def should_include_nodejs_template(self, template_data):
+        """Determine if a Node.js template should be included based on test mode"""
+        if not settings.TEST:
+            return True
+
+        return template_data.get("id") in TEST_INCLUDE_NODEJS_TEMPLATE_IDS
 
     def handle(self, *args, **options):
         start_time = time.time()
@@ -28,6 +47,9 @@ class Command(BaseCommand):
         # Process templates from HOG_FUNCTION_TEMPLATES (Python templates)
         for template in HOG_FUNCTION_TEMPLATES:
             try:
+                if not self.should_include_python_template(template):
+                    continue
+
                 total_templates += 1
                 result = self._process_template(template)
 
@@ -53,6 +75,9 @@ class Command(BaseCommand):
                 nodejs_templates_json = response.json()
                 for template_data in nodejs_templates_json:
                     try:
+                        if not self.should_include_nodejs_template(template_data):
+                            continue
+
                         # Only process templates with type "transformation" or "destination"
                         if template_data.get("type") not in ["transformation", "destination"]:
                             continue
