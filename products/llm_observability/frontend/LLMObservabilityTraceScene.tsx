@@ -385,6 +385,8 @@ function EventContentDisplay({
 const EventContent = React.memo(({ event }: { event: LLMTrace | LLMTraceEvent | null }): JSX.Element => {
     const { setupPlaygroundFromEvent } = useActions(llmObservabilityPlaygroundLogic)
 
+    const showPlaygroundButton = event && isLLMTraceEvent(event) && event.event === '$ai_generation'
+
     const handleTryInPlayground = (): void => {
         if (!event) {
             return
@@ -397,10 +399,6 @@ const EventContent = React.memo(({ event }: { event: LLMTrace | LLMTraceEvent | 
             model = event.properties.$ai_model
             // Prefer $ai_input if available, otherwise fallback to $ai_input_state
             input = event.properties.$ai_input ?? event.properties.$ai_input_state
-        } else {
-            // For LLMTrace, input is from inputState. Model is not directly available at top level.
-            input = event.inputState
-            // model remains undefined, playground logic will handle default or selection
         }
 
         setupPlaygroundFromEvent({ model, input })
@@ -438,15 +436,17 @@ const EventContent = React.memo(({ event }: { event: LLMTrace | LLMTraceEvent | 
                         )}
                         {isLLMTraceEvent(event) && <ParametersHeader eventProperties={event.properties} />}
                         <div className="flex flex-row items-center gap-2">
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                icon={<IconChat />}
-                                onClick={handleTryInPlayground}
-                                tooltip="Try this prompt in the playground"
-                            >
-                                Try in Playground
-                            </LemonButton>
+                            {showPlaygroundButton && (
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconChat />}
+                                    onClick={handleTryInPlayground}
+                                    tooltip="Try this prompt in the playground"
+                                >
+                                    Try in Playground
+                                </LemonButton>
+                            )}
                             {hasSessionID(event) && (
                                 <div className="flex flex-row items-center gap-2">
                                     <Link

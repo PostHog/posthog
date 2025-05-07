@@ -13,7 +13,6 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { llmObservabilityLogic } from './llmObservabilityLogic'
 import { llmObservabilityPlaygroundLogic } from './llmObservabilityPlaygroundLogic'
 import { ComparisonItem, Message, MessageRole, ModelOption } from './llmObservabilityPlaygroundLogic'
 
@@ -30,7 +29,7 @@ const formatMs = (ms: number | null | undefined): string => {
 
 export const scene: SceneExport = {
     component: LLMObservabilityPlaygroundScene,
-    logic: llmObservabilityLogic,
+    logic: llmObservabilityPlaygroundLogic,
 }
 
 export function LLMObservabilityPlaygroundScene(): JSX.Element {

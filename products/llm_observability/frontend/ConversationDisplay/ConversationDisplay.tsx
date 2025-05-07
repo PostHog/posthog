@@ -29,15 +29,17 @@ export function ConversationDisplay({ eventProperties }: { eventProperties: Even
                     latency={eventProperties.$ai_latency}
                 />
 
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={<IconChat />}
-                    onClick={handleTryInPlayground}
-                    tooltip="Try this prompt in the playground"
-                >
-                    Try in Playground
-                </LemonButton>
+                {eventProperties.$ai_model && eventProperties.$ai_input && (
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconChat />}
+                        onClick={handleTryInPlayground}
+                        tooltip="Try this prompt in the playground"
+                    >
+                        Try in Playground
+                    </LemonButton>
+                )}
             </header>
             <ConversationMessagesDisplay
                 input={eventProperties.$ai_input}
