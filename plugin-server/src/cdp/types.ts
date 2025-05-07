@@ -197,7 +197,7 @@ export type HogFunctionQueueParametersFetchResponse = {
     } | null
     /** On failure, the fetch worker returns a list of info about the attempts made*/
     trace?: CyclotronFetchFailureInfo[]
-    body?: string // Both results AND failures can have a body
+    body?: string | null // Both results AND failures can have a body
     timings?: HogFunctionTiming[]
     logs?: LogEntry[]
 }
@@ -222,10 +222,10 @@ export type HogFunctionInvocation = {
     timings: HogFunctionTiming[]
     // Params specific to the queueing system
     queue: HogFunctionInvocationJobQueue
-    queueParameters?: HogFunctionInvocationQueueParameters
+    queueParameters?: HogFunctionInvocationQueueParameters | null
     queuePriority: number
     queueScheduledAt?: DateTime
-    queueMetadata?: Record<string, any>
+    queueMetadata?: Record<string, any> | null
     queueSource?: CyclotronJobQueueKind
 }
 
