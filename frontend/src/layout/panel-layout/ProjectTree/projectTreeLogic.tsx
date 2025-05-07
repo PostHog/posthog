@@ -303,7 +303,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                             const response = await api.fileSystem.count(action.item.id)
                             actions.removeQueuedAction(action)
                             if (response && response.count > DELETE_ALERT_LIMIT) {
-                                const confirmMessage = `You're about to move ${response.count} items into 'Unfiled'. Are you sure?`
+                                const confirmMessage = `Delete the folder "${splitPath(
+                                    action.item.path
+                                ).pop()}" and move ${response.count} items back into "Unfiled"?`
                                 if (!confirm(confirmMessage)) {
                                     return false
                                 }
