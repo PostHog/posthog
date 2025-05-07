@@ -1,5 +1,5 @@
 import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
-import { destinations } from '@segment/action-destinations/dist/destinations'
+import { destinations } from '@segment/action-destinations'
 
 import { HogFunctionFilterEvent, HogFunctionInputSchemaType } from '~/src/cdp/types'
 
