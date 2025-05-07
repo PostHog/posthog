@@ -198,13 +198,13 @@ class UserTeamPermissions:
 
         # If team is not private, all organization members have access
         if not team_is_private:
-            return organization_membership.level
+            return cast("OrganizationMembership.Level", organization_membership.level)
 
         # For private teams, check if the user has specific access
 
         # Organization admins and owners always have access
         if organization_membership.level >= OrganizationMembership.Level.ADMIN:
-            return organization_membership.level
+            return cast("OrganizationMembership.Level", organization_membership.level)
 
         # Check for direct member access through AccessControl entries
         user_has_access = AccessControl.objects.filter(
@@ -216,7 +216,7 @@ class UserTeamPermissions:
         ).exists()
 
         if user_has_access:
-            return organization_membership.level
+            return cast("OrganizationMembership.Level", organization_membership.level)
 
         # Check for role-based access
         from ee.models.rbac.role import RoleMembership
@@ -234,7 +234,7 @@ class UserTeamPermissions:
         ).exists()
 
         if role_has_access:
-            return organization_membership.level
+            return cast("OrganizationMembership.Level", organization_membership.level)
 
         # No access found
         return None

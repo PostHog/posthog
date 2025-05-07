@@ -1,4 +1,5 @@
 from django.utils import timezone
+from django.utils.timezone import timedelta
 from unittest.mock import patch
 
 from posthog.test.base import BaseTest
@@ -21,9 +22,7 @@ class TestOrganizationInvite(BaseTest):
         self.assertEqual(self.organization.active_invites.count(), 1)
 
         expired_invite = OrganizationInvite.objects.create(organization=self.organization)
-        OrganizationInvite.objects.filter(id=expired_invite.id).update(
-            created_at=timezone.now() - timezone.timedelta(hours=73)
-        )
+        OrganizationInvite.objects.filter(id=expired_invite.id).update(created_at=timezone.now() - timedelta(hours=73))
         self.assertEqual(self.organization.invites.count(), 2)
         self.assertEqual(self.organization.active_invites.count(), 1)
 
@@ -53,7 +52,9 @@ class TestOrganizationInvite(BaseTest):
         team_membership = ExplicitTeamMembership.objects.filter(team=team, parent_membership=org_membership).first()
 
         self.assertIsNotNone(team_membership)
-        self.assertEqual(team_membership.level, OrganizationMembership.Level.ADMIN)
+        self.assertIsNotNone(team_membership)
+        if team_membership:  # Add null check before accessing attribute
+            self.assertEqual(team_membership.level, OrganizationMembership.Level.ADMIN)
 
         # Verify the invite has been deleted
         self.assertFalse(OrganizationInvite.objects.filter(target_email="legacy_test@posthog.com").exists())
@@ -86,7 +87,9 @@ class TestOrganizationInvite(BaseTest):
         ).first()
 
         self.assertIsNotNone(access_control)
-        self.assertEqual(access_control.access_level, "admin")
+        self.assertIsNotNone(access_control)
+        if access_control:  # Add null check before accessing attribute
+            self.assertEqual(access_control.access_level, "admin")
 
         # Verify the invite has been deleted
         self.assertFalse(OrganizationInvite.objects.filter(target_email="test@posthog.com").exists())
@@ -156,7 +159,8 @@ class TestOrganizationInvite(BaseTest):
         ).first()
 
         self.assertIsNotNone(legacy_team_membership)
-        self.assertEqual(legacy_team_membership.level, OrganizationMembership.Level.ADMIN)
+        if legacy_team_membership:  # Add null check before accessing attribute
+            self.assertEqual(legacy_team_membership.level, OrganizationMembership.Level.ADMIN)
 
         # Verify the access control has been created correctly for the new team
         access_control = AccessControl.objects.filter(
