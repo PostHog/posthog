@@ -78,19 +78,19 @@ interface FiltersDropdownProps {
 export function FiltersDropdown({ setSearchTerm, searchTerm }: FiltersDropdownProps): JSX.Element {
     const types = [
         ['action', 'Actions'],
-        ['hog_function/broadcast', 'Broadcasts'],
-        ['hog_function/campaign', 'Campaigns'],
+        ['broadcast', 'Broadcasts'],
+        ['campaign', 'Campaigns'],
         ['dashboard', 'Dashboards'],
-        ['hog_function/destination', 'Destinations'],
+        ['destination', 'Destinations'],
         ['early_access_feature', 'Early access features'],
         ['experiment', 'Experiments'],
         ['feature_flag', 'Feature flags'],
         ['insight', 'Insights'],
         ['notebook', 'Notebooks'],
         ['session_recording_playlist', 'Replay playlists'],
-        ['hog_function/site_app', 'Site apps'],
-        ['hog_function/source', 'Sources'],
-        ['hog_function/transformation', 'Transformations'],
+        ['site_app', 'Site apps'],
+        ['source', 'Sources'],
+        ['transformation', 'Transformations'],
     ]
     const removeTagsStarting = (str: string, tag: string): string =>
         str
