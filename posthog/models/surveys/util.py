@@ -54,37 +54,79 @@ def _build_multiple_choice_query(id_based_key: str, index_based_key: str) -> str
 
 def filter_survey_sent_events_by_unique_submission(survey_id: str) -> str:
     """
-    Generates a SQL condition string to filter 'survey sent' events, ensuring uniqueness based on submission ID.
+    Generates a SQL condition string to filter 'survey sent' events, ensuring uniqueness based on submission ID,
+    using an optimized approach with argMax().
 
     This handles two scenarios for identifying relevant 'survey sent' events:
-    1. Events recorded before the introduction of `$survey_submission_id`.
-    2. The single latest event for each unique `$survey_submission_id` to account for partial responses or updates.
+    1. Events recorded before the introduction of `$survey_submission_id` (submission_id is empty/null):
+       All such events are considered unique and will be selected (as they form their own group).
+    2. Events with `$survey_submission_id`:
+       Only the single latest event (by timestamp) for each unique `$survey_submission_id` is selected.
 
     Args:
         survey_id: The ID of the survey to filter events for.
 
     Returns:
         A SQL condition string (part of a WHERE clause) filtering event UUIDs.
+        Example: "uuid IN (SELECT argMax(uuid, timestamp) FROM ... GROUP BY ...)"
     """
+    # Define the column for submission ID to avoid repetition and enhance readability
+    submission_id_col = "JSONExtractString(properties, '$survey_submission_id')"
+
+    # Define the grouping key expression. This determines how events are grouped for deduplication.
+    # If $survey_submission_id is present, group by it. Otherwise, group by uuid (making each old event unique).
+    grouping_key_expr = (
+        f"CASE WHEN COALESCE({submission_id_col}, '') = '' THEN toString(uuid) ELSE {submission_id_col} END"
+    )
 
     query = f"""uuid IN (
-            (
-                -- Select events without a submission ID (older format)
-                SELECT uuid
-                FROM events
-                WHERE event = 'survey sent'
-                  AND JSONExtractString(properties, '$survey_id') = '{survey_id}'
-                  AND COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') = ''
-            )
-            UNION ALL
-            (
-                -- Select the latest event for each submission ID
-                SELECT argMax(uuid, timestamp) -- ClickHouse function to get the arg (uuid) for the max value (timestamp)
-                FROM events
-                WHERE event = 'survey sent'
-                  AND JSONExtractString(properties, '$survey_id') = '{survey_id}'
-                  AND COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') != ''
-                GROUP BY JSONExtractString(properties, '$survey_submission_id') -- Find the latest event per submission
-            )
-        )"""
+        SELECT
+            argMax(uuid, timestamp) -- Selects the UUID of the event with the latest timestamp within each group
+        FROM events
+        WHERE event = 'survey sent' -- Filter for 'survey sent' events
+          AND JSONExtractString(properties, '$survey_id') = '{survey_id}' -- Filter for the specific survey
+          -- Date range filters from the outer query are intentionally NOT included here.
+          -- This ensures we find the globally latest unique submission, which is then
+          -- filtered by the outer query's date range.
+        GROUP BY {grouping_key_expr} -- Group events by the effective submission identifier
+    )"""
     return query
+
+
+def get_unique_survey_event_uuids_sql_subquery(
+    base_conditions_sql: list[str],
+    group_by_prefix_expressions: list[str],
+) -> str:
+    """
+    Generates a SQL subquery string that returns unique event UUIDs for 'survey sent' events,
+    deduplicating based on $survey_submission_id (for new events) or uuid (for older events) using argMax.
+
+    The subquery is intended to be used in a `WHERE uuid IN (...)` clause.
+
+    Args:
+        base_conditions_sql: A list of SQL conditions for the WHERE clause of the subquery.
+                             Example: ["team_id = %(team_id)s", "timestamp >= '2023-01-01'", "event = 'survey sent'"]
+                             Callers should ensure "event = 'survey sent'" is included if that's the target.
+        group_by_prefix_expressions: A list of SQL expressions to prefix the GROUP BY clause.
+                                     These define the segments within which deduplication occurs.
+                                     Example: ['team_id', "JSONExtractString(properties, '$survey_id')"]
+                                     If empty, deduplication is based purely on submission ID / UUID across
+                                     all events matching base_conditions_sql.
+
+    Returns:
+        A string for the SQL subquery, e.g.,
+        "(SELECT argMax(uuid, timestamp) FROM events WHERE ... GROUP BY ...)"
+    """
+    if not base_conditions_sql:
+        raise ValueError("base_conditions_sql cannot be empty. Provide at least one condition.")
+
+    where_clause = " AND ".join(base_conditions_sql)
+
+    submission_id_col = "JSONExtractString(properties, '$survey_submission_id')"
+    deduplication_group_by_key = (
+        f"CASE WHEN COALESCE({submission_id_col}, '') = '' THEN toString(uuid) ELSE {submission_id_col} END"
+    )
+
+    group_by_clause = ", ".join([*group_by_prefix_expressions, deduplication_group_by_key])
+
+    return f"(SELECT argMax(uuid, timestamp) FROM events WHERE {where_clause} GROUP BY {group_by_clause})"
