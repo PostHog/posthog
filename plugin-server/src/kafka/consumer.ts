@@ -101,6 +101,7 @@ export type KafkaConsumerConfig = {
     callEachBatchWhenEmpty?: boolean
     autoOffsetStore?: boolean
     autoCommit?: boolean
+    maxBackgroundTasks?: number
 }
 
 export type RdKafkaConsumerConfig = Omit<
@@ -115,13 +116,14 @@ export class KafkaConsumer {
     private consumerConfig: ConsumerGlobalConfig
     private fetchBatchSize: number
     private maxHealthHeartbeatIntervalMs: number
+    private maxBackgroundTasks: number
     private consumerLoop: Promise<void> | undefined
 
     constructor(private config: KafkaConsumerConfig, rdKafkaConfig: RdKafkaConsumerConfig = {}) {
         this.config.autoCommit ??= true
         this.config.autoOffsetStore ??= true
         this.config.callEachBatchWhenEmpty ??= false
-
+        this.maxBackgroundTasks = this.config.maxBackgroundTasks ??= 1
         this.fetchBatchSize = defaultConfig.CONSUMER_BATCH_SIZE || DEFAULT_FETCH_BATCH_SIZE
         this.maxHealthHeartbeatIntervalMs =
             defaultConfig.CONSUMER_MAX_HEARTBEAT_INTERVAL_MS || MAX_HEALTH_HEARTBEAT_INTERVAL_MS
@@ -368,7 +370,6 @@ export class KafkaConsumer {
         }
 
         // TODO: Perhaps change the signature of the backgroundWork so that we do one at a time and call them :thinking:
-        const MAX_BACKGROUND_TASKS = 3 // TODO: Move this to main config
 
         let backgroundBatches: Promise<void>[] = []
 
@@ -394,7 +395,7 @@ export class KafkaConsumer {
             )
 
             // If we have too much "backpressure" we need to await one of the background tasks. We await the oldest one on purpose
-            if (backgroundBatches.length > MAX_BACKGROUND_TASKS) {
+            if (backgroundBatches.length > this.maxBackgroundTasks) {
                 const stopTimer = consumedBatchBackpressureDuration.startTimer({
                     topic: this.config.topic,
                     groupId: this.config.groupId,
