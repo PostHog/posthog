@@ -581,6 +581,7 @@ class Team(UUIDClassicModel):
         if old_primary_token:
             set_team_in_cache(old_primary_token, self)
         if expired_token:
+            # Clear the previous backup token from cache since it's being replaced
             set_team_in_cache(expired_token, None)
 
         # Build up the changes.
