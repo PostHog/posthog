@@ -1,9 +1,9 @@
-import { IconCheck, IconPin, IconPinFilled, IconSearch, IconX } from '@posthog/icons'
+import { IconCheck, IconFilter, IconPin, IconPinFilled, IconSearch, IconX } from '@posthog/icons'
 import { LemonInput } from '@posthog/lemon-ui'
 import { cva } from 'cva'
 import { useActions, useValues } from 'kea'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
-import { IconBlank, IconFunnelVertical } from 'lib/lemon-ui/icons'
+import { IconBlank } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
@@ -113,24 +113,11 @@ export function FiltersDropdown({ setSearchTerm, searchTerm }: FiltersDropdownPr
                     iconOnly
                     className="z-2 shrink-0 motion-safe:transition-opacity duration-[50ms] group-hover/lemon-tree-button-group:opacity-100 aria-expanded:opacity-100"
                 >
-                    <IconFunnelVertical className="size-3 text-tertiary" />
+                    <IconFilter className="size-3 text-tertiary" />
                 </ButtonPrimitive>
             </DropdownMenuTrigger>
             <DropdownMenuContent loop align="end" side="bottom" className="max-w-[250px]">
                 <DropdownMenuGroup>
-                    <DropdownMenuItem
-                        onClick={(e) => {
-                            e.preventDefault()
-                            e.stopPropagation()
-                            setSearchTerm(removeTagsEquals(searchTerm, 'user:me'))
-                        }}
-                    >
-                        <ButtonPrimitive menuItem>
-                            {!searchTerm.includes('user:me') ? <IconCheck /> : <IconBlank />}
-                            Everybody
-                        </ButtonPrimitive>
-                    </DropdownMenuItem>
-
                     <DropdownMenuItem
                         onClick={(e) => {
                             e.preventDefault()
@@ -143,7 +130,7 @@ export function FiltersDropdown({ setSearchTerm, searchTerm }: FiltersDropdownPr
                     >
                         <ButtonPrimitive menuItem>
                             {searchTerm.includes('user:me') ? <IconCheck /> : <IconBlank />}
-                            Only me
+                            Only my stuff
                         </ButtonPrimitive>
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
