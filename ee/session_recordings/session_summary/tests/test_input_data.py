@@ -100,91 +100,159 @@ def test_get_improved_elements_chain_elements():
     assert _get_improved_elements_chain_elements(chain, current_elements) == current_elements
 
 
-def test_add_context_and_filter_events(mock_event_indexes: dict[str, int]):
-    # Use only the columns needed for the test
+@pytest.mark.parametrize(
+    "input_event,expected_event,should_keep",
+    [
+        # Event with context should be kept and unchanged (except removing excessive columns)
+        (
+            (
+                "$autocapture",
+                None,
+                "",
+                ["Click me"],
+                [],
+                None,
+                None,
+                "click",
+                [],
+                "button:text='Click me'",
+                [],
+                [],
+                [],
+                [],
+                [],
+                [],
+            ),
+            (
+                "$autocapture",
+                None,
+                "",
+                ["Click me"],
+                ["button"],
+                None,
+                None,
+                "click",
+                [],
+                [],
+                [],
+            ),
+            True,
+        ),
+        # Event without context should be filtered out
+        (
+            (
+                "$autocapture",
+                None,
+                "",
+                [],
+                [],
+                None,
+                None,
+                "click",
+                [],
+                "",
+                [],
+                [],
+                [],
+                [],
+                [],
+                [],
+            ),
+            None,
+            False,
+        ),
+        # Event with complex chain should have improved context
+        (
+            (
+                "$autocapture",
+                None,
+                "",
+                [],
+                [],
+                None,
+                None,
+                "click",
+                [],
+                '"svg.c_gray.80.d_flex.flex-sh_0:nth-child=""1""nth-of-type=""1""href=""/project/new""attr__fill=""none""attr__focusable=""false""attr__height=""24""attr__role=""img""attr__stroke-width=""1""attr__viewBox=""0 0 24 24""attr__width=""24""attr__class=""c_gray.80 d_flex flex-sh_0";button:text="Click me""attr__href=""/project/new"";a.[&:hover,_&:focus,_&:focus-visible,_&:focus-within,_&:active]:bg-c_gray.30.ai_center.bdr_100%.bg-c_gray.10.d_flex.flex-sh_0.h_47px.jc_center.trs_background-color_0.2s_ease-out.w_47px.white-space_nowrap:nth-child=""1""nth-of-type=""1""href=""/project/new""attr__aria-label=""Create project""',
+                [],
+                [],
+                [],
+                [],
+                [],
+                [],
+            ),
+            (
+                "$autocapture",
+                None,
+                "",
+                ["Click me", "Create project"],
+                ["button", "a"],
+                None,
+                None,
+                "click",
+                [],
+                [],
+                [],
+            ),
+            True,
+        ),
+        # Event with complex name should be kept unchanged
+        (
+            (
+                "user_clicked_button",
+                None,
+                "",
+                [],
+                [],
+                None,
+                None,
+                "click",
+                [],
+                "",
+                [],
+                [],
+                [],
+                [],
+                [],
+                [],
+            ),
+            (
+                "user_clicked_button",
+                None,
+                "",
+                [],
+                [],
+                None,
+                None,
+                "click",
+                [],
+                [],
+                [],
+            ),
+            True,
+        ),
+    ],
+)
+def test_add_context_and_filter_events(
+    mock_event_indexes: dict[str, int],
+    input_event: tuple[Any, ...],
+    expected_event: tuple[Any, ...] | None,
+    should_keep: bool,
+):
     test_columns = list(mock_event_indexes.keys())
-    events: list[tuple[Any, ...]] = [
-        # Should keep event with context
-        (
-            "$autocapture",
-            None,
-            "",
-            ["Click me"],
-            [],
-            None,
-            None,
-            "click",
-            [],
-            "button:text='Click me'",
-            [],
-            [],
-            [],
-            [],
-            [],
-            [],
-        ),
-        # Should skip event without context
-        ("$autocapture", None, "", [], [], None, None, "click", [], "", [], [], [], [], [], []),
-        # Should improve context from chain
-        (
-            "$autocapture",
-            None,
-            "",
-            [],
-            [],
-            None,
-            None,
-            "click",
-            [],
-            '"svg.c_gray.80.d_flex.flex-sh_0:nth-child=""1""nth-of-type=""1""href=""/project/new""attr__fill=""none""attr__focusable=""false""attr__height=""24""attr__role=""img""attr__stroke-width=""1""attr__viewBox=""0 0 24 24""attr__width=""24""attr__class=""c_gray.80 d_flex flex-sh_0";button:text="Click me""attr__href=""/project/new"";a.[&:hover,_&:focus,_&:focus-visible,_&:focus-within,_&:active]:bg-c_gray.30.ai_center.bdr_100%.bg-c_gray.10.d_flex.flex-sh_0.h_47px.jc_center.trs_background-color_0.2s_ease-out.w_47px.white-space_nowrap:nth-child=""1""nth-of-type=""1""href=""/project/new""attr__aria-label=""Create project""',
-            [],
-            [],
-            [],
-            [],
-            [],
-            [],
-        ),
-        # Should keep custom event with complex name
-        ("user_clicked_button", None, "", [], [], None, None, "click", [], "", [], [], [], [], [], []),
-    ]
-    updated_columns, updated_events = add_context_and_filter_events(test_columns, events)
+    updated_columns, updated_events = add_context_and_filter_events(test_columns, [input_event])
+
     # Check columns are updated (and columns excessive from LLM context are removed)
     assert len(updated_columns) == len(test_columns) - len(COLUMNS_TO_REMOVE_FROM_LLM_CONTEXT)
     for column in COLUMNS_TO_REMOVE_FROM_LLM_CONTEXT:
         assert column not in updated_columns
-    # Check events are filtered and updated, one event should be filtered out
-    assert len(updated_events) == 3
-    # First event should be unchanged (except removing excessive columns)
-    assert updated_events[0] == (
-        "$autocapture",
-        None,
-        "",
-        ["Click me"],
-        ["button"],
-        None,
-        None,
-        "click",
-        [],
-        [],
-        [],
-    )
-    # Second event should've been filtered out due to no context
-    # Third event should have improved context from chain
-    assert updated_events[1] == (
-        "$autocapture",
-        None,
-        "",
-        ["Click me", "Create project"],
-        ["button", "a"],
-        None,
-        None,
-        "click",
-        [],
-        [],
-        [],
-    )
-    # Last event should be kept unchanged due to complex name
-    assert updated_events[2] == ("user_clicked_button", None, "", [], [], None, None, "click", [], [], [])
+
+    # Check if event was kept or filtered out
+    if should_keep:
+        assert len(updated_events) == 1
+        assert updated_events[0] == expected_event
+    else:
+        assert len(updated_events) == 0
 
 
 @pytest.mark.parametrize(
