@@ -193,6 +193,7 @@ export const billingJson: BillingType = {
                             current_usage: 0,
                             projected_usage: null,
                             projected_amount_usd: null,
+                            projected_amount_usd_with_limit: null,
                         },
                         {
                             flat_amount_usd: '0',
@@ -202,6 +203,7 @@ export const billingJson: BillingType = {
                             current_usage: 0,
                             projected_usage: null,
                             projected_amount_usd: null,
+                            projected_amount_usd_with_limit: null,
                         },
                         {
                             flat_amount_usd: '0',
@@ -211,6 +213,7 @@ export const billingJson: BillingType = {
                             current_usage: 0,
                             projected_usage: null,
                             projected_amount_usd: null,
+                            projected_amount_usd_with_limit: null,
                         },
                         {
                             flat_amount_usd: '0',
@@ -220,6 +223,7 @@ export const billingJson: BillingType = {
                             current_usage: 0,
                             projected_usage: null,
                             projected_amount_usd: null,
+                            projected_amount_usd_with_limit: null,
                         },
                         {
                             flat_amount_usd: '0',
@@ -229,6 +233,7 @@ export const billingJson: BillingType = {
                             current_usage: 0,
                             projected_usage: null,
                             projected_amount_usd: null,
+                            projected_amount_usd_with_limit: null,
                         },
                         {
                             flat_amount_usd: '0',
@@ -238,6 +243,7 @@ export const billingJson: BillingType = {
                             current_usage: 0,
                             projected_usage: null,
                             projected_amount_usd: null,
+                            projected_amount_usd_with_limit: null,
                         },
                         {
                             flat_amount_usd: '0',
@@ -247,6 +253,7 @@ export const billingJson: BillingType = {
                             current_usage: 0,
                             projected_usage: null,
                             projected_amount_usd: null,
+                            projected_amount_usd_with_limit: null,
                         },
                     ],
                     current_plan: true,
@@ -266,6 +273,7 @@ export const billingJson: BillingType = {
                     current_usage: 882128,
                     projected_usage: 1000000,
                     projected_amount_usd: '0.00',
+                    projected_amount_usd_with_limit: '0.00',
                 },
                 {
                     flat_amount_usd: '0',
@@ -275,6 +283,7 @@ export const billingJson: BillingType = {
                     current_usage: 0,
                     projected_usage: 1000000,
                     projected_amount_usd: '310.00',
+                    projected_amount_usd_with_limit: '310.00',
                 },
                 {
                     flat_amount_usd: '0',
@@ -284,6 +293,7 @@ export const billingJson: BillingType = {
                     current_usage: 0,
                     projected_usage: 5000000,
                     projected_amount_usd: '650.00',
+                    projected_amount_usd_with_limit: '650.00',
                 },
                 {
                     flat_amount_usd: '0',
@@ -293,6 +303,7 @@ export const billingJson: BillingType = {
                     current_usage: 0,
                     projected_usage: null,
                     projected_amount_usd: null,
+                    projected_amount_usd_with_limit: null,
                 },
                 {
                     flat_amount_usd: '0',
@@ -302,6 +313,7 @@ export const billingJson: BillingType = {
                     current_usage: 0,
                     projected_usage: null,
                     projected_amount_usd: null,
+                    projected_amount_usd_with_limit: null,
                 },
                 {
                     flat_amount_usd: '0',
@@ -311,6 +323,7 @@ export const billingJson: BillingType = {
                     current_usage: 0,
                     projected_usage: null,
                     projected_amount_usd: null,
+                    projected_amount_usd_with_limit: null,
                 },
                 {
                     flat_amount_usd: '0',
@@ -320,6 +333,7 @@ export const billingJson: BillingType = {
                     current_usage: 0,
                     projected_usage: null,
                     projected_amount_usd: null,
+                    projected_amount_usd_with_limit: null,
                 },
             ],
             tiered: true,
@@ -332,6 +346,7 @@ export const billingJson: BillingType = {
             percentage_usage: 0.4423939206,
             projected_usage: 7000000,
             projected_amount_usd: '960.00',
+            projected_amount_usd_with_limit: '960.00',
             unit: 'event',
             addons: [
                 {
@@ -364,6 +379,7 @@ export const billingJson: BillingType = {
                             current_usage: 882128,
                             projected_usage: 1000000,
                             projected_amount_usd: '0.00',
+                            projected_amount_usd_with_limit: '0.00',
                         },
                         {
                             flat_amount_usd: '0',
@@ -373,6 +389,7 @@ export const billingJson: BillingType = {
                             current_usage: 0,
                             projected_usage: 1000000,
                             projected_amount_usd: '70.8',
+                            projected_amount_usd_with_limit: '70.8',
                         },
                         {
                             flat_amount_usd: '0',
@@ -382,6 +399,7 @@ export const billingJson: BillingType = {
                             current_usage: 0,
                             projected_usage: 1910636,
                             projected_amount_usd: '57.32',
+                            projected_amount_usd_with_limit: '57.32',
                         },
                         {
                             flat_amount_usd: '0',
@@ -391,6 +409,7 @@ export const billingJson: BillingType = {
                             current_usage: 0,
                             projected_usage: null,
                             projected_amount_usd: null,
+                            projected_amount_usd_with_limit: null,
                         },
                         {
                             flat_amount_usd: '0',
@@ -400,6 +419,7 @@ export const billingJson: BillingType = {
                             current_usage: 0,
                             projected_usage: null,
                             projected_amount_usd: null,
+                            projected_amount_usd_with_limit: null,
                         },
                         {
                             flat_amount_usd: '0',
@@ -409,6 +429,7 @@ export const billingJson: BillingType = {
                             current_usage: 0,
                             projected_usage: null,
                             projected_amount_usd: null,
+                            projected_amount_usd_with_limit: null,
                         },
                         {
                             flat_amount_usd: '0',
@@ -418,6 +439,7 @@ export const billingJson: BillingType = {
                             current_usage: 0,
                             projected_usage: null,
                             projected_amount_usd: null,
+                            projected_amount_usd_with_limit: null,
                         },
                     ],
                     tiered: true,
@@ -429,6 +451,7 @@ export const billingJson: BillingType = {
                     current_usage: 882128,
                     projected_usage: 3910636,
                     projected_amount_usd: '128.12',
+                    projected_amount_usd_with_limit: '128.12',
                     plans: [
                         {
                             plan_key: 'addon-20230509',
@@ -462,6 +485,7 @@ export const billingJson: BillingType = {
                                     current_usage: 0,
                                     projected_usage: null,
                                     projected_amount_usd: null,
+                                    projected_amount_usd_with_limit: null,
                                 },
                                 {
                                     flat_amount_usd: '0',
@@ -471,6 +495,7 @@ export const billingJson: BillingType = {
                                     current_usage: 0,
                                     projected_usage: null,
                                     projected_amount_usd: null,
+                                    projected_amount_usd_with_limit: null,
                                 },
                                 {
                                     flat_amount_usd: '0',
@@ -480,6 +505,7 @@ export const billingJson: BillingType = {
                                     current_usage: 0,
                                     projected_usage: null,
                                     projected_amount_usd: null,
+                                    projected_amount_usd_with_limit: null,
                                 },
                                 {
                                     flat_amount_usd: '0',
@@ -489,6 +515,7 @@ export const billingJson: BillingType = {
                                     current_usage: 0,
                                     projected_usage: null,
                                     projected_amount_usd: null,
+                                    projected_amount_usd_with_limit: null,
                                 },
                                 {
                                     flat_amount_usd: '0',
@@ -498,6 +525,7 @@ export const billingJson: BillingType = {
                                     current_usage: 0,
                                     projected_usage: null,
                                     projected_amount_usd: null,
+                                    projected_amount_usd_with_limit: null,
                                 },
                                 {
                                     flat_amount_usd: '0',
@@ -507,6 +535,7 @@ export const billingJson: BillingType = {
                                     current_usage: 0,
                                     projected_usage: null,
                                     projected_amount_usd: null,
+                                    projected_amount_usd_with_limit: null,
                                 },
                                 {
                                     flat_amount_usd: '0',
@@ -516,6 +545,7 @@ export const billingJson: BillingType = {
                                     current_usage: 0,
                                     projected_usage: null,
                                     projected_amount_usd: null,
+                                    projected_amount_usd_with_limit: null,
                                 },
                             ],
                             current_plan: false,
@@ -556,6 +586,7 @@ export const billingJson: BillingType = {
                             current_usage: 0,
                             projected_usage: null,
                             projected_amount_usd: null,
+                            projected_amount_usd_with_limit: null,
                         },
                         {
                             flat_amount_usd: '0',
@@ -565,6 +596,7 @@ export const billingJson: BillingType = {
                             current_usage: 0,
                             projected_usage: null,
                             projected_amount_usd: null,
+                            projected_amount_usd_with_limit: null,
                         },
                         {
                             flat_amount_usd: '0',
@@ -574,6 +606,7 @@ export const billingJson: BillingType = {
                             current_usage: 0,
                             projected_usage: null,
                             projected_amount_usd: null,
+                            projected_amount_usd_with_limit: null,
                         },
                         {
                             flat_amount_usd: '0',
@@ -583,6 +616,7 @@ export const billingJson: BillingType = {
                             current_usage: 0,
                             projected_usage: null,
                             projected_amount_usd: null,
+                            projected_amount_usd_with_limit: null,
                         },
                         {
                             flat_amount_usd: '0',
@@ -592,6 +626,7 @@ export const billingJson: BillingType = {
                             current_usage: 0,
                             projected_usage: null,
                             projected_amount_usd: null,
+                            projected_amount_usd_with_limit: null,
                         },
                         {
                             flat_amount_usd: '0',
@@ -601,6 +636,7 @@ export const billingJson: BillingType = {
                             current_usage: 0,
                             projected_usage: null,
                             projected_amount_usd: null,
+                            projected_amount_usd_with_limit: null,
                         },
                         {
                             flat_amount_usd: '0',
@@ -610,6 +646,7 @@ export const billingJson: BillingType = {
                             current_usage: 0,
                             projected_usage: null,
                             projected_amount_usd: null,
+                            projected_amount_usd_with_limit: null,
                         },
                     ],
                     tiered: true,
@@ -621,6 +658,7 @@ export const billingJson: BillingType = {
                     current_usage: 0,
                     projected_usage: 0,
                     projected_amount_usd: '0.00',
+                    projected_amount_usd_with_limit: '0.00',
                     plans: [
                         {
                             plan_key: 'addon-20240111',
@@ -654,6 +692,7 @@ export const billingJson: BillingType = {
                                     current_usage: 0,
                                     projected_usage: null,
                                     projected_amount_usd: null,
+                                    projected_amount_usd_with_limit: null,
                                 },
                                 {
                                     flat_amount_usd: '0',
@@ -663,6 +702,7 @@ export const billingJson: BillingType = {
                                     current_usage: 0,
                                     projected_usage: null,
                                     projected_amount_usd: null,
+                                    projected_amount_usd_with_limit: null,
                                 },
                                 {
                                     flat_amount_usd: '0',
@@ -672,6 +712,7 @@ export const billingJson: BillingType = {
                                     current_usage: 0,
                                     projected_usage: null,
                                     projected_amount_usd: null,
+                                    projected_amount_usd_with_limit: null,
                                 },
                                 {
                                     flat_amount_usd: '0',
@@ -681,6 +722,7 @@ export const billingJson: BillingType = {
                                     current_usage: 0,
                                     projected_usage: null,
                                     projected_amount_usd: null,
+                                    projected_amount_usd_with_limit: null,
                                 },
                                 {
                                     flat_amount_usd: '0',
@@ -690,6 +732,7 @@ export const billingJson: BillingType = {
                                     current_usage: 0,
                                     projected_usage: null,
                                     projected_amount_usd: null,
+                                    projected_amount_usd_with_limit: null,
                                 },
                                 {
                                     flat_amount_usd: '0',
@@ -699,6 +742,7 @@ export const billingJson: BillingType = {
                                     current_usage: 0,
                                     projected_usage: null,
                                     projected_amount_usd: null,
+                                    projected_amount_usd_with_limit: null,
                                 },
                                 {
                                     flat_amount_usd: '0',
@@ -708,6 +752,7 @@ export const billingJson: BillingType = {
                                     current_usage: 0,
                                     projected_usage: null,
                                     projected_amount_usd: null,
+                                    projected_amount_usd_with_limit: null,
                                 },
                             ],
                             current_plan: false,
@@ -1150,6 +1195,7 @@ export const billingJson: BillingType = {
                             current_usage: 0,
                             projected_usage: null,
                             projected_amount_usd: null,
+                            projected_amount_usd_with_limit: null,
                         },
                         {
                             flat_amount_usd: '0',
@@ -1159,6 +1205,7 @@ export const billingJson: BillingType = {
                             current_usage: 0,
                             projected_usage: null,
                             projected_amount_usd: null,
+                            projected_amount_usd_with_limit: null,
                         },
                         {
                             flat_amount_usd: '0',
@@ -1168,6 +1215,7 @@ export const billingJson: BillingType = {
                             current_usage: 0,
                             projected_usage: null,
                             projected_amount_usd: null,
+                            projected_amount_usd_with_limit: null,
                         },
                         {
                             flat_amount_usd: '0',
@@ -1177,6 +1225,7 @@ export const billingJson: BillingType = {
                             current_usage: 0,
                             projected_usage: null,
                             projected_amount_usd: null,
+                            projected_amount_usd_with_limit: null,
                         },
                         {
                             flat_amount_usd: '0',
@@ -1186,6 +1235,7 @@ export const billingJson: BillingType = {
                             current_usage: 0,
                             projected_usage: null,
                             projected_amount_usd: null,
+                            projected_amount_usd_with_limit: null,
                         },
                         {
                             flat_amount_usd: '0',
@@ -1195,6 +1245,7 @@ export const billingJson: BillingType = {
                             current_usage: 0,
                             projected_usage: null,
                             projected_amount_usd: null,
+                            projected_amount_usd_with_limit: null,
                         },
                     ],
                     current_plan: true,
@@ -1214,6 +1265,7 @@ export const billingJson: BillingType = {
                     current_usage: 5000,
                     projected_usage: 5000,
                     projected_amount_usd: '0.00',
+                    projected_amount_usd_with_limit: '0.00',
                 },
                 {
                     flat_amount_usd: '0',
@@ -1223,6 +1275,7 @@ export const billingJson: BillingType = {
                     current_usage: 10000,
                     projected_usage: 10000,
                     projected_amount_usd: '400.00',
+                    projected_amount_usd_with_limit: '400.00',
                 },
                 {
                     flat_amount_usd: '0',
@@ -1232,6 +1285,7 @@ export const billingJson: BillingType = {
                     current_usage: 1022,
                     projected_usage: 35000,
                     projected_amount_usd: '105',
+                    projected_amount_usd_with_limit: '105',
                 },
                 {
                     flat_amount_usd: '0',
@@ -1241,6 +1295,7 @@ export const billingJson: BillingType = {
                     current_usage: 0,
                     projected_usage: 10000,
                     projected_amount_usd: '270.00',
+                    projected_amount_usd_with_limit: '270.00',
                 },
                 {
                     flat_amount_usd: '0',
@@ -1250,6 +1305,7 @@ export const billingJson: BillingType = {
                     current_usage: 0,
                     projected_usage: null,
                     projected_amount_usd: null,
+                    projected_amount_usd_with_limit: null,
                 },
                 {
                     flat_amount_usd: '0',
@@ -1259,6 +1315,7 @@ export const billingJson: BillingType = {
                     current_usage: 0,
                     projected_usage: null,
                     projected_amount_usd: null,
+                    projected_amount_usd_with_limit: null,
                 },
             ],
             tiered: true,
@@ -1271,6 +1328,7 @@ export const billingJson: BillingType = {
             percentage_usage: 0.16022,
             projected_usage: 50000,
             projected_amount_usd: '775.00',
+            projected_amount_usd_with_limit: '775.00',
             unit: 'recording',
             addons: [],
             contact_support: false,
@@ -1728,6 +1786,7 @@ export const billingJson: BillingType = {
                             current_usage: 0,
                             projected_usage: null,
                             projected_amount_usd: null,
+                            projected_amount_usd_with_limit: null,
                         },
                         {
                             flat_amount_usd: '0',
@@ -1737,6 +1796,7 @@ export const billingJson: BillingType = {
                             current_usage: 0,
                             projected_usage: null,
                             projected_amount_usd: null,
+                            projected_amount_usd_with_limit: null,
                         },
                         {
                             flat_amount_usd: '0',
@@ -1746,6 +1806,7 @@ export const billingJson: BillingType = {
                             current_usage: 0,
                             projected_usage: null,
                             projected_amount_usd: null,
+                            projected_amount_usd_with_limit: null,
                         },
                         {
                             flat_amount_usd: '0',
@@ -1755,6 +1816,7 @@ export const billingJson: BillingType = {
                             current_usage: 0,
                             projected_usage: null,
                             projected_amount_usd: null,
+                            projected_amount_usd_with_limit: null,
                         },
                         {
                             flat_amount_usd: '0',
@@ -1764,6 +1826,7 @@ export const billingJson: BillingType = {
                             current_usage: 0,
                             projected_usage: null,
                             projected_amount_usd: null,
+                            projected_amount_usd_with_limit: null,
                         },
                     ],
                     current_plan: false,
@@ -1783,6 +1846,7 @@ export const billingJson: BillingType = {
                     current_usage: 0,
                     projected_usage: null,
                     projected_amount_usd: null,
+                    projected_amount_usd_with_limit: null,
                 },
             ],
             tiered: true,
@@ -1795,6 +1859,7 @@ export const billingJson: BillingType = {
             percentage_usage: 0.0,
             projected_usage: 0,
             projected_amount_usd: null,
+            projected_amount_usd_with_limit: null,
             unit: 'request',
             addons: [],
             contact_support: false,
@@ -2183,6 +2248,7 @@ export const billingJson: BillingType = {
                             current_usage: 0,
                             projected_usage: null,
                             projected_amount_usd: null,
+                            projected_amount_usd_with_limit: null,
                         },
                         {
                             flat_amount_usd: '0',
@@ -2192,6 +2258,7 @@ export const billingJson: BillingType = {
                             current_usage: 0,
                             projected_usage: null,
                             projected_amount_usd: null,
+                            projected_amount_usd_with_limit: null,
                         },
                         {
                             flat_amount_usd: '0',
@@ -2201,6 +2268,7 @@ export const billingJson: BillingType = {
                             current_usage: 0,
                             projected_usage: null,
                             projected_amount_usd: null,
+                            projected_amount_usd_with_limit: null,
                         },
                         {
                             flat_amount_usd: '0',
@@ -2210,6 +2278,7 @@ export const billingJson: BillingType = {
                             current_usage: 0,
                             projected_usage: null,
                             projected_amount_usd: null,
+                            projected_amount_usd_with_limit: null,
                         },
                         {
                             flat_amount_usd: '0',
@@ -2219,6 +2288,7 @@ export const billingJson: BillingType = {
                             current_usage: 0,
                             projected_usage: null,
                             projected_amount_usd: null,
+                            projected_amount_usd_with_limit: null,
                         },
                         {
                             flat_amount_usd: '0',
@@ -2228,6 +2298,7 @@ export const billingJson: BillingType = {
                             current_usage: 0,
                             projected_usage: null,
                             projected_amount_usd: null,
+                            projected_amount_usd_with_limit: null,
                         },
                     ],
                     current_plan: false,
@@ -2247,6 +2318,7 @@ export const billingJson: BillingType = {
                     current_usage: 0,
                     projected_usage: null,
                     projected_amount_usd: null,
+                    projected_amount_usd_with_limit: null,
                 },
             ],
             tiered: true,
@@ -2259,6 +2331,7 @@ export const billingJson: BillingType = {
             percentage_usage: 0.0,
             projected_usage: 0,
             projected_amount_usd: null,
+            projected_amount_usd_with_limit: null,
             unit: 'survey response',
             addons: [],
             contact_support: false,
@@ -2557,6 +2630,7 @@ export const billingJson: BillingType = {
             percentage_usage: 0,
             projected_usage: 0,
             projected_amount_usd: null,
+            projected_amount_usd_with_limit: null,
             unit: null,
             addons: [],
             contact_support: false,
@@ -3062,6 +3136,7 @@ export const billingJson: BillingType = {
             percentage_usage: 0,
             projected_usage: 0,
             projected_amount_usd: null,
+            projected_amount_usd_with_limit: null,
             unit: null,
             addons: [
                 {
@@ -3083,6 +3158,7 @@ export const billingJson: BillingType = {
                     current_usage: 0,
                     projected_usage: 0,
                     projected_amount_usd: null,
+                    projected_amount_usd_with_limit: null,
                     plans: [
                         {
                             plan_key: 'addon-20240411',

@@ -666,7 +666,8 @@
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
                             "projected_usage": null,
-                            "projected_amount_usd": null
+                            "projected_amount_usd": null,
+                            "projected_amount_usd_with_limit": null
                         },
                         {
                             "flat_amount_usd": "0",
@@ -675,7 +676,8 @@
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
                             "projected_usage": null,
-                            "projected_amount_usd": null
+                            "projected_amount_usd": null,
+                            "projected_amount_usd_with_limit": null
                         },
                         {
                             "flat_amount_usd": "0",
@@ -684,7 +686,8 @@
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
                             "projected_usage": null,
-                            "projected_amount_usd": null
+                            "projected_amount_usd": null,
+                            "projected_amount_usd_with_limit": null
                         },
                         {
                             "flat_amount_usd": "0",
@@ -693,7 +696,8 @@
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
                             "projected_usage": null,
-                            "projected_amount_usd": null
+                            "projected_amount_usd": null,
+                            "projected_amount_usd_with_limit": null
                         },
                         {
                             "flat_amount_usd": "0",
@@ -702,7 +706,8 @@
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
                             "projected_usage": null,
-                            "projected_amount_usd": null
+                            "projected_amount_usd": null,
+                            "projected_amount_usd_with_limit": null
                         },
                         {
                             "flat_amount_usd": "0",
@@ -711,7 +716,8 @@
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
                             "projected_usage": null,
-                            "projected_amount_usd": null
+                            "projected_amount_usd": null,
+                            "projected_amount_usd_with_limit": null
                         },
                         {
                             "flat_amount_usd": "0",
@@ -720,7 +726,8 @@
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
                             "projected_usage": null,
-                            "projected_amount_usd": null
+                            "projected_amount_usd": null,
+                            "projected_amount_usd_with_limit": null
                         }
                     ],
                     "current_plan": true,
@@ -739,7 +746,8 @@
                     "current_amount_usd": "0.00",
                     "current_usage": 0,
                     "projected_usage": null,
-                    "projected_amount_usd": null
+                    "projected_amount_usd": null,
+                    "projected_amount_usd_with_limit": null
                 },
                 {
                     "flat_amount_usd": "0",
@@ -748,7 +756,8 @@
                     "current_amount_usd": "0.00",
                     "current_usage": 0,
                     "projected_usage": null,
-                    "projected_amount_usd": null
+                    "projected_amount_usd": null,
+                    "projected_amount_usd_with_limit": null
                 },
                 {
                     "flat_amount_usd": "0",
@@ -757,7 +766,8 @@
                     "current_amount_usd": "0.00",
                     "current_usage": 0,
                     "projected_usage": null,
-                    "projected_amount_usd": null
+                    "projected_amount_usd": null,
+                    "projected_amount_usd_with_limit": null
                 },
                 {
                     "flat_amount_usd": "0",
@@ -766,7 +776,8 @@
                     "current_amount_usd": "0.00",
                     "current_usage": 0,
                     "projected_usage": null,
-                    "projected_amount_usd": null
+                    "projected_amount_usd": null,
+                    "projected_amount_usd_with_limit": null
                 },
                 {
                     "flat_amount_usd": "0",
@@ -775,7 +786,8 @@
                     "current_amount_usd": "0.00",
                     "current_usage": 0,
                     "projected_usage": null,
-                    "projected_amount_usd": null
+                    "projected_amount_usd": null,
+                    "projected_amount_usd_with_limit": null
                 },
                 {
                     "flat_amount_usd": "0",
@@ -784,7 +796,8 @@
                     "current_amount_usd": "0.00",
                     "current_usage": 0,
                     "projected_usage": null,
-                    "projected_amount_usd": null
+                    "projected_amount_usd": null,
+                    "projected_amount_usd_with_limit": null
                 },
                 {
                     "flat_amount_usd": "0",
@@ -793,7 +806,8 @@
                     "current_amount_usd": "0.00",
                     "current_usage": 0,
                     "projected_usage": null,
-                    "projected_amount_usd": null
+                    "projected_amount_usd": null,
+                    "projected_amount_usd_with_limit": null
                 }
             ],
             "tiered": true,
@@ -824,7 +838,8 @@
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
                             "projected_usage": null,
-                            "projected_amount_usd": null
+                            "projected_amount_usd": null,
+                            "projected_amount_usd_with_limit": null
                         },
                         {
                             "flat_amount_usd": "0",
@@ -833,7 +848,8 @@
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
                             "projected_usage": null,
-                            "projected_amount_usd": null
+                            "projected_amount_usd": null,
+                            "projected_amount_usd_with_limit": null
                         },
                         {
                             "flat_amount_usd": "0",
@@ -842,7 +858,8 @@
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
                             "projected_usage": null,
-                            "projected_amount_usd": null
+                            "projected_amount_usd": null,
+                            "projected_amount_usd_with_limit": null
                         },
                         {
                             "flat_amount_usd": "0",
@@ -851,7 +868,8 @@
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
                             "projected_usage": null,
-                            "projected_amount_usd": null
+                            "projected_amount_usd": null,
+                            "projected_amount_usd_with_limit": null
                         },
                         {
                             "flat_amount_usd": "0",
@@ -860,7 +878,8 @@
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
                             "projected_usage": null,
-                            "projected_amount_usd": null
+                            "projected_amount_usd": null,
+                            "projected_amount_usd_with_limit": null
                         },
                         {
                             "flat_amount_usd": "0",
@@ -869,7 +888,8 @@
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
                             "projected_usage": null,
-                            "projected_amount_usd": null
+                            "projected_amount_usd": null,
+                            "projected_amount_usd_with_limit": null
                         },
                         {
                             "flat_amount_usd": "0",
@@ -878,7 +898,8 @@
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
                             "projected_usage": null,
-                            "projected_amount_usd": null
+                            "projected_amount_usd": null,
+                            "projected_amount_usd_with_limit": null
                         }
                     ],
                     "tiered": true,
@@ -919,7 +940,8 @@
                                     "current_amount_usd": "0.00",
                                     "current_usage": 0,
                                     "projected_usage": null,
-                                    "projected_amount_usd": null
+                                    "projected_amount_usd": null,
+                                    "projected_amount_usd_with_limit": null
                                 },
                                 {
                                     "flat_amount_usd": "0",
@@ -928,7 +950,8 @@
                                     "current_amount_usd": "0.00",
                                     "current_usage": 0,
                                     "projected_usage": null,
-                                    "projected_amount_usd": null
+                                    "projected_amount_usd": null,
+                                    "projected_amount_usd_with_limit": null
                                 },
                                 {
                                     "flat_amount_usd": "0",
@@ -937,7 +960,8 @@
                                     "current_amount_usd": "0.00",
                                     "current_usage": 0,
                                     "projected_usage": null,
-                                    "projected_amount_usd": null
+                                    "projected_amount_usd": null,
+                                    "projected_amount_usd_with_limit": null
                                 },
                                 {
                                     "flat_amount_usd": "0",
@@ -946,7 +970,8 @@
                                     "current_amount_usd": "0.00",
                                     "current_usage": 0,
                                     "projected_usage": null,
-                                    "projected_amount_usd": null
+                                    "projected_amount_usd": null,
+                                    "projected_amount_usd_with_limit": null
                                 },
                                 {
                                     "flat_amount_usd": "0",
@@ -955,7 +980,8 @@
                                     "current_amount_usd": "0.00",
                                     "current_usage": 0,
                                     "projected_usage": null,
-                                    "projected_amount_usd": null
+                                    "projected_amount_usd": null,
+                                    "projected_amount_usd_with_limit": null
                                 },
                                 {
                                     "flat_amount_usd": "0",
@@ -964,7 +990,8 @@
                                     "current_amount_usd": "0.00",
                                     "current_usage": 0,
                                     "projected_usage": null,
-                                    "projected_amount_usd": null
+                                    "projected_amount_usd": null,
+                                    "projected_amount_usd_with_limit": null
                                 },
                                 {
                                     "flat_amount_usd": "0",
@@ -973,7 +1000,8 @@
                                     "current_amount_usd": "0.00",
                                     "current_usage": 0,
                                     "projected_usage": null,
-                                    "projected_amount_usd": null
+                                    "projected_amount_usd": null,
+                                    "projected_amount_usd_with_limit": null
                                 }
                             ],
                             "current_plan": false,
@@ -1000,7 +1028,8 @@
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
                             "projected_usage": null,
-                            "projected_amount_usd": null
+                            "projected_amount_usd": null,
+                            "projected_amount_usd_with_limit": null
                         },
                         {
                             "flat_amount_usd": "0",
@@ -1009,7 +1038,8 @@
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
                             "projected_usage": null,
-                            "projected_amount_usd": null
+                            "projected_amount_usd": null,
+                            "projected_amount_usd_with_limit": null
                         },
                         {
                             "flat_amount_usd": "0",
@@ -1018,7 +1048,8 @@
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
                             "projected_usage": null,
-                            "projected_amount_usd": null
+                            "projected_amount_usd": null,
+                            "projected_amount_usd_with_limit": null
                         },
                         {
                             "flat_amount_usd": "0",
@@ -1027,7 +1058,8 @@
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
                             "projected_usage": null,
-                            "projected_amount_usd": null
+                            "projected_amount_usd": null,
+                            "projected_amount_usd_with_limit": null
                         },
                         {
                             "flat_amount_usd": "0",
@@ -1036,7 +1068,8 @@
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
                             "projected_usage": null,
-                            "projected_amount_usd": null
+                            "projected_amount_usd": null,
+                            "projected_amount_usd_with_limit": null
                         },
                         {
                             "flat_amount_usd": "0",
@@ -1045,7 +1078,8 @@
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
                             "projected_usage": null,
-                            "projected_amount_usd": null
+                            "projected_amount_usd": null,
+                            "projected_amount_usd_with_limit": null
                         },
                         {
                             "flat_amount_usd": "0",
@@ -1054,7 +1088,8 @@
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
                             "projected_usage": null,
-                            "projected_amount_usd": null
+                            "projected_amount_usd": null,
+                            "projected_amount_usd_with_limit": null
                         }
                     ],
                     "tiered": true,
@@ -1095,7 +1130,8 @@
                                     "current_amount_usd": "0.00",
                                     "current_usage": 0,
                                     "projected_usage": null,
-                                    "projected_amount_usd": null
+                                    "projected_amount_usd": null,
+                                    "projected_amount_usd_with_limit": null
                                 },
                                 {
                                     "flat_amount_usd": "0",
@@ -1104,7 +1140,8 @@
                                     "current_amount_usd": "0.00",
                                     "current_usage": 0,
                                     "projected_usage": null,
-                                    "projected_amount_usd": null
+                                    "projected_amount_usd": null,
+                                    "projected_amount_usd_with_limit": null
                                 },
                                 {
                                     "flat_amount_usd": "0",
@@ -1113,7 +1150,8 @@
                                     "current_amount_usd": "0.00",
                                     "current_usage": 0,
                                     "projected_usage": null,
-                                    "projected_amount_usd": null
+                                    "projected_amount_usd": null,
+                                    "projected_amount_usd_with_limit": null
                                 },
                                 {
                                     "flat_amount_usd": "0",
@@ -1122,7 +1160,8 @@
                                     "current_amount_usd": "0.00",
                                     "current_usage": 0,
                                     "projected_usage": null,
-                                    "projected_amount_usd": null
+                                    "projected_amount_usd": null,
+                                    "projected_amount_usd_with_limit": null
                                 },
                                 {
                                     "flat_amount_usd": "0",
@@ -1131,7 +1170,8 @@
                                     "current_amount_usd": "0.00",
                                     "current_usage": 0,
                                     "projected_usage": null,
-                                    "projected_amount_usd": null
+                                    "projected_amount_usd": null,
+                                    "projected_amount_usd_with_limit": null
                                 },
                                 {
                                     "flat_amount_usd": "0",
@@ -1140,7 +1180,8 @@
                                     "current_amount_usd": "0.00",
                                     "current_usage": 0,
                                     "projected_usage": null,
-                                    "projected_amount_usd": null
+                                    "projected_amount_usd": null,
+                                    "projected_amount_usd_with_limit": null
                                 },
                                 {
                                     "flat_amount_usd": "0",
@@ -1149,7 +1190,8 @@
                                     "current_amount_usd": "0.00",
                                     "current_usage": 0,
                                     "projected_usage": null,
-                                    "projected_amount_usd": null
+                                    "projected_amount_usd": null,
+                                    "projected_amount_usd_with_limit": null
                                 }
                             ],
                             "current_plan": false,
@@ -1586,7 +1628,8 @@
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
                             "projected_usage": null,
-                            "projected_amount_usd": null
+                            "projected_amount_usd": null,
+                            "projected_amount_usd_with_limit": null
                         },
                         {
                             "flat_amount_usd": "0",
@@ -1595,7 +1638,8 @@
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
                             "projected_usage": null,
-                            "projected_amount_usd": null
+                            "projected_amount_usd": null,
+                            "projected_amount_usd_with_limit": null
                         },
                         {
                             "flat_amount_usd": "0",
@@ -1604,7 +1648,8 @@
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
                             "projected_usage": null,
-                            "projected_amount_usd": null
+                            "projected_amount_usd": null,
+                            "projected_amount_usd_with_limit": null
                         },
                         {
                             "flat_amount_usd": "0",
@@ -1613,7 +1658,8 @@
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
                             "projected_usage": null,
-                            "projected_amount_usd": null
+                            "projected_amount_usd": null,
+                            "projected_amount_usd_with_limit": null
                         },
                         {
                             "flat_amount_usd": "0",
@@ -1622,7 +1668,8 @@
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
                             "projected_usage": null,
-                            "projected_amount_usd": null
+                            "projected_amount_usd": null,
+                            "projected_amount_usd_with_limit": null
                         },
                         {
                             "flat_amount_usd": "0",
@@ -1631,7 +1678,8 @@
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
                             "projected_usage": null,
-                            "projected_amount_usd": null
+                            "projected_amount_usd": null,
+                            "projected_amount_usd_with_limit": null
                         }
                     ],
                     "current_plan": false,
@@ -1653,6 +1701,7 @@
             "percentage_usage": 0.0,
             "projected_usage": 0,
             "projected_amount_usd": null,
+            "projected_amount_usd_with_limit": null,
             "unit": "recording",
             "addons": [],
             "contact_support": false,
@@ -2087,7 +2136,8 @@
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
                             "projected_usage": null,
-                            "projected_amount_usd": null
+                            "projected_amount_usd": null,
+                            "projected_amount_usd_with_limit": null
                         },
                         {
                             "flat_amount_usd": "0",
@@ -2096,7 +2146,8 @@
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
                             "projected_usage": null,
-                            "projected_amount_usd": null
+                            "projected_amount_usd": null,
+                            "projected_amount_usd_with_limit": null
                         },
                         {
                             "flat_amount_usd": "0",
@@ -2105,7 +2156,8 @@
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
                             "projected_usage": null,
-                            "projected_amount_usd": null
+                            "projected_amount_usd": null,
+                            "projected_amount_usd_with_limit": null
                         },
                         {
                             "flat_amount_usd": "0",
@@ -2114,7 +2166,8 @@
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
                             "projected_usage": null,
-                            "projected_amount_usd": null
+                            "projected_amount_usd": null,
+                            "projected_amount_usd_with_limit": null
                         },
                         {
                             "flat_amount_usd": "0",
@@ -2123,7 +2176,8 @@
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
                             "projected_usage": null,
-                            "projected_amount_usd": null
+                            "projected_amount_usd": null,
+                            "projected_amount_usd_with_limit": null
                         }
                     ],
                     "current_plan": false,
@@ -2145,6 +2199,7 @@
             "percentage_usage": 0.0,
             "projected_usage": 0,
             "projected_amount_usd": null,
+            "projected_amount_usd_with_limit": null,
             "unit": "request",
             "addons": [],
             "contact_support": false,
@@ -2505,7 +2560,8 @@
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
                             "projected_usage": null,
-                            "projected_amount_usd": null
+                            "projected_amount_usd": null,
+                            "projected_amount_usd_with_limit": null
                         },
                         {
                             "flat_amount_usd": "0",
@@ -2514,7 +2570,8 @@
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
                             "projected_usage": null,
-                            "projected_amount_usd": null
+                            "projected_amount_usd": null,
+                            "projected_amount_usd_with_limit": null
                         },
                         {
                             "flat_amount_usd": "0",
@@ -2523,7 +2580,8 @@
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
                             "projected_usage": null,
-                            "projected_amount_usd": null
+                            "projected_amount_usd": null,
+                            "projected_amount_usd_with_limit": null
                         },
                         {
                             "flat_amount_usd": "0",
@@ -2532,7 +2590,8 @@
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
                             "projected_usage": null,
-                            "projected_amount_usd": null
+                            "projected_amount_usd": null,
+                            "projected_amount_usd_with_limit": null
                         },
                         {
                             "flat_amount_usd": "0",
@@ -2541,7 +2600,8 @@
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
                             "projected_usage": null,
-                            "projected_amount_usd": null
+                            "projected_amount_usd": null,
+                            "projected_amount_usd_with_limit": null
                         },
                         {
                             "flat_amount_usd": "0",
@@ -2550,7 +2610,8 @@
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
                             "projected_usage": null,
-                            "projected_amount_usd": null
+                            "projected_amount_usd": null,
+                            "projected_amount_usd_with_limit": null
                         }
                     ],
                     "current_plan": false,
@@ -2572,6 +2633,7 @@
             "percentage_usage": 0.0,
             "projected_usage": 0,
             "projected_amount_usd": null,
+            "projected_amount_usd_with_limit": null,
             "unit": "survey response",
             "addons": [],
             "contact_support": false,
@@ -2859,6 +2921,7 @@
             "percentage_usage": 0,
             "projected_usage": 0,
             "projected_amount_usd": null,
+            "projected_amount_usd_with_limit": null,
             "unit": null,
             "addons": [],
             "contact_support": false,
@@ -3524,6 +3587,7 @@
             "percentage_usage": 0,
             "projected_usage": 0,
             "projected_amount_usd": null,
+            "projected_amount_usd_with_limit": null,
             "unit": null,
             "addons": [],
             "contact_support": false,
