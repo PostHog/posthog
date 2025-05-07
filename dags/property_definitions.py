@@ -2,7 +2,7 @@ import datetime
 from typing import Optional
 
 import dagster
-from dagster import schedule, job, op, Config, In, Out
+from dagster import schedule, job, Config
 
 from dags.common import JobOwners
 from posthog.clickhouse.cluster import ClickhouseCluster, Query
@@ -52,14 +52,12 @@ def format_datetime_for_clickhouse(dt: datetime.datetime) -> str:
     return dt.strftime("%Y-%m-%d %H:%M:%S")
 
 
-@op(
-    out={"inserted_count": Out(int), "time_window": Out(tuple[str, str])},
-)
+@dagster.op
 def ingest_event_properties(
     context: dagster.OpExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
     config: PropertyDefinitionsConfig,
-) -> tuple[int, tuple[str, str]]:
+) -> int:
     """
     Ingest event properties from events_recent table into property_definitions table.
 
@@ -117,20 +115,15 @@ def ingest_event_properties(
     rows = cluster.any_host(Query(count_query)).result()[0][0]
     context.log.info(f"Inserted {rows} event property definitions")
 
-    # Return both the count and the time window for later use
-    return rows, (start_time, end_time)
+    return rows
 
 
-@op(
-    ins={"event_time_window": In(tuple[str, str])},
-    out={"inserted_count": Out(int), "time_window": Out(tuple[str, str])},
-)
+@dagster.op
 def ingest_person_properties(
     context: dagster.OpExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
     config: PropertyDefinitionsConfig,
-    event_time_window: tuple[str, str],
-) -> tuple[int, tuple[str, str]]:
+) -> int:
     """
     Ingest person properties from person table into property_definitions table.
 
@@ -188,30 +181,23 @@ def ingest_person_properties(
     rows = cluster.any_host(Query(count_query)).result()[0][0]
     context.log.info(f"Inserted {rows} person property definitions")
 
-    # Return both the person count and reuse the event time window (both are needed in optimize)
-    return rows, event_time_window
+    return rows
 
 
-@op(
-    ins={"event_count": In(int), "person_count": In(int), "time_window": In(tuple[str, str])},
-    out={"total_count": Out(int)},
-)
+@dagster.op
 def optimize_property_definitions(
     context: dagster.OpExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
+    config: PropertyDefinitionsConfig,
     event_count: int,
     person_count: int,
-    time_window: tuple[str, str],
 ) -> int:
     """
     Run OPTIMIZE on property_definitions table to deduplicate inserted data.
 
     This runs after both event and person property ingestion completes successfully.
     """
-    start_time, end_time = time_window
-
     context.log.info(f"Running OPTIMIZE TABLE for {event_count} event properties and {person_count} person properties")
-    context.log.info(f"Time window: {start_time} to {end_time}")
 
     # Run OPTIMIZE after all inserts to merge duplicates using the ReplacingMergeTree's version column
     cluster.any_host(Query("OPTIMIZE TABLE property_definitions FINAL")).result()
@@ -219,7 +205,7 @@ def optimize_property_definitions(
     # Get the total number of property definitions for this time window
     count_query = f"""
     SELECT count() FROM property_definitions
-    WHERE last_seen_at BETWEEN {start_time} AND {end_time}
+    WHERE {config.get_time_filter_expression("last_seen_at")}
     """
 
     total = cluster.any_host(Query(count_query)).result()[0][0]
@@ -241,9 +227,9 @@ def property_definitions_ingestion_job():
     2. Ingest person properties
     3. Run OPTIMIZE FINAL on the table
     """
-    event_count, time_window = ingest_event_properties()
-    person_count, time_window = ingest_person_properties(event_time_window=time_window)
-    optimize_property_definitions(event_count, person_count, time_window)
+    event_count = ingest_event_properties()
+    person_count = ingest_person_properties()
+    optimize_property_definitions(event_count, person_count)
 
 
 @schedule(
@@ -266,6 +252,7 @@ def property_definitions_hourly_schedule(context):
         "ops": {
             "ingest_event_properties": {"config": {"target_hour": target_hour}},
             "ingest_person_properties": {"config": {"target_hour": target_hour}},
+            "optimize_property_definitions": {"config": {"target_hour": target_hour}},
         }
     }
 
