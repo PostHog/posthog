@@ -435,6 +435,7 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                     return window.location.href.endsWith(item.record?.href)
                 }}
                 treeElementSize={sortMethod === 'recent' && projectTreeMode === 'tree' ? 'lg' : 'base'}
+                onItemChecked={onItemChecked}
                 checkedItemCount={checkedItemCountNumeric}
                 onNodeClick={(node) => {
                     if (node?.type === 'empty-folder' || node?.type === 'loading-indicator') {
