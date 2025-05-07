@@ -3,10 +3,10 @@ from typing import Optional
 
 import dagster
 from dagster import schedule, job, op, Config, In, Out
-from dagster_slack import slack_resource
 
-from dags.common import ClickhouseClusterResource, JobOwners
+from dags.common import JobOwners
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.cluster import ClickhouseCluster
 
 
 class PropertyDefinitionsConfig(Config):
@@ -36,10 +36,12 @@ def format_datetime_for_clickhouse(dt: datetime.datetime) -> str:
 
 
 @op(
-    required_resource_keys={"cluster"},
     out={"inserted_count": Out(int), "time_window": Out(tuple[str, str])},
 )
-def ingest_event_properties(context: dagster.OpExecutionContext) -> tuple[int, tuple[str, str]]:
+def ingest_event_properties(
+    context: dagster.OpExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+) -> tuple[int, tuple[str, str]]:
     """
     Ingest event properties from events_recent table into property_definitions table.
 
@@ -132,12 +134,13 @@ def ingest_event_properties(context: dagster.OpExecutionContext) -> tuple[int, t
 
 
 @op(
-    required_resource_keys={"cluster"},
     ins={"event_time_window": In(tuple[str, str])},
     out={"inserted_count": Out(int), "time_window": Out(tuple[str, str])},
 )
 def ingest_person_properties(
-    context: dagster.OpExecutionContext, event_time_window: tuple[str, str]
+    context: dagster.OpExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    event_time_window: tuple[str, str],
 ) -> tuple[int, tuple[str, str]]:
     """
     Ingest person properties from person table into property_definitions table.
@@ -231,12 +234,15 @@ def ingest_person_properties(
 
 
 @op(
-    required_resource_keys={"cluster"},
     ins={"event_count": In(int), "person_count": In(int), "time_window": In(tuple[str, str])},
     out={"total_count": Out(int)},
 )
 def optimize_property_definitions(
-    context: dagster.OpExecutionContext, event_count: int, person_count: int, time_window: tuple[str, str]
+    context: dagster.OpExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    event_count: int,
+    person_count: int,
+    time_window: tuple[str, str],
 ) -> int:
     """
     Run OPTIMIZE on property_definitions table to deduplicate inserted data.
@@ -265,10 +271,6 @@ def optimize_property_definitions(
 
 @job(
     name="property_definitions_ingestion",
-    resource_defs={
-        "cluster": ClickhouseClusterResource.configure_at_launch(),
-        "slack": slack_resource,
-    },
     tags={"owner": JobOwners.TEAM_CLICKHOUSE.value},
 )
 def property_definitions_ingestion_job():
