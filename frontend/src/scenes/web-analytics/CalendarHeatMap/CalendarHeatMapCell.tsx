@@ -14,7 +14,7 @@ export interface HeatMapValues {
     maxValue: number
     minValue: number
 }
-export function HeatMapCell({ values, bg, fontSize, tooltip }: HeatMapCellProps): JSX.Element {
+export function CalendarHeatMapCell({ values, bg, fontSize, tooltip }: HeatMapCellProps): JSX.Element {
     const { backgroundColor, color } = getBackgroundAndTextColor({ values, backgroundColor: bg })
 
     return (

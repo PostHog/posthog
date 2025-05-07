@@ -1,4 +1,4 @@
-import './EventsHeatMap.scss'
+import './CalendarHeatMap.scss'
 
 import { useValues } from 'kea'
 import React, { useCallback, useEffect, useState } from 'react'
@@ -9,7 +9,7 @@ import { InsightsWrapper } from 'scenes/insights/InsightsWrapper'
 import { useResizeObserver } from '~/lib/hooks/useResizeObserver'
 import { QueryContext } from '~/queries/types'
 
-import { HeatMapCell, HeatMapValues } from './HeatMapCell'
+import { CalendarHeatMapCell, HeatMapValues } from './CalendarHeatMapCell'
 interface EventsHeatMapProps {
     context: QueryContext
     isLoading: boolean
@@ -45,7 +45,7 @@ interface ProcessedData {
     minColumnAggregation: number
 }
 
-export function EventsHeatMap({
+export function CalendarHeatMap({
     context,
     backgroundColorsOverride,
     initialFontSize,
@@ -197,7 +197,7 @@ function renderOverallCell(
 ): JSX.Element {
     return (
         <td className="aggregation-border">
-            <HeatMapCell
+            <CalendarHeatMapCell
                 fontSize={fontSize}
                 values={{
                     value: overallValue,
@@ -223,7 +223,7 @@ function renderColumnsAggregationCells(
 ): JSX.Element[] {
     return columnLabels.map((columnLabel, index) => (
         <td key={index}>
-            <HeatMapCell
+            <CalendarHeatMapCell
                 fontSize={fontSize}
                 values={{
                     value: columnsAggregations[index],
@@ -247,7 +247,7 @@ function renderRowsAggregationCell(
 ): JSX.Element {
     return (
         <td className="aggregation-border">
-            <HeatMapCell
+            <CalendarHeatMapCell
                 fontSize={fontSize}
                 values={values}
                 bg={bg}
@@ -269,7 +269,7 @@ function renderDataCells(
 ): JSX.Element[] {
     return columnLabels.map((columnLabel, index) => (
         <td key={index}>
-            <HeatMapCell
+            <CalendarHeatMapCell
                 fontSize={fontSize}
                 values={{
                     value: rowData[index],

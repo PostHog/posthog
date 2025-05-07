@@ -1,6 +1,6 @@
 import { DaysAbbreviated, HoursAbbreviated } from './utils'
 
-describe('EventsHeatMap config', () => {
+describe('CalendarHeatMap config', () => {
     describe('DaysAbbreviated', () => {
         it('should have correct days configuration', () => {
             // we care about the order of the days and the startIndex
