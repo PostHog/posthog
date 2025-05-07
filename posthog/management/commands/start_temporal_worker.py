@@ -46,7 +46,7 @@ from posthog.temporal.usage_reports import ACTIVITIES as USAGE_REPORTS_ACTIVITIE
 
 logger = structlog.get_logger(__name__)
 
-# Worklow and activity index
+# Workflow and activity index
 WORKFLOWS_DICT = {
     SYNC_BATCH_EXPORTS_TASK_QUEUE: BATCH_EXPORTS_WORKFLOWS,
     BATCH_EXPORTS_TASK_QUEUE: BATCH_EXPORTS_WORKFLOWS,
