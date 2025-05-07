@@ -13,6 +13,7 @@ import {
     PersonsNode,
     QueryStatus,
     RefreshType,
+    ClickhouseQueryProgress,
 } from '~/queries/schema/schema-general'
 import { OnlineExportContext, QueryExportContext } from '~/types'
 
@@ -91,9 +92,6 @@ async function executeQuery<N extends DataNode>(
      */
     pollOnly = false
 ): Promise<NonNullable<N['response']>> {
-    const useOptimizedPolling = posthog.isFeatureEnabled('query-optimized-polling')
-    const currentTeamId = teamLogic.findMounted()?.values.currentTeamId
-
     if (!pollOnly) {
         // Determine the refresh type based on the query node type and refresh parameter
         let refreshParam: RefreshType
@@ -108,80 +106,64 @@ async function executeQuery<N extends DataNode>(
             refreshParam = refresh || 'blocking'
         }
 
-        if (useOptimizedPolling) {
-            return new Promise((resolve, reject) => {
-                const abortController = new AbortController()
-
-                void api
-                    .stream(`/api/environments/${currentTeamId}/query_awaited/`, {
-                        method: 'POST',
-                        data: {
-                            query: queryNode,
-                            client_query_id: queryId,
-                            refresh: refreshParam,
-                            filters_override: filtersOverride,
-                            variables_override: variablesOverride,
-                        },
-                        signal: abortController.signal,
-                        onMessage(ev) {
-                            try {
-                                const data = JSON.parse(ev.data)
-                                if (data.error) {
-                                    logQueryEvent('error', data, queryNode)
-                                    abortController.abort()
-                                    // Create an error object that matches the API error format
-                                    const error = {
-                                        message: data.error,
-                                        status: data.status_code || 500,
-                                        detail: data.error_message || data.error,
-                                        type: 'network_error',
-                                    }
-                                    reject(error)
-                                } else if (data.complete === false) {
-                                    // Progress event - no results yet
-                                    logQueryEvent('progress', data, queryNode)
-                                    if (setPollResponse) {
-                                        setPollResponse(data)
-                                    }
-                                } else {
-                                    // Final results
-                                    logQueryEvent('data', data, queryNode)
-                                    abortController.abort()
-                                    resolve(data)
-                                }
-                            } catch (e) {
-                                abortController.abort()
-                                reject(e)
-                            }
-                        },
-                        onError(err) {
-                            abortController.abort()
-                            reject(err)
-                            throw err // make sure fetchEventSource doesn't attempt to retry
-                        },
-                    })
-                    .catch(reject)
-            })
-        }
-        const response = await api.query(
-            queryNode,
-            methodOptions,
-            queryId,
-            refreshParam,
-            filtersOverride,
-            variablesOverride
-        )
-
-        if (response.detail) {
-            throw new Error(response.detail)
+        // Start polling progress before the blocking query if needed
+        let isPolling = false
+        let shouldStopPolling = false
+        if ((refreshParam === 'blocking' || refreshParam === 'force_blocking') && setPollResponse) {
+            isPolling = true
+            const pollProgress = async () => {
+                while (isPolling && !shouldStopPolling) {
+                    try {
+                        await delay(1000) // Wait 1 second between polls
+                        const progressResponse = await api.queryProgress.get(queryId || '')
+                        setPollResponse({
+                            id: queryId || '',
+                            team_id: 0,
+                            error: false,
+                            complete: false,
+                            query_async: true,
+                            error_message: null,
+                            query_progress: progressResponse
+                        })
+                    } catch (e) {
+                        // Ignore progress polling errors
+                        console.warn('Failed to poll query progress:', e)
+                        await delay(1000) // Still wait on error
+                    }
+                }
+            }
+            pollProgress() // Start polling in background
         }
 
-        if (!isAsyncResponse(response)) {
-            // Executed query synchronously or from cache
-            return response
-        }
+        try {
+            const response = await api.query(
+                queryNode,
+                methodOptions,
+                queryId,
+                refreshParam,
+                filtersOverride,
+                variablesOverride
+            )
 
-        queryId = response.query_status.id
+            if (response.detail) {
+                throw new Error(response.detail)
+            }
+
+            // Stop polling when query completes
+            shouldStopPolling = true
+            isPolling = false
+
+            if (!isAsyncResponse(response)) {
+                return response
+            }
+
+            queryId = response.query_status.id
+        } catch (e) {
+            // Stop polling on error
+            shouldStopPolling = true
+            isPolling = false
+            throw e
+        }
     } else {
         if (refresh !== 'async' && refresh !== 'force_async') {
             throw new Error('pollOnly is only supported for async queries')

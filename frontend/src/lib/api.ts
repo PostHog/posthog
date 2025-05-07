@@ -1009,6 +1009,10 @@ class ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('query')
     }
 
+    public queryProgress(queryId: string, teamId?: TeamType['id']): ApiRequest {
+        return this.query(teamId).addPathComponent(queryId).addPathComponent('progress')
+    }
+
     public queryStatus(queryId: string, showProgress: boolean, teamId?: TeamType['id']): ApiRequest {
         const apiRequest = this.query(teamId).addPathComponent(queryId)
         if (showProgress) {
@@ -3128,6 +3132,12 @@ const api = {
     queryStatus: {
         async get(queryId: string, showProgress: boolean): Promise<QueryStatusResponse> {
             return await new ApiRequest().queryStatus(queryId, showProgress).get()
+        },
+    },
+
+    queryProgress: {
+        async get(queryId: string): Promise<ClickhouseQueryProgress> {
+            return await new ApiRequest().queryProgress(queryId).get()
         },
     },
 
