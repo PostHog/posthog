@@ -35,33 +35,30 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
             keypress_count=200,
             mouse_activity_count=300,
             active_milliseconds=1234,
-            block_url="s3://block-1",
+            block_urls=["s3://block-1"],
+            block_first_timestamps=[self.base_time],
+            block_last_timestamps=[self.base_time + relativedelta(seconds=2)],
         )
         produce_replay_summary(
             session_id="3",
             team_id=self.team.pk,
             first_timestamp=self.base_time + relativedelta(seconds=1),
-            last_timestamp=self.base_time + relativedelta(seconds=2),
-            distinct_id="u3",
-            first_url="https://example.io/1",
-            click_count=100,
-            keypress_count=200,
-            mouse_activity_count=300,
-            active_milliseconds=1234,
-            block_url="s3://block-x",
-        )
-        produce_replay_summary(
-            session_id="3",
-            team_id=self.team.pk,
-            first_timestamp=self.base_time + relativedelta(seconds=2),
             last_timestamp=self.base_time + relativedelta(seconds=3),
             distinct_id="u3",
-            first_url="https://example.io/2",
-            click_count=1,
-            keypress_count=2,
-            mouse_activity_count=3,
-            active_milliseconds=1000,
-            block_url="s3://block-y",
+            first_url="https://example.io/1",
+            click_count=10,
+            keypress_count=20,
+            mouse_activity_count=30,
+            active_milliseconds=2345,
+            block_urls=["s3://block-x", "s3://block-y"],
+            block_first_timestamps=[
+                self.base_time + relativedelta(seconds=1),
+                self.base_time + relativedelta(seconds=2),
+            ],
+            block_last_timestamps=[
+                self.base_time + relativedelta(seconds=2),
+                self.base_time + relativedelta(seconds=3),
+            ],
         )
 
     def test_get_metadata(self) -> None:
@@ -93,13 +90,13 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
             "end_time": self.base_time + relativedelta(seconds=2),
             "block_first_timestamps": [self.base_time],
             "block_last_timestamps": [self.base_time + relativedelta(seconds=2)],
-            "block_urls": ["https://example.io/home"],
+            "block_urls": ["s3://block-1"],
             "click_count": 100,
             "console_error_count": 0,
             "console_log_count": 0,
             "console_warn_count": 0,
             "distinct_id": "u2",
-            "duration": 0,
+            "duration": 2,
             "first_url": "https://example.io/home",
             "keypress_count": 200,
             "mouse_activity_count": 300,
@@ -109,7 +106,7 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
     def test_get_metadata_with_multiple_blocks(self) -> None:
         metadata = SessionReplayEvents().get_metadata(session_id="3", team=self.team)
         assert metadata == {
-            "active_seconds": 2.234,
+            "active_seconds": 2.345,
             "start_time": self.base_time + relativedelta(seconds=1),
             "end_time": self.base_time + relativedelta(seconds=3),
             "block_first_timestamps": [
@@ -121,15 +118,15 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
                 self.base_time + relativedelta(seconds=3),
             ],
             "block_urls": ["s3://block-x", "s3://block-y"],
-            "click_count": 101,
+            "click_count": 10,
             "console_error_count": 0,
             "console_log_count": 0,
             "console_warn_count": 0,
             "distinct_id": "u3",
-            "duration": 0,
+            "duration": 2,
             "first_url": "https://example.io/1",
-            "keypress_count": 202,
-            "mouse_activity_count": 303,
+            "keypress_count": 20,
+            "mouse_activity_count": 30,
             "snapshot_source": "web",
         }
 
