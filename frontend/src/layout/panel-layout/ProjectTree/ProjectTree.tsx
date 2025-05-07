@@ -29,6 +29,7 @@ import { RefObject, useEffect, useRef } from 'react'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
+import { UserBasicType } from '~/types'
 
 import { PanelLayoutPanel } from '../PanelLayoutPanel'
 import { projectTreeLogic, ProjectTreeSortMethod } from './projectTreeLogic'
@@ -638,25 +639,65 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                         </>
                     )
                 }}
-                renderItem={(item, children) =>
-                    sortMethod === 'recent' && projectTreeMode === 'tree' ? (
-                        <span className="grid grid-cols-[1fr_auto] grid-rows-2 gap-px">
-                            <span className="flex flex-col gap-1 flex-1 row-span-2">
-                                <span className="text-primary leading-[1.1]">{children}</span>
-                                <span className="text-tertiary text-xs font-normal leading-[1.1]">
-                                    {dayjs(item.record?.created_at).fromNow()}
+                renderItem={(item, children) => {
+                    const user = item.record?.user as UserBasicType | undefined
+                    return (
+                        <>
+                            {sortMethod === 'recent' && projectTreeMode === 'tree' ? (
+                                <span className="grid grid-cols-[1fr_auto] grid-rows-2 gap-px">
+                                    <span className="flex flex-col gap-1 flex-1 row-span-2 max-w-[213px]">
+                                        <Tooltip title={children}>
+                                            <span className="text-primary leading-[1.1] truncate w-fit max-w-full">
+                                                {children}
+                                            </span>
+                                        </Tooltip>
+                                        <Tooltip title={dayjs(item.record?.created_at).format('MMM D, YYYY h:mm A')}>
+                                            <span className="text-tertiary text-xs font-normal leading-[1.1] w-fit">
+                                                {dayjs(item.record?.created_at).fromNow()}
+                                            </span>
+                                        </Tooltip>
+                                    </span>
+                                    {item.record?.user ? (
+                                        <span className="flex items-end justify-end row-span-2 self-center grayscale opacity-30 group-hover/lemon-tree-button:opacity-100 group-hover/lemon-tree-button:grayscale-0 transition-opacity duration-100">
+                                            <Tooltip
+                                                title={
+                                                    <>
+                                                        Created by:{' '}
+                                                        <ProfilePicture
+                                                            user={user}
+                                                            size="md"
+                                                            showName
+                                                            className="font-semibold"
+                                                        />
+                                                    </>
+                                                }
+                                            >
+                                                <ProfilePicture user={user} size="md" />
+                                            </Tooltip>
+                                        </span>
+                                    ) : null}
                                 </span>
-                            </span>
-                            {item.record?.user ? (
-                                <span className="flex items-end justify-end row-span-2 self-center">
-                                    <ProfilePicture user={item.record?.user} size="sm" />
-                                </span>
-                            ) : null}
-                        </span>
-                    ) : (
-                        children
+                            ) : (
+                                children
+                            )}
+                        </>
                     )
-                }
+                }}
+                renderItemTooltip={(item) => {
+                    const user = item.record?.user as UserBasicType | undefined
+
+                    return sortMethod === 'folder' && projectTreeMode === 'tree' ? (
+                        <>
+                            Name: <span className="font-semibold">{item.displayName}</span> <br />
+                            Created by: <ProfilePicture user={user} size="md" showName className="font-semibold" />
+                            <br />
+                            Created at:{' '}
+                            <span className="font-semibold">
+                                {dayjs(item.record?.created_at).format('MMM D, YYYY h:mm A')}
+                            </span>
+                        </>
+                    ) : undefined
+                }}
             />
 
             {movingItems.length > 0 && (

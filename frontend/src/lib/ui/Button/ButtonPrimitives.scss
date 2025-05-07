@@ -113,7 +113,7 @@
 }
 
 .button-primitive--height-base-tall {
-    height: calc(var(--button-height-base) * 2);
+    height: var(--button-height-base-tall);
 
     &.icon-only {
         width: var(--button-height-base);
