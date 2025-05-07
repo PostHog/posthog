@@ -406,7 +406,7 @@ export function ConclusionModal({ experimentId }: { experimentId: Experiment['id
             width={600}
             footer={
                 <div className="flex items-center gap-2">
-                    <LemonButton type="secondary" onClick={() => {}}>
+                    <LemonButton type="secondary" onClick={() => closeConclusionModal()}>
                         Cancel
                     </LemonButton>
                     <LemonButton
