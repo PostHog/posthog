@@ -39,7 +39,7 @@ from posthog.models.product_intent.product_intent import (
 from posthog.models.project import Project
 from posthog.models.scopes import APIScopeObjectOrNotSupported
 from posthog.models.signals import mute_selected_signals
-from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data
+from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data, actions_that_require_current_team
 from posthog.models.utils import UUIDT
 from posthog.permissions import (
     APIScopePermission,
@@ -815,11 +815,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
 
     @cached_property
     def user_permissions(self):
-        project = (
-            self.get_object()
-            if self.action in ["delete_secret_token_backup", "reset_token", "rotate_secret_token"]
-            else None
-        )
+        project = self.get_object() if self.action in actions_that_require_current_team else None
         team = project.passthrough_team if project else None
         return UserPermissions(cast(User, self.request.user), team)
 
