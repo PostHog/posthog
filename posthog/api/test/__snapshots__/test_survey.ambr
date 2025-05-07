@@ -8,22 +8,17 @@
   WHERE team_id = 99999
     AND event = 'survey sent'
     AND timestamp >= '2024-01-21 14:40:09'
-    AND uuid IN (
-                   (SELECT uuid
-                    FROM events
-                    WHERE team_id = 99999
-                      AND event = 'survey sent'
-                      AND timestamp >= '2024-01-21 14:40:09'
-                      AND COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') = '' )
-                 UNION ALL
-                   (SELECT argMax(uuid, timestamp)
-                    FROM events
-                    WHERE team_id = 99999
-                      AND event = 'survey sent'
-                      AND timestamp >= '2024-01-21 14:40:09'
-                      AND COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') != ''
-                    GROUP BY JSONExtractString(properties, '$survey_id'),
-                             JSONExtractString(properties, '$survey_submission_id')))
+    AND uuid IN
+      (SELECT argMax(uuid, timestamp)
+       FROM events
+       WHERE team_id = 99999
+         AND event = 'survey sent'
+         AND timestamp >= '2024-01-21 14:40:09'
+       GROUP BY JSONExtractString(properties, '$survey_id'),
+                CASE
+                    WHEN COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') = '' THEN toString(uuid)
+                    ELSE JSONExtractString(properties, '$survey_submission_id')
+                END)
   GROUP BY survey_id
   '''
 # ---
@@ -36,22 +31,17 @@
   WHERE team_id = 99999
     AND event = 'survey sent'
     AND timestamp >= '2024-04-25 14:40:09'
-    AND uuid IN (
-                   (SELECT uuid
-                    FROM events
-                    WHERE team_id = 99999
-                      AND event = 'survey sent'
-                      AND timestamp >= '2024-04-25 14:40:09'
-                      AND COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') = '' )
-                 UNION ALL
-                   (SELECT argMax(uuid, timestamp)
-                    FROM events
-                    WHERE team_id = 99999
-                      AND event = 'survey sent'
-                      AND timestamp >= '2024-04-25 14:40:09'
-                      AND COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') != ''
-                    GROUP BY JSONExtractString(properties, '$survey_id'),
-                             JSONExtractString(properties, '$survey_submission_id')))
+    AND uuid IN
+      (SELECT argMax(uuid, timestamp)
+       FROM events
+       WHERE team_id = 99999
+         AND event = 'survey sent'
+         AND timestamp >= '2024-04-25 14:40:09'
+       GROUP BY JSONExtractString(properties, '$survey_id'),
+                CASE
+                    WHEN COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') = '' THEN toString(uuid)
+                    ELSE JSONExtractString(properties, '$survey_submission_id')
+                END)
   GROUP BY survey_id
   '''
 # ---
@@ -64,22 +54,17 @@
   WHERE team_id = 99999
     AND event = 'survey sent'
     AND timestamp >= '2024-06-10 11:00:00'
-    AND uuid IN (
-                   (SELECT uuid
-                    FROM events
-                    WHERE team_id = 99999
-                      AND event = 'survey sent'
-                      AND timestamp >= '2024-06-10 11:00:00'
-                      AND COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') = '' )
-                 UNION ALL
-                   (SELECT argMax(uuid, timestamp)
-                    FROM events
-                    WHERE team_id = 99999
-                      AND event = 'survey sent'
-                      AND timestamp >= '2024-06-10 11:00:00'
-                      AND COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') != ''
-                    GROUP BY JSONExtractString(properties, '$survey_id'),
-                             JSONExtractString(properties, '$survey_submission_id')))
+    AND uuid IN
+      (SELECT argMax(uuid, timestamp)
+       FROM events
+       WHERE team_id = 99999
+         AND event = 'survey sent'
+         AND timestamp >= '2024-06-10 11:00:00'
+       GROUP BY JSONExtractString(properties, '$survey_id'),
+                CASE
+                    WHEN COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') = '' THEN toString(uuid)
+                    ELSE JSONExtractString(properties, '$survey_submission_id')
+                END)
   GROUP BY survey_id
   '''
 # ---
