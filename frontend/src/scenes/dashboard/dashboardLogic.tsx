@@ -1443,13 +1443,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                         try {
                             // Make a synchronous POST /query call
-                            await api.query({
-                                query: insight.query,
-                                refresh: 'blocking', // Use 'blocking' mode to leverage caching but calculate synchronously if stale
-                                client_query_id: queryId,
-                                filters_override: action === 'preview' ? values.temporaryFilters : undefined,
-                                variables_override: action === 'preview' ? values.temporaryVariables : undefined,
-                            })
+                            const filtersOverride = action === 'preview' ? values.temporaryFilters : values.filters
+                            const variablesOverride =
+                                action === 'preview' ? values.temporaryVariables : values.insightVariables
+
+                            await api.query(
+                                insight.query!,
+                                undefined,
+                                queryId,
+                                'blocking',
+                                filtersOverride,
+                                variablesOverride
+                            )
 
                             // Fetch the insight with the calculated result from cache
                             const syncInsight = await getSingleInsight(
@@ -1459,8 +1464,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                 queryId,
                                 'force_cache',
                                 undefined,
-                                action === 'preview' ? values.temporaryFilters : undefined,
-                                action === 'preview' ? values.temporaryVariables : undefined
+                                filtersOverride,
+                                variablesOverride
                             )
 
                             if (action === 'preview' && syncInsight?.dashboard_tiles) {
