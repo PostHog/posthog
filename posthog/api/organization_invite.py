@@ -161,7 +161,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         if not private_project_access:
             return None
 
-        # Note: this map is not determing whether or not the project has access controls but simply
+        # Note: this validation is checking if the inviting user has permission to invite others to the project with the specified access level, not whether the project itself has access controls enabled.
         # checking if the inviting user has permission to invite a user to the project with the given level
         for item in private_project_access:
             # if the project is private, if user is not an admin of the team, they can't invite to it
