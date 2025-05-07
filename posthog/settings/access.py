@@ -26,8 +26,13 @@ if get_from_env("DISABLE_SECURE_SSL_REDIRECT", False, type_cast=str_to_bool):
     SECURE_SSL_REDIRECT = False
 
 raw_site_url = os.getenv("SITE_URL")
+
+ENV_TRUSTED_ORIGINS = get_list(os.getenv("CSRF_TRUSTED_ORIGINS", ""))
+
 CSRF_TRUSTED_ORIGINS = (
-    [raw_site_url.rstrip("/")]
+  ENV_TRUSTED_ORIGINS
+  if len(ENV_TRUSTED_ORIGINS) > 0
+  else [raw_site_url.rstrip("/")]
     if raw_site_url
     else ["http://localhost:8000", "http://localhost:8010"]  # 8000 is just Django, 8010 is Django + Capture via Caddy
 )
