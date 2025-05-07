@@ -58,18 +58,6 @@ const mockData = {
     allAggregations: 750,
 }
 
-export const Loading: Story = {
-    args: {
-        query: theQuery,
-        context: mockContext,
-    },
-    parameters: {
-        testOptions: {
-            waitForLoadersToDisappear: false,
-        },
-    },
-}
-
 export const WithData: Story = {
     args: {
         query: theQuery,
