@@ -377,58 +377,55 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
     return (
         <CSSTransition in={showing} timeout={250} classNames="anim-" mountOnEnter unmountOnExit>
             <>
-                <div
-                    className={clsx(
-                        'EditorFiltersWrapper relative flex flex-row flex-wrap gap-8 shrink-0 bg-surface-primary',
-                        {
-                            'p-4 rounded border': !embedded,
+                <MaxTool
+                    name="create_and_query_insight"
+                    displayName="Edit insight"
+                    context={{
+                        current_schema: querySource,
+                    }}
+                    callback={(
+                        toolOutput:
+                            | AssistantTrendsQuery
+                            | AssistantFunnelsQuery
+                            | AssistantRetentionQuery
+                            | AssistantHogQLQuery
+                    ) => {
+                        const source = castAssistantQuery(toolOutput)
+                        if (isHogQLQuery(source)) {
+                            const node = {
+                                kind: NodeKind.DataVisualizationNode,
+                                source,
+                            } satisfies DataVisualizationNode
+                            setQuery(node)
+                        } else {
+                            const node = { kind: NodeKind.InsightVizNode, source } satisfies InsightVizNode
+                            setQuery(node)
                         }
-                    )}
+                    }}
+                    initialMaxPrompt="Show me users who "
                 >
-                    <div className="absolute bottom-1.5 right-4">
-                        <MaxTool
-                            name="create_and_query_insight"
-                            displayName="Edit insight"
-                            context={{
-                                current_schema: querySource,
-                            }}
-                            callback={(
-                                toolOutput:
-                                    | AssistantTrendsQuery
-                                    | AssistantFunnelsQuery
-                                    | AssistantRetentionQuery
-                                    | AssistantHogQLQuery
-                            ) => {
-                                const source = castAssistantQuery(toolOutput)
-                                if (isHogQLQuery(source)) {
-                                    const node = {
-                                        kind: NodeKind.DataVisualizationNode,
-                                        source,
-                                    } satisfies DataVisualizationNode
-                                    setQuery(node)
-                                } else {
-                                    const node = { kind: NodeKind.InsightVizNode, source } satisfies InsightVizNode
-                                    setQuery(node)
-                                }
-                            }}
-                            initialMaxPrompt="Show me users who "
-                        >
-                            <div className="relative" />
-                        </MaxTool>
+                    <div
+                        className={clsx(
+                            'EditorFiltersWrapper relative flex flex-row flex-wrap gap-8 shrink-0 bg-surface-primary',
+                            {
+                                'p-4 rounded border': !embedded,
+                            }
+                        )}
+                    >
+                        {filterGroupsGroups.map(({ title, editorFilterGroups }) => (
+                            <div key={title} className="flex-1 flex flex-col gap-4 max-w-full">
+                                {editorFilterGroups.map((editorFilterGroup) => (
+                                    <EditorFilterGroup
+                                        key={editorFilterGroup.title}
+                                        editorFilterGroup={editorFilterGroup}
+                                        insightProps={insightProps}
+                                        query={query}
+                                    />
+                                ))}
+                            </div>
+                        ))}
                     </div>
-                    {filterGroupsGroups.map(({ title, editorFilterGroups }) => (
-                        <div key={title} className="flex-1 flex flex-col gap-4 max-w-full">
-                            {editorFilterGroups.map((editorFilterGroup) => (
-                                <EditorFilterGroup
-                                    key={editorFilterGroup.title}
-                                    editorFilterGroup={editorFilterGroup}
-                                    insightProps={insightProps}
-                                    query={query}
-                                />
-                            ))}
-                        </div>
-                    ))}
-                </div>
+                </MaxTool>
 
                 {shouldShowSessionAnalysisWarning ? (
                     <LemonBanner type="info" className="mt-2">
