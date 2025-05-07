@@ -1,4 +1,5 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
+import { DateTime } from 'luxon'
 
 import { ISOTimestamp, PreIngestionEvent } from '~/src/types'
 
@@ -43,7 +44,10 @@ export async function prepareEventStep(
         processPerson
     )
     if (event.now) {
-        preIngestionEvent.capturedAt = event.now as ISOTimestamp
+        const capturedAtDateTime = DateTime.fromISO(event.now).toUTC()
+        preIngestionEvent.capturedAt = capturedAtDateTime.isValid
+            ? (capturedAtDateTime.toISO() as ISOTimestamp)
+            : undefined
     }
     await Promise.all(tsParsingIngestionWarnings)
 
