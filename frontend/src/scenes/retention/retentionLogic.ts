@@ -17,6 +17,8 @@ import type { retentionLogicType } from './retentionLogicType'
 
 const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
 export const OVERALL_MEAN_KEY = '__overall__'
+export const DEFAULT_RETENTION_TOTAL_INTERVALS = 8
+export const RETENTION_EMPTY_BREAKDOWN_VALUE = '(empty)'
 
 // Define a type for the output of the retentionMeans selector
 export interface MeanRetentionValue {
@@ -108,12 +110,13 @@ export const retentionLogic = kea<retentionLogicType>([
                     return {}
                 }
 
-                const { totalIntervals = 11, meanRetentionCalculation = 'weighted' } = retentionFilter
+                const { totalIntervals = DEFAULT_RETENTION_TOTAL_INTERVALS, meanRetentionCalculation = 'weighted' } =
+                    retentionFilter
                 const groupedByBreakdown: Record<string, ProcessedRetentionPayload[]> = {}
 
                 if (hasValidBreakdown) {
                     results.forEach((result) => {
-                        const key = String(result.breakdown_value ?? 'Overall') // Default key if breakdown_value is null/undefined
+                        const key = result.breakdown_value ?? RETENTION_EMPTY_BREAKDOWN_VALUE
                         if (!groupedByBreakdown[key]) {
                             groupedByBreakdown[key] = []
                         }
