@@ -25,10 +25,10 @@ const PROPFILTER_DEFS_SCANNED: &str = "propfilter_definitions_scanned";
 
 // teams with more than this many property definitions are outliers
 // and should be skipped for further property defs processing anyway.
-// looking at the distribution of propdefs to teams in the database,
-// this feels like reasonable, but we can make final decisions later.
+// looking at the distribution of propdefs to teams in the database, this
+// feels like a reasonable threshold, but we can make final decisions later
 const TEAM_PROPDEFS_CAP: i32 = 100_000;
-const _TEAM_PROPDEFS_FILTER_SIZE_CAP: usize = 8192; // 8k as initial limit
+const _TEAM_PROPDEFS_FILTER_SIZE_CAP: usize = 8192; // TODO(eli): enforce this! 8k as initial limit
 
 // batch size & retry params
 const BATCH_FETCH_SIZE: i64 = 1_000;
@@ -36,7 +36,8 @@ const BATCH_RETRY_DELAY_MS: u64 = 100;
 const MAX_BATCH_FETCH_ATTEMPTS: u64 = 5;
 const MAX_PROPFILTER_STORE_ATTEMPTS: u64 = 5;
 
-// bloom filter params DO NOT CHANGE ONCE DECIDED :)
+// TODO(eli): bloom filter params DO NOT CHANGE ONCE DECIDED :)
+// play with the math, iterate, and measure behavior in property-defs-rs before finalizing!
 const BITS_PER_KEY: usize = 64;
 const NUM_KEYS: usize = 1_000_000;
 
@@ -308,9 +309,9 @@ async fn get_next_batch(
     offset: i64,
 ) -> Result<Vec<PgRow>, sqlx::Error> {
     let mut attempt = 1;
-    // note: I measured this (EXPLAIN, example executions etc.) against several outlier teams
-    // that have created millions of hash-based unique property keys and if we cap fetches to
-    // 1k and stop iterating at first 100k propdefs, using LIMIT/OFFSET here seems acceptable
+    // note: this query is backed by an appropriate index. I measured (EXPLAIN, example executions etc.)
+    // against several outlier teams with millions of unique property defs, and if we cap our fetches
+    // to 1k/batch and stop iterating at first 100k props or so, using LIMIT/OFFSET here seems acceptable
     loop {
         match sqlx::query(
             r#"
