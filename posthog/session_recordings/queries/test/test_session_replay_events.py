@@ -100,11 +100,9 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
             "console_warn_count": 0,
             "distinct_id": "u2",
             "duration": 0,
-            "end_time": self.base_time,
             "first_url": "https://example.io/home",
             "keypress_count": 200,
             "mouse_activity_count": 300,
-            "start_time": self.base_time,
             "snapshot_source": "web",
         }
 
@@ -129,11 +127,9 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
             "console_warn_count": 0,
             "distinct_id": "u3",
             "duration": 0,
-            "end_time": self.base_time,
             "first_url": "https://example.io/1",
             "keypress_count": 202,
             "mouse_activity_count": 303,
-            "start_time": self.base_time,
             "snapshot_source": "web",
         }
 
