@@ -443,6 +443,15 @@ export interface OrganizationMemberType extends BaseMemberType {
     is_2fa_enabled: boolean
 }
 
+export interface OrganizationMemberScopedApiKeysResponse {
+    has_keys: boolean
+    has_keys_active_last_week: boolean
+    keys: {
+        name: string
+        last_used_at: string | null
+    }[]
+}
+
 export interface ExplicitTeamMemberType extends BaseMemberType {
     /** Level at which the user explicitly is in the project. */
     level: TeamMembershipLevel
@@ -508,6 +517,8 @@ export interface TeamBasicType extends WithAccessControl {
     organization: string // Organization ID
     project_id: number
     api_token: string
+    secret_api_token: string
+    secret_api_token_backup: string
     name: string
     completed_snippet_onboarding: boolean
     has_completed_onboarding_for?: Record<string, boolean>
@@ -4376,6 +4387,7 @@ export interface DataWarehouseSavedQuery {
     sync_frequency: string
     status?: string
     latest_error: string | null
+    latest_history_id?: string
 }
 
 export interface DataWarehouseViewLink {

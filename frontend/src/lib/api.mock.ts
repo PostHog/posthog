@@ -75,6 +75,8 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
         excluded_person_property_names: ['$browser_version'],
     },
     autocapture_opt_out: true,
+    secret_api_token: 'phs_1234567890',
+    secret_api_token_backup: 'phs_8675309',
     session_recording_opt_in: true,
     session_recording_sample_rate: '1.0',
     session_recording_minimum_duration_milliseconds: null,

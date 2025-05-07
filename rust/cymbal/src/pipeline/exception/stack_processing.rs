@@ -5,7 +5,7 @@ use uuid::Uuid;
 use crate::{
     app_context::AppContext,
     error::{PipelineResult, UnhandledError},
-    fingerprinting::generate_fingerprint,
+    fingerprinting::resolve_fingerprint,
     metric_consts::FRAME_RESOLUTION,
     types::{FingerprintedErrProps, RawErrProps, Stacktrace},
 };
@@ -98,7 +98,21 @@ pub async fn do_stack_processing(
                 .map_err(|e| (index, e))?
         }
 
-        let proposed = generate_fingerprint(&props.exception_list);
+        let team_id = events[index]
+            .as_ref()
+            .expect("no events have been dropped since indexed-property gathering")
+            .team_id;
+
+        let mut conn = context
+            .pool
+            .acquire()
+            .await
+            .map_err(|e| (index, e.into()))?;
+
+        let proposed = resolve_fingerprint(&mut conn, &context.team_manager, team_id, &props)
+            .await
+            .map_err(|e| (index, e))?;
+
         let fingerprinted = props.to_fingerprinted(proposed);
         indexed_fingerprinted.push((index, fingerprinted));
     }

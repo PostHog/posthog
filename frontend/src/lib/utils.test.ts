@@ -26,6 +26,7 @@ import {
     genericOperatorMap,
     getDefaultInterval,
     getFormattedLastWeekDate,
+    getRelativeNextPath,
     hexToRGBA,
     humanFriendlyDuration,
     humanFriendlyLargeNumber,
@@ -873,5 +874,69 @@ describe('lib/utils', () => {
         expect(shortTimeZone('America/Phoenix')).toEqual('MST')
         expect(shortTimeZone('Europe/Moscow')).toEqual('UTC+3')
         expect(shortTimeZone('Asia/Tokyo')).toEqual('UTC+9')
+    })
+
+    describe('getRelativeNextPath', () => {
+        const location = {
+            origin: 'https://us.posthog.com',
+            protocol: 'https:',
+            host: 'us.posthog.com',
+            hostname: 'us.posthog.com',
+            href: 'https://us.posthog.com/',
+        } as Location
+
+        it('returns relative path for same-origin absolute URL', () => {
+            expect(getRelativeNextPath('https://us.posthog.com/test', location)).toBe('/test')
+        })
+
+        it('returns relative path for same-origin absolute URL with query and hash', () => {
+            expect(getRelativeNextPath('https://us.posthog.com/test?foo=bar#baz', location)).toBe('/test?foo=bar#baz')
+        })
+
+        it('returns relative path for encoded same-origin absolute URL', () => {
+            expect(getRelativeNextPath('https%3A%2F%2Fus.posthog.com%2Ftest', location)).toBe('/test')
+        })
+
+        it('returns relative path for root-relative path', () => {
+            expect(getRelativeNextPath('/test', location)).toBe('/test')
+        })
+
+        it('returns relative path for root-relative path with query and hash', () => {
+            expect(getRelativeNextPath('/test?foo=bar#baz', location)).toBe('/test?foo=bar#baz')
+        })
+
+        it('returns null for external absolute URL', () => {
+            expect(getRelativeNextPath('https://evil.com/test', location)).toBeNull()
+        })
+
+        it('returns null for encoded external absolute URL', () => {
+            expect(getRelativeNextPath('https%3A%2F%2Fevil.com%2Ftest', location)).toBeNull()
+        })
+
+        it('returns null for protocol-relative external URL', () => {
+            expect(getRelativeNextPath('//evil.com/test', location)).toBeNull()
+        })
+
+        it('returns null for empty string', () => {
+            expect(getRelativeNextPath('', location)).toBeNull()
+        })
+
+        it('returns null for malformed URL', () => {
+            expect(getRelativeNextPath('http://', location)).toBeNull()
+            expect(getRelativeNextPath('%%%%', location)).toBeNull()
+        })
+
+        it('returns null for non-string input', () => {
+            expect(getRelativeNextPath(null, location)).toBeNull()
+            expect(getRelativeNextPath(undefined, location)).toBeNull()
+        })
+
+        it('returns relative path for encoded root-relative path', () => {
+            expect(getRelativeNextPath('%2Ftest%2Ffoo%3Fbar%3Dbaz%23hash', location)).toBe('/test/foo?bar=baz#hash')
+        })
+
+        it('returns null for encoded protocol-relative URL', () => {
+            expect(getRelativeNextPath('%2F%2Fevil.com%2Ftest', location)).toBeNull()
+        })
     })
 })
