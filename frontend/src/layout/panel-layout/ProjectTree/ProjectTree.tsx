@@ -298,31 +298,7 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                     </MenuItem>
                 ) : null}
 
-                {item.record?.path && item.record?.shortcut ? (
-                    <MenuItem
-                        asChild
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            assureVisibility({ type: item.record?.type, ref: item.record?.ref })
-                        }}
-                    >
-                        <ButtonPrimitive menuItem>Show original</ButtonPrimitive>
-                    </MenuItem>
-                ) : null}
-
-                {item.record?.path && item.record?.type === 'folder' ? (
-                    <MenuItem
-                        asChild
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            setEditingItemId(item.id)
-                        }}
-                    >
-                        <ButtonPrimitive menuItem>Rename</ButtonPrimitive>
-                    </MenuItem>
-                ) : null}
-
-                {item.record?.shortcut && (
+                {item.record?.shortcut ? (
                     <MenuItem
                         asChild
                         onClick={(e) => {
@@ -332,7 +308,17 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                     >
                         <ButtonPrimitive menuItem>Delete shortcut</ButtonPrimitive>
                     </MenuItem>
-                )}
+                ) : item.record?.path && item.record?.type === 'folder' ? (
+                    <MenuItem
+                        asChild
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            deleteItem(item.record as unknown as FileSystemEntry)
+                        }}
+                    >
+                        <ButtonPrimitive menuItem>Delete folder</ButtonPrimitive>
+                    </MenuItem>
+                ) : null}
 
                 <MenuItem
                     asChild
@@ -348,6 +334,29 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                 >
                     <ButtonPrimitive menuItem>Move to...</ButtonPrimitive>
                 </MenuItem>
+                {item.record?.path && item.record?.type === 'folder' ? (
+                    <MenuItem
+                        asChild
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            setEditingItemId(item.id)
+                        }}
+                    >
+                        <ButtonPrimitive menuItem>Rename</ButtonPrimitive>
+                    </MenuItem>
+                ) : null}
+
+                {item.record?.path && item.record?.shortcut ? (
+                    <MenuItem
+                        asChild
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            assureVisibility({ type: item.record?.type, ref: item.record?.ref })
+                        }}
+                    >
+                        <ButtonPrimitive menuItem>Show original</ButtonPrimitive>
+                    </MenuItem>
+                ) : null}
             </>
         )
     }
