@@ -13,6 +13,7 @@ from typing import Optional
 
 from posthog.api.feature_flag import SURVEY_TARGETING_FLAG_PREFIX
 from posthog.api.survey import get_surveys_count, get_surveys_opt_in
+from posthog.api.error_tracking import get_suppression_rules
 from posthog.api.utils import (
     get_project_id,
     get_token,
@@ -138,13 +139,7 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
     )
 
     response["autocapture_opt_out"] = True if team.autocapture_opt_out else False
-    response["autocaptureExceptions"] = (
-        {
-            "endpoint": "/e/",
-        }
-        if team.autocapture_exceptions_opt_in
-        else False
-    )
+    response["autocaptureExceptions"] = True if team.autocapture_exceptions_opt_in else False
 
     # this not settings.DEBUG check is a lazy workaround because
     # NEW_ANALYTICS_CAPTURE_ENDPOINT doesn't currently work in DEBUG mode
@@ -175,6 +170,10 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
     response["heatmaps"] = True if team.heatmaps_opt_in else False
     response["flagsPersistenceDefault"] = True if team.flags_persistence_default else False
     response["defaultIdentifiedOnly"] = True  # Support old SDK versions with setting that is now the default
+    response["errorTracking"] = {
+        "autocaptureExceptions": True if team.autocapture_exceptions_opt_in else False,
+        "suppressionRules": get_suppression_rules(team),
+    }
 
     site_apps = []
     # errors mean the database is unavailable, bail in this case

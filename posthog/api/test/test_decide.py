@@ -628,10 +628,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self._update_team({"autocapture_exceptions_opt_in": True})
 
         response = self._post_decide().json()
-        self.assertEqual(
-            response["autocaptureExceptions"],
-            {"endpoint": "/e/"},
-        )
+        self.assertEqual(response["autocaptureExceptions"], True)
 
     def test_web_vitals_autocapture_opt_in(self, *args):
         response = self._post_decide().json()
@@ -865,14 +862,14 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        response = self._post_decide(assert_num_queries=4)
+        response = self._post_decide(assert_num_queries=5)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("default-flag", response.json()["featureFlags"])
         self.assertIn("beta-feature", response.json()["featureFlags"])
         self.assertIn("filer-by-property-2", response.json()["featureFlags"])
 
         # caching flag definitions in the above query mean fewer queries
-        response = self._post_decide({"token": self.team.api_token, "distinct_id": "another_id"}, assert_num_queries=4)
+        response = self._post_decide({"token": self.team.api_token, "distinct_id": "another_id"}, assert_num_queries=5)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["featureFlags"], ["default-flag"])
 
@@ -1424,7 +1421,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )  # Should be enabled for everyone
 
         # caching flag definitions mean fewer queries
-        response = self._post_decide(api_version=2, assert_num_queries=5)
+        response = self._post_decide(api_version=2, assert_num_queries=6)
         self.assertTrue(response.json()["featureFlags"]["beta-feature"])
         self.assertTrue(response.json()["featureFlags"]["default-flag"])
 
@@ -1835,13 +1832,13 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         # caching flag definitions mean fewer queries
-        response = self._post_decide(api_version=2, distinct_id="hosted_id", assert_num_queries=4)
+        response = self._post_decide(api_version=2, distinct_id="hosted_id", assert_num_queries=5)
         self.assertIsNone(
             (response.json()["featureFlags"]).get("multivariate-flag", None)
         )  # User is does not have realm == "cloud". Value is None.
         self.assertTrue((response.json()["featureFlags"]).get("default-flag"))  # User still receives the default flag
 
-        response = self._post_decide(api_version=2, distinct_id="example_id", assert_num_queries=4)
+        response = self._post_decide(api_version=2, distinct_id="example_id", assert_num_queries=5)
         self.assertIsNotNone(
             response.json()["featureFlags"]["multivariate-flag"]
         )  # User has an 80% chance of being assigned any non-empty value.
@@ -3172,10 +3169,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             {"network_timing": True, "web_vitals": False, "web_vitals_allowed_metrics": None},
         )
         self.assertEqual(response["featureFlags"], {})
-        self.assertEqual(
-            response["autocaptureExceptions"],
-            {"endpoint": "/e/"},
-        )
+        self.assertEqual(response["autocaptureExceptions"], True)
 
         response = self._post_decide(
             api_version=2, origin="https://random.example.com", simulate_database_timeout=True
@@ -3196,10 +3190,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             response["capturePerformance"],
             {"network_timing": True, "web_vitals": False, "web_vitals_allowed_metrics": None},
         )
-        self.assertEqual(
-            response["autocaptureExceptions"],
-            {"endpoint": "/e/"},
-        )
+        self.assertEqual(response["autocaptureExceptions"], True)
         self.assertEqual(response["featureFlags"], {})
 
     def test_decide_with_json_and_numeric_distinct_ids(self, *args):
@@ -3233,7 +3224,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self._post_decide(api_version=2, distinct_id="a")
 
         # caching flag definitions mean fewer queries
-        response = self._post_decide(api_version=2, distinct_id=12345, assert_num_queries=4)
+        response = self._post_decide(api_version=2, distinct_id=12345, assert_num_queries=5)
         self.assertEqual(response.json()["featureFlags"], {"random-flag": True})
 
         response = self._post_decide(
@@ -3245,7 +3236,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "created_at": "2023-04-17T08:55:34.624Z",
                 "updated_at": "2023-04-21T08:43:34.479",
             },
-            assert_num_queries=4,
+            assert_num_queries=5,
         )
         self.assertEqual(
             response.json()["featureFlags"],
@@ -3255,17 +3246,17 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide(
             api_version=2,
             distinct_id="{'id': 33040, 'shopify_domain': 'xxx.myshopify.com', 'shopify_token': 'shpat_xxxx', 'created_at': '2023-04-17T08:55:34.624Z', 'updated_at': '2023-04-21T08:43:34.479'",
-            assert_num_queries=4,
+            assert_num_queries=5,
         )
         self.assertEqual(response.json()["featureFlags"], {"random-flag": True})
 
-        response = self._post_decide(api_version=2, distinct_id={"x": "y"}, assert_num_queries=4)
+        response = self._post_decide(api_version=2, distinct_id={"x": "y"}, assert_num_queries=5)
         self.assertEqual(
             response.json()["featureFlags"],
             {"random-flag": True, "filer-by-property": True},
         )
 
-        response = self._post_decide(api_version=2, distinct_id={"x": "z"}, assert_num_queries=4)
+        response = self._post_decide(api_version=2, distinct_id={"x": "z"}, assert_num_queries=5)
         self.assertEqual(response.json()["featureFlags"], {"random-flag": True})
         # need to pass in exact string to get the property flag
 

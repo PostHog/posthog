@@ -108,6 +108,7 @@ class RemoteConfig(UUIDModel):
         from posthog.models.team import Team
         from posthog.plugins.site import get_decide_site_apps
         from posthog.api.survey import get_surveys_response, get_surveys_opt_in
+        from posthog.api.error_tracking import get_suppression_rules
 
         # NOTE: It is important this is changed carefully. This is what the SDK will load in place of "decide" so the format
         # should be kept consistent. The JS code should be minified and the JSON should be as small as possible.
@@ -131,13 +132,7 @@ class RemoteConfig(UUIDModel):
                 else False
             ),
             "autocapture_opt_out": bool(team.autocapture_opt_out),
-            "autocaptureExceptions": (
-                {
-                    "endpoint": "/e/",
-                }
-                if team.autocapture_exceptions_opt_in
-                else False
-            ),
+            "autocaptureExceptions": bool(team.autocapture_exceptions_opt_in),
         }
 
         if str(team.id) not in (settings.NEW_ANALYTICS_CAPTURE_EXCLUDED_TEAM_IDS or []):
@@ -146,7 +141,13 @@ class RemoteConfig(UUIDModel):
         if str(team.id) not in (settings.ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS or []):
             config["elementsChainAsString"] = True
 
-        # MARK: Session Recording
+        # MARK: Error tracking
+        config["errorTracking"] = {
+            "autocaptureExceptions": bool(team.autocapture_exceptions_opt_in),
+            "suppressionRules": get_suppression_rules(team),
+        }
+
+        # MARK: Session recording
         session_recording_config_response: bool | dict = False
 
         # TODO: Support the domain based check for recordings (maybe do it client side)?
