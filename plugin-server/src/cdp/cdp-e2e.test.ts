@@ -273,17 +273,18 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
                 forSnapshot(
                     logMessages
                         .slice(0, -1)
-                        .sort((a, b) => (a.value.timestamp as string).localeCompare(b.value.timestamp as string))
                         .map((m) => m.value.message)
+                        // Sorted compare as the messages can get logged in different orders
+                        .sort()
                 )
             ).toEqual([
                 'Executing function',
-                "Suspending function due to async function call 'fetch'. Payload: 2031 bytes. Event: <REPLACED-UUID-0>",
                 'Fetch failed after 2 attempts',
                 'Fetch failure of kind failurestatus with status 500 and message Received failure status: 500',
                 'Fetch failure of kind failurestatus with status 500 and message Received failure status: 500',
-                'Resuming function',
                 'Fetch response:, {"status":500,"body":{"error":"Server error"}}',
+                'Resuming function',
+                "Suspending function due to async function call 'fetch'. Payload: 2031 bytes. Event: <REPLACED-UUID-0>",
             ])
         })
     })

@@ -94,6 +94,22 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
         </LemonButton>
     )
 
+    const editingViewDisabledReason = useMemo(() => {
+        if (updatingDataWarehouseSavedQuery) {
+            return 'Saving...'
+        }
+
+        if (!response) {
+            return 'Run query to update'
+        }
+
+        if (!changesToSave) {
+            return 'No changes to save'
+        }
+
+        return undefined
+    }, [updatingDataWarehouseSavedQuery, changesToSave, response])
+
     return (
         <div className="flex flex-1 flex-col h-full overflow-hidden">
             <div className="flex flex-row overflow-x-auto">
@@ -145,13 +161,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                                     edited_history_id: inProgressViewEdits[editingView.id],
                                 })
                             }
-                            disabledReason={
-                                updatingDataWarehouseSavedQuery
-                                    ? 'Saving...'
-                                    : !changesToSave
-                                    ? 'No changes to save'
-                                    : ''
-                            }
+                            disabledReason={editingViewDisabledReason}
                             icon={<IconDownload />}
                             type="tertiary"
                             size="xsmall"
