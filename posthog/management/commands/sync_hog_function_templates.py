@@ -25,10 +25,6 @@ class Command(BaseCommand):
         # Process templates from HOG_FUNCTION_TEMPLATES (Python templates)
         for template in HOG_FUNCTION_TEMPLATES:
             try:
-                # Only process templates with type "transformation" or "destination"
-                if template.type not in ["transformation", "destination"]:
-                    continue
-
                 total_templates += 1
                 result = self._process_template(template)
 
