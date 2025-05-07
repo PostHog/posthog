@@ -356,10 +356,6 @@ export class KafkaConsumer {
                         await Promise.all(this.backgroundTask.slice(0, index))
 
                         if (this.config.autoCommit && this.config.autoOffsetStore) {
-                            console.log(
-                                'storing offsets',
-                                messages.map((m) => m.offset)
-                            )
                             this.storeOffsetsForMessages(messages)
                         }
 

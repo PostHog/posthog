@@ -97,23 +97,28 @@ describe('consumer', () => {
     })
 
     describe('background work', () => {
+        /**
+         * NOTE: These tests are pretty verbose but also pretty cool! We are using special wrapped promises
+         * to control the flow of the code and validate at each stage that it does what it is supposed to do.
+         */
         let eachBatch: jest.Mock
 
         beforeEach(async () => {
             consumer['maxBackgroundTasks'] = 3
-
             eachBatch = jest.fn(() => Promise.resolve({}))
 
             // Hard test to simulate... We want to control each batch and return
             await consumer.connect(eachBatch)
         })
 
-        // TRICKY: When this runs, the consumeCallback will run sync through to the "eachBatch"
-        // function being called. That function call sets the
         const runWithBackgroundTask = async (messages: Message[], p: Promise<any>) => {
+            // Create a triggerable promise that we can use to control the flow of the code
             const eachBatchTrigger = triggerablePromise()
+            // Mock the eachBatch function to return the triggerable promise
             eachBatch.mockImplementation(() => eachBatchTrigger.promise)
+            // Call the consume callback with the messages which will sync lead to the eachBatch function being called
             consumeCallback(null, messages)
+            // Resolve the triggerable promise with the background task
             eachBatchTrigger.resolve({
                 backgroundTask: p,
             })
@@ -121,17 +126,22 @@ describe('consumer', () => {
 
         it('should receive background work and wait for them all to be completed before committing offsets', async () => {
             // First of all call the callback with background work - and check that
+            expect(mockRdKafkaConsumer.consume).toHaveBeenCalledTimes(1)
             const p1 = triggerablePromise()
             await runWithBackgroundTask([createKafkaMessage({ offset: 1, partition: 0 })], p1.promise)
             await delay(1)
+            expect(mockRdKafkaConsumer.consume).toHaveBeenCalledTimes(2)
 
             const p2 = triggerablePromise()
             await runWithBackgroundTask([createKafkaMessage({ offset: 2, partition: 0 })], p2.promise)
             await delay(1)
+            expect(mockRdKafkaConsumer.consume).toHaveBeenCalledTimes(3)
 
             const p3 = triggerablePromise()
             await runWithBackgroundTask([createKafkaMessage({ offset: 3, partition: 0 })], p3.promise)
             await delay(1)
+            // IMPORTANT: We don't expect a 4th call as the 3rd should have triggered the wait backpressure await
+            expect(mockRdKafkaConsumer.consume).toHaveBeenCalledTimes(3) // NOT 4
 
             // At this point we have 3 background work items so we must be waiting for one of them
             expect(consumer['backgroundTask']).toEqual([p1.promise, p2.promise, p3.promise])
@@ -140,10 +150,14 @@ describe('consumer', () => {
 
             p1.resolve()
             await delay(1) // Let the promises callbacks trigger
+            expect(mockRdKafkaConsumer.consume).toHaveBeenCalledTimes(4) // Releases the backpressure
             p2.resolve()
             await delay(1) // Let the promises callbacks trigger
             p3.resolve()
             await delay(1) // Let the promises callbacks trigger
+
+            // Check the other background work releases has no effect on the consume call count
+            expect(mockRdKafkaConsumer.consume).toHaveBeenCalledTimes(4)
 
             expect(consumer['backgroundTask']).toEqual([])
             expect(mockRdKafkaConsumer.offsetsStore.mock.calls).toMatchObject([
@@ -174,8 +188,10 @@ describe('consumer', () => {
 
             p1.resolve()
             await delay(1) // Let the promises callbacks trigger
+            expect(consumer['backgroundTask']).toEqual([p2.promise, p3.promise])
             p3.resolve()
             await delay(1) // Let the promises callbacks trigger
+            expect(consumer['backgroundTask']).toEqual([p2.promise])
             p2.resolve()
             await delay(1) // Let the promises callbacks trigger
 
