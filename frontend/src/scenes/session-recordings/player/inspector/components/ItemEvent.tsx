@@ -1,6 +1,7 @@
 import './ImagePreview.scss'
 
-import { LemonButton, LemonDivider, LemonTabs, Link } from '@posthog/lemon-ui'
+import { IconShare } from '@posthog/icons'
+import { LemonButton, LemonDivider, LemonMenu, LemonTabs, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
 import { HTMLElementsDisplay } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay'
@@ -151,52 +152,48 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
     return (
         <div data-attr="item-event" className="font-light w-full">
             <div className="px-2 py-1 text-xs border-t">
-                {insightUrl || traceUrl ? (
-                    <>
-                        <div className="flex justify-between gap-2">
-                            <LemonButton
-                                size="xsmall"
-                                sideIcon={<IconLink />}
-                                data-attr="events-table-event-link"
-                                onClick={() =>
+                <div className="flex justify-end gap-2">
+                    <LemonMenu
+                        items={[
+                            {
+                                label: 'Copy link to event',
+                                icon: <IconLink />,
+                                onClick: () => {
                                     void copyToClipboard(
                                         urls.absolute(
                                             urls.currentProject(urls.event(String(item.data.uuid), item.data.timestamp))
                                         ),
                                         'link to event'
                                     )
-                                }
-                            >
-                                Copy link to event
+                                },
+                            },
+                            insightUrl
+                                ? {
+                                      label: 'Try out in Insights',
+                                      icon: <IconOpenInNew />,
+                                      to: insightUrl,
+                                      targetBlank: true,
+                                  }
+                                : null,
+                            traceUrl
+                                ? {
+                                      label: 'View LLM Trace',
+                                      icon: <IconLink />,
+                                      to: traceUrl,
+                                      targetBlank: true,
+                                  }
+                                : null,
+                        ]}
+                        buttonSize="xsmall"
+                    >
+                        <div className="recordings-event-share-actions">
+                            <LemonButton size="xsmall" icon={<IconShare />}>
+                                Share
                             </LemonButton>
-                            {insightUrl && (
-                                <LemonButton
-                                    size="xsmall"
-                                    type="secondary"
-                                    sideIcon={<IconOpenInNew />}
-                                    data-attr="recordings-event-to-insights"
-                                    to={insightUrl}
-                                    targetBlank
-                                >
-                                    Try out in Insights
-                                </LemonButton>
-                            )}
-                            {traceUrl && (
-                                <LemonButton
-                                    size="xsmall"
-                                    type="secondary"
-                                    sideIcon={<IconOpenInNew />}
-                                    data-attr="recordings-event-to-llm-trace"
-                                    to={traceUrl}
-                                    targetBlank
-                                >
-                                    View LLM Trace
-                                </LemonButton>
-                            )}
                         </div>
-                        <LemonDivider dashed />
-                    </>
-                ) : null}
+                    </LemonMenu>
+                </div>
+                <LemonDivider dashed />
 
                 {item.data.fullyLoaded ? (
                     item.data.event === '$exception' ? (
