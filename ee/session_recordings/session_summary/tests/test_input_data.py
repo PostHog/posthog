@@ -551,7 +551,9 @@ def test_get_paginated_session_events(
 )
 def test_skip_exception_without_valid_context(exception_data: dict[str, Any], expected_skip: bool):
     # Convert exception data to event row format
-    event_row: list[str | None | dict] = [None] * 15  # Match the number of columns in mock_event_indexes
+    event_row: list[str | datetime | list[str] | None] = [
+        None
+    ] * 15  # Match the number of columns in mock_event_indexes
     indexes = {
         "$exception_types": 10,
         "$exception_sources": 11,
