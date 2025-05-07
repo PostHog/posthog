@@ -23,7 +23,7 @@ def backfill_hog_function_template_fk(apps, schema_editor):
     logger.info("starting_backfill", total_records=total_count)
 
     # Use keyset pagination
-    last_id = None
+    last_id = 0
     batch_count = 0
 
     while True:
