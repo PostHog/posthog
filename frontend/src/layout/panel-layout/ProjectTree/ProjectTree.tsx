@@ -1,7 +1,7 @@
 import { IconCheckbox, IconChevronRight, IconFolder, IconFolderPlus, IconX } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { MoveFilesModal } from 'lib/components/FileSystem/MoveFilesModal'
-import { ResizableDiv } from 'lib/components/ResizeElement/ResizeElement'
+import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { LemonTree, LemonTreeRef, TreeDataItem, TreeMode } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { Tooltip } from 'lib/lemon-ui/Tooltip/Tooltip'
@@ -295,31 +295,7 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                     </MenuItem>
                 ) : null}
 
-                {item.record?.path && item.record?.shortcut ? (
-                    <MenuItem
-                        asChild
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            assureVisibility({ type: item.record?.type, ref: item.record?.ref })
-                        }}
-                    >
-                        <ButtonPrimitive menuItem>Show original</ButtonPrimitive>
-                    </MenuItem>
-                ) : null}
-
-                {item.record?.path && item.record?.type === 'folder' ? (
-                    <MenuItem
-                        asChild
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            setEditingItemId(item.id)
-                        }}
-                    >
-                        <ButtonPrimitive menuItem>Rename</ButtonPrimitive>
-                    </MenuItem>
-                ) : null}
-
-                {item.record?.shortcut && (
+                {item.record?.shortcut ? (
                     <MenuItem
                         asChild
                         onClick={(e) => {
@@ -329,7 +305,17 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                     >
                         <ButtonPrimitive menuItem>Delete shortcut</ButtonPrimitive>
                     </MenuItem>
-                )}
+                ) : item.record?.path && item.record?.type === 'folder' ? (
+                    <MenuItem
+                        asChild
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            deleteItem(item.record as unknown as FileSystemEntry)
+                        }}
+                    >
+                        <ButtonPrimitive menuItem>Delete folder</ButtonPrimitive>
+                    </MenuItem>
+                ) : null}
 
                 <MenuItem
                     asChild
@@ -345,6 +331,29 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                 >
                     <ButtonPrimitive menuItem>Move to...</ButtonPrimitive>
                 </MenuItem>
+                {item.record?.path && item.record?.type === 'folder' ? (
+                    <MenuItem
+                        asChild
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            setEditingItemId(item.id)
+                        }}
+                    >
+                        <ButtonPrimitive menuItem>Rename</ButtonPrimitive>
+                    </MenuItem>
+                ) : null}
+
+                {item.record?.path && item.record?.shortcut ? (
+                    <MenuItem
+                        asChild
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            assureVisibility({ type: item.record?.type, ref: item.record?.ref })
+                        }}
+                    >
+                        <ButtonPrimitive menuItem>Show original</ButtonPrimitive>
+                    </MenuItem>
+                ) : null}
             </>
         )
     }
@@ -393,7 +402,7 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
             <ButtonPrimitive
                 tooltip={projectTreeMode === 'tree' ? 'Switch to table view' : 'Switch to tree view'}
                 onClick={() => setProjectTreeMode(projectTreeMode === 'tree' ? 'table' : 'tree')}
-                className="absolute top-1/2 translate-y-1/2 right-0 translate-x-1/2 z-top w-fit bg-surface-primary border border-primary"
+                className="absolute top-1/2 translate-y-1/2 right-0 translate-x-1/2 w-fit bg-surface-primary border border-primary z-[var(--z-resizer)]"
             >
                 <IconChevronRight
                     className={cn('size-4', {
@@ -425,6 +434,10 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                 onItemChecked={onItemChecked}
                 checkedItemCount={checkedItemCountNumeric}
                 onNodeClick={(node) => {
+                    if (node?.type === 'empty-folder' || node?.type === 'loading-indicator') {
+                        return
+                    }
+
                     if (!isLayoutPanelPinned || projectTreeMode === 'table') {
                         clearActivePanelIdentifier()
                         showLayoutPanel(false)
@@ -545,7 +558,7 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                         <>
                             {/* Headers */}
                             {treeTableKeys?.headers.map((header, index) => (
-                                <ResizableDiv
+                                <ResizableElement
                                     key={header.key}
                                     defaultWidth={header.width || 0}
                                     onResize={(width) => {
@@ -571,7 +584,7 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                                     >
                                         <span>{header.title}</span>
                                     </ButtonPrimitive>
-                                </ResizableDiv>
+                                </ResizableElement>
                             ))}
                         </>
                     )
@@ -614,7 +627,9 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                                                     'starting:opacity-0 opacity-100 delay-50 motion-safe:transition-opacity duration-100 font-normal truncate',
                                                     {
                                                         'font-normal': index > 1,
-                                                        // 'opacity-0': index !== 1 && isEmptyFolder,
+                                                        'font-semibold':
+                                                            item.record?.type === 'folder' &&
+                                                            item.type !== 'empty-folder',
                                                     }
                                                 )}
                                             >

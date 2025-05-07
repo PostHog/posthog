@@ -57,6 +57,7 @@ from posthog.schema import (
     QueryResponseAlternative,
     QueryStatusResponse,
 )
+from posthog.hogql.constants import LimitContext
 from typing import cast
 
 # Create a dedicated thread pool for query processing
@@ -148,6 +149,12 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 query_id=client_query_id,
                 user=request.user,  # type: ignore[arg-type]
                 is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
+                limit_context=(
+                    # QUERY_ASYNC provides extended max execution time for insight queries
+                    LimitContext.QUERY_ASYNC
+                    if is_insight_query(query) and get_query_tag_value("access_method") != "personal_api_key"
+                    else None
+                ),
             )
             if isinstance(result, BaseModel):
                 result = result.model_dump(by_alias=True)
@@ -401,3 +408,27 @@ async def query_awaited(request: Request, *args, **kwargs) -> StreamingHttpRespo
                 "Connection": "keep-alive",
             },
         )
+
+
+def is_insight_query(query):
+    insight_kinds = {
+        "TrendsQuery",
+        "FunnelsQuery",
+        "RetentionQuery",
+        "PathsQuery",
+        "StickinessQuery",
+        "LifecycleQuery",
+    }
+    if getattr(query, "kind", None) in insight_kinds:
+        return True
+    if getattr(query, "kind", None) == "HogQLQuery":
+        return True
+    if getattr(query, "kind", None) == "DataTableNode":
+        source = getattr(query, "source", None)
+        if source and getattr(source, "kind", None) in insight_kinds:
+            return True
+    if getattr(query, "kind", None) == "DataVisualizationNode":
+        source = getattr(query, "source", None)
+        if source and getattr(source, "kind", None) in insight_kinds:
+            return True
+    return False

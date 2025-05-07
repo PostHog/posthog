@@ -3,7 +3,6 @@ import { router, urlToAction } from 'kea-router'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
 import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getRelativeNextPath } from 'lib/utils'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
@@ -182,7 +181,10 @@ export const sceneLogic = kea<sceneLogicType>([
                     return Scene.ErrorAccessDenied
                 }
 
-                return isCurrentTeamUnavailable && scene && sceneConfigurations[scene]?.projectBased
+                return isCurrentTeamUnavailable &&
+                    scene &&
+                    sceneConfigurations[scene]?.projectBased &&
+                    location.pathname !== urls.settings('user-danger-zone')
                     ? Scene.ErrorProjectUnavailable
                     : scene
             },
@@ -222,12 +224,6 @@ export const sceneLogic = kea<sceneLogicType>([
             const { user } = userLogic.values
             const { preflight } = preflightLogic.values
 
-            if (params.searchParams?.organizationDeleted && !organizationLogic.values.organizationBeingDeleted) {
-                lemonToast.success('Organization has been deleted')
-                router.actions.push(urls.default())
-                return
-            }
-
             if (scene === Scene.Signup && preflight && !preflight.can_create_org) {
                 // If user is on an already initiated self-hosted instance, redirect away from signup
                 router.actions.replace(urls.login())
@@ -265,7 +261,10 @@ export const sceneLogic = kea<sceneLogicType>([
                 // Redirect to org/project creation if there's no org/project respectively, unless using invite
                 if (scene !== Scene.InviteSignup) {
                     if (organizationLogic.values.isCurrentOrganizationUnavailable) {
-                        if (location.pathname !== urls.organizationCreateFirst()) {
+                        if (
+                            location.pathname !== urls.organizationCreateFirst() &&
+                            location.pathname !== urls.settings('user-danger-zone')
+                        ) {
                             console.warn('Organization not available, redirecting to organization creation')
                             router.actions.replace(urls.organizationCreateFirst())
                             return
@@ -309,9 +308,8 @@ export const sceneLogic = kea<sceneLogicType>([
                             return
                         }
 
-                        const productKeyFromUrl = Object.keys(productUrlMapping).find((key: string) =>
-                            // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
-                            (Object.values(productUrlMapping[key]) as string[]).some(
+                        const productKeyFromUrl = Object.keys(productUrlMapping).find((key) =>
+                            productUrlMapping[key as ProductKey]?.some(
                                 (path: string) =>
                                     removeProjectIdIfPresent(location.pathname).startsWith(path) &&
                                     !path.startsWith('/projects')

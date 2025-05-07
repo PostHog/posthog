@@ -1,5 +1,4 @@
 import asyncio
-import collections
 import collections.abc
 import dataclasses
 import datetime as dt
@@ -10,10 +9,10 @@ import re
 import typing
 import uuid
 
+import os
 import dlt
 import dlt.common.data_types as dlt_data_types
 import dlt.common.schema.typing as dlt_typing
-import dlt.extract
 import structlog
 import temporalio.activity
 import temporalio.common
@@ -39,6 +38,9 @@ from posthog.warehouse.models.data_modeling_job import DataModelingJob
 from posthog.warehouse.util import database_sync_to_async
 
 logger = structlog.get_logger()
+
+# preserve casing since we are already coming from a sql dialect, we don't need to worry about normalizing
+os.environ["SCHEMA__NAMING"] = "direct"
 
 CLICKHOUSE_DLT_MAPPING: dict[str, dlt_data_types.TDataType] = {
     "UUID": "text",
@@ -444,7 +446,7 @@ async def materialize_model(
 
         file_uris = table.file_uris()
 
-        prepare_s3_files_for_querying(saved_query.folder_path, saved_query.name, file_uris)
+        prepare_s3_files_for_querying(saved_query.folder_path, saved_query.name, file_uris, True)
 
     if not tables:
         saved_query.latest_error = f"No tables were created by pipeline for model {model_label}"
@@ -930,6 +932,7 @@ class RunWorkflow(PostHogWorkflow):
 
             temporalio.workflow.logger.error(f"Activity failed during model run: {str(e)}")
             return Results(set(), set(), set())
+
         completed, failed, ancestor_failed = results
 
         # publish metrics
