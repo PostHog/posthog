@@ -199,7 +199,6 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
             mode,
             tableViewKeys,
             tableModeTotalWidth,
-            tableModeHeader,
             tableModeRow,
             selectedId,
             handleClick,
@@ -310,9 +309,13 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                             data-id={item.id}
                             // When dragging, don't allow links to be clicked,
                             // without this drag end would fire this href causing a reload
-                            to={isEmptyFolder ? '#' : item.record?.href || '#'}
-                            onClick={() => {
-                                handleClick(item)
+                            to={item.disabledReason || isEmptyFolder ? '#' : item.record?.href || '#'}
+                            onClick={(e) => {
+                                if (item.disabledReason) {
+                                    e.preventDefault()
+                                } else {
+                                    handleClick(item)
+                                }
                             }}
                             disabled={isDragging}
                             role="treeitem"
@@ -1281,7 +1284,6 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                             isDragging={isDragging}
                             checkedItemCount={checkedItemCount}
                             setFocusToElementFromId={focusElementFromId}
-                            tableModeHeader={tableModeHeader}
                             tableModeRow={tableModeRow}
                             {...props}
                         />

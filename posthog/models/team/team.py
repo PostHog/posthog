@@ -256,6 +256,16 @@ class Team(UUIDClassicModel):
     autocapture_exceptions_opt_in = models.BooleanField(null=True, blank=True)
     autocapture_exceptions_errors_to_ignore = models.JSONField(null=True, blank=True)
     person_processing_opt_out = models.BooleanField(null=True, default=False)
+    secret_api_token = models.CharField(
+        max_length=200,
+        null=True,
+        blank=True,
+    )
+    secret_api_token_backup = models.CharField(
+        max_length=200,
+        null=True,
+        blank=True,
+    )
     session_recording_opt_in = models.BooleanField(default=False)
     session_recording_sample_rate = models.DecimalField(
         # will store a decimal between 0 and 1 allowing up to 2 decimal places
