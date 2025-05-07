@@ -13,9 +13,9 @@ from rest_framework.viewsets import ViewSet
 
 from posthog.auth import (
     PersonalAPIKeyAuthentication,
+    ProjectSecretAPIKeyAuthentication,
     SessionAuthentication,
     SharingAccessTokenAuthentication,
-    ProjectSecretAPIKeyUser,
 )
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions import Conflict, EnterpriseFeatureException
@@ -178,15 +178,14 @@ class TeamMemberAccessPermission(BasePermission):
     message = "You don't have access to the project."
 
     def has_permission(self, request, view) -> bool:
+        if isinstance(request.successful_authenticator, ProjectSecretAPIKeyAuthentication):
+            # Ignore the team check for project secret API keys. It's handled by the ProjectSecretAPITokenPermission
+            return True
+
         try:
             view.team  # noqa: B018
         except Team.DoesNotExist:
             return True  # This will be handled as a 404 in the viewset
-
-        if isinstance(request.user, ProjectSecretAPIKeyUser):
-            # NOTE: If the user is a ProjectSecretAPIKeyUser then we've already checked that they have access to the team
-            # and that this request is for the local_evaluation endpoint.
-            return _is_request_for_project_secret_api_token_secured_endpoint(request)
 
         # NOTE: The naming here is confusing - "current_team" refers to the team that the user_permissions was initialized with
         # - not the "current_team" property of the user
@@ -491,7 +490,6 @@ class AccessControlPermission(ScopeBasePermission):
 
     def has_object_permission(self, request, view, object) -> bool:
         # At this level we are checking an individual resource - this could be a project or a lower level item like a Dashboard
-
         # NOTE: If the object is a Team then we shortcircuit here and create a UAC
         # Reason being that there is a loop from view.user_access_control -> view.team -> view.user_access_control
         if isinstance(object, Team):
@@ -521,16 +519,15 @@ class AccessControlPermission(ScopeBasePermission):
         # Primarily we are checking the user's access to the parent resource type (i.e. project, organization)
         # as well as enforcing any global restrictions (e.g. generically only editing of a flag is allowed)
 
+        if isinstance(request.successful_authenticator, ProjectSecretAPIKeyAuthentication):
+            # Ignore the team check for project secret API keys. It's handled by the ProjectSecretAPITokenPermission
+            return True
+
         # Check if the endpoint requires a current team to be set on the user
         if hasattr(view, "param_derived_from_user_current_team"):
             if view.param_derived_from_user_current_team in ("team_id", "project_id"):
                 if request.user.current_team_id is None:
                     raise AuthenticationFailed("This endpoint requires a current project to be set on your account.")
-
-        if isinstance(request.user, ProjectSecretAPIKeyUser):
-            # NOTE: If the user is a ProjectSecretAPIKeyUser then we've already checked that they have access to the team
-            # and that this request is for the local_evaluation endpoint.
-            return _is_request_for_project_secret_api_token_secured_endpoint(request)
 
         uac = self._get_user_access_control(request, view)
         scope_object = self._get_scope_object(request, view)
@@ -605,3 +602,18 @@ class PostHogFeatureFlagPermission(BasePermission):
                 return enabled or False
 
         return True
+
+
+class ProjectSecretAPITokenPermission(BasePermission):
+    """
+    Controls access to the local_evaluation and remote_config endpoints when authenticated via a project secret API token.
+    """
+
+    def has_permission(self, request, view) -> bool:
+        if not isinstance(request.successful_authenticator, ProjectSecretAPIKeyAuthentication):
+            return True
+
+        return request.resolver_match.view_name in (
+            "featureflag-local-evaluation",
+            "project_feature_flags-remote-config",
+        )

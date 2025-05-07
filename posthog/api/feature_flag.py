@@ -66,6 +66,7 @@ from posthog.models.surveys.survey import Survey
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import Property
 from posthog.models.feature_flag.flag_status import FeatureFlagStatusChecker, FeatureFlagStatus
+from posthog.permissions import ProjectSecretAPITokenPermission
 from posthog.queries.base import (
     determine_parsed_date_for_property_matching,
 )
@@ -895,6 +896,7 @@ class FeatureFlagViewSet(
         throttle_classes=[FeatureFlagThrottle],
         required_scopes=["feature_flag:read"],
         authentication_classes=[TemporaryTokenAuthentication, ProjectSecretAPIKeyAuthentication],
+        permission_classes=[ProjectSecretAPITokenPermission],
     )
     def local_evaluation(self, request: request.Request, **kwargs):
         logger = logging.getLogger(__name__)
@@ -1196,6 +1198,7 @@ class FeatureFlagViewSet(
         detail=True,
         required_scopes=["feature_flag:read"],
         authentication_classes=[TemporaryTokenAuthentication, ProjectSecretAPIKeyAuthentication],
+        permission_classes=[ProjectSecretAPITokenPermission],
     )
     def remote_config(self, request: request.Request, **kwargs):
         is_flag_id_provided = kwargs["pk"].isdigit()

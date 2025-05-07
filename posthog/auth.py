@@ -250,7 +250,7 @@ class ProjectSecretAPIKeyUser:
         self.team = team
         self.current_team_id = team.id
         self.is_authenticated = True
-        self.pk = 0
+        self.pk = -1
 
     def has_perm(self, perm, obj=None):
         return False
