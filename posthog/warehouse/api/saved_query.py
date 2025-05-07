@@ -46,6 +46,7 @@ from posthog.warehouse.data_load.saved_query_service import (
     saved_query_workflow_exists,
     sync_saved_query_workflow,
     delete_saved_query_schedule,
+    recreate_model_paths,
 )
 from rest_framework.response import Response
 import uuid
@@ -282,6 +283,9 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             if activity_log:
                 self.context["activity_log"] = activity_log
 
+            if sync_frequency and sync_frequency != "never":
+                recreate_model_paths(view)
+
         if was_sync_frequency_updated:
             schedule_exists = saved_query_workflow_exists(str(instance.id))
             sync_saved_query_workflow(view, create=not schedule_exists)
@@ -383,6 +387,9 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
 
         saved_query = self.get_object()
 
+        # ensure model paths exist before running the workflow
+        recreate_model_paths(saved_query)
+
         temporal = sync_connect()
 
         inputs = RunWorkflowInputs(
@@ -399,6 +406,36 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             id=workflow_id,
             task_queue=DATA_MODELING_TASK_QUEUE,
         )
+
+        return response.Response(status=status.HTTP_200_OK)
+
+    @action(methods=["POST"], detail=True)
+    def revert_materialization(self, request: request.Request, *args, **kwargs) -> response.Response:
+        """
+        Undo materialization, revert back to the original view.
+        (i.e. delete the materialized table and the schedule)
+        """
+        saved_query = self.get_object()
+        saved_query.sync_frequency_interval = None
+        # we still have the history preserved in our DataModelingJob
+        saved_query.last_run_at = None
+        saved_query.latest_error = None
+        saved_query.status = None
+
+        # delete the materialized table reference
+        if saved_query.table is not None:
+            saved_query.table.soft_delete()
+            saved_query.table_id = None
+
+        saved_query.save()
+
+        # delete the schedule
+        delete_saved_query_schedule(str(saved_query.id))
+
+        # delete the model path
+        DataWarehouseModelPath.objects.filter(
+            team=saved_query.team, path__lquery=f"*{{1,}}.{saved_query.id.hex}"
+        ).delete()
 
         return response.Response(status=status.HTTP_200_OK)
 
