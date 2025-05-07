@@ -42,6 +42,9 @@ export async function prepareEventStep(
         uuid!, // it will throw if it's undefined,
         processPerson
     )
+    if (event.now) {
+        preIngestionEvent.capturedAt = event.now as ISOTimestamp
+    }
     await Promise.all(tsParsingIngestionWarnings)
 
     return preIngestionEvent
