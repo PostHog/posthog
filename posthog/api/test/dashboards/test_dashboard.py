@@ -1495,3 +1495,28 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn(visible_dashboard.id, [dashboard["id"] for dashboard in response.json()["results"]])
         self.assertIn(hidden_dashboard.id, [dashboard["id"] for dashboard in response.json()["results"]])
+
+    def test_dashboard_create_in_folder(self):
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/",
+            {
+                "name": "My Foldered Dashboard",
+                "_create_in_folder": "Marketing/Website/Conversion",
+            },
+            format="json",
+        )
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED, create_response.json())
+        created_dashboard_id = create_response.json()["id"]
+
+        dashboard = Dashboard.objects.get(id=created_dashboard_id)
+        assert dashboard.name == "My Foldered Dashboard"
+
+        from posthog.models.file_system.file_system import FileSystem
+
+        fs_entry = FileSystem.objects.filter(
+            team=self.team,
+            type="dashboard",
+            ref=str(created_dashboard_id),
+        ).first()
+        assert fs_entry is not None, "Expected a FileSystem entry for this new Dashboard."
+        assert "Marketing/Website/Conversion" in fs_entry.path, "Folder path is missing or incorrect."

@@ -47,6 +47,7 @@ from posthog.schema import (
     DataWarehousePropertyFilter,
     DataWarehousePersonPropertyFilter,
     ErrorTrackingIssueFilter,
+    ErrorTrackingIssuePropertyFilter,
 )
 from posthog.warehouse.models import DataWarehouseJoin
 from posthog.utils import get_from_dict_or_attr
@@ -301,6 +302,7 @@ def property_to_expr(
         | DataWarehousePropertyFilter
         | DataWarehousePersonPropertyFilter
         | ErrorTrackingIssueFilter
+        | ErrorTrackingIssuePropertyFilter
     ),
     team: Team,
     scope: Literal["event", "person", "group", "session", "replay", "replay_entity"] = "event",
@@ -438,15 +440,12 @@ def property_to_expr(
                 raise QueryError("Data warehouse person property filter value must be a string")
         elif property.type == "group" and scope != "group":
             chain = [f"group_{property.group_type_index}", "properties"]
-        elif property.type in ["recording", "data_warehouse", "log_entry", "event_metadata"]:
-            chain = []
         elif property.type == "session" and scope in ["event", "replay"]:
             chain = ["session"]
         elif property.type == "session" and scope == "session":
             chain = ["sessions"]
-        elif property.type == "error_tracking_issue" or property.type == "error_tracking_issue_property":
-            # TODO - I'm not sure what the distinction between error_tracking_issue and error_tracking_issue_property is
-            chain = ["issue"]
+        elif property.type in ["recording", "data_warehouse", "log_entry", "event_metadata"]:
+            chain = []
         else:
             chain = ["properties"]
 
@@ -478,9 +477,23 @@ def property_to_expr(
                         if operator in (PropertyOperator.EXACT, PropertyOperator.IN_)
                         else ast.CompareOperationOp.NotIn
                     )
-                    return ast.CompareOperation(
-                        op=op, left=field, right=ast.Tuple(exprs=[ast.Constant(value=v) for v in value])
+
+                    left = ast.Field(chain=["v"]) if property.type == "error_tracking_issue_property" else field
+                    expr = ast.CompareOperation(
+                        op=op, left=left, right=ast.Tuple(exprs=[ast.Constant(value=v) for v in value])
                     )
+
+                    if property.type == "error_tracking_issue_property":
+                        return parse_expr(
+                            "arrayExists(v -> {expr}, {key})",
+                            {
+                                "expr": expr,
+                                "key": field,
+                            },
+                        )
+                    else:
+                        return expr
+
                 exprs = [
                     property_to_expr(
                         Property(
@@ -504,8 +517,8 @@ def property_to_expr(
                     return ast.And(exprs=exprs)
                 return ast.Or(exprs=exprs)
 
-        return _expr_to_compare_op(
-            expr=expr,
+        expr = _expr_to_compare_op(
+            expr=ast.Field(chain=["v"]) if property.type == "error_tracking_issue_property" else expr,
             value=value,
             operator=operator,
             team=team,
@@ -513,6 +526,13 @@ def property_to_expr(
             is_json_field=property.type != "session",
         )
 
+        if property.type == "error_tracking_issue_property":
+            return parse_expr(
+                "arrayExists(v -> {expr}, {key})",
+                {"expr": expr, "key": field},
+            )
+        else:
+            return expr
     elif property.type == "element":
         if scope == "person":
             raise NotImplementedError(f"property_to_expr for scope {scope} not implemented for type '{property.type}'")

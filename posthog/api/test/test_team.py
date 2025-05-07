@@ -572,8 +572,8 @@ def team_api_test_factory():
                             "changes": [
                                 {
                                     "action": "changed",
-                                    "after": None,
-                                    "before": None,
+                                    "after": self.team.api_token,
+                                    "before": "xyz",
                                     "field": "api_token",
                                     "type": "Team",
                                 },

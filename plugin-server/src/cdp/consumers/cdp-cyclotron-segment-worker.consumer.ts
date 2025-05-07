@@ -9,12 +9,11 @@ import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
  */
 export class CdpCyclotronWorkerSegment extends CdpCyclotronWorker {
     protected name = 'CdpCyclotronWorkerSegment'
-    protected queue = 'segment' as const
     protected hogTypes: HogFunctionTypeType[] = ['destination']
     private segmentPluginExecutor: SegmentPluginExecutorService
 
     constructor(hub: Hub) {
-        super(hub)
+        super(hub, 'segment')
         this.segmentPluginExecutor = new SegmentPluginExecutorService()
     }
 

@@ -93,6 +93,7 @@ exports[`EventPipelineRunner runEventPipeline() runs steps starting from populat
           "updateCacheHits": 0,
           "updateCacheMisses": 0,
         },
+        "databaseOperationCounts": {},
         "db": {
           "kafkaProducer": {},
         },

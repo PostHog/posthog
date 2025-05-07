@@ -452,7 +452,6 @@ export class SessionRecordingIngester {
 
         // NOTE: We use the standard config as we connect to the analytics kafka for producing
         this.sharedClusterProducerWrapper = await KafkaProducerWrapper.create(this.config)
-        this.sharedClusterProducerWrapper.producer.connect()
 
         if (this.config.SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED) {
             this.consoleLogsIngester = new ConsoleLogsIngester(

@@ -593,12 +593,12 @@
     --z-annotation-popover: 100;
     --z-drawer: 900;
     --z-notifications-popover: 800; // below the TZ aware popover but over the main-nav
+    --z-resizer: 761;
     --z-layout-panel: 760;
     --z-layout-panel-under: 759;
     --z-layout-navbar-over: 757;
     --z-layout-navbar: 756;
     --z-layout-navbar-under: 755;
-    --z-resizer: 754;
     --z-main-nav: 750;
     --z-lemon-sidebar: 700;
     --z-lemon-activation-sidebar: 650;
@@ -611,8 +611,10 @@
     --side-panel-bar-width: 3rem;
     --project-navbar-width: 250px;
     --project-navbar-width-collapsed: 45px;
-    --project-panel-width: 320px;
+
+    // --project-panel-width: 320px;
     --project-panel-inner-width: calc(var(--project-panel-width) - (var(--spacing) * 2));
+    --resizer-thickness: 8px;
 
     // The space the panel is from the left edge of the screen on mobile
     --panel-layout-mobile-offset: 40px;
@@ -1581,7 +1583,7 @@
         background-color: var(--bg-surface-primary);
         border: 1px solid var(--border-secondary);
         border-radius: var(--radius-md);
-        box-shadow: var(--shadow);
+        box-shadow: var(--shadow-elevation-3000);
     }
 
     .primitive-menu-content-inner {

@@ -13,7 +13,6 @@ import { DateTime } from 'luxon'
 import { captureTeamEvent } from '~/src/utils/posthog'
 import { MeasuringPersonsStoreForDistinctIdBatch } from '~/src/worker/ingestion/persons/measuring-person-store'
 
-import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../src/config/kafka-topics'
 import {
     ClickHouseEvent,
     Database,
@@ -90,7 +89,6 @@ export const getEventsByPerson = async (hub: Hub): Promise<EventsByPerson[]> => 
 
 const TEST_CONFIG: Partial<PluginsServerConfig> = {
     LOG_LEVEL: LogLevel.Info,
-    KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
 }
 
 let processEventCounter = 0

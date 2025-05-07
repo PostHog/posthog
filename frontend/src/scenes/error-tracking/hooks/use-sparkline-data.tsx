@@ -5,7 +5,7 @@ import { DateRange } from '~/queries/schema/schema-general'
 
 import { SparklineData } from '../components/SparklineChart/SparklineChart'
 import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
-import { generateSparklineLabels } from '../utils'
+import { ERROR_TRACKING_DETAILS_RESOLUTION, generateSparklineLabels } from '../utils'
 
 export function useSparklineData(
     occurrences: number[] | undefined,
@@ -26,6 +26,6 @@ export function useSparklineData(
 }
 
 export function useSparklineDataIssueScene(): SparklineData {
-    const { aggregations, dateRange, volumeResolution } = useValues(errorTrackingIssueSceneLogic)
-    return useSparklineData(aggregations?.volumeRange, dateRange, volumeResolution)
+    const { aggregations, dateRange } = useValues(errorTrackingIssueSceneLogic)
+    return useSparklineData(aggregations?.volumeRange, dateRange, ERROR_TRACKING_DETAILS_RESOLUTION)
 }

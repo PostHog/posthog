@@ -56,7 +56,7 @@ class EarlyAccessFeature(FileSystemSyncMixin, RootTeamMixin, UUIDModel):
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(
-            base_folder="Unfiled/Early Access Features",
+            base_folder=self._create_in_folder or "Unfiled/Early Access Features",
             type="early_access_feature",  # sync with APIScopeObject in scopes.py
             ref=str(self.id),
             name=self.name or "Untitled",

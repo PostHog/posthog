@@ -1808,11 +1808,18 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
     },
     "error_tracking_issues": {
-        "assignee": {"label": "Assignee", "description": "The current assignee of an issue."},
-        "exception_type": {"label": "Exception type", "description": "The type of the exception."},
-        "exception_message": {"label": "Exception message", "description": "The description of the exception."},
-        "exception_function": {"label": "Exception function", "description": "A function contained in the exception."},
-        "exception_source": {"label": "Exception source", "description": "A source file included in the exception."},
+        "assignee": {"label": "Issue assignee", "description": "The current assignee of an issue."},
+        "name": {"label": "Issue name", "description": "The name of an issue."},
+        "issue_description": {"label": "Issue description", "description": "The description of an issue."},
+    },
+    "error_tracking_issue_properties": {
+        "$exception_types": {"label": "Exception type", "description": "The type of the exception."},
+        "$exception_messages": {"label": "Exception message", "description": "The description of the exception."},
+        "$exception_functions": {
+            "label": "Exception function",
+            "description": "A function contained in the exception.",
+        },
+        "$exception_sources": {"label": "Exception source", "description": "A source file included in the exception."},
     },
 }
 

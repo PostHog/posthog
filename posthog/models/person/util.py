@@ -16,7 +16,6 @@ from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import (
     KAFKA_PERSON,
     KAFKA_PERSON_DISTINCT_ID,
-    KAFKA_PERSON_OVERRIDES,
 )
 from posthog.models.person import Person, PersonDistinctId
 from posthog.models.person.person import READ_DB_FOR_PERSONS
@@ -24,7 +23,6 @@ from posthog.models.person.sql import (
     BULK_INSERT_PERSON_DISTINCT_ID2,
     INSERT_PERSON_BULK_SQL,
     INSERT_PERSON_DISTINCT_ID2,
-    INSERT_PERSON_OVERRIDE,
     INSERT_PERSON_SQL,
 )
 from posthog.models.signals import mutable_receiver
@@ -188,31 +186,6 @@ def create_person_distinct_id(
             "team_id": team_id,
             "version": version,
             "is_deleted": int(is_deleted),
-        },
-        sync=sync,
-    )
-
-
-def create_person_override(
-    team_id: int,
-    old_person_uuid: str,
-    override_person_uuid: str,
-    version: int,
-    merged_at: datetime.datetime,
-    oldest_event: datetime.datetime,
-    sync: bool = False,
-) -> None:
-    p = ClickhouseProducer()
-    p.produce(
-        topic=KAFKA_PERSON_OVERRIDES,
-        sql=INSERT_PERSON_OVERRIDE,
-        data={
-            "team_id": team_id,
-            "old_person_id": old_person_uuid,
-            "override_person_id": override_person_uuid,
-            "version": version,
-            "merged_at": merged_at.strftime("%Y-%m-%d %H:%M:%S.%f"),
-            "oldest_event": oldest_event.strftime("%Y-%m-%d %H:%M:%S.%f"),
         },
         sync=sync,
     )

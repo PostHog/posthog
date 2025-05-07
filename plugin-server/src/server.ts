@@ -12,8 +12,8 @@ import { CdpCyclotronWorkerSegment } from './cdp/consumers/cdp-cyclotron-segment
 import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
 import { CdpCyclotronWorkerFetch } from './cdp/consumers/cdp-cyclotron-worker-fetch.consumer'
 import { CdpCyclotronWorkerPlugins } from './cdp/consumers/cdp-cyclotron-worker-plugins.consumer'
+import { CdpEventsConsumer } from './cdp/consumers/cdp-events.consumer'
 import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.consumer'
-import { CdpProcessedEventsConsumer } from './cdp/consumers/cdp-processed-events.consumer'
 import { defaultConfig } from './config/config'
 import {
     KAFKA_EVENTS_PLUGIN_INGESTION,
@@ -212,7 +212,7 @@ export class PluginServer {
 
             if (capabilities.cdpProcessedEvents) {
                 serviceLoaders.push(async () => {
-                    const consumer = new CdpProcessedEventsConsumer(hub)
+                    const consumer = new CdpEventsConsumer(hub)
                     await consumer.start()
                     return consumer.service
                 })

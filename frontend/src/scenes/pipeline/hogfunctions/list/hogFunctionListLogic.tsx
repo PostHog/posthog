@@ -11,6 +11,7 @@ import { pipelineAccessLogic } from 'scenes/pipeline/pipelineAccessLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { HogFunctionType, HogFunctionTypeType, UserType } from '~/types'
 
 import type { hogFunctionListLogicType } from './hogFunctionListLogicType'
@@ -99,6 +100,9 @@ export const hogFunctionListLogic = kea<hogFunctionListLogicType>([
                         callback: (undo) => {
                             if (undo) {
                                 actions.loadHogFunctions()
+                                refreshTreeItem('hog_function/', hogFunction.id)
+                            } else {
+                                deleteFromTree('hog_function/', hogFunction.id)
                             }
                         },
                     })
