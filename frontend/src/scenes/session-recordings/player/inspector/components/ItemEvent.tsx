@@ -153,7 +153,7 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
             <div className="px-2 py-1 text-xs border-t">
                 {insightUrl || traceUrl ? (
                     <>
-                        <div className="flex justify-end gap-2">
+                        <div className="flex justify-between gap-2">
                             <LemonButton
                                 size="xsmall"
                                 sideIcon={<IconLink />}
