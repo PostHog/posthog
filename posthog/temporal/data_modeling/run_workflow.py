@@ -13,7 +13,6 @@ import os
 import dlt
 import dlt.common.data_types as dlt_data_types
 import dlt.common.schema.typing as dlt_typing
-import dlt.extract
 import structlog
 import temporalio.activity
 import temporalio.common
@@ -447,7 +446,7 @@ async def materialize_model(
 
         file_uris = table.file_uris()
 
-        prepare_s3_files_for_querying(saved_query.folder_path, saved_query.name, file_uris)
+        prepare_s3_files_for_querying(saved_query.folder_path, saved_query.name, file_uris, True)
 
     if not tables:
         saved_query.latest_error = f"No tables were created by pipeline for model {model_label}"
@@ -933,6 +932,7 @@ class RunWorkflow(PostHogWorkflow):
 
             temporalio.workflow.logger.error(f"Activity failed during model run: {str(e)}")
             return Results(set(), set(), set())
+
         completed, failed, ancestor_failed = results
 
         # publish metrics

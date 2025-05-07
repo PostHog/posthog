@@ -11,7 +11,6 @@ from rest_framework.decorators import action
 from loginas.utils import is_impersonated_session
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
 from posthog.models import Team
 from posthog.models.activity_logging.activity_log import (
     Detail,
@@ -29,7 +28,6 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import FindPlaceholders
 from posthog.hogql.printer import print_ast
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.data_modeling.run_workflow import RunWorkflowInputs, Selector
 from temporalio.client import ScheduleActionExecutionStartWorkflow
 from posthog.warehouse.models import (
     CLICKHOUSE_HOGQL_MAPPING,
@@ -46,6 +44,7 @@ from posthog.warehouse.data_load.saved_query_service import (
     saved_query_workflow_exists,
     sync_saved_query_workflow,
     delete_saved_query_schedule,
+    trigger_saved_query_schedule,
 )
 from rest_framework.response import Response
 import uuid
@@ -378,27 +377,9 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
     @action(methods=["POST"], detail=True)
     def run(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Run this saved query."""
-        ancestors = request.data.get("ancestors", 0)
-        descendants = request.data.get("descendants", 0)
-
         saved_query = self.get_object()
 
-        temporal = sync_connect()
-
-        inputs = RunWorkflowInputs(
-            team_id=saved_query.team_id,
-            select=[Selector(label=saved_query.id.hex, ancestors=ancestors, descendants=descendants)],
-        )
-        workflow_id = f"data-modeling-run-{saved_query.id.hex}"
-        saved_query.status = DataWarehouseSavedQuery.Status.RUNNING
-        saved_query.save()
-
-        async_to_sync(temporal.start_workflow)(  # type: ignore
-            "data-modeling-run",  # type: ignore
-            inputs,  # type: ignore
-            id=workflow_id,
-            task_queue=DATA_WAREHOUSE_TASK_QUEUE,
-        )
+        trigger_saved_query_schedule(saved_query)
 
         return response.Response(status=status.HTTP_200_OK)
 

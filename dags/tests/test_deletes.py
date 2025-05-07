@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from functools import partial
 from uuid import UUID
 
 import pytest
@@ -141,6 +142,12 @@ def test_full_job_team_deletes(cluster: ClickhouseCluster):
     delete_count = 1000
 
     events = [(i, f"distinct_id_{i}", UUID(int=i), timestamp) for i in range(event_count)]
+    persons = [(i, UUID(int=i)) for i in range(event_count)]
+    groups = [(i, f"group_key_{i}") for i in range(event_count)]
+    cohortpeople = [(i, UUID(int=i), 1) for i in range(event_count)]
+    person_static_cohort = [(i, i) for i in range(event_count)]
+    plugin_log_entries = [(i, i) for i in range(event_count)]
+    person_distinct_id2 = [(i, f"distinct_id_{i}") for i in range(event_count)]
 
     def insert_events(client: Client) -> None:
         client.execute(
@@ -150,10 +157,72 @@ def test_full_job_team_deletes(cluster: ClickhouseCluster):
             events,
         )
 
-    cluster.any_host(insert_events).result()
+    # Insert some person overrides - we need this to establish high watermark for pending deletes
+    def insert_overrides(client: Client) -> None:
+        client.execute(
+            "INSERT INTO person_distinct_id_overrides (distinct_id, person_id, _timestamp, version) VALUES",
+            [(f"{i}", UUID(int=i), timestamp, 1) for i in range(1)],
+        )
 
-    def get_events_by_team(client: Client) -> dict[tuple[int, UUID], int]:
-        result = client.execute("SELECT team_id, count(1) FROM writable_events GROUP BY team_id")
+    def insert_persons(client: Client) -> None:
+        client.execute(
+            """INSERT INTO person (team_id, id)
+            VALUES
+            """,
+            persons,
+        )
+
+    def insert_groups(client: Client) -> None:
+        client.execute(
+            """INSERT INTO groups (team_id, group_key)
+            VALUES
+            """,
+            groups,
+        )
+
+    def insert_cohortpeople(client: Client) -> None:
+        client.execute(
+            """INSERT INTO cohortpeople (team_id, person_id, sign)
+            VALUES
+            """,
+            cohortpeople,
+        )
+
+    def insert_person_static_cohort(client: Client) -> None:
+        client.execute(
+            """INSERT INTO person_static_cohort (team_id, cohort_id)
+            VALUES
+            """,
+            person_static_cohort,
+        )
+
+    def insert_plugin_log_entries(client: Client) -> None:
+        client.execute(
+            """INSERT INTO plugin_log_entries (team_id, plugin_id)
+            VALUES
+            """,
+            plugin_log_entries,
+        )
+
+    def insert_person_distinct_id2(client: Client) -> None:
+        client.execute(
+            """INSERT INTO person_distinct_id2 (team_id, distinct_id)
+            VALUES
+            """,
+            person_distinct_id2,
+        )
+
+    cluster.any_host(insert_overrides).result()
+    cluster.any_host(insert_events).result()
+    cluster.any_host(insert_persons).result()
+    cluster.any_host(insert_groups).result()
+    cluster.any_host(insert_cohortpeople).result()
+    cluster.any_host(insert_person_static_cohort).result()
+    cluster.any_host(insert_plugin_log_entries).result()
+    cluster.any_host(insert_person_distinct_id2).result()
+
+    def get_by_team(table: str, client: Client) -> dict[tuple[int, UUID], int]:
+        result = client.execute(f"SELECT team_id, count(1) FROM {table} GROUP BY team_id")
         if not isinstance(result, list):
             return {}
         return {(row[0]): row[1] for row in result}
@@ -169,7 +238,8 @@ def test_full_job_team_deletes(cluster: ClickhouseCluster):
                 deletion_type=delete[1],
                 key=delete[2],
                 delete_verified_at=delete[3],
-                created_at=None,  # for team deletes, we don't care about the created_at. If a team deletion was requested, we need to delete all its data.
+                # for team deletes, we don't care about the created_at. If a team deletion was requested, we need to delete all its data.
+                created_at=None,
             )
             d.save()
 
@@ -179,8 +249,26 @@ def test_full_job_team_deletes(cluster: ClickhouseCluster):
         return list(AsyncDeletion.objects.filter(delete_verified_at__isnull=True))
 
     # Check preconditions
-    initial_events = cluster.any_host(get_events_by_team).result()
+    initial_events = cluster.any_host(partial(get_by_team, "writable_events")).result()
     assert len(initial_events) == event_count  # All events present initially
+
+    initial_persons = cluster.any_host(partial(get_by_team, "person")).result()
+    assert len(initial_persons) == event_count  # All persons present initially
+
+    initial_groups = cluster.any_host(partial(get_by_team, "groups")).result()
+    assert len(initial_groups) == event_count  # All groups present initially
+
+    initial_cohortpeople = cluster.any_host(partial(get_by_team, "cohortpeople")).result()
+    assert len(initial_cohortpeople) == event_count  # All cohortpeople present initially
+
+    initial_person_static_cohort = cluster.any_host(partial(get_by_team, "person_static_cohort")).result()
+    assert len(initial_person_static_cohort) == event_count  # All person_static_cohort present initially
+
+    initial_plugin_log_entries = cluster.any_host(partial(get_by_team, "plugin_log_entries")).result()
+    assert len(initial_plugin_log_entries) == event_count  # All plugin_log_entries present initially
+
+    initial_person_distinct_id2 = cluster.any_host(partial(get_by_team, "person_distinct_id2")).result()
+    assert len(initial_person_distinct_id2) == event_count  # All person_distinct_id2 present initially
 
     pending_deletes = get_pending_deletes()
     assert len(pending_deletes) == delete_count
@@ -192,8 +280,32 @@ def test_full_job_team_deletes(cluster: ClickhouseCluster):
     )
 
     # Check postconditions
-    final_events = cluster.any_host(get_events_by_team).result()
-    assert len(final_events) == event_count - delete_count
+    final_events = cluster.any_host(partial(get_by_team, "writable_events")).result()
+    assert len(final_events) == event_count - delete_count, f"expected events data was not deleted"
+
+    final_persons = cluster.any_host(partial(get_by_team, "person")).result()
+    assert len(final_persons) == event_count - delete_count, f"expected person data was not deleted"
+
+    final_groups = cluster.any_host(partial(get_by_team, "groups")).result()
+    assert len(final_groups) == event_count - delete_count, f"expected groups data was not deleted"
+
+    final_cohortpeople = cluster.any_host(partial(get_by_team, "cohortpeople")).result()
+    assert len(final_cohortpeople) == event_count - delete_count, f"expected cohortpeople data was not deleted"
+
+    final_person_static_cohort = cluster.any_host(partial(get_by_team, "person_static_cohort")).result()
+    assert (
+        len(final_person_static_cohort) == event_count - delete_count
+    ), f"expected person_static_cohort data was not deleted"
+
+    final_plugin_log_entries = cluster.any_host(partial(get_by_team, "plugin_log_entries")).result()
+    assert (
+        len(final_plugin_log_entries) == event_count - delete_count
+    ), f"expected plugin_log_entries data was not deleted"
+
+    final_person_distinct_id2 = cluster.any_host(partial(get_by_team, "person_distinct_id2")).result()
+    assert (
+        len(final_person_distinct_id2) == event_count - delete_count
+    ), f"expected person_distinct_id2 data was not deleted"
 
     # Check that events for non-deleted teams were actually not deleted
     assert all(
@@ -201,11 +313,10 @@ def test_full_job_team_deletes(cluster: ClickhouseCluster):
     ), f"There are events for non-deleted teams that were deleted"
 
     # Verify that the deletions for the teams have been marked verified
-    # TODO: Uncomment next two lines once we setup deletion of all team data in other tables and we actually mark team deletions as processed
-    # marked_deletions = AsyncDeletion.objects.filter(
-    #     team_id__in=list(range(delete_count)), delete_verified_at__isnull=False
-    # )
-    # assert len(marked_deletions) == delete_count
+    marked_deletions = AsyncDeletion.objects.filter(
+        team_id__in=list(range(delete_count)), delete_verified_at__isnull=False
+    )
+    assert len(marked_deletions) == delete_count
 
     # Verify the temporary tables were cleaned up
     table = PendingDeletesTable(timestamp=timestamp)
