@@ -5,6 +5,7 @@ import { KafkaProducerWrapper } from '~/src/kafka/producer'
 import { PostgresRouter } from '~/src/utils/db/postgres'
 
 import { buildIntegerMatcher } from '../../../config/config'
+import { KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS_V2_TEST } from '../../../config/kafka-topics'
 import { KafkaConsumer } from '../../../kafka/consumer'
 import { PluginServerService, PluginsServerConfig, ValueMatcher } from '../../../types'
 import { logger as logger } from '../../../utils/logger'
@@ -123,7 +124,10 @@ export class SessionRecordingIngester {
         }
 
         const offsetManager = new KafkaOffsetManager(this.commitOffsets.bind(this), this.topic)
-        const metadataStore = new SessionMetadataStore(producer)
+        const metadataStore = new SessionMetadataStore(
+            producer,
+            this.config.SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC || KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS_V2_TEST
+        )
         const consoleLogStore = new SessionConsoleLogStore(
             producer,
             this.config.SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC,
