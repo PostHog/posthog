@@ -16,8 +16,6 @@ class PropertyDefinitionsConfig(Config):
     # For backfill runs, we can specify a start and end date
     start_date: Optional[str] = None
     end_date: Optional[str] = None
-    # Batch size for inserts to control memory usage
-    batch_size: int = 10000
     # Timeout for query execution in seconds
     max_execution_time: int = 6000
 
@@ -55,7 +53,6 @@ def ingest_event_properties(context) -> tuple[int, tuple[str, str]]:
         target_hour=config_dict.get("target_hour"),
         start_date=config_dict.get("start_date"),
         end_date=config_dict.get("end_date"),
-        batch_size=config_dict.get("batch_size", 10000),
         max_execution_time=config_dict.get("max_execution_time", 6000),
     )
 
@@ -153,7 +150,6 @@ def ingest_person_properties(context, event_time_window: tuple[str, str]) -> tup
         target_hour=config_dict.get("target_hour"),
         start_date=config_dict.get("start_date"),
         end_date=config_dict.get("end_date"),
-        batch_size=config_dict.get("batch_size", 10000),
         max_execution_time=config_dict.get("max_execution_time", 6000),
     )
 
