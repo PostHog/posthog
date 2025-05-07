@@ -1,17 +1,17 @@
+from datetime import datetime
 from typing import Any
 from django.conf import settings
 
 import structlog
 from asgiref.sync import async_to_sync
 from django.db import transaction
-from django.db.models import Q, OuterRef, Subquery, TextField
+from django.db.models import Prefetch, Q, OuterRef, Subquery, TextField
 from django.db.models.functions import Cast
 from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
 from loginas.utils import is_impersonated_session
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.constants import DATA_MODELING_TASK_QUEUE
 from posthog.models import Team
 from posthog.models.activity_logging.activity_log import (
     Detail,
@@ -29,10 +29,10 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import FindPlaceholders
 from posthog.hogql.printer import print_ast
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.data_modeling.run_workflow import RunWorkflowInputs, Selector
 from temporalio.client import ScheduleActionExecutionStartWorkflow
 from posthog.warehouse.models import (
     CLICKHOUSE_HOGQL_MAPPING,
+    DataModelingJob,
     DataWarehouseJoin,
     DataWarehouseModelPath,
     DataWarehouseSavedQuery,
@@ -46,6 +46,7 @@ from posthog.warehouse.data_load.saved_query_service import (
     saved_query_workflow_exists,
     sync_saved_query_workflow,
     delete_saved_query_schedule,
+    trigger_saved_query_schedule,
 )
 from rest_framework.response import Response
 import uuid
@@ -58,6 +59,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
     columns = serializers.SerializerMethodField(read_only=True)
     sync_frequency = serializers.SerializerMethodField()
     latest_history_id = serializers.SerializerMethodField(read_only=True)
+    last_run_at = serializers.SerializerMethodField(read_only=True)
     edited_history_id = serializers.CharField(write_only=True, required=False, allow_null=True)
 
     class Meta:
@@ -87,6 +89,16 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             "latest_error",
             "latest_history_id",
         ]
+
+    def get_last_run_at(self, view: DataWarehouseSavedQuery) -> datetime | None:
+        try:
+            jobs = view.jobs  # type: ignore
+            if len(jobs) > 0:
+                return jobs[0].last_run_at
+        except:
+            pass
+
+        return view.last_run_at
 
     def get_columns(self, view: DataWarehouseSavedQuery) -> list[SerializedField]:
         team_id = self.context["team_id"]
@@ -337,7 +349,16 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         return context
 
     def safely_get_queryset(self, queryset):
-        base_queryset = queryset.prefetch_related("created_by").exclude(deleted=True).order_by(self.ordering)
+        base_queryset = (
+            queryset.prefetch_related(
+                "created_by",
+                Prefetch(
+                    "datamodelingjob_set", queryset=DataModelingJob.objects.order_by("-last_run_at")[:1], to_attr="jobs"
+                ),
+            )
+            .exclude(deleted=True)
+            .order_by(self.ordering)
+        )
 
         # Only annotate with latest activity ID for list operations, not for single object retrieves
         # This avoids the annotation when we're getting a single object for update/create/etc.
@@ -378,27 +399,9 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
     @action(methods=["POST"], detail=True)
     def run(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Run this saved query."""
-        ancestors = request.data.get("ancestors", 0)
-        descendants = request.data.get("descendants", 0)
-
         saved_query = self.get_object()
 
-        temporal = sync_connect()
-
-        inputs = RunWorkflowInputs(
-            team_id=saved_query.team_id,
-            select=[Selector(label=saved_query.id.hex, ancestors=ancestors, descendants=descendants)],
-        )
-        workflow_id = f"data-modeling-run-{saved_query.id.hex}"
-        saved_query.status = DataWarehouseSavedQuery.Status.RUNNING
-        saved_query.save()
-
-        async_to_sync(temporal.start_workflow)(  # type: ignore
-            "data-modeling-run",  # type: ignore
-            inputs,  # type: ignore
-            id=workflow_id,
-            task_queue=DATA_MODELING_TASK_QUEUE,
-        )
+        trigger_saved_query_schedule(saved_query)
 
         return response.Response(status=status.HTTP_200_OK)
 
