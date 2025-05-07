@@ -132,6 +132,7 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     checkedItemCount?: number
     /** The render function for the item. */
     renderItem?: (item: TreeDataItem, children: React.ReactNode) => React.ReactNode
+    renderItemTooltip?: (item: TreeDataItem) => React.ReactNode | undefined
     /** Set the IDs of the expanded items. */
     onSetExpandedItemIds?: (ids: string[]) => void
     /** Pass true if you need to wait for async events to populate the tree.
@@ -205,6 +206,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
             selectedId,
             handleClick,
             renderItem,
+            renderItemTooltip,
             expandedItemIds,
             onSetExpandedItemIds,
             defaultNodeIcon,
@@ -349,7 +351,10 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                             aria-roledescription="tree item"
                             aria-rolemap={`item-${item.id}`}
                             aria-label={ariaLabel}
-                            tooltip={isDragging || isEmptyFolder || mode === 'table' ? undefined : displayName}
+                            // tooltip={isDragging || isEmptyFolder || mode === 'table' ? undefined : displayName}
+                            tooltip={
+                                isDragging || isEmptyFolder || mode === 'table' ? undefined : renderItemTooltip?.(item)
+                            }
                             tooltipPlacement="right"
                         >
                             {/* Spacer to offset button padding */}
@@ -522,6 +527,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                             defaultNodeIcon={defaultNodeIcon}
                                             showFolderActiveState={showFolderActiveState}
                                             renderItem={renderItem}
+                                            renderItemTooltip={renderItemTooltip}
                                             itemSideAction={itemSideAction}
                                             depth={depth + 1}
                                             isItemActive={isItemActive}
