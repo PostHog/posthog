@@ -84,7 +84,6 @@ export function convertFileSystemEntryToTreeDataItem({
                             - {dayjs(item.meta?.created_at).fromNow()}
                         </span>
                     ) : null}
-                    {user ? <ProfilePicture user={user} size="sm" className="ml-1" /> : null}
                 </>
             ),
             icon: item._loading ? (
@@ -92,6 +91,7 @@ export function convertFileSystemEntryToTreeDataItem({
             ) : (
                 wrapWithShortcutIcon(item, ('icon' in item && item.icon) || iconForType(item.type))
             ),
+            preIcon: user ? <ProfilePicture user={user} size="sm" className="mr-1" /> : null,
             record: item,
             checked: checkedItems[nodeId],
             onClick: () => {
