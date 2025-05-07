@@ -30,7 +30,7 @@ from posthog.settings import (
     OBJECT_STORAGE_ENDPOINT,
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 
 TEST_BUCKET = "test_storage_bucket-ee.TestSessionRecordingPlaylist"
 
@@ -39,7 +39,7 @@ TEST_BUCKET = "test_storage_bucket-ee.TestSessionRecordingPlaylist"
     OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_FOLDER=TEST_BUCKET,
     OBJECT_STORAGE_SESSION_RECORDING_LTS_FOLDER=f"{TEST_BUCKET}_lts",
 )
-class TestSessionRecordingPlaylist(APIBaseTest):
+class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
     def teardown_method(self, method) -> None:
         s3 = resource(
             "s3",
@@ -697,6 +697,7 @@ class TestSessionRecordingPlaylist(APIBaseTest):
             == 0
         )
 
+    @snapshot_postgres_queries
     def test_filters_playlist_by_type(self):
         # Setup playlists with different types and conditions
         p_filters_explicit = SessionRecordingPlaylist.objects.create(
