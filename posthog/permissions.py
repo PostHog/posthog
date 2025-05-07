@@ -186,15 +186,23 @@ class TeamMemberAccessPermission(BasePermission):
         if isinstance(request.user, ProjectSecretAPIKeyUser):
             # NOTE: If the user is a ProjectSecretAPIKeyUser then we've already checked that they have access to the team
             # and that this request is for the local_evaluation endpoint.
-            return request.resolver_match and (
-                request.resolver_match.view_name == "featureflag-local-evaluation"
-                or request.resolver_match.view_name == "project_feature_flags-remote-config"
-            )
+            return _is_request_for_project_secret_api_token_secured_endpoint(request)
 
         # NOTE: The naming here is confusing - "current_team" refers to the team that the user_permissions was initialized with
         # - not the "current_team" property of the user
         requesting_level = view.user_permissions.current_team.effective_membership_level
         return requesting_level is not None
+
+
+def _is_request_for_project_secret_api_token_secured_endpoint(request: Request) -> bool:
+    return bool(
+        request.resolver_match
+        and request.resolver_match.view_name
+        in {
+            "featureflag-local-evaluation",
+            "project_feature_flags-remote-config",
+        }
+    )
 
 
 class TeamMemberLightManagementPermission(BasePermission):
@@ -522,10 +530,7 @@ class AccessControlPermission(ScopeBasePermission):
         if isinstance(request.user, ProjectSecretAPIKeyUser):
             # NOTE: If the user is a ProjectSecretAPIKeyUser then we've already checked that they have access to the team
             # and that this request is for the local_evaluation endpoint.
-            return request.resolver_match and (
-                request.resolver_match.view_name == "featureflag-local-evaluation"
-                or request.resolver_match.view_name == "project_feature_flags-remote-config"
-            )
+            return _is_request_for_project_secret_api_token_secured_endpoint(request)
 
         uac = self._get_user_access_control(request, view)
         scope_object = self._get_scope_object(request, view)
