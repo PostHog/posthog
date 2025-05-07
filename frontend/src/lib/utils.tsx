@@ -825,7 +825,9 @@ export function autoCaptureEventToDescription(
     }
 
     const getValue = (): string | null => {
-        if (event.elements?.[0]?.text) {
+        if (event.properties.$el_text) {
+            return `${shortForm ? '' : 'with text '}"${event.properties.$el_text}"`
+        } else if (event.elements?.[0]?.text) {
             return `${shortForm ? '' : 'with text '}"${event.elements[0].text}"`
         } else if (event.elements?.[0]?.attributes?.['attr__aria-label']) {
             return `${shortForm ? '' : 'with aria label '}"${event.elements[0].attributes['attr__aria-label']}"`
