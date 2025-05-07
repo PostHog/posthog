@@ -1,9 +1,9 @@
-import { IconPin, IconPinFilled, IconSearch, IconX } from '@posthog/icons'
+import { IconCheck, IconPin, IconPinFilled, IconSearch, IconX } from '@posthog/icons'
 import { LemonInput } from '@posthog/lemon-ui'
 import { cva } from 'cva'
 import { useActions, useValues } from 'kea'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
-import { IconFunnelVertical, IconOffline, IconRadioButtonUnchecked } from 'lib/lemon-ui/icons'
+import { IconBlank, IconFunnelVertical } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
@@ -77,9 +77,20 @@ interface FiltersDropdownProps {
 
 export function FiltersDropdown({ setSearchTerm, searchTerm }: FiltersDropdownProps): JSX.Element {
     const types = [
+        ['action', 'Actions'],
+        ['hog_function/broadcast', 'Broadcasts'],
+        ['hog_function/campaign', 'Campaigns'],
         ['dashboard', 'Dashboards'],
-        ['insight', 'Insights'],
+        ['hog_function/destination', 'Destinations'],
+        ['early_access_feature', 'Early access features'],
+        ['experiment', 'Experiments'],
         ['feature_flag', 'Feature flags'],
+        ['insight', 'Insights'],
+        ['notebook', 'Notebooks'],
+        ['session_recording_playlist', 'Replay playlists'],
+        ['hog_function/site_app', 'Site apps'],
+        ['hog_function/source', 'Sources'],
+        ['hog_function/transformation', 'Transformations'],
     ]
     const removeTagsStarting = (str: string, tag: string): string =>
         str
@@ -115,7 +126,7 @@ export function FiltersDropdown({ setSearchTerm, searchTerm }: FiltersDropdownPr
                         }}
                     >
                         <ButtonPrimitive menuItem>
-                            {!searchTerm.includes('user:me') ? <IconOffline /> : <IconRadioButtonUnchecked />}
+                            {!searchTerm.includes('user:me') ? <IconCheck /> : <IconBlank />}
                             Everybody
                         </ButtonPrimitive>
                     </DropdownMenuItem>
@@ -131,7 +142,7 @@ export function FiltersDropdown({ setSearchTerm, searchTerm }: FiltersDropdownPr
                         }}
                     >
                         <ButtonPrimitive menuItem>
-                            {searchTerm.includes('user:me') ? <IconOffline /> : <IconRadioButtonUnchecked />}
+                            {searchTerm.includes('user:me') ? <IconCheck /> : <IconBlank />}
                             Only me
                         </ButtonPrimitive>
                     </DropdownMenuItem>
@@ -149,7 +160,7 @@ export function FiltersDropdown({ setSearchTerm, searchTerm }: FiltersDropdownPr
                             }}
                         >
                             <ButtonPrimitive menuItem>
-                                {searchTerm.includes(`type:${obj}`) ? <IconOffline /> : <IconRadioButtonUnchecked />}
+                                {searchTerm.includes(`type:${obj}`) ? <IconCheck /> : <IconBlank />}
                                 {label}
                             </ButtonPrimitive>
                         </DropdownMenuItem>
