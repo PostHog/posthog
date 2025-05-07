@@ -134,91 +134,6 @@ export class RedisHelpers {
         })
     }
 
-    public redisSetMulti(kv: Array<[string, unknown]>, ttlSeconds?: number, options: CacheOptions = {}): Promise<void> {
-        const { jsonSerialize = true } = options
-
-        return this.instrumentRedisQuery('query.redisSet', undefined, { keys: kv.map((x) => x[0]) }, async (client) => {
-            let pipeline = client.multi()
-            for (const [key, value] of kv) {
-                const serializedValue = jsonSerialize ? JSON.stringify(value) : (value as string)
-                if (ttlSeconds) {
-                    pipeline = pipeline.set(key, serializedValue, 'EX', ttlSeconds)
-                } else {
-                    pipeline = pipeline.set(key, serializedValue)
-                }
-            }
-            await pipeline.exec()
-        })
-    }
-
-    public redisIncr(key: string): Promise<number> {
-        return this.instrumentRedisQuery('query.redisIncr', undefined, { key }, async (client) => {
-            return await client.incr(key)
-        })
-    }
-
-    public redisExpire(key: string, ttlSeconds: number): Promise<boolean> {
-        return this.instrumentRedisQuery('query.redisExpire', undefined, { key }, async (client) => {
-            return (await client.expire(key, ttlSeconds)) === 1
-        })
-    }
-
-    public redisLPush(key: string, value: unknown, options: CacheOptions = {}): Promise<number> {
-        const { jsonSerialize = true } = options
-
-        return this.instrumentRedisQuery('query.redisLPush', undefined, { key }, async (client) => {
-            const serializedValue = jsonSerialize ? JSON.stringify(value) : (value as string | string[])
-            return await client.lpush(key, serializedValue)
-        })
-    }
-
-    public redisLRange(key: string, startIndex: number, endIndex: number, tag?: string): Promise<string[]> {
-        return this.instrumentRedisQuery('query.redisLRange', tag, { key, startIndex, endIndex }, async (client) => {
-            return await client.lrange(key, startIndex, endIndex)
-        })
-    }
-
-    public redisLLen(key: string): Promise<number> {
-        return this.instrumentRedisQuery('query.redisLLen', undefined, { key }, async (client) => {
-            return await client.llen(key)
-        })
-    }
-
-    public redisBRPop(key1: string, key2: string): Promise<[string, string]> {
-        return this.instrumentRedisQuery('query.redisBRPop', undefined, { key1, key2 }, async (client) => {
-            return await client.brpop(key1, key2)
-        })
-    }
-
-    public redisLRem(key: string, count: number, elementKey: string): Promise<number> {
-        return this.instrumentRedisQuery(
-            'query.redisLRem',
-            undefined,
-            {
-                key,
-                count,
-                elementKey,
-            },
-            async (client) => {
-                return await client.lrem(key, count, elementKey)
-            }
-        )
-    }
-
-    public redisLPop(key: string, count: number): Promise<string[]> {
-        return this.instrumentRedisQuery(
-            'query.redisLPop',
-            undefined,
-            {
-                key,
-                count,
-            },
-            async (client) => {
-                return await client.lpop(key, count)
-            }
-        )
-    }
-
     public redisSAddAndSCard(key: string, value: Redis.ValueType, ttlSeconds?: number): Promise<number> {
         return this.instrumentRedisQuery('query.redisSAddAndSCard', undefined, { key }, async (client) => {
             const multi = client.multi()
@@ -242,20 +157,6 @@ export class RedisHelpers {
             },
             async (client) => {
                 return await client.scard(key)
-            }
-        )
-    }
-
-    public redisPublish(channel: string, message: string): Promise<number> {
-        return this.instrumentRedisQuery(
-            'query.redisPublish',
-            undefined,
-            {
-                channel,
-                message,
-            },
-            async (client) => {
-                return await client.publish(channel, message)
             }
         )
     }
