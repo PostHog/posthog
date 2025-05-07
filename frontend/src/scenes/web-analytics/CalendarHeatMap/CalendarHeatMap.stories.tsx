@@ -1,18 +1,18 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { EventsHeatMap, EventsHeatMapProps } from './EventsHeatMap'
+import { CalendarHeatMap, CalendarHeatMapProps } from './CalendarHeatMap'
 
-const meta: Meta<typeof EventsHeatMap> = {
-    title: 'Scenes/Web Analytics/EventsHeatMap',
-    component: EventsHeatMap,
+const meta: Meta<typeof CalendarHeatMap> = {
+    title: 'Scenes/Web Analytics/CalendarHeatMap',
+    component: CalendarHeatMap,
     parameters: {
         layout: 'fullscreen',
     },
 }
 export default meta
-type Story = StoryObj<typeof EventsHeatMap>
+type Story = StoryObj<typeof CalendarHeatMap>
 
-const mockContext: EventsHeatMapProps['context'] = {
+const mockContext: CalendarHeatMapProps['context'] = {
     insightProps: {
         dashboardItemId: undefined,
     },
