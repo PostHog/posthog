@@ -194,7 +194,7 @@ pub fn router<
                 post(v0_endpoint::event_legacy)
                     .get(v0_endpoint::event_legacy)
                     .options(v0_endpoint::options),
-            ),
+            )
             .route(
                 "/track",
                 post(v0_endpoint::event_legacy)
@@ -206,7 +206,7 @@ pub fn router<
                 post(v0_endpoint::event_legacy)
                     .get(v0_endpoint::event_legacy)
                     .options(v0_endpoint::options),
-            ),
+            )
             .route(
                 "/capture",
                 post(v0_endpoint::event_legacy)
