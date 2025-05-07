@@ -1,5 +1,5 @@
 from django.utils import timezone
-from django.utils.timezone import timedelta
+from datetime import timedelta
 from unittest.mock import patch
 
 from posthog.test.base import BaseTest
@@ -117,7 +117,7 @@ class TestOrganizationInvite(BaseTest):
         self.assertIsNotNone(org_membership)
 
         # Verify the access control has been created with member level
-        access_control = AccessControl.objects.filter(
+        access_control: AccessControl = AccessControl.objects.filter(
             team=team, resource="team", resource_id=str(team.id), organization_member=org_membership
         ).first()
 
@@ -163,7 +163,7 @@ class TestOrganizationInvite(BaseTest):
             self.assertEqual(legacy_team_membership.level, OrganizationMembership.Level.ADMIN)
 
         # Verify the access control has been created correctly for the new team
-        access_control = AccessControl.objects.filter(
+        access_control: AccessControl = AccessControl.objects.filter(
             team=new_team, resource="team", resource_id=str(new_team.id), organization_member=org_membership
         ).first()
 
