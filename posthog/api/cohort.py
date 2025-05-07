@@ -278,6 +278,9 @@ class CohortSerializer(serializers.ModelSerializer):
         1. structural/schema check → pydantic
         2. domain rules (feature-flag gotchas) → bespoke fn
         """
+        # Skip validation for static cohorts
+        if self.initial_data.get("is_static") or getattr(self.instance, "is_static", False):
+            return raw
         if not isinstance(raw, dict) or "properties" not in raw:
             raise ValidationError(
                 {"detail": "Must contain a 'properties' key with type and values", "type": "validation_error"}

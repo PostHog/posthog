@@ -1,6 +1,6 @@
 // eslint-disable-next-line simple-import-sort/imports
 import { MockKafkaProducerWrapper } from '~/tests/helpers/mocks/producer.mock'
-import { mockSecureRequest } from '~/tests/helpers/mocks/request.mock'
+import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { CdpCyclotronWorker } from '../../src/cdp/consumers/cdp-cyclotron-worker.consumer'
 import { CdpCyclotronWorkerFetch } from '../../src/cdp/consumers/cdp-cyclotron-worker-fetch.consumer'
@@ -17,7 +17,6 @@ import { forSnapshot } from '~/tests/helpers/snapshots'
 import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
 import { resetKafka } from '~/tests/helpers/kafka'
 import { logger } from '../utils/logger'
-import { errors } from 'undici'
 
 const ActualKafkaProducerWrapper = jest.requireActual('../../src/kafka/producer').KafkaProducerWrapper
 
@@ -99,9 +98,10 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
                 } as any,
             })
 
-            mockSecureRequest.mockResolvedValue({
+            mockFetch.mockResolvedValue({
                 status: 200,
-                body: JSON.stringify({ success: true }),
+                json: () => Promise.resolve({ success: true }),
+                text: () => Promise.resolve(JSON.stringify({ success: true })),
                 headers: { 'Content-Type': 'application/json' },
             })
 
@@ -143,9 +143,9 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
                 throw e
             }
 
-            expect(mockSecureRequest).toHaveBeenCalledTimes(1)
+            expect(mockFetch).toHaveBeenCalledTimes(1)
 
-            expect(mockSecureRequest.mock.calls[0]).toMatchInlineSnapshot(`
+            expect(mockFetch.mock.calls[0]).toMatchInlineSnapshot(`
                 [
                   "https://example.com/posthog-webhook",
                   {
@@ -244,7 +244,14 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
         })
 
         it('should handle fetch failures with retries', async () => {
-            mockSecureRequest.mockRejectedValue(new errors.ConnectTimeoutError())
+            mockFetch.mockImplementation(() => {
+                return Promise.resolve({
+                    status: 500,
+                    headers: {},
+                    json: () => Promise.resolve({ error: 'Server error' }),
+                    text: () => Promise.resolve(JSON.stringify({ error: 'Server error' })),
+                })
+            })
 
             const invocations = await eventsConsumer.processBatch([globals])
 
@@ -266,17 +273,18 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
                 forSnapshot(
                     logMessages
                         .slice(0, -1)
-                        .sort((a, b) => (a.value.timestamp as string).localeCompare(b.value.timestamp as string))
                         .map((m) => m.value.message)
+                        // Sorted compare as the messages can get logged in different orders
+                        .sort()
                 )
             ).toEqual([
                 'Executing function',
-                "Suspending function due to async function call 'fetch'. Payload: 2031 bytes. Event: <REPLACED-UUID-0>",
                 'Fetch failed after 2 attempts',
-                'Fetch failure of kind timeout with status (none) and message ConnectTimeoutError: Connect Timeout Error',
-                'Fetch failure of kind timeout with status (none) and message ConnectTimeoutError: Connect Timeout Error',
+                'Fetch failure of kind failurestatus with status 500 and message Received failure status: 500',
+                'Fetch failure of kind failurestatus with status 500 and message Received failure status: 500',
+                'Fetch response:, {"status":500,"body":{"error":"Server error"}}',
                 'Resuming function',
-                'Fetch response:, {"status":503}',
+                "Suspending function due to async function call 'fetch'. Payload: 2031 bytes. Event: <REPLACED-UUID-0>",
             ])
         })
     })

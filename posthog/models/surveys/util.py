@@ -50,3 +50,41 @@ def _build_multiple_choice_query(id_based_key: str, index_based_key: str) -> str
         JSONExtractArrayRaw(properties, {id_based_key}),
         JSONExtractArrayRaw(properties, '{index_based_key}')
     )"""
+
+
+def filter_survey_sent_events_by_unique_submission(survey_id: str) -> str:
+    """
+    Generates a SQL condition string to filter 'survey sent' events, ensuring uniqueness based on submission ID.
+
+    This handles two scenarios for identifying relevant 'survey sent' events:
+    1. Events recorded before the introduction of `$survey_submission_id`.
+    2. The single latest event for each unique `$survey_submission_id` to account for partial responses or updates.
+
+    Args:
+        survey_id: The ID of the survey to filter events for.
+
+    Returns:
+        A SQL condition string (part of a WHERE clause) filtering event UUIDs.
+    """
+
+    query = f"""uuid IN (
+            (
+                -- Select events without a submission ID (older format)
+                SELECT uuid
+                FROM events
+                WHERE event = 'survey sent'
+                  AND JSONExtractString(properties, '$survey_id') = '{survey_id}'
+                  AND COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') = ''
+            )
+            UNION ALL
+            (
+                -- Select the latest event for each submission ID
+                SELECT argMax(uuid, timestamp) -- ClickHouse function to get the arg (uuid) for the max value (timestamp)
+                FROM events
+                WHERE event = 'survey sent'
+                  AND JSONExtractString(properties, '$survey_id') = '{survey_id}'
+                  AND COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') != ''
+                GROUP BY JSONExtractString(properties, '$survey_submission_id') -- Find the latest event per submission
+            )
+        )"""
+    return query

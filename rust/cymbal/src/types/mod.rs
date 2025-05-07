@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha512};
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use uuid::Uuid;
@@ -170,6 +171,11 @@ impl RawErrProps {
             fingerprint.record.clear();
             fingerprint.record.push(FingerprintRecordPart::Manual);
             fingerprint.value = existing;
+            if fingerprint.value.len() > 64 {
+                let mut hasher = Sha512::default();
+                hasher.update(fingerprint.value);
+                fingerprint.value = format!("{:x}", hasher.finalize());
+            }
             fingerprint.assignment = None;
         }
 

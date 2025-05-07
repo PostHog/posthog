@@ -6,7 +6,7 @@ import posthog.models.utils
 
 
 class Migration(migrations.Migration):
-    dependencies = [("posthog", "0725_file_system_cleanup")]
+    dependencies = [("posthog", "0726_team_secret_api_token_and_backup")]
 
     operations = [
         migrations.CreateModel(

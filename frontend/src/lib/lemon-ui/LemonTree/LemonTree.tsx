@@ -199,7 +199,6 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
             mode,
             tableViewKeys,
             tableModeTotalWidth,
-            tableModeHeader,
             tableModeRow,
             selectedId,
             handleClick,
@@ -1281,7 +1280,6 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                             isDragging={isDragging}
                             checkedItemCount={checkedItemCount}
                             setFocusToElementFromId={focusElementFromId}
-                            tableModeHeader={tableModeHeader}
                             tableModeRow={tableModeRow}
                             {...props}
                         />

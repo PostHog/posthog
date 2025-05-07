@@ -517,6 +517,8 @@ export interface TeamBasicType extends WithAccessControl {
     organization: string // Organization ID
     project_id: number
     api_token: string
+    secret_api_token: string
+    secret_api_token_backup: string
     name: string
     completed_snippet_onboarding: boolean
     has_completed_onboarding_for?: Record<string, boolean>
@@ -2946,6 +2948,8 @@ export enum SurveyEventProperties {
     SURVEY_ID = '$survey_id',
     SURVEY_RESPONSE = '$survey_response',
     SURVEY_ITERATION = '$survey_iteration',
+    SURVEY_PARTIALLY_COMPLETED = '$survey_partially_completed',
+    SURVEY_SUBMISSION_ID = '$survey_submission_id',
 }
 
 export interface SurveyEventStats {

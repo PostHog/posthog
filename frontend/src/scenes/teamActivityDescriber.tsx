@@ -474,6 +474,8 @@ const teamActionsMapping: Record<
     product_intents: () => null,
     cookieless_server_hash_mode: () => null,
     access_control_version: () => null,
+    secret_api_token: () => null,
+    secret_api_token_backup: () => null,
 }
 
 function nameAndLink(logItem?: ActivityLogItem): JSX.Element {

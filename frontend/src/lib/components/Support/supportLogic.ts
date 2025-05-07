@@ -355,6 +355,7 @@ export const supportLogic = kea<supportLogicType>([
         updateUrlParams: true,
         openEmailForm: true,
         closeEmailForm: true,
+        setFocusedField: (field: string | null) => ({ field }),
     })),
     reducers(() => ({
         isSupportFormOpen: [
@@ -369,6 +370,14 @@ export const supportLogic = kea<supportLogicType>([
             {
                 openEmailForm: () => true,
                 closeEmailForm: () => false,
+            },
+        ],
+        focusedField: [
+            null as string | null,
+            {
+                setFocusedField: (_, { field }) => field,
+                // Reset focused field when form is closed
+                closeSupportForm: () => null,
             },
         ],
     })),
@@ -413,11 +422,14 @@ export const supportLogic = kea<supportLogicType>([
     }),
     listeners(({ actions, props, values }) => ({
         updateUrlParams: async () => {
+            // Only include non-text fields in the URL parameters
+            // This prevents focus loss when typing in text fields
             const panelOptions = [
                 values.sendSupportRequest.kind ?? '',
                 values.sendSupportRequest.target_area ?? '',
                 values.sendSupportRequest.severity_level ?? '',
                 values.isEmailFormOpen ?? 'false',
+                // Explicitly exclude message, name, and email fields
             ].join(':')
 
             if (panelOptions !== ':') {
@@ -579,8 +591,11 @@ export const supportLogic = kea<supportLogicType>([
             props.onClose?.()
         },
 
-        setSendSupportRequestValue: () => {
-            actions.updateUrlParams()
+        setSendSupportRequestValue: ({ name }) => {
+            // Only update URL params for non-text fields to prevent focus loss during typing
+            if (name !== 'message' && name !== 'name' && name !== 'email') {
+                actions.updateUrlParams()
+            }
         },
     })),
 
