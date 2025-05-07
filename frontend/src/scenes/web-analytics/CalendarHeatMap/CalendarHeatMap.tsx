@@ -10,7 +10,7 @@ import { useResizeObserver } from '~/lib/hooks/useResizeObserver'
 import { QueryContext } from '~/queries/types'
 
 import { CalendarHeatMapCell, HeatMapValues } from './CalendarHeatMapCell'
-interface EventsHeatMapProps {
+interface CalendarHeatMapProps {
     context: QueryContext
     isLoading: boolean
     queryId: string | null
@@ -60,7 +60,7 @@ export function CalendarHeatMap({
     getColumnAggregationTooltip,
     getRowAggregationTooltip,
     getOverallAggregationTooltip,
-}: EventsHeatMapProps): JSX.Element {
+}: CalendarHeatMapProps): JSX.Element {
     const { themes, getTheme } = useValues(dataThemeLogic)
     const theme = getTheme(themes?.[0]?.id)
     const { ref: elementRef, width } = useResizeObserver()
@@ -112,9 +112,9 @@ export function CalendarHeatMap({
     } = processedData
 
     return (
-        <div className="EventsHeatMapContainer" ref={elementRef}>
+        <div className="CalendarHeatMapContainer" ref={elementRef}>
             <table
-                className="EventsHeatMap"
+                className="CalendarHeatMap"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ '--heatmap-table-color': heatmapColor } as React.CSSProperties}
             >
@@ -133,7 +133,7 @@ export function CalendarHeatMap({
                     {/* Data rows */}
                     {rowLabels.map((rowLabel, yIndex) => (
                         <tr key={yIndex}>
-                            <td className="EventsHeatMap__TextTab">{rowLabel}</td>
+                            <td className="CalendarHeatMap__TextTab">{rowLabel}</td>
                             {renderDataCells(
                                 columnLabels,
                                 matrix[yIndex],
@@ -162,7 +162,7 @@ export function CalendarHeatMap({
                     {/* Aggregation column */}
                     <tr className="aggregation-border">
                         {columnsAggregations[0] !== undefined && (
-                            <td className="EventsHeatMap__TextTab">{allAggregationsLabel}</td>
+                            <td className="CalendarHeatMap__TextTab">{allAggregationsLabel}</td>
                         )}
                         {renderColumnsAggregationCells(
                             columnsAggregations,
