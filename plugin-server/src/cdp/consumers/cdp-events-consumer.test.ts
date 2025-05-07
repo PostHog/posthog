@@ -211,7 +211,7 @@ describe.each([
                 await processor.hogWatcher.forceStateChange(fnFetchNoFilters.id, state)
                 await processor.hogWatcher.forceStateChange(fnPrinterPageviewFilters.id, state)
 
-                const invocations = await processor.processBatch([globals])
+                const { invocations } = await processor.processBatch([globals])
 
                 expect(invocations).toHaveLength(0)
                 expect(mockProducerObserver.produceSpy).toHaveBeenCalledTimes(2)

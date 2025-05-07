@@ -190,7 +190,8 @@ describe('CdpCyclotronWorkerPlugins', () => {
 
             mockFetch.mockRejectedValue(new Error('Test error'))
 
-            const { invocationResults } = await processor.processBatch([invocation])
+            const { invocationResults, backgroundWork } = await processor.processBatch([invocation])
+            await backgroundWork
 
             expect(intercomPlugin.onEvent).toHaveBeenCalledTimes(1)
 
