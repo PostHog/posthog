@@ -100,6 +100,7 @@ class CanEditFeatureFlag(BasePermission):
         if request.method in SAFE_METHODS:
             return True
         else:
+            # TODO(@zach): Add new access control support
             return can_user_edit_feature_flag(request, feature_flag)
 
 
