@@ -29,12 +29,13 @@ export function BillingSpendView(): JSX.Element {
         dateFrom,
         dateTo,
         billingSpendResponseLoading,
-        billingSpendResponse,
         dateOptions,
         excludeEmptySeries,
         finalHiddenSeries,
         heading,
         headingTooltip,
+        showSeries,
+        showEmptyState,
     } = useValues(logic)
     const { setFilters, setDateRange, toggleSeries, toggleAllSeries, setExcludeEmptySeries, toggleBreakdown } =
         useActions(logic)
@@ -42,151 +43,152 @@ export function BillingSpendView(): JSX.Element {
 
     return (
         <div className="space-y-4">
-            <div className="flex gap-4 items-start flex-wrap">
-                {/* Usage Types */}
-                <div className="flex flex-col gap-1">
-                    <LemonLabel>Usage Types</LemonLabel>
-                    <LemonInputSelect
-                        mode="multiple"
-                        displayMode="count"
-                        bulkActions="select-and-clear-all"
-                        className="w-50 h-10"
-                        value={filters.usage_types || []}
-                        onChange={(value: string[]) => setFilters({ usage_types: value })}
-                        placeholder="All usage types"
-                        options={USAGE_TYPES.map((opt) => ({ key: opt.value, label: opt.label }))}
-                        allowCustomValues={false}
+            <div className="border rounded p-4 bg-white space-y-4">
+                <div className="flex gap-4 items-start flex-wrap">
+                    {/* Usage Types */}
+                    <div className="flex flex-col gap-1">
+                        <LemonLabel>Usage Types</LemonLabel>
+                        <LemonInputSelect
+                            mode="multiple"
+                            displayMode="count"
+                            bulkActions="select-and-clear-all"
+                            className="w-50 h-10"
+                            value={filters.usage_types || []}
+                            onChange={(value: string[]) => setFilters({ usage_types: value })}
+                            placeholder="All usage types"
+                            options={USAGE_TYPES.map((opt) => ({ key: opt.value, label: opt.label }))}
+                            allowCustomValues={false}
+                        />
+                    </div>
+
+                    {/* Teams */}
+                    <div className="flex flex-col gap-1">
+                        <LemonLabel>Teams</LemonLabel>
+                        <LemonInputSelect
+                            mode="multiple"
+                            displayMode="count"
+                            bulkActions="select-and-clear-all"
+                            className="w-50 h-10"
+                            value={(filters.team_ids || []).map(String)}
+                            onChange={(value: string[]) =>
+                                setFilters({ team_ids: value.map(Number).filter((n: number) => !isNaN(n)) })
+                            }
+                            placeholder="All teams"
+                            options={
+                                currentOrganization?.teams?.map((team) => ({
+                                    key: String(team.id),
+                                    label: team.name,
+                                })) || []
+                            }
+                            loading={currentOrganizationLoading}
+                            allowCustomValues={false}
+                        />
+                    </div>
+
+                    {/* Breakdowns */}
+                    <div className="flex flex-col gap-1">
+                        <LemonLabel>Break down by</LemonLabel>
+                        <div className="flex gap-2 items-center min-h-10">
+                            <LemonCheckbox
+                                label="Type"
+                                checked={filters.breakdowns?.includes('type')}
+                                onChange={() => toggleBreakdown('type')}
+                            />
+                            <LemonCheckbox
+                                label="Team"
+                                checked={filters.breakdowns?.includes('team')}
+                                onChange={() => toggleBreakdown('team')}
+                            />
+                        </div>
+                    </div>
+
+                    {/* Date Range */}
+                    <div className="flex flex-col gap-1">
+                        <LemonLabel>Date range (UTC)</LemonLabel>
+                        <div className="bg-bg-light rounded-md">
+                            <DateFilter
+                                className="h-8 flex items-center"
+                                dateFrom={dateFrom}
+                                dateTo={dateTo}
+                                onChange={(fromDate, toDate) => setDateRange(fromDate, toDate)}
+                                dateOptions={dateOptions}
+                            />
+                        </div>
+                    </div>
+
+                    {/* Interval */}
+                    <div className="flex flex-col gap-1">
+                        <LemonLabel>Group by</LemonLabel>
+                        <div className="bg-bg-light rounded-md">
+                            <LemonSelect
+                                className="h-10.5 flex items-center"
+                                size="small"
+                                value={filters.interval || 'day'}
+                                onChange={(value: 'day' | 'week' | 'month') => setFilters({ interval: value })}
+                                options={[
+                                    { value: 'day', label: 'Day' },
+                                    { value: 'week', label: 'Week' },
+                                    { value: 'month', label: 'Month' },
+                                ]}
+                            />
+                        </div>
+                    </div>
+
+                    {/* Exclude Empty Series */}
+                    <div className="flex flex-col gap-1">
+                        <LemonLabel>Options</LemonLabel>
+                        <div className="flex items-center min-h-10">
+                            <LemonCheckbox
+                                label="Hide results with no spend"
+                                checked={excludeEmptySeries}
+                                onChange={setExcludeEmptySeries}
+                            />
+                        </div>
+                    </div>
+                </div>
+
+                {showSeries && (
+                    <BillingLineGraph
+                        series={series}
+                        dates={dates}
+                        isLoading={billingSpendResponseLoading}
+                        hiddenSeries={finalHiddenSeries}
+                        valueFormatter={currencyFormatter}
+                        showLegend={false}
+                        interval={filters.interval}
                     />
-                </div>
-
-                {/* Teams */}
-                <div className="flex flex-col gap-1">
-                    <LemonLabel>Teams</LemonLabel>
-                    <LemonInputSelect
-                        mode="multiple"
-                        displayMode="count"
-                        bulkActions="select-and-clear-all"
-                        className="w-50 h-10"
-                        value={(filters.team_ids || []).map(String)}
-                        onChange={(value: string[]) =>
-                            setFilters({ team_ids: value.map(Number).filter((n: number) => !isNaN(n)) })
-                        }
-                        placeholder="All teams"
-                        options={
-                            currentOrganization?.teams?.map((team) => ({
-                                key: String(team.id),
-                                label: team.name,
-                            })) || []
-                        }
-                        loading={currentOrganizationLoading}
-                        allowCustomValues={false}
+                )}
+                {showEmptyState && (
+                    <BillingEmptyState
+                        heading="I couldn't find any spend data for your current query."
+                        detail="Try adjusting the filters. If you think something is wrong, contact us!"
                     />
-                </div>
-
-                {/* Breakdowns */}
-                <div className="flex flex-col gap-1">
-                    <LemonLabel>Break down by</LemonLabel>
-                    <div className="flex gap-2 items-center min-h-10">
-                        <LemonCheckbox
-                            label="Type"
-                            checked={filters.breakdowns?.includes('type')}
-                            onChange={() => toggleBreakdown('type')}
-                        />
-                        <LemonCheckbox
-                            label="Team"
-                            checked={filters.breakdowns?.includes('team')}
-                            onChange={() => toggleBreakdown('team')}
-                        />
-                    </div>
-                </div>
-
-                {/* Date Range */}
-                <div className="flex flex-col gap-1">
-                    <LemonLabel>Date range (UTC)</LemonLabel>
-                    <div className="bg-bg-light rounded-md">
-                        <DateFilter
-                            className="h-8 flex items-center"
-                            dateFrom={dateFrom}
-                            dateTo={dateTo}
-                            onChange={(fromDate, toDate) => setDateRange(fromDate, toDate)}
-                            dateOptions={dateOptions}
-                        />
-                    </div>
-                </div>
-
-                {/* Interval */}
-                <div className="flex flex-col gap-1">
-                    <LemonLabel>Group by</LemonLabel>
-                    <div className="bg-bg-light rounded-md">
-                        <LemonSelect
-                            className="h-10.5 flex items-center"
-                            size="small"
-                            value={filters.interval || 'day'}
-                            onChange={(value: 'day' | 'week' | 'month') => setFilters({ interval: value })}
-                            options={[
-                                { value: 'day', label: 'Day' },
-                                { value: 'week', label: 'Week' },
-                                { value: 'month', label: 'Month' },
-                            ]}
-                        />
-                    </div>
-                </div>
-
-                {/* Exclude Empty Series */}
-                <div className="flex flex-col gap-1">
-                    <LemonLabel>Options</LemonLabel>
-                    <div className="flex items-center min-h-10">
-                        <LemonCheckbox
-                            label="Hide results with no spend"
-                            checked={excludeEmptySeries}
-                            onChange={setExcludeEmptySeries}
-                        />
-                    </div>
-                </div>
-            </div>
-
-            <div className="flex items-center gap-1">
-                <h3 className="text-lg font-semibold mb-0">{heading}</h3>
-                {headingTooltip && (
-                    <Tooltip title={headingTooltip}>
-                        <IconInfo className="text-lg text-secondary shrink-0" />
-                    </Tooltip>
                 )}
             </div>
 
-            {billingSpendResponseLoading || (series && series.length > 0) ? (
-                <>
-                    <div className="border rounded p-4 bg-white">
-                        <BillingLineGraph
-                            series={series}
-                            dates={dates}
-                            isLoading={billingSpendResponseLoading}
-                            hiddenSeries={finalHiddenSeries}
-                            valueFormatter={currencyFormatter}
-                            showLegend={false}
-                            interval={filters.interval}
-                        />
+            {showSeries && (
+                <div className="mt-4 flex flex-col gap-2">
+                    <div className="flex items-center gap-1">
+                        <h3 className="text-lg font-semibold mb-0">{heading}</h3>
+                        {headingTooltip && (
+                            <Tooltip title={headingTooltip}>
+                                <IconInfo className="text-lg text-secondary shrink-0" />
+                            </Tooltip>
+                        )}
                     </div>
 
-                    <div className="mt-4">
-                        <BillingDataTable
-                            series={series}
-                            dates={dates}
-                            isLoading={billingSpendResponseLoading}
-                            hiddenSeries={finalHiddenSeries}
-                            toggleSeries={toggleSeries}
-                            toggleAllSeries={toggleAllSeries}
-                            valueFormatter={currencyFormatter}
-                            totalLabel="Total Spend"
-                        />
-                    </div>
-                </>
-            ) : billingSpendResponse ? (
-                <BillingEmptyState
-                    heading="I couldn't find any spend data for your current query."
-                    detail={<>If you think something is wrong, please contact us.</>}
-                />
-            ) : null}
+                    <BillingDataTable
+                        series={series}
+                        dates={dates}
+                        isLoading={billingSpendResponseLoading}
+                        hiddenSeries={finalHiddenSeries}
+                        toggleSeries={toggleSeries}
+                        toggleAllSeries={toggleAllSeries}
+                        valueFormatter={currencyFormatter}
+                        totalLabel="Total Spend"
+                    />
+                </div>
+            )}
         </div>
     )
 }

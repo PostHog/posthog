@@ -177,6 +177,16 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
             (userHiddenSeries: number[], excludeEmptySeries: boolean, emptySeriesIDs: number[]) =>
                 excludeEmptySeries ? Array.from(new Set([...userHiddenSeries, ...emptySeriesIDs])) : userHiddenSeries,
         ],
+        showSeries: [
+            (s) => [s.billingSpendResponseLoading, s.series],
+            (billingSpendResponseLoading: boolean, series: billingSpendLogicType['values']['series']) =>
+                billingSpendResponseLoading || series.length > 0,
+        ],
+        showEmptyState: [
+            (s) => [s.showSeries, s.billingSpendResponse],
+            (showSeries: boolean, billingSpendResponse: BillingSpendResponse | null) =>
+                !showSeries && !!billingSpendResponse,
+        ],
         heading: [
             (s) => [s.filters],
             (filters: BillingSpendFilters): string => {
