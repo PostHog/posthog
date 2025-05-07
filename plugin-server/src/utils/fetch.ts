@@ -35,6 +35,7 @@ const getSafeAgent = (url: URL) => {
         : new https.Agent({ ...COMMON_AGENT_OPTIONS, lookup: httpStaticLookup })
 }
 
+// @deprecated Use the fetch function from request.ts instead
 export class SecureFetch {
     constructor(private options?: { allowUnsafe?: boolean }) {}
 
@@ -65,6 +66,7 @@ export class SecureFetch {
 
 const defaultSecureFetch = new SecureFetch()
 
+// @deprecated Use the fetch function from request.ts instead
 export const trackedFetch = (url: RequestInfo, init?: RequestInit): Promise<Response> => {
     return defaultSecureFetch.fetch(url, init)
 }

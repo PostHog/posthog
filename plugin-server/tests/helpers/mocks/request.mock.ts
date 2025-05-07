@@ -1,14 +1,16 @@
-import { SecureResponse } from '../../../src/utils/request'
+import { FetchResponse } from '../../../src/utils/request'
 
 jest.mock('../../../src/utils/request', () => {
     return {
-        secureRequest: jest.fn(() =>
+        fetch: jest.fn(() =>
             Promise.resolve({
                 status: 200,
-                body: JSON.stringify({ success: true }),
-            } as SecureResponse)
+                headers: {},
+                json: () => Promise.resolve({ success: true }),
+                text: () => Promise.resolve(JSON.stringify({ success: true })),
+            } as FetchResponse)
         ),
     }
 })
 
-export const mockSecureRequest: jest.Mock<Promise<SecureResponse>> = require('../../../src/utils/request').secureRequest
+export const mockFetch: jest.Mock<Promise<FetchResponse>> = require('../../../src/utils/request').fetch
