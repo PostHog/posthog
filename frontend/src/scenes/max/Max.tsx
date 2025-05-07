@@ -112,38 +112,40 @@ export function MaxInstance({ sidePanel }: MaxInstanceProps): JSX.Element {
         <>
             {sidePanel && (
                 <SidePanelPaneHeader className="transition-all duration-200">
-                    <div className="flex items-center flex-1">
-                        <AnimatedBackButton in={!backButtonDisabled}>
-                            <LemonButton
-                                size="small"
-                                icon={<IconChevronLeft />}
-                                onClick={() => goBack()}
-                                tooltip="Go back"
-                                tooltipPlacement="bottom-end"
-                                disabledReason={backButtonDisabled ? 'You are already at home' : undefined}
-                            />
-                        </AnimatedBackButton>
-                        {chatTitle ? (
-                            <h3 className="font-semibold mb-0 truncate text-sm ml-2">{chatTitle}</h3>
-                        ) : (
-                            <LemonSkeleton className="h-5 w-32" />
-                        )}
+                    <div className="flex flex-1">
+                        <div className="flex items-center flex-1">
+                            <AnimatedBackButton in={!backButtonDisabled}>
+                                <LemonButton
+                                    size="small"
+                                    icon={<IconChevronLeft />}
+                                    onClick={() => goBack()}
+                                    tooltip="Go back"
+                                    tooltipPlacement="bottom-end"
+                                    disabledReason={backButtonDisabled ? 'You are already at home' : undefined}
+                                />
+                            </AnimatedBackButton>
+                            {chatTitle ? (
+                                <h3 className="font-semibold mb-0 line-clamp-1 text-sm ml-2 w-full">{chatTitle}</h3>
+                            ) : (
+                                <LemonSkeleton className="h-5 w-32" />
+                            )}
+                        </div>
+                        <LemonButton
+                            size="small"
+                            icon={<IconPlus />}
+                            onClick={() => startNewConversation()}
+                            tooltip="Start a new chat"
+                            tooltipPlacement="bottom"
+                        />
+                        <LemonButton
+                            size="small"
+                            sideIcon={<IconExternal />}
+                            to={urls.max()}
+                            onClick={() => closeSidePanel()}
+                            tooltip="Open as main focus"
+                            tooltipPlacement="bottom-end"
+                        />
                     </div>
-                    <LemonButton
-                        size="small"
-                        icon={<IconPlus />}
-                        onClick={() => startNewConversation()}
-                        tooltip="Start a new chat"
-                        tooltipPlacement="bottom"
-                    />
-                    <LemonButton
-                        size="small"
-                        sideIcon={<IconExternal />}
-                        to={urls.max()}
-                        onClick={() => closeSidePanel()}
-                        tooltip="Open as main focus"
-                        tooltipPlacement="bottom-end"
-                    />
                 </SidePanelPaneHeader>
             )}
             <PageHeader delimited buttons={headerButtons} />
