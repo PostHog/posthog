@@ -20,7 +20,6 @@ EXTRA_SUMMARY_EVENT_FIELDS = [
     "properties.$exception_types",
     "properties.$exception_sources",
     "properties.$exception_values",
-    "properties.$exception_list",
     "properties.$exception_fingerprint_record",
     "properties.$exception_functions",
 ]

@@ -30,9 +30,8 @@ def mock_event_indexes() -> dict[str, int]:
         "$exception_types": 10,
         "$exception_sources": 11,
         "$exception_values": 12,
-        "$exception_list": 13,
-        "$exception_fingerprint_record": 14,
-        "$exception_functions": 15,
+        "$exception_fingerprint_record": 13,
+        "$exception_functions": 14,
     }
 
 
@@ -40,17 +39,17 @@ def mock_event_indexes() -> dict[str, int]:
     "event_tuple,expected_skip",
     [
         # Should skip autocapture event with no context
-        (("$autocapture", None, "", [], [], None, None, "click", [], "", [], [], [], [], [], [], []), True),
+        (("$autocapture", None, "", [], [], None, None, "click", [], "", [], [], [], [], [], []), True),
         # Should not skip autocapture event with text context
-        (("$autocapture", None, "", ["Click me"], [], None, None, "click", [], "", [], [], [], [], [], [], []), False),
+        (("$autocapture", None, "", ["Click me"], [], None, None, "click", [], "", [], [], [], [], [], []), False),
         # Should not skip autocapture event with element context
-        (("$autocapture", None, "", [], ["button"], None, None, "click", [], "", [], [], [], [], [], [], []), False),
+        (("$autocapture", None, "", [], ["button"], None, None, "click", [], "", [], [], [], [], [], []), False),
         # Should skip custom event with no context and simple name
-        (("click", None, "", [], [], None, None, "click", [], "", [], [], [], [], [], [], []), True),
+        (("click", None, "", [], [], None, None, "click", [], "", [], [], [], [], [], []), True),
         # Should not skip custom event with context
-        (("click", None, "", ["Click me"], [], None, None, "click", [], "", [], [], [], [], [], [], []), False),
+        (("click", None, "", ["Click me"], [], None, None, "click", [], "", [], [], [], [], [], []), False),
         # Should not skip custom event with complex name
-        (("user.clicked_button", None, "", [], [], None, None, "click", [], "", [], [], [], [], [], [], []), False),
+        (("user.clicked_button", None, "", [], [], None, None, "click", [], "", [], [], [], [], [], []), False),
     ],
 )
 def test_skip_event_without_context(
@@ -123,10 +122,9 @@ def test_add_context_and_filter_events(mock_event_indexes: dict[str, int]):
             [],
             [],
             [],
-            [],
         ),
         # Should skip event without context
-        ("$autocapture", None, "", [], [], None, None, "click", [], "", [], [], [], [], [], [], []),
+        ("$autocapture", None, "", [], [], None, None, "click", [], "", [], [], [], [], [], []),
         # Should improve context from chain
         (
             "$autocapture",
@@ -145,10 +143,9 @@ def test_add_context_and_filter_events(mock_event_indexes: dict[str, int]):
             [],
             [],
             [],
-            [],
         ),
         # Should keep custom event with complex name
-        ("user_clicked_button", None, "", [], [], None, None, "click", [], "", [], [], [], [], [], [], []),
+        ("user_clicked_button", None, "", [], [], None, None, "click", [], "", [], [], [], [], [], []),
     ]
     updated_columns, updated_events = add_context_and_filter_events(test_columns, events)
     # Check columns are updated (and columns excessive from LLM context are removed)
@@ -170,7 +167,6 @@ def test_add_context_and_filter_events(mock_event_indexes: dict[str, int]):
         [],
         [],
         [],
-        [],
     )
     # Second event should've been filtered out due to no context
     # Third event should have improved context from chain
@@ -186,10 +182,9 @@ def test_add_context_and_filter_events(mock_event_indexes: dict[str, int]):
         [],
         [],
         [],
-        [],
     )
     # Last event should be kept unchanged due to complex name
-    assert updated_events[2] == ("user_clicked_button", None, "", [], [], None, None, "click", [], [], [], [])
+    assert updated_events[2] == ("user_clicked_button", None, "", [], [], None, None, "click", [], [], [])
 
 
 @pytest.mark.parametrize(
