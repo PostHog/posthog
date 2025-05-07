@@ -1,12 +1,10 @@
 import '@xyflow/react/dist/style.css'
 
-import { IconPlus } from '@posthog/icons'
 import {
     addEdge,
     Background,
     Controls,
     Edge,
-    MiniMap,
     Node,
     ReactFlow,
     ReactFlowProvider,
@@ -14,8 +12,17 @@ import {
     useNodesState,
     useReactFlow,
 } from '@xyflow/react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useValues } from 'kea'
+import { capitalizeFirstLetter, Form } from 'kea-forms'
+import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+
+import { REACT_FLOW_NODE_TYPES } from './Node'
+import { nodeDetailsLogic } from './nodeDetailsLogic'
 import { WorkflowEdge, WorkflowNode } from './types'
 
 // Initial node setup - just one starting node
@@ -34,59 +41,20 @@ const initialNodes: Node[] = [
     },
 ]
 
-// Initial edges setup - empty array
-const initialEdges: Edge[] = [{ id: 'start-node-exit-node', source: 'start-node', target: 'exit-node' }]
+// Initial edges setup
+const initialEdges: Edge[] = [{ id: 'trigger-node-exit-node', source: 'trigger-node', target: 'exit-node' }]
 
 // Node types available for adding to the flow
-const NODE_TYPES = [
+const TOOLBAR_NODE_TYPES = [
     { type: 'message', label: 'Message' },
     { type: 'condition', label: 'Condition' },
     { type: 'delay', label: 'Delay' },
     { type: 'exit', label: 'Exit' },
 ]
-type NodeType = (typeof NODE_TYPES)[number]['type']
-
-const REACT_FLOW_NODE_TYPES = {
-    addIcon: AddIconNode,
-    trigger: TriggerNode,
-    message: MessageNode,
-    condition: ConditionNode,
-    delay: DelayNode,
-    exit: ExitNode,
-}
+type ToolbarNodeType = (typeof TOOLBAR_NODE_TYPES)[number]['type']
 
 type WorkflowEditorProps = {
     setFlowData: ({ nodes, edges }: { nodes: WorkflowNode[]; edges: WorkflowEdge[] }) => void
-}
-
-function TriggerNode(): JSX.Element {
-    return (
-        <div className="bg-white border rounded p-2 mb-2 cursor-grab hover:bg-gray-50 transition-colors">Trigger</div>
-    )
-}
-
-function MessageNode(): JSX.Element {
-    return (
-        <div className="bg-white border rounded p-2 mb-2 cursor-grab hover:bg-gray-50 transition-colors">Message</div>
-    )
-}
-
-function ConditionNode(): JSX.Element {
-    return (
-        <div className="bg-white border rounded p-2 mb-2 cursor-grab hover:bg-gray-50 transition-colors">Condition</div>
-    )
-}
-
-function DelayNode(): JSX.Element {
-    return <div className="bg-white border rounded p-2 mb-2 cursor-grab hover:bg-gray-50 transition-colors">Delay</div>
-}
-
-function ExitNode(): JSX.Element {
-    return <div className="bg-white border rounded p-2 mb-2 cursor-grab hover:bg-gray-50 transition-colors">Exit</div>
-}
-
-function AddIconNode(): JSX.Element {
-    return <IconPlus />
 }
 
 // Draggable node component
@@ -95,9 +63,9 @@ function ToolbarNode({
     label,
     setNewNodeType,
 }: {
-    type: string
+    type: ToolbarNodeType
     label: string
-    setNewNodeType: (nodeType: NodeType) => void
+    setNewNodeType: (nodeType: ToolbarNodeType) => void
 }): JSX.Element {
     const onDragStart = (event: React.DragEvent): void => {
         setNewNodeType(type)
@@ -107,7 +75,7 @@ function ToolbarNode({
 
     return (
         <div
-            className="bg-white border rounded p-2 mb-2 cursor-grab hover:bg-gray-50 transition-colors"
+            className="bg-surface-primary border rounded p-2 mb-2 cursor-grab hover:bg-surface-secondary transition-colors"
             draggable
             onDragStart={onDragStart}
         >
@@ -116,12 +84,12 @@ function ToolbarNode({
     )
 }
 
-function Toolbar({ setNewNodeType }: { setNewNodeType: (nodeType: NodeType) => void }): JSX.Element {
+function Toolbar({ setNewNodeType }: { setNewNodeType: (nodeType: ToolbarNodeType) => void }): JSX.Element {
     return (
-        <div className="absolute right-4 top-4 bg-white rounded-md shadow-md p-4 z-10 w-[200px]">
+        <div className="absolute right-4 top-4 bg-surface-primary rounded-md shadow-md p-4 z-10 w-[200px]">
             <h3 className="text-sm font-semibold mb-2">Drag to add nodes</h3>
             <div className="space-y-1">
-                {NODE_TYPES.map((type) => (
+                {TOOLBAR_NODE_TYPES.map((type) => (
                     <ToolbarNode key={type.type} type={type.type} label={type.label} setNewNodeType={setNewNodeType} />
                 ))}
             </div>
@@ -129,13 +97,57 @@ function Toolbar({ setNewNodeType }: { setNewNodeType: (nodeType: NodeType) => v
     )
 }
 
+function NodeDetails({
+    workflowId,
+    node,
+    onNodeChange,
+}: {
+    workflowId: string
+    node: WorkflowNode
+    onNodeChange: (node: WorkflowNode) => void
+}): JSX.Element {
+    nodeDetailsLogic({
+        workflowId,
+        node,
+        onNodeChange,
+    })
+
+    return (
+        <div className="absolute right-4 top-4 bg-white rounded-md shadow-md p-4 z-10 w-[200px]">
+            <h3 className="text-sm font-semibold mb-2">Edit {node.type} node</h3>
+            <Form logic={nodeDetailsLogic} formKey="node">
+                <div className="flex flex-wrap gap-4 items-start">
+                    <div className="space-y-2 flex-1 min-w-100 p-3 bg-surface-primary border rounded self-start">
+                        <LemonField name="name" label="Name">
+                            <LemonInput />
+                        </LemonField>
+
+                        <LemonField
+                            name="description"
+                            label="Description"
+                            info="Add a description to share context with other team members"
+                        >
+                            <LemonTextArea />
+                        </LemonField>
+                    </div>
+                </div>
+            </Form>
+        </div>
+    )
+}
+
 // Inner component that encapsulates React Flow
 function WorkflowEditorContent({ setFlowData }: WorkflowEditorProps): JSX.Element {
+    const { isDarkModeOn } = useValues(themeLogic)
+
     const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes)
     const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges)
     const reactFlowWrapper = useRef<HTMLDivElement>(null)
     const reactFlowInstance = useReactFlow()
-    const [newNodeType, setNewNodeType] = useState<NodeType>()
+    const [newNodeType, setNewNodeType] = useState<ToolbarNodeType>()
+    const [selectedNode, setSelectedNode] = useState<Node>()
+
+    const nodeTypes = useMemo(() => REACT_FLOW_NODE_TYPES, [])
 
     useEffect(() => {
         setFlowData({ nodes, edges } as { nodes: WorkflowNode[]; edges: WorkflowEdge[] })
@@ -152,6 +164,10 @@ function WorkflowEditorContent({ setFlowData }: WorkflowEditorProps): JSX.Elemen
         (event) => {
             event.preventDefault()
 
+            if (!newNodeType) {
+                return
+            }
+
             const position = reactFlowInstance.screenToFlowPosition({
                 x: event.clientX - 32,
                 y: event.clientY - 32,
@@ -160,7 +176,9 @@ function WorkflowEditorContent({ setFlowData }: WorkflowEditorProps): JSX.Elemen
                 id: `${newNodeType}_${Date.now()}`,
                 type: newNodeType,
                 position,
-                data: {},
+                data: {
+                    label: capitalizeFirstLetter(newNodeType),
+                },
             }
 
             setNodes((nds) => nds.concat(newNode))
@@ -177,15 +195,23 @@ function WorkflowEditorContent({ setFlowData }: WorkflowEditorProps): JSX.Elemen
                 onEdgesChange={onEdgesChange}
                 onConnect={onConnect}
                 onDragOver={onDragOver}
+                onNodeClick={(_, node) => setSelectedNode(node)}
                 onDrop={onDrop}
                 fitView
-                nodeTypes={REACT_FLOW_NODE_TYPES}
+                nodeTypes={nodeTypes}
+                colorMode={isDarkModeOn ? 'dark' : 'light'}
             >
                 <Background />
-                <MiniMap />
                 <Controls />
 
                 <Toolbar setNewNodeType={setNewNodeType} />
+                {selectedNode && (
+                    <NodeDetails
+                        workflowId="new"
+                        node={selectedNode as WorkflowNode}
+                        onNodeChange={(node) => setNodes((nds) => nds.map((n) => (n.id === node.id ? node : n)))}
+                    />
+                )}
             </ReactFlow>
         </div>
     )
