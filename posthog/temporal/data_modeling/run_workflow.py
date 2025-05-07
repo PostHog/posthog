@@ -23,6 +23,7 @@ from django.conf import settings
 from dlt.common.libs.deltalake import get_delta_tables
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.exceptions_capture import capture_exception
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.query import execute_hogql_query
@@ -497,8 +498,12 @@ async def update_table_row_count(saved_query: DataWarehouseSavedQuery, row_count
             await database_sync_to_async(table.save)()
             await logger.ainfo("Updated row count for table %s to %d", saved_query.name, row_count)
         else:
+            capture_exception(
+                ValueError(f"Could not find DataWarehouseTable record for saved query {saved_query.name}")
+            )
             await logger.aexception("Could not find DataWarehouseTable record for saved query %s", saved_query.name)
     except Exception as e:
+        capture_exception(e)
         await logger.aexception("Failed to update row count for table %s: %s", saved_query.name, str(e))
 
 
@@ -945,10 +950,12 @@ class RunWorkflow(PostHogWorkflow):
                         ),
                     )
                 except Exception as cancel_err:
+                    capture_exception(cancel_err)
                     temporalio.workflow.logger.error(f"Failed to cancel jobs: {str(cancel_err)}")
                     raise
                 raise
 
+            capture_exception(e)
             temporalio.workflow.logger.error(f"Activity failed during model run: {str(e)}")
 
             workflow_id = temporalio.workflow.info().workflow_id
