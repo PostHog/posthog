@@ -5,8 +5,11 @@ from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES
 from posthog.models.hog_function_template import HogFunctionTemplate as DBHogFunctionTemplate
 from posthog.plugins.plugin_server_api import get_hog_function_templates
 from posthog.api.hog_function_template import HogFunctionTemplateSerializer
+from posthog.models.hog_functions.hog_function import HogFunctionType
 
 logger = structlog.get_logger(__name__)
+
+TYPES_WITH_JAVASCRIPT_SOURCE = (HogFunctionType.SITE_DESTINATION, HogFunctionType.SITE_APP)
 
 
 class Command(BaseCommand):
