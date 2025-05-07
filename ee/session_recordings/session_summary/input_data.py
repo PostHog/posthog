@@ -175,20 +175,22 @@ def add_context_and_filter_events(
         "elements_chain_elements": get_column_index(session_events_columns, "elements_chain_elements"),
         "elements_chain_href": get_column_index(session_events_columns, "elements_chain_href"),
         "elements_chain_ids": get_column_index(session_events_columns, "elements_chain_ids"),
+        "elements_chain": get_column_index(session_events_columns, "elements_chain"),
         "$exception_types": get_column_index(session_events_columns, "$exception_types"),
         "$exception_values": get_column_index(session_events_columns, "$exception_values"),
-        "elements_chain": get_column_index(session_events_columns, "elements_chain"),
         "$exception_sources": get_column_index(session_events_columns, "$exception_sources"),
         "$exception_fingerprint_record": get_column_index(session_events_columns, "$exception_fingerprint_record"),
         "$exception_functions": get_column_index(session_events_columns, "$exception_functions"),
     }
     # Columns that are useful to building context or/and filtering, but would be excessive for the LLM
-    columns_to_pop = [
+    columns_to_remove = {
         "$exception_functions",
         "$exception_fingerprint_record",
         "$exception_sources",
         "elements_chain",
-    ]
+    }
+    # Columns to go into the LLM
+    columns_to_keep = [i for i, col in enumerate(session_events_columns) if col not in columns_to_remove]
     updated_events = []
     for event in session_events:
         updated_event: list[str | datetime.datetime | list[str] | None] = list(event)
@@ -197,9 +199,7 @@ def add_context_and_filter_events(
             if _skip_exception_without_valid_context(updated_event, indexes):
                 continue
             # If it's a valid exception, there are no elements to enrich the context, so keep it as is
-            for column in columns_to_pop:
-                updated_event.pop(indexes[column])
-            updated_events.append(tuple(updated_event))
+            updated_events.append(tuple(updated_event[i] for i in columns_to_keep))
             continue
         chain = event[indexes["elements_chain"]]
         if not isinstance(chain, str):
@@ -208,10 +208,7 @@ def add_context_and_filter_events(
             # If no chain - no additional context will come, so it's ok to check if to skip right away
             if _skip_event_without_valid_context(updated_event, indexes):
                 continue
-            # Popping the columns as they are not needed for the LLM
-            for column in columns_to_pop:
-                updated_event.pop(indexes[column])
-            updated_events.append(tuple(updated_event))
+            updated_events.append(tuple(updated_event[i] for i in columns_to_keep))
             continue
         elements_chain_texts = event[indexes["elements_chain_texts"]]
         if not isinstance(elements_chain_texts, list):
@@ -226,14 +223,8 @@ def add_context_and_filter_events(
         # After additional context is added, check again if the event is still without context
         if _skip_event_without_valid_context(updated_event, indexes):
             continue
-        # Remove chain from as we already got all the info from it (safe to remove as it's the last column)
-        for column in columns_to_pop:
-            updated_event.pop(indexes[column])
-        updated_events.append(tuple(updated_event))
-    # Remove chain from columns also to avoid confusion (safe to remove as it's the last column)
-    updated_columns = session_events_columns.copy()
-    for column in columns_to_pop:
-        updated_columns.pop(indexes[column])
+        updated_events.append(tuple(updated_event[i] for i in columns_to_keep))
+    updated_columns = [session_events_columns[i] for i in columns_to_keep]
     return updated_columns, updated_events
 
 
