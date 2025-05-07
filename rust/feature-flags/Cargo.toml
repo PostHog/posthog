@@ -48,7 +48,7 @@ tower-http = { workspace = true }
 petgraph = "0.6.5"
 moka = { workspace = true }
 dateparser = "0.2.1"
-rust_decimal = "1.37.1"
+rust_decimal = { workspace = true }
 rayon = "1.10.0"
 percent-encoding = "2.3.1"
 
