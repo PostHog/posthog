@@ -641,42 +641,18 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                     )
                 }}
                 renderItem={(item, children) => {
-                    const user = item.record?.user as UserBasicType | undefined
                     return (
                         <>
                             {sortMethod === 'recent' && projectTreeMode === 'tree' ? (
-                                <span className="grid grid-cols-[1fr_auto] grid-rows-2 gap-px">
-                                    <span className="flex flex-col gap-1 flex-1 row-span-2 truncate">
-                                        <Tooltip title={children}>
-                                            <span className="text-primary leading-[1.1] truncate w-fit max-w-full">
-                                                {children}
-                                            </span>
-                                        </Tooltip>
-                                        <Tooltip title={dayjs(item.record?.created_at).format('MMM D, YYYY h:mm A')}>
-                                            <span className="text-tertiary text-xs font-normal leading-[1.1] w-fit">
-                                                {dayjs(item.record?.created_at).fromNow()}
-                                            </span>
-                                        </Tooltip>
+                                <span className="flex flex-col gap-1 flex-1 row-span-2 truncate">
+                                    <span className="text-primary leading-[1.1] truncate w-fit max-w-full">
+                                        {children}
                                     </span>
-                                    {item.record?.user ? (
-                                        <span className="flex items-end justify-end row-span-2 self-center grayscale opacity-30 group-hover/lemon-tree-button:opacity-100 group-hover/lemon-tree-button:grayscale-0">
-                                            <Tooltip
-                                                title={
-                                                    <>
-                                                        Created by:{' '}
-                                                        <ProfilePicture
-                                                            user={user}
-                                                            size="md"
-                                                            showName
-                                                            className="font-semibold"
-                                                        />
-                                                    </>
-                                                }
-                                            >
-                                                <ProfilePicture user={user} size="md" />
-                                            </Tooltip>
-                                        </span>
-                                    ) : null}
+                                    <span className="text-tertiary text-xs font-normal leading-[1.1] w-fit">
+                                        {dayjs(item.record?.created_at).fromNow()} by{' '}
+                                        {item.record?.user?.first_name || 'PostHog'}{' '}
+                                        {item.record?.user?.last_name || ''}
+                                    </span>
                                 </span>
                             ) : (
                                 children
@@ -687,10 +663,16 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                 renderItemTooltip={(item) => {
                     const user = item.record?.user as UserBasicType | undefined
 
-                    return sortMethod === 'folder' && projectTreeMode === 'tree' ? (
+                    return projectTreeMode === 'tree' ? (
                         <>
                             Name: <span className="font-semibold">{item.displayName}</span> <br />
-                            Created by: <ProfilePicture user={user} size="md" showName className="font-semibold" />
+                            Created by:{' '}
+                            <ProfilePicture
+                                user={user || { first_name: 'PostHog' }}
+                                size="sm"
+                                showName
+                                className="font-semibold"
+                            />
                             <br />
                             Created at:{' '}
                             <span className="font-semibold">
