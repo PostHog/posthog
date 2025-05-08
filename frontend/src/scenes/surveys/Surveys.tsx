@@ -87,18 +87,24 @@ export function Surveys(): JSX.Element {
                         </LemonButton>
                     </>
                 }
+                className="flex items-center gap-2 justify-between min-w-full"
                 caption={
                     <>
-                        Check out our
-                        <Link
-                            data-attr="survey-help"
-                            to="https://posthog.com/docs/surveys?utm_medium=in-product&utm_campaign=new-survey"
-                            target="_blank"
-                        >
-                            {' '}
-                            surveys docs
-                        </Link>{' '}
-                        to learn more.
+                        <div>
+                            Check out our
+                            <Link
+                                data-attr="survey-help"
+                                to="https://posthog.com/docs/surveys?utm_medium=in-product&utm_campaign=new-survey"
+                                target="_blank"
+                            >
+                                {' '}
+                                surveys docs
+                            </Link>{' '}
+                            to learn more.
+                        </div>
+                        <LemonButton size="small" type="secondary" id="surveys-page-feedback-button">
+                            Have any questions or feedback?
+                        </LemonButton>
                     </>
                 }
                 tabbedPage
@@ -126,7 +132,7 @@ export function Surveys(): JSX.Element {
                         filters={{
                             events: [
                                 {
-                                    id: 'survey sent',
+                                    id: SurveyEventName.SENT,
                                     type: 'events',
                                     order: 0,
                                 },
