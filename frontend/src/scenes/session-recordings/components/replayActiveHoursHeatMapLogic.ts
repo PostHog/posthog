@@ -1,0 +1,141 @@
+import { afterMount, kea, key, listeners, path, props, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { CalendarHeatMapProps } from 'scenes/web-analytics/CalendarHeatMap/CalendarHeatMap'
+
+import { HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
+import { hogql } from '~/queries/utils'
+
+import type { replayActiveHoursHeatMapLogicType } from './replayActiveHoursHeatMapLogicType'
+
+export interface ReplayActiveHoursHeatMapLogicProps {
+    // we can show this component in different contexts, and key it accordingly
+    scene?: 'templates' | 'filters' | 'replay-home'
+}
+
+export const replayActiveHoursHeatMapLogic = kea<replayActiveHoursHeatMapLogicType>([
+    path(['scenes', 'session-recordings', 'components', 'replayActiveHoursHeatMapLogic']),
+    props({} as ReplayActiveHoursHeatMapLogicProps),
+    key((props) => props.scene || 'default'),
+    loaders(() => ({
+        recordingsPerHour: {
+            loadRecordingsPerHour: async (_, breakpoint): Promise<HogQLQueryResponse> => {
+                const q = hogql`SELECT
+    hour_block,
+    countIf(_toDate(mints) = today() - 6) AS "Day -6",
+    countIf(_toDate(mints) = today() - 5) AS "Day -5",
+    countIf(_toDate(mints) = today() - 4) AS "Day -4",
+    countIf(_toDate(mints) = today() - 3) AS "Day -3",
+    countIf(_toDate(mints) = today() - 2) AS "Day -2",
+    countIf(_toDate(mints) = today() - 1) AS "Day -1",
+    countIf(_toDate(mints) = today()) AS "Day 0"
+FROM (
+    SELECT
+        intDiv(toHour(mints), 4) * 4 AS real_hour_block,
+        mints
+    FROM (
+        SELECT min(min_first_timestamp) AS mints
+        FROM raw_session_replay_events
+        WHERE min_first_timestamp >= now() - INTERVAL 7 day
+          AND min_first_timestamp <= now()
+        GROUP BY session_id
+    )
+) AS data
+RIGHT JOIN (
+    SELECT arrayJoin([0, 4, 8, 12, 16, 20]) AS hour_block
+) AS hours
+ON data.real_hour_block = hours.hour_block
+GROUP BY hour_block
+ORDER BY hour_block`
+
+                const wat: HogQLQueryResponse = await api.query({
+                    kind: NodeKind.HogQLQuery,
+                    query: q,
+                })
+
+                // this gives an array of arrays
+                // we're loading hours 0-4, 4-8, 8-12, 12-16, 16-20, 20-24
+                // so we get an array with 6 elements
+                // each of those has 8 values
+                // [0] is the hour block
+                // and then each of the other 7 values is the count for that day
+
+                breakpoint()
+
+                return wat
+            },
+        },
+    })),
+    selectors(() => ({
+        calendarHeatmapProps: [
+            (s) => [s.recordingsPerHour],
+            (recordingsPerHour): Pick<CalendarHeatMapProps, 'rowLabels' | 'columnLabels' | 'processedData'> => {
+                if (!recordingsPerHour || !recordingsPerHour.results) {
+                    return {
+                        rowLabels: [],
+                        columnLabels: [],
+                        processedData: {
+                            matrix: [],
+                            columnsAggregations: [],
+                            rowsAggregations: [],
+                            overallValue: 0,
+                            maxOverall: 0,
+                            minOverall: 0,
+                            maxRowAggregation: 0,
+                            minRowAggregation: 0,
+                            maxColumnAggregation: 0,
+                            minColumnAggregation: 0,
+                        },
+                    }
+                }
+
+                const dataWithoutHourBlock = recordingsPerHour.results.map((row) => row.slice(1))
+
+                const columnsAggregations = dataWithoutHourBlock.reduce((acc, row) => {
+                    row.forEach((value, index) => {
+                        acc[index] = (acc[index] || 0) + value
+                    })
+                    return acc
+                }, [])
+                const rowsAggregations = dataWithoutHourBlock.reduce((acc, row) => {
+                    // take each row and ignoring row[0]
+                    // gather a sum for each index in the row
+                    // so we end up with an array of numbers with length 6
+                    acc[row[0]] = (acc[row[0]] || 0) + row.reduce((a, b) => a + b, 0)
+                    return acc
+                }, [])
+                const processedData = {
+                    matrix: dataWithoutHourBlock,
+                    columnsAggregations: columnsAggregations,
+                    rowsAggregations: rowsAggregations,
+                    overallValue: columnsAggregations.reduce((a, b) => a + b, 0),
+                    maxOverall: dataWithoutHourBlock.reduce((acc, row) => {
+                        return Math.max(acc, ...row)
+                    }, 0),
+                    minOverall: dataWithoutHourBlock.reduce((acc, row) => {
+                        return Math.min(acc, ...row)
+                    }, 0),
+                    maxColumnAggregation: Math.max(...columnsAggregations),
+                    minColumnAggregation: Math.min(...columnsAggregations),
+                    maxRowAggregation: Math.max(...rowsAggregations),
+                    minRowAggregation: Math.min(...rowsAggregations),
+                }
+
+                return {
+                    rowLabels: ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00'],
+                    columnLabels: ['Day -6', 'Day -5', 'Day -4', 'Day -3', 'Day -2', 'Day -1', 'Today'],
+                    processedData: processedData,
+                }
+            },
+        ],
+    })),
+    listeners(() => ({
+        loadRecordingsPerHourFailed: async () => {
+            lemonToast.error('Failed to load recordings activity for heatmap')
+        },
+    })),
+    afterMount(({ actions }) => {
+        actions.loadRecordingsPerHour(undefined)
+    }),
+])

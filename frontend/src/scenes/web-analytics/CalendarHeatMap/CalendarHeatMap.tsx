@@ -115,7 +115,7 @@ export function CalendarHeatMap({
                             {columnLabels.map((label, i) => (
                                 <th key={i}>{label}</th>
                             ))}
-                            {rowsAggregations[0] !== undefined && (
+                            {rowsAggregations?.[0] !== undefined && (
                                 <th className="aggregation-border">{allAggregationsLabel}</th>
                             )}
                         </tr>
@@ -156,7 +156,7 @@ export function CalendarHeatMap({
 
                         {/* Aggregation column */}
                         <tr className="aggregation-border">
-                            {columnsAggregations[0] !== undefined && (
+                            {columnsAggregations?.[0] !== undefined && (
                                 <td className="CalendarHeatMap__TextTab">{allAggregationsLabel}</td>
                             )}
                             {renderColumnsAggregationCells(
