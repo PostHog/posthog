@@ -13,7 +13,18 @@ export interface ToolDefinition {
     displayName: string
     /** Contextual data to be included for use by the LLM */
     context: Record<string, any>
-    /** When in context, the tool can add items to the pool of Max's suggested questions */
+    /**
+     * Optional: If this tool is the main one of the page, you can override Max's default intro headline and description when it's mounted.
+     *
+     * Note that if more than one mounted tool has an intro override, only one will take effect.
+     */
+    introOverride?: {
+        /** The default is something like "How can I help you build?" - stick true to this question form. */
+        headline: string
+        /** The default is "Ask me about your product and your users." */
+        description: string
+    }
+    /** Optional: When in context, the tool can add items to the pool of Max's suggested questions */
     suggestions?: string[] // TODO: Suggestions aren't used yet, pending a refactor of maxLogic's allSuggestions
     /** The callback function that will be executed with the LLM's tool call output */
     callback: (toolOutput: any) => void

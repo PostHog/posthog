@@ -28,6 +28,10 @@ import { Layout } from 'react-grid-layout'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'
 import { Holdout } from 'scenes/experiments/holdoutsLogic'
+import {
+    ConversionRateInputType,
+    EventConfig,
+} from 'scenes/experiments/RunningTimeCalculator/runningTimeCalculatorLogic'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 import { Params, Scene, SceneConfig } from 'scenes/sceneTypes'
@@ -439,6 +443,15 @@ export interface OrganizationMemberType extends BaseMemberType {
     is_2fa_enabled: boolean
 }
 
+export interface OrganizationMemberScopedApiKeysResponse {
+    has_keys: boolean
+    has_keys_active_last_week: boolean
+    keys: {
+        name: string
+        last_used_at: string | null
+    }[]
+}
+
 export interface ExplicitTeamMemberType extends BaseMemberType {
     /** Level at which the user explicitly is in the project. */
     level: TeamMembershipLevel
@@ -504,6 +517,8 @@ export interface TeamBasicType extends WithAccessControl {
     organization: string // Organization ID
     project_id: number
     api_token: string
+    secret_api_token: string
+    secret_api_token_backup: string
     name: string
     completed_snippet_onboarding: boolean
     has_completed_onboarding_for?: Record<string, boolean>
@@ -652,6 +667,7 @@ export interface ActionType {
     bytecode?: any[]
     bytecode_error?: string
     pinned_at: string | null
+    _create_in_folder?: string | null
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -838,6 +854,7 @@ export enum PropertyFilterType {
     DataWarehouse = 'data_warehouse',
     DataWarehousePersonProperty = 'data_warehouse_person_property',
     ErrorTrackingIssue = 'error_tracking_issue',
+    ErrorTrackingIssueProperty = 'error_tracking_issue_property',
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -878,6 +895,11 @@ export interface DataWarehousePersonPropertyFilter extends BasePropertyFilter {
 
 export interface ErrorTrackingIssueFilter extends BasePropertyFilter {
     type: PropertyFilterType.ErrorTrackingIssue
+    operator: PropertyOperator
+}
+
+export interface ErrorTrackingIssuePropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.ErrorTrackingIssueProperty
     operator: PropertyOperator
 }
 
@@ -944,6 +966,7 @@ export type AnyPropertyFilter =
     | DataWarehousePropertyFilter
     | DataWarehousePersonPropertyFilter
     | ErrorTrackingIssueFilter
+    | ErrorTrackingIssuePropertyFilter
 
 /** Any filter type supported by `property_to_expr(scope="person", ...)`. */
 export type AnyPersonScopeFilter =
@@ -1320,9 +1343,7 @@ export interface CommonActorType {
 
 export interface PersonActorType extends CommonActorType {
     type: 'person'
-    /** Serial ID (NOT UUID). */
-    id: number
-    uuid: string
+    id: string
     name?: string
     distinct_ids: string[]
     is_identified: boolean
@@ -1403,6 +1424,7 @@ export interface CohortType {
         properties: CohortCriteriaGroupFilter
     }
     experiment_set?: number[]
+    _create_in_folder?: string | null
 }
 
 export interface InsightHistory {
@@ -1526,6 +1548,8 @@ export interface SessionRecordingPlaylistType {
      * marked as has more if the filters count onoy matched one page and there are more available
      */
     recordings_counts?: PlaylistRecordingsCounts
+    type: 'filters' | 'collection'
+    _create_in_folder?: string | null
 }
 
 export interface SessionRecordingSegmentType {
@@ -1837,6 +1861,9 @@ export interface BillingType {
     custom_limits_usd?: {
         [key: string]: number | null
     }
+    next_period_custom_limits_usd?: {
+        [key: string]: number | null
+    }
     billing_period?: {
         current_period_start: Dayjs
         current_period_end: Dayjs
@@ -1976,6 +2003,8 @@ export interface InsightModel extends Cacheable, WithAccessControl {
     filters: Partial<FilterType>
     query?: Node | null
     query_status?: QueryStatus
+    /** Only used when creating objects */
+    _create_in_folder?: string | null
 }
 
 export interface QueryBasedInsightModel extends Omit<InsightModel, 'filters'> {
@@ -2926,6 +2955,12 @@ export enum SurveyEventName {
     SENT = 'survey sent',
 }
 
+export enum SurveyEventProperties {
+    SURVEY_ID = '$survey_id',
+    SURVEY_RESPONSE = '$survey_response',
+    SURVEY_ITERATION = '$survey_iteration',
+}
+
 export interface SurveyEventStats {
     total_count: number
     total_count_only_seen: number
@@ -2984,6 +3019,7 @@ export interface Survey {
     response_sampling_limit?: number | null
     response_sampling_daily_limits?: string[] | null
     enable_partial_responses?: boolean | null
+    _create_in_folder?: string | null
 }
 
 export enum SurveyMatchType {
@@ -3190,6 +3226,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     is_remote_configuration: boolean
     has_encrypted_payloads: boolean
     status: 'ACTIVE' | 'INACTIVE' | 'STALE' | 'DELETED' | 'UNKNOWN'
+    _create_in_folder?: string | null
 }
 
 export interface OrganizationFeatureFlag {
@@ -3269,6 +3306,7 @@ export interface EarlyAccessFeatureType {
     /** Documentation URL. Can be empty. */
     documentation_url: string
     created_at: string
+    _create_in_folder?: string | null
 }
 
 export interface NewEarlyAccessFeatureType extends Omit<EarlyAccessFeatureType, 'id' | 'created_at' | 'feature_flag'> {
@@ -3459,6 +3497,7 @@ export enum PropertyType {
     Selector = 'Selector',
     Cohort = 'Cohort',
     Assignee = 'Assignee',
+    StringArray = 'StringArray',
 }
 
 export enum PropertyDefinitionType {
@@ -3529,6 +3568,14 @@ export interface Group {
     group_properties: Record<string, any>
 }
 
+export enum ExperimentConclusion {
+    Won = 'won',
+    Lost = 'lost',
+    Inconclusive = 'inconclusive',
+    StoppedEarly = 'stopped_early',
+    Invalid = 'invalid',
+}
+
 export interface Experiment {
     id: ExperimentIdType
     name: string
@@ -3544,9 +3591,17 @@ export interface Experiment {
     saved_metrics_ids: { id: number; metadata: { type: 'primary' | 'secondary' } }[]
     saved_metrics: any[]
     parameters: {
+        /**
+         * This is the state of the Running Time Calculator modal, while
+         * minimum_detectable_effect, recommended_running_time, and recommended_sample_size
+         * are the results of the Running Time Calculator.
+         */
         exposure_estimate_config?: {
-            event: string
-            properties: AnyPropertyFilter[]
+            eventFilter: EventConfig | null
+            metric: ExperimentMetric | null
+            conversionRateInputType: ConversionRateInputType
+            manualConversionRate: number | null
+            uniqueUsers: number | null
         } | null
         minimum_detectable_effect?: number
         recommended_running_time?: number
@@ -3568,6 +3623,9 @@ export interface Experiment {
     stats_config?: {
         version?: number
     }
+    _create_in_folder?: string | null
+    conclusion?: ExperimentConclusion | null
+    conclusion_comment?: string | null
 }
 
 export interface FunnelExperimentVariant {
@@ -3877,6 +3935,7 @@ export enum GroupMathType {
 export enum ExperimentMetricMathType {
     TotalCount = 'total',
     Sum = 'sum',
+    UniqueSessions = 'unique_session',
 }
 
 export enum ActorGroupType {
@@ -4256,6 +4315,7 @@ export enum ActivityScope {
     COHORT = 'Cohort',
     TEAM = 'Team',
     ERROR_TRACKING_ISSUE = 'ErrorTrackingIssue',
+    DATA_WAREHOUSE_SAVED_QUERY = 'DataWarehouseSavedQuery',
 }
 
 export type CommentType = {
@@ -4279,6 +4339,7 @@ export type NotebookListItemType = {
     created_by: UserBasicType | null
     last_modified_at?: string
     last_modified_by?: UserBasicType | null
+    _create_in_folder?: string
 }
 
 export type NotebookType = NotebookListItemType &
@@ -4352,6 +4413,7 @@ export interface DataWarehouseSavedQuery {
     sync_frequency: string
     status?: string
     latest_error: string | null
+    latest_history_id?: string
 }
 
 export interface DataWarehouseViewLink {
@@ -4422,7 +4484,7 @@ export interface ExternalDataSource {
 export interface DataModelingJob {
     id: string
     saved_query_id: string
-    status: 'Running' | 'Completed' | 'Failed'
+    status: 'Running' | 'Completed' | 'Failed' | 'Cancelled'
     rows_materialized: number
     error: string | null
     created_at: string
@@ -5070,6 +5132,7 @@ export type HogFunctionConfigurationType = Omit<
 > & {
     hog?: HogFunctionType['hog'] // In the config it can be empty if using a template
     sub_template_id?: HogFunctionSubTemplateIdType
+    _create_in_folder?: string | null
 }
 
 export type HogFunctionSubTemplateType = Pick<HogFunctionType, 'filters' | 'inputs' | 'masking' | 'mappings'> & {

@@ -23,13 +23,18 @@ import { projectLogic } from './projectLogic'
 import type { teamLogicType } from './teamLogicType'
 import { userLogic } from './userLogic'
 
-const parseUpdatedAttributeName = (attr: string | null): string => {
+const parseUpdatedAttributeName = (attr: keyof TeamType | null): string => {
     if (attr === 'slack_incoming_webhook') {
         return 'Webhook'
     }
     if (attr === 'app_urls') {
         return 'Authorized URLs'
     }
+
+    if (attr === 'session_recording_minimum_duration_milliseconds') {
+        return 'Session recording minimum duration'
+    }
+
     return attr ? identifierToHuman(attr) : 'Project'
 }
 
@@ -115,7 +120,8 @@ export const teamLogic = kea<teamLogicType>([
                     actions.loadUser()
 
                     /* Notify user the update was successful  */
-                    const updatedAttribute = Object.keys(payload).length === 1 ? Object.keys(payload)[0] : null
+                    const updatedAttribute =
+                        Object.keys(payload).length === 1 ? (Object.keys(payload)[0] as keyof TeamType) : null
 
                     let message: string
                     if (updatedAttribute === 'slack_incoming_webhook') {
@@ -134,7 +140,9 @@ export const teamLogic = kea<teamLogicType>([
                     }
 
                     Object.keys(payload).map((property) => {
-                        eventUsageLogic.findMounted()?.actions?.reportTeamSettingChange(property, payload[property])
+                        eventUsageLogic
+                            .findMounted()
+                            ?.actions?.reportTeamSettingChange(property, payload[property as keyof TeamType])
                     })
 
                     const isUpdatingOnboardingTasks = Object.keys(payload).every((key) => key === 'onboarding_tasks')
@@ -153,7 +161,13 @@ export const teamLogic = kea<teamLogicType>([
                     }
                     return await api.create(`api/projects/${values.currentProject.id}/environments/`, { name, is_demo })
                 },
+                // Project API Token
                 resetToken: async () => await api.update(`api/environments/${values.currentTeamId}/reset_token`, {}),
+                // Feature Flags Secure API Token
+                rotateSecretToken: async () =>
+                    await api.update(`api/environments/${values.currentTeamId}/rotate_secret_token`, {}),
+                deleteSecretTokenBackup: async () =>
+                    await api.update(`api/environments/${values.currentTeamId}/delete_secret_token_backup`, {}),
                 /**
                  * If adding a product intent that also represents regular product usage, see explainer in posthog.models.product_intent.product_intent.py.
                  */

@@ -8,8 +8,10 @@ import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/fil
 import {
     ActionsNode,
     AnyEntityNode,
+    DataWarehouseNode,
     EventsNode,
     ExperimentEventExposureConfig,
+    ExperimentFunnelMetric,
     ExperimentFunnelMetricStep,
     ExperimentFunnelMetricTypeProps,
     ExperimentFunnelsQuery,
@@ -25,6 +27,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isNodeWithSource, isTrendsQuery, isValidQueryForExperiment } from '~/queries/utils'
 import {
+    ActionFilter,
     ChartDisplayType,
     Experiment,
     ExperimentMetricMathType,
@@ -596,6 +599,18 @@ export function metricToQuery(
                             },
                         ],
                     } as TrendsQuery
+                case ExperimentMetricMathType.UniqueSessions:
+                    return {
+                        ...commonTrendsQueryProps,
+                        series: [
+                            {
+                                kind: NodeKind.EventsNode,
+                                event: (metric.source as EventsNode).event,
+                                name: (metric.source as EventsNode).name,
+                                math: ExperimentMetricMathType.UniqueSessions,
+                            },
+                        ],
+                    } as TrendsQuery
                 default:
                     return {
                         ...commonTrendsQueryProps,
@@ -609,18 +624,6 @@ export function metricToQuery(
                     } as TrendsQuery
             }
         case ExperimentMetricType.FUNNEL: {
-            const filter = metricToFilter(metric)
-            const { events, actions } = filter
-            // NOTE: hack for now
-            // insert a pageview event at the beginning of the funnel to simulate the exposure criteria
-            events?.unshift({
-                kind: NodeKind.EventsNode,
-                id: '$pageview',
-                event: '$pageview',
-                name: '$pageview',
-                custom_name: 'Placeholder for experiment exposure',
-                properties: [],
-            })
             return {
                 kind: NodeKind.FunnelsQuery,
                 filterTestAccounts,
@@ -632,16 +635,46 @@ export function metricToQuery(
                 funnelsFilter: {
                     layout: FunnelLayout.horizontal,
                 },
-                series: actionsAndEventsToSeries(
-                    { actions: actions, events, data_warehouse: [] } as any,
-                    true,
-                    MathAvailability.None
-                ),
+                series: getFunnelPreviewSeries(metric),
             } as FunnelsQuery
         }
         default:
             return undefined
     }
+}
+
+const shiftOrderRight = (step: ActionFilter): ActionFilter => ({
+    ...step,
+    order: (step.order ?? 0) + 1,
+})
+
+export function getFunnelPreviewSeries(
+    metric: ExperimentFunnelMetric
+): (EventsNode | ActionsNode | DataWarehouseNode)[] {
+    const filter = metricToFilter(metric)
+    let { events, actions } = filter
+
+    // Shift all events and actions to the right to make space for the exposure event
+    events = (events as ActionFilter[])?.map(shiftOrderRight)
+    actions = (actions as ActionFilter[])?.map(shiftOrderRight)
+
+    // Insert a pageview event at the beginning of the funnel to simulate the exposure criteria.
+    // An in improvement that could be considered later is to use the traffic estimation in the running
+    // time calculator.
+    events?.unshift({
+        kind: NodeKind.EventsNode,
+        id: '$pageview',
+        event: '$pageview',
+        name: '$pageview',
+        custom_name: 'Placeholder for experiment exposure',
+        properties: [],
+        order: 0,
+    })
+    return actionsAndEventsToSeries(
+        { actions: actions, events, data_warehouse: [] } as any,
+        true,
+        MathAvailability.None
+    )
 }
 
 export function getMathAvailability(metricType: ExperimentMetricType): MathAvailability {
@@ -656,7 +689,11 @@ export function getMathAvailability(metricType: ExperimentMetricType): MathAvail
 export function getAllowedMathTypes(metricType: ExperimentMetricType): ExperimentMetricMathType[] {
     switch (metricType) {
         case ExperimentMetricType.MEAN:
-            return [ExperimentMetricMathType.TotalCount, ExperimentMetricMathType.Sum]
+            return [
+                ExperimentMetricMathType.TotalCount,
+                ExperimentMetricMathType.Sum,
+                ExperimentMetricMathType.UniqueSessions,
+            ]
         default:
             return [ExperimentMetricMathType.TotalCount]
     }
@@ -679,15 +716,18 @@ export const isLegacyExperimentQuery = (query: unknown): query is ExperimentTren
     )
 }
 
+/**
+ * The legacy query runner uses ExperimentTrendsQuery and ExperimentFunnelsQuery
+ * to run experiments.
+ *
+ * We should remove these legacy metrics once we've migrated all experiments to the new query runner.
+ */
 export const isLegacyExperiment = ({ metrics, metrics_secondary, saved_metrics }: Experiment): boolean => {
-    const allMetrics = [...metrics, ...metrics_secondary, ...saved_metrics]
-    /**
-     * The legacy query runner uses ExperimentTrendsQuery and ExperimentFunnelsQuery
-     * to run experiments.
-     *
-     * We should remove these legacy metrics once we've migrated all experiments to the new query runner.
-     */
-    return allMetrics.some(isLegacyExperimentQuery)
+    // saved_metrics has a different structure and so we need to check for it separately
+    if (saved_metrics.some(isLegacySharedMetric)) {
+        return true
+    }
+    return [...metrics, ...metrics_secondary].some(isLegacyExperimentQuery)
 }
 
 export const isLegacySharedMetric = ({ query }: SharedMetric): boolean => isLegacyExperimentQuery(query)

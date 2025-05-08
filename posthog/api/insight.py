@@ -317,6 +317,7 @@ class InsightSerializer(InsightBasicSerializer):
     query_status = serializers.SerializerMethodField()
     hogql = serializers.SerializerMethodField()
     types = serializers.SerializerMethodField()
+    _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
         model = Insight
@@ -355,6 +356,7 @@ class InsightSerializer(InsightBasicSerializer):
             "query_status",
             "hogql",
             "types",
+            "_create_in_folder",
         ]
         read_only_fields = (
             "created_at",
@@ -1138,7 +1140,7 @@ When set, the specified dashboard's filters and date range override will be appl
 
         item_id = kwargs["pk"]
         if not Insight.objects.filter(id=item_id, team__project_id=self.team.project_id).exists():
-            return Response("", status=status.HTTP_404_NOT_FOUND)
+            return Response(status=status.HTTP_404_NOT_FOUND)
 
         activity_page = load_activity(
             scope="Insight",

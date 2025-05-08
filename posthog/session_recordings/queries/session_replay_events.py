@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import LiteralString, Optional
 
 import pytz
 from django.conf import settings
@@ -11,7 +11,7 @@ from posthog.constants import AvailableFeature
 
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team import Team
-
+from posthog.schema import HogQLQuery
 from posthog.session_recordings.models.metadata import (
     RecordingMetadata,
 )
@@ -73,12 +73,14 @@ class SessionReplayEvents:
         )
         return result[0][0] > 0
 
-    def get_metadata(
-        self,
-        session_id: str,
-        team: Team,
+    @staticmethod
+    def get_metadata_query(
         recording_start_time: Optional[datetime] = None,
-    ) -> Optional[RecordingMetadata]:
+    ) -> LiteralString:
+        """
+        Helper function to build a query for session metadata, to be able to use
+        both in production and locally (for example, when testing session summary)
+        """
         query = """
             SELECT
                 any(distinct_id),
@@ -108,21 +110,14 @@ class SessionReplayEvents:
                 "AND min_first_timestamp >= %(recording_start_time)s" if recording_start_time else ""
             )
         )
+        return query
 
-        replay_response: list[tuple] = sync_execute(
-            query,
-            {
-                "team_id": team.pk,
-                "session_id": session_id,
-                "recording_start_time": recording_start_time,
-            },
-        )
-
+    @staticmethod
+    def build_recording_metadata(session_id: str, replay_response: list[tuple]) -> Optional[RecordingMetadata]:
         if len(replay_response) == 0:
             return None
         if len(replay_response) > 1:
             raise ValueError("Multiple sessions found for session_id: {}".format(session_id))
-
         replay = replay_response[0]
         return RecordingMetadata(
             distinct_id=replay[0],
@@ -140,49 +135,91 @@ class SessionReplayEvents:
             snapshot_source=replay[12] or "web",
         )
 
+    def get_metadata(
+        self,
+        session_id: str,
+        team: Team,
+        recording_start_time: Optional[datetime] = None,
+    ) -> Optional[RecordingMetadata]:
+        query = self.get_metadata_query(recording_start_time)
+        replay_response: list[tuple] = sync_execute(
+            query,
+            {
+                "team_id": team.pk,
+                "session_id": session_id,
+                "recording_start_time": recording_start_time,
+            },
+        )
+        recording_metadata = self.build_recording_metadata(session_id, replay_response)
+        return recording_metadata
+
+    def get_events_query(
+        self,
+        session_id: str,
+        metadata: RecordingMetadata,
+        # Optional, to avoid modifying the existing behavior
+        events_to_ignore: list[str] | None = None,
+        extra_fields: list[str] | None = None,
+        limit: int | None = None,
+        page: int = 0,
+    ) -> HogQLQuery:
+        """
+        Helper function to build a HogQLQuery for session events, to be able to use
+        both in production and locally (for example, when testing session summary)
+        """
+        fields = [*DEFAULT_EVENT_FIELDS]
+        if extra_fields:
+            fields.extend(extra_fields)
+        q = f"SELECT {', '.join(fields)} FROM events"
+        q += """
+            WHERE timestamp >= {start_time} AND timestamp <= {end_time}
+            AND $session_id = {session_id}
+            """
+        # Avoid events adding little context, like feature flag calls
+        if events_to_ignore:
+            q += " AND event NOT IN {events_to_ignore}"
+        q += " ORDER BY timestamp ASC"
+        # Pagination to allow consuming more than default 100 rows per call
+        if limit is not None and limit > 0:
+            q += " LIMIT {limit}"
+            # Offset makes sense only if limit is defined,
+            # to avoid mixing default HogQL limit and the expected one
+            if page > 0:
+                q += " OFFSET {offset}"
+        hq = HogQLQuery(
+            query=q,
+            values={
+                # Add some wiggle room to the timings, to ensure we get all the events
+                # The time range is only to stop CH loading too much data to find the session
+                "start_time": metadata["start_time"] - timedelta(seconds=100),
+                "end_time": metadata["end_time"] + timedelta(seconds=100),
+                "session_id": session_id,
+                "events_to_ignore": events_to_ignore,
+                "limit": limit,
+                "offset": page * limit if limit is not None else 0,
+            },
+        )
+        return hq
+
     def get_events(
         self,
         session_id: str,
         team: Team,
         metadata: RecordingMetadata,
-        events_to_ignore: list[str] | None,
+        # Optional, to avoid modifying the existing behavior
+        events_to_ignore: list[str] | None = None,
         extra_fields: list[str] | None = None,
+        limit: int | None = None,
+        page: int = 0,
     ) -> tuple[list | None, list | None]:
-        from posthog.schema import HogQLQuery, HogQLQueryResponse
+        from posthog.schema import HogQLQueryResponse
         from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 
-        fields = [*DEFAULT_EVENT_FIELDS]
-        if extra_fields:
-            fields.extend(extra_fields)
-
-        # TODO: Find a better way to inject the fields (providing string or list of strings to hq `values` just returns the string back)
-        q = f"select {', '.join(fields)} from events"
-        q += """
-            where timestamp >= {start_time} and timestamp <= {end_time}
-            and $session_id = {session_id}
-            """
-        if events_to_ignore:
-            q += " and event not in {events_to_ignore}"
-
-        q += " order by timestamp asc"
-
-        hq = HogQLQuery(
-            query=q,
-            values={
-                # add some wiggle room to the timings, to ensure we get all the events
-                # the time range is only to stop CH loading too much data to find the session
-                "start_time": metadata["start_time"] - timedelta(seconds=100),
-                "end_time": metadata["end_time"] + timedelta(seconds=100),
-                "session_id": session_id,
-                "events_to_ignore": events_to_ignore,
-            },
-        )
-
+        hq = self.get_events_query(session_id, metadata, events_to_ignore, extra_fields, limit, page)
         result: HogQLQueryResponse = HogQLQueryRunner(
             team=team,
             query=hq,
         ).calculate()
-
         return result.columns, result.results
 
     def get_events_for_session(self, session_id: str, team: Team, limit: int = 100) -> list[dict]:

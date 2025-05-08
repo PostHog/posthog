@@ -121,6 +121,7 @@ def sync_execute(
     team_id: Optional[int] = None,
     readonly=False,
     sync_client: Optional[SyncClient] = None,
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
 ):
     if TEST and flush:
         try:
@@ -137,9 +138,11 @@ def sync_execute(
     if workload == Workload.DEFAULT and (is_personal_api_key or get_query_tag_value("kind") == "celery"):
         workload = Workload.OFFLINE
 
+    tag_id: str = get_query_tag_value("id") or ""
     # Make sure we always have process_query_task on the online cluster
-    if get_query_tag_value("id") == "posthog.tasks.tasks.process_query_task":
+    if tag_id == "posthog.tasks.tasks.process_query_task":
         workload = Workload.ONLINE
+        ch_user = ClickHouseUser.APP
 
     chargeable = get_query_tag_value("chargeable") or 0
     # Customer is paying for API
@@ -163,11 +166,12 @@ def sync_execute(
     core_settings = {**default_settings(), **(settings or {})}
     tags["query_settings"] = core_settings
     query_type = tags.get("query_type", "Other")
-    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT
-    if is_personal_api_key:
-        ch_user = ClickHouseUser.API
-    elif tags.get("kind", "") == "request":
-        ch_user = ClickHouseUser.APP
+    if ch_user == ClickHouseUser.DEFAULT:
+        if is_personal_api_key:
+            ch_user = ClickHouseUser.API
+        elif tags.get("kind", "") == "request" and "api/" in tag_id and "capture" not in tag_id:
+            # process requests made to API from the PH app
+            ch_user = ClickHouseUser.APP
 
     while True:
         settings = {

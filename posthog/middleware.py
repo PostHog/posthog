@@ -1,3 +1,5 @@
+import uuid
+from contextlib import suppress
 from datetime import datetime, timedelta
 from posthog.geoip import get_geoip_properties
 import time
@@ -294,6 +296,7 @@ class AutoProjectMiddleware:
 class CHQueries:
     def __init__(self, get_response):
         self.get_response = get_response
+        self.logger = structlog.get_logger(__name__)
 
     def __call__(self, request: HttpRequest):
         """Install monkey-patch on demand.
@@ -304,6 +307,11 @@ class CHQueries:
         route_id = f"{route.route} ({route.func.__name__})"
 
         user = cast(User, request.user)
+
+        with suppress(Exception):
+            if request_id := structlog.get_context(self.logger).get("request_id"):
+                uuid.UUID(request_id)  # just to verify it is a real UUID
+                tag_queries(http_request_id=request_id)
 
         tag_queries(
             user_id=user.pk,

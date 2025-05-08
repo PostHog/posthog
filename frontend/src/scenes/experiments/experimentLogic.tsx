@@ -3,6 +3,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { openSaveToModal } from 'lib/components/SaveTo/saveToLogic'
 import { EXPERIMENT_DEFAULT_DURATION, FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -244,7 +245,7 @@ export const experimentLogic = kea<experimentLogicType>([
     actions({
         setExperimentMissing: true,
         setExperiment: (experiment: Partial<Experiment>) => ({ experiment }),
-        createExperiment: (draft?: boolean) => ({ draft }),
+        createExperiment: (draft?: boolean, folder?: string | null) => ({ draft, folder }),
         setExperimentType: (type?: string) => ({ type }),
         removeExperimentGroup: (idx: number) => ({ idx }),
         setEditExperiment: (editing: boolean) => ({ editing }),
@@ -269,6 +270,8 @@ export const experimentLogic = kea<experimentLogicType>([
         closeExposureCriteriaModal: true,
         openShipVariantModal: true,
         closeShipVariantModal: true,
+        openConclusionModal: true,
+        closeConclusionModal: true,
         openDistributionModal: true,
         closeDistributionModal: true,
         openReleaseConditionsModal: true,
@@ -611,6 +614,13 @@ export const experimentLogic = kea<experimentLogicType>([
                 closeShipVariantModal: () => false,
             },
         ],
+        isConclusionModalOpen: [
+            false,
+            {
+                openConclusionModal: () => true,
+                closeConclusionModal: () => false,
+            },
+        ],
         isDistributionModalOpen: [
             false,
             {
@@ -787,6 +797,9 @@ export const experimentLogic = kea<experimentLogicType>([
                 setFeatureFlagValidationError: (_, { error }) => error,
             },
         ],
+        /**
+         * Controls the MDE modal visibility. Candidate for useState refactor.
+         */
         isCalculateRunningTimeModalOpen: [
             false,
             {
@@ -803,7 +816,7 @@ export const experimentLogic = kea<experimentLogicType>([
         ],
     }),
     listeners(({ values, actions }) => ({
-        createExperiment: async ({ draft }) => {
+        createExperiment: async ({ draft, folder }) => {
             const { recommendedRunningTime, recommendedSampleSize, minimumDetectableEffect } = values
 
             actions.touchExperimentField('name')
@@ -868,6 +881,7 @@ export const experimentLogic = kea<experimentLogicType>([
                             minimum_detectable_effect: minimumDetectableEffect,
                         },
                         ...(!draft && { start_date: dayjs() }),
+                        ...(typeof folder === 'string' ? { _create_in_folder: folder } : {}),
                     })
                     if (response) {
                         actions.reportExperimentCreated(response)
@@ -875,6 +889,9 @@ export const experimentLogic = kea<experimentLogicType>([
                             product_type: ProductKey.EXPERIMENTS,
                             intent_context: ProductIntentContext.EXPERIMENT_CREATED,
                         })
+                        if (response.feature_flag?.id) {
+                            refreshTreeItem('feature_flag', String(response.feature_flag.id))
+                        }
                     }
                 }
             } catch (error: any) {
@@ -931,7 +948,11 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         endExperiment: async () => {
             const endDate = dayjs()
-            actions.updateExperiment({ end_date: endDate.toISOString() })
+            actions.updateExperiment({
+                end_date: endDate.toISOString(),
+                conclusion: values.experiment.conclusion,
+                conclusion_comment: values.experiment.conclusion_comment,
+            })
             const duration = endDate.diff(values.experiment?.start_date, 'second')
             values.experiment &&
                 actions.reportExperimentCompleted(
@@ -940,6 +961,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     duration,
                     values.isPrimaryMetricSignificant(0)
                 )
+            actions.closeConclusionModal()
         },
         archiveExperiment: async () => {
             actions.updateExperiment({ archived: true })
@@ -977,7 +999,13 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.refreshExperimentResults(true)
         },
         resetRunningExperiment: async () => {
-            actions.updateExperiment({ start_date: null, end_date: null, archived: false })
+            actions.updateExperiment({
+                start_date: null,
+                end_date: null,
+                archived: false,
+                conclusion: null,
+                conclusion_comment: null,
+            })
             values.experiment && actions.reportExperimentReset(values.experiment)
             actions.setMetricResults([])
             actions.setSecondaryMetricResults([])
@@ -2196,7 +2224,7 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
     }),
-    forms(({ actions }) => ({
+    forms(({ actions, values }) => ({
         experiment: {
             options: { showErrorsOnTouch: true },
             defaults: { ...NEW_EXPERIMENT } as Experiment,
@@ -2211,7 +2239,18 @@ export const experimentLogic = kea<experimentLogicType>([
                     })),
                 },
             }),
-            submit: () => actions.createExperiment(true),
+            submit: () => {
+                if (values.experimentId && values.experimentId !== 'new') {
+                    actions.createExperiment(true)
+                } else {
+                    openSaveToModal({
+                        defaultFolder: 'Unfiled/Experiments',
+                        callback: (folder) => {
+                            actions.createExperiment(true, folder)
+                        },
+                    })
+                }
+            },
         },
     })),
     urlToAction(({ actions, values }) => ({

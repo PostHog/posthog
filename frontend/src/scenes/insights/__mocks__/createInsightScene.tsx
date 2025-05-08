@@ -5,7 +5,7 @@ import { App } from 'scenes/App'
 
 import { useStorybookMocks } from '~/mocks/browser'
 import { InsightVizNode, Node } from '~/queries/schema/schema-general'
-import { isInsightVizNode, isLifecycleQuery, isMapaCalorQuery, isStickinessQuery, isTrendsQuery } from '~/queries/utils'
+import { isInsightVizNode, isLifecycleQuery, isStickinessQuery, isTrendsQuery } from '~/queries/utils'
 import { QueryBasedInsightModel } from '~/types'
 
 function setLegendFilter(query: Node | null | undefined, showLegend: boolean): Node | null | undefined {
@@ -13,7 +13,7 @@ function setLegendFilter(query: Node | null | undefined, showLegend: boolean): N
         return query
     }
 
-    if (isTrendsQuery(query.source) || isMapaCalorQuery(query.source)) {
+    if (isTrendsQuery(query.source)) {
         return {
             ...query,
             source: {

@@ -526,6 +526,9 @@
                 },
                 {
                     "$ref": "#/definitions/ErrorTrackingIssueFilter"
+                },
+                {
+                    "$ref": "#/definitions/ErrorTrackingIssuePropertyFilter"
                 }
             ]
         },
@@ -618,7 +621,7 @@
             "type": "object"
         },
         "AssistantContextualTool": {
-            "enum": ["search_session_recordings", "generate_hogql_query"],
+            "enum": ["search_session_recordings", "generate_hogql_query", "fix_hogql_query"],
             "type": "string"
         },
         "AssistantDateRange": {
@@ -7878,6 +7881,29 @@
             "required": ["key", "operator", "type"],
             "type": "object"
         },
+        "ErrorTrackingIssuePropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "error_tracking_issue_property",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "operator", "type"],
+            "type": "object"
+        },
         "ErrorTrackingQuery": {
             "additionalProperties": false,
             "properties": {
@@ -9079,7 +9105,7 @@
             "type": "object"
         },
         "ExperimentMetricMathType": {
-            "enum": ["total", "sum"],
+            "enum": ["total", "sum", "unique_session"],
             "type": "string"
         },
         "ExperimentMetricOutlierHandling": {
@@ -10868,6 +10894,9 @@
                     "type": "boolean"
                 },
                 "usePresortedEventsTable": {
+                    "type": "boolean"
+                },
+                "useWebAnalyticsPreAggregatedTables": {
                     "type": "boolean"
                 }
             },
@@ -12825,7 +12854,8 @@
                 "hogql",
                 "data_warehouse",
                 "data_warehouse_person_property",
-                "error_tracking_issue"
+                "error_tracking_issue",
+                "error_tracking_issue_property"
             ],
             "type": "string"
         },
@@ -16755,6 +16785,11 @@
         "RevenueAnalyticsEventItem": {
             "additionalProperties": false,
             "properties": {
+                "currencyAwareDecimal": {
+                    "default": false,
+                    "description": "If true, the revenue will be divided by the smallest unit of the currency.\n\nFor example, in case this is set to true, if the revenue is 1089 and the currency is USD, the revenue will be $10.89, but if the currency is JPY, the revenue will be ¥1089.",
+                    "type": "boolean"
+                },
                 "eventName": {
                     "type": "string"
                 },
@@ -16768,7 +16803,7 @@
                     "type": "string"
                 }
             },
-            "required": ["eventName", "revenueProperty", "revenueCurrencyProperty"],
+            "required": ["eventName", "revenueProperty", "revenueCurrencyProperty", "currencyAwareDecimal"],
             "type": "object"
         },
         "RevenueAnalyticsGrowthRateQuery": {
@@ -17999,6 +18034,7 @@
                 "notebooks",
                 "log_entries",
                 "error_tracking_issues",
+                "error_tracking_issue_properties",
                 "replay",
                 "resources"
             ],
@@ -18839,7 +18875,10 @@
                 "TotalConversions",
                 "UniqueConversions",
                 "ConversionRate",
-                "ConvertingUsers"
+                "ConvertingUsers",
+                "RageClicks",
+                "DeadClicks",
+                "Errors"
             ],
             "type": "string"
         },
@@ -19387,7 +19426,8 @@
                 "Region",
                 "City",
                 "Timezone",
-                "Language"
+                "Language",
+                "FrustrationMetrics"
             ],
             "type": "string"
         },

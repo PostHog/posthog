@@ -13,6 +13,10 @@ if TYPE_CHECKING:
 
 
 class SessionRecordingPlaylist(FileSystemSyncMixin, models.Model):
+    class PlaylistType(models.TextChoices):
+        COLLECTION = "collection", "Collection"
+        FILTERS = "filters", "Filters"
+
     short_id = models.CharField(max_length=12, blank=True, default=generate_short_id)
     name = models.CharField(max_length=400, null=True, blank=True)
     derived_name = models.CharField(max_length=400, null=True, blank=True)
@@ -21,6 +25,7 @@ class SessionRecordingPlaylist(FileSystemSyncMixin, models.Model):
     pinned = models.BooleanField(default=False)
     deleted = models.BooleanField(default=False)
     filters = models.JSONField(default=dict)
+    type = models.CharField(max_length=50, choices=PlaylistType.choices, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     last_modified_at = models.DateTimeField(default=timezone.now)
@@ -58,7 +63,7 @@ class SessionRecordingPlaylist(FileSystemSyncMixin, models.Model):
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(
-            base_folder="Unfiled/Replay playlists",
+            base_folder=self._create_in_folder or "Unfiled/Replay playlists",
             type="session_recording_playlist",  # sync with APIScopeObject in scopes.py
             ref=str(self.short_id),
             name=self.name or self.derived_name or "Untitled",

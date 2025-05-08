@@ -183,10 +183,16 @@ where
         config.enable_historical_rerouting,
         config.historical_rerouting_threshold_days,
         config.historical_tokens_keys,
+        config.is_mirror_deploy,
     );
 
     // run our app with hyper
     tracing::info!("listening on {:?}", listener.local_addr().unwrap());
+    tracing::info!(
+        "config: is_mirror_deploy == {:?} ; log_level == {:?}",
+        config.is_mirror_deploy,
+        config.log_level
+    );
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),

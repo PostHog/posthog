@@ -37,8 +37,8 @@ from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
 )
 from posthog.temporal.data_imports.pipelines.stripe import (
-    validate_credentials as validate_stripe_credentials,
     StripePermissionError,
+    validate_credentials as validate_stripe_credentials,
 )
 from posthog.temporal.data_imports.pipelines.vitally import (
     validate_credentials as validate_vitally_credentials,
@@ -242,9 +242,9 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
                     "auth_type": {
                         "selection": job_inputs.pop("ssh_tunnel_auth_type", None),
                         "username": job_inputs.pop("ssh_tunnel_auth_type_username", None),
-                        "password": job_inputs.pop("ssh_tunnel_auth_type_password", None),
-                        "passphrase": job_inputs.pop("ssh_tunnel_auth_type_passphrase", None),
-                        "private_key": job_inputs.pop("ssh_tunnel_auth_type_private_key", None),
+                        "password": None,
+                        "passphrase": None,
+                        "private_key": None,
                     },
                 }
                 job_inputs["ssh-tunnel"] = ssh_tunnel
@@ -527,7 +527,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         try:
             for active_schema in active_schemas:
-                sync_external_data_job_workflow(active_schema, create=True)
+                sync_external_data_job_workflow(active_schema, create=True, should_sync=active_schema.should_sync)
         except Exception as e:
             # Log error but don't fail because the source model was already created
             logger.exception("Could not trigger external data job", exc_info=e)
