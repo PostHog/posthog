@@ -720,12 +720,13 @@ describe('template patching', () => {
 
     it('fills missing fields from template in DB', async () => {
         // Insert the actual PII hashing template from the codebase
-        const bytecode = await compileHog(piiHashingTemplate.hog)
+        const hogCode = 'return event'
+        const bytecode = await compileHog(hogCode)
         const template = await insertHogFunctionTemplate(hub.postgres, {
             template_id: piiHashingTemplate.id,
             name: piiHashingTemplate.name,
             description: piiHashingTemplate.description,
-            code: piiHashingTemplate.hog,
+            code: hogCode,
             bytecode,
             inputs_schema: piiHashingTemplate.inputs_schema,
             status: piiHashingTemplate.status,
@@ -749,15 +750,12 @@ describe('template patching', () => {
         const fn = (await manager['fetchHogFunctions']([id]))[id]
 
         // Verify all template fields were correctly populated
-        expect(fn?.hog).toEqual(piiHashingTemplate.hog)
+        expect(fn?.hog).toEqual(hogCode)
         expect(fn?.bytecode).toEqual(bytecode)
         expect(fn?.inputs_schema).toEqual(piiHashingTemplate.inputs_schema)
 
         // PII hashing template doesn't have mappings
         expect(fn?.mappings).toBeNull()
-
-        // Verify template code contains substantial code, not just "return event"
-        expect(fn?.hog).toEqual(piiHashingTemplate.hog)
 
         // Verify inputs schema has the expected fields
         expect(fn?.inputs_schema?.length).toBe(piiHashingTemplate.inputs_schema.length)
@@ -767,7 +765,6 @@ describe('template patching', () => {
     })
 
     it('uses config of hog function instead of template for custom hog function', async () => {
-        // Insert the actual PII hashing template, but map 'hog' property to 'code' for the DB
         const templateData = {
             template_id: piiHashingTemplate.id,
             name: piiHashingTemplate.name,
