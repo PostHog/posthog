@@ -12,7 +12,9 @@ logger = structlog.get_logger(__name__)
 
 class RawKeyActionSerializer(serializers.Serializer):
     description = serializers.CharField(min_length=1, max_length=1024, required=False, allow_null=True)
-    failure = serializers.BooleanField(required=False, default=None, allow_null=True)
+    abandonment = serializers.BooleanField(required=False, default=False, allow_null=True)
+    confusion = serializers.BooleanField(required=False, default=False, allow_null=True)
+    exception = serializers.ChoiceField(choices=["blocking", "non-blocking"], required=False, allow_null=True)
     event_id = serializers.CharField(min_length=1, max_length=128, required=False, allow_null=True)
 
 
