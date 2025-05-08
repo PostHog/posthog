@@ -12,6 +12,8 @@ import { billingLogic } from './billingLogic'
 import type { billingUsageLogicType } from './billingUsageLogicType'
 import { ALL_USAGE_TYPES } from './constants'
 
+// These date filters return correct data but there's an issue with filter label after selecting it, showing 'No date range override' instead
+const TEMPORARILY_EXCLUDED_DATE_FILTER_OPTIONS = ['This month', 'Year to date', 'All time']
 export interface BillingUsageResponse {
     status: 'ok'
     type: 'timeseries'
@@ -150,7 +152,9 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                         currentBillingPeriodEnd?.subtract(1, 'month').format('YYYY-MM-DD') || '',
                     ],
                 }
-                const dayAndMonthOptions = dateMapping.filter((o) => o.defaultInterval !== 'hour')
+                const dayAndMonthOptions = dateMapping.filter(
+                    (o) => o.defaultInterval !== 'hour' && !TEMPORARILY_EXCLUDED_DATE_FILTER_OPTIONS.includes(o.key)
+                )
                 return [currentBillingPeriodOption, previousBillingPeriodOption, ...dayAndMonthOptions]
             },
         ],
