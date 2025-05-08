@@ -46,3 +46,10 @@ def test_transform_updates_version():
     query = {"kind": NodeKind.EVENTS_QUERY, "v": 1}
     result = migration(query)
     assert result["v"] == 2
+
+
+def test_should_accept_none_version():
+    migration = TestMigration()
+    query = {"kind": NodeKind.EVENTS_QUERY, "v": None}
+    result = migration(query)
+    assert result["v"] == 2

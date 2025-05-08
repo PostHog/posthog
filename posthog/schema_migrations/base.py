@@ -24,7 +24,7 @@ class SchemaMigration(ABC):
 
     def should_run(self, query: dict) -> bool:
         kind = query.get("kind")
-        return kind in self.targets and query.get("v", 1) == self.targets[kind]
+        return kind in self.targets and (query.get("v") or 1) == self.targets[kind]
 
     @abstractmethod
     def transform(self, query: dict) -> dict:
