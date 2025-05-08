@@ -33,7 +33,7 @@ const consumedBatchDuration = new Histogram({
 
 const consumedBatchBackgroundDuration = new Histogram({
     name: 'consumed_batch_background_duration_ms',
-    help: 'Main loop consumer batch processing duration in ms',
+    help: 'Background task processing duration in ms',
     labelNames: ['topic', 'groupId'],
 })
 

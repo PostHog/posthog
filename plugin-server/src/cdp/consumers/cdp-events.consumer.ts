@@ -7,6 +7,7 @@ import { runInstrumentedFunction } from '../../main/utils'
 import { Hub, RawClickHouseEvent } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
+import { captureException } from '../../utils/posthog'
 import { HogWatcherState } from '../services/hog-watcher.service'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import { HogFunctionInvocation, HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
@@ -46,8 +47,10 @@ export class CdpEventsConsumer extends CdpConsumerBase {
             // This is all IO so we can set them off in the background and start processing the next batch
             backgroundTask: Promise.all([
                 this.cyclotronJobQueue.queueInvocations(invocationsToBeQueued),
-                // TODO: Decide if this should ignore errors (as we would essentially re run the batch and double queue )
-                this.hogFunctionMonitoringService.produceQueuedMessages(),
+                this.hogFunctionMonitoringService.produceQueuedMessages().catch((err) => {
+                    captureException(err)
+                    logger.error('🔴', 'Error producing queued messages for monitoring', { err })
+                }),
             ]),
             invocations: invocationsToBeQueued,
         }
