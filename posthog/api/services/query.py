@@ -1,3 +1,4 @@
+from posthog.schema_migrations.upgrade import upgrade
 import structlog
 from typing import Optional
 
@@ -83,14 +84,15 @@ def process_query_model(
     is_query_service: bool = False,
 ) -> dict | BaseModel:
     result: dict | BaseModel
+    upgraded_query = upgrade(query)
 
     try:
-        query_runner = get_query_runner(query, team, limit_context=limit_context)
+        query_runner = get_query_runner(upgraded_query, team, limit_context=limit_context)
     except ValueError:  # This query doesn't run via query runner
-        if hasattr(query, "source") and isinstance(query.source, BaseModel):
+        if hasattr(upgraded_query, "source") and isinstance(upgraded_query.source, BaseModel):
             result = process_query_model(
                 team,
-                query.source,
+                upgraded_query.source,
                 dashboard_filters=dashboard_filters,
                 variables_override=variables_override,
                 limit_context=limit_context,
@@ -104,12 +106,12 @@ def process_query_model(
         elif execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
             # Caching is handled by query runners, so in this case we can only return a cache miss
             result = CacheMissResponse(cache_key=None)
-        elif isinstance(query, HogQuery):
+        elif isinstance(upgraded_query, HogQuery):
             if is_cloud() and (user is None or not user.is_staff):
                 return {"results": "Hog queries currently require staff user privileges."}
 
             try:
-                hog_result = execute_hog(query.code or "", team=team)
+                hog_result = execute_hog(upgraded_query.code or "", team=team)
                 bytecode = hog_result.bytecodes.get("root", None)
                 result = HogQueryResponse(
                     results=hog_result.result,
@@ -119,18 +121,18 @@ def process_query_model(
                 )
             except Exception as e:
                 result = HogQueryResponse(results=f"ERROR: {str(e)}")
-        elif isinstance(query, HogQLAutocomplete):
-            result = get_hogql_autocomplete(query=query, team=team)
-        elif isinstance(query, HogQLMetadata):
-            metadata_query = HogQLMetadata.model_validate(query)
+        elif isinstance(upgraded_query, HogQLAutocomplete):
+            result = get_hogql_autocomplete(query=upgraded_query, team=team)
+        elif isinstance(upgraded_query, HogQLMetadata):
+            metadata_query = HogQLMetadata.model_validate(upgraded_query)
             metadata_response = get_hogql_metadata(query=metadata_query, team=team)
             result = metadata_response
-        elif isinstance(query, DatabaseSchemaQuery):
+        elif isinstance(upgraded_query, DatabaseSchemaQuery):
             database = create_hogql_database(team=team, modifiers=create_default_modifiers_for_team(team))
             context = HogQLContext(team_id=team.pk, team=team, database=database)
             result = DatabaseSchemaQueryResponse(tables=serialize_database(context))
         else:
-            raise ValidationError(f"Unsupported query kind: {query.__class__.__name__}")
+            raise ValidationError(f"Unsupported query kind: {upgraded_query.__class__.__name__}")
     else:  # Query runner available - it will handle execution as well as caching
         if dashboard_filters:
             query_runner.apply_dashboard_filters(dashboard_filters)
