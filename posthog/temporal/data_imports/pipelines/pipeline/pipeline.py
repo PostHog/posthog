@@ -157,6 +157,29 @@ class PipelineNonDLT:
 
                 row_count += py_table.num_rows
                 chunk_index += 1
+                if self._reset_pipeline:
+                    delta_table = self._delta_table_helper.get_delta_table()
+
+                    if delta_table is None:
+                        # TODO - what do we do here? Can we actually get here?
+                        self._logger.debug("No deltalake table, not continuing with post-run ops")
+                        continue
+
+                    file_uris = delta_table.file_uris()
+                    self._logger.debug(f"Preparing S3 files for querying - total parquet files: {len(file_uris)}")
+                    prepare_s3_files_for_querying(
+                        self._job.folder_path(), self._resource_name, file_uris, ExternalDataJob.PipelineVersion.V2
+                    )
+                    self._logger.debug("Validating schema and updating table")
+                    validate_schema_and_update_table_sync(
+                        run_id=str(self._job.id),
+                        team_id=self._job.team_id,
+                        schema_id=self._schema.id,
+                        table_schema={},
+                        table_schema_dict=self._internal_schema.to_hogql_types(),
+                        row_count=row_count,
+                        table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+                    )
 
                 # Cleanup
                 if "py_table" in locals() and py_table is not None:
