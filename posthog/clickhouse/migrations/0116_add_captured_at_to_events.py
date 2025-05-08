@@ -49,7 +49,7 @@ def ADD_CAPTURED_AT_COLUMNS_DISTRIBUTED_EVENTS_RECENT_SQL():
 
 
 operations = [
-    # First drop the materialized view
+    # First drop the materialized views
     run_sql_with_exceptions(DROP_EVENTS_TABLE_JSON_MV),
     run_sql_with_exceptions(DROP_EVENTS_RECENT_TABLE_JSON_MV),
     # then drop the kafka table
