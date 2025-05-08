@@ -419,39 +419,33 @@ function SessionSummaryStats({ sessionSummary }: { sessionSummary: SessionSummar
             (acc: number, segment: SessionSegment) => acc + (segment.meta?.exception_count || 0),
             0
         ) || 0
-    // Calculate weighted health score
-    const segmentScores =
-        sessionSummary.segments?.map((segment: SessionSegment) => {
-            const keyActions = segment.meta?.key_action_count || 0
-            if (keyActions === 0) {
-                return 1
-            } // No key actions means perfect score
 
-            // Find key actions for this segment
-            const segmentKeyActions =
-                sessionSummary.key_actions?.find((ka) => ka.segment_index === segment.index)?.events || []
+    // Calculate global health score
+    const totalKeyActions =
+        sessionSummary.segments?.reduce(
+            (acc: number, segment: SessionSegment) => acc + (segment.meta?.key_action_count || 0),
+            0
+        ) || 0
 
-            if (segmentKeyActions.length === 0) {
-                return 1
-            }
-            // Calculate total issue weight for this segment
-            const totalIssueWeight = segmentKeyActions.reduce((weight, event) => {
-                // For each event, take the highest weight among its tags
-                const eventWeight = Math.max(
-                    event.confusion ? 0.25 : 0,
-                    event.exception === 'blocking' ? 5 : event.exception === 'non-blocking' ? 0.5 : 0,
-                    event.abandonment ? 0.75 : 0
-                )
-                return weight + eventWeight
-            }, 0)
-
-            return keyActions / (keyActions + totalIssueWeight)
-        }) || []
+    // Calculate total issue weight across all segments
+    const totalIssueWeight =
+        sessionSummary.key_actions?.reduce((weight, keyAction) => {
+            return (
+                weight +
+                (keyAction.events || []).reduce((acc, event) => {
+                    // For each event, take the highest weight among its tags
+                    const eventWeight = Math.max(
+                        event.confusion ? 0.25 : 0,
+                        event.exception === 'blocking' ? 3 : event.exception === 'non-blocking' ? 0.5 : 0,
+                        event.abandonment ? 0.75 : 0
+                    )
+                    return acc + eventWeight
+                }, 0)
+            )
+        }, 0) || 0
 
     const healthPercentage =
-        segmentScores.length > 0
-            ? Math.round((segmentScores.reduce((acc, score) => acc + score, 0) / segmentScores.length) * 100)
-            : 100
+        totalKeyActions > 0 ? Math.round((totalKeyActions / (totalKeyActions + totalIssueWeight)) * 100) : 100
 
     const healthScoreType = healthPercentage >= 75 ? 'success' : healthPercentage >= 50 ? 'warning' : 'danger'
 
