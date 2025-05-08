@@ -90,7 +90,7 @@ export function BillingLineGraph({
     const chartRef = useRef<Chart | null>(null)
     const { ensureBillingTooltip, hideBillingTooltip } = useBillingTooltip()
     const { isDarkModeOn } = useValues(themeLogic)
-    const GraphtonColors = getGraphColors()
+    const graphColors = getGraphColors()
 
     useEffect(() => {
         if (!canvasRef.current) {
@@ -133,7 +133,7 @@ export function BillingLineGraph({
                     },
                     ticks: {
                         source: 'labels',
-                        color: GraphtonColors.axisLabel || '#666666',
+                        color: graphColors.axisLabel || '#666666',
                     },
                     grid: {
                         display: false,
@@ -142,14 +142,14 @@ export function BillingLineGraph({
                 y: {
                     beginAtZero: true,
                     grid: {
-                        color: GraphtonColors.axisLine || 'rgba(0,0,0,0.1)',
+                        color: graphColors.axisLine || 'rgba(0, 0, 0, 0.1)',
                     },
                     ticks: {
                         callback: function (value) {
                             // Use the provided formatter, fallback shouldn't be needed due to default prop
                             return typeof value === 'number' ? valueFormatter(value) : value
                         },
-                        color: GraphtonColors.axisLabel || '#666666',
+                        color: graphColors.axisLabel || '#666666',
                     },
                 },
             },
@@ -269,7 +269,7 @@ export function BillingLineGraph({
         ensureBillingTooltip,
         hideBillingTooltip,
         isDarkModeOn,
-        GraphtonColors,
+        graphColors,
     ])
 
     return (
