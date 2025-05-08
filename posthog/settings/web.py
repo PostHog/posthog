@@ -485,6 +485,8 @@ OAUTH2_PROVIDER = {
     "OIDC_RSA_PRIVATE_KEY": OIDC_RSA_PRIVATE_KEY,
     "SCOPES": {
         "openid": "OpenID Connect scope",
+        "profile": "Access to user's profile",
+        "email": "Access to user's email address",
         "*": "Full access to all scopes",
         **get_scope_descriptions(),
     },
@@ -492,6 +494,7 @@ OAUTH2_PROVIDER = {
     "AUTHORIZATION_CODE_EXPIRE_SECONDS": 60 * 5,
     "DEFAULT_SCOPES": ["openid"],
     "OAUTH2_VALIDATOR_CLASS": "posthog.api.oauth.OAuthValidator",
+    "ACCESS_TOKEN_EXPIRE_SECONDS": 60 * 60,
 }
 
 

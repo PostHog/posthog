@@ -33,9 +33,8 @@ def generate_rsa_key() -> str:
         format=serialization.PrivateFormat.TraditionalOpenSSL,
         encryption_algorithm=serialization.NoEncryption(),
     )
-    rsa_key = pem.decode("utf-8")
 
-    return rsa_key
+    return pem.decode("utf-8")
 
 
 @override_settings(
@@ -73,6 +72,8 @@ class TestOAuthAPI(APIBaseTest):
         )
 
         self.code_verifier = "test_challenge"
+
+        self.client.force_login(self.user)
 
     @property
     def code_challenge(self) -> str:
@@ -114,6 +115,17 @@ class TestOAuthAPI(APIBaseTest):
             "code_verifier": self.code_verifier,
         }
 
+    @property
+    def public_key(self) -> str:
+        private_key = settings.OAUTH2_PROVIDER["OIDC_RSA_PRIVATE_KEY"]
+
+        public_key = serialization.load_pem_public_key(private_key.encode()).public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+
+        return public_key.decode("utf-8")
+
     def post(self, url: str, body: dict, headers: dict | None = None):
         return self.client.post(
             url, data=urlencode(body), content_type="application/x-www-form-urlencoded", headers=headers
@@ -137,6 +149,13 @@ class TestOAuthAPI(APIBaseTest):
 
     def get_basic_auth_header(self, client_id: str, client_secret: str) -> str:
         return f"Basic {base64.b64encode(f'{client_id}:{client_secret}'.encode()).decode()}"
+
+    def test_authorize_redirects_to_login_if_not_authenticated(self):
+        self.client.logout()
+
+        response = self.client.get(self.base_authorization_url)
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertIn(f"/login?next=/oauth/authorize/", response["Location"])
 
     def test_authorize_successful_with_required_params(self):
         response = self.client.get(self.base_authorization_url)
@@ -221,6 +240,16 @@ class TestOAuthAPI(APIBaseTest):
 
         self.assertIn("error=invalid_request", location)
         self.assertIn("error_description=Code+challenge+required", location)
+
+    def test_authorize_post_fails_if_not_authenticated(self):
+        self.client.logout()
+
+        response = self.post(
+            "/oauth/authorize/",
+            self.base_authorization_post_body,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     @freeze_time("2025-01-01 00:00:00")
     def test_authorize_post_authorization_granted(self):
@@ -606,7 +635,7 @@ class TestOAuthAPI(APIBaseTest):
 
         self.assertEqual(refresh_token.scoped_organizations, scoped_organizations)
 
-    def test_id_token_returned_with_openid_scope(self):
+    def test_valid_id_token_returned_with_openid_scope(self):
         # Simulate a request with the openid scope
         data_with_openid = {
             **self.base_authorization_post_body,
@@ -637,8 +666,16 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(token_response.status_code, status.HTTP_200_OK)
         token_response_data = token_response.json()
 
-        # Check that id_token is present
         self.assertIn("id_token", token_response_data)
+
+        # id_token = token_response_data["id_token"]
+
+        # decoded_token = jwt.decode(id_token, self.public_key, algorithms=["RS256"], audience=self.confidential_application.client_id)
+
+        # print("decoded_token", decoded_token)
+
+        # # Verify the user claim
+        # self.assertEqual(decoded_token["sub"], str(self.user.distinct_id))
 
     def test_id_token_not_returned_without_openid_scope(self):
         # Simulate a request without the openid scope

@@ -107,7 +107,15 @@ export const getScopeDescription = (scope: string): string => {
     }
 
     if (scope === 'openid') {
-        return 'Access to your user profile'
+        return 'View your user profile'
+    }
+
+    if (scope === 'email') {
+        return 'View your email address'
+    }
+
+    if (scope === 'profile') {
+        return 'View basic user account information'
     }
 
     const [object, action] = scope.split(':')
@@ -129,11 +137,12 @@ export const getMinimumEquivalentScopes = (scopes: string[]): string[] => {
 
     const highestScopes: Record<string, string> = {}
 
-    if (scopes.includes('openid')) {
-        highestScopes['user'] = 'read'
-    }
-
     for (const scope of scopes) {
+        if (['openid', 'email', 'profile'].includes(scope)) {
+            highestScopes[scope] = 'default'
+            continue
+        }
+
         const [object, action] = scope.split(':')
         if (!object || !action) {
             continue
@@ -143,5 +152,10 @@ export const getMinimumEquivalentScopes = (scopes: string[]): string[] => {
         }
     }
 
-    return Object.entries(highestScopes).map(([object, action]) => `${object}:${action}`)
+    return Object.entries(highestScopes).map(([object, action]) => {
+        if (action === 'default') {
+            return object
+        }
+        return `${object}:${action}`
+    })
 }

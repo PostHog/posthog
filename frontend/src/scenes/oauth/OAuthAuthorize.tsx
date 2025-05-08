@@ -16,6 +16,7 @@ export const OAuthAuthorize = (): JSX.Element => {
         allOrganizations,
         allTeams,
         oauthAuthorization,
+        isOauthAuthorizationSubmitting,
     } = useValues(oauthAuthorizeLogic)
     const { cancel, submitOauthAuthorization } = useActions(oauthAuthorizeLogic)
 
@@ -60,6 +61,7 @@ export const OAuthAuthorize = (): JSX.Element => {
                             type="tertiary"
                             status="alt"
                             htmlType="button"
+                            disabledReason={isOauthAuthorizationSubmitting ? 'Authorizing...' : undefined}
                             onClick={(e) => {
                                 e.preventDefault()
                                 cancel()
@@ -67,7 +69,12 @@ export const OAuthAuthorize = (): JSX.Element => {
                         >
                             Cancel
                         </LemonButton>
-                        <LemonButton type="primary" htmlType="submit" onClick={() => submitOauthAuthorization()}>
+                        <LemonButton
+                            type="primary"
+                            htmlType="submit"
+                            disabledReason={isOauthAuthorizationSubmitting ? 'Authorizing...' : undefined}
+                            onClick={() => submitOauthAuthorization()}
+                        >
                             Authorize {oauthApplication?.name}
                         </LemonButton>
                     </div>

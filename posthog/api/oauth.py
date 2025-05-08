@@ -2,13 +2,11 @@ from datetime import timedelta
 import json
 import uuid
 from oauth2_provider.views import TokenView, RevokeTokenView, IntrospectTokenView
-from posthog.auth import SessionAuthentication
 from posthog.models import OAuthApplication, OAuthAccessToken
 from oauth2_provider.settings import oauth2_settings
 from oauth2_provider.http import OAuth2ResponseRedirect
 from oauth2_provider.exceptions import OAuthToolkitError
 from django.utils import timezone
-from rest_framework.permissions import IsAuthenticated
 
 from rest_framework import serializers, status
 from rest_framework.views import APIView
@@ -16,10 +14,14 @@ from rest_framework.response import Response
 from oauth2_provider.views.mixins import OAuthLibMixin
 from oauth2_provider.views import ConnectDiscoveryInfoView, JwksInfoView, UserInfoView
 from oauth2_provider.oauth2_validators import OAuth2Validator
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.authentication import SessionAuthentication
 import structlog
+from django.utils.decorators import method_decorator
 
 from posthog.models.oauth import OAuthApplicationAccessLevel, OAuthGrant, OAuthRefreshToken
 from posthog.utils import render_template
+from posthog.views import login_required
 
 logger = structlog.get_logger(__name__)
 
@@ -79,6 +81,14 @@ class OAuthAuthorizationSerializer(serializers.Serializer):
 
 
 class OAuthValidator(OAuth2Validator):
+    def get_additional_claims(self, request):
+        return {
+            "given_name": request.user.first_name,
+            "family_name": request.user.last_name,
+            "email": request.user.email,
+            "email_verified": request.user.is_email_verified or False,
+        }
+
     def _create_access_token(self, expires, request, token, source_refresh_token=None):
         id_token = token.get("id_token", None)
         if id_token:
@@ -197,9 +207,16 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
 
     permission_classes = [IsAuthenticated]
     authentication_classes = [SessionAuthentication]
+
     server_class = oauth2_settings.OAUTH2_SERVER_CLASS
     validator_class = oauth2_settings.OAUTH2_VALIDATOR_CLASS
 
+    def get_permissions(self):
+        if self.request.method == "POST":
+            return [IsAuthenticated()]
+        return []
+
+    @method_decorator(login_required)
     def get(self, request, *args, **kwargs):
         try:
             scopes, credentials = self.validate_authorization_request(request)
@@ -314,7 +331,6 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             {
                 "error": error_response["error"].error,
                 "error_description": error_response["error"].description,
-                "state": kwargs.get("state"),  # We need to pass state back to the client
             },
             status=error_response["error"].status_code,
         )
