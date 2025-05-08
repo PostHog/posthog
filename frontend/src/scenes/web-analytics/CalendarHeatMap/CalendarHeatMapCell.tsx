@@ -20,7 +20,7 @@ export function CalendarHeatMapCell({ values, bg, fontSize, tooltip }: HeatMapCe
     return (
         <Tooltip delayMs={100} title={tooltip}>
             <div
-                className="EventsHeatMap__Cell"
+                className="CalendarHeatMap__Cell"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ fontSize, backgroundColor, color }}
             >
