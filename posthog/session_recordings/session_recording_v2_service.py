@@ -3,7 +3,7 @@ from typing import TypedDict
 import structlog
 
 from posthog.session_recordings.models.session_recording import SessionRecording
-from posthog.session_recordings.queries.session_replay_events_v2_test import SessionReplayEventsV2Test
+from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
 logger = structlog.get_logger(__name__)
 
@@ -20,7 +20,7 @@ def list_blocks(recording: SessionRecording) -> list[RecordingBlock]:
     The blocks are sorted by start time and guaranteed to start from the beginning of the recording.
     Returns empty list if the recording is invalid or incomplete.
     """
-    metadata = SessionReplayEventsV2Test().get_metadata(recording.session_id, recording.team)
+    metadata = SessionReplayEvents().get_metadata(recording.session_id, recording.team)
     if not metadata:
         return []
 
