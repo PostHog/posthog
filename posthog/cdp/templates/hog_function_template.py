@@ -35,18 +35,6 @@ HogFunctionTemplateKind = Literal["messaging_campaign"]
 
 
 @dataclasses.dataclass(frozen=True)
-class HogFunctionSubTemplate:
-    id: SubTemplateId
-    name: str
-    free: Optional[bool] = None
-    description: Optional[str] = None
-    filters: Optional[dict] = None
-    masking: Optional[dict] = None
-    input_schema_overrides: Optional[dict[str, dict]] = None
-    type: Optional[HogFunctionTemplateType] = None
-
-
-@dataclasses.dataclass(frozen=True)
 class HogFunctionMapping:
     filters: Optional[dict] = None
     inputs: Optional[dict] = None
@@ -73,7 +61,6 @@ class HogFunctionTemplate:
     inputs_schema: list[dict]
     category: list[str]
     description: Optional[str] = None
-    sub_templates: Optional[list[HogFunctionSubTemplate]] = None
     filters: Optional[dict] = None
     mappings: Optional[list[HogFunctionMapping]] = None
     mapping_templates: Optional[list[HogFunctionMappingTemplate]] = None
@@ -89,40 +76,3 @@ class HogFunctionTemplateMigrator:
     def migrate(cls, obj: PluginConfig) -> dict:
         # Return a dict for the template of a new HogFunction
         raise NotImplementedError()
-
-
-def derive_sub_templates(templates: list[HogFunctionTemplate]) -> list[HogFunctionTemplate]:
-    """
-    Given a list of templates, derive the sub templates from them.
-    Sub templates just override certain params of the parent template.
-    This allows the API to filter for templates based on a SubTemplateId such as ones designed for surveys.
-    """
-    sub_templates = []
-    for template in templates:
-        for sub_template in template.sub_templates or []:
-            merged_id = f"{template.id}-{sub_template.id}"
-            template_params = dataclasses.asdict(template)
-            sub_template_params = dataclasses.asdict(sub_template)
-
-            # Override inputs_schema if set
-            input_schema_overrides = sub_template_params.pop("input_schema_overrides")
-            if input_schema_overrides:
-                new_input_schema = []
-                for schema in template_params["inputs_schema"]:
-                    if schema["key"] in input_schema_overrides:
-                        schema.update(input_schema_overrides[schema["key"]])
-                    new_input_schema.append(schema)
-                template_params["inputs_schema"] = new_input_schema
-
-            # Get rid of the sub_templates from the template
-            template_params.pop("sub_templates")
-            # Update with the sub template params if not none
-            for key, value in sub_template_params.items():
-                if value is not None:
-                    template_params[key] = value
-
-            template_params["id"] = merged_id
-            merged_template = HogFunctionTemplate(**template_params)
-            sub_templates.append(merged_template)
-
-    return sub_templates

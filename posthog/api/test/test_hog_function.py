@@ -313,7 +313,6 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "masking": None,
             "mappings": None,
             "mapping_templates": None,
-            "sub_templates": response.json()["template"]["sub_templates"],
         }
 
     def test_creates_with_template_values_if_not_provided(self, *args):
