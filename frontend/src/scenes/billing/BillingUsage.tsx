@@ -23,7 +23,6 @@ export function BillingUsage(): JSX.Element {
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
         scope: RestrictionScope.Organization,
     })
-
     const logic = billingUsageLogic({ dashboardItemId: 'usage' })
     const {
         series,

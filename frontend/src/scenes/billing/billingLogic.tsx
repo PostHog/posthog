@@ -26,6 +26,7 @@ import {
     StartupProgramLabel,
 } from '~/types'
 
+import { canAccessBilling } from './billing-utils'
 import type { billingLogicType } from './billingLogicType'
 import { DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD } from './CreditCTAHero'
 
@@ -109,8 +110,15 @@ export const billingLogic = kea<billingLogicType>([
         setComputedDiscount: (discount: number) => ({ discount }),
         scrollToProduct: (productType: string) => ({ productType }),
     }),
-    connect(() => ({
-        values: [featureFlagLogic, ['featureFlags'], preflightLogic, ['preflight']],
+    connect({
+        values: [
+            featureFlagLogic,
+            ['featureFlags'],
+            preflightLogic,
+            ['preflight'],
+            organizationLogic,
+            ['currentOrganization'],
+        ],
         actions: [
             userLogic,
             ['loadUser'],
@@ -123,7 +131,7 @@ export const billingLogic = kea<billingLogicType>([
             lemonBannerLogic({ dismissKey: 'usage-limit-approaching' }),
             ['resetDismissKey as resetUsageLimitApproachingKey'],
         ],
-    })),
+    }),
     reducers({
         billingAlert: [
             null as BillingAlertConfig | null,
@@ -223,6 +231,9 @@ export const billingLogic = kea<billingLogicType>([
             null as BillingType | null,
             {
                 loadBilling: async () => {
+                    if (!canAccessBilling(values.currentOrganization)) {
+                        return null
+                    }
                     // Note: this is a temporary flag to skip forecasting in the billing page
                     // for customers running into performance issues until we have a more permanent fix
                     // of splitting the billing and forecasting data.
