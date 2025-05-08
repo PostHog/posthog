@@ -4,7 +4,6 @@ from django.db import IntegrityError
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 
-from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
 from ee.models.rbac.role import Role, RoleMembership
 from posthog.api.organization_member import OrganizationMemberSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -57,14 +56,6 @@ class RoleSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         organization = self.context["request"].user.organization
         validated_data["organization"] = organization
-        try:
-            default_flags_org_setting = OrganizationResourceAccess.objects.get(
-                organization=organization,
-                resource=OrganizationResourceAccess.Resources.FEATURE_FLAGS,
-            ).access_level
-        except OrganizationResourceAccess.DoesNotExist:
-            default_flags_org_setting = OrganizationResourceAccess.AccessLevel.CAN_ALWAYS_EDIT
-        validated_data["feature_flags_access_level"] = default_flags_org_setting
         return super().create(validated_data)
 
     def get_members(self, role: Role):

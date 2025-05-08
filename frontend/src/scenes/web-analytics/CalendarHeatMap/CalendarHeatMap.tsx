@@ -1,4 +1,4 @@
-import './EventsHeatMap.scss'
+import './CalendarHeatMap.scss'
 
 import { useValues } from 'kea'
 import React, { useCallback, useEffect, useState } from 'react'
@@ -9,8 +9,8 @@ import { InsightsWrapper } from 'scenes/insights/InsightsWrapper'
 import { useResizeObserver } from '~/lib/hooks/useResizeObserver'
 import { QueryContext } from '~/queries/types'
 
-import { HeatMapCell, HeatMapValues } from './HeatMapCell'
-interface EventsHeatMapProps {
+import { CalendarHeatMapCell, HeatMapValues } from './CalendarHeatMapCell'
+export interface CalendarHeatMapProps {
     context: QueryContext
     isLoading: boolean
     queryId: string | null
@@ -45,7 +45,7 @@ interface ProcessedData {
     minColumnAggregation: number
 }
 
-export function EventsHeatMap({
+export function CalendarHeatMap({
     context,
     backgroundColorsOverride,
     initialFontSize,
@@ -60,7 +60,7 @@ export function EventsHeatMap({
     getColumnAggregationTooltip,
     getRowAggregationTooltip,
     getOverallAggregationTooltip,
-}: EventsHeatMapProps): JSX.Element {
+}: CalendarHeatMapProps): JSX.Element {
     const { themes, getTheme } = useValues(dataThemeLogic)
     const theme = getTheme(themes?.[0]?.id)
     const { ref: elementRef, width } = useResizeObserver()
@@ -112,9 +112,9 @@ export function EventsHeatMap({
     } = processedData
 
     return (
-        <div className="EventsHeatMapContainer" ref={elementRef}>
+        <div className="CalendarHeatMapContainer" ref={elementRef}>
             <table
-                className="EventsHeatMap"
+                className="CalendarHeatMap"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ '--heatmap-table-color': heatmapColor } as React.CSSProperties}
             >
@@ -133,7 +133,7 @@ export function EventsHeatMap({
                     {/* Data rows */}
                     {rowLabels.map((rowLabel, yIndex) => (
                         <tr key={yIndex}>
-                            <td className="EventsHeatMap__TextTab">{rowLabel}</td>
+                            <td className="CalendarHeatMap__TextTab">{rowLabel}</td>
                             {renderDataCells(
                                 columnLabels,
                                 matrix[yIndex],
@@ -162,7 +162,7 @@ export function EventsHeatMap({
                     {/* Aggregation column */}
                     <tr className="aggregation-border">
                         {columnsAggregations[0] !== undefined && (
-                            <td className="EventsHeatMap__TextTab">{allAggregationsLabel}</td>
+                            <td className="CalendarHeatMap__TextTab">{allAggregationsLabel}</td>
                         )}
                         {renderColumnsAggregationCells(
                             columnsAggregations,
@@ -197,7 +197,7 @@ function renderOverallCell(
 ): JSX.Element {
     return (
         <td className="aggregation-border">
-            <HeatMapCell
+            <CalendarHeatMapCell
                 fontSize={fontSize}
                 values={{
                     value: overallValue,
@@ -223,7 +223,7 @@ function renderColumnsAggregationCells(
 ): JSX.Element[] {
     return columnLabels.map((columnLabel, index) => (
         <td key={index}>
-            <HeatMapCell
+            <CalendarHeatMapCell
                 fontSize={fontSize}
                 values={{
                     value: columnsAggregations[index],
@@ -247,7 +247,7 @@ function renderRowsAggregationCell(
 ): JSX.Element {
     return (
         <td className="aggregation-border">
-            <HeatMapCell
+            <CalendarHeatMapCell
                 fontSize={fontSize}
                 values={values}
                 bg={bg}
@@ -269,7 +269,7 @@ function renderDataCells(
 ): JSX.Element[] {
     return columnLabels.map((columnLabel, index) => (
         <td key={index}>
-            <HeatMapCell
+            <CalendarHeatMapCell
                 fontSize={fontSize}
                 values={{
                     value: rowData[index],
