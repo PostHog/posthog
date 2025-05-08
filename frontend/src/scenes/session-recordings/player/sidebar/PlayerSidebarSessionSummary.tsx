@@ -36,7 +36,15 @@ function formatEventMetaInfo(event: SessionKeyAction): JSX.Element {
         <pre className="m-0 p-0 font-mono text-xs whitespace-pre">
             {`Event: ${event.event}
             Event type: ${event.event_type}
-            Failure: ${event.failure ? 'Yes' : 'No'}
+            Issues: ${
+                [
+                    event.abandonment && 'Abandonment',
+                    event.confusion && 'Confusion',
+                    event.exception && `Exception (${event.exception})`,
+                ]
+                    .filter(Boolean)
+                    .join(', ') || 'None'
+            }
             Timestamp: ${event.timestamp}
             Milliseconds since start: ${event.milliseconds_since_start}
             Window ID: ${event.window_id}
@@ -157,9 +165,30 @@ function SegmentMetaTable({ meta }: SegmentMetaProps): JSX.Element | null {
             </div>
             <div className="flex items-center gap-1">
                 <IconWarning className={meta.failure_count && meta.failure_count > 0 ? 'text-danger' : ''} />
-                <span className="text-muted">Failures:</span>
+                <span className="text-muted">Issues:</span>
                 {isValidMetaNumber(meta.failure_count) && <span>{meta.failure_count}</span>}
             </div>
+            {isValidMetaNumber(meta.abandonment_count) && meta.abandonment_count > 0 && (
+                <div className="flex items-center gap-1">
+                    <IconWarning className="text-danger" />
+                    <span className="text-muted">Abandonments:</span>
+                    <span>{meta.abandonment_count}</span>
+                </div>
+            )}
+            {isValidMetaNumber(meta.confusion_count) && meta.confusion_count > 0 && (
+                <div className="flex items-center gap-1">
+                    <IconWarning className="text-danger" />
+                    <span className="text-muted">Confusions:</span>
+                    <span>{meta.confusion_count}</span>
+                </div>
+            )}
+            {isValidMetaNumber(meta.exception_count) && meta.exception_count > 0 && (
+                <div className="flex items-center gap-1">
+                    <IconWarning className="text-danger" />
+                    <span className="text-muted">Exceptions:</span>
+                    <span>{meta.exception_count}</span>
+                </div>
+            )}
             <div className="flex items-center gap-1">
                 <IconClock />
                 <span className="text-muted">Duration:</span>
@@ -197,6 +226,32 @@ interface SessionSegmentViewProps {
     segmentOutcome: SessionSegmentOutcome | undefined
     keyActions: SessionSegmentKeyActions[]
     onSeekToTime: (time: number) => void
+}
+
+function getIssueTags(event: SessionKeyAction): JSX.Element[] {
+    const tags: JSX.Element[] = []
+    if (event.abandonment) {
+        tags.push(
+            <LemonTag key="abandonment" size="small" type="danger">
+                abandoned
+            </LemonTag>
+        )
+    }
+    if (event.confusion) {
+        tags.push(
+            <LemonTag key="confusion" size="small" type="warning">
+                confusion
+            </LemonTag>
+        )
+    }
+    if (event.exception) {
+        tags.push(
+            <LemonTag key="exception" size="small" type="danger">
+                {event.exception} exception
+            </LemonTag>
+        )
+    }
+    return tags
 }
 
 function SessionSegmentView({
@@ -254,7 +309,8 @@ function SessionSegmentView({
                                                         'cursor-pointer py-2 px-2 hover:bg-primary-alt-highlight',
                                                         // Avoid adding a border to the last event
                                                         eventIndex !== events.length - 1 && 'border-b',
-                                                        event.failure && 'bg-danger-highlight'
+                                                        (event.abandonment || event.confusion || event.exception) &&
+                                                            'bg-danger-highlight'
                                                     )}
                                                     onClick={() => {
                                                         // Excessive check, required for type safety
@@ -298,6 +354,7 @@ function SessionSegmentView({
                                                                     before start
                                                                 </LemonTag>
                                                             )}
+                                                            {getIssueTags(event)}
                                                         </span>
                                                     </div>
                                                 </div>
