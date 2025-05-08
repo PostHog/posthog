@@ -5,6 +5,7 @@ import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
 import { dayjs } from 'lib/dayjs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { LemonTree, LemonTreeRef, TreeDataItem, TreeMode } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { TreeNodeDisplayIcon } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip/Tooltip'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -434,7 +435,6 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                     }
                     return window.location.href.endsWith(item.record?.href)
                 }}
-                treeElementSize={sortMethod === 'recent' && projectTreeMode === 'tree' ? 'lg' : 'base'}
                 onItemChecked={onItemChecked}
                 checkedItemCount={checkedItemCountNumeric}
                 onNodeClick={(node) => {
@@ -583,7 +583,7 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                                         fullWidth
                                         className="pointer-events-none rounded-none text-secondary font-bold text-xs uppercase flex gap-2 motion-safe:transition-[left] duration-50"
                                         style={{
-                                            paddingLeft: index === 0 ? '30px' : undefined,
+                                            paddingLeft: index === 0 ? '35px' : undefined,
                                         }}
                                     >
                                         <span>{header.title}</span>
@@ -601,7 +601,8 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                                 const offset = header.offset || 0
                                 const value = header.key.split('.').reduce((obj, key) => (obj as any)?.[key], item)
 
-                                const widthAdjusted = width - (index === 0 ? firstColumnOffset : 0)
+                                // subtracting 48px is for offsetting the icon width and gap and padding... forgive me
+                                const widthAdjusted = width - (index === 0 ? firstColumnOffset + 48 : 0)
                                 const offsetAdjusted = index === 0 ? offset : offset - 12
 
                                 return (
@@ -640,26 +641,6 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                         </>
                     )
                 }}
-                renderItem={(item, children) => {
-                    return (
-                        <>
-                            {sortMethod === 'recent' && projectTreeMode === 'tree' ? (
-                                <span className="flex flex-col gap-1 flex-1 row-span-2 truncate">
-                                    <span className="text-primary leading-[1.1] truncate w-fit max-w-full">
-                                        {children}
-                                    </span>
-                                    <span className="text-tertiary text-xs font-normal leading-[1.1] w-fit">
-                                        {dayjs(item.record?.created_at).fromNow()} by{' '}
-                                        {item.record?.user?.first_name || 'PostHog'}{' '}
-                                        {item.record?.user?.last_name || ''}
-                                    </span>
-                                </span>
-                            ) : (
-                                children
-                            )}
-                        </>
-                    )
-                }}
                 renderItemTooltip={(item) => {
                     const user = item.record?.user as UserBasicType | undefined
 
@@ -669,7 +650,7 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                             Created by:{' '}
                             <ProfilePicture
                                 user={user || { first_name: 'PostHog' }}
-                                size="sm"
+                                size="xs"
                                 showName
                                 className="font-semibold"
                             />
@@ -680,6 +661,42 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                             </span>
                         </>
                     ) : undefined
+                }}
+                renderItemIcon={(item) => {
+                    return (
+                        <>
+                            {sortMethod === 'recent' && projectTreeMode === 'tree' && (
+                                <ProfilePicture
+                                    user={item.record?.user as UserBasicType | undefined}
+                                    size="xs"
+                                    className="ml-[4px]"
+                                />
+                            )}
+                            <TreeNodeDisplayIcon
+                                item={item}
+                                expandedItemIds={expandedFolders}
+                                defaultNodeIcon={<IconFolder />}
+                            />
+                        </>
+                    )
+                }}
+                renderItem={(item) => {
+                    return (
+                        <span className="truncate">
+                            <span
+                                className={cn('truncate', {
+                                    'font-semibold': item.record?.type === 'folder' && item.type !== 'empty-folder',
+                                })}
+                            >
+                                {item.displayName}
+                            </span>
+                            {sortMethod === 'recent' && projectTreeMode === 'tree' && (
+                                <span className="text-tertiary text-xxs pt-[3px] ml-1">
+                                    {dayjs(item.record?.created_at).fromNow()}
+                                </span>
+                            )}
+                        </span>
+                    )
                 }}
             />
 
