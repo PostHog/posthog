@@ -30,16 +30,16 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property_definition import PropertyDefinition
 from posthog.schema import (
     ActionsNode,
-    CachedMapaCalorQueryResponse,
+    CachedCalendarHeatmapQueryResponse,
     CustomEventConversionGoal,
     DashboardFilter,
     DataWarehouseNode,
     EventsNode,
     HogQLQueryModifiers,
     IntervalType,
-    MapaCalorQuery,
+    CalendarHeatmapQuery,
     TrendsFormulaNode,
-    MapaCalorResponse,
+    CalendarHeatmapResponse,
     EventsHeatMapDataResult,
     EventsHeatMapRowAggregationResult,
     EventsHeatMapColumnAggregationResult,
@@ -105,22 +105,22 @@ FROM (
 """
 
 
-class MapaCalorQueryRunner(QueryRunner):
-    query: MapaCalorQuery
-    response: MapaCalorResponse
-    cached_response: CachedMapaCalorQueryResponse
+class CalendarHeatmapQueryRunner(QueryRunner):
+    query: CalendarHeatmapQuery
+    response: CalendarHeatmapResponse
+    cached_response: CachedCalendarHeatmapQueryResponse
     series: list[SeriesWithExtras]
 
     def __init__(
         self,
-        query: MapaCalorQuery | dict[str, Any],
+        query: CalendarHeatmapQuery | dict[str, Any],
         team: Team,
         timings: Optional[HogQLTimings] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
     ):
         if isinstance(query, dict):
-            query = MapaCalorQuery.model_validate(query)
+            query = CalendarHeatmapQuery.model_validate(query)
 
         # Use the new function to handle WAU/MAU conversions
         query = convert_active_user_math_based_on_interval(query)
@@ -164,7 +164,7 @@ class MapaCalorQueryRunner(QueryRunner):
     def calculate(self):
         query = self.to_query()
         response = execute_hogql_query(
-            query_type="mapa_calor_query",
+            query_type="calendar_heatmap_query",
             query=query,
             team=self.team,
             timings=self.timings,
@@ -176,7 +176,7 @@ class MapaCalorQueryRunner(QueryRunner):
         hours: list[EventsHeatMapColumnAggregationResult] = []
 
         if not response.results:
-            return MapaCalorResponse(
+            return CalendarHeatmapResponse(
                 results=EventsHeatMapStructuredResult(
                     data=day_and_hours, rowAggregations=days, columnAggregations=hours, allAggregations=0
                 ),
@@ -212,7 +212,7 @@ class MapaCalorQueryRunner(QueryRunner):
             total = int(hours_values[i])
             hours.append(EventsHeatMapColumnAggregationResult(column=hour, value=total))
 
-        return MapaCalorResponse(
+        return CalendarHeatmapResponse(
             results=EventsHeatMapStructuredResult(
                 data=day_and_hours, rowAggregations=days, columnAggregations=hours, allAggregations=totalOverall
             ),
@@ -364,7 +364,7 @@ class MapaCalorQueryRunner(QueryRunner):
     # TODO: Move this to posthog/hogql_queries/legacy_compatibility/query_to_filter.py
     def _query_to_filter(self) -> dict[str, Any]:
         filter_dict = {
-            "insight": "MAPA_CALOR",
+            "insight": "CALENDAR_HEATMAP",
             "properties": self.query.properties,
             "filter_test_accounts": self.query.filterTestAccounts,
             "date_to": self.query_date_range.date_to(),
@@ -375,7 +375,7 @@ class MapaCalorQueryRunner(QueryRunner):
             "interval": self.query.interval,
         }
 
-        if self.query.mapaCalorFilter is not None:
-            filter_dict.update(self.query.mapaCalorFilter.__dict__)
+        if self.query.calendarHeatmapFilter is not None:
+            filter_dict.update(self.query.calendarHeatmapFilter.__dict__)
 
         return {k: v for k, v in filter_dict.items() if v is not None}

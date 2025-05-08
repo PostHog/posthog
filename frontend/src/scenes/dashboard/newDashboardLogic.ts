@@ -62,8 +62,8 @@ export function applyTemplate(
                         mathAvailability = MathAvailability.ActorsOnly
                     } else if (queryKind === NodeKind.FunnelsQuery) {
                         mathAvailability = MathAvailability.FunnelsOnly
-                    } else if (queryKind === NodeKind.MapaCalorQuery) {
-                        mathAvailability = MathAvailability.MapaCalorOnly
+                    } else if (queryKind === NodeKind.CalendarHeatmapQuery) {
+                        mathAvailability = MathAvailability.CalendarHeatmapOnly
                     }
                     return (
                         queryKind === NodeKind.RetentionQuery

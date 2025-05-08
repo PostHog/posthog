@@ -149,7 +149,7 @@ export function InsightVizDisplay({
                         inSharedMode={inSharedMode}
                     />
                 )
-            case InsightType.MAPA_CALOR:
+            case InsightType.CALENDAR_HEATMAP:
                 return <EventsHeatMapContainer context={context} />
             case InsightType.FUNNELS:
                 return <Funnel inCardView={embedded} inSharedMode={inSharedMode} showPersonsModal={!inSharedMode} />

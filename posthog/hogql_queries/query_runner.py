@@ -49,7 +49,7 @@ from posthog.schema import (
     InsightActorsQuery,
     InsightActorsQueryOptions,
     LifecycleQuery,
-    MapaCalorQuery,
+    CalendarHeatmapQuery,
     PathsQuery,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
@@ -223,11 +223,11 @@ def get_query_runner(
             modifiers=modifiers,
         )
 
-    if kind == "MapaCalorQuery":
-        from .insights.trends.mapa_calor_query_runner import MapaCalorQueryRunner
+    if kind == "CalendarHeatmapQuery":
+        from .insights.trends.calendar_heatmap_query_runner import CalendarHeatmapQueryRunner
 
-        return MapaCalorQueryRunner(
-            query=cast(MapaCalorQuery | dict[str, Any], query),
+        return CalendarHeatmapQueryRunner(
+            query=cast(CalendarHeatmapQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,

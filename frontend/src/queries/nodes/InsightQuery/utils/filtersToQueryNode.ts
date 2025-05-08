@@ -3,9 +3,9 @@ import posthog from 'posthog-js'
 import { transformLegacyHiddenLegendKeys } from 'scenes/funnels/funnelUtils'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import {
+    isCalendarHeatmapFilter,
     isFunnelsFilter,
     isLifecycleFilter,
-    isMapaCalorFilter,
     isPathsFilter,
     isRetentionFilter,
     isStickinessFilter,
@@ -16,6 +16,7 @@ import {
     ActionsNode,
     AnalyticsQueryResponseBase,
     BreakdownFilter,
+    CalendarHeatmapFilter,
     CompareFilter,
     DataWarehouseNode,
     EventsNode,
@@ -28,7 +29,6 @@ import {
     InsightQueryNode,
     InsightsQueryBase,
     LifecycleFilter,
-    MapaCalorFilter,
     MathType,
     NodeKind,
     PathsFilter,
@@ -37,12 +37,12 @@ import {
     TrendsFilter,
 } from '~/queries/schema/schema-general'
 import {
+    isCalendarHeatmapQuery,
     isFunnelsQuery,
     isInsightQueryWithBreakdown,
     isInsightQueryWithCompare,
     isInsightQueryWithSeries,
     isLifecycleQuery,
-    isMapaCalorQuery,
     isPathsQuery,
     isRetentionQuery,
     isStickinessQuery,
@@ -51,6 +51,8 @@ import {
 import {
     ActionFilter,
     BaseMathType,
+    CalendarHeatmapFilterType,
+    CalendarHeatmapMathType,
     DataWarehouseFilter,
     FilterType,
     FunnelExclusionLegacy,
@@ -60,8 +62,6 @@ import {
     HogQLMathType,
     InsightType,
     isDataWarehouseFilter,
-    MapaCalorFilterType,
-    MapaCalorMathType,
     PathsFilterType,
     RetentionEntity,
     RetentionFilterType,
@@ -80,7 +80,7 @@ const insightTypeToNodeKind: Record<
     [InsightType.PATHS]: NodeKind.PathsQuery,
     [InsightType.STICKINESS]: NodeKind.StickinessQuery,
     [InsightType.LIFECYCLE]: NodeKind.LifecycleQuery,
-    [InsightType.MAPA_CALOR]: NodeKind.MapaCalorQuery,
+    [InsightType.CALENDAR_HEATMAP]: NodeKind.CalendarHeatmapQuery,
 }
 
 const actorsOnlyMathTypes = [
@@ -93,7 +93,7 @@ const actorsOnlyMathTypes = [
 
 const funnelsMathTypes = [FunnelMathType.FirstTimeForUser, FunnelMathType.FirstTimeForUserWithFilters]
 
-const mapaCalorMathTypes = [MapaCalorMathType.TotalCount, MapaCalorMathType.UniqueUsers]
+const calendarHeatmapMathTypes = [CalendarHeatmapMathType.TotalCount, CalendarHeatmapMathType.UniqueUsers]
 
 type FilterTypeActionsAndEvents = {
     events?: ActionFilter[]
@@ -141,8 +141,8 @@ export const legacyEntityToNode = (
                     math: entity.math as MathType,
                 }
             }
-        } else if (mathAvailability === MathAvailability.MapaCalorOnly) {
-            if (mapaCalorMathTypes.includes(entity.math as any)) {
+        } else if (mathAvailability === MathAvailability.CalendarHeatmapOnly) {
+            if (calendarHeatmapMathTypes.includes(entity.math as any)) {
                 shared = {
                     ...shared,
                     math: entity.math as MathType,
@@ -372,8 +372,8 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
     }
 
     // calendar heatmap filter
-    if (isMapaCalorFilter(filters) && isMapaCalorQuery(query)) {
-        query.mapaCalorFilter = mapaCalorFilterToQuery(filters)
+    if (isCalendarHeatmapFilter(filters) && isCalendarHeatmapQuery(query)) {
+        query.calendarHeatmapFilter = calendarHeatmapFilterToQuery(filters)
     }
 
     // funnels filter
@@ -493,7 +493,7 @@ export const filtersToFunnelPathsQuery = (filters: Partial<PathsFilterType>): Fu
     }
 }
 
-export const mapaCalorFilterToQuery = (filters: Partial<MapaCalorFilterType>): MapaCalorFilter => {
+export const calendarHeatmapFilterToQuery = (filters: Partial<CalendarHeatmapFilterType>): CalendarHeatmapFilter => {
     // Reserved for future filter properties
     return {
         dummy: filters?.dummy,

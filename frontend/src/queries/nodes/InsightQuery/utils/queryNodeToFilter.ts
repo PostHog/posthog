@@ -19,11 +19,11 @@ import {
 } from '~/queries/schema/schema-general'
 import {
     isActionsNode,
+    isCalendarHeatmapQuery,
     isDataWarehouseNode,
     isEventsNode,
     isFunnelsQuery,
     isLifecycleQuery,
-    isMapaCalorQuery,
     isPathsQuery,
     isRetentionQuery,
     isStickinessQuery,
@@ -113,7 +113,7 @@ export const nodeKindToInsightType: Record<InsightNodeKind, InsightType> = {
     [NodeKind.PathsQuery]: InsightType.PATHS,
     [NodeKind.StickinessQuery]: InsightType.STICKINESS,
     [NodeKind.LifecycleQuery]: InsightType.LIFECYCLE,
-    [NodeKind.MapaCalorQuery]: InsightType.MAPA_CALOR,
+    [NodeKind.CalendarHeatmapQuery]: InsightType.CALENDAR_HEATMAP,
 }
 
 const nodeKindToFilterKey: Record<InsightNodeKind, string> = {
@@ -123,7 +123,7 @@ const nodeKindToFilterKey: Record<InsightNodeKind, string> = {
     [NodeKind.PathsQuery]: 'pathsFilter',
     [NodeKind.StickinessQuery]: 'stickinessFilter',
     [NodeKind.LifecycleQuery]: 'lifecycleFilter',
-    [NodeKind.MapaCalorQuery]: 'mapaCalorFilter',
+    [NodeKind.CalendarHeatmapQuery]: 'calendarHeatmapFilter',
 }
 
 export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> => {
@@ -212,7 +212,7 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         delete queryCopy.trendsFilter?.showValuesOnSeries
         delete queryCopy.trendsFilter?.yAxisScaleType
         delete queryCopy.trendsFilter?.showMultipleYAxes
-    } else if (isMapaCalorQuery(queryCopy)) {
+    } else if (isCalendarHeatmapQuery(queryCopy)) {
         // skip, by now we don't have any properties to add
     } else if (isFunnelsQuery(queryCopy)) {
         camelCasedFunnelsProps.exclusions = queryCopy.funnelsFilter?.exclusions

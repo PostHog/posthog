@@ -199,9 +199,9 @@ export const insightNavLogic = kea<insightNavLogicType>([
                         dataAttr: 'insight-sql-tab',
                     },
                     {
-                        label: 'Mapa Calor',
-                        type: InsightType.MAPA_CALOR,
-                        dataAttr: 'insight-mapa-calor-tab',
+                        label: 'Calendar Heatmap',
+                        type: InsightType.CALENDAR_HEATMAP,
+                        dataAttr: 'insight-calendar-heatmap-tab',
                     },
                 ]
 

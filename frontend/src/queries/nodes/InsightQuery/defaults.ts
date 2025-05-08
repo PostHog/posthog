@@ -1,9 +1,9 @@
 import {
+    CalendarHeatmapQuery,
     FunnelsQuery,
     InsightNodeKind,
     InsightQueryNode,
     LifecycleQuery,
-    MapaCalorQuery,
     NodeKind,
     PathsQuery,
     RetentionQuery,
@@ -26,8 +26,8 @@ export const trendsQueryDefault: TrendsQuery = {
     trendsFilter: {},
 }
 
-export const mapaCalorQueryDefault: MapaCalorQuery = {
-    kind: NodeKind.MapaCalorQuery,
+export const calendarHeatmapQueryDefault: CalendarHeatmapQuery = {
+    kind: NodeKind.CalendarHeatmapQuery,
     series: [
         {
             kind: NodeKind.EventsNode,
@@ -112,5 +112,5 @@ export const nodeKindToDefaultQuery: Record<InsightNodeKind, InsightQueryNode> =
     [NodeKind.PathsQuery]: pathsQueryDefault,
     [NodeKind.StickinessQuery]: stickinessQueryDefault,
     [NodeKind.LifecycleQuery]: lifecycleQueryDefault,
-    [NodeKind.MapaCalorQuery]: mapaCalorQueryDefault,
+    [NodeKind.CalendarHeatmapQuery]: calendarHeatmapQueryDefault,
 }

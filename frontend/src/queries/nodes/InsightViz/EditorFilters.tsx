@@ -35,11 +35,11 @@ import {
 } from '~/types'
 
 import { Breakdown } from './Breakdown'
+import { CalendarHeatmapFilters } from './CalendarHeatmapFilters'
 import { CumulativeStickinessFilter } from './CumulativeStickinessFilter'
 import { EditorFilterGroup } from './EditorFilterGroup'
 import { GlobalAndOrFilters } from './GlobalAndOrFilters'
 import { LifecycleToggles } from './LifecycleToggles'
-import { MapaCalorFilters } from './MapaCalorFilters'
 import { TrendsFormula } from './TrendsFormula'
 import { TrendsSeries } from './TrendsSeries'
 import { TrendsSeriesLabel } from './TrendsSeriesLabel'
@@ -62,7 +62,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         isLifecycle,
         isStickiness,
         isTrendsLike,
-        isMapaCalor,
+        isCalendarHeatmap,
         display,
         pathsFilter,
         querySource,
@@ -161,10 +161,10 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                     label: isTrends ? TrendsSeriesLabel : undefined,
                     component: TrendsSeries,
                 },
-                isMapaCalor && {
+                isCalendarHeatmap && {
                     key: 'filters',
                     label: 'Filters',
-                    component: MapaCalorFilters,
+                    component: CalendarHeatmapFilters,
                 },
                 isTrends && hasFormula
                     ? {
@@ -335,7 +335,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                 },
             ]),
         },
-        ...(!isMapaCalor
+        ...(!isCalendarHeatmap
             ? [
                   {
                       title: 'Advanced Options',

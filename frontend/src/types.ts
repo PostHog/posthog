@@ -2336,7 +2336,7 @@ export enum InsightType {
     JSON = 'JSON',
     SQL = 'SQL',
     HOG = 'HOG',
-    MAPA_CALOR = 'MAPA_CALOR',
+    CALENDAR_HEATMAP = 'CALENDAR_HEATMAP',
 }
 
 export enum PathType {
@@ -2550,7 +2550,7 @@ export interface PathsFilterType extends FilterType {
     path_dropoff_key?: string // Paths People Dropoff Key
 }
 
-export interface MapaCalorFilterType extends FilterType {
+export interface CalendarHeatmapFilterType extends FilterType {
     // Reserved for future filter properties
     dummy?: string
 }
@@ -2609,7 +2609,7 @@ export type AnyFilterType =
     | StickinessFilterType
     | FunnelsFilterType
     | PathsFilterType
-    | MapaCalorFilterType
+    | CalendarHeatmapFilterType
     | RetentionFilterType
     | LifecycleFilterType
     | FilterType
@@ -2622,7 +2622,8 @@ export type AnyPartialFilterType =
     | Partial<RetentionFilterType>
     | Partial<LifecycleFilterType>
     | Partial<FilterType>
-    | Partial<MapaCalorFilterType>
+    | Partial<CalendarHeatmapFilterType>
+
 export interface EventsListQueryParams {
     event?: string
     properties?: AnyPropertyFilter[] | PropertyGroupFilter
@@ -3897,7 +3898,7 @@ export enum BaseMathType {
     FirstMatchingEventForUser = 'first_matching_event_for_user',
 }
 
-export enum MapaCalorMathType {
+export enum CalendarHeatmapMathType {
     TotalCount = 'total',
     UniqueUsers = 'dau',
 }

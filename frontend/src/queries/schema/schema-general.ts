@@ -9,6 +9,7 @@ import {
     BaseMathType,
     BreakdownKeyType,
     BreakdownType,
+    CalendarHeatmapMathType,
     ChartDisplayCategory,
     ChartDisplayType,
     CountPerActorMathType,
@@ -28,7 +29,6 @@ import {
     LifecycleFilterType,
     LifecycleToggle,
     LogEntryPropertyFilter,
-    MapaCalorMathType,
     PathsFilterType,
     PersonPropertyFilter,
     PropertyGroupFilter,
@@ -89,7 +89,7 @@ export enum NodeKind {
     InsightVizNode = 'InsightVizNode',
 
     TrendsQuery = 'TrendsQuery',
-    MapaCalorQuery = 'MapaCalorQuery',
+    CalendarHeatmapQuery = 'CalendarHeatmapQuery',
     FunnelsQuery = 'FunnelsQuery',
     RetentionQuery = 'RetentionQuery',
     PathsQuery = 'PathsQuery',
@@ -165,7 +165,7 @@ export type AnyDataNode =
     | ErrorTrackingQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
-    | MapaCalorQuery
+    | CalendarHeatmapQuery
     | RecordingsQuery
     | TracesQuery
     | VectorSearchQuery
@@ -222,7 +222,7 @@ export type QuerySchema =
 
     // Classic insights
     | TrendsQuery
-    | MapaCalorQuery
+    | CalendarHeatmapQuery
     | FunnelsQuery
     | RetentionQuery
     | PathsQuery
@@ -570,7 +570,7 @@ export type MathType =
     | GroupMathType
     | HogQLMathType
     | ExperimentMetricMathType
-    | MapaCalorMathType
+    | CalendarHeatmapMathType
 
 export interface EntityNode extends Node {
     name?: string
@@ -1016,8 +1016,8 @@ export type TrendsFilter = {
     goalLines?: GoalLine[]
 }
 
-export type MapaCalorFilter = {
-    // I kept this for being able to add filters in the future
+export type CalendarHeatmapFilter = {
+    // Reserved for future filter properties
     dummy?: string
 }
 
@@ -1079,15 +1079,15 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     conversionGoal?: WebAnalyticsConversionGoal | null
 }
 
-export interface MapaCalorResponse extends AnalyticsQueryResponseBase<EventsHeatMapStructuredResult> {
+export interface CalendarHeatmapResponse extends AnalyticsQueryResponseBase<EventsHeatMapStructuredResult> {
     /** Wether more breakdown values are available. */
     hasMore?: boolean
 }
 
-export type CachedMapaCalorQueryResponse = CachedQueryResponse<MapaCalorResponse>
+export type CachedCalendarHeatmapQueryResponse = CachedQueryResponse<CalendarHeatmapResponse>
 
-export interface MapaCalorQuery extends InsightsQueryBase<MapaCalorResponse> {
-    kind: NodeKind.MapaCalorQuery
+export interface CalendarHeatmapQuery extends InsightsQueryBase<CalendarHeatmapResponse> {
+    kind: NodeKind.CalendarHeatmapQuery
     /**
      * Granularity of the response. Can be one of `hour`, `day`, `week` or `month`
      *
@@ -1097,7 +1097,7 @@ export interface MapaCalorQuery extends InsightsQueryBase<MapaCalorResponse> {
     /** Events and actions to include */
     series: AnyEntityNode[]
     /** Properties specific to the trends insight */
-    mapaCalorFilter?: MapaCalorFilter
+    calendarHeatmapFilter?: CalendarHeatmapFilter
     /**  Whether we should be comparing against a specific conversion goal */
     conversionGoal?: WebAnalyticsConversionGoal | null
 }
@@ -2010,7 +2010,7 @@ export type InsightQueryNode =
     | PathsQuery
     | StickinessQuery
     | LifecycleQuery
-    | MapaCalorQuery
+    | CalendarHeatmapQuery
 
 export interface ExperimentVariantTrendsBaseStats {
     key: string
@@ -2197,7 +2197,7 @@ export type InsightFilterProperty =
     | 'retentionFilter'
     | 'pathsFilter'
     | 'stickinessFilter'
-    | 'mapaCalorFilter'
+    | 'calendarHeatmapFilter'
     | 'lifecycleFilter'
 
 export type InsightFilter =
@@ -2207,7 +2207,7 @@ export type InsightFilter =
     | PathsFilter
     | StickinessFilter
     | LifecycleFilter
-    | MapaCalorFilter
+    | CalendarHeatmapFilter
 
 export type Day = integer
 

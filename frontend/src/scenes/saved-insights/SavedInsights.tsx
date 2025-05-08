@@ -87,9 +87,9 @@ export interface InsightTypeMetadata {
 }
 
 export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
-    [NodeKind.MapaCalorQuery]: {
-        name: 'Mapa Calor',
-        description: 'Mapa Calor',
+    [NodeKind.CalendarHeatmapQuery]: {
+        name: 'Calendar Heatmap',
+        description: 'Calendar Heatmap',
         icon: IconHogQL,
         inMenu: true,
     },
@@ -452,7 +452,7 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
     [InsightType.PATHS]: QUERY_TYPES_METADATA[NodeKind.PathsQuery],
     [InsightType.STICKINESS]: QUERY_TYPES_METADATA[NodeKind.StickinessQuery],
     [InsightType.LIFECYCLE]: QUERY_TYPES_METADATA[NodeKind.LifecycleQuery],
-    [InsightType.MAPA_CALOR]: QUERY_TYPES_METADATA[NodeKind.MapaCalorQuery],
+    [InsightType.CALENDAR_HEATMAP]: QUERY_TYPES_METADATA[NodeKind.CalendarHeatmapQuery],
     [InsightType.SQL]: {
         name: 'SQL',
         description: 'Use SQL to query your data.',

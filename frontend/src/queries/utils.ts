@@ -6,6 +6,7 @@ import {
     ActionsNode,
     ActorsQuery,
     BreakdownFilter,
+    CalendarHeatmapQuery,
     CompareFilter,
     DatabaseSchemaQuery,
     DataTableNode,
@@ -30,7 +31,6 @@ import {
     InsightQueryNode,
     InsightVizNode,
     LifecycleQuery,
-    MapaCalorQuery,
     MathType,
     Node,
     NodeKind,
@@ -233,8 +233,8 @@ export function isTrendsQuery(node?: Record<string, any> | null): node is Trends
     return node?.kind === NodeKind.TrendsQuery
 }
 
-export function isMapaCalorQuery(node?: Record<string, any> | null): node is MapaCalorQuery {
-    return node?.kind === NodeKind.MapaCalorQuery
+export function isCalendarHeatmapQuery(node?: Record<string, any> | null): node is CalendarHeatmapQuery {
+    return node?.kind === NodeKind.CalendarHeatmapQuery
 }
 
 export function isFunnelsQuery(node?: Record<string, any> | null): node is FunnelsQuery {
@@ -309,7 +309,7 @@ export function isInsightQueryNode(node?: Record<string, any> | null): node is I
         isPathsQuery(node) ||
         isStickinessQuery(node) ||
         isLifecycleQuery(node) ||
-        isMapaCalorQuery(node)
+        isCalendarHeatmapQuery(node)
     )
 }
 
@@ -468,7 +468,7 @@ export const nodeKindToFilterProperty: Record<InsightNodeKind, InsightFilterProp
     [NodeKind.PathsQuery]: 'pathsFilter',
     [NodeKind.StickinessQuery]: 'stickinessFilter',
     [NodeKind.LifecycleQuery]: 'lifecycleFilter',
-    [NodeKind.MapaCalorQuery]: 'mapaCalorFilter',
+    [NodeKind.CalendarHeatmapQuery]: 'calendarHeatmapFilter',
 }
 
 export function filterKeyForQuery(node: InsightQueryNode): InsightFilterProperty {

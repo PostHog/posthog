@@ -144,8 +144,8 @@ export const getDefaultQuery = (
             return queryFromKind(NodeKind.StickinessQuery, filterTestAccountsDefault)
         } else if (insightType === InsightType.LIFECYCLE) {
             return queryFromKind(NodeKind.LifecycleQuery, filterTestAccountsDefault)
-        } else if (insightType === InsightType.MAPA_CALOR) {
-            return queryFromKind(NodeKind.MapaCalorQuery, filterTestAccountsDefault)
+        } else if (insightType === InsightType.CALENDAR_HEATMAP) {
+            return queryFromKind(NodeKind.CalendarHeatmapQuery, filterTestAccountsDefault)
         }
     }
 

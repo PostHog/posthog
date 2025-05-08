@@ -6,10 +6,10 @@ import { groupsModel } from '~/models/groupsModel'
 import { MathType } from '~/queries/schema/schema-general'
 import {
     BaseMathType,
+    CalendarHeatmapMathType,
     CountPerActorMathType,
     FunnelMathType,
     HogQLMathType,
-    MapaCalorMathType,
     PropertyMathType,
 } from '~/types'
 
@@ -77,8 +77,8 @@ export const FUNNEL_MATH_DEFINITIONS: Record<FunnelMathType, MathDefinition> = {
     },
 }
 
-export const MAPA_CALOR_MATH_DEFINITIONS: Record<MapaCalorMathType, MathDefinition> = {
-    [MapaCalorMathType.TotalCount]: {
+export const MAPA_CALOR_MATH_DEFINITIONS: Record<CalendarHeatmapMathType, MathDefinition> = {
+    [CalendarHeatmapMathType.TotalCount]: {
         name: 'Total count',
         shortName: 'count',
         description: (
@@ -91,7 +91,7 @@ export const MAPA_CALOR_MATH_DEFINITIONS: Record<MapaCalorMathType, MathDefiniti
         ),
         category: MathCategory.EventCount,
     },
-    [MapaCalorMathType.UniqueUsers]: {
+    [CalendarHeatmapMathType.UniqueUsers]: {
         name: 'Unique users',
         shortName: 'unique users',
         description: (
@@ -450,13 +450,13 @@ export const mathsLogic = kea<mathsLogicType>([
                 return allMathDefinitions
             },
         ],
-        mapaCalorMathDefinitions: [
+        calendarHeatmapMathDefinitions: [
             () => [],
             (): Partial<Record<MathType, MathDefinition>> => {
-                const mapaCalorMathDefinitions: Partial<Record<MathType, MathDefinition>> = Object.fromEntries(
+                const calendarHeatmapMathDefinitions: Partial<Record<MathType, MathDefinition>> = Object.fromEntries(
                     Object.entries(MAPA_CALOR_MATH_DEFINITIONS) as [MathType, MathDefinition][]
                 )
-                return mapaCalorMathDefinitions
+                return calendarHeatmapMathDefinitions
             },
         ],
         funnelMathDefinitions: [
