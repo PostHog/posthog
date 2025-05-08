@@ -84,15 +84,9 @@ class OAuthValidator(OAuth2Validator):
         if id_token:
             id_token = self._load_id_token(id_token)
 
-        code = dict(request.decoded_body).get("code", None) if request.decoded_body else None
-
-        if not code:
-            raise OAuthToolkitError("Unable to find code to create access token")
-
-        try:
-            grant = OAuthGrant.objects.get(code=code)
-        except OAuthGrant.DoesNotExist:
-            raise OAuthToolkitError("Unable to find grant to create access token")
+        scoped_teams, scoped_organizations = self._get_scoped_teams_and_organizations(
+            request, access_token=None, grant=None, refresh_token=source_refresh_token
+        )
 
         return OAuthAccessToken.objects.create(
             user=request.user,
@@ -102,11 +96,15 @@ class OAuthValidator(OAuth2Validator):
             id_token=id_token,
             application=request.client,
             source_refresh_token=source_refresh_token,
-            scoped_teams=grant.scoped_teams,
-            scoped_organizations=grant.scoped_organizations,
+            scoped_teams=scoped_teams,
+            scoped_organizations=scoped_organizations,
         )
 
     def _create_authorization_code(self, request, code, expires=None):
+        scoped_teams, scoped_organizations = self._get_scoped_teams_and_organizations(
+            request, access_token=None, grant=None, refresh_token=None
+        )
+
         if not expires:
             expires = timezone.now() + timedelta(seconds=oauth2_settings.AUTHORIZATION_CODE_EXPIRE_SECONDS)
         return OAuthGrant.objects.create(
@@ -120,8 +118,8 @@ class OAuthValidator(OAuth2Validator):
             code_challenge_method=request.code_challenge_method or "",
             nonce=request.nonce or "",
             claims=json.dumps(request.claims or {}),
-            scoped_teams=request.scoped_teams,
-            scoped_organizations=request.scoped_organizations,
+            scoped_teams=scoped_teams,
+            scoped_organizations=scoped_organizations,
         )
 
     def _create_refresh_token(self, request, refresh_token_code, access_token, previous_refresh_token):
@@ -130,19 +128,9 @@ class OAuthValidator(OAuth2Validator):
         else:
             token_family = uuid.uuid4()
 
-        code = dict(request.decoded_body).get("code", None) if request.decoded_body else None
-
-        if code:
-            try:
-                grant = OAuthGrant.objects.get(code=code)
-            except OAuthGrant.DoesNotExist:
-                raise OAuthToolkitError("Unable to find grant to create refresh token")
-
-        if not grant and not access_token:
-            raise OAuthToolkitError("Unable to find grant or access token to create refresh token")
-
-        scoped_teams = grant.scoped_teams if grant else access_token.scoped_teams
-        scoped_organizations = grant.scoped_organizations if grant else access_token.scoped_organizations
+        scoped_teams, scoped_organizations = self._get_scoped_teams_and_organizations(
+            request, access_token=None, grant=None, refresh_token=previous_refresh_token
+        )
 
         return OAuthRefreshToken.objects.create(
             user=request.user,
@@ -153,6 +141,44 @@ class OAuthValidator(OAuth2Validator):
             scoped_teams=scoped_teams,
             scoped_organizations=scoped_organizations,
         )
+
+    def _get_scoped_teams_and_organizations(
+        self,
+        request,
+        access_token: OAuthAccessToken | None,
+        grant: OAuthGrant | None = None,
+        refresh_token: OAuthRefreshToken | None = None,
+    ):
+        scoped_teams = None
+        scoped_organizations = None
+
+        if hasattr(request, "scoped_teams") and hasattr(request, "scoped_organizations"):
+            scoped_teams = request.scoped_teams
+            scoped_organizations = request.scoped_organizations
+        elif access_token:
+            scoped_teams = access_token.scoped_teams
+            scoped_organizations = access_token.scoped_organizations
+        elif refresh_token:
+            scoped_teams = refresh_token.scoped_teams
+            scoped_organizations = refresh_token.scoped_organizations
+        elif grant:
+            scoped_teams = grant.scoped_teams
+            scoped_organizations = grant.scoped_organizations
+
+        if request.decoded_body:
+            try:
+                code = dict(request.decoded_body).get("code", None)
+                if code:
+                    grant = OAuthGrant.objects.get(code=code)
+                    scoped_teams = grant.scoped_teams
+                    scoped_organizations = grant.scoped_organizations
+            except OAuthGrant.DoesNotExist:
+                pass
+
+        if scoped_teams is None or scoped_organizations is None:
+            raise OAuthToolkitError("Unable to find scoped_teams or scoped_organizations")
+
+        return scoped_teams, scoped_organizations
 
 
 class OAuthAuthorizationView(OAuthLibMixin, APIView):
