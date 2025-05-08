@@ -4,7 +4,7 @@ from posthog.models.utils import UUIDModel, sane_repr
 from posthog.models.organization import OrganizationMembership
 
 
-# We call models that grant a user access to some grouping of users a "membership"
+# DEPRECATED - do not use
 class ExplicitTeamMembership(UUIDModel):
     class Level(models.IntegerChoices):
         """Keep in sync with OrganizationMembership.Level (only difference being organizations having an Owner)."""
