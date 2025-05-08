@@ -83,7 +83,7 @@ def backfill_hog_function_template_fk(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0727_add_hog_function_template_as_fk_to_hog_function"),
+        ("posthog", "0730_add_hog_function_template_as_fk_to_hog_function"),
     ]
 
     operations = [
