@@ -64,10 +64,6 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                         path: urls.hogFunction(id),
                         name: templateId ? 'New' : 'Edit',
                     },
-                    // {
-                    //     key: Scene.ErrorTrackingAlert,
-                    //     name: id === 'new' ? 'Create alert' : 'Edit alert',
-                    // },
                 ]
             },
         ],
