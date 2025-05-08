@@ -1,11 +1,9 @@
 import './CalendarHeatMap.scss'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { DataColorTheme } from 'lib/colors'
+import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import React, { useCallback, useEffect, useState } from 'react'
-import { dataThemeLogic } from 'scenes/dataThemeLogic'
-
-import { useResizeObserver } from '~/lib/hooks/useResizeObserver'
 
 import { CalendarHeatMapCell, HeatMapValues } from './CalendarHeatMapCell'
 
@@ -27,8 +25,11 @@ export interface CalendarHeatMapProps {
     getColumnAggregationTooltip: (columnAggregationLabel: string, columnLabel: string, value: number) => string
     getRowAggregationTooltip: (rowAggregationLabel: string, rowLabel: string, value: number) => string
     getOverallAggregationTooltip: (overallAggregationLabel: string, value: number) => string
+    /* whether to show the column of totals for each row on the right of the table */
     showRowAggregations?: boolean
+    /* whether to show the row of totals for each column at the bottom of the table */
     showColumnAggregations?: boolean
+    theme: DataColorTheme | null
 }
 
 interface ProcessedData {
@@ -59,9 +60,8 @@ export function CalendarHeatMap({
     getOverallAggregationTooltip,
     showRowAggregations = true,
     showColumnAggregations = true,
+    theme,
 }: CalendarHeatMapProps): JSX.Element {
-    const { themes, getTheme } = useValues(dataThemeLogic)
-    const theme = getTheme(themes?.[0]?.id)
     const { ref: elementRef, width } = useResizeObserver()
 
     const heatmapColor = backgroundColorsOverride?.data ?? theme?.['preset-1'] ?? '#000000' // Default to black if no color found

@@ -1,4 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { useValues } from 'kea'
+import { dataThemeLogic } from 'scenes/dataThemeLogic'
 
 import { CalendarHeatMap } from './CalendarHeatMap'
 
@@ -8,6 +10,21 @@ const meta: Meta<typeof CalendarHeatMap> = {
     parameters: {
         layout: 'fullscreen',
     },
+    decorators: [
+        // eslint-disable-next-line @typescript-eslint/explicit-module-boundary-types
+        (Story, context) => {
+            const { themes, getTheme } = useValues(dataThemeLogic)
+
+            // Need to check if the theme is set in the story args,
+            // so we now whether to use the loaded theme or the provided one
+            if (context.parameters.themeInStoryArgs === undefined) {
+                context.parameters.themeInStoryArgs = context.args.theme !== undefined
+            }
+            const theme = context.parameters.themeInStoryArgs ? context.args.theme : getTheme(themes?.[0]?.id)
+
+            return <Story args={{ ...context.args, theme }} />
+        },
+    ],
 }
 export default meta
 type Story = StoryObj<typeof CalendarHeatMap>
@@ -99,6 +116,13 @@ export const NoResults: Story = {
 
 export const WithData: Story = {
     args: mockData,
+}
+
+export const WithNoTheme: Story = {
+    args: {
+        ...mockData,
+        theme: null,
+    },
 }
 
 export const WithHiddenColumnAggregation: Story = {
