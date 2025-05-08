@@ -10,7 +10,7 @@ export type LinkedHogFunctionsProps = {
     logicKey?: string
     type: HogFunctionTypeType
     filters: HogFunctionFiltersType
-    subTemplateId?: HogFunctionSubTemplateIdType
+    subTemplateIds?: HogFunctionSubTemplateIdType[]
     newDisabledReason?: string
 }
 
@@ -18,7 +18,7 @@ export function LinkedHogFunctions({
     logicKey,
     type,
     filters,
-    subTemplateId,
+    subTemplateIds,
     newDisabledReason,
 }: LinkedHogFunctionsProps): JSX.Element | null {
     const [showNewDestination, setShowNewDestination] = useState(false)
@@ -32,7 +32,7 @@ export function LinkedHogFunctions({
         <HogFunctionTemplateList
             defaultFilters={{}}
             type={templateType}
-            subTemplateId={subTemplateId}
+            subTemplateIds={subTemplateIds}
             forceFilters={{ filters }}
             extraControls={
                 <>

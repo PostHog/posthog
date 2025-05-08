@@ -10,7 +10,13 @@ import { hogFunctionNewUrl } from 'scenes/pipeline/hogfunctions/urls'
 import { pipelineAccessLogic } from 'scenes/pipeline/pipelineAccessLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { HogFunctionSubTemplateIdType, HogFunctionTemplateType, HogFunctionTypeType, UserType } from '~/types'
+import {
+    HogFunctionSubTemplateIdType,
+    HogFunctionTemplateType,
+    HogFunctionTemplateWithSubTemplateType,
+    HogFunctionTypeType,
+    UserType,
+} from '~/types'
 
 import { generateSubTemplate, getSubTemplate } from '../sub-templates/sub-templates'
 import type { hogFunctionTemplateListLogicType } from './hogFunctionTemplateListLogicType'
@@ -25,7 +31,7 @@ export type HogFunctionTemplateListFilters = {
 
 export type HogFunctionTemplateListLogicProps = {
     type: HogFunctionTypeType
-    subTemplateId?: HogFunctionSubTemplateIdType
+    subTemplateIds?: HogFunctionSubTemplateIdType[]
     defaultFilters?: HogFunctionTemplateListFilters
     forceFilters?: HogFunctionTemplateListFilters
     syncFiltersWithUrl?: boolean
@@ -49,7 +55,7 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
     key(
         (props) =>
             `${props.syncFiltersWithUrl ? 'scene' : 'default'}/${props.type ?? 'destination'}/${
-                props.subTemplateId ?? ''
+                props.subTemplateIds?.join(',') ?? ''
             }`
     ),
     path((id) => ['scenes', 'pipeline', 'destinationsLogic', id]),
@@ -102,15 +108,17 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
         loading: [(s) => [s.rawTemplatesLoading], (x) => x],
 
         templates: [
-            (s, p) => [s.rawTemplates, p.subTemplateId],
-            (rawTemplates, subTemplateId): HogFunctionTemplateType[] => {
-                const final: HogFunctionTemplateType[] = []
+            (s, p) => [s.rawTemplates, p.subTemplateIds],
+            (rawTemplates, subTemplateIds): HogFunctionTemplateWithSubTemplateType[] => {
+                const final: HogFunctionTemplateWithSubTemplateType[] = []
 
                 for (const template of rawTemplates) {
-                    const subTemplate = generateSubTemplate(template, subTemplateId)
-
-                    if (subTemplate) {
-                        final.push(subTemplate)
+                    // TODO: Update this...
+                    for (const subTemplateId of subTemplateIds) {
+                        const subTemplate = generateSubTemplate(template, subTemplateId)
+                        if (subTemplate) {
+                            final.push(subTemplate)
+                        }
                     }
                 }
 
@@ -148,10 +156,12 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
         ],
 
         urlForTemplate: [
-            (_, p) => [p.forceFilters, p.subTemplateId],
-            (forceFilters, subTemplateId): ((template: HogFunctionTemplateType) => string) => {
-                return (template: HogFunctionTemplateType) => {
-                    const subTemplate = getSubTemplate(template, subTemplateId)
+            (_, p) => [p.forceFilters],
+            (forceFilters): ((template: HogFunctionTemplateWithSubTemplateType) => string) => {
+                return (template: HogFunctionTemplateWithSubTemplateType) => {
+                    const subTemplate = template.sub_template_id
+                        ? getSubTemplate(template, template.sub_template_id)
+                        : null
 
                     const configuration: Record<string, any> = {
                         ...(subTemplate ?? {}),

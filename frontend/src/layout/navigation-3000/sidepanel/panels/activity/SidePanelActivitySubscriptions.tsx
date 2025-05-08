@@ -8,7 +8,7 @@ export function SidePanelActivitySubscriptions(): JSX.Element {
             <LinkedHogFunctions
                 logicKey="activity-log"
                 type="internal_destination"
-                subTemplateId="activity-log"
+                subTemplateIds={['activity-log']}
                 filters={{
                     events: [
                         {

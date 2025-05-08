@@ -302,7 +302,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                         <LinkedHogFunctions
                                             logicKey="survey"
                                             type="destination"
-                                            subTemplateId="survey-response"
+                                            subTemplateIds={['survey-response']}
                                             filters={{
                                                 events: [
                                                     {

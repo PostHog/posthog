@@ -2,6 +2,7 @@ import {
     HogFunctionSubTemplateIdType,
     HogFunctionSubTemplateType,
     HogFunctionTemplateType,
+    HogFunctionTemplateWithSubTemplateType,
     PropertyFilterType,
     PropertyOperator,
     SurveyEventName,
@@ -383,7 +384,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
 export const generateSubTemplate = (
     template: HogFunctionTemplateType,
     subTemplateId: HogFunctionSubTemplateIdType
-): HogFunctionTemplateType | null => {
+): HogFunctionTemplateWithSubTemplateType | null => {
     const subTemplate = HOG_FUNCTION_SUB_TEMPLATES[subTemplateId].find((x) => x.template_id === template.id)
 
     if (!subTemplate) {

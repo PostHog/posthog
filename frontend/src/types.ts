@@ -5152,6 +5152,10 @@ export type HogFunctionTemplateType = Pick<
     mapping_templates?: HogFunctionMappingTemplateType[]
 }
 
+export type HogFunctionTemplateWithSubTemplateType = HogFunctionTemplateType & {
+    sub_template_id?: HogFunctionSubTemplateIdType
+}
+
 export type HogFunctionIconResponse = {
     id: string
     name: string

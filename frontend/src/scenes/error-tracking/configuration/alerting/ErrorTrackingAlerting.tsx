@@ -6,7 +6,7 @@ export function ErrorTrackingAlerting(): JSX.Element {
         <LinkedHogFunctions
             logicKey="error-tracking"
             type="internal_destination"
-            subTemplateId="error-tracking-issue-created"
+            subTemplateIds={['error-tracking-issue-created', 'error-tracking-issue-reopened']}
             filters={HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['error-tracking-issue-created']?.filters ?? {}}
         />
     )
