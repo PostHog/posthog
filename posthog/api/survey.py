@@ -947,7 +947,9 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             }
         return rates
 
-    def _get_survey_stats(self, date_from: str | None, date_to: str | None, survey_id: str | None = None) -> dict:
+    def _get_survey_stats(
+        self, request: request.Request, date_from: str | None, date_to: str | None, survey_id: str | None = None
+    ) -> dict:
         """Get survey statistics from ClickHouse.
 
         Args:
@@ -994,15 +996,22 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             survey_filter = f"AND JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID}') IN %(survey_ids)s"
             params["survey_ids"] = [str(id) for id in active_survey_ids]
 
-        unique_uuids_subquery = get_unique_survey_event_uuids_sql_subquery(
-            base_conditions_sql=[
-                "team_id = %(team_id)s",
-                f"event = '{SurveyEventName.SENT}'",
-            ],
-            group_by_prefix_expressions=[
-                f"JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID}')"  # Deduplicate per survey_id
-            ],
+        partial_responses_enabled = posthoganalytics.feature_enabled(
+            SurveyFeatureFlags.SURVEYS_PARTIAL_RESPONSES, request.user.distinct_id
         )
+
+        partial_responses_filter = "1=1"
+        if partial_responses_enabled:
+            unique_uuids_subquery = get_unique_survey_event_uuids_sql_subquery(
+                base_conditions_sql=[
+                    "team_id = %(team_id)s",
+                    f"event = '{SurveyEventName.SENT}'",
+                ],
+                group_by_prefix_expressions=[
+                    f"JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID}')"  # Deduplicate per survey_id
+                ],
+            )
+            partial_responses_filter = f"uuid IN {unique_uuids_subquery}"
 
         # Query 1: Base Stats (Similar to original query)
         base_stats_query = f"""
@@ -1025,7 +1034,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             AND (
                 event != %(sent)s
                 OR
-                uuid IN {unique_uuids_subquery}
+                {partial_responses_filter}
             )
             GROUP BY event
         """
@@ -1128,7 +1137,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except Survey.DoesNotExist:
             raise exceptions.NotFound("Survey not found")
 
-        response_data = self._get_survey_stats(date_from, date_to, survey_id)
+        response_data = self._get_survey_stats(request, date_from, date_to, survey_id)
 
         # Add survey metadata
         response_data["survey_id"] = survey_id
