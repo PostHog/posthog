@@ -260,9 +260,6 @@ function SessionSegmentView({
     keyActions,
     onSeekToTime,
 }: SessionSegmentViewProps): JSX.Element {
-    // Scroll 4 seconds before the event to make it easier to notice when watching the replay
-    const timeToSeeekTo = (ms: number): number => Math.max(ms - 4000, 0)
-
     return (
         <div key={segment.name} className="mb-4">
             <SessionSegmentCollapse
@@ -299,68 +296,14 @@ function SessionSegmentView({
                     <>
                         {keyActions && keyActions.length > 0 ? (
                             <>
-                                {keyActions?.map((keyAction) =>
-                                    keyAction.events?.map(
-                                        (event: SessionKeyAction, eventIndex: number, events: SessionKeyAction[]) =>
-                                            isValidTimestamp(event.milliseconds_since_start) ? (
-                                                <div
-                                                    key={`${segment.name}-${eventIndex}`}
-                                                    className={clsx(
-                                                        'cursor-pointer py-2 px-2 hover:bg-primary-alt-highlight',
-                                                        // Avoid adding a border to the last event
-                                                        eventIndex !== events.length - 1 && 'border-b',
-                                                        (event.abandonment || event.confusion || event.exception) &&
-                                                            'bg-danger-highlight'
-                                                    )}
-                                                    onClick={() => {
-                                                        // Excessive check, required for type safety
-                                                        if (!isValidTimestamp(event.milliseconds_since_start)) {
-                                                            return
-                                                        }
-                                                        onSeekToTime(timeToSeeekTo(event.milliseconds_since_start))
-                                                    }}
-                                                >
-                                                    <div className="flex flex-row gap-2">
-                                                        <span className="text-muted-alt shrink-0 min-w-[4rem] font-mono text-xs">
-                                                            {formatMsIntoTime(event.milliseconds_since_start)}
-                                                            <div className="flex flex-row gap-2 mt-1">
-                                                                {event.current_url ? (
-                                                                    <Link to={event.current_url} target="_blank">
-                                                                        <Tooltip
-                                                                            title={event.current_url}
-                                                                            placement="top"
-                                                                        >
-                                                                            <span className="font-mono text-xs text-muted-alt">
-                                                                                url
-                                                                            </span>
-                                                                        </Tooltip>
-                                                                    </Link>
-                                                                ) : null}
-                                                                <Tooltip
-                                                                    title={formatEventMetaInfo(event)}
-                                                                    placement="top"
-                                                                >
-                                                                    <span className="font-mono text-xs text-muted-alt">
-                                                                        meta
-                                                                    </span>
-                                                                </Tooltip>
-                                                            </div>
-                                                        </span>
-
-                                                        <span className="text-xs break-words">
-                                                            {event.description}&nbsp;{' '}
-                                                            {event.milliseconds_since_start === 0 && (
-                                                                <LemonTag size="small" type="default">
-                                                                    before start
-                                                                </LemonTag>
-                                                            )}
-                                                            {getIssueTags(event)}
-                                                        </span>
-                                                    </div>
-                                                </div>
-                                            ) : null
-                                    )
-                                )}
+                                {keyActions?.map((segmentKeyActions) => (
+                                    <SessionSummaryKeyActions
+                                        key={segmentKeyActions.segment_index}
+                                        keyActions={segmentKeyActions}
+                                        segmentName={segment.name}
+                                        onSeekToTime={onSeekToTime}
+                                    />
+                                ))}
                             </>
                         ) : (
                             <div className="text-muted-alt">
@@ -371,6 +314,70 @@ function SessionSegmentView({
                 }
             />
         </div>
+    )
+}
+
+function SessionSummaryKeyActions({
+    keyActions,
+    segmentName,
+    onSeekToTime,
+}: {
+    keyActions: SessionSegmentKeyActions
+    segmentName?: string | null
+    onSeekToTime: (time: number) => void
+}): JSX.Element {
+    const timeToSeeekTo = (ms: number): number => Math.max(ms - 4000, 0)
+    return (
+        <>
+            {keyActions.events?.map((event: SessionKeyAction, eventIndex: number, events: SessionKeyAction[]) =>
+                isValidTimestamp(event.milliseconds_since_start) ? (
+                    <div
+                        key={`${segmentName}-${eventIndex}`}
+                        className={clsx(
+                            'cursor-pointer py-2 px-2 hover:bg-primary-alt-highlight',
+                            // Avoid adding a border to the last event
+                            eventIndex !== events.length - 1 && 'border-b',
+                            (event.abandonment || event.confusion || event.exception) && 'bg-danger-highlight'
+                        )}
+                        onClick={() => {
+                            // Excessive check, required for type safety
+                            if (!isValidTimestamp(event.milliseconds_since_start)) {
+                                return
+                            }
+                            onSeekToTime(timeToSeeekTo(event.milliseconds_since_start))
+                        }}
+                    >
+                        <div className="flex flex-row gap-2">
+                            <span className="text-muted-alt shrink-0 min-w-[4rem] font-mono text-xs">
+                                {formatMsIntoTime(event.milliseconds_since_start)}
+                                <div className="flex flex-row gap-2 mt-1">
+                                    {event.current_url ? (
+                                        <Link to={event.current_url} target="_blank">
+                                            <Tooltip title={event.current_url} placement="top">
+                                                <span className="font-mono text-xs text-muted-alt">url</span>
+                                            </Tooltip>
+                                        </Link>
+                                    ) : null}
+                                    <Tooltip title={formatEventMetaInfo(event)} placement="top">
+                                        <span className="font-mono text-xs text-muted-alt">meta</span>
+                                    </Tooltip>
+                                </div>
+                            </span>
+
+                            <span className="text-xs break-words">
+                                {event.description}&nbsp;{' '}
+                                {event.milliseconds_since_start === 0 && (
+                                    <LemonTag size="small" type="default">
+                                        before start
+                                    </LemonTag>
+                                )}
+                                {getIssueTags(event)}
+                            </span>
+                        </div>
+                    </div>
+                ) : null
+            )}
+        </>
     )
 }
 
