@@ -1,9 +1,13 @@
 import 'chartjs-adapter-dayjs-3'
 
 import { Chart, ChartDataset, ChartOptions, TooltipModel } from 'chart.js'
+import { useValues } from 'kea'
 import { getSeriesColor } from 'lib/colors'
+import { getGraphColors } from 'lib/colors'
 import { useCallback, useEffect, useRef } from 'react'
 import { createRoot, Root } from 'react-dom/client'
+
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { BillingLineGraphTooltip } from './BillingLineGraphTooltip'
 
@@ -85,6 +89,8 @@ export function BillingLineGraph({
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const chartRef = useRef<Chart | null>(null)
     const { ensureBillingTooltip, hideBillingTooltip } = useBillingTooltip()
+    const { isDarkModeOn } = useValues(themeLogic)
+    const graphColors = getGraphColors()
 
     useEffect(() => {
         if (!canvasRef.current) {
@@ -127,6 +133,7 @@ export function BillingLineGraph({
                     },
                     ticks: {
                         source: 'labels',
+                        color: graphColors.axisLabel || '#666666',
                     },
                     grid: {
                         display: false,
@@ -135,13 +142,14 @@ export function BillingLineGraph({
                 y: {
                     beginAtZero: true,
                     grid: {
-                        color: 'rgba(0, 0, 0, 0.1)',
+                        color: graphColors.axisLine || 'rgba(0, 0, 0, 0.1)',
                     },
                     ticks: {
                         callback: function (value) {
                             // Use the provided formatter, fallback shouldn't be needed due to default prop
                             return typeof value === 'number' ? valueFormatter(value) : value
                         },
+                        color: graphColors.axisLabel || '#666666',
                     },
                 },
             },
@@ -251,12 +259,23 @@ export function BillingLineGraph({
                 chartRef.current.destroy()
             }
         }
-    }, [series, dates, hiddenSeries, valueFormatter, showLegend, interval, ensureBillingTooltip, hideBillingTooltip])
+    }, [
+        series,
+        dates,
+        hiddenSeries,
+        valueFormatter,
+        showLegend,
+        interval,
+        ensureBillingTooltip,
+        hideBillingTooltip,
+        isDarkModeOn,
+        graphColors,
+    ])
 
     return (
         <div className="relative h-96">
             {isLoading && (
-                <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-75 z-10">
+                <div className="absolute inset-0 flex items-center justify-center bg-bg-light bg-opacity-75 z-10">
                     <div className="text-muted">Loading...</div>
                 </div>
             )}
