@@ -141,33 +141,41 @@ After segmenting the timeline, identify the most significant actions within each
 - Actions must be listed in chronological order within each segment
 - Each key action could be a successful user action/sequence of actions (`"failure": false`) or a failure/sequence of failures (`"failure": true`) based on the guidelines below, and should be an actual event from the timeline.
 
-3.3. Failure Identification Guidelines (CRITICAL):
+3.3. Issue Identification Guidelines (CRITICAL):
 
-- NEVER flag as failures:
+- NEVER flag issues for:
   ✗ Normal page navigation
   ✗ Sequential UI interactions (changing filters, adjusting parameters)
   ✗ Any other action without direct evidence of technical error or user frustration
   ✗ Non-blocking background errors (tracking failures, minor rendering glitches, etc.)
 
-- Flag event as a failure (`failure: true`) with EXPLICIT evidence of either:
+- Flag event issues with EXPLICIT evidence of:
   
-  Technical errors:
-  ✓ Event name/type contains: 'exception', 'failed', 'error', etc.
+  Exceptions (`exception: null | blocking | non-blocking`):
+  ✓ Event name or type contains: 'exception', 'failed', 'error', etc.
+  ✓ `exception_types` or `exception_values` provide exception context
   ✓ `elements_chain_texts` contains error messages (e.g., "Try again", "Failed to load", etc.)
-  ✓ Session abandonment shortly after exception events
+  ✓ Mark as `blocking` when the error prevented user from continuing their intended flow
+  ✓ Mark as `non-blocking` when the user could continue despite the error
+  ✓ Set as `null` when no technical exception occurred
   
-  User experience failures:
-  ✓ Form abandonment after significant time investment (started typing but left without submitting)
-  ✓ Multiple rapid identical form submissions followed by a change in form data
-  ✓ Rageclicks (multiple rapid clicks on the same element with no visible response)
-  ✓ Conversion flow abandonment (e.g., leaving checkout, subscription, or signup flow)
-  ✓ Back-and-forth navigation indicating search for functionality
+  Confusion (`confusion: true | false`):
+  ✓ Back-and-forth navigation loops indicating search for functionality
+  ✓ Multiple rapid identical form submissions 
   ✓ Repeated attempts to complete the same action without success
-  ✓ And other similar patterns showing user frustration or inability to complete tasks
+  ✓ Rageclicks (multiple rapid clicks on the same element with no visible response)
+  ✓ Deadclicks (clicks on non-interactive elements)
+  
+  Abandonment (`abandonment: true/false`):
+  ✓ Form abandonment after significant time investment (started typing but left without submitting)
+  ✓ Conversion flow abandonment (e.g., leaving checkout, subscription, or signup flow midway, etc.)
+  ✓ Feature exploration followed by exit without completion
+  ✓ Session termination during a multi-step process
 
-- Failure description requirements:
-  - For technical failures: Specify error nature (API failure, validation error, timeout, etc.)
-  - For UX failures: Describe the abandoned task, point of frustration, or flow impediment
+- Issue description requirements:
+  - For exceptions: Specify error nature (API failure, validation error, timeout, etc.) and impact (blocking/non-blocking)
+  - For confusion: Describe the specific pattern indicating confusion and potential cause
+  - For abandonment: Describe the abandoned flow/task and approximate progress before abandonment
   - Include potential causes when identifiable
   - Explain impact on user flow and business goals
   - Provide more detail than regular action descriptions, including potential business impact
@@ -265,13 +273,13 @@ Before finalizing your analysis, verify:
 
 7.2. Key Action Prioritization Verification:
 
-- Are conversion events and conversion-blocking failures properly identified in each segment?
+- Are conversion events and conversion-blocking issues properly identified in each segment?
 - Are critical interruptions to user flow highlighted appropriately?
 - Do selected key actions accurately represent the most significant events in each segment?
 - Are event IDs copied EXACTLY from the event data (never invented)?
-- Are failure flags supported by explicit evidence in the event data?
-- Have you properly distinguished between technical failures and user experience failures?
-- Have you aggressively consolidated similar actions and errors?
+- Are issue flags (abandonment, confusion, exception) supported by explicit evidence in the event data?
+- Have you properly distinguished between technical exceptions, user confusion, and flow abandonment?
+- Have you aggressively consolidated similar actions and issues?
 
 7.3. Conversion Focus Verification:
 
