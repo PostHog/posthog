@@ -228,18 +228,19 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                       tooltip: 'Notebooks',
                       tooltipDocLink: 'https://posthog.com/docs/notebooks',
                   },
+                  {
+                      identifier: 'DataManagement',
+                      id: 'Data management',
+                      icon: <IconDatabase />,
+                      to: urls.eventDefinitions(),
+                      onClick: () => {
+                          handleStaticNavbarItemClick(urls.eventDefinitions(), true)
+                      },
+                      tooltip: 'Data management',
+                      tooltipDocLink: 'https://posthog.com/docs/data',
+                  },
               ]),
-        {
-            identifier: 'DataManagement',
-            id: 'Data management',
-            icon: <IconDatabase />,
-            to: urls.eventDefinitions(),
-            onClick: () => {
-                handleStaticNavbarItemClick(urls.eventDefinitions(), true)
-            },
-            tooltip: 'Data management',
-            tooltipDocLink: 'https://posthog.com/docs/data',
-        },
+
         {
             identifier: 'PersonsManagement',
             id: featureFlags[FEATURE_FLAGS.TREE_VIEW_PRODUCTS]
@@ -395,185 +396,211 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                                 <div className="border-b border-primary h-px my-1" />
 
-                                <div className={`px-1 ${!isLayoutNavCollapsed ? 'pt-1' : ''}`}>
-                                    {!isLayoutNavCollapsed && (
-                                        <div className="flex justify-between items-center pl-2 pr-0 pb-2">
-                                            <span className="text-xs font-semibold text-quaternary">Products</span>
+                                {featureFlags[FEATURE_FLAGS.TREE_VIEW_PRODUCTS] ? (
+                                    <div className={`px-1 ${!isLayoutNavCollapsed ? 'pt-1' : ''}`}>
+                                        {!isLayoutNavCollapsed && (
+                                            <div className="flex justify-between items-center pl-2 pr-0 pb-2">
+                                                <span className="text-xs font-semibold text-quaternary">Shortcuts</span>
+                                            </div>
+                                        )}
+                                        <div
+                                            className={`flex flex-col gap-px ${
+                                                isLayoutNavCollapsed ? 'items-center' : ''
+                                            }`}
+                                        >
+                                            <ul className="flex flex-col gap-px text-muted px-2">Coming soon...</ul>
                                         </div>
-                                    )}
-                                    <div
-                                        className={`flex flex-col gap-px ${isLayoutNavCollapsed ? 'items-center' : ''}`}
-                                    >
-                                        {navbarItems.map((section, index) => (
-                                            <ul key={index} className="flex flex-col gap-px ">
-                                                {section.map((item) => {
-                                                    if (filteredNavItemsIdentifiers.includes(item.identifier)) {
-                                                        return null
-                                                    }
+                                    </div>
+                                ) : (
+                                    <div className={`px-1 ${!isLayoutNavCollapsed ? 'pt-1' : ''}`}>
+                                        {!isLayoutNavCollapsed && (
+                                            <div className="flex justify-between items-center pl-2 pr-0 pb-2">
+                                                <span className="text-xs font-semibold text-quaternary">Products</span>
+                                            </div>
+                                        )}
+                                        <div
+                                            className={`flex flex-col gap-px ${
+                                                isLayoutNavCollapsed ? 'items-center' : ''
+                                            }`}
+                                        >
+                                            {navbarItems.map((section, index) => (
+                                                <ul key={index} className="flex flex-col gap-px ">
+                                                    {section.map((item) => {
+                                                        if (filteredNavItemsIdentifiers.includes(item.identifier)) {
+                                                            return null
+                                                        }
 
-                                                    const notEnabled =
-                                                        item.featureFlag && !featureFlags[item.featureFlag]
+                                                        const notEnabled =
+                                                            item.featureFlag && !featureFlags[item.featureFlag]
 
-                                                    return notEnabled ? null : (
-                                                        <ButtonGroupPrimitive menuItem fullWidth>
-                                                            <ListBox.Item
-                                                                asChild
-                                                                key={item.identifier}
-                                                                onClick={() => {
-                                                                    handleStaticNavbarItemClick(
-                                                                        'to' in item ? item.to : undefined,
-                                                                        false
-                                                                    )
-                                                                }}
-                                                                onKeyDown={(e) => {
-                                                                    if (e.key === 'Enter') {
+                                                        return notEnabled ? null : (
+                                                            <ButtonGroupPrimitive menuItem fullWidth>
+                                                                <ListBox.Item
+                                                                    asChild
+                                                                    key={item.identifier}
+                                                                    onClick={() => {
                                                                         handleStaticNavbarItemClick(
                                                                             'to' in item ? item.to : undefined,
-                                                                            true
+                                                                            false
                                                                         )
-                                                                    }
-                                                                }}
-                                                            >
-                                                                <Link
-                                                                    data-attr={`menu-item-${item.identifier
-                                                                        .toString()
-                                                                        .toLowerCase()}`}
-                                                                    buttonProps={{
-                                                                        menuItem: !isLayoutNavCollapsed,
-                                                                        className:
-                                                                            'group data-[focused=true]:bg-fill-button-tertiary-hover',
-                                                                        hasSideActionRight:
-                                                                            item.sideAction && !isLayoutNavCollapsed
-                                                                                ? true
-                                                                                : false,
-                                                                        iconOnly: isLayoutNavCollapsed,
                                                                     }}
-                                                                    to={'to' in item ? item.to : undefined}
-                                                                    tooltip={
-                                                                        isLayoutNavCollapsed ? item.label : undefined
-                                                                    }
-                                                                    tooltipPlacement="right"
-                                                                    tooltipDocLink={item.tooltipDocLink}
-                                                                >
-                                                                    <span
-                                                                        className={`flex text-tertiary group-hover:text-primary ${
-                                                                            isLayoutNavCollapsed ? '[&_svg]:size-5' : ''
-                                                                        }`}
-                                                                    >
-                                                                        {item.icon}
-                                                                    </span>
-
-                                                                    {!isLayoutNavCollapsed && (
-                                                                        <>
-                                                                            <span className="truncate">
-                                                                                {item.label}
-                                                                            </span>
-
-                                                                            {item.tag && (
-                                                                                <LemonTag
-                                                                                    type={
-                                                                                        item.tag === 'alpha'
-                                                                                            ? 'completion'
-                                                                                            : item.tag === 'beta'
-                                                                                            ? 'warning'
-                                                                                            : 'success'
-                                                                                    }
-                                                                                    size="small"
-                                                                                    className="ml-auto"
-                                                                                >
-                                                                                    {item.tag.toUpperCase()}
-                                                                                </LemonTag>
-                                                                            )}
-                                                                        </>
-                                                                    )}
-                                                                </Link>
-                                                            </ListBox.Item>
-
-                                                            {!isLayoutNavCollapsed &&
-                                                                item.sideAction &&
-                                                                item.identifier === 'SavedInsights' && (
-                                                                    <ListBox.Item
-                                                                        asChild
-                                                                        key={item.identifier}
-                                                                        onClick={() => {
+                                                                    onKeyDown={(e) => {
+                                                                        if (e.key === 'Enter') {
                                                                             handleStaticNavbarItemClick(
-                                                                                urls.insightNew(),
-                                                                                false
+                                                                                'to' in item ? item.to : undefined,
+                                                                                true
                                                                             )
+                                                                        }
+                                                                    }}
+                                                                >
+                                                                    <Link
+                                                                        data-attr={`menu-item-${item.identifier
+                                                                            .toString()
+                                                                            .toLowerCase()}`}
+                                                                        buttonProps={{
+                                                                            menuItem: !isLayoutNavCollapsed,
+                                                                            className:
+                                                                                'group data-[focused=true]:bg-fill-button-tertiary-hover',
+                                                                            hasSideActionRight:
+                                                                                item.sideAction && !isLayoutNavCollapsed
+                                                                                    ? true
+                                                                                    : false,
+                                                                            iconOnly: isLayoutNavCollapsed,
                                                                         }}
-                                                                        onKeyDown={(e) => {
-                                                                            if (e.key === 'Enter') {
+                                                                        to={'to' in item ? item.to : undefined}
+                                                                        tooltip={
+                                                                            isLayoutNavCollapsed
+                                                                                ? item.label
+                                                                                : undefined
+                                                                        }
+                                                                        tooltipPlacement="right"
+                                                                        tooltipDocLink={item.tooltipDocLink}
+                                                                    >
+                                                                        <span
+                                                                            className={`flex text-tertiary group-hover:text-primary ${
+                                                                                isLayoutNavCollapsed
+                                                                                    ? '[&_svg]:size-5'
+                                                                                    : ''
+                                                                            }`}
+                                                                        >
+                                                                            {item.icon}
+                                                                        </span>
+
+                                                                        {!isLayoutNavCollapsed && (
+                                                                            <>
+                                                                                <span className="truncate">
+                                                                                    {item.label}
+                                                                                </span>
+
+                                                                                {item.tag && (
+                                                                                    <LemonTag
+                                                                                        type={
+                                                                                            item.tag === 'alpha'
+                                                                                                ? 'completion'
+                                                                                                : item.tag === 'beta'
+                                                                                                ? 'warning'
+                                                                                                : 'success'
+                                                                                        }
+                                                                                        size="small"
+                                                                                        className="ml-auto"
+                                                                                    >
+                                                                                        {item.tag.toUpperCase()}
+                                                                                    </LemonTag>
+                                                                                )}
+                                                                            </>
+                                                                        )}
+                                                                    </Link>
+                                                                </ListBox.Item>
+
+                                                                {!isLayoutNavCollapsed &&
+                                                                    item.sideAction &&
+                                                                    item.identifier === 'SavedInsights' && (
+                                                                        <ListBox.Item
+                                                                            asChild
+                                                                            key={item.identifier}
+                                                                            onClick={() => {
                                                                                 handleStaticNavbarItemClick(
                                                                                     urls.insightNew(),
-                                                                                    true
+                                                                                    false
                                                                                 )
-                                                                            }
-                                                                        }}
-                                                                    >
-                                                                        <Link
-                                                                            buttonProps={{
-                                                                                isSideActionRight: true,
                                                                             }}
-                                                                            tooltip={item.sideAction.tooltip}
-                                                                            tooltipPlacement="right"
-                                                                            to={urls.insightNew()}
+                                                                            onKeyDown={(e) => {
+                                                                                if (e.key === 'Enter') {
+                                                                                    handleStaticNavbarItemClick(
+                                                                                        urls.insightNew(),
+                                                                                        true
+                                                                                    )
+                                                                                }
+                                                                            }}
                                                                         >
-                                                                            {item.sideAction.icon}
-                                                                        </Link>
-                                                                    </ListBox.Item>
-                                                                )}
+                                                                            <Link
+                                                                                buttonProps={{
+                                                                                    isSideActionRight: true,
+                                                                                }}
+                                                                                tooltip={item.sideAction.tooltip}
+                                                                                tooltipPlacement="right"
+                                                                                to={urls.insightNew()}
+                                                                            >
+                                                                                {item.sideAction.icon}
+                                                                            </Link>
+                                                                        </ListBox.Item>
+                                                                    )}
 
-                                                            {!isLayoutNavCollapsed &&
-                                                                item.sideAction &&
-                                                                item.identifier === 'Groups' &&
-                                                                item.sideAction.dropdown?.overlay && (
-                                                                    <ListBox.Item
-                                                                        asChild
-                                                                        key={`${item.identifier}-dropdown`}
-                                                                    >
-                                                                        <Popover
-                                                                            visible={
-                                                                                visibleSideAction === item.identifier
-                                                                            }
-                                                                            overlay={item.sideAction.dropdown.overlay}
-                                                                            placement={
-                                                                                item.sideAction.dropdown.placement
-                                                                            }
-                                                                            showArrow={false}
-                                                                            onClickInside={() => {
-                                                                                setVisibleSideAction('')
-                                                                            }}
-                                                                            onClickOutside={() => {
-                                                                                setVisibleSideAction('')
-                                                                            }}
+                                                                {!isLayoutNavCollapsed &&
+                                                                    item.sideAction &&
+                                                                    item.identifier === 'Groups' &&
+                                                                    item.sideAction.dropdown?.overlay && (
+                                                                        <ListBox.Item
+                                                                            asChild
+                                                                            key={`${item.identifier}-dropdown`}
                                                                         >
-                                                                            <ButtonPrimitive
-                                                                                isSideActionRight
-                                                                                active={
+                                                                            <Popover
+                                                                                visible={
                                                                                     visibleSideAction ===
                                                                                     item.identifier
                                                                                 }
-                                                                                onClick={() => {
-                                                                                    visibleSideAction ===
-                                                                                    item.identifier
-                                                                                        ? setVisibleSideAction('')
-                                                                                        : setVisibleSideAction(
-                                                                                              item.identifier
-                                                                                          )
+                                                                                overlay={
+                                                                                    item.sideAction.dropdown.overlay
+                                                                                }
+                                                                                placement={
+                                                                                    item.sideAction.dropdown.placement
+                                                                                }
+                                                                                showArrow={false}
+                                                                                onClickInside={() => {
+                                                                                    setVisibleSideAction('')
+                                                                                }}
+                                                                                onClickOutside={() => {
+                                                                                    setVisibleSideAction('')
                                                                                 }}
                                                                             >
-                                                                                <IconChevronRight className="size-3 text-secondary" />
-                                                                            </ButtonPrimitive>
-                                                                        </Popover>
-                                                                    </ListBox.Item>
-                                                                )}
-                                                        </ButtonGroupPrimitive>
-                                                    )
-                                                })}
-                                            </ul>
-                                        ))}
+                                                                                <ButtonPrimitive
+                                                                                    isSideActionRight
+                                                                                    active={
+                                                                                        visibleSideAction ===
+                                                                                        item.identifier
+                                                                                    }
+                                                                                    onClick={() => {
+                                                                                        visibleSideAction ===
+                                                                                        item.identifier
+                                                                                            ? setVisibleSideAction('')
+                                                                                            : setVisibleSideAction(
+                                                                                                  item.identifier
+                                                                                              )
+                                                                                    }}
+                                                                                >
+                                                                                    <IconChevronRight className="size-3 text-secondary" />
+                                                                                </ButtonPrimitive>
+                                                                            </Popover>
+                                                                        </ListBox.Item>
+                                                                    )}
+                                                            </ButtonGroupPrimitive>
+                                                        )
+                                                    })}
+                                                </ul>
+                                            ))}
+                                        </div>
                                     </div>
-                                </div>
+                                )}
                             </ListBox>
                         </ScrollableShadows>
 
