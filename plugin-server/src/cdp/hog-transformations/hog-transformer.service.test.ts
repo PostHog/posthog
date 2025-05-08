@@ -154,7 +154,7 @@ describe('HogTransformer', () => {
                     return returnEvent
                 `,
             })
-            fn.bytecode = await compileHog(fn.hog)
+            fn.bytecode = await compileHog(fn.hog ?? '')
             await insertHogFunction(hub.db.postgres, teamId, fn)
             hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [fn.id])
 
