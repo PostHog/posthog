@@ -233,18 +233,18 @@ pub fn router<
             );
     } else {
         event_router = event_router
-        .route(
-            "/e",
-            post(v0_endpoint::event)
-                .get(v0_endpoint::event)
-                .options(v0_endpoint::options),
-        )
-        .route(
-            "/e/",
-            post(v0_endpoint::event)
-                .get(v0_endpoint::event)
-                .options(v0_endpoint::options),
-        )
+            .route(
+                "/e",
+                post(v0_endpoint::event)
+                    .get(v0_endpoint::event)
+                    .options(v0_endpoint::options),
+            )
+            .route(
+                "/e/",
+                post(v0_endpoint::event)
+                    .get(v0_endpoint::event)
+                    .options(v0_endpoint::options),
+            );
     }
     event_router = event_router.layer(DefaultBodyLimit::max(EVENT_BODY_SIZE));
 

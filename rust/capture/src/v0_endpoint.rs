@@ -126,16 +126,13 @@ async fn handle_legacy(
 
     // first round of processing: is this byte payload entirely base64 encoded?
     // unwrap for downstream processing if so, leave it alone if not
-    let mut maybe_decoded = false;
     let payload = if !is_likely_urlencoded_form(&raw_payload)
         && is_likely_base64(&raw_payload, Base64Option::Strict)
     {
-        maybe_decoded = true; // TODO(eli): DEBUG, REMOVE!
         decode_base64(&raw_payload, "raw_payload").map_or(raw_payload, Bytes::from)
     } else {
         raw_payload
     };
-    println!("{}", maybe_decoded);
 
     // attempt to decode POST payload if it is form data. if
     // successful, the form data will be processed downstream
