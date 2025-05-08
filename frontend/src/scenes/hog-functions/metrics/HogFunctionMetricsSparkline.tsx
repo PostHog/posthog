@@ -3,10 +3,10 @@ import { useActions, useValues } from 'kea'
 import { Sparkline, SparklineTimeSeries } from 'lib/components/Sparkline'
 import { useEffect } from 'react'
 
-import { appMetricsV2Logic, AppMetricsV2LogicProps } from './appMetricsV2Logic'
+import { hogFunctionMetricsLogic, HogFunctionMetricsLogicProps } from './hogFunctionMetricsLogic'
 
-export function AppMetricSparkLineV2({ id }: AppMetricsV2LogicProps): JSX.Element {
-    const logic = appMetricsV2Logic({ id })
+export function HogFunctionMetricSparkLine({ id }: HogFunctionMetricsLogicProps): JSX.Element {
+    const logic = hogFunctionMetricsLogic({ id })
     const { appMetrics, appMetricsLoading } = useValues(logic)
     const { loadMetrics } = useActions(logic)
 
@@ -28,13 +28,13 @@ export function AppMetricSparkLineV2({ id }: AppMetricsV2LogicProps): JSX.Elemen
     ]
 
     return !appMetrics || appMetricsLoading ? (
-        <LemonSkeleton className="max-w-24 h-8" />
+        <LemonSkeleton className="h-8 max-w-24" />
     ) : (
         <Sparkline
             loading={appMetricsLoading}
             labels={appMetrics?.labels}
             data={displayData}
-            className="max-w-24 h-8"
+            className="h-8 max-w-24"
             maximumIndicator={false}
         />
     )

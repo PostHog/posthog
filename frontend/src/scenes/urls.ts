@@ -71,7 +71,6 @@ export const urls = {
     errorTracking: (params = {}): string => combineUrl('/error_tracking', params).url,
     errorTrackingConfiguration: (): string => '/error_tracking/configuration',
     /** @param id A UUID or 'new'. ':id' for routing. */
-    errorTrackingAlert: (id: string): string => `/error_tracking/alerts/${id}`,
     errorTrackingIssue: (id: string, fingerprint?: string): string =>
         combineUrl(`/error_tracking/${id}`, { fingerprint }).url,
     surveys: (tab?: SurveysTabs): string => `/surveys${tab ? `?tab=${tab}` : ''}`,
@@ -175,4 +174,6 @@ export const urls = {
     messagingLibraryTemplateNew: (): string => '/messaging/library/templates/new',
     messagingLibraryMessage: (id: string): string => `/messaging/library/messages/${id}`,
     startups: (ycProgram?: boolean): string => `/startups${ycProgram ? '/yc' : ''}`,
+    hogFunction: (id: string): string => `/functions/${id}`,
+    hogFunctionNew: (templateId: string): string => `/functions/new/${templateId}`,
 }

@@ -6,7 +6,6 @@ import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { HogFunctionIcon } from 'scenes/pipeline/hogfunctions/HogFunctionIcon'
 import { HogFunctionStatusIndicator } from 'scenes/pipeline/hogfunctions/HogFunctionStatusIndicator'
-import { getHogFunctionUrl } from 'scenes/pipeline/hogfunctions/urls'
 import { urls } from 'scenes/urls'
 
 import { HogFunctionKind, HogFunctionType, HogFunctionTypeType } from '~/types'
@@ -66,7 +65,7 @@ export function FunctionsTable({ type, kind }: FunctionsTableProps): JSX.Element
                             render: function RenderPluginName(_, hogFunction) {
                                 return (
                                     <LemonTableLink
-                                        to={getHogFunctionUrl(hogFunction)}
+                                        to={urls.hogFunction(hogFunction.id)}
                                         title={
                                             <>
                                                 <Tooltip title="Click to update configuration, view metrics, and more">

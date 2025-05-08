@@ -40,14 +40,14 @@ import {
     PipelineStage,
 } from '~/types'
 
-import { HogFunctionFilters } from './hogfunctions/filters/HogFunctionFilters'
+import { HogFunctionFilters } from '../../pipeline/hogfunctions/filters/HogFunctionFilters'
 import {
     convertToHogFunctionInvocationGlobals,
     hogFunctionConfigurationLogic,
-} from './hogfunctions/hogFunctionConfigurationLogic'
-import { hogFunctionTestLogic } from './hogfunctions/hogFunctionTestLogic'
-import { tagTypeForLevel } from './hogfunctions/logs/LogsViewer'
-import { hogFunctionTestingLogic } from './hogFunctionTestingLogic'
+} from '../../pipeline/hogfunctions/hogFunctionConfigurationLogic'
+import { hogFunctionTestLogic } from '../../pipeline/hogfunctions/hogFunctionTestLogic'
+import { tagTypeForLevel } from '../../pipeline/hogfunctions/logs/LogsViewer'
+import { hogFunctionTestingLogic } from '../../pipeline/hogFunctionTestingLogic'
 
 export interface HogFunctionTestingProps {
     id: string
@@ -90,7 +90,7 @@ const buildGlobals = (
     return globals
 }
 
-export function TestingMenu({ id }: HogFunctionTestingProps): JSX.Element {
+export function HogFunctionTesting({ id }: HogFunctionTestingProps): JSX.Element {
     const { selectingMany, eventsWithRetries, loadingRetries, selectedForRetry } = useValues(
         hogFunctionTestingLogic({ id })
     )
@@ -300,7 +300,7 @@ function RunsFilters({ id }: { id: string }): JSX.Element {
     }
 
     return (
-        <div className="flex items-center gap-2">
+        <div className="flex gap-2 items-center">
             <LemonButton
                 onClick={handleRefresh}
                 loading={eventsLoading}
@@ -338,7 +338,7 @@ function RunsFilters({ id }: { id: string }): JSX.Element {
     )
 }
 
-export function TestingEventsList({ id }: { id: string }): JSX.Element | null {
+function TestingEventsList({ id }: { id: string }): JSX.Element | null {
     const logic = hogFunctionTestingLogic({ id })
     const {
         eventsLoading,
@@ -458,7 +458,7 @@ export function TestingEventsList({ id }: { id: string }): JSX.Element | null {
                         }
 
                         return (
-                            <div className="flex items-center gap-2">
+                            <div className="flex gap-2 items-center">
                                 {selectingMany ? (
                                     <LemonCheckbox
                                         checked={selectedForRetry.includes(eventId)}

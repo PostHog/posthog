@@ -17,8 +17,8 @@ import { humanFriendlyNumber, inStorybookTestRunner } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 
-import { hogFunctionConfigurationLogic } from '../hogfunctions/hogFunctionConfigurationLogic'
-import { ALL_METRIC_TYPES, appMetricsV2Logic, AppMetricsV2LogicProps } from './appMetricsV2Logic'
+import { hogFunctionConfigurationLogic } from '../../pipeline/hogfunctions/hogFunctionConfigurationLogic'
+import { ALL_METRIC_TYPES, hogFunctionMetricsLogic, HogFunctionMetricsLogicProps } from './hogFunctionMetricsLogic'
 
 const METRICS_INFO = {
     succeeded: 'Total number of events processed successfully',
@@ -30,8 +30,8 @@ const METRICS_INFO = {
         'Total number of events that were skipped due to the destination being permanently disabled (due to prolonged issues with the destination)',
 }
 
-export function AppMetricsV2({ id }: AppMetricsV2LogicProps): JSX.Element {
-    const logic = appMetricsV2Logic({ id })
+export function HogFunctionMetrics({ id }: HogFunctionMetricsLogicProps): JSX.Element {
+    const logic = hogFunctionMetricsLogic({ id })
 
     const { filters } = useValues(logic)
     const { type } = useValues(hogFunctionConfigurationLogic({ id }))
@@ -43,11 +43,11 @@ export function AppMetricsV2({ id }: AppMetricsV2LogicProps): JSX.Element {
     }, [])
 
     return (
-        <BindLogic logic={appMetricsV2Logic} props={{ id }}>
+        <BindLogic logic={hogFunctionMetricsLogic} props={{ id }}>
             <div className="deprecated-space-y-4">
                 <AppMetricsTotals />
 
-                <div className="flex items-center gap-2">
+                <div className="flex gap-2 items-center">
                     <h2 className="mb-0">Delivery trends</h2>
                     <div className="flex-1" />
                     <LemonDropdown
@@ -55,7 +55,7 @@ export function AppMetricsV2({ id }: AppMetricsV2LogicProps): JSX.Element {
                         matchWidth={false}
                         placement="right-end"
                         overlay={
-                            <div className="deprecated-space-y-2 overflow-hidden max-w-100">
+                            <div className="overflow-hidden deprecated-space-y-2 max-w-100">
                                 {ALL_METRIC_TYPES.filter(
                                     ({ value }) => value !== 'fetch' || type !== 'transformation'
                                 ).map(({ label, value }) => {
@@ -135,24 +135,24 @@ function AppMetricBigNumber({
 }): JSX.Element {
     return (
         <Tooltip title={tooltip}>
-            <div className="border p-2 rounded bg-surface-primary flex-1 flex flex-col gap-2 items-center">
-                <div className="uppercase font-bold text-xs">{label.replace(/_/g, ' ')}</div>
-                <div className="text-2xl flex-1 mb-2 flex items-center">{humanFriendlyNumber(value ?? 0)}</div>
+            <div className="flex flex-col flex-1 gap-2 items-center p-2 rounded border bg-surface-primary">
+                <div className="text-xs font-bold uppercase">{label.replace(/_/g, ' ')}</div>
+                <div className="flex flex-1 items-center mb-2 text-2xl">{humanFriendlyNumber(value ?? 0)}</div>
             </div>
         </Tooltip>
     )
 }
 
 function AppMetricsTotals(): JSX.Element {
-    const { appMetricsTotals, appMetricsTotalsLoading } = useValues(appMetricsV2Logic)
+    const { appMetricsTotals, appMetricsTotalsLoading } = useValues(hogFunctionMetricsLogic)
 
     return (
         <div className="deprecated-space-y-4">
-            <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex flex-wrap gap-2 items-center">
                 {Object.entries(METRICS_INFO).map(([key, value]) => (
-                    <div key={key} className="flex flex-col h-30 min-w-30 flex-1 max-w-100">
+                    <div key={key} className="flex flex-col flex-1 h-30 min-w-30 max-w-100">
                         {appMetricsTotalsLoading ? (
-                            <LemonSkeleton className="h-full w-full" />
+                            <LemonSkeleton className="w-full h-full" />
                         ) : (
                             <AppMetricBigNumber label={key} value={appMetricsTotals?.totals?.[key]} tooltip={value} />
                         )}
@@ -164,7 +164,7 @@ function AppMetricsTotals(): JSX.Element {
 }
 
 function AppMetricsGraph(): JSX.Element {
-    const { appMetrics, appMetricsLoading } = useValues(appMetricsV2Logic)
+    const { appMetrics, appMetricsLoading } = useValues(hogFunctionMetricsLogic)
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const [popoverContent, setPopoverContent] = useState<JSX.Element | null>(null)
     const [tooltipState, setTooltipState] = useState({ x: 0, y: 0, visible: false })

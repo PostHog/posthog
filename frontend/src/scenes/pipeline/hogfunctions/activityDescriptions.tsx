@@ -8,12 +8,11 @@ import {
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { Link } from 'lib/lemon-ui/Link'
 import { initHogLanguage } from 'lib/monaco/languages/hog'
-
-import { hogFunctionUrl } from './urls'
+import { urls } from 'scenes/urls'
 
 const nameOrLinkToHogFunction = (id?: string | null, name?: string | null): string | JSX.Element => {
     const displayName = name || '(empty string)'
-    return id ? <Link to={hogFunctionUrl('destination', id)}>{displayName}</Link> : displayName
+    return id ? <Link to={urls.hogFunction(id)}>{displayName}</Link> : displayName
 }
 
 export interface DiffProps {
@@ -227,7 +226,7 @@ export function hogFunctionActivityDescriber(logItem: ActivityLogItem, asNotific
                 ) : (
                     <div>
                         <strong>{name}</strong> updated the {objectNoun}: {functionName}
-                        <ul className="list-disc ml-5">
+                        <ul className="ml-5 list-disc">
                             {changes.map((c, i) => (
                                 <li key={i}>{c.inlist}</li>
                             ))}

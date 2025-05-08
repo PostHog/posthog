@@ -25,7 +25,6 @@ import {
     PluginType,
 } from '~/types'
 
-import { getHogFunctionUrl } from './hogfunctions/urls'
 import { pipelineAccessLogic } from './pipelineAccessLogic'
 import { PluginImage, PluginImageSize } from './PipelinePluginImage'
 import {
@@ -271,7 +270,7 @@ export function pipelineNodeMenuCommonItems(node: Transformation | SiteApp | Imp
             label: canConfigurePlugins ? 'Edit configuration' : 'View configuration',
             to:
                 'hog_function' in node && node.hog_function
-                    ? getHogFunctionUrl(node.hog_function)
+                    ? urls.hogFunction(node.hog_function.id)
                     : urls.pipelineNode(node.stage, node.id, PipelineNodeTab.Configuration),
         },
         {

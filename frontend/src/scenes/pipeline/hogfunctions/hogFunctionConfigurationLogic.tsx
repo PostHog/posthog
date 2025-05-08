@@ -16,10 +16,10 @@ import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import posthog from 'posthog-js'
 import { ERROR_TRACKING_LOGIC_KEY } from 'scenes/error-tracking/utils'
 import { asDisplay } from 'scenes/persons/person-utils'
-import { getHogFunctionTemplateUrl, getHogFunctionUrl } from 'scenes/pipeline/hogfunctions/urls'
 import { pipelineNodeLogic } from 'scenes/pipeline/pipelineNodeLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
@@ -1170,16 +1170,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 }
                 // TODO: What to do if no template?
                 const originalTemplate = values.hogFunction.template!
-                router.actions.push(
-                    getHogFunctionTemplateUrl({
-                        ...originalTemplate,
-                        type: newConfig.type,
-                    }),
-                    undefined,
-                    {
-                        configuration: newConfig,
-                    }
-                )
+                router.actions.push(urls.hogFunctionNew(originalTemplate.id), undefined, {
+                    configuration: newConfig,
+                })
             }
         },
         duplicateFromTemplate: async () => {
@@ -1187,16 +1180,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 const newConfig: HogFunctionTemplateType = {
                     ...values.hogFunction.template,
                 }
-                router.actions.push(
-                    getHogFunctionTemplateUrl({
-                        ...newConfig,
-                        type: newConfig.type,
-                    }),
-                    undefined,
-                    {
-                        configuration: newConfig,
-                    }
-                )
+                router.actions.push(urls.hogFunctionNew(values.hogFunction.template.id), undefined, {
+                    configuration: newConfig,
+                })
             }
         },
         resetToTemplate: async () => {
@@ -1242,7 +1228,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 },
                 callback(undo) {
                     if (undo) {
-                        router.actions.replace(getHogFunctionUrl(hogFunction))
+                        router.actions.replace(urls.hogFunction(hogFunction.id))
                         refreshTreeItem('hog_function/', hogFunction.id)
                     } else {
                         deleteFromTree('hog_function/', hogFunction.id)
@@ -1250,7 +1236,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 },
             })
 
-            router.actions.replace(getHogFunctionUrl(hogFunction))
+            router.actions.replace(urls.hogFunction(hogFunction.id))
         },
 
         persistForUnload: () => {
@@ -1286,7 +1272,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 // Catch all for any scenario where we need to redirect away from the template to the actual hog function
 
                 cache.disabledBeforeUnload = true
-                router.actions.replace(getHogFunctionUrl(hogFunction))
+                router.actions.replace(urls.hogFunction(hogFunction.id))
             }
         },
         sparklineQuery: async (sparklineQuery) => {

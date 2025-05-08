@@ -6,8 +6,8 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
-import { getHogFunctionTemplateUrl } from 'scenes/pipeline/hogfunctions/urls'
 import { pipelineAccessLogic } from 'scenes/pipeline/pipelineAccessLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import {
@@ -108,8 +108,8 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
         loading: [(s) => [s.rawTemplatesLoading], (x) => x],
 
         templates: [
-            (s, p) => [s.rawTemplates, p.subTemplateIds],
-            (rawTemplates, subTemplateIds): HogFunctionTemplateWithSubTemplateType[] => {
+            (s) => [s.rawTemplates, (_, props) => props],
+            (rawTemplates, { subTemplateIds }): HogFunctionTemplateWithSubTemplateType[] => {
                 const final: HogFunctionTemplateWithSubTemplateType[] = []
 
                 for (const template of rawTemplates) {
@@ -156,8 +156,8 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
         ],
 
         urlForTemplate: [
-            (_, p) => [p.forceFilters],
-            (forceFilters): ((template: HogFunctionTemplateWithSubTemplateType) => string) => {
+            () => [(_, props) => props],
+            ({ forceFilters }): ((template: HogFunctionTemplateWithSubTemplateType) => string) => {
                 return (template: HogFunctionTemplateWithSubTemplateType) => {
                     const subTemplate = template.sub_template_id
                         ? getSubTemplate(template, template.sub_template_id)
@@ -173,7 +173,7 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                     // Add the filters to the url and the template id
 
                     return combineUrl(
-                        getHogFunctionTemplateUrl(template),
+                        urls.hogFunctionNew(template.id),
                         {},
                         {
                             configuration,

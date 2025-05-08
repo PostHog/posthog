@@ -4,9 +4,9 @@ import api from 'lib/api'
 
 import { AppMetricsTotalsV2Response, AppMetricsV2RequestParams, AppMetricsV2Response } from '~/types'
 
-import type { appMetricsV2LogicType } from './appMetricsV2LogicType'
+import type { hogFunctionMetricsLogicType } from './hogFunctionMetricsLogicType'
 
-export type AppMetricsV2LogicProps = {
+export type HogFunctionMetricsLogicProps = {
     id: string
 }
 
@@ -33,9 +33,9 @@ const DEFAULT_FILTERS: MetricsFilters = {
         .join(','),
 }
 
-export const appMetricsV2Logic = kea<appMetricsV2LogicType>([
-    props({} as AppMetricsV2LogicProps),
-    key(({ id }: AppMetricsV2LogicProps) => id),
+export const hogFunctionMetricsLogic = kea<hogFunctionMetricsLogicType>([
+    props({} as HogFunctionMetricsLogicProps),
+    key(({ id }: HogFunctionMetricsLogicProps) => id),
     path((id) => ['scenes', 'pipeline', 'appMetricsLogic', id]),
     actions({
         setFilters: (filters: Partial<MetricsFilters>) => ({ filters }),
