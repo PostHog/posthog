@@ -66,6 +66,7 @@ import {
     isInsightQueryNode,
     isInsightVizNode,
     isLifecycleQuery,
+    isMapaCalorQuery,
     isNodeWithSource,
     isPathsQuery,
     isRetentionQuery,
@@ -152,12 +153,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
 
         isTrends: [(s) => [s.querySource], (q) => isTrendsQuery(q)],
+        isMapaCalor: [(s) => [s.querySource], (q) => isMapaCalorQuery(q)],
         isFunnels: [(s) => [s.querySource], (q) => isFunnelsQuery(q)],
         isRetention: [(s) => [s.querySource], (q) => isRetentionQuery(q)],
         isPaths: [(s) => [s.querySource], (q) => isPathsQuery(q)],
         isStickiness: [(s) => [s.querySource], (q) => isStickinessQuery(q)],
         isLifecycle: [(s) => [s.querySource], (q) => isLifecycleQuery(q)],
-        isTrendsLike: [(s) => [s.querySource], (q) => isTrendsQuery(q) || isLifecycleQuery(q) || isStickinessQuery(q)],
+        isTrendsLike: [(s) => [s.querySource], (q) => isTrendsQuery(q) || isLifecycleQuery(q) || isStickinessQuery(q)], // this is for filtering out world map
         supportsDisplay: [(s) => [s.querySource], (q) => isTrendsQuery(q) || isStickinessQuery(q)],
         supportsCompare: [
             (s) => [s.querySource, s.display, s.dateRange],

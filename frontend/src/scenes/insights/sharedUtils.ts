@@ -7,6 +7,7 @@ import {
     InsightLogicProps,
     InsightType,
     LifecycleFilterType,
+    MapaCalorFilterType,
     PathsFilterType,
     RetentionFilterType,
     StickinessFilterType,
@@ -47,6 +48,9 @@ export function filterTrendsClientSideParams(
 
 export function isTrendsFilter(filters?: Partial<FilterType>): filters is Partial<TrendsFilterType> {
     return filters?.insight === InsightType.TRENDS || (!!filters && !filters.insight)
+}
+export function isMapaCalorFilter(filters?: Partial<FilterType>): filters is Partial<MapaCalorFilterType> {
+    return filters?.insight === InsightType.MAPA_CALOR
 }
 export function isFunnelsFilter(filters?: Partial<FilterType>): filters is Partial<FunnelsFilterType> {
     return filters?.insight === InsightType.FUNNELS

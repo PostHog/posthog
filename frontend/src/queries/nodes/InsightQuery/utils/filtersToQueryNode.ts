@@ -5,6 +5,7 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 import {
     isFunnelsFilter,
     isLifecycleFilter,
+    isMapaCalorFilter,
     isPathsFilter,
     isRetentionFilter,
     isStickinessFilter,
@@ -27,6 +28,7 @@ import {
     InsightQueryNode,
     InsightsQueryBase,
     LifecycleFilter,
+    MapaCalorFilter,
     MathType,
     NodeKind,
     PathsFilter,
@@ -40,6 +42,7 @@ import {
     isInsightQueryWithCompare,
     isInsightQueryWithSeries,
     isLifecycleQuery,
+    isMapaCalorQuery,
     isPathsQuery,
     isRetentionQuery,
     isStickinessQuery,
@@ -57,6 +60,8 @@ import {
     HogQLMathType,
     InsightType,
     isDataWarehouseFilter,
+    MapaCalorFilterType,
+    MapaCalorMathType,
     PathsFilterType,
     RetentionEntity,
     RetentionFilterType,
@@ -75,6 +80,7 @@ const insightTypeToNodeKind: Record<
     [InsightType.PATHS]: NodeKind.PathsQuery,
     [InsightType.STICKINESS]: NodeKind.StickinessQuery,
     [InsightType.LIFECYCLE]: NodeKind.LifecycleQuery,
+    [InsightType.MAPA_CALOR]: NodeKind.MapaCalorQuery,
 }
 
 const actorsOnlyMathTypes = [
@@ -86,6 +92,8 @@ const actorsOnlyMathTypes = [
 ]
 
 const funnelsMathTypes = [FunnelMathType.FirstTimeForUser, FunnelMathType.FirstTimeForUserWithFilters]
+
+const mapaCalorMathTypes = [MapaCalorMathType.TotalCount, MapaCalorMathType.UniqueUsers]
 
 type FilterTypeActionsAndEvents = {
     events?: ActionFilter[]
@@ -128,6 +136,13 @@ export const legacyEntityToNode = (
             }
         } else if (mathAvailability === MathAvailability.FunnelsOnly) {
             if (funnelsMathTypes.includes(entity.math as any)) {
+                shared = {
+                    ...shared,
+                    math: entity.math as MathType,
+                }
+            }
+        } else if (mathAvailability === MathAvailability.MapaCalorOnly) {
+            if (mapaCalorMathTypes.includes(entity.math as any)) {
                 shared = {
                     ...shared,
                     math: entity.math as MathType,
@@ -356,6 +371,11 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
         query.trendsFilter = trendsFilterToQuery(filters)
     }
 
+    // calendar heatmap filter
+    if (isMapaCalorFilter(filters) && isMapaCalorQuery(query)) {
+        query.mapaCalorFilter = mapaCalorFilterToQuery(filters)
+    }
+
     // funnels filter
     if (isFunnelsFilter(filters) && isFunnelsQuery(query)) {
         query.funnelsFilter = funnelsFilterToQuery(filters)
@@ -470,6 +490,13 @@ export const filtersToFunnelPathsQuery = (filters: Partial<PathsFilterType>): Fu
         funnelPathType: filters.funnel_paths,
         funnelSource: filtersToQueryNode(filters.funnel_filter) as FunnelsQuery,
         funnelStep: filters.funnel_filter?.funnel_step,
+    }
+}
+
+export const mapaCalorFilterToQuery = (filters: Partial<MapaCalorFilterType>): MapaCalorFilter => {
+    // Reserved for future filter properties
+    return {
+        dummy: filters?.dummy,
     }
 }
 

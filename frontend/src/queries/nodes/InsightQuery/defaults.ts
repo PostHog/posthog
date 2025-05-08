@@ -3,6 +3,7 @@ import {
     InsightNodeKind,
     InsightQueryNode,
     LifecycleQuery,
+    MapaCalorQuery,
     NodeKind,
     PathsQuery,
     RetentionQuery,
@@ -23,6 +24,18 @@ export const trendsQueryDefault: TrendsQuery = {
         },
     ],
     trendsFilter: {},
+}
+
+export const mapaCalorQueryDefault: MapaCalorQuery = {
+    kind: NodeKind.MapaCalorQuery,
+    series: [
+        {
+            kind: NodeKind.EventsNode,
+            name: '$pageview',
+            event: '$pageview',
+            math: BaseMathType.TotalCount,
+        },
+    ],
 }
 
 export const funnelsQueryDefault: FunnelsQuery = {
@@ -99,4 +112,5 @@ export const nodeKindToDefaultQuery: Record<InsightNodeKind, InsightQueryNode> =
     [NodeKind.PathsQuery]: pathsQueryDefault,
     [NodeKind.StickinessQuery]: stickinessQueryDefault,
     [NodeKind.LifecycleQuery]: lifecycleQueryDefault,
+    [NodeKind.MapaCalorQuery]: mapaCalorQueryDefault,
 }

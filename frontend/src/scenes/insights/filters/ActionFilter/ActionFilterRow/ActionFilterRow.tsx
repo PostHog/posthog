@@ -70,6 +70,7 @@ export enum MathAvailability {
     All,
     ActorsOnly,
     FunnelsOnly,
+    MapaCalorOnly,
     None,
 }
 
@@ -712,6 +713,7 @@ function useMathSelectorOptions({
         staticMathDefinitions,
         funnelMathDefinitions,
         staticActorsOnlyMathDefinitions,
+        mapaCalorMathDefinitions,
     } = useValues(mathsLogic)
 
     const [propertyMathTypeShown, setPropertyMathTypeShown] = useState<PropertyMathType>(
@@ -727,6 +729,8 @@ function useMathSelectorOptions({
         definitions = funnelMathDefinitions
     } else if (mathAvailability === MathAvailability.ActorsOnly) {
         definitions = staticActorsOnlyMathDefinitions
+    } else if (mathAvailability === MathAvailability.MapaCalorOnly) {
+        definitions = mapaCalorMathDefinitions
     }
 
     const options: LemonSelectOption<string>[] = Object.entries(definitions)
@@ -785,7 +789,11 @@ function useMathSelectorOptions({
             }
         })
 
-    if (mathAvailability !== MathAvailability.ActorsOnly && mathAvailability !== MathAvailability.FunnelsOnly) {
+    if (
+        mathAvailability !== MathAvailability.ActorsOnly &&
+        mathAvailability !== MathAvailability.FunnelsOnly &&
+        mathAvailability !== MathAvailability.MapaCalorOnly
+    ) {
         // Add count per user option if any CountPerActorMathType is included in onlyMathTypes
         const shouldShowCountPerUser =
             !allowedMathTypes || Object.values(CountPerActorMathType).some((type) => allowedMathTypes.includes(type))
@@ -861,6 +869,7 @@ function useMathSelectorOptions({
 
     if (
         mathAvailability !== MathAvailability.FunnelsOnly &&
+        mathAvailability !== MathAvailability.MapaCalorOnly &&
         (!allowedMathTypes || allowedMathTypes.includes(HogQLMathType.HogQL))
     ) {
         options.push({

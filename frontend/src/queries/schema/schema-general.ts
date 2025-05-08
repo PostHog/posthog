@@ -28,6 +28,7 @@ import {
     LifecycleFilterType,
     LifecycleToggle,
     LogEntryPropertyFilter,
+    MapaCalorMathType,
     PathsFilterType,
     PersonPropertyFilter,
     PropertyGroupFilter,
@@ -88,6 +89,7 @@ export enum NodeKind {
     InsightVizNode = 'InsightVizNode',
 
     TrendsQuery = 'TrendsQuery',
+    MapaCalorQuery = 'MapaCalorQuery',
     FunnelsQuery = 'FunnelsQuery',
     RetentionQuery = 'RetentionQuery',
     PathsQuery = 'PathsQuery',
@@ -163,6 +165,7 @@ export type AnyDataNode =
     | ErrorTrackingQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
+    | MapaCalorQuery
     | RecordingsQuery
     | TracesQuery
     | VectorSearchQuery
@@ -219,6 +222,7 @@ export type QuerySchema =
 
     // Classic insights
     | TrendsQuery
+    | MapaCalorQuery
     | FunnelsQuery
     | RetentionQuery
     | PathsQuery
@@ -565,6 +569,7 @@ export type MathType =
     | GroupMathType
     | HogQLMathType
     | ExperimentMetricMathType
+    | MapaCalorMathType
 
 export interface EntityNode extends Node {
     name?: string
@@ -1010,6 +1015,11 @@ export type TrendsFilter = {
     goalLines?: GoalLine[]
 }
 
+export type MapaCalorFilter = {
+    // I kept this for being able to add filters in the future
+    dummy?: string
+}
+
 export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'smoothingIntervals',
     'formula',
@@ -1064,6 +1074,29 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     breakdownFilter?: BreakdownFilter
     /** Compare to date range */
     compareFilter?: CompareFilter
+    /**  Whether we should be comparing against a specific conversion goal */
+    conversionGoal?: WebAnalyticsConversionGoal | null
+}
+
+export interface MapaCalorResponse extends AnalyticsQueryResponseBase<EventsHeatMapStructuredResult> {
+    /** Wether more breakdown values are available. */
+    hasMore?: boolean
+}
+
+export type CachedMapaCalorQueryResponse = CachedQueryResponse<MapaCalorResponse>
+
+export interface MapaCalorQuery extends InsightsQueryBase<MapaCalorResponse> {
+    kind: NodeKind.MapaCalorQuery
+    /**
+     * Granularity of the response. Can be one of `hour`, `day`, `week` or `month`
+     *
+     * @default day
+     */
+    interval?: IntervalType
+    /** Events and actions to include */
+    series: AnyEntityNode[]
+    /** Properties specific to the trends insight */
+    mapaCalorFilter?: MapaCalorFilter
     /**  Whether we should be comparing against a specific conversion goal */
     conversionGoal?: WebAnalyticsConversionGoal | null
 }
@@ -1972,6 +2005,7 @@ export type InsightQueryNode =
     | PathsQuery
     | StickinessQuery
     | LifecycleQuery
+    | MapaCalorQuery
 
 export interface ExperimentVariantTrendsBaseStats {
     key: string
@@ -2158,7 +2192,9 @@ export type InsightFilterProperty =
     | 'retentionFilter'
     | 'pathsFilter'
     | 'stickinessFilter'
+    | 'mapaCalorFilter'
     | 'lifecycleFilter'
+
 export type InsightFilter =
     | TrendsFilter
     | FunnelsFilter
@@ -2166,6 +2202,7 @@ export type InsightFilter =
     | PathsFilter
     | StickinessFilter
     | LifecycleFilter
+    | MapaCalorFilter
 
 export type Day = integer
 

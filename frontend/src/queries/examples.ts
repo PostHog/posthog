@@ -13,6 +13,7 @@ import {
     HogQuery,
     InsightVizNode,
     LifecycleQuery,
+    MapaCalorQuery,
     Node,
     NodeKind,
     PathsQuery,
@@ -203,6 +204,16 @@ const InsightTrendsQuery: TrendsQuery = {
     breakdownFilter: {
         breakdown: '$geoip_country_code',
         breakdown_type: 'event',
+    },
+}
+
+const InsightMapaCalorQuery: MapaCalorQuery = {
+    kind: NodeKind.MapaCalorQuery,
+    properties: [],
+    filterTestAccounts,
+    series,
+    dateRange: {
+        date_from: '-7d',
     },
 }
 
@@ -516,6 +527,11 @@ export const queryExamples: Record<string, Node> = {
     PersonsTableFull,
     InsightTrendsQuery,
     InsightTrends: { kind: NodeKind.InsightVizNode, source: InsightTrendsQuery } as InsightVizNode<TrendsQuery>,
+    InsightMapaCalorQuery,
+    InsightMapaCalor: {
+        kind: NodeKind.InsightVizNode,
+        source: InsightMapaCalorQuery,
+    } as InsightVizNode<MapaCalorQuery>,
     InsightFunnelsQuery,
     InsightFunnels: { kind: NodeKind.InsightVizNode, source: InsightFunnelsQuery } as InsightVizNode<FunnelsQuery>,
     InsightRetentionQuery,

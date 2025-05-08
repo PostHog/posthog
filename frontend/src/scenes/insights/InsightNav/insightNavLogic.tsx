@@ -198,6 +198,11 @@ export const insightNavLogic = kea<insightNavLogicType>([
                         type: InsightType.SQL,
                         dataAttr: 'insight-sql-tab',
                     },
+                    {
+                        label: 'Mapa Calor',
+                        type: InsightType.MAPA_CALOR,
+                        dataAttr: 'insight-mapa-calor-tab',
+                    },
                 ]
 
                 if (featureFlags[FEATURE_FLAGS.HOG] || activeView === InsightType.HOG) {

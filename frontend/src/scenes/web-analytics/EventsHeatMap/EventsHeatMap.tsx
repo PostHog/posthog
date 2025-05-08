@@ -11,7 +11,7 @@ import { QueryContext } from '~/queries/types'
 
 import { HeatMapCell, HeatMapValues } from './HeatMapCell'
 interface EventsHeatMapProps {
-    context: QueryContext
+    context?: QueryContext
     isLoading: boolean
     queryId: string | null
     rowLabels: string[]
@@ -93,7 +93,7 @@ export function EventsHeatMap({
     if (isLoading) {
         return (
             <InsightsWrapper>
-                <InsightLoadingState queryId={queryId} key={queryId} insightProps={context.insightProps ?? {}} />
+                <InsightLoadingState queryId={queryId} key={queryId} insightProps={context?.insightProps ?? {}} />
             </InsightsWrapper>
         )
     }

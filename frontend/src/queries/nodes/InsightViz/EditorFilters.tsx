@@ -39,6 +39,7 @@ import { CumulativeStickinessFilter } from './CumulativeStickinessFilter'
 import { EditorFilterGroup } from './EditorFilterGroup'
 import { GlobalAndOrFilters } from './GlobalAndOrFilters'
 import { LifecycleToggles } from './LifecycleToggles'
+import { MapaCalorFilters } from './MapaCalorFilters'
 import { TrendsFormula } from './TrendsFormula'
 import { TrendsSeries } from './TrendsSeries'
 import { TrendsSeriesLabel } from './TrendsSeriesLabel'
@@ -61,6 +62,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         isLifecycle,
         isStickiness,
         isTrendsLike,
+        isMapaCalor,
         display,
         pathsFilter,
         querySource,
@@ -158,6 +160,11 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                     key: 'series',
                     label: isTrends ? TrendsSeriesLabel : undefined,
                     component: TrendsSeries,
+                },
+                isMapaCalor && {
+                    key: 'filters',
+                    label: 'Filters',
+                    component: MapaCalorFilters,
                 },
                 isTrends && hasFormula
                     ? {
@@ -328,32 +335,36 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                 },
             ]),
         },
-        {
-            title: 'Advanced Options',
-            defaultExpanded: false,
-            editorFilters: filterFalsy([
-                {
-                    key: 'poe',
-                    component: PoeFilter,
-                },
-                {
-                    key: 'sampling',
-                    component: SamplingFilter,
-                },
-                isTrends &&
-                    isLineGraph && {
-                        key: 'goal-lines',
-                        label: 'Goal lines',
-                        tooltip: (
-                            <>
-                                Goal lines can be used to highlight specific goals (Revenue, Signups, etc.) or limits
-                                (Web Vitals, etc.)
-                            </>
-                        ),
-                        component: GoalLines,
-                    },
-            ]),
-        },
+        ...(!isMapaCalor
+            ? [
+                  {
+                      title: 'Advanced Options',
+                      defaultExpanded: false,
+                      editorFilters: filterFalsy([
+                          {
+                              key: 'poe',
+                              component: PoeFilter,
+                          },
+                          {
+                              key: 'sampling',
+                              component: SamplingFilter,
+                          },
+                          isTrends &&
+                              isLineGraph && {
+                                  key: 'goal-lines',
+                                  label: 'Goal lines',
+                                  tooltip: (
+                                      <>
+                                          Goal lines can be used to highlight specific goals (Revenue, Signups, etc.) or
+                                          limits (Web Vitals, etc.)
+                                      </>
+                                  ),
+                                  component: GoalLines,
+                              },
+                      ]),
+                  },
+              ]
+            : []),
     ]
 
     const filterGroupsGroups = [

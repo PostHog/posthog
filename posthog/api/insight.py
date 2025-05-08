@@ -1045,6 +1045,7 @@ When set, the specified dashboard's filters and date range override will be appl
             isinstance(result, schema.CachedTrendsQueryResponse)
             or isinstance(result, schema.CachedStickinessQueryResponse)
             or isinstance(result, schema.CachedLifecycleQueryResponse)
+            or isinstance(result, schema.CachedMapaCalorQueryResponse)
         )
 
         return {"result": result.results, "timezone": team.timezone}
