@@ -33,6 +33,9 @@ INSERT INTO sharded_session_replay_events (
     snapshot_source,
     snapshot_library,
     size,
+    block_urls,
+    block_first_timestamps,
+    block_last_timestamps,
     _timestamp
 )
 SELECT
@@ -52,6 +55,9 @@ SELECT
     argMinState(cast(%(snapshot_source)s, 'LowCardinality(Nullable(String))'), toDateTime64(%(first_timestamp)s, 6, 'UTC')),
     argMinState(cast(%(snapshot_library)s, 'LowCardinality(Nullable(String))'), toDateTime64(%(first_timestamp)s, 6, 'UTC')),
     %(size)s,
+    %(block_urls)s,
+    %(block_first_timestamps)s,
+    %(block_last_timestamps)s,
     %(_timestamp)s
 """
 
@@ -127,6 +133,9 @@ def produce_replay_summary(
     size: Optional[int] = None,
     *,
     ensure_analytics_event_in_session: bool = True,
+    block_urls: list[str] | None = None,
+    block_first_timestamps: list[datetime] | None = None,
+    block_last_timestamps: list[datetime] | None = None,
 ):
     if log_messages is None:
         log_messages = {}
@@ -152,6 +161,9 @@ def produce_replay_summary(
         "snapshot_source": snapshot_source,
         "snapshot_library": snapshot_library,
         "size": size or 0,
+        "block_urls": block_urls or [],
+        "block_first_timestamps": block_first_timestamps or [],
+        "block_last_timestamps": block_last_timestamps or [],
     }
 
     if settings.TEST:
