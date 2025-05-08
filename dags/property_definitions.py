@@ -86,8 +86,6 @@ class DetectPropertyTypeExpression:
 COMMON_PROPERTY_FILTERS = """
 -- https://github.com/PostHog/posthog/blob/052f4ea40c5043909115f835f09445e18dd9727c/rust/property-defs-rs/src/types.rs#L17-L28
 name NOT IN ('$set', '$set_once', '$unset', '$group_0', '$group_1', '$group_2', '$group_3', '$group_4', '$groups')
--- https://github.com/PostHog/posthog/blob/052f4ea40c5043909115f835f09445e18dd9727c/rust/property-defs-rs/src/types.rs#L187-L191
-AND length(event) <= 200
 -- https://github.com/PostHog/posthog/blob/052f4ea40c5043909115f835f09445e18dd9727c/rust/property-defs-rs/src/types.rs#L279-L286
 AND length(name) <= 200
 """
@@ -124,6 +122,8 @@ def ingest_event_properties(
         {time_range.get_expression("timestamp")}
         -- https://github.com/PostHog/posthog/blob/052f4ea40c5043909115f835f09445e18dd9727c/rust/property-defs-rs/src/types.rs#L13-L14C52
         AND event NOT IN ('$$plugin_metrics')
+        -- https://github.com/PostHog/posthog/blob/052f4ea40c5043909115f835f09445e18dd9727c/rust/property-defs-rs/src/types.rs#L187-L191
+        AND length(event) <= 200
         AND {COMMON_PROPERTY_FILTERS}
     GROUP BY team_id, event, name, property_type
     ORDER BY team_id, event, name, property_type NULLS LAST
