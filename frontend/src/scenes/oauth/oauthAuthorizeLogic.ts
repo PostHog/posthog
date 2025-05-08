@@ -1,7 +1,7 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { DEFAULT_OAUTH_SCOPES, getMinimumEquivalentScopes, getScopeDescription } from 'lib/scopes'
 import { userLogic } from 'scenes/userLogic'
@@ -10,7 +10,7 @@ import type { OrganizationBasicType, TeamBasicType } from '~/types'
 
 import type { oauthAuthorizeLogicType } from './oauthAuthorizeLogicType'
 
-export type OAuthApplicationType = {
+export type OAuthApplicationMetadataType = {
     name: string
 }
 
@@ -18,6 +18,33 @@ export type OAuthAuthorizationFormValues = {
     scoped_organizations: number[]
     scoped_teams: number[]
     access_type: 'all' | 'organizations' | 'teams'
+}
+
+const submitOAuthAuthorization = async (values: OAuthAuthorizationFormValues & { allow: boolean }): Promise<void> => {
+    const params = new URLSearchParams(location.search)
+
+    const response = await api.create('/oauth/authorize/', {
+        client_id: params.get('client_id'),
+        redirect_uri: params.get('redirect_uri'),
+        response_type: params.get('response_type'),
+        state: params.get('state'),
+        scope: params.get('scope'),
+        code_challenge: params.get('code_challenge'),
+        code_challenge_method: params.get('code_challenge_method'),
+        nonce: params.get('nonce'),
+        claims: params.get('claims'),
+        scoped_organizations: values.access_type === 'organizations' ? values.scoped_organizations : [],
+        scoped_teams: values.access_type === 'teams' ? values.scoped_teams : [],
+        access_level:
+            values.access_type === 'all' ? 'all' : values.access_type === 'organizations' ? 'organization' : 'team',
+        allow: values.allow,
+    })
+
+    if (response.redirect_to) {
+        location.href = response.redirect_to
+    }
+
+    return
 }
 
 export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
@@ -39,38 +66,27 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             },
         ],
         oauthApplication: [
-            null as OAuthApplicationType | null,
+            null as OAuthApplicationMetadataType | null,
             {
                 loadOAuthApplication: async () => {
+                    // TODO: This will be implemented in a seperate PR implementing the OAuthApplication API
                     return {
-                        name: 'PostHog',
+                        name: 'Example application',
                     }
                 },
             },
         ],
     }),
-    listeners({
-        cancel: () => {
-            const params = new URLSearchParams(window.location.search)
-            const redirectUri = params.get('redirect_uri')
-            if (!redirectUri) {
-                return router.actions.push('/')
-            }
-
-            const url = new URL(redirectUri)
-
-            url.searchParams.set('error', 'access_denied')
-            url.searchParams.set('error_description', 'User denied request')
-
-            // Preserve state if present
-            const state = params.get('state')
-            if (state) {
-                url.searchParams.set('state', state)
-            }
-
-            location.replace(url.toString())
+    listeners(({ values }) => ({
+        cancel: async () => {
+            await submitOAuthAuthorization({
+                scoped_organizations: values.oauthAuthorization.scoped_organizations,
+                scoped_teams: values.oauthAuthorization.scoped_teams,
+                access_type: values.oauthAuthorization.access_type,
+                allow: false,
+            })
         },
-    }),
+    })),
     reducers({
         scopes: [
             [] as string[],
@@ -98,28 +114,10 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                         : undefined,
             }),
             submit: async (values: OAuthAuthorizationFormValues) => {
-                const params = new URLSearchParams(location.search)
-
-                const response = await api.create('/oauth/authorize/', {
-                    client_id: params.get('client_id'),
-                    redirect_uri: params.get('redirect_uri'),
-                    response_type: params.get('response_type'),
-                    state: params.get('state'),
-                    scope: params.get('scope'),
-                    code_challenge: params.get('code_challenge'),
-                    code_challenge_method: params.get('code_challenge_method'),
-                    nonce: params.get('nonce'),
-                    claims: params.get('claims'),
-                    scoped_organizations: values.access_type === 'organizations' ? values.scoped_organizations : [],
-                    scoped_teams: values.access_type === 'teams' ? values.scoped_teams : [],
-                    access_type: values.access_type,
+                await submitOAuthAuthorization({
+                    ...values,
                     allow: true,
                 })
-
-                if (response.redirect_to) {
-                    location.href = response.redirect_to
-                    return
-                }
             },
         },
     })),

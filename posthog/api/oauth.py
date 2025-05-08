@@ -1,3 +1,6 @@
+from datetime import timedelta
+import json
+import uuid
 from oauth2_provider.views import TokenView, RevokeTokenView, IntrospectTokenView
 from posthog.auth import SessionAuthentication
 from posthog.models import OAuthApplication, OAuthAccessToken
@@ -7,13 +10,16 @@ from oauth2_provider.exceptions import OAuthToolkitError
 from django.utils import timezone
 from rest_framework.permissions import IsAuthenticated
 
-from rest_framework import views, serializers, status
+from rest_framework import serializers, status
+from rest_framework.views import APIView
 from rest_framework.response import Response
 from oauth2_provider.views.mixins import OAuthLibMixin
 from oauth2_provider.views import ConnectDiscoveryInfoView, JwksInfoView, UserInfoView
+from oauth2_provider.oauth2_validators import OAuth2Validator
 import structlog
 
-from ..utils import render_template
+from posthog.models.oauth import OAuthApplicationAccessLevel, OAuthGrant, OAuthRefreshToken
+from posthog.utils import render_template
 
 logger = structlog.get_logger(__name__)
 
@@ -31,12 +37,136 @@ class OAuthAuthorizationSerializer(serializers.Serializer):
     allow = serializers.BooleanField()
     prompt = serializers.CharField(required=False, allow_null=True, default=None)
     approval_prompt = serializers.CharField(required=False, allow_null=True, default=None)
+    access_level = serializers.ChoiceField(choices=[level.value for level in OAuthApplicationAccessLevel])
+    scoped_organizations = serializers.ListField(
+        child=serializers.CharField(), required=False, allow_null=True, default=[]
+    )
+    scoped_teams = serializers.ListField(child=serializers.IntegerField(), required=False, allow_null=True, default=[])
+
+    def validate_scoped_organizations(self, value):
+        access_level = self.initial_data.get("access_level")
+        if (
+            (
+                access_level == OAuthApplicationAccessLevel.ALL.value
+                or access_level == OAuthApplicationAccessLevel.TEAM.value
+            )
+            and value
+            and len(value) > 0
+        ):
+            raise serializers.ValidationError(
+                f"scoped_organizations is not allowed when access_level is {access_level}"
+            )
+
+        if access_level == OAuthApplicationAccessLevel.ORGANIZATION.value and (not value or len(value) == 0):
+            raise serializers.ValidationError("scoped_organizations is required when access_level is organization")
+        return value
+
+    def validate_scoped_teams(self, value):
+        access_level = self.initial_data.get("access_level")
+        if (
+            (
+                access_level == OAuthApplicationAccessLevel.ALL.value
+                or access_level == OAuthApplicationAccessLevel.ORGANIZATION.value
+            )
+            and value
+            and len(value) > 0
+        ):
+            raise serializers.ValidationError(f"scoped_teams is not allowed when access_level is {access_level}")
+
+        if access_level == OAuthApplicationAccessLevel.TEAM.value and (not value or len(value) == 0):
+            raise serializers.ValidationError("scoped_teams is required when access_level is team")
+        return value
 
 
-class OAuthAuthorizationView(OAuthLibMixin, views.APIView):
+class OAuthValidator(OAuth2Validator):
+    def _create_access_token(self, expires, request, token, source_refresh_token=None):
+        id_token = token.get("id_token", None)
+        if id_token:
+            id_token = self._load_id_token(id_token)
+
+        code = dict(request.decoded_body).get("code", None) if request.decoded_body else None
+
+        if not code:
+            raise OAuthToolkitError("Unable to find code to create access token")
+
+        try:
+            grant = OAuthGrant.objects.get(code=code)
+        except OAuthGrant.DoesNotExist:
+            raise OAuthToolkitError("Unable to find grant to create access token")
+
+        return OAuthAccessToken.objects.create(
+            user=request.user,
+            scope=token["scope"],
+            expires=expires,
+            token=token["access_token"],
+            id_token=id_token,
+            application=request.client,
+            source_refresh_token=source_refresh_token,
+            scoped_teams=grant.scoped_teams,
+            scoped_organizations=grant.scoped_organizations,
+        )
+
+    def _create_authorization_code(self, request, code, expires=None):
+        if not expires:
+            expires = timezone.now() + timedelta(seconds=oauth2_settings.AUTHORIZATION_CODE_EXPIRE_SECONDS)
+        return OAuthGrant.objects.create(
+            application=request.client,
+            user=request.user,
+            code=code["code"],
+            expires=expires,
+            redirect_uri=request.redirect_uri,
+            scope=" ".join(request.scopes),
+            code_challenge=request.code_challenge or "",
+            code_challenge_method=request.code_challenge_method or "",
+            nonce=request.nonce or "",
+            claims=json.dumps(request.claims or {}),
+            scoped_teams=request.scoped_teams,
+            scoped_organizations=request.scoped_organizations,
+        )
+
+    def _create_refresh_token(self, request, refresh_token_code, access_token, previous_refresh_token):
+        if previous_refresh_token:
+            token_family = previous_refresh_token.token_family
+        else:
+            token_family = uuid.uuid4()
+
+        code = dict(request.decoded_body).get("code", None) if request.decoded_body else None
+
+        if code:
+            try:
+                grant = OAuthGrant.objects.get(code=code)
+            except OAuthGrant.DoesNotExist:
+                raise OAuthToolkitError("Unable to find grant to create refresh token")
+
+        if not grant and not access_token:
+            raise OAuthToolkitError("Unable to find grant or access token to create refresh token")
+
+        scoped_teams = grant.scoped_teams if grant else access_token.scoped_teams
+        scoped_organizations = grant.scoped_organizations if grant else access_token.scoped_organizations
+
+        return OAuthRefreshToken.objects.create(
+            user=request.user,
+            token=refresh_token_code,
+            application=request.client,
+            access_token=access_token,
+            token_family=token_family,
+            scoped_teams=scoped_teams,
+            scoped_organizations=scoped_organizations,
+        )
+
+
+class OAuthAuthorizationView(OAuthLibMixin, APIView):
     """
-    Custom OAuth2 Authorization endpoint that uses DRF patterns.
-    Handles both GET (authorization request) and POST (authorization response) methods.
+    This view handles incoming requests to /authorize.
+
+    A GET request to /authorize validates the request and decides if it should:
+        a) Redirect to the redirect_uri with error parameters
+        b) Show an error state (e.g. when no redirect_uri is available)
+        c) Show an authorize page
+
+    A POST request is made to /authorize with allow=True if the user authorizes the request and allow=False otherwise.
+    This returns a redirect_uri in it's response body to redirect the user to. In a successful flow, this will include a code
+    parameter. In a failed flow, this will include error paramaters.
     """
 
     permission_classes = [IsAuthenticated]
@@ -94,6 +224,8 @@ class OAuthAuthorizationView(OAuthLibMixin, views.APIView):
             "redirect_uri": serializer.validated_data["redirect_uri"],
             "response_type": serializer.validated_data.get("response_type"),
             "state": serializer.validated_data.get("state"),
+            "scoped_organizations": serializer.validated_data.get("scoped_organizations"),
+            "scoped_teams": serializer.validated_data.get("scoped_teams"),
         }
 
         # Add optional fields if present
@@ -108,6 +240,7 @@ class OAuthAuthorizationView(OAuthLibMixin, views.APIView):
                 credentials=credentials,
                 allow=serializer.validated_data["allow"],
             )
+
         except OAuthToolkitError as error:
             return self.error_response(
                 error, application, no_redirect=True, state=serializer.validated_data.get("state")
@@ -147,16 +280,15 @@ class OAuthAuthorizationView(OAuthLibMixin, views.APIView):
                     {
                         "redirect_to": error_response["url"],
                     },
-                    status=error_response["error"].status_code,
+                    status=status.HTTP_200_OK,
                 )
             return self.redirect(error_response["url"], application)
 
-        # Return a simple JSON response with error details
         return Response(
             {
                 "error": error_response["error"].error,
                 "error_description": error_response["error"].description,
-                "state": kwargs.get("state"),
+                "state": kwargs.get("state"),  # We need to pass state back to the client
             },
             status=error_response["error"].status_code,
         )
@@ -170,7 +302,8 @@ class OAuthTokenView(TokenView):
     - grant_type: The type of grant to use - only "authorization_code" is supported.
     - code: The authorization code received from the /authorize request.
     - redirect_uri: The redirect URI to use - this is the same as the redirect_uri used in the authorization request.
-    - code_verifier: The code verifier that was used to generate the code_challenge.
+    - code_verifier: The code verifier that was used to generate the code_challenge. The code_challenge is a sha256 hash
+    of the code_verifier that was sent in the authorization request.
 
     To comply with RFC 6749, the data must be sent as x-www-form-urlencoded.
     """
@@ -181,6 +314,14 @@ class OAuthTokenView(TokenView):
 
 
 class OAuthRevokeTokenView(RevokeTokenView):
+    """
+    OAuth2 Revoke Token endpoint.
+
+    This endpoint is used to revoke a token. It implements a POST request with the following parameters:
+    - token: The token to revoke.
+    - token_type_hint(optional): The type of token to revoke - either "access_token" or "refresh_token"
+    """
+
     authentication_classes = []
     permission_classes = []
     pass
@@ -193,12 +334,18 @@ class OAuthIntrospectTokenView(IntrospectTokenView):
 
 
 class OAuthConnectDiscoveryInfoView(ConnectDiscoveryInfoView):
+    authentication_classes = []
+    permission_classes = []
     pass
 
 
 class OAuthJwksInfoView(JwksInfoView):
+    authentication_classes = []
+    permission_classes = []
     pass
 
 
 class OAuthUserInfoView(UserInfoView):
+    authentication_classes = []
+    permission_classes = []
     pass

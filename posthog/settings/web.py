@@ -491,6 +491,7 @@ OAUTH2_PROVIDER = {
     "ALLOWED_REDIRECT_URI_SCHEMES": ["https"],
     "AUTHORIZATION_CODE_EXPIRE_SECONDS": 60 * 5,
     "DEFAULT_SCOPES": ["openid"],
+    "OAUTH2_VALIDATOR_CLASS": "posthog.api.oauth.OAuthValidator",
 }
 
 

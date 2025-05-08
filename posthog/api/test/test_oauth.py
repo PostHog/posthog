@@ -6,12 +6,13 @@ from django.test import override_settings
 from freezegun import freeze_time
 from rest_framework import status
 from posthog.test.base import APIBaseTest
-from posthog.models.oauth import OAuthApplication, OAuthGrant
+from posthog.models.oauth import OAuthApplication, OAuthApplicationAccessLevel, OAuthGrant
 from django.utils import timezone
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 from django.conf import settings
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization
+from posthog.api.oauth import OAuthAuthorizationSerializer
 
 
 def generate_rsa_key() -> str:
@@ -31,10 +32,16 @@ def generate_rsa_key() -> str:
     return rsa_key
 
 
+@override_settings(
+    OAUTH2_PROVIDER={
+        **settings.OAUTH2_PROVIDER,
+        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
+    }
+)
 class TestOAuthAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
-        # Create OAuth application
+
         self.application = OAuthApplication.objects.create(
             name="Test App",
             client_id="test_client_id",
@@ -49,7 +56,8 @@ class TestOAuthAPI(APIBaseTest):
 
         self.code_verifier = "test_challenge"
 
-    def get_code_challenge(self) -> str:
+    @property
+    def code_challenge(self) -> str:
         """
         Given a PKCE code_verifier, return the URL-safe base64-encoded
         SHA256 digest (the code_challenge), without padding.
@@ -60,8 +68,33 @@ class TestOAuthAPI(APIBaseTest):
         code_challenge = base64.urlsafe_b64encode(digest).decode("utf-8").replace("=", "")
         return code_challenge
 
-    def get_valid_authorization_url(self):
-        return f"/oauth/authorize/?client_id=test_client_id&redirect_uri=http://localhost:8000/callback&response_type=code&code_challenge={self.get_code_challenge()}&code_challenge_method=S256"
+    @property
+    def base_authorization_url(self) -> str:
+        return f"/oauth/authorize/?client_id=test_client_id&redirect_uri=http://localhost:8000/callback&response_type=code&code_challenge={self.code_challenge}&code_challenge_method=S256"
+
+    @property
+    def base_authorization_post_body(self) -> dict:
+        return {
+            "client_id": "test_client_id",
+            "redirect_uri": "http://localhost:8000/callback",
+            "response_type": "code",
+            "code_challenge": self.code_challenge,
+            "code_challenge_method": "S256",
+            "allow": True,
+            "access_level": OAuthApplicationAccessLevel.ALL.value,
+            "scoped_organizations": [],
+            "scoped_teams": [],
+        }
+
+    @property
+    def base_token_body(self) -> dict:
+        return {
+            "grant_type": "authorization_code",
+            "client_id": self.application.client_id,
+            "client_secret": self.application.client_secret,
+            "redirect_uri": self.application.redirect_uris,
+            "code_verifier": self.code_verifier,
+        }
 
     def replace_param_in_url(self, url: str, param: str, value: Optional[str] = None) -> str:
         """
@@ -80,11 +113,11 @@ class TestOAuthAPI(APIBaseTest):
         return urlunparse(parts._replace(query=new_query))
 
     def test_authorize_successful_with_required_params(self):
-        response = self.client.get(self.get_valid_authorization_url())
+        response = self.client.get(self.base_authorization_url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_authorize_missing_client_id(self):
-        url = self.get_valid_authorization_url()
+        url = self.base_authorization_url
 
         url_without_client_id = self.replace_param_in_url(url, "client_id", None)
 
@@ -94,7 +127,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.json()["error_description"], "Missing client_id parameter.")
 
     def test_authorize_invalid_client_id(self):
-        url = self.get_valid_authorization_url()
+        url = self.base_authorization_url
 
         url_without_client_id = self.replace_param_in_url(url, "client_id", "invalid_id")
 
@@ -106,7 +139,7 @@ class TestOAuthAPI(APIBaseTest):
     def test_authorize_missing_redirect_uri(self):
         # According to the spec, if the client has a single redirect URI, the authorization server does not require an
         # explicit redirect_uri parameter and can use the one provided by the application.
-        url = self.get_valid_authorization_url()
+        url = self.base_authorization_url
 
         url_without_redirect_uri = self.replace_param_in_url(url, "redirect_uri", None)
 
@@ -117,7 +150,7 @@ class TestOAuthAPI(APIBaseTest):
     def test_authorize_rejects_if_missing_redirect_uri_and_multiple_redirect_uris(self):
         # According to the spec, if the client has multiple redirect URIs, the authorization server MUST require an
         # explicit redirect_uri parameter.
-        url = self.get_valid_authorization_url()
+        url = self.base_authorization_url
         self.application.redirect_uris = "http://localhost:8000/callback http://localhost:8001/callback"
         self.application.save()
 
@@ -130,7 +163,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.json()["error_description"], "Missing redirect URI.")
 
     def test_authorize_invalid_redirect_uri(self):
-        url = self.get_valid_authorization_url()
+        url = self.base_authorization_url
 
         url_without_redirect_uri = self.replace_param_in_url(url, "redirect_uri", "http://invalid.com/callback")
 
@@ -141,7 +174,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.json()["error_description"], "Mismatching redirect URI.")
 
     def test_authorize_fails_without_pkce(self):
-        url = self.get_valid_authorization_url()
+        url = self.base_authorization_url
 
         url_without_code_challenge = self.replace_param_in_url(url, "code_challenge", None)
 
@@ -158,15 +191,10 @@ class TestOAuthAPI(APIBaseTest):
     def test_authorize_post_authorization_granted(self):
         response = self.client.post(
             "/oauth/authorize/",
-            {
-                "client_id": "test_client_id",
-                "redirect_uri": "http://localhost:8000/callback",
-                "response_type": "code",
-                "code_challenge": self.get_code_challenge(),
-                "code_challenge_method": "S256",
-                "allow": True,
-            },
+            self.base_authorization_post_body,
         )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         redirect_to = response.json()["redirect_to"]
         self.assertIn("code=", redirect_to)
 
@@ -177,7 +205,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(grant.application, self.application)
         self.assertEqual(grant.user, self.user)
         self.assertEqual(grant.code, code)
-        self.assertEqual(grant.code_challenge, self.get_code_challenge())
+        self.assertEqual(grant.code_challenge, self.code_challenge)
         self.assertEqual(grant.code_challenge_method, "S256")
 
         expiration_minutes = settings.OAUTH2_PROVIDER["AUTHORIZATION_CODE_EXPIRE_SECONDS"] / 60
@@ -188,14 +216,13 @@ class TestOAuthAPI(APIBaseTest):
         response = self.client.post(
             "/oauth/authorize/",
             {
-                "client_id": "test_client_id",
-                "redirect_uri": "http://localhost:8000/callback",
-                "response_type": "code",
-                "code_challenge": self.get_code_challenge(),
-                "code_challenge_method": "S256",
+                **self.base_authorization_post_body,
                 "allow": False,
             },
         )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
         redirect_to = response.json()["redirect_to"]
         self.assertEqual(redirect_to, "http://localhost:8000/callback?error=access_denied")
 
@@ -223,7 +250,7 @@ class TestOAuthAPI(APIBaseTest):
             application=self.application,
             user=self.user,
             code="expired_code",
-            code_challenge=self.get_code_challenge(),
+            code_challenge=self.code_challenge,
             code_challenge_method="S256",
             expires=timezone.now() - timedelta(minutes=1),
         )
@@ -268,29 +295,16 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["error"], "invalid_grant")
 
-    @override_settings(
-        OAUTH2_PROVIDER={
-            **settings.OAUTH2_PROVIDER,
-            "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-        }
-    )
     def test_full_oauth_flow(self):
         # 1. Get authorization request
-        response = self.client.get(self.get_valid_authorization_url())
+        response = self.client.get(self.base_authorization_url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # 2. Post authorization approval
         response = self.client.post(
             "/oauth/authorize/",
-            {
-                "client_id": "test_client_id",
-                "redirect_uri": "http://localhost:8000/callback",
-                "response_type": "code",
-                "code_challenge": self.get_code_challenge(),
-                "code_challenge_method": "S256",
-                "allow": True,
-            },
+            self.base_authorization_post_body,
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -326,7 +340,7 @@ class TestOAuthAPI(APIBaseTest):
             application=self.application,
             user=self.user,
             code="test_code",
-            code_challenge=self.get_code_challenge(),
+            code_challenge=self.code_challenge,
             code_challenge_method="S256",
             expires=timezone.now() + timedelta(minutes=1),
         )
@@ -345,42 +359,19 @@ class TestOAuthAPI(APIBaseTest):
         response = self.client.post("/oauth/token/", body, content_type="application/x-www-form-urlencoded")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    @override_settings(
-        OAUTH2_PROVIDER={
-            **settings.OAUTH2_PROVIDER,
-            "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-        }
-    )
     @freeze_time("2025-01-01 00:00:00")
     def test_refresh_token_flow(self):
-        application = OAuthApplication.objects.create(
-            name="Test Refresh App",
-            client_id="test_refresh_client_id",
-            client_secret="test_refresh_client_secret",
-            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="http://localhost:8000/callback",
-            user=self.user,
-            hash_client_secret=True,
-            algorithm="RS256",
-        )
-
-        # First get a token
         grant = OAuthGrant.objects.create(
-            application=application,
+            application=self.application,
             user=self.user,
             code="test_code",
-            code_challenge=self.get_code_challenge(),
+            code_challenge=self.code_challenge,
             code_challenge_method="S256",
             expires=timezone.now() + timedelta(minutes=1),
         )
 
         data = {
-            "grant_type": "authorization_code",
-            "client_id": "test_refresh_client_id",
-            "client_secret": "test_refresh_client_secret",
-            "redirect_uri": "http://localhost:8000/callback",
-            "code_verifier": self.code_verifier,
+            **self.base_token_body,
             "code": grant.code,
         }
 
@@ -407,3 +398,132 @@ class TestOAuthAPI(APIBaseTest):
         data = response.json()
         self.assertIn("access_token", data)
         self.assertIn("refresh_token", data)
+
+    def test_invalid_scoped_organizations_with_all_access_level(self):
+        data = {
+            **self.base_authorization_post_body,
+            "access_level": OAuthApplicationAccessLevel.ALL.value,
+            "scoped_organizations": ["org1"],
+            "scoped_teams": [1],
+        }
+        serializer = OAuthAuthorizationSerializer(data=data)
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("scoped_organizations", serializer.errors)
+        self.assertEqual(
+            serializer.errors["scoped_organizations"][0], "scoped_organizations is not allowed when access_level is all"
+        )
+
+    def test_invalid_scoped_teams_with_organization_access_level(self):
+        data = {
+            **self.base_authorization_post_body,
+            "access_level": OAuthApplicationAccessLevel.ORGANIZATION.value,
+            "scoped_organizations": ["org1"],
+            "scoped_teams": [1],
+        }
+        serializer = OAuthAuthorizationSerializer(data=data)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("scoped_teams", serializer.errors)
+        self.assertEqual(
+            serializer.errors["scoped_teams"][0], "scoped_teams is not allowed when access_level is organization"
+        )
+
+    def test_missing_scoped_organizations_with_organization_access_level(self):
+        data = {
+            **self.base_authorization_post_body,
+            "access_level": OAuthApplicationAccessLevel.ORGANIZATION.value,
+            "scoped_organizations": [],
+        }
+        serializer = OAuthAuthorizationSerializer(data=data)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("scoped_organizations", serializer.errors)
+        self.assertEqual(
+            serializer.errors["scoped_organizations"][0],
+            "scoped_organizations is required when access_level is organization",
+        )
+
+    def test_missing_scoped_teams_with_team_access_level(self):
+        data = {
+            **self.base_authorization_post_body,
+            "access_level": OAuthApplicationAccessLevel.TEAM.value,
+            "scoped_teams": [],
+        }
+        serializer = OAuthAuthorizationSerializer(data=data)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("scoped_teams", serializer.errors)
+        self.assertEqual(serializer.errors["scoped_teams"][0], "scoped_teams is required when access_level is team")
+
+    def test_id_token_returned_with_openid_scope(self):
+        # Simulate a request with the openid scope
+        data_with_openid = {
+            **self.base_authorization_post_body,
+            "scope": "openid experiment:read",
+        }
+
+        response = self.client.post("/oauth/authorize/", data_with_openid)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        redirect_to = response.json().get("redirect_to", "")
+        self.assertIn("code=", redirect_to)
+
+        # Extract authorization code from redirect URL
+        code = redirect_to.split("code=")[1].split("&")[0]
+
+        # Exchange code for tokens
+        token_data = {
+            "grant_type": "authorization_code",
+            "code": code,
+            "client_id": "test_client_id",
+            "client_secret": "test_client_secret",
+            "redirect_uri": "http://localhost:8000/callback",
+            "code_verifier": self.code_verifier,
+        }
+
+        token_response = self.client.post(
+            "/oauth/token/", urlencode(token_data), content_type="application/x-www-form-urlencoded"
+        )
+
+        self.assertEqual(token_response.status_code, status.HTTP_200_OK)
+        token_response_data = token_response.json()
+
+        # Check that id_token is present
+        self.assertIn("id_token", token_response_data)
+
+    def test_id_token_not_returned_without_openid_scope(self):
+        # Simulate a request without the openid scope
+        data_without_openid = {
+            **self.base_authorization_post_body,
+            "scope": "experiment:read action:write",
+        }
+
+        response = self.client.post("/oauth/authorize/", data_without_openid)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        redirect_to = response.json().get("redirect_to", "")
+        self.assertIn("code=", redirect_to)
+
+        # Extract authorization code from redirect URL
+        code = redirect_to.split("code=")[1].split("&")[0]
+
+        # Exchange code for tokens
+        token_data = {
+            "grant_type": "authorization_code",
+            "code": code,
+            "client_id": "test_client_id",
+            "client_secret": "test_client_secret",
+            "redirect_uri": "http://localhost:8000/callback",
+            "code_verifier": self.code_verifier,
+        }
+
+        token_response = self.client.post(
+            "/oauth/token/", urlencode(token_data), content_type="application/x-www-form-urlencoded"
+        )
+
+        self.assertEqual(token_response.status_code, status.HTTP_200_OK)
+        token_response_data = token_response.json()
+
+        self.assertIn("access_token", token_response_data)
+        self.assertIn("refresh_token", token_response_data)
+
+        # Check that id_token is not present
+        self.assertNotIn("id_token", token_response_data)

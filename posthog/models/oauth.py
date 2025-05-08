@@ -1,3 +1,4 @@
+import enum
 from oauth2_provider.models import (
     AbstractAccessToken,
     AbstractIDToken,
@@ -6,12 +7,19 @@ from oauth2_provider.models import (
     AbstractApplication,
 )
 
-from posthog.models.utils import UUIDT, UUIDModel
+from posthog.models.utils import UUIDT
 
 from django.db import models
+from django.contrib.postgres.fields import ArrayField
 
 
-class OAuthApplication(AbstractApplication, UUIDModel):
+class OAuthApplicationAccessLevel(enum.Enum):
+    ALL = "all"
+    ORGANIZATION = "organization"
+    TEAM = "team"
+
+
+class OAuthApplication(AbstractApplication):
     class Meta(AbstractApplication.Meta):
         verbose_name = "OAuth Application"
         verbose_name_plural = "OAuth Applications"
@@ -47,7 +55,7 @@ class OAuthApplication(AbstractApplication, UUIDModel):
     )
 
 
-class OAuthAccessToken(AbstractAccessToken, UUIDModel):
+class OAuthAccessToken(AbstractAccessToken):
     class Meta(AbstractAccessToken.Meta):
         verbose_name = "OAuth Access Token"
         verbose_name_plural = "OAuth Access Tokens"
@@ -55,8 +63,11 @@ class OAuthAccessToken(AbstractAccessToken, UUIDModel):
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
 
+    scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True)
+    scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True)
 
-class OAuthIDToken(AbstractIDToken, UUIDModel):
+
+class OAuthIDToken(AbstractIDToken):
     class Meta(AbstractIDToken.Meta):
         verbose_name = "OAuth ID Token"
         verbose_name_plural = "OAuth ID Tokens"
@@ -65,7 +76,7 @@ class OAuthIDToken(AbstractIDToken, UUIDModel):
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
 
 
-class OAuthRefreshToken(AbstractRefreshToken, UUIDModel):
+class OAuthRefreshToken(AbstractRefreshToken):
     class Meta(AbstractRefreshToken.Meta):
         verbose_name = "OAuth Refresh Token"
         verbose_name_plural = "OAuth Refresh Tokens"
@@ -73,8 +84,11 @@ class OAuthRefreshToken(AbstractRefreshToken, UUIDModel):
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
 
+    scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True)
+    scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True)
 
-class OAuthGrant(AbstractGrant, UUIDModel):
+
+class OAuthGrant(AbstractGrant):
     class Meta(AbstractGrant.Meta):
         verbose_name = "OAuth Grant"
         verbose_name_plural = "OAuth Grants"
@@ -87,3 +101,6 @@ class OAuthGrant(AbstractGrant, UUIDModel):
             (AbstractGrant.CODE_CHALLENGE_S256, "SHA-256"),
         ],
     )
+
+    scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True)
+    scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True)
