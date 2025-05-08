@@ -1,7 +1,7 @@
 import json
 import time
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from uuid import UUID
 
 import dagster
@@ -13,6 +13,7 @@ from dags.property_definitions import (
     setup_job,
 )
 from posthog.clickhouse.cluster import ClickhouseCluster, Query
+from posthog.models.property_definition import PropertyDefinition
 
 
 @dataclass
@@ -113,8 +114,49 @@ def test_detect_property_type_expression(cluster: ClickhouseCluster) -> None:
 
 
 def test_ingestion_job(cluster: ClickhouseCluster) -> None:
-    config = PropertyDefinitionsConfig(start_at="2025-05-07T00:00:00", duration="1 hour")
+    start_at = datetime(2025, 5, 7)
+    duration = timedelta(hours=1)
+
+    # insert test data
+    cluster.any_host(
+        Query(
+            f"INSERT INTO events_recent (uuid, team_id, event, timestamp, properties) VALUES",
+            [
+                (UUID(int=i), 1, "event", timestamp, json.dumps(properties))
+                for i, (timestamp, properties) in enumerate(
+                    [
+                        (start_at - timedelta(minutes=30), {"property": "1"}),
+                        (start_at, {"property": 1}),
+                        (start_at + duration / 2, {"property": 1}),
+                        (start_at + duration, {"property": 1}),
+                        (start_at + duration + timedelta(minutes=30), {"property": 1}),
+                    ]
+                )
+            ],
+        )
+    ).result()
+
+    # run job
+    config = PropertyDefinitionsConfig(
+        start_at=start_at.isoformat(),
+        duration=f"{duration.total_seconds():.0f} seconds",
+    )
     property_definitions_ingestion_job.execute_in_process(
         run_config=dagster.RunConfig({setup_job.name: config}),
         resources={"cluster": cluster},
+    )
+
+    # check results
+    assert cluster.any_host(
+        Query(
+            """
+            SELECT team_id, project_id, name, property_type, event, group_type_index, type, last_seen_at
+            FROM property_definitions
+            ORDER BY ALL
+            """
+        ),
+    ).result() == sorted(
+        [
+            (1, 1, "property", "Numeric", "event", None, int(PropertyDefinition.Type.EVENT), start_at + duration),
+        ]
     )
