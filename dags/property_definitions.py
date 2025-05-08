@@ -8,7 +8,7 @@ from posthog.clickhouse.cluster import ClickhouseCluster, Query
 
 
 @dataclass(frozen=True)
-class TimeFilter:
+class TimeRange:
     start_at: str
     duration: str
 
@@ -22,16 +22,16 @@ class PropertyDefinitionsConfig(dagster.Config):
     start_at: str
     duration: str = "1 hour"
 
-    def validate(self) -> TimeFilter:
+    def validate(self) -> TimeRange:
         # TODO: actually validate
-        return TimeFilter(self.start_at, self.duration)
+        return TimeRange(self.start_at, self.duration)
 
 
 @dagster.op
 def setup_job(
     cluster: dagster.ResourceParam[ClickhouseCluster],
     config: PropertyDefinitionsConfig,
-) -> TimeFilter:
+) -> TimeRange:
     return config.validate()
 
 
@@ -39,7 +39,7 @@ def setup_job(
 def ingest_event_properties(
     context: dagster.OpExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
-    time_filter: TimeFilter,
+    time_range: TimeRange,
 ) -> int:
     """
     Ingest event properties from events_recent table into property_definitions table.
@@ -48,7 +48,7 @@ def ingest_event_properties(
     then determines the property type using JSONType.
     """
     # Log the execution parameters
-    context.log.info(f"Ingesting person properties with time_filter={time_filter!r}")
+    context.log.info(f"Ingesting person properties for {time_range!r}")
 
     # Query to insert event properties into property_definitions table
     query = f"""
@@ -70,7 +70,7 @@ def ingest_event_properties(
         1 as type,
         max(timestamp) as last_seen_at
     FROM events_recent
-    WHERE {time_filter.get_expression("timestamp")}
+    WHERE {time_range.get_expression("timestamp")}
     GROUP BY team_id, event, name, property_type
     ORDER BY team_id, event, name, property_type NULLS LAST
     LIMIT 1 by team_id, event, name
@@ -82,7 +82,7 @@ def ingest_event_properties(
     # Get the number of rows inserted for this specific time window
     count_query = f"""
     SELECT count() FROM property_definitions
-    WHERE type = 1 AND {time_filter.get_expression("last_seen_at")}
+    WHERE type = 1 AND {time_range.get_expression("last_seen_at")}
     """
 
     rows = cluster.any_host(Query(count_query)).result()[0][0]
@@ -95,7 +95,7 @@ def ingest_event_properties(
 def ingest_person_properties(
     context: dagster.OpExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
-    time_filter: TimeFilter,
+    time_range: TimeRange,
 ) -> int:
     """
     Ingest person properties from person table into property_definitions table.
@@ -104,7 +104,7 @@ def ingest_person_properties(
     then determines the property type using JSONType.
     """
     # Log the execution parameters
-    context.log.info(f"Ingesting person properties with time_filter={time_filter!r}")
+    context.log.info(f"Ingesting person properties for {time_range!r}")
 
     # Query to insert person properties into property_definitions table
     query = f"""
@@ -126,7 +126,7 @@ def ingest_person_properties(
         2 as type,
         max(_timestamp) as last_seen_at
     FROM person
-    WHERE {time_filter.get_expression("_timestamp")}
+    WHERE {time_range.get_expression("_timestamp")}
     GROUP BY team_id, name, property_type
     ORDER BY team_id, name, property_type NULLS LAST
     LIMIT 1 by team_id, name
@@ -138,7 +138,7 @@ def ingest_person_properties(
     # Get the number of rows inserted for this specific time window
     count_query = f"""
     SELECT count() FROM property_definitions
-    WHERE type = 2 AND {time_filter.get_expression("last_seen_at")}
+    WHERE type = 2 AND {time_range.get_expression("last_seen_at")}
     """
 
     rows = cluster.any_host(Query(count_query)).result()[0][0]
@@ -151,7 +151,7 @@ def ingest_person_properties(
 def optimize_property_definitions(
     context: dagster.OpExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
-    time_filter: TimeFilter,
+    time_range: TimeRange,
     event_count: int,
     person_count: int,
 ) -> int:
@@ -168,7 +168,7 @@ def optimize_property_definitions(
     # Get the total number of property definitions for this time window
     count_query = f"""
     SELECT count() FROM property_definitions
-    WHERE {time_filter.get_expression("last_seen_at")}
+    WHERE {time_range.get_expression("last_seen_at")}
     """
 
     total = cluster.any_host(Query(count_query)).result()[0][0]
@@ -190,10 +190,10 @@ def property_definitions_ingestion_job():
     2. Ingest person properties
     3. Run OPTIMIZE FINAL on the table
     """
-    time_filter = setup_job()
-    event_count = ingest_event_properties(time_filter)
-    person_count = ingest_person_properties(time_filter)
-    optimize_property_definitions(time_filter, event_count, person_count)
+    time_range = setup_job()
+    event_count = ingest_event_properties(time_range)
+    person_count = ingest_person_properties(time_range)
+    optimize_property_definitions(time_range, event_count, person_count)
 
 
 @dagster.schedule(
