@@ -234,7 +234,7 @@ export function Info(): JSX.Element {
                                     <div
                                         className={clsx(
                                             'w-2 h-2 rounded-full',
-                                            CONCLUSION_DISPLAY_CONFIG[experiment.conclusion]?.color
+                                            CONCLUSION_DISPLAY_CONFIG[experiment.conclusion]?.color || ''
                                         )}
                                     />
                                     <span>

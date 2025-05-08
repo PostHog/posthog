@@ -418,9 +418,7 @@ export function ConclusionForm({ experimentId }: { experimentId: Experiment['id'
                                                 CONCLUSION_DISPLAY_CONFIG[conclusion].color
                                             )}
                                         />
-                                        <span>
-                                            {CONCLUSION_DISPLAY_CONFIG[conclusion].title || experiment.conclusion}
-                                        </span>
+                                        <span>{CONCLUSION_DISPLAY_CONFIG[conclusion].title}</span>
                                     </div>
                                 </div>
                                 <div className="text-xs text-muted">
