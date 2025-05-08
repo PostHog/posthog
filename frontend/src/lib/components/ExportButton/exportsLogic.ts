@@ -182,14 +182,14 @@ export const exportsLogic = kea<exportsLogicType>([
             [] as ExportedAssetType[],
             {
                 createExport: async ({ exportData }) => {
-                    const newExport = await api.exports.create({
+                    void api.exports.create({
                         export_format: exportData.export_format,
                         dashboard: exportData.dashboard,
                         insight: exportData.insight,
                         export_context: exportData.export_context,
                         expires_after: dayjs().add(6, 'hour').toJSON(),
                     })
-                    return [newExport]
+                    return []
                 },
             },
         ],
