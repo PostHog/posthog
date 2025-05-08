@@ -50,6 +50,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.utils_cors import cors_response
 from posthog.models.surveys.util import (
+    SurveyFeatureFlags,
     get_unique_survey_event_uuids_sql_subquery,
     SurveyEventName,
     SurveyEventProperties,
@@ -774,17 +775,24 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # If there are no surveys or none have a start date, there can be no responses.
             return Response({})
 
-        # Construct the subquery for unique event UUIDs
-        unique_uuids_subquery = get_unique_survey_event_uuids_sql_subquery(
-            base_conditions_sql=[
-                "team_id = %(team_id)s",
-                f"event = '{SurveyEventName.SENT}'",
-                "timestamp >= %(timestamp)s",
-            ],
-            group_by_prefix_expressions=[
-                f"JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID}')"  # Deduplicate per survey_id
-            ],
+        partial_responses_enabled = posthoganalytics.feature_enabled(
+            SurveyFeatureFlags.SURVEYS_PARTIAL_RESPONSES, request.user.distinct_id
         )
+
+        partial_responses_filter = "1=1"
+        if partial_responses_enabled:
+            unique_uuids_subquery = get_unique_survey_event_uuids_sql_subquery(
+                base_conditions_sql=[
+                    "team_id = %(team_id)s",
+                    f"event = '{SurveyEventName.SENT}'",
+                    "timestamp >= %(timestamp)s",
+                ],
+                group_by_prefix_expressions=[
+                    f"JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID}')"  # Deduplicate per survey_id
+                ],
+            )
+
+            partial_responses_filter = f"uuid IN {unique_uuids_subquery}"
 
         query = f"""
             SELECT
@@ -795,7 +803,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 team_id = %(team_id)s
                 AND event = '{SurveyEventName.SENT}'
                 AND timestamp >= %(timestamp)s
-                AND uuid IN {unique_uuids_subquery}
+                AND {partial_responses_filter}
             GROUP BY survey_id
         """
 
