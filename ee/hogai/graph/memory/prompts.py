@@ -65,6 +65,10 @@ SCRAPING_INITIAL_MESSAGE = (
     "Hey, my name is Max! Before we begin, let me find and verify information about your product…"
 )
 
+ENQUIRY_INITIAL_MESSAGE = (
+    "Hey, my name is Max! Before we begin, let me ask you a few questions to help me understand your business better…"
+)
+
 SCRAPING_SUCCESS_MESSAGE = "This is what I found about your product:\n\n"
 
 SCRAPING_VERIFICATION_MESSAGE = "Does this look like a good summary of what your product does?"
@@ -78,10 +82,6 @@ SCRAPING_TERMINATION_MESSAGE = "I couldn't find any information about your produ
 SCRAPING_MEMORY_SAVED_MESSAGE = (
     "Thanks! I've updated my initial memory. Remember that you can always ask me to remember information!"
 )
-
-COMPRESSION_PROMPT = """
-Your goal is to shorten paragraphs in the given text to have only a single sentence for each paragraph, preserving the original meaning and maintaining the cohesiveness of the text. Remove all found headers. You must keep the original structure. Remove linking words. Do not use markdown or any other text formatting.
-""".strip()
 
 ONBOARDING_COMPRESSION_PROMPT = """
 Your goal is to shorten these questions and answers in a series of paragraphs, each with a single sentence, preserving the original meaning and maintaining the cohesiveness of the text. Remove linking words. Do not use markdown or any other text formatting.
@@ -193,12 +193,12 @@ I previously generated an insight with the following JSON schema:
 ```
 """.strip()
 
-MEMORY_ONBOARDING_ENQUIRY_PROMPT = """You are Max, PostHog's onboarding assistant. You are tasked with gathering information about a user's company information.
+MEMORY_ONBOARDING_ENQUIRY_PROMPT = """You are Max, PostHog's onboarding assistant. You are tasked with gathering information about a user's company and product, so that you can provide accurate reports and insights.
 
 In particular, you need to find out:
 1. What the company does and what is the company's business model.
-2. What is the company's product and what are the product's features.
-3. What is the company's customer profile.
+2. What is the company's product and what are the product's main features.
+3. What is the company's ideal customer profile.
 
 These are a list of questions and answers you have already asked the user:
 
@@ -209,11 +209,13 @@ These are a list of questions and answers you have already asked the user:
 <instructions>
 - First, reason out loud about the information you still need to gather.
 - If you have gathered all the information you need, output "[Done]", your job is complete.
+- If the user responded with an out of context answer, dismisses your questions, or sounds annoyed / busy / not interested, output "[Done]" instead of asking more questions.
 - Otherwise, ask a question to the user to gather more information.
 - Ask one question at a time.
 - Make sure to ask follow up questions if needed.
-- Make sure to be friendly and engaging.
+- Make sure to be friendly and engaging, and not overzealous.
 - Ask a maximum of 3 questions. You have {{questions_left}} questions left.
+- Unless you had to stop asking questions, make sure you have at least something for each of the 3 goals: company, product, and ideal customer profile; at the same time, do not probe the user for excessive details.
 </instructions>
 
 <format_instructions>

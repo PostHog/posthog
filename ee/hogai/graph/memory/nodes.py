@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from .parsers import MemoryCollectionCompleted, compressed_memory_parser, raise_memory_updated
 from .prompts import (
-    COMPRESSION_PROMPT,
+    ENQUIRY_INITIAL_MESSAGE,
     ONBOARDING_COMPRESSION_PROMPT,
     INITIALIZE_CORE_MEMORY_WITH_BUNDLE_IDS_PROMPT,
     INITIALIZE_CORE_MEMORY_WITH_BUNDLE_IDS_USER_PROMPT,
@@ -82,16 +82,39 @@ class MemoryInitializerContextMixin:
 
 
 class MemoryOnboardingShouldRunMixin(AssistantNode):
-    def should_run(self, _: AssistantState) -> str:
+    def should_run_onboarding_at_start(self, state: AssistantState) -> str:
         """
         If another user has already started the onboarding process, or it has already been completed, do not trigger it again.
+        If the conversation starts with the onboarding initial message, start the onboarding process.
         """
         core_memory = self.core_memory
-        if not core_memory or core_memory.initial_text == "":
-            return "onboarding_start"
-        elif core_memory.initial_text != "" and core_memory.scraping_status == CoreMemory.ScrapingStatus.PENDING:
-            return "onboarding_enquiry"
+
+        if core_memory and (core_memory.is_scraping_pending or core_memory.is_scraping_finished):
+            # a user has already started the onboarding, we don't allow other users to start it again for 10 minutes
+            return "continue"
+
+        last_message = state.messages[-1]
+        if isinstance(last_message, HumanMessage) and last_message.content == ONBOARDING_INITIAL_MESSAGE:
+            return "memory_onboarding"
         return "continue"
+
+
+def should_run_onboarding_before_insights(team: Team, state: AssistantState) -> str:
+    """
+    If another user has already started the onboarding process, or it has already been completed, do not trigger it again.
+    Otherwise, start the onboarding process.
+    """
+    try:
+        core_memory = CoreMemory.objects.get(team=team)
+    except CoreMemory.DoesNotExist:
+        core_memory = None
+    if core_memory and (core_memory.is_scraping_pending or core_memory.is_scraping_finished):
+        # a user has already started the onboarding, we don't allow other users to start it again for 10 minutes
+        return "continue"
+
+    if not core_memory or core_memory.initial_text == "":
+        return "memory_onboarding"
+    return "continue"
 
 
 class MemoryOnboardingNode(MemoryInitializerContextMixin, MemoryOnboardingShouldRunMixin):
@@ -101,15 +124,29 @@ class MemoryOnboardingNode(MemoryInitializerContextMixin, MemoryOnboardingShould
 
         # The team has a product description, initialize the memory with it.
         if self._team.project.product_description:
-            core_memory.append_initial_memory("Question: What does the company do?")
-            core_memory.append_initial_memory("Answer: " + self._team.project.product_description)
-            return None
+            core_memory.append_question_to_initial_text("What does the company do?")
+            core_memory.append_answer_to_initial_text(self._team.project.product_description)
+            return PartialAssistantState(
+                messages=[
+                    AssistantMessage(
+                        content=ENQUIRY_INITIAL_MESSAGE,
+                        id=str(uuid4()),
+                    )
+                ]
+            )
 
         retrieved_properties = self._retrieve_context()
 
-        # No host or app bundle ID found, terminate the onboarding.
+        # No host or app bundle ID found
         if not retrieved_properties or retrieved_properties[0].sample_count == 0:
-            return None
+            return PartialAssistantState(
+                messages=[
+                    AssistantMessage(
+                        content=ENQUIRY_INITIAL_MESSAGE,
+                        id=str(uuid4()),
+                    )
+                ]
+            )
 
         return PartialAssistantState(
             messages=[
@@ -120,11 +157,11 @@ class MemoryOnboardingNode(MemoryInitializerContextMixin, MemoryOnboardingShould
             ]
         )
 
-    def router(self, state: AssistantState) -> Literal["initialize_memory", "continue"]:
+    def router(self, state: AssistantState) -> Literal["initialize_memory", "onboarding_enquiry"]:
         core_memory = self.core_memory
-        if not core_memory or core_memory.scraping_status == CoreMemory.ScrapingStatus.PENDING:
+        if not core_memory or core_memory.initial_text == "":
             return "initialize_memory"
-        return "continue"
+        return "onboarding_enquiry"
 
 
 class MemoryInitializerNode(MemoryInitializerContextMixin, AssistantNode):
@@ -132,18 +169,12 @@ class MemoryInitializerNode(MemoryInitializerContextMixin, AssistantNode):
     Scrapes the product description from the given origin or app bundle IDs with Perplexity.
     """
 
-    _team: Team
-
-    def __init__(self, team: Team):
-        self._team = team
-
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         core_memory, _ = CoreMemory.objects.get_or_create(team=self._team)
         retrieved_properties = self._retrieve_context()
-
         # No host or app bundle ID found, continue.
         if not retrieved_properties or retrieved_properties[0].sample_count == 0:
-            return None
+            return PartialAssistantState(messages=[])
 
         retrieved_prop = retrieved_properties[0]
         if retrieved_prop.property == "$host":
@@ -165,7 +196,6 @@ class MemoryInitializerNode(MemoryInitializerContextMixin, AssistantNode):
 
         chain = prompt | self._model() | StrOutputParser()
         answer = chain.invoke({}, config=config)
-
         # Perplexity has failed to scrape the data, continue.
         if "no data available." in answer.lower():
             return PartialAssistantState(
@@ -173,8 +203,8 @@ class MemoryInitializerNode(MemoryInitializerContextMixin, AssistantNode):
             )
 
         # Otherwise, proceed to confirmation that the memory is correct.
-        core_memory.append_initial_memory("Question: What does the company do?")
-        core_memory.append_initial_memory("Answer: " + answer)
+        core_memory.append_question_to_initial_text("What does the company do?")
+        core_memory.append_answer_to_initial_text(answer)
         return PartialAssistantState(messages=[AssistantMessage(content=self.format_message(answer), id=str(uuid4()))])
 
     def router(self, state: AssistantState) -> Literal["interrupt", "continue"]:
@@ -237,40 +267,18 @@ class MemoryOnboardingEnquiryNode(AssistantNode):
             SCRAPING_CONFIRMATION_MESSAGE,
             SCRAPING_REJECTION_MESSAGE,
             ONBOARDING_INITIAL_MESSAGE,
-        ]:
-            core_memory.append_initial_memory("Answer: " + human_message.content)
+        ] and core_memory.initial_text.endswith("Answer:"):
+            # The user is answering to a question
+            core_memory.append_answer_to_initial_text(human_message.content)
 
         if human_message.content == SCRAPING_REJECTION_MESSAGE:
             core_memory.initial_text = ""
             core_memory.save()
-        elif human_message.content == SCRAPING_CONFIRMATION_MESSAGE:
-            core_memory.initial_text = ""
-            core_memory.save()
-            assistant_message = find_last_message_of_type(state.messages, AssistantMessage)
-
-            if not assistant_message:
-                raise ValueError("No memory message found.")
-
-            # Compress the memory before saving it. The Perplexity's text is very verbose. It just complicates things for the memory collector.
-            prompt = ChatPromptTemplate.from_messages(
-                [
-                    ("system", COMPRESSION_PROMPT),
-                    ("human", self._format_memory(assistant_message.content)),
-                ]
-            )
-            chain = prompt | self._model | StrOutputParser() | compressed_memory_parser
-            compressed_memory = cast(str, chain.invoke({}, config=config))
-            compressed_memory = compressed_memory.strip().replace("\n", " ")
-            core_memory.append_initial_memory("Question: What does the company do?")
-            core_memory.append_initial_memory("Answer: " + compressed_memory)
 
         # count how many times "Question: " appears in the core memory
         questions_asked = core_memory.initial_text.count("Question: ")
         questions_left = 3 - questions_asked
-        onboarding_done = False
-        if questions_left <= 0:
-            onboarding_done = True
-        else:
+        if questions_left > 0:
             prompt = ChatPromptTemplate.from_messages(
                 [("system", MEMORY_ONBOARDING_ENQUIRY_PROMPT)], template_format="mustache"
             ).partial(core_memory=core_memory.initial_text, questions_left=questions_left)
@@ -278,39 +286,23 @@ class MemoryOnboardingEnquiryNode(AssistantNode):
             chain = prompt | self._model | StrOutputParser()
             response = chain.invoke({}, config=config)
 
-            onboarding_done = "[Done]" in response
-
-            if not onboarding_done:
+            if "[Done]" not in response:
                 question = self._format_question(response)
-                core_memory.append_initial_memory("Question: " + question)
-                raise NodeInterrupt(AssistantMessage(content=question, id=str(uuid4())))
-
-        # Compress the question/answer memory before saving it
-        prompt = ChatPromptTemplate.from_messages(
-            [
-                ("system", ONBOARDING_COMPRESSION_PROMPT),
-                ("human", core_memory.initial_text),
-            ]
-        )
-        chain = prompt | self._model | StrOutputParser() | compressed_memory_parser
-        compressed_memory = cast(str, chain.invoke({}, config=config))
-        compressed_memory = compressed_memory.strip().replace("\n", " ")
-        core_memory.set_core_memory(compressed_memory)
-        return PartialAssistantState(
-            messages=[AssistantMessage(content=SCRAPING_MEMORY_SAVED_MESSAGE, id=str(uuid4()))]
-        )
+                core_memory.append_question_to_initial_text(question)
+                return PartialAssistantState(onboarding_question=question)
+        return PartialAssistantState(messages=[], onboarding_question=None)
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4o-mini", temperature=0, disable_streaming=True, stop_sequences=["[Done]"])
+        return ChatOpenAI(model="gpt-4o", temperature=0, disable_streaming=True, stop_sequences=["[Done]"])
 
-    def router(self, state: AssistantState) -> Literal["continue", "enquire_more"]:
+    def router(self, state: AssistantState) -> Literal["continue", "interrupt"]:
         core_memory = self.core_memory
         if not core_memory:
             raise ValueError("No core memory found.")
-        if core_memory.is_scraping_finished:
-            return "continue"
-        return "enquire_more"
+        if state.onboarding_question:
+            return "interrupt"
+        return "continue"
 
     def _format_memory(self, memory: str) -> str:
         """
@@ -320,8 +312,51 @@ class MemoryOnboardingEnquiryNode(AssistantNode):
 
     def _format_question(self, question: str) -> str:
         if "===" in question:
-            return question.split("===")[1]
+            question = question.split("===")[1]
         return remove_markdown(question)
+
+
+class MemoryOnboardingEnquiryInterruptNode(AssistantNode):
+    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+        last_assistant_message = find_last_message_of_type(state.messages, AssistantMessage)
+        if not state.onboarding_question:
+            raise ValueError("No onboarding question found.")
+        if last_assistant_message and last_assistant_message.content != state.onboarding_question:
+            raise NodeInterrupt(AssistantMessage(content=state.onboarding_question, id=str(uuid4())))
+        return PartialAssistantState(messages=[])
+
+
+class MemoryOnboardingFinalizeNode(AssistantNode):
+    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+        core_memory = self.core_memory
+        if not core_memory:
+            raise ValueError("No core memory found.")
+        # Compress the question/answer memory before saving it
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", ONBOARDING_COMPRESSION_PROMPT),
+                ("human", core_memory.initial_text),
+            ]
+        )
+        chain = prompt | self._model | StrOutputParser() | compressed_memory_parser
+        compressed_memory = cast(str, chain.invoke({}, config=config))
+        compressed_memory = compressed_memory.replace("\n", " ").strip()
+        core_memory.set_core_memory(compressed_memory)
+        return PartialAssistantState(
+            messages=[AssistantMessage(content=SCRAPING_MEMORY_SAVED_MESSAGE, id=str(uuid4()))]
+        )
+
+    @property
+    def _model(self):
+        return ChatOpenAI(model="gpt-4o", temperature=0, disable_streaming=True, stop_sequences=["[Done]"])
+
+    def router(self, state: AssistantState) -> Literal["continue", "insights"]:
+        core_memory = self.core_memory
+        if not core_memory:
+            raise ValueError("No core memory found.")
+        if state.root_tool_insight_plan:
+            return "insights"
+        return "continue"
 
 
 # Lower casing matters here. Do not change it.
@@ -346,13 +381,13 @@ class core_memory_replace(BaseModel):
 memory_collector_tools = [core_memory_append, core_memory_replace]
 
 
-class MemoryCollectorNode(MemoryOnboardingShouldRunMixin, AssistantNode):
+class MemoryCollectorNode(MemoryOnboardingShouldRunMixin):
     """
     The Memory Collector manages the core memory of the agent. Core memory is a text containing facts about a user's company and product. It helps the agent save and remember facts that could be useful for insight generation or other agentic functions requiring deeper context about the product.
     """
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
-        if self.should_run(state) != "continue":
+        if self.should_run_onboarding_at_start(state) != "continue":
             return None
 
         node_messages = state.memory_collection_messages or []

@@ -20,7 +20,7 @@ export function QuestionSuggestions(): JSX.Element {
     if (!coreMemoryLoading && !coreMemory) {
         return (
             <LemonButton
-                size="small"
+                size="xsmall"
                 type="primary"
                 onClick={() => askMax('Ready, steady, go!')}
                 disabledReason={!dataProcessingAccepted ? 'Please accept OpenAI processing data' : undefined}

@@ -140,21 +140,27 @@ class CoreMemory(UUIDModel):
     @property
     def is_scraping_pending(self) -> bool:
         return self.scraping_status == CoreMemory.ScrapingStatus.PENDING and (
-            self.scraping_started_at is None or (self.scraping_started_at + timedelta(minutes=5)) > timezone.now()
+            self.scraping_started_at is None or (self.scraping_started_at + timedelta(minutes=10)) > timezone.now()
         )
 
     @property
     def is_scraping_finished(self) -> bool:
         return self.scraping_status in [CoreMemory.ScrapingStatus.COMPLETED, CoreMemory.ScrapingStatus.SKIPPED]
 
-    def append_initial_memory(self, text: str):
-        self.initial_text = self.initial_text + "\n" + text
+    def append_question_to_initial_text(self, text: str):
+        if self.initial_text != "":
+            self.initial_text += "\n"
+        self.initial_text += "Question: " + text + "\nAnswer:"
+        self.initial_text = self.initial_text.strip()
+        self.save()
+
+    def append_answer_to_initial_text(self, text: str):
+        self.initial_text += " " + text
         self.initial_text = self.initial_text.strip()
         self.save()
 
     def set_core_memory(self, text: str):
         self.text = text
-        self.initial_text = text
         self.scraping_status = CoreMemory.ScrapingStatus.COMPLETED
         self.save()
 

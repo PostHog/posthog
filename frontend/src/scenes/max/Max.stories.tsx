@@ -90,7 +90,7 @@ export const WelcomeSuggestionsAvailable: StoryFn = () => {
     const { loadCoreMemorySuccess } = useActions(maxSettingsLogic)
 
     useEffect(() => {
-        loadCoreMemorySuccess({ id: 'x', text: 'A Storybook test.', scraping_status: 'completed' })
+        loadCoreMemorySuccess({ id: 'x', text: 'A Storybook test.' })
     }, [])
 
     return <Template conversationId={CONVERSATION_ID} />
@@ -106,7 +106,7 @@ export const WelcomeLoadingSuggestions: StoryFn = () => {
     const { loadCoreMemorySuccess } = useActions(maxSettingsLogic)
 
     useEffect(() => {
-        loadCoreMemorySuccess({ id: 'x', text: 'A Storybook test.', scraping_status: 'completed' })
+        loadCoreMemorySuccess({ id: 'x', text: 'A Storybook test.' })
     }, [])
 
     return <Template conversationId={CONVERSATION_ID} />

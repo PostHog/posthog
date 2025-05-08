@@ -5323,7 +5323,6 @@ export type UserGroup = {
 export interface CoreMemory {
     id: string
     text: string
-    scraping_status: 'completed' | 'pending' | 'skipped'
 }
 
 export interface FileSystemType {

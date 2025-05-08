@@ -17,7 +17,6 @@ export const maxSettingsLogic = kea<maxSettingsLogicType>([
 
     actions({
         setIsLoading: (isLoading: boolean) => ({ isLoading }),
-        setIsOnboarding: (isOnboarding: boolean) => ({ isOnboarding }),
     }),
 
     reducers({
@@ -39,13 +38,6 @@ export const maxSettingsLogic = kea<maxSettingsLogicType>([
                 updateCoreMemory: () => true,
                 updateCoreMemorySuccess: () => false,
                 updateCoreMemoryFailure: () => false,
-            },
-        ],
-
-        isOnboarding: [
-            false,
-            {
-                setIsOnboarding: (_, { isOnboarding }: { isOnboarding: boolean }) => isOnboarding,
             },
         ],
     }),
@@ -83,7 +75,6 @@ export const maxSettingsLogic = kea<maxSettingsLogicType>([
     listeners(({ actions }) => ({
         loadCoreMemorySuccess: ({ coreMemory }) => {
             actions.setCoreMemoryFormValue('text', coreMemory.text)
-            actions.setIsOnboarding(coreMemory.scraping_status === 'pending')
         },
     })),
 
