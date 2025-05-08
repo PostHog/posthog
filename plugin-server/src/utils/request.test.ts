@@ -55,7 +55,7 @@ describe('fetch', () => {
 
         it('should raise if the URL is unknown', async () => {
             await expect(fetch('http://unknown.domain.unknown')).rejects.toMatchInlineSnapshot(
-                `[SecureRequestError: Invalid hostname]`
+                `[ResolutionError: Invalid hostname]`
             )
         })
 

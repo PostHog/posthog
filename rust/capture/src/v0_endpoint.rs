@@ -5,17 +5,16 @@ use axum::{debug_handler, Json};
 use bytes::Bytes;
 // TODO: stream this instead
 use axum::extract::{MatchedPath, Query, State};
-use axum::http::{HeaderMap, HeaderValue, Method};
+use axum::http::{HeaderMap, Method};
 use axum_client_ip::InsecureClientIp;
 use base64::Engine;
 use chrono::{DateTime, Duration, Utc};
 use common_types::{CapturedEvent, RawEvent};
 use limiters::token_dropper::TokenDropper;
 use metrics::counter;
-use serde::Deserialize;
 use serde_json::json;
 use serde_json::Value;
-use tracing::{debug, error, info, instrument, warn, Span};
+use tracing::{debug, error, instrument, warn, Span};
 
 use crate::prometheus::report_dropped_events;
 use crate::v0_request::{
@@ -30,23 +29,26 @@ use crate::{
 
 // used to limit test scans and extract loggable snippets from potentially large strings/buffers
 pub const MAX_CHARS_TO_CHECK: usize = 128;
+pub const MAX_PAYLOAD_SNIPPET_SIZE: usize = 20;
 
-// flexible form schema to accommodate legacy quirks across SDKs/versions
-#[derive(Deserialize)]
-struct LegacyEventForm {
-    pub data: Vec<u8>, // TODO(eli): this should be Option<Vec<u8>>
-    pub compression: Option<Compression>,
-    #[serde(alias = "ver")]
-    pub lib_version: Option<String>,
+#[derive(PartialEq, Eq)]
+enum Base64Option {
+    // hasn't been decoded from urlencoded payload; won't include spaces
+    Strict,
+    // input might have been urlencoded; might include spaces that need touching up
+    Loose,
 }
 
 /// handle_legacy owns the /e, /capture, /track, and /engage capture endpoints
 #[instrument(
     skip_all,
     fields(
-        headers,
         method,
         path,
+        user_agent,
+        content_type,
+        content_encoding,
+        x_request_id,
         token,
         historical_migration,
         lib_version,
@@ -65,8 +67,37 @@ async fn handle_legacy(
     path: &MatchedPath,
     body: Bytes,
 ) -> Result<(ProcessingContext, Vec<RawEvent>), CaptureError> {
+    // this endpoint handles:
+    // - GET or POST requests w/payload that is one of:
+    //   1. possibly base64-wrapped, possibly GZIP or LZ64 compressed JSON payload
+    //   2. possibly base64-wrapped, urlencoded form where "data" is the key for JSON payload
+    //
+    // When POST body isn't the payload, the POST form fields or
+    // GET query params should contain the following:
+    //     - data        = JSON payload which may itself be compressed or base64 encoded or both
+    //     - compression = hint to how "data" is encoded or compressed
+    //     - lib_version = SDK version that submitted the request
+
+    // capture arguments and add to logger, processing context
     Span::current().record("path", path.as_str());
-    Span::current().record("headers", format!("{:?}", headers));
+    let user_agent = headers
+        .get("user-agent")
+        .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
+    Span::current().record("user_agent", user_agent);
+    let content_type = headers
+        .get("content-type")
+        .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
+    Span::current().record("content_type", content_type);
+    let content_encoding = headers
+        .get("content-encoding")
+        .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
+    Span::current().record("content_encoding", content_encoding);
+    let x_request_id = headers
+        .get("x-request-id")
+        .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
+    Span::current().record("x_request_id", x_request_id);
+
+    // TODO(eli): temporary peek at these
     if query_params.lib_version.is_some() {
         Span::current().record(
             "params_lib_version",
@@ -79,70 +110,50 @@ async fn handle_legacy(
             format!("{}", query_params.compression.unwrap()),
         );
     }
-    info!("entering handle_legacy");
 
-    // extract from headers here for later capture in processing context
-    let user_agent = headers
-        .get("user-agent")
-        .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
+    warn!("entering handle_legacy");
 
-    // extract the raw payload from the request which may include
-    // GZIP or lz64 compressed blob representing ANY of the below options:
-    // 1. JSON POST body that may itself be base64 encoded
-    // 2. GET query params or POST form KVs including:
-    //     - data        = JSON payload which may itself be compressed or base64 encoded or both
-    //     - compression = optional hint to how "data" is encoded or compressed
-    //     - lib_version = optional SDK version that submitted this request
-    let raw_payload: Bytes = match *method {
-        Method::POST => {
-            if body.is_empty() {
-                error!("unexpected missing payload on {:?} request", method);
-                return Err(CaptureError::EmptyPayload);
-            }
-            body
-        }
-
-        Method::GET => {
-            if query_params.data.as_ref().is_some_and(|d| !d.is_empty()) {
-                let tmp_vec = std::mem::take(&mut query_params.data);
-                Bytes::from(tmp_vec.unwrap())
-            } else if !body.is_empty() {
-                body
-            } else {
-                error!("unexpected missing payload on {:?} request", method);
-                return Err(CaptureError::EmptyPayload);
-            }
-        }
-
-        _ => {
-            error!("data payload not found on {:?} request", method);
-            return Err(CaptureError::EmptyPayload);
-        }
+    // unpack the payload - it may be in a GET query param or POST body
+    let raw_payload: Bytes = if query_params.data.as_ref().is_some_and(|d| !d.is_empty()) {
+        let tmp_vec = std::mem::take(&mut query_params.data);
+        Bytes::from(tmp_vec.unwrap())
+    } else if !body.is_empty() {
+        body
+    } else {
+        error!("missing payload on {:?} request", method);
+        return Err(CaptureError::EmptyPayload);
     };
 
-    // source and unpack first layer of form data if possible. Store it in an
-    // LegacyEventForm for convenience regardless of source (POST body, GET params, etc.)
-    let form: LegacyEventForm = match headers
-        .get("content-type")
-        .unwrap_or(&HeaderValue::from_static("UNKNOWN"))
-        .to_str()
-        .unwrap()
+    // first round of processing: is this byte payload entirely base64 encoded?
+    // unwrap for downstream processing if so, leave it alone if not
+    let payload = if !is_likely_urlencoded_form(&raw_payload)
+        && is_likely_base64(&raw_payload, Base64Option::Strict)
     {
-        "text/plain" | "application/json" => LegacyEventForm {
-            data: Vec::from(raw_payload),
-            compression: None,
-            lib_version: None,
-        },
+        decode_base64(&raw_payload, "raw_payload").map_or(raw_payload, Bytes::from)
+    } else {
+        raw_payload
+    };
 
+    // attempt to decode POST payload if it is form data. if
+    // successful, the form data will be processed downstream
+    let form: EventFormData = match content_type {
         "application/x-www-form-urlencoded" => {
-            if is_likely_urlencoded_form(&raw_payload) {
-                decode_form(&raw_payload, "plain_form")?
-            } else if is_likely_base64(&raw_payload) {
-                let decoded = decode_base64(&raw_payload)?;
-                decode_form(&decoded, "form_after_b64_unwrap")?
+            if is_likely_urlencoded_form(&payload) {
+                let mut form = decode_form(&payload)?;
+                // corner case: if the form "data" payload is Base64 encoded,
+                // we need to restore the '+' chars that were decoded to spaces
+                // for the downstream decoding steps like LZ64 to work with
+                if form
+                    .data
+                    .as_ref()
+                    .is_some_and(|d| is_likely_base64(d.as_bytes(), Base64Option::Loose))
+                {
+                    form.data = Some(form.data.unwrap().replace(" ", "+"));
+                }
+                form
             } else {
-                let max_chars = std::cmp::min(raw_payload.len(), MAX_CHARS_TO_CHECK);
-                let form_data_snippet = String::from_utf8(raw_payload[..max_chars].to_vec())
+                let max_chars = std::cmp::min(payload.len(), MAX_PAYLOAD_SNIPPET_SIZE);
+                let form_data_snippet = String::from_utf8(payload[..max_chars].to_vec())
                     .unwrap_or(String::from("INVALID_UTF8"));
                 error!(
                     form_data = form_data_snippet,
@@ -154,32 +165,27 @@ async fn handle_legacy(
             }
         }
 
-        // TODO(eli): circle back after more SDK research
-        unexpected_ct => {
-            // headers should be included in this log already to see what happened
-            warn!(
-                "handle_legacy: unexpected req Content-Type {}, applying best-effort processing",
-                unexpected_ct
-            );
-            // make a best-effort attempt to get this parsed downstream
-            LegacyEventForm {
-                data: Vec::from(raw_payload),
-                compression: None,
-                lib_version: None,
-            }
-        }
+        // if "data" is unpopulated, the non-form payload will be processed downstream
+        _ => EventFormData {
+            data: None,
+            compression: None,
+            lib_version: None,
+        },
     };
 
-    // extract the "compression" param; location varies depending on SDK/version etc.
+    // different SDKs stash these in different places. take the best we find
     let compression = extract_compression(&form, query_params, headers);
     Span::current().record("compression", format!("{}", compression));
-
     let lib_version = extract_lib_version(&form, query_params);
     Span::current().record("lib_version", &lib_version);
 
-    // TODO(eli): Add is_mirror_deploy to error logging in RawRequest::from_bytes
+    warn!("payload processed: passing to RawRequest::from_bytes");
+
+    // if the "data" attribute is populated in the form, process it.
+    // otherwise, pass the (possibly decoded) byte payload
+    let data = form.data.map_or(payload, Bytes::from);
     let request = RawRequest::from_bytes(
-        form.data.into(),
+        data,
         compression,
         state.event_size_limit,
         state.is_mirror_deploy,
@@ -193,11 +199,12 @@ async fn handle_legacy(
             return Err(err);
         }
     };
-    let historical_migration = request.historical_migration();
-    let events = request.events(); // Takes ownership of request
-
     Span::current().record("token", &token);
+
+    let historical_migration = request.historical_migration();
     Span::current().record("historical_migration", historical_migration);
+
+    let events = request.events(); // Takes ownership of request
     Span::current().record("batch_size", events.len());
 
     if events.is_empty() {
@@ -228,13 +235,13 @@ async fn handle_legacy(
         return Err(CaptureError::BillingLimit);
     }
 
-    // TODO(eli): back to debug-level logging as we ramp the mirror
-    info!(context=?context, events=?events, "handle_legacy: decoded request");
-
+    warn!(context=?context,
+        event_count=?events.len(),
+        "handle_legacy: successfully hydrated events");
     Ok((context, events))
 }
 
-fn extract_lib_version(form: &LegacyEventForm, params: &EventQuery) -> Option<String> {
+fn extract_lib_version(form: &EventFormData, params: &EventQuery) -> Option<String> {
     let form_lv = form.lib_version.as_ref();
     let params_lv = params.lib_version.as_ref();
     if form_lv.is_some_and(|lv| !lv.is_empty()) {
@@ -249,7 +256,7 @@ fn extract_lib_version(form: &LegacyEventForm, params: &EventQuery) -> Option<St
 
 // the compression hint can be tucked away any number of places depending on the SDK submitting the request...
 fn extract_compression(
-    form: &LegacyEventForm,
+    form: &EventFormData,
     params: &EventQuery,
     headers: &HeaderMap,
 ) -> Compression {
@@ -274,19 +281,17 @@ fn extract_compression(
     }
 }
 
-fn decode_form(payload: &[u8], location: &str) -> Result<LegacyEventForm, CaptureError> {
-    match serde_urlencoded::from_bytes::<LegacyEventForm>(payload) {
+fn decode_form(payload: &[u8]) -> Result<EventFormData, CaptureError> {
+    match serde_urlencoded::from_bytes::<EventFormData>(payload) {
         Ok(form) => Ok(form),
 
         Err(e) => {
-            let max_chars: usize = std::cmp::min(payload.len(), MAX_CHARS_TO_CHECK);
+            let max_chars: usize = std::cmp::min(payload.len(), MAX_PAYLOAD_SNIPPET_SIZE);
             let form_data_snippet = String::from_utf8(payload[..max_chars].to_vec())
                 .unwrap_or(String::from("INVALID_UTF8"));
             error!(
                 form_data = form_data_snippet,
-                location = location,
-                "failed to decode urlencoded form body: {}",
-                e
+                "failed to decode urlencoded form body: {}", e
             );
             Err(CaptureError::RequestDecodingError(String::from(
                 "invalid urlencoded form data",
@@ -297,45 +302,54 @@ fn decode_form(payload: &[u8], location: &str) -> Result<LegacyEventForm, Captur
 
 // have we decoded sufficiently have a urlencoded data payload of the expected form yet?
 fn is_likely_urlencoded_form(payload: &[u8]) -> bool {
-    [&b"data="[..], &b"ver="[..], &b"compression="[..]]
-        .iter()
-        .any(|target: &&[u8]| payload.starts_with(target))
+    [
+        &b"data="[..],
+        &b"ver="[..],
+        &b"_="[..],
+        &b"ip="[..],
+        &b"compression="[..],
+    ]
+    .iter()
+    .any(|target: &&[u8]| payload.starts_with(target))
 }
 
 // relatively cheap check for base64 encoded payload since these can show up at
 // various decoding layers in requests from different PostHog SDKs and versions
-fn is_likely_base64(payload: &[u8]) -> bool {
+fn is_likely_base64(payload: &[u8], opt: Base64Option) -> bool {
     if payload.is_empty() {
         return false;
     }
 
-    let all_chars_b64_compatible = payload.iter().take(MAX_CHARS_TO_CHECK).all(|b| {
+    let prefix_chars_b64_compatible = payload.iter().take(MAX_CHARS_TO_CHECK).all(|b| {
         (*b >= b'A' && *b <= b'Z')
             || (*b >= b'a' && *b <= b'z')
             || (*b >= b'0' && *b <= b'9')
             || *b == b'+'
             || *b == b'/'
             || *b == b'='
+            || (opt == Base64Option::Loose && *b == b' ')
     });
 
     let is_b64_aligned = payload.len() % 4 == 0;
 
-    all_chars_b64_compatible && is_b64_aligned
+    prefix_chars_b64_compatible && is_b64_aligned
 }
 
-fn decode_base64(payload: &[u8]) -> Result<Vec<u8>, CaptureError> {
+fn decode_base64(payload: &[u8], location: &str) -> Result<Vec<u8>, CaptureError> {
     match base64::engine::general_purpose::STANDARD.decode(payload) {
         Ok(decoded_payload) => Ok(decoded_payload),
         Err(e) => {
-            let max_chars = std::cmp::min(payload.len(), MAX_CHARS_TO_CHECK);
-            let form_data_snippet = String::from_utf8(payload[..max_chars].to_vec())
+            let max_chars = std::cmp::min(payload.len(), MAX_PAYLOAD_SNIPPET_SIZE);
+            let data_snippet = String::from_utf8(payload[..max_chars].to_vec())
                 .unwrap_or(String::from("INVALID_UTF8"));
             error!(
-                form_data = form_data_snippet,
-                "failed to decode expected base64 data: {}", e
+                location = location,
+                data_snippet = data_snippet,
+                "decode_base64 failure: {}",
+                e
             );
             Err(CaptureError::RequestDecodingError(String::from(
-                "missing or invalid payload",
+                "attempting to decode base64",
             )))
         }
     }
@@ -386,11 +400,13 @@ async fn handle_common(
                 error!("failed to decode urlencoded form body: {}", e);
                 CaptureError::RequestDecodingError(String::from("invalid urlencoded form data"))
             })?;
-            if input.data.is_empty() {
+
+            if input.data.is_none() || input.data.as_ref().is_some_and(|d| d.is_empty()) {
                 return Err(CaptureError::EmptyPayload);
             }
+
             let payload = base64::engine::general_purpose::STANDARD
-                .decode(&input.data)
+                .decode(input.data.unwrap())
                 .map_err(|e| {
                     error!("failed to decode base64 form data: {}", e);
                     CaptureError::RequestDecodingError(String::from(
@@ -505,7 +521,10 @@ pub async fn event_legacy(
                 quota_limited: None,
             }))
         }
-        Err(err) => Err(err),
+        Err(err) => {
+            error!("UNHANDLED CAPTURE ERROR: {}", err);
+            Err(err)
+        }
         Ok((context, events)) => {
             if let Err(err) = process_events(
                 state.sink.clone(),

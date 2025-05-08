@@ -132,7 +132,11 @@ describe('FetchExecutorService', () => {
         // Should now be complete with failure
         expect(retryResult.invocation.queue).toBe('hog')
         expect(params.trace?.length).toBe(2)
-        expect(params.response).toBeNull()
+        expect(params.response).toEqual({
+            status: 500,
+            headers: expect.objectContaining({ 'content-type': 'text/plain' }),
+        })
+        expect(params.body).toBe('test server error body')
         expect(attempts).toBe(2)
     })
 
@@ -153,6 +157,34 @@ describe('FetchExecutorService', () => {
                 kind: 'requesterror',
             })
         )
+    })
+
+    it('handles security errors', async () => {
+        process.env.NODE_ENV = 'production' // Make sure the security features are enabled
+
+        const invocation = createInvocation({
+            url: 'http://localhost',
+            method: 'GET',
+            return_queue: 'hog',
+        })
+
+        const result = await service.execute(invocation)
+
+        // Should be scheduled for retry
+        expect(result.invocation.queue).toBe('hog')
+        expect(result.invocation.queueParameters).toMatchObject({
+            body: null,
+            response: null,
+            timings: [],
+            trace: [
+                {
+                    kind: 'requesterror',
+                    message: 'SecureRequestError: Internal hostname',
+                },
+            ],
+        })
+
+        process.env.NODE_ENV = 'test'
     })
 
     it('handles timeouts', async () => {
