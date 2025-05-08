@@ -6,7 +6,13 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'posthog-js'
 import React from 'react'
 
-import { BillingPlanType, BillingProductV2AddonType, BillingProductV2Type, BillingTierType } from '~/types'
+import {
+    BillingPlanType,
+    BillingProductV2AddonType,
+    BillingProductV2Type,
+    BillingTierType,
+    SurveyEventName,
+} from '~/types'
 
 import { convertAmountToUsage } from './billing-utils'
 import { billingLogic } from './billingLogic'
@@ -109,6 +115,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
         resetUnsubscribeModalStep: true,
         setHedgehogSatisfied: (satisfied: boolean) => ({ satisfied }),
         triggerMoreHedgehogs: true,
+        removeBillingLimitNextPeriod: (productType: string) => ({ productType }),
     }),
     reducers({
         billingLimitInput: [
@@ -259,6 +266,16 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 return product.usage_limit || 0
             },
         ],
+        billingLimitNextPeriod: [
+            (s, p) => [s.billing, p.product],
+            (billing, product) => {
+                const nextPeriodLimit = billing?.next_period_custom_limits_usd?.[product.type]
+                if (nextPeriodLimit === 0 || nextPeriodLimit) {
+                    return nextPeriodLimit
+                }
+                return product.usage_key ? billing?.next_period_custom_limits_usd?.[product.usage_key] ?? null : null
+            },
+        ],
         billingGaugeItems: [
             (s, p) => [p.product, s.billing, s.freeTier, s.billingLimitAsUsage],
             (product, billing, freeTier, billingLimitAsUsage): BillingGaugeItemType[] => {
@@ -329,7 +346,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
             )
         },
         reportSurveyShown: ({ surveyID }) => {
-            posthog.capture('survey shown', {
+            posthog.capture(SurveyEventName.SHOWN, {
                 $survey_id: surveyID,
             })
             actions.setSurveyID(surveyID)
@@ -340,14 +357,14 @@ export const billingProductLogic = kea<billingProductLogicType>([
             // $survey_response_1: this is the product type
             // $survey_response_2: list of reasons
             // The order is due to the form being built before reasons we're supported. Please do not change the order.
-            posthog.capture('survey sent', {
+            posthog.capture(SurveyEventName.SENT, {
                 $survey_id: surveyID,
                 ...surveyResponse,
             })
             actions.setSurveyID('')
         },
         reportSurveyDismissed: ({ surveyID }) => {
-            posthog.capture('survey dismissed', {
+            posthog.capture(SurveyEventName.DISMISSED, {
                 $survey_id: surveyID,
             })
             actions.setSurveyID('')
@@ -419,6 +436,19 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 await breakpoint(200)
             }
         },
+        removeBillingLimitNextPeriod: async ({ productType }) => {
+            try {
+                await api.update('api/billing', { reset_limit_next_period: productType })
+                lemonToast.success('Billing limit for next period has been removed.')
+            } catch (e) {
+                console.error(e)
+                lemonToast.error(
+                    'There was an error removing your billing limit for next period. Please try again or contact support.'
+                )
+            } finally {
+                actions.loadBilling()
+            }
+        },
     })),
     forms(({ actions, props, values }) => ({
         billingLimitInput: {
@@ -448,19 +478,20 @@ export const billingProductLogic = kea<billingProductLogicType>([
 
                 if (props.product.current_usage && newAmountAsUsage < props.product.current_usage) {
                     LemonDialog.open({
+                        maxWidth: '600px',
                         title: 'Billing limit warning',
                         description:
-                            'Your new billing limit will be below your current usage. Your bill will not increase for this period but parts of the product will stop working and data may be lost.',
+                            "The billing limit you set is below your current usage. If you proceed, your current period's limit will be set to your current usage (to prevent additional charges), and the new lower limit will go into effect in your next billing period. Are you sure you want to proceed?",
                         primaryButton: {
                             status: 'danger',
-                            children: 'I understand',
+                            children: 'Yes, I understand',
                             onClick: () =>
                                 actions.updateBillingLimits({
                                     [props.product.type]: input,
                                 }),
                         },
                         secondaryButton: {
-                            children: 'I changed my mind',
+                            children: 'No, I changed my mind',
                         },
                     })
                     return
@@ -468,18 +499,20 @@ export const billingProductLogic = kea<billingProductLogicType>([
 
                 if (props.product.projected_usage && newAmountAsUsage < props.product.projected_usage) {
                     LemonDialog.open({
+                        maxWidth: '600px',
                         title: 'Billing limit warning',
                         description:
-                            'Your predicted usage is above your billing limit which is likely to result in usage being throttled.',
+                            'Your predicted usage is above your billing limit which is likely to result in usage being throttled and data being dropped. Are you sure you want to proceed?',
                         primaryButton: {
-                            children: 'I understand',
+                            status: 'danger',
+                            children: 'Yes, I understand',
                             onClick: () =>
                                 actions.updateBillingLimits({
                                     [props.product.type]: input,
                                 }),
                         },
                         secondaryButton: {
-                            children: 'I changed my mind',
+                            children: 'No, I changed my mind',
                         },
                     })
                     return

@@ -1,19 +1,16 @@
-import './EventsHeatMap.scss'
+import './CalendarHeatMap.scss'
 
+import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import React, { useCallback, useEffect, useState } from 'react'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
-import { InsightLoadingState } from 'scenes/insights/EmptyStates'
-import { InsightsWrapper } from 'scenes/insights/InsightsWrapper'
 
 import { useResizeObserver } from '~/lib/hooks/useResizeObserver'
-import { QueryContext } from '~/queries/types'
 
-import { HeatMapCell, HeatMapValues } from './HeatMapCell'
-interface EventsHeatMapProps {
-    context: QueryContext
+import { CalendarHeatMapCell, HeatMapValues } from './CalendarHeatMapCell'
+
+export interface CalendarHeatMapProps {
     isLoading: boolean
-    queryId: string | null
     rowLabels: string[]
     columnLabels: string[]
     allAggregationsLabel: string
@@ -45,8 +42,7 @@ interface ProcessedData {
     minColumnAggregation: number
 }
 
-export function EventsHeatMap({
-    context,
+export function CalendarHeatMap({
     backgroundColorsOverride,
     initialFontSize,
     thresholdFontSize,
@@ -54,13 +50,12 @@ export function EventsHeatMap({
     columnLabels,
     allAggregationsLabel,
     isLoading,
-    queryId,
     processedData,
     getDataTooltip,
     getColumnAggregationTooltip,
     getRowAggregationTooltip,
     getOverallAggregationTooltip,
-}: EventsHeatMapProps): JSX.Element {
+}: CalendarHeatMapProps): JSX.Element {
     const { themes, getTheme } = useValues(dataThemeLogic)
     const theme = getTheme(themes?.[0]?.id)
     const { ref: elementRef, width } = useResizeObserver()
@@ -90,14 +85,6 @@ export function EventsHeatMap({
         updateSize()
     }, [elementRef, updateSize])
 
-    if (isLoading) {
-        return (
-            <InsightsWrapper>
-                <InsightLoadingState queryId={queryId} key={queryId} insightProps={context.insightProps ?? {}} />
-            </InsightsWrapper>
-        )
-    }
-
     const {
         matrix,
         maxOverall,
@@ -112,78 +99,101 @@ export function EventsHeatMap({
     } = processedData
 
     return (
-        <div className="EventsHeatMapContainer" ref={elementRef}>
+        <div className="CalendarHeatMapContainer" ref={elementRef}>
             <table
-                className="EventsHeatMap"
+                className="CalendarHeatMap"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ '--heatmap-table-color': heatmapColor } as React.CSSProperties}
+                data-attr="calendar-heatmap"
             >
-                <tbody>
-                    {/* Header row */}
-                    <tr>
-                        <th className="bg" />
-                        {columnLabels.map((label, i) => (
-                            <th key={i}>{label}</th>
-                        ))}
-                        {rowsAggregations[0] !== undefined && (
-                            <th className="aggregation-border">{allAggregationsLabel}</th>
-                        )}
-                    </tr>
-
-                    {/* Data rows */}
-                    {rowLabels.map((rowLabel, yIndex) => (
-                        <tr key={yIndex}>
-                            <td className="EventsHeatMap__TextTab">{rowLabel}</td>
-                            {renderDataCells(
-                                columnLabels,
-                                matrix[yIndex],
-                                maxOverall,
-                                minOverall,
-                                rowLabel,
-                                fontSize,
-                                heatmapColor,
-                                getDataTooltip
-                            )}
-                            {renderRowsAggregationCell(
-                                {
-                                    value: rowsAggregations[yIndex],
-                                    maxValue: maxRowAggregation,
-                                    minValue: minRowAggregation,
-                                },
-                                rowLabel,
-                                fontSize,
-                                rowAggregationColor,
-                                allAggregationsLabel,
-                                getRowAggregationTooltip
+                {isLoading ? (
+                    <LoadingRow />
+                ) : (
+                    <thead>
+                        <tr>
+                            <th className="bg" />
+                            {columnLabels.map((label, i) => (
+                                <th key={i}>{label}</th>
+                            ))}
+                            {rowsAggregations[0] !== undefined && (
+                                <th className="aggregation-border">{allAggregationsLabel}</th>
                             )}
                         </tr>
-                    ))}
+                    </thead>
+                )}
+                {isLoading ? (
+                    <LoadingRow />
+                ) : (
+                    <tbody>
+                        {/* Data rows */}
+                        {rowLabels.map((rowLabel, yIndex) => (
+                            <tr key={yIndex}>
+                                <td className="CalendarHeatMap__TextTab">{rowLabel}</td>
+                                {renderDataCells(
+                                    columnLabels,
+                                    matrix[yIndex],
+                                    maxOverall,
+                                    minOverall,
+                                    rowLabel,
+                                    fontSize,
+                                    heatmapColor,
+                                    getDataTooltip
+                                )}
+                                {renderRowsAggregationCell(
+                                    {
+                                        value: rowsAggregations[yIndex],
+                                        maxValue: maxRowAggregation,
+                                        minValue: minRowAggregation,
+                                    },
+                                    rowLabel,
+                                    fontSize,
+                                    rowAggregationColor,
+                                    allAggregationsLabel,
+                                    getRowAggregationTooltip
+                                )}
+                            </tr>
+                        ))}
 
-                    {/* Aggregation column */}
-                    <tr className="aggregation-border">
-                        {columnsAggregations[0] !== undefined && (
-                            <td className="EventsHeatMap__TextTab">{allAggregationsLabel}</td>
-                        )}
-                        {renderColumnsAggregationCells(
-                            columnsAggregations,
-                            columnLabels,
-                            maxColumnAggregation,
-                            minColumnAggregation,
-                            fontSize,
-                            columnAggregationColor,
-                            allAggregationsLabel,
-                            getColumnAggregationTooltip
-                        )}
-                        {renderOverallCell(
-                            overallValue,
-                            fontSize,
-                            backgroundColorOverall,
-                            allAggregationsLabel,
-                            getOverallAggregationTooltip
-                        )}
-                    </tr>
-                </tbody>
+                        {/* Aggregation column */}
+                        <tr className="aggregation-border">
+                            {columnsAggregations[0] !== undefined && (
+                                <td className="CalendarHeatMap__TextTab">{allAggregationsLabel}</td>
+                            )}
+                            {renderColumnsAggregationCells(
+                                columnsAggregations,
+                                columnLabels,
+                                maxColumnAggregation,
+                                minColumnAggregation,
+                                fontSize,
+                                columnAggregationColor,
+                                allAggregationsLabel,
+                                getColumnAggregationTooltip
+                            )}
+                            {renderOverallCell(
+                                overallValue,
+                                fontSize,
+                                backgroundColorOverall,
+                                allAggregationsLabel,
+                                getOverallAggregationTooltip
+                            )}
+                        </tr>
+                    </tbody>
+                )}
             </table>
+        </div>
+    )
+}
+
+function LoadingRow({ cellCount = 14 }: { cellCount?: number }): JSX.Element {
+    return (
+        <div className="flex items-center justify-center min-h-8 p-0.5 m-0.5">
+            <div className="flex gap-1">
+                {Array(cellCount)
+                    .fill(0)
+                    .map((_, i) => (
+                        <LemonSkeleton key={i} className="h-8 w-8 rounded" />
+                    ))}
+            </div>
         </div>
     )
 }
@@ -197,7 +207,7 @@ function renderOverallCell(
 ): JSX.Element {
     return (
         <td className="aggregation-border">
-            <HeatMapCell
+            <CalendarHeatMapCell
                 fontSize={fontSize}
                 values={{
                     value: overallValue,
@@ -223,7 +233,7 @@ function renderColumnsAggregationCells(
 ): JSX.Element[] {
     return columnLabels.map((columnLabel, index) => (
         <td key={index}>
-            <HeatMapCell
+            <CalendarHeatMapCell
                 fontSize={fontSize}
                 values={{
                     value: columnsAggregations[index],
@@ -247,7 +257,7 @@ function renderRowsAggregationCell(
 ): JSX.Element {
     return (
         <td className="aggregation-border">
-            <HeatMapCell
+            <CalendarHeatMapCell
                 fontSize={fontSize}
                 values={values}
                 bg={bg}
@@ -269,7 +279,7 @@ function renderDataCells(
 ): JSX.Element[] {
     return columnLabels.map((columnLabel, index) => (
         <td key={index}>
-            <HeatMapCell
+            <CalendarHeatMapCell
                 fontSize={fontSize}
                 values={{
                     value: rowData[index],

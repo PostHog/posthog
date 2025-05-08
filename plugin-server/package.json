@@ -128,7 +128,6 @@
         "@types/uuid": "^10.0.0",
         "@typescript-eslint/eslint-plugin": "^7.1.1",
         "@typescript-eslint/parser": "^7.1.1",
-        "@xyflow/react": "^12.6.0",
         "babel-eslint": "^10.1.0",
         "c8": "^7.12.0",
         "deepmerge": "^4.2.2",
