@@ -3961,13 +3961,6 @@ class AssistantRetentionFilter(BaseModel):
     returningEntity: Union[AssistantRetentionEventsNode, AssistantRetentionActionsNode] = Field(
         ..., description="Retention event (event marking the user coming back)."
     )
-    showMean: Optional[bool] = Field(
-        default=None,
-        description=(
-            "DEPRECATED: Whether an additional series should be shown, showing the mean conversion for each period"
-            " across cohorts."
-        ),
-    )
     targetEntity: Union[AssistantRetentionEventsNode, AssistantRetentionActionsNode] = Field(
         ..., description="Activation event (event putting the actor into the initial cohort)."
     )

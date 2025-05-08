@@ -1511,10 +1511,6 @@
                     "$ref": "#/definitions/AssistantRetentionEntity",
                     "description": "Retention event (event marking the user coming back)."
                 },
-                "showMean": {
-                    "description": "DEPRECATED: Whether an additional series should be shown, showing the mean conversion for each period across cohorts.",
-                    "type": "boolean"
-                },
                 "targetEntity": {
                     "$ref": "#/definitions/AssistantRetentionEntity",
                     "description": "Activation event (event putting the actor into the initial cohort)."
