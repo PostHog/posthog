@@ -23,6 +23,7 @@ from django.conf import settings
 from dlt.common.libs.deltalake import get_delta_tables
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.exceptions_capture import capture_exception
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.query import execute_hogql_query
@@ -497,8 +498,12 @@ async def update_table_row_count(saved_query: DataWarehouseSavedQuery, row_count
             await database_sync_to_async(table.save)()
             await logger.ainfo("Updated row count for table %s to %d", saved_query.name, row_count)
         else:
+            capture_exception(
+                ValueError(f"Could not find DataWarehouseTable record for saved query {saved_query.name}")
+            )
             await logger.aexception("Could not find DataWarehouseTable record for saved query %s", saved_query.name)
     except Exception as e:
+        capture_exception(e)
         await logger.aexception("Failed to update row count for table %s: %s", saved_query.name, str(e))
 
 
@@ -826,6 +831,13 @@ class CancelJobsActivityInputs:
     team_id: int
 
 
+@dataclasses.dataclass
+class FailJobsActivityInputs:
+    workflow_id: str
+    workflow_run_id: str
+    error: str
+
+
 @temporalio.activity.defn
 async def cancel_jobs_activity(inputs: CancelJobsActivityInputs) -> None:
     """Activity to cancel data modeling jobs."""
@@ -835,6 +847,16 @@ async def cancel_jobs_activity(inputs: CancelJobsActivityInputs) -> None:
     await logger.ainfo(
         "Cancelled data modeling jobs", workflow_id=inputs.workflow_id, workflow_run_id=inputs.workflow_run_id
     )
+
+
+@temporalio.activity.defn
+async def fail_jobs_activity(inputs: FailJobsActivityInputs) -> None:
+    """Activity to fail data modeling jobs."""
+    job = await database_sync_to_async(DataModelingJob.objects.get)(
+        workflow_id=inputs.workflow_id, workflow_run_id=inputs.workflow_run_id
+    )
+
+    await mark_job_as_failed(job, inputs.error)
 
 
 @dataclasses.dataclass
@@ -924,14 +946,30 @@ class RunWorkflow(PostHogWorkflow):
                         ),
                         start_to_close_timeout=dt.timedelta(minutes=5),
                         retry_policy=temporalio.common.RetryPolicy(
-                            maximum_attempts=0,
+                            maximum_attempts=3,
                         ),
                     )
                 except Exception as cancel_err:
+                    capture_exception(cancel_err)
                     temporalio.workflow.logger.error(f"Failed to cancel jobs: {str(cancel_err)}")
+                    raise
+                raise
 
+            capture_exception(e)
             temporalio.workflow.logger.error(f"Activity failed during model run: {str(e)}")
-            return Results(set(), set(), set())
+
+            workflow_id = temporalio.workflow.info().workflow_id
+            workflow_run_id = temporalio.workflow.info().run_id
+
+            await temporalio.workflow.execute_activity(
+                fail_jobs_activity,
+                FailJobsActivityInputs(workflow_id=workflow_id, workflow_run_id=workflow_run_id, error=str(e)),
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=temporalio.common.RetryPolicy(
+                    maximum_attempts=3,
+                ),
+            )
+            raise
 
         completed, failed, ancestor_failed = results
 

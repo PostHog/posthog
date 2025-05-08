@@ -1,11 +1,13 @@
-from datetime import datetime
+import datetime
 import re
 from typing import cast
 
+from ee.session_recordings.session_summary.local.input_data import (
+    _get_production_session_events_locally,
+    _get_production_session_metadata_locally,
+)
 from ee.session_recordings.session_summary.utils import (
     get_column_index,
-    load_session_metadata_from_json,
-    load_session_recording_events_from_csv,
 )
 from posthog.session_recordings.models.metadata import RecordingMetadata
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
@@ -14,43 +16,60 @@ from posthog.models import Team
 EXTRA_SUMMARY_EVENT_FIELDS = ["elements_chain_ids", "elements_chain"]
 
 
-def get_session_metadata(session_id: str, team: Team, local_path: str | None = None) -> RecordingMetadata:
-    if not local_path:
-        session_metadata = SessionReplayEvents().get_metadata(session_id=str(session_id), team=team)
+def get_session_metadata(session_id: str, team: Team, local_reads_prod: bool = False) -> RecordingMetadata:
+    events_obj = SessionReplayEvents()
+    if not local_reads_prod:
+        session_metadata = events_obj.get_metadata(session_id=str(session_id), team=team)
     else:
-        raw_session_metadata = load_session_metadata_from_json(local_path)
-        session_metadata = cast(RecordingMetadata, raw_session_metadata)
+        session_metadata = _get_production_session_metadata_locally(events_obj, session_id, team)
     if not session_metadata:
         raise ValueError(f"No session metadata found for session_id {session_id}")
     return session_metadata
 
 
-def _get_paginated_session_events(
+def get_session_events(
     session_id: str,
     session_metadata: RecordingMetadata,
     team: Team,
-    max_pages: int,
-    items_per_page: int,
-    events_to_ignore: list[str] | None = None,
-    extra_fields: list[str] | None = None,
-) -> tuple[list[str], list[tuple[str | datetime | list[str] | None, ...]]]:
+    local_reads_prod: bool = False,
+    # The estimation that we can cover 2 hours/3000 events per page within 200 000 token window,
+    # but as GPT-4.1 allows up to 1kk tokens, we can allow up to 4 hours sessions to be covered
+    # TODO: Check if it's a meaningful approach, or should we just analyze first N events for huge sessions
+    # TODO: Move to a config
+    max_pages: int = 2,
+    items_per_page: int = 3000,
+) -> tuple[list[str], list[tuple[str | datetime.datetime | list[str] | None, ...]]]:
     """
     Get session events with pagination to handle large sessions.
     Returns combined results from all pages up to max_pages.
     """
+    events_to_ignore = ["$feature_flag_called"]
+    extra_fields = EXTRA_SUMMARY_EVENT_FIELDS
+    # Collect all events and columns from all pages
     all_events = []
     columns = None
     events_obj = SessionReplayEvents()
     for page in range(max_pages):
-        page_columns, page_events = events_obj.get_events(
-            session_id=str(session_id),
-            team=team,
-            metadata=session_metadata,
-            events_to_ignore=events_to_ignore,
-            extra_fields=extra_fields,
-            limit=items_per_page,
-            page=page,
-        )
+        if not local_reads_prod:
+            page_columns, page_events = events_obj.get_events(
+                session_id=str(session_id),
+                team=team,
+                metadata=session_metadata,
+                events_to_ignore=events_to_ignore,
+                extra_fields=extra_fields,
+                limit=items_per_page,
+                page=page,
+            )
+        else:
+            page_columns, page_events = _get_production_session_events_locally(
+                events_obj=events_obj,
+                session_id=str(session_id),
+                metadata=session_metadata,
+                events_to_ignore=events_to_ignore,
+                extra_fields=extra_fields,
+                limit=items_per_page,
+                page=page,
+            )
         # Expect columns to be exact for all the page as we don't change the query
         if page_columns and not columns:
             columns = page_columns
@@ -70,37 +89,8 @@ def _get_paginated_session_events(
     return columns, all_events
 
 
-def get_session_events(
-    session_id: str,
-    session_metadata: RecordingMetadata,
-    team: Team,
-    local_path: str | None = None,
-    # The estimation that we can cover 2 hours/3000 events per page within 200 000 token window,
-    # but as GPT-4.1 allows up to 1kk tokens, we can allow up to 4 hours sessions to be covered
-    # TODO: Check if it's a meaningful approach, or should we just analyze firt N events for huge sessions
-    # TODO: Move to a config
-    max_pages: int = 2,
-    items_per_page: int = 3000,
-) -> tuple[list[str], list[tuple[str | datetime | list[str] | None, ...]]]:
-    if not local_path:
-        return _get_paginated_session_events(
-            session_id=str(session_id),
-            team=team,
-            session_metadata=session_metadata,
-            max_pages=max_pages,
-            items_per_page=items_per_page,
-            events_to_ignore=["$feature_flag_called"],
-            extra_fields=EXTRA_SUMMARY_EVENT_FIELDS,
-        )
-    else:
-        session_events_columns, session_events = load_session_recording_events_from_csv(
-            local_path, extra_fields=EXTRA_SUMMARY_EVENT_FIELDS
-        )
-    return session_events_columns, session_events
-
-
 def _skip_event_without_context(
-    event_row: list[str | datetime | list[str] | None],
+    event_row: list[str | datetime.datetime | list[str] | None],
     # Using indexes as argument to avoid calling get_column_index on each event row
     indexes: dict[str, int],
 ) -> bool:
@@ -129,8 +119,8 @@ def _skip_event_without_context(
 
 
 def add_context_and_filter_events(
-    session_events_columns: list[str], session_events: list[tuple[str | datetime | list[str] | None, ...]]
-) -> tuple[list[str], list[tuple[str | datetime | list[str] | None, ...]]]:
+    session_events_columns: list[str], session_events: list[tuple[str | datetime.datetime | list[str] | None, ...]]
+) -> tuple[list[str], list[tuple[str | datetime.datetime | list[str] | None, ...]]]:
     indexes = {
         "event": get_column_index(session_events_columns, "event"),
         "$event_type": get_column_index(session_events_columns, "$event_type"),
@@ -145,7 +135,7 @@ def add_context_and_filter_events(
         chain = event[indexes["elements_chain"]]
         if not isinstance(chain, str):
             raise ValueError(f"Elements chain is not a string: {chain}")
-        updated_event: list[str | datetime | list[str] | None] = list(event)
+        updated_event: list[str | datetime.datetime | list[str] | None] = list(event)
         if not chain:
             # If no chain - no additional context will come, so it's ok to check if to skip right away
             if _skip_event_without_context(updated_event, indexes):

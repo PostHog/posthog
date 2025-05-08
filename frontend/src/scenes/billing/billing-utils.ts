@@ -274,3 +274,10 @@ export const formatPlanStatus = (billing: BillingType | null): string => {
 
     return ''
 }
+
+/**
+ * Formats a number as a currency string
+ */
+export const currencyFormatter = (value: number): string => {
+    return value.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
+}
