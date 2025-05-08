@@ -147,6 +147,8 @@ def test_ingestion_job(cluster: ClickhouseCluster) -> None:
         )
     ).result()
 
+    # TODO: insert person test data
+
     # run job
     config = PropertyDefinitionsConfig(
         start_at=start_at.isoformat(),
