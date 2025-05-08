@@ -5112,7 +5112,8 @@ export type HogFunctionSubTemplateIdType =
     | 'early-access-feature-enrollment'
     | 'survey-response'
     | 'activity-log'
-    | 'error-tracking'
+    | 'error-tracking-issue-created'
+    | 'error-tracking-issue-reopened'
 
 export type HogFunctionConfigurationType = Omit<
     HogFunctionType,
@@ -5123,10 +5124,14 @@ export type HogFunctionConfigurationType = Omit<
     _create_in_folder?: string | null
 }
 
-export type HogFunctionSubTemplateType = Pick<HogFunctionType, 'filters' | 'inputs' | 'masking' | 'mappings'> & {
-    id: HogFunctionSubTemplateIdType
-    name: string
-    description: string | null
+export type HogFunctionSubTemplateType = Pick<
+    HogFunctionType,
+    'filters' | 'inputs' | 'masking' | 'mappings' | 'type'
+> & {
+    template_id: HogFunctionTemplateType['id']
+    sub_template_id: HogFunctionSubTemplateIdType
+    name?: string
+    description?: string
 }
 
 export type HogFunctionTemplateType = Pick<
@@ -5145,7 +5150,6 @@ export type HogFunctionTemplateType = Pick<
 > & {
     status: HogFunctionTemplateStatus
     free: boolean
-    sub_templates?: HogFunctionSubTemplateType[]
     mapping_templates?: HogFunctionMappingTemplateType[]
 }
 

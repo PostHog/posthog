@@ -9,8 +9,6 @@ else:
 
 
 SubTemplateId = Literal[
-    "early-access-feature-enrollment",
-    "survey-response",
     "activity-log",
     "error-tracking-issue-created",
     "error-tracking-issue-reopened",
@@ -128,50 +126,3 @@ def derive_sub_templates(templates: list[HogFunctionTemplate]) -> list[HogFuncti
             sub_templates.append(merged_template)
 
     return sub_templates
-
-
-SUB_TEMPLATE_COMMON: dict[SubTemplateId, HogFunctionSubTemplate] = {
-    "survey-response": HogFunctionSubTemplate(
-        id="survey-response",
-        name="Survey Response",
-        filters={
-            "events": [
-                {
-                    "id": "survey sent",
-                    "type": "events",
-                    "properties": [
-                        {
-                            "key": "$survey_response",
-                            "type": "event",
-                            "value": "is_set",
-                            "operator": "is_set",
-                        },
-                    ],
-                }
-            ]
-        },
-    ),
-    "early-access-feature-enrollment": HogFunctionSubTemplate(
-        id="early-access-feature-enrollment",
-        name="Early Access Feature Enrollment",
-        filters={"events": [{"id": "$feature_enrollment_update", "type": "events"}]},
-    ),
-    "activity-log": HogFunctionSubTemplate(
-        id="activity-log",
-        name="Team Activity",
-        type="internal_destination",
-        filters={"events": [{"id": "$activity_log_entry_created", "type": "events"}]},
-    ),
-    "error-tracking-issue-created": HogFunctionSubTemplate(
-        id="error-tracking-issue-created",
-        name="Issue created",
-        type="internal_destination",
-        filters={"events": [{"id": "$error_tracking_issue_created", "type": "events"}]},
-    ),
-    "error-tracking-issue-reopened": HogFunctionSubTemplate(
-        id="error-tracking-issue-reopened",
-        name="Issue reopened",
-        type="internal_destination",
-        filters={"events": [{"id": "$error_tracking_issue_reopened", "type": "events"}]},
-    ),
-}

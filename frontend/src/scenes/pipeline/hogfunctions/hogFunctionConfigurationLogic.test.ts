@@ -2,7 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
-import { HogFunctionTemplateType, HogFunctionType, PropertyFilterType, PropertyOperator } from '~/types'
+import { HogFunctionTemplateType, HogFunctionType } from '~/types'
 
 jest.mock('lib/api', () => ({
     ...jest.requireActual('lib/api'),
@@ -21,46 +21,46 @@ const mockApi = api.hogFunctions as jest.Mocked<typeof api.hogFunctions>
 import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
 
 const HOG_TEMPLATE: HogFunctionTemplateType = {
-    sub_templates: [
-        {
-            id: 'early-access-feature-enrollment',
-            name: 'HTTP Webhook on feature enrollment',
-            description: null,
-            filters: {
-                events: [
-                    {
-                        id: '$feature_enrollment_update',
-                        type: 'events',
-                    },
-                ],
-            },
-            masking: null,
-            inputs: null,
-        },
-        {
-            id: 'survey-response',
-            name: 'HTTP Webhook on survey response',
-            description: null,
-            filters: {
-                events: [
-                    {
-                        id: 'survey sent',
-                        type: 'events',
-                        properties: [
-                            {
-                                key: '$survey_response',
-                                type: PropertyFilterType.Event,
-                                value: 'is_set',
-                                operator: PropertyOperator.IsSet,
-                            },
-                        ],
-                    },
-                ],
-            },
-            masking: null,
-            inputs: null,
-        },
-    ],
+    // sub_templates: [
+    //     {
+    //         id: 'early-access-feature-enrollment',
+    //         name: 'HTTP Webhook on feature enrollment',
+    //         description: null,
+    //         filters: {
+    //             events: [
+    //                 {
+    //                     id: '$feature_enrollment_update',
+    //                     type: 'events',
+    //                 },
+    //             ],
+    //         },
+    //         masking: null,
+    //         inputs: null,
+    //     },
+    //     {
+    //         id: 'survey-response',
+    //         name: 'HTTP Webhook on survey response',
+    //         description: null,
+    //         filters: {
+    //             events: [
+    //                 {
+    //                     id: 'survey sent',
+    //                     type: 'events',
+    //                     properties: [
+    //                         {
+    //                             key: '$survey_response',
+    //                             type: PropertyFilterType.Event,
+    //                             value: 'is_set',
+    //                             operator: PropertyOperator.IsSet,
+    //                         },
+    //                     ],
+    //                 },
+    //             ],
+    //         },
+    //         masking: null,
+    //         inputs: null,
+    //     },
+    // ],
     free: false,
     status: 'beta',
     id: 'template-webhook',
