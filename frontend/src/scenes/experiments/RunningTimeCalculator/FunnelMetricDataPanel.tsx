@@ -1,27 +1,29 @@
 import { IconInfo } from '@posthog/icons'
-import { useActions, useValues } from 'kea'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyNumber } from 'lib/utils'
 
-import { experimentLogic } from '../experimentLogic'
 import { UniqueUsersPanel } from './components'
-import { ConversionRateInputType, runningTimeCalculatorLogic } from './runningTimeCalculatorLogic'
+import { ConversionRateInputType } from './runningTimeCalculatorLogic'
+
+type FunnelMetricDataPanelProps = {
+    uniqueUsers: number
+    conversionRateInputType: ConversionRateInputType
+    automaticConversionRateDecimal: number
+    manualConversionRate: number
+    onChangeType: (type: ConversionRateInputType) => void
+    onChangeManualConversionRate: (rate: number) => void
+}
 
 export const FunnelMetricDataPanel = ({
+    uniqueUsers,
+    conversionRateInputType,
+    automaticConversionRateDecimal,
+    manualConversionRate,
     onChangeType,
-}: {
-    onChangeType: (type: ConversionRateInputType) => void
-}): JSX.Element => {
-    const { experimentId } = useValues(experimentLogic)
-    const { conversionRateInputType, uniqueUsers, automaticConversionRateDecimal, manualConversionRate } = useValues(
-        runningTimeCalculatorLogic({ experimentId })
-    )
-    const { setConversionRateInputType, setManualConversionRate } = useActions(
-        runningTimeCalculatorLogic({ experimentId })
-    )
-
+    onChangeManualConversionRate,
+}: FunnelMetricDataPanelProps): JSX.Element => {
     return (
         <div>
             <div className="grid grid-cols-3 gap-4">
@@ -59,11 +61,10 @@ export const FunnelMetricDataPanel = ({
                                 value: ConversionRateInputType.AUTOMATIC,
                             },
                         ]}
+                        value={conversionRateInputType}
                         onChange={(value) => {
-                            setConversionRateInputType(value)
                             onChangeType(value as ConversionRateInputType)
                         }}
-                        value={conversionRateInputType}
                     />
                     {conversionRateInputType === ConversionRateInputType.MANUAL && (
                         <div className="flex items-center gap-2">
@@ -76,7 +77,7 @@ export const FunnelMetricDataPanel = ({
                                 value={manualConversionRate || undefined}
                                 onChange={(newValue) => {
                                     if (newValue !== null && newValue !== undefined && newValue >= 0) {
-                                        setManualConversionRate(newValue)
+                                        onChangeManualConversionRate(newValue)
                                     }
                                 }}
                             />

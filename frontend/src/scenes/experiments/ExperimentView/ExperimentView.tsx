@@ -151,6 +151,11 @@ export function ExperimentView(): JSX.Element {
                                         recommendedSampleSize,
                                         recommendedRunningTime
                                     ) => {
+                                        /**
+                                         * we rebuild the experiment parameters object
+                                         * with the diaglod results
+                                         * and save it back to the experiment
+                                         */
                                         updateExperiment({
                                             parameters: {
                                                 ...experiment?.parameters,

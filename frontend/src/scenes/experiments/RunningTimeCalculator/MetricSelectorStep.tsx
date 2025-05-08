@@ -3,13 +3,15 @@ import equal from 'fast-deep-equal'
 import { useValues } from 'kea'
 import { useState } from 'react'
 
-import { ExperimentMetric, ExperimentMetricType } from '~/queries/schema/schema-general'
+import type { ExperimentMetric } from '~/queries/schema/schema-general'
+import { ExperimentMetricType } from '~/queries/schema/schema-general'
 import type { ExperimentIdType } from '~/types'
 
 import { MetricTitle } from '../MetricsView/MetricTitle'
 import { FunnelMetricDataPanel } from './FunnelMetricDataPanel'
 import { MeanMetricDataPanel } from './MeanMetricDataPanel'
-import { ConversionRateInputType, runningTimeCalculatorLogic } from './runningTimeCalculatorLogic'
+import type { ConversionRateInputType, ExposureEstimateConfig } from './runningTimeCalculatorLogic'
+import { runningTimeCalculatorLogic } from './runningTimeCalculatorLogic'
 import { RunningTimeCalculatorModalStep } from './RunningTimeCalculatorModalStep'
 
 type MetricSelectorStepProps = {
@@ -18,7 +20,7 @@ type MetricSelectorStepProps = {
      */
     experimentId: ExperimentIdType
     experimentMetrics: ExperimentMetric[]
-    selectedMetric: ExperimentMetric
+    exposureEstimateConfig: ExposureEstimateConfig
     onChangeMetric: (metric: ExperimentMetric) => void
     onChangeFunnelConversionRateType: (type: ConversionRateInputType) => void
 }
@@ -26,7 +28,7 @@ type MetricSelectorStepProps = {
 export const MetricSelectorStep = ({
     experimentId,
     experimentMetrics,
-    selectedMetric,
+    exposureEstimateConfig,
     onChangeMetric,
     onChangeFunnelConversionRateType,
 }: MetricSelectorStepProps): JSX.Element => {
@@ -36,7 +38,10 @@ export const MetricSelectorStep = ({
      */
     const { exposureEstimate, exposureEstimateLoading } = useValues(runningTimeCalculatorLogic({ experimentId }))
 
-    const defaultMetricIndex = experimentMetrics.findIndex((m) => equal(m, selectedMetric))
+    /**
+     * Find the index of the metric in the experiment metrics.
+     */
+    const defaultMetricIndex = experimentMetrics.findIndex((m) => equal(m, exposureEstimateConfig.metric))
     const [metricIndex, setMetricIndex] = useState<number>(defaultMetricIndex)
 
     return (
@@ -82,16 +87,23 @@ export const MetricSelectorStep = ({
                 </div>
             ) : (
                 <div className="border-t pt-2">
-                    {selectedMetric.metric_type === ExperimentMetricType.MEAN && (
+                    {exposureEstimateConfig.metric?.metric_type === ExperimentMetricType.MEAN && (
                         <MeanMetricDataPanel
-                            metric={selectedMetric}
-                            uniqueUsers={exposureEstimate?.uniqueUsers}
-                            averageEventsPerUser={exposureEstimate?.averageEventsPerUser}
-                            averagePropertyValuePerUser={exposureEstimate?.averagePropertyValuePerUser}
+                            metric={exposureEstimateConfig.metric as ExperimentMetric}
+                            uniqueUsers={exposureEstimate?.uniqueUsers ?? exposureEstimateConfig.uniqueUsers}
+                            averageEventsPerUser={exposureEstimate?.averageEventsPerUser} //TODO: This needs saving on the exposure estimate config
+                            averagePropertyValuePerUser={exposureEstimate?.averagePropertyValuePerUser} //TODO: This needs saving on the exposure estimate config
                         />
                     )}
-                    {selectedMetric.metric_type === ExperimentMetricType.FUNNEL && (
-                        <FunnelMetricDataPanel onChangeType={onChangeFunnelConversionRateType} />
+                    {exposureEstimateConfig.metric?.metric_type === ExperimentMetricType.FUNNEL && (
+                        <FunnelMetricDataPanel
+                            uniqueUsers={exposureEstimate?.uniqueUsers ?? exposureEstimateConfig.uniqueUsers}
+                            conversionRateInputType={exposureEstimateConfig.conversionRateInputType}
+                            automaticConversionRateDecimal={exposureEstimate?.automaticConversionRateDecimal}
+                            manualConversionRate={exposureEstimate?.manualConversionRate}
+                            onChangeType={onChangeFunnelConversionRateType}
+                            onChangeManualConversionRate={() => {}}
+                        />
                     )}
                 </div>
             )}

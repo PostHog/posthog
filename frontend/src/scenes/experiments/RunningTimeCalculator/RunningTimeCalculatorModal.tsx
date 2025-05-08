@@ -2,16 +2,20 @@ import { LemonInput, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { humanFriendlyNumber } from 'lib/utils'
+import { useState } from 'react'
 
 import type { ExperimentMetric } from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
 
+import { DEFAULT_MDE } from '../experimentLogic'
 import { EventSelectorStep } from './EventSelectorStep'
+import { calculateRecommendedSampleSize, calculateVariance } from './experimentStatisticsUtils'
 import { MetricSelectorStep } from './MetricSelectorStep'
 import {
     ConversionRateInputType,
     ExposureEstimateConfig,
     runningTimeCalculatorLogic,
+    TIMEFRAME_HISTORICAL_DATA_DAYS,
 } from './runningTimeCalculatorLogic'
 import { RunningTimeCalculatorModalFooter } from './RunningTimeCalculatorModalFooter'
 import { RunningTimeCalculatorModalStep } from './RunningTimeCalculatorModalStep'
@@ -28,33 +32,94 @@ type RunningTimeCalculatorModalProps = {
     ) => void
 }
 
+const defaultExposureEstimateConfig: ExposureEstimateConfig = {
+    eventFilter: {
+        event: '$pageview',
+        name: '$pageview',
+        properties: [],
+        entityType: TaxonomicFilterGroupType.Events,
+    },
+    metric: null as ExperimentMetric | null,
+    conversionRateInputType: ConversionRateInputType.AUTOMATIC,
+    manualConversionRate: 2,
+    uniqueUsers: null,
+}
+
 export function RunningTimeCalculatorModal({
     experiment,
     isOpen,
     onClose,
     onSave,
 }: RunningTimeCalculatorModalProps): JSX.Element {
+    // Extrct the experiment Id and the metrics from the experiment
+    // If the experiment change (it shouldn't), a re-render will happen.
     const { id: experimentId, metrics } = experiment
 
-    const {
-        /**
-         * Exposure Estimate Config Modal State.
-         * Without kea, this would be a prop.
-         */
-        exposureEstimateConfig,
-        // Running Time Calculator Object. Saved inside the experiment parameters.
-        minimumDetectableEffect,
-        recommendedSampleSize,
-        recommendedRunningTime,
-        // FunnelQuery for unique users loading state
-        metricResultLoading,
-        // Queried value depending on the exposureEstimateConfig
-        uniqueUsers,
-    } = useValues(runningTimeCalculatorLogic({ experimentId }))
+    /**
+     * Exposure Estimate Config Global State and Actions.
+     * Without kea, this would be a context for local state,
+     * and swr for server state.
+     * We only need a Kea for fetching the exposure estimate.
+     */
+    const { exposureEstimate, exposureEstimateLoading } = useValues(runningTimeCalculatorLogic({ experimentId }))
+    const { loadExposureEstimate } = useActions(runningTimeCalculatorLogic({ experimentId }))
 
-    const { setMinimumDetectableEffect, setExposureEstimateConfig, loadExposureEstimate } = useActions(
-        runningTimeCalculatorLogic({ experimentId })
+    /**
+     * Exposure Estimate Config Local State.
+     * This is the config that the user has selected.
+     * It's initializeed with the saved config.
+     */
+    const [exposureEstimateConfig, setExposureEstimateConfig] = useState<ExposureEstimateConfig | null>(
+        experiment.parameters.exposure_estimate_config ?? defaultExposureEstimateConfig
     )
+
+    // console.log({ experiment, exposureEstimate, exposureEstimateConfig, metrics })
+
+    const [minimumDetectableEffect, setMinimumDetectableEffect] = useState(
+        experiment?.parameters?.minimum_detectable_effect ?? DEFAULT_MDE
+    )
+
+    const hasSavedValues =
+        experiment.parameters.recommended_sample_size != null && experiment.parameters.recommended_running_time != null
+
+    const variance = calculateVariance(
+        exposureEstimateConfig?.metric as ExperimentMetric,
+        exposureEstimate?.averageEventsPerUser ?? 0,
+        exposureEstimate?.averagePropertyValuePerUser ?? 0
+    )
+
+    // Only calculate new values if we have exposure estimate and no saved values
+    const calculatedSampleSize =
+        !hasSavedValues && exposureEstimate && exposureEstimateConfig?.metric
+            ? calculateRecommendedSampleSize(
+                  exposureEstimateConfig.metric,
+                  minimumDetectableEffect,
+                  variance ?? 0,
+                  exposureEstimate.averageEventsPerUser ?? 0,
+                  exposureEstimate.averagePropertyValuePerUser ?? 0,
+                  exposureEstimate.automaticConversionRateDecimal ?? 0,
+                  exposureEstimate.manualConversionRate ?? 0,
+                  exposureEstimateConfig.conversionRateInputType,
+                  metrics.length
+              )
+            : null
+
+    const calculatedRunningTime =
+        !hasSavedValues && exposureEstimate?.uniqueUsers && calculatedSampleSize
+            ? calculatedSampleSize / (exposureEstimate.uniqueUsers / TIMEFRAME_HISTORICAL_DATA_DAYS)
+            : null
+
+    // Use saved values if they exist, otherwise use calculated values
+    const recommendedSampleSize = hasSavedValues ? experiment.parameters.recommended_sample_size : calculatedSampleSize
+
+    const recommendedRunningTime = hasSavedValues
+        ? experiment.parameters.recommended_running_time
+        : calculatedRunningTime
+
+    // console.log('>>>>>>>>> minimumDetectableEffect', minimumDetectableEffect)
+    // console.log('>>>>>>>>> variance', variance)
+    // console.log('>>>>>>>>> calculatedSampleSize', calculatedSampleSize)
+    // console.log('>>>>>>>>> calculatedRunningTime', calculatedRunningTime)
 
     return (
         <LemonModal
@@ -69,8 +134,8 @@ export function RunningTimeCalculatorModal({
                         onSave(
                             exposureEstimateConfig,
                             minimumDetectableEffect,
-                            recommendedSampleSize ?? 0,
-                            recommendedRunningTime ?? 0
+                            recommendedSampleSize,
+                            recommendedRunningTime
                         )
                     }
                 />
@@ -103,8 +168,12 @@ export function RunningTimeCalculatorModal({
                 <MetricSelectorStep
                     experimentId={experimentId}
                     experimentMetrics={metrics as ExperimentMetric[]}
-                    selectedMetric={exposureEstimateConfig.metric as ExperimentMetric}
+                    exposureEstimateConfig={exposureEstimateConfig}
                     onChangeMetric={(metric) => {
+                        /**
+                         * update the state with the new metric for the
+                         * exposure estimate.
+                         */
                         setExposureEstimateConfig({
                             ...exposureEstimateConfig,
                             metric,
@@ -113,19 +182,19 @@ export function RunningTimeCalculatorModal({
                         /**
                          * Load the exposure estimate for the new metric.
                          */
-                        loadExposureEstimate(metric)
+                        loadExposureEstimate(experiment, exposureEstimateConfig, metric)
                     }}
-                    onChangeFunnelConversionRateType={(type) =>
+                    onChangeFunnelConversionRateType={(type) => {
                         setExposureEstimateConfig({
                             ...exposureEstimateConfig,
                             conversionRateInputType: type,
                         })
-                    }
+                    }}
                 />
             )}
-
             <div className="deprecated-space-y-6">
-                {!metricResultLoading && uniqueUsers !== null && (
+                {(experiment?.parameters?.minimum_detectable_effect ||
+                    (!exposureEstimateLoading && exposureEstimate)) && (
                     <>
                         <RunningTimeCalculatorModalStep
                             stepNumber={3}
