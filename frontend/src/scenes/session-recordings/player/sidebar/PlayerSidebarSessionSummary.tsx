@@ -15,7 +15,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { ReactNode, useEffect, useState } from 'react'
+import React, { ReactNode, useEffect, useState } from 'react'
 import { Transition } from 'react-transition-group'
 import { ENTERED, ENTERING } from 'react-transition-group/Transition'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
@@ -232,7 +232,7 @@ function getIssueTags(event: SessionKeyAction): JSX.Element[] {
     const tags: JSX.Element[] = []
     if (event.abandonment) {
         tags.push(
-            <LemonTag key="abandonment" size="small" type="danger">
+            <LemonTag key="abandonment" size="small" type="warning">
                 abandoned
             </LemonTag>
         )
@@ -247,7 +247,7 @@ function getIssueTags(event: SessionKeyAction): JSX.Element[] {
     if (event.exception) {
         tags.push(
             <LemonTag key="exception" size="small" type="danger">
-                {event.exception} exception
+                {event.exception}
             </LemonTag>
         )
     }
@@ -365,13 +365,21 @@ function SessionSummaryKeyActions({
                             </span>
 
                             <span className="text-xs break-words">
-                                {event.description}&nbsp;{' '}
+                                {event.description}
                                 {event.milliseconds_since_start === 0 && (
-                                    <LemonTag size="small" type="default">
-                                        before start
-                                    </LemonTag>
+                                    <>
+                                        &nbsp;
+                                        <LemonTag size="small" type="default">
+                                            before start
+                                        </LemonTag>
+                                    </>
                                 )}
-                                {getIssueTags(event)}
+                                {getIssueTags(event).map((tag, i) => (
+                                    <React.Fragment key={i}>
+                                        &nbsp;
+                                        {tag}
+                                    </React.Fragment>
+                                ))}
                             </span>
                         </div>
                     </div>
