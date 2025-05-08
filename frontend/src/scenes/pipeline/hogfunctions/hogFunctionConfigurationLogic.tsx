@@ -61,7 +61,6 @@ import {
 
 import { EmailTemplate } from './email-templater/emailTemplaterLogic'
 import type { hogFunctionConfigurationLogicType } from './hogFunctionConfigurationLogicType'
-import { generateSubTemplate } from './sub-templates/sub-templates'
 
 export interface HogFunctionConfigurationLogicProps {
     logicKey?: string
@@ -357,7 +356,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
     })),
-    loaders(({ actions, props, values, cache }) => ({
+    loaders(({ actions, props, values }) => ({
         template: [
             null as HogFunctionTemplateType | null,
             {
@@ -374,9 +373,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
 
                     const dbTemplates = !!values.featureFlags[FEATURE_FLAGS.GET_HOG_TEMPLATES_FROM_DB]
                     const res = await api.hogFunctions.getTemplate(props.templateId, dbTemplates)
-                    const template = cache.subTemplateId ? generateSubTemplate(res, cache.subTemplateId) : res
 
-                    if (!template) {
+                    if (!res) {
                         throw new Error('Template not found')
                     }
                     return res

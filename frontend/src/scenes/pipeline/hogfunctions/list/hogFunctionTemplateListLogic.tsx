@@ -12,7 +12,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { HogFunctionSubTemplateIdType, HogFunctionTemplateType, HogFunctionTypeType, UserType } from '~/types'
 
-import { generateSubTemplate } from '../sub-templates/sub-templates'
+import { generateSubTemplate, getSubTemplate } from '../sub-templates/sub-templates'
 import type { hogFunctionTemplateListLogicType } from './hogFunctionTemplateListLogicType'
 
 // Helping kea-typegen navigate the exported default class for Fuse
@@ -42,18 +42,6 @@ export const shouldShowHogFunctionTemplate = (
         return false
     }
     return true
-}
-
-const getFunctionFilters = (
-    filters: HogFunctionTemplateListFilters,
-    template: HogFunctionTemplateType['id']
-): Record<string, any> | undefined => {
-    if (template.includes('error-tracking-issue-created')) {
-        return { events: [{ id: '$error_tracking_issue_created', type: 'events' }] }
-    } else if (template.includes('error-tracking-issue-reopened')) {
-        return { events: [{ id: '$error_tracking_issue_reopened', type: 'events' }] }
-    }
-    return filters.filters
 }
 
 export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType>([
@@ -163,14 +151,15 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
             (s, p) => [s.filters, p.subTemplateId],
             (filters, subTemplateId): ((template: HogFunctionTemplateType) => string) => {
                 return (template: HogFunctionTemplateType) => {
+                    const subTemplate = getSubTemplate(template, subTemplateId)
                     // Add the filters to the url and the template id
                     return combineUrl(
                         hogFunctionNewUrl(template.type, template.id),
                         {},
                         {
-                            sub_template_id: subTemplateId,
                             configuration: {
-                                filters: getFunctionFilters(filters, template.id),
+                                ...(subTemplate ?? {}),
+                                // filters: filters.filters, // Figuree this out...
                             },
                         }
                     ).url

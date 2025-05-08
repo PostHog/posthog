@@ -8,7 +8,7 @@ import {
     SurveyEventProperties,
 } from '~/types'
 
-const COMMON_PROPERTIES: Record<
+export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
     HogFunctionSubTemplateIdType,
     Pick<HogFunctionSubTemplateType, 'sub_template_id' | 'type'> &
         Omit<Partial<HogFunctionSubTemplateType>, 'sub_template_id' | 'type'>
@@ -58,13 +58,13 @@ const COMMON_PROPERTIES: Record<
 export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, HogFunctionSubTemplateType[]> = {
     'survey-response': [
         {
-            ...COMMON_PROPERTIES['survey-response'],
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['survey-response'],
             template_id: 'template-webhook',
             name: 'HTTP Webhook on survey response',
             description: 'Send a webhook when a survey response is submitted',
         },
         {
-            ...COMMON_PROPERTIES['survey-response'],
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['survey-response'],
             template_id: 'template-discord',
             name: 'Post to Discord on survey response',
             description: 'Posts a message to Discord when a user responds to a survey',
@@ -75,7 +75,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             },
         },
         {
-            ...COMMON_PROPERTIES['survey-response'],
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['survey-response'],
             template_id: 'template-microsoft-teams',
             name: 'Post to Microsoft Teams on survey response',
             description: 'Posts a message to Microsoft Teams when a user responds to a survey',
@@ -86,7 +86,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             },
         },
         {
-            ...COMMON_PROPERTIES['survey-response'],
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['survey-response'],
             template_id: 'template-slack',
             name: 'Post to Slack on survey response',
             description: 'Posts a message to Slack when a user responds to a survey',
@@ -125,19 +125,19 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
     ],
     'early-access-feature-enrollment': [
         {
-            ...COMMON_PROPERTIES['early-access-feature-enrollment'],
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['early-access-feature-enrollment'],
             template_id: 'template-webhook',
             name: 'HTTP Webhook on feature enrollment',
             description: 'Send a webhook when a user enrolls or un-enrolls in an early access feature',
         },
         {
-            ...COMMON_PROPERTIES['early-access-feature-enrollment'],
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['early-access-feature-enrollment'],
             template_id: 'template-discord',
             name: 'Post to Discord on feature enrollment',
             description: 'Posts a message to Discord when a user enrolls or un-enrolls in an early access feature',
         },
         {
-            ...COMMON_PROPERTIES['early-access-feature-enrollment'],
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['early-access-feature-enrollment'],
             template_id: 'template-microsoft-teams',
             name: 'Post to Microsoft Teams on feature enrollment',
             description:
@@ -149,7 +149,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             },
         },
         {
-            ...COMMON_PROPERTIES['early-access-feature-enrollment'],
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['early-access-feature-enrollment'],
             template_id: 'template-slack',
             name: 'Post to Slack on feature enrollment',
             description: 'Posts a message to Slack when a user enrolls or un-enrolls in an early access feature',
@@ -183,13 +183,13 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
     ],
     'activity-log': [
         {
-            ...COMMON_PROPERTIES['activity-log'],
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['activity-log'],
             template_id: 'template-webhook',
             name: 'HTTP Webhook on team activity',
             description: 'Send a webhook when a team activity occurs',
         },
         {
-            ...COMMON_PROPERTIES['activity-log'],
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['activity-log'],
             template_id: 'template-discord',
             name: 'Post to Discord on team activity',
             description: 'Posts a message to Discord when a team activity occurs',
@@ -200,7 +200,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             },
         },
         {
-            ...COMMON_PROPERTIES['activity-log'],
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['activity-log'],
             template_id: 'template-microsoft-teams',
             name: 'Post to Microsoft Teams on team activity',
             description: 'Posts a message to Microsoft Teams when a team activity occurs',
@@ -211,7 +211,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             },
         },
         {
-            ...COMMON_PROPERTIES['activity-log'],
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['activity-log'],
             template_id: 'template-slack',
             name: 'Post to Slack on team activity',
             description: 'Posts a message to Slack when a team activity occurs',
@@ -235,13 +235,13 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
     ],
     'error-tracking-issue-created': [
         {
-            ...COMMON_PROPERTIES['error-tracking-issue-created'],
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['error-tracking-issue-created'],
             template_id: 'template-webhook',
             name: 'HTTP Webhook on issue created',
             description: 'Send a webhook when an issue is created',
         },
         {
-            ...COMMON_PROPERTIES['error-tracking-issue-created'],
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['error-tracking-issue-created'],
             template_id: 'template-discord',
             name: 'Post to Discord on issue created',
             description: 'Posts a message to Discord when an issue is created',
@@ -252,7 +252,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             },
         },
         {
-            ...COMMON_PROPERTIES['error-tracking-issue-created'],
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['error-tracking-issue-created'],
             template_id: 'template-microsoft-teams',
             name: 'Post to Microsoft Teams on issue created',
             description: 'Posts a message to Microsoft Teams when an issue is created',
@@ -263,7 +263,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             },
         },
         {
-            ...COMMON_PROPERTIES['error-tracking-issue-created'],
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['error-tracking-issue-created'],
             template_id: 'template-slack',
             name: 'Post to Slack on issue created',
             description: 'Posts a message to Slack when an issue is created',
@@ -300,7 +300,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             },
         },
         {
-            ...COMMON_PROPERTIES['error-tracking-issue-created'],
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['error-tracking-issue-created'],
             template_id: 'template-linear',
             name: 'Linear issue on issue created',
             description: 'Create an issue in Linear when an issue is created.',
@@ -308,13 +308,13 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
     ],
     'error-tracking-issue-reopened': [
         {
-            ...COMMON_PROPERTIES['error-tracking-issue-reopened'],
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['error-tracking-issue-reopened'],
             template_id: 'template-webhook',
             name: 'HTTP Webhook on issue reopened',
             description: 'Send a webhook when an issue is reopened',
         },
         {
-            ...COMMON_PROPERTIES['error-tracking-issue-reopened'],
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['error-tracking-issue-reopened'],
             template_id: 'template-discord',
             name: 'Post to Discord on issue reopened',
             description: 'Posts a message to Discord when an issue is reopened',
@@ -325,7 +325,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             },
         },
         {
-            ...COMMON_PROPERTIES['error-tracking-issue-reopened'],
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['error-tracking-issue-reopened'],
             template_id: 'template-microsoft-teams',
             name: 'Post to Microsoft Teams on issue reopened',
             description: 'Posts a message to Microsoft Teams when an issue is reopened',
@@ -336,7 +336,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             },
         },
         {
-            ...COMMON_PROPERTIES['error-tracking-issue-reopened'],
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['error-tracking-issue-reopened'],
             template_id: 'template-slack',
             name: 'Post to Slack on issue reopened',
             description: 'Posts a message to Slack when an issue is reopened',
@@ -389,4 +389,11 @@ export const generateSubTemplate = (
         ...template,
         ...subTemplate,
     }
+}
+
+export const getSubTemplate = (
+    template: HogFunctionTemplateType,
+    subTemplateId: HogFunctionSubTemplateIdType
+): HogFunctionSubTemplateType | null => {
+    return HOG_FUNCTION_SUB_TEMPLATES[subTemplateId].find((x) => x.template_id === template.id) || null
 }
