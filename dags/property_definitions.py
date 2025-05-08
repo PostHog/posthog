@@ -22,10 +22,13 @@ class PropertyDefinitionsConfig(dagster.Config):
     """Configuration for property definitions ingestion job."""
 
     start_at: str = pydantic.Field(
-        description="The lower bound (inclusive) timestamp to be used when selecting rows to be included within the ingestion window. The value can be provided in any format that can be parsed by ClickHouse best-effort date parsing."
+        description="The lower bound (inclusive) timestamp to be used when selecting rows to be included within the "
+        "ingestion window. The value can be provided in any format that can be parsed by ClickHouse best-effort date "
+        "parsing."
     )
     duration: str = pydantic.Field(
-        description="The size of the ingestion window, used to determine the upper bound (non-inclusive) of the time range. The value can be provided in any format that can be parsed as a ClickHouse interval.",
+        description="The size of the ingestion window, used to determine the upper bound (non-inclusive) of the time "
+        "range. The value can be provided in any format that can be parsed as a ClickHouse interval.",
         default="1 hour",
     )
 
