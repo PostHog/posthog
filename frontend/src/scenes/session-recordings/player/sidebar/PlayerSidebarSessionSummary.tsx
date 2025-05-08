@@ -168,27 +168,6 @@ function SegmentMetaTable({ meta }: SegmentMetaProps): JSX.Element | null {
                 <span className="text-muted">Issues:</span>
                 {isValidMetaNumber(meta.failure_count) && <span>{meta.failure_count}</span>}
             </div>
-            {isValidMetaNumber(meta.abandonment_count) && meta.abandonment_count > 0 && (
-                <div className="flex items-center gap-1">
-                    <IconWarning className="text-danger" />
-                    <span className="text-muted">Abandonments:</span>
-                    <span>{meta.abandonment_count}</span>
-                </div>
-            )}
-            {isValidMetaNumber(meta.confusion_count) && meta.confusion_count > 0 && (
-                <div className="flex items-center gap-1">
-                    <IconWarning className="text-danger" />
-                    <span className="text-muted">Confusions:</span>
-                    <span>{meta.confusion_count}</span>
-                </div>
-            )}
-            {isValidMetaNumber(meta.exception_count) && meta.exception_count > 0 && (
-                <div className="flex items-center gap-1">
-                    <IconWarning className="text-danger" />
-                    <span className="text-muted">Exceptions:</span>
-                    <span>{meta.exception_count}</span>
-                </div>
-            )}
             <div className="flex items-center gap-1">
                 <IconClock />
                 <span className="text-muted">Duration:</span>
@@ -246,7 +225,7 @@ function getIssueTags(event: SessionKeyAction): JSX.Element[] {
     }
     if (event.exception) {
         tags.push(
-            <LemonTag key="exception" size="small" type="danger">
+            <LemonTag key="exception" size="small" type={event.exception === 'blocking' ? 'danger' : 'warning'}>
                 {event.exception}
             </LemonTag>
         )
@@ -364,23 +343,19 @@ function SessionSummaryKeyActions({
                                 </div>
                             </span>
 
-                            <span className="text-xs break-words">
-                                {event.description}
-                                {event.milliseconds_since_start === 0 && (
-                                    <>
-                                        &nbsp;
+                            <div className="flex flex-col">
+                                <div className="text-xs break-words">{event.description}</div>
+                                <div className="flex flex-wrap gap-1 mt-2">
+                                    {event.milliseconds_since_start === 0 && (
                                         <LemonTag size="small" type="default">
                                             before start
                                         </LemonTag>
-                                    </>
-                                )}
-                                {getIssueTags(event).map((tag, i) => (
-                                    <React.Fragment key={i}>
-                                        &nbsp;
-                                        {tag}
-                                    </React.Fragment>
-                                ))}
-                            </span>
+                                    )}
+                                    {getIssueTags(event).map((tag, i) => (
+                                        <React.Fragment key={i}>{tag}</React.Fragment>
+                                    ))}
+                                </div>
+                            </div>
                         </div>
                     </div>
                 ) : null
