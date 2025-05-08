@@ -102,7 +102,7 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
         const [notices, onAcknowledged] = useSidebarChangeNotices({ identifier })
 
         return (
-            <li className="w-full">
+            <li className="w-fit">
                 {notices.length ? (
                     <Tooltip
                         title={<SidebarChangeNoticeContent notices={notices} onAcknowledged={onAcknowledged} />}

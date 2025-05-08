@@ -332,6 +332,10 @@
     }
 
     &.LemonButton--tertiary {
+        &.LemonButton--no-content {
+            --lemon-button-padding-horizontal: 0.25rem;
+        }
+
         &:not([aria-disabled='true']):hover,
         &[data-focused='true']:not([aria-disabled='true']):focus-visible {
             background-color: var(--bg-fill-button-tertiary-hover);
