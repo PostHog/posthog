@@ -88,7 +88,7 @@ export class SessionConsoleLogRecorder {
         public readonly teamId: number,
         public readonly batchId: string,
         private readonly store: SessionConsoleLogStore,
-        private readonly metadataSwitchoverDate?: Date | null
+        private readonly metadataSwitchoverDate: Date | null
     ) {}
 
     /**
@@ -117,7 +117,7 @@ export class SessionConsoleLogRecorder {
                 if (event.type === RRWebEventType.Plugin && eventData?.plugin === 'rrweb/console@1') {
                     const timestamp = DateTime.fromMillis(event.timestamp)
 
-                    if (this.metadataSwitchoverDate && timestamp.toJSDate() < this.metadataSwitchoverDate) {
+                    if (this.metadataSwitchoverDate === null || timestamp.toJSDate() < this.metadataSwitchoverDate) {
                         continue
                     }
 
