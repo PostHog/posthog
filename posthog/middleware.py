@@ -52,11 +52,12 @@ ALWAYS_ALLOWED_ENDPOINTS = [
     "static",
     "_health",
     "flags",
+    "i",
 ]
 
-if DEBUG:
-    # /i/ is the new root path for capture endpoints
-    ALWAYS_ALLOWED_ENDPOINTS.append("i")
+# if DEBUG:
+#     # /i/ is the new root path for capture endpoints
+#     ALWAYS_ALLOWED_ENDPOINTS.append("i")
 
 default_cookie_options = {
     "max_age": 365 * 24 * 60 * 60,  # one year
