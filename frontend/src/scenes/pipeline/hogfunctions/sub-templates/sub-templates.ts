@@ -135,6 +135,11 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             template_id: 'template-discord',
             name: 'Post to Discord on feature enrollment',
             description: 'Posts a message to Discord when a user enrolls or un-enrolls in an early access feature',
+            inputs: {
+                content: {
+                    value: `**{person.name}** {event.properties.$feature_enrollment ? 'enrolled in' : 'un-enrolled from'} the early access feature for '{event.properties.$feature_flag}'`,
+                },
+            },
         },
         {
             ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['early-access-feature-enrollment'],
