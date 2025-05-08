@@ -7,6 +7,7 @@ import { DB } from '../../../utils/db/db'
 import { PostgresUse, TransactionClient } from '../../../utils/db/postgres'
 import { logger } from '../../../utils/logger'
 import {
+    observeLatencyByVersion,
     personCacheOperationsCounter,
     personDatabaseOperationsPerBatchHistogram,
     personMethodCallsPerBatchHistogram,
@@ -171,7 +172,9 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
         }
 
         this.incrementDatabaseOperation('fetchForChecking')
+        const start = performance.now()
         const person = await this.db.fetchPerson(teamId, distinctId, { useReadReplica: true })
+        observeLatencyByVersion(person, start, 'fetchForChecking')
         this.setCheckCachedPerson(teamId, distinctId, person ?? null)
         return person ?? null
     }
@@ -185,7 +188,9 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
         }
 
         this.incrementDatabaseOperation('fetchForUpdate')
+        const start = performance.now()
         const person = await this.db.fetchPerson(teamId, distinctId, { useReadReplica: false })
+        observeLatencyByVersion(person, start, 'fetchForUpdate')
         this.setCachedPerson(teamId, distinctId, person ?? null)
         return person ?? null
     }
@@ -227,14 +232,20 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
         this.incrementCount('updatePersonDeprecated')
         this.clearCache()
         this.incrementDatabaseOperation('updatePersonDeprecated')
-        return await this.db.updatePersonDeprecated(person, update, tx)
+        const start = performance.now()
+        const response = await this.db.updatePersonDeprecated(person, update, tx)
+        observeLatencyByVersion(person, start, 'updatePersonDeprecated')
+        return response
     }
 
     async deletePerson(person: InternalPerson, tx?: TransactionClient): Promise<TopicMessage[]> {
         this.incrementCount('deletePerson')
         this.clearCache()
         this.incrementDatabaseOperation('deletePerson')
-        return await this.db.deletePerson(person, tx)
+        const start = performance.now()
+        const response = await this.db.deletePerson(person, tx)
+        observeLatencyByVersion(person, start, 'deletePerson')
+        return response
     }
 
     async addDistinctId(
@@ -246,7 +257,10 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
         this.incrementCount('addDistinctId')
         this.clearCache()
         this.incrementDatabaseOperation('addDistinctId')
-        return await this.db.addDistinctId(person, distinctId, version, tx)
+        const start = performance.now()
+        const response = await this.db.addDistinctId(person, distinctId, version, tx)
+        observeLatencyByVersion(person, start, 'addDistinctId')
+        return response
     }
 
     async moveDistinctIds(
@@ -257,7 +271,10 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
         this.incrementCount('moveDistinctIds')
         this.clearCache()
         this.incrementDatabaseOperation('moveDistinctIds')
-        return await this.db.moveDistinctIds(source, target, tx)
+        const start = performance.now()
+        const response = await this.db.moveDistinctIds(source, target, tx)
+        observeLatencyByVersion(target, start, 'moveDistinctIds')
+        return response
     }
 
     async updateCohortsAndFeatureFlagsForMerge(

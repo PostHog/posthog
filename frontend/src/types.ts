@@ -443,6 +443,15 @@ export interface OrganizationMemberType extends BaseMemberType {
     is_2fa_enabled: boolean
 }
 
+export interface OrganizationMemberScopedApiKeysResponse {
+    has_keys: boolean
+    has_keys_active_last_week: boolean
+    keys: {
+        name: string
+        last_used_at: string | null
+    }[]
+}
+
 export interface ExplicitTeamMemberType extends BaseMemberType {
     /** Level at which the user explicitly is in the project. */
     level: TeamMembershipLevel
@@ -508,6 +517,8 @@ export interface TeamBasicType extends WithAccessControl {
     organization: string // Organization ID
     project_id: number
     api_token: string
+    secret_api_token: string
+    secret_api_token_backup: string
     name: string
     completed_snippet_onboarding: boolean
     has_completed_onboarding_for?: Record<string, boolean>
@@ -1847,6 +1858,9 @@ export interface BillingType {
     products: BillingProductV2Type[]
 
     custom_limits_usd?: {
+        [key: string]: number | null
+    }
+    next_period_custom_limits_usd?: {
         [key: string]: number | null
     }
     billing_period?: {
@@ -3546,6 +3560,14 @@ export interface Group {
     group_properties: Record<string, any>
 }
 
+export enum ExperimentConclusion {
+    Won = 'won',
+    Lost = 'lost',
+    Inconclusive = 'inconclusive',
+    StoppedEarly = 'stopped_early',
+    Invalid = 'invalid',
+}
+
 export interface Experiment {
     id: ExperimentIdType
     name: string
@@ -3594,6 +3616,8 @@ export interface Experiment {
         version?: number
     }
     _create_in_folder?: string | null
+    conclusion?: ExperimentConclusion | null
+    conclusion_comment?: string | null
 }
 
 export interface FunnelExperimentVariant {
@@ -4376,6 +4400,7 @@ export interface DataWarehouseSavedQuery {
     sync_frequency: string
     status?: string
     latest_error: string | null
+    latest_history_id?: string
 }
 
 export interface DataWarehouseViewLink {
@@ -4446,7 +4471,7 @@ export interface ExternalDataSource {
 export interface DataModelingJob {
     id: string
     saved_query_id: string
-    status: 'Running' | 'Completed' | 'Failed'
+    status: 'Running' | 'Completed' | 'Failed' | 'Cancelled'
     rows_materialized: number
     error: string | null
     created_at: string

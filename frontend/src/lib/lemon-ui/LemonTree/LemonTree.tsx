@@ -6,6 +6,7 @@ import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimi
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
 import {
+    CSSProperties,
     ForwardedRef,
     forwardRef,
     HTMLAttributes,
@@ -59,7 +60,7 @@ export type TreeDataItem = {
      * Type node, normal behavior
      * Type separator, render as separator
      */
-    type?: 'node' | 'separator' | 'empty-folder'
+    type?: 'node' | 'separator' | 'empty-folder' | 'loading-indicator'
 
     /**
      * Handle a click on the item.
@@ -131,6 +132,7 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     checkedItemCount?: number
     /** The render function for the item. */
     renderItem?: (item: TreeDataItem, children: React.ReactNode) => React.ReactNode
+    renderItemTooltip?: (item: TreeDataItem) => React.ReactNode | undefined
     /** Set the IDs of the expanded items. */
     onSetExpandedItemIds?: (ids: string[]) => void
     /** Pass true if you need to wait for async events to populate the tree.
@@ -155,6 +157,8 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     tableModeHeader?: () => React.ReactNode
     /** The row to render for the table mode */
     tableModeRow?: (item: TreeDataItem, firstColumnOffset: number) => React.ReactNode
+    /** The size of the tree element */
+    treeElementSize?: 'base' | 'lg'
 }
 
 export type LemonTreeProps = LemonTreeBaseProps & {
@@ -198,11 +202,11 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
             mode,
             tableViewKeys,
             tableModeTotalWidth,
-            tableModeHeader,
             tableModeRow,
             selectedId,
             handleClick,
             renderItem,
+            renderItemTooltip,
             expandedItemIds,
             onSetExpandedItemIds,
             defaultNodeIcon,
@@ -256,11 +260,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
         }
 
         return (
-            <div
-                className={cn('list-none m-0 p-0 h-full w-full', className, {
-                    'overflow-x-auto overflow-y-hidden pt-0': mode === 'table' && depth === 0,
-                })}
-            >
+            <div className={cn('list-none m-0 p-0 h-full w-full', className)}>
                 {data.map((item, index) => {
                     const displayName = item.displayName ?? item.name
                     const isFolder = item.record?.type === 'folder'
@@ -313,9 +313,13 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                             data-id={item.id}
                             // When dragging, don't allow links to be clicked,
                             // without this drag end would fire this href causing a reload
-                            to={isEmptyFolder ? '#' : item.record?.href || '#'}
-                            onClick={() => {
-                                handleClick(item)
+                            to={item.disabledReason || isEmptyFolder ? '#' : item.record?.href || '#'}
+                            onClick={(e) => {
+                                if (item.disabledReason) {
+                                    e.preventDefault()
+                                } else {
+                                    handleClick(item)
+                                }
                             }}
                             disabled={isDragging}
                             role="treeitem"
@@ -326,7 +330,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                 disabled: isEmptyFolder,
                                 className: cn(
                                     'group/lemon-tree-button',
-                                    'relative z-1 focus-visible:bg-fill-button-tertiary-hover h-[var(--button-height-base)] motion-safe:transition-[padding] duration-50',
+                                    'relative z-1 focus-visible:bg-fill-button-tertiary-hover motion-safe:transition-[padding] duration-50 h-[var(--lemon-tree-button-height)]',
                                     {
                                         'bg-fill-button-tertiary-hover':
                                             (selectMode === 'folder-only' &&
@@ -351,7 +355,9 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                             aria-roledescription="tree item"
                             aria-rolemap={`item-${item.id}`}
                             aria-label={ariaLabel}
-                            tooltip={isDragging || isEmptyFolder || mode === 'table' ? undefined : displayName}
+                            tooltip={
+                                isDragging || isEmptyFolder || mode === 'table' ? undefined : renderItemTooltip?.(item)
+                            }
                             tooltipPlacement="right"
                         >
                             {/* Spacer to offset button padding */}
@@ -366,7 +372,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                             {mode === 'table' ? (
                                 tableModeRow?.(item, firstColumnOffset + 20)
                             ) : (
-                                <span className="relative truncate text-left">
+                                <span className="relative truncate text-left w-full">
                                     {renderItem ? (
                                         <>
                                             {renderItem(
@@ -376,7 +382,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                         'font-semibold': isFolder && !isEmptyFolder,
                                                     })}
                                                 >
-                                                    <span>{displayName}</span>
+                                                    {displayName}
                                                 </span>
                                             )}
                                         </>
@@ -386,7 +392,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                 'font-semibold': isFolder && !isEmptyFolder,
                                             })}
                                         >
-                                            <span>{displayName}</span>
+                                            {displayName}
                                         </span>
                                     )}
 
@@ -402,7 +408,11 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
 
                     if (enableDragAndDrop && isItemDraggable?.(item) && item.id) {
                         button = (
-                            <TreeNodeDraggable id={item.id} enableDragging className="h-[var(--button-height-base)]">
+                            <TreeNodeDraggable
+                                id={item.id}
+                                enableDragging
+                                className="h-[var(--lemon-tree-button-height)]"
+                            >
                                 {button}
                             </TreeNodeDraggable>
                         )
@@ -438,7 +448,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                         <ContextMenuTrigger asChild>
                                             <ButtonGroupPrimitive
                                                 fullWidth
-                                                className="group/lemon-tree-button-group relative h-[var(--button-height-base)]"
+                                                className="group/lemon-tree-button-group relative h-[var(--lemon-tree-button-height)]"
                                             >
                                                 {/* The contents of this <TreeNodeDisplayIconWrapper> are positioned absolutely, so to give the effect it's inside the button */}
                                                 <TreeNodeDisplayIconWrapper
@@ -479,7 +489,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                             <ButtonPrimitive
                                                                 iconOnly
                                                                 isSideActionRight
-                                                                className="z-2 shrink-0 motion-safe:transition-opacity duration-[50ms] group-hover/lemon-tree-button-group:opacity-100 aria-expanded:opacity-100"
+                                                                className="z-2 shrink-0 motion-safe:transition-opacity duration-[50ms] group-hover/lemon-tree-button-group:opacity-100 aria-expanded:opacity-100 h-[var(--lemon-tree-button-height)]"
                                                             >
                                                                 <IconEllipsis className="size-3 text-tertiary" />
                                                             </ButtonPrimitive>
@@ -520,6 +530,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                             defaultNodeIcon={defaultNodeIcon}
                                             showFolderActiveState={showFolderActiveState}
                                             renderItem={renderItem}
+                                            renderItemTooltip={renderItemTooltip}
                                             itemSideAction={itemSideAction}
                                             depth={depth + 1}
                                             isItemActive={isItemActive}
@@ -553,26 +564,6 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                             <TreeNodeDroppable id={item.id} isDroppable={item.record?.type === 'folder'}>
                                 {wrappedContent}
                             </TreeNodeDroppable>
-                        )
-                    }
-
-                    // If table and first level, show table headers
-                    if (index === 0 && depth === 0 && mode === 'table') {
-                        return (
-                            <div
-                                className="flex flex-col gap-1"
-                                key={`table-header-${item.id}`}
-                                // eslint-disable-next-line react/forbid-dom-props
-                                style={{
-                                    width: `${tableModeTotalWidth}px`,
-                                }}
-                            >
-                                <div className="relative h-[30px] opacity-100 border-b border-primary -ml-[3px] motion-safe:transition-[height,display] duration-200 starting:h-0 [transition-behavior:allow-discrete] z-5">
-                                    {tableModeHeader?.()}
-                                </div>
-
-                                {wrappedContent}
-                            </div>
                         )
                     }
 
@@ -616,6 +607,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             tableModeTotalWidth,
             tableModeHeader,
             tableModeRow,
+            treeElementSize = 'base',
             ...props
         },
         ref: ForwardedRef<LemonTreeRef>
@@ -1241,10 +1233,42 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                     aria-label="Tree navigation"
                     onKeyDown={handleKeyDown}
                     className="flex-1"
-                    innerClassName="relative"
+                    innerClassName="relative overflow-x-auto"
                     styledScrollbars
+                    style={
+                        {
+                            // for scrollable shadows
+                            '--scrollable-shadows-offset-top': mode === 'table' ? '30px' : '0px',
+                            // for tree element
+                            '--lemon-tree-button-height':
+                                treeElementSize === 'lg'
+                                    ? 'var(--button-height-base-tall)'
+                                    : 'var(--button-height-base)',
+                            '--lemon-tree-button-icon-offset-top': treeElementSize === 'lg' ? '-4px' : '5px',
+                        } as CSSProperties
+                    }
                 >
-                    <TreeNodeDroppable id="" isDroppable={enableDragAndDrop} isRoot isDragging={isDragging}>
+                    {mode === 'table' && (
+                        <div
+                            className="h-[30px] sticky top-0 z-20 border-b border-primary bg-surface-secondary"
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{
+                                width: mode === 'table' ? `${tableModeTotalWidth}px` : undefined,
+                            }}
+                        >
+                            {tableModeHeader?.()}
+                        </div>
+                    )}
+
+                    <TreeNodeDroppable
+                        id=""
+                        isDroppable={enableDragAndDrop}
+                        isRoot
+                        isDragging={isDragging}
+                        style={{
+                            width: mode === 'table' ? `${tableModeTotalWidth}px` : undefined,
+                        }}
+                    >
                         <LemonTreeNode
                             data={data}
                             mode={mode}
@@ -1279,7 +1303,6 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                             isDragging={isDragging}
                             checkedItemCount={checkedItemCount}
                             setFocusToElementFromId={focusElementFromId}
-                            tableModeHeader={tableModeHeader}
                             tableModeRow={tableModeRow}
                             {...props}
                         />

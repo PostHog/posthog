@@ -1,4 +1,5 @@
 use std::ops::Deref;
+use std::string::FromUtf8Error;
 use std::sync::Arc;
 
 use axum::{debug_handler, Json};
@@ -27,12 +28,343 @@ use crate::{
     v0_request::{EventFormData, EventQuery},
 };
 
+// used to limit test scans and extract loggable snippets from potentially large strings/buffers
+pub const MAX_CHARS_TO_CHECK: usize = 128;
+pub const MAX_PAYLOAD_SNIPPET_SIZE: usize = 20;
+
+#[derive(PartialEq, Eq)]
+enum Base64Option {
+    // hasn't been decoded from urlencoded payload; won't include spaces
+    Strict,
+    // input might have been urlencoded; might include spaces that need touching up
+    Loose,
+}
+
+/// handle_legacy owns the /e, /capture, /track, and /engage capture endpoints
+#[instrument(
+    skip_all,
+    fields(
+        method,
+        path,
+        user_agent,
+        content_type,
+        content_encoding,
+        x_request_id,
+        token,
+        historical_migration,
+        lib_version,
+        compression,
+        params_lib_version,
+        params_compression,
+        batch_size
+    )
+)]
+async fn handle_legacy(
+    state: &State<router::State>,
+    InsecureClientIp(ip): &InsecureClientIp,
+    query_params: &mut EventQuery,
+    headers: &HeaderMap,
+    method: &Method,
+    path: &MatchedPath,
+    body: Bytes,
+) -> Result<(ProcessingContext, Vec<RawEvent>), CaptureError> {
+    // this endpoint handles:
+    // - GET or POST requests w/payload that is one of:
+    //   1. GZIP or LZ64 compressed, possibly base64 encoded JSON payload
+    //   2. urlencoded form where "data" is key to access the payload
+    //
+    // When POST body isn't the payload, the POST form fields or
+    // GET query params should contain the following:
+    //     - data        = JSON payload which may itself be compressed or base64 encoded or both
+    //     - compression = hint to how "data" is encoded or compressed
+    //     - lib_version = SDK version that submitted the request
+
+    // capture arguments and add to logger, processing context
+    Span::current().record("path", path.as_str());
+    let user_agent = headers
+        .get("user-agent")
+        .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
+    Span::current().record("user_agent", user_agent);
+    let content_type = headers
+        .get("content-type")
+        .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
+    Span::current().record("content_type", content_type);
+    let content_encoding = headers
+        .get("content-encoding")
+        .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
+    Span::current().record("content_encoding", content_encoding);
+    let x_request_id = headers
+        .get("x-request-id")
+        .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
+    Span::current().record("x_request_id", x_request_id);
+
+    // TODO(eli): temporary peek at these
+    if query_params.lib_version.is_some() {
+        Span::current().record(
+            "params_lib_version",
+            format!("{:?}", query_params.lib_version.as_ref()),
+        );
+    }
+    if query_params.compression.is_some() {
+        Span::current().record(
+            "params_compression",
+            format!("{}", query_params.compression.unwrap()),
+        );
+    }
+    debug!("entering handle_legacy");
+
+    let raw_payload: Bytes = if query_params.data.as_ref().is_some_and(|d| !d.is_empty()) {
+        let tmp_vec = std::mem::take(&mut query_params.data);
+        Bytes::from(tmp_vec.unwrap())
+    } else if !body.is_empty() {
+        body
+    } else {
+        error!("missing payload on {:?} request", method);
+        return Err(CaptureError::EmptyPayload);
+    };
+
+    // attempt to decode POST payload if it is form data
+    let form: EventFormData = match content_type {
+        "application/x-www-form-urlencoded" => {
+            if is_likely_urlencoded_form(&raw_payload) {
+                let mut form = decode_form(&raw_payload, "plain_form")?;
+                // corner case: if the form "data" payload is Base64 encoded,
+                // we need to restore the '+' chars that were decoded to spaces
+                // for the downstream decoding steps like LZ64 to work with
+                if form
+                    .data
+                    .as_ref()
+                    .is_some_and(|d| is_likely_base64(d.as_bytes(), Base64Option::Loose))
+                {
+                    form.data = Some(form.data.unwrap().replace(" ", "+"));
+                }
+                form
+            } else if is_likely_base64(&raw_payload, Base64Option::Strict) {
+                let decoded = decode_base64(&raw_payload)?;
+                decode_form(&decoded, "form_after_b64_unwrap")?
+            } else {
+                let max_chars = std::cmp::min(raw_payload.len(), MAX_PAYLOAD_SNIPPET_SIZE);
+                let form_data_snippet = String::from_utf8(raw_payload[..max_chars].to_vec())
+                    .unwrap_or(String::from("INVALID_UTF8"));
+                error!(
+                    form_data = form_data_snippet,
+                    "invalid expected form in request payload"
+                );
+                return Err(CaptureError::RequestDecodingError(String::from(
+                    "invalid form in request payload",
+                )));
+            }
+        }
+
+        _ => {
+            debug!("handle_legacy: non-form payload");
+
+            // if the entire payload is base64 encoded, attempt to
+            // decode into the form struct which takes precedence over
+            // raw payloads downstream
+            let mut payload: Option<String> = None;
+            if is_likely_base64(&raw_payload, Base64Option::Strict) {
+                let tmp = decode_base64(&raw_payload)?;
+                payload = String::from_utf8(tmp)
+                    .map_err(|e: FromUtf8Error| {
+                        debug!(
+                            "optimistic attempt to base64 decode non-form payload failed: {}",
+                            &e
+                        )
+                    })
+                    .ok();
+            }
+            EventFormData {
+                data: payload,
+                compression: None,
+                lib_version: None,
+            }
+        }
+    };
+
+    // different SDKs stash these in different places
+    let compression = extract_compression(&form, query_params, headers);
+    Span::current().record("compression", format!("{}", compression));
+    let lib_version = extract_lib_version(&form, query_params);
+    Span::current().record("lib_version", &lib_version);
+
+    warn!("payload processed: passing to RawRequest::from_bytes");
+
+    // if the payload is populated in the form, process it.
+    // otherwise, pass the byte payload
+    let data = form.data.map_or(raw_payload, Bytes::from);
+    let request = RawRequest::from_bytes(
+        data,
+        compression,
+        state.event_size_limit,
+        state.is_mirror_deploy,
+    )?;
+
+    let sent_at = request.sent_at().or(query_params.sent_at());
+    let token = match request.extract_and_verify_token() {
+        Ok(token) => token,
+        Err(err) => {
+            report_dropped_events("token_shape_invalid", request.events().len() as u64);
+            return Err(err);
+        }
+    };
+    let historical_migration = request.historical_migration();
+    let events = request.events(); // Takes ownership of request
+
+    Span::current().record("token", &token);
+    Span::current().record("historical_migration", historical_migration);
+    Span::current().record("batch_size", events.len());
+
+    if events.is_empty() {
+        warn!("rejected empty batch");
+        return Err(CaptureError::EmptyBatch);
+    }
+
+    counter!("capture_events_received_total", &[("legacy", "true")]).increment(events.len() as u64);
+
+    let context = ProcessingContext {
+        lib_version,
+        sent_at,
+        token,
+        now: state.timesource.current_time(),
+        client_ip: ip.to_string(),
+        historical_migration,
+        user_agent: Some(user_agent.to_string()),
+    };
+
+    let billing_limited = state
+        .billing_limiter
+        .is_limited(context.token.as_str())
+        .await;
+
+    if billing_limited {
+        report_dropped_events("over_quota", events.len() as u64);
+
+        return Err(CaptureError::BillingLimit);
+    }
+
+    warn!(context=?context,
+        event_count=?events.len(),
+        "handle_legacy: successfully hydrated events");
+    Ok((context, events))
+}
+
+fn extract_lib_version(form: &EventFormData, params: &EventQuery) -> Option<String> {
+    let form_lv = form.lib_version.as_ref();
+    let params_lv = params.lib_version.as_ref();
+    if form_lv.is_some_and(|lv| !lv.is_empty()) {
+        return Some(form_lv.unwrap().clone());
+    }
+    if params_lv.is_some_and(|lv| !lv.is_empty()) {
+        return Some(params_lv.unwrap().clone());
+    }
+
+    None
+}
+
+// the compression hint can be tucked away any number of places depending on the SDK submitting the request...
+fn extract_compression(
+    form: &EventFormData,
+    params: &EventQuery,
+    headers: &HeaderMap,
+) -> Compression {
+    if params
+        .compression
+        .is_some_and(|c| c != Compression::Unsupported)
+    {
+        params.compression.unwrap()
+    } else if form
+        .compression
+        .is_some_and(|c| c != Compression::Unsupported)
+    {
+        form.compression.unwrap()
+    } else if let Some(ct) = headers.get("content-encoding") {
+        match ct.to_str().unwrap_or("UNKNOWN") {
+            "gzip" | "gzip-js" => Compression::Gzip,
+            "lz64" | "lz-string" => Compression::LZString,
+            _ => Compression::Unsupported,
+        }
+    } else {
+        Compression::Unsupported
+    }
+}
+
+fn decode_form(payload: &[u8], location: &str) -> Result<EventFormData, CaptureError> {
+    match serde_urlencoded::from_bytes::<EventFormData>(payload) {
+        Ok(form) => Ok(form),
+
+        Err(e) => {
+            let max_chars: usize = std::cmp::min(payload.len(), MAX_PAYLOAD_SNIPPET_SIZE);
+            let form_data_snippet = String::from_utf8(payload[..max_chars].to_vec())
+                .unwrap_or(String::from("INVALID_UTF8"));
+            error!(
+                form_data = form_data_snippet,
+                location = location,
+                "failed to decode urlencoded form body: {}",
+                e
+            );
+            Err(CaptureError::RequestDecodingError(String::from(
+                "invalid urlencoded form data",
+            )))
+        }
+    }
+}
+
+// have we decoded sufficiently have a urlencoded data payload of the expected form yet?
+fn is_likely_urlencoded_form(payload: &[u8]) -> bool {
+    [&b"data="[..], &b"ver="[..], &b"compression="[..]]
+        .iter()
+        .any(|target: &&[u8]| payload.starts_with(target))
+}
+
+// relatively cheap check for base64 encoded payload since these can show up at
+// various decoding layers in requests from different PostHog SDKs and versions
+fn is_likely_base64(payload: &[u8], opt: Base64Option) -> bool {
+    if payload.is_empty() {
+        return false;
+    }
+
+    let prefix_chars_b64_compatible = payload.iter().take(MAX_CHARS_TO_CHECK).all(|b| {
+        (*b >= b'A' && *b <= b'Z')
+            || (*b >= b'a' && *b <= b'z')
+            || (*b >= b'0' && *b <= b'9')
+            || *b == b'+'
+            || *b == b'/'
+            || *b == b'='
+            || (opt == Base64Option::Loose && *b == b' ')
+    });
+
+    let is_b64_aligned = payload.len() % 4 == 0;
+
+    prefix_chars_b64_compatible && is_b64_aligned
+}
+
+fn decode_base64(payload: &[u8]) -> Result<Vec<u8>, CaptureError> {
+    match base64::engine::general_purpose::STANDARD.decode(payload) {
+        Ok(decoded_payload) => Ok(decoded_payload),
+        Err(e) => {
+            let max_chars = std::cmp::min(payload.len(), MAX_PAYLOAD_SNIPPET_SIZE);
+            let form_data_snippet = String::from_utf8(payload[..max_chars].to_vec())
+                .unwrap_or(String::from("INVALID_UTF8"));
+            error!(
+                form_data = form_data_snippet,
+                "failed to decode expected base64 data: {}", e
+            );
+            Err(CaptureError::RequestDecodingError(String::from(
+                "missing or invalid payload",
+            )))
+        }
+    }
+}
+
 /// Flexible endpoint that targets wide compatibility with the wide range of requests
 /// currently processed by posthog-events (analytics events capture). Replay is out
 /// of scope and should be processed on a separate endpoint.
 ///
 /// Because it must accommodate several shapes, it is inefficient in places. A v1
 /// endpoint should be created, that only accepts the BatchedRequest payload shape.
+///
+/// NOTE: handle_common owns the /i and /batch capture endpoints
 async fn handle_common(
     state: &State<router::State>,
     InsecureClientIp(ip): &InsecureClientIp,
@@ -48,28 +380,14 @@ async fn handle_common(
     let content_encoding = headers
         .get("content-encoding")
         .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
+    Span::current().record("user_agent", user_agent);
+    Span::current().record("content_encoding", content_encoding);
 
-    let current_span = Span::current();
-    if state.is_mirror_deploy {
-        // for mirror deploy, temporarily log all headers
-        for entry in headers {
-            let key = entry.0.as_str();
-            let value = entry.1.to_str().unwrap_or("UNKNOWN");
-            current_span.record(key, value);
-        }
-    } else {
-        current_span.record("user_agent", user_agent);
-        current_span.record("content_encoding", content_encoding);
-    }
+    // TODO: improve detection of meta.compression as per handle_legacy, then pass into RawEvent::from_bytes?
 
-    let comp = match meta.compression {
-        None => String::from("unknown"),
-        Some(Compression::Gzip) => String::from("gzip"),
-        Some(Compression::Unsupported) => String::from("unsupported"),
-    };
-
+    let resolved_cmp = format!("{}", meta.compression.unwrap_or_default());
     Span::current().record("version", meta.lib_version.clone());
-    Span::current().record("compression", comp.as_str());
+    Span::current().record("compression", resolved_cmp);
     Span::current().record("method", method.as_str());
     Span::current().record("path", path.as_str().trim_end_matches('/'));
 
@@ -84,29 +402,41 @@ async fn handle_common(
                 error!("failed to decode urlencoded form body: {}", e);
                 CaptureError::RequestDecodingError(String::from("invalid urlencoded form data"))
             })?;
+
+            if input.data.is_none() || input.data.as_ref().is_some_and(|d| d.is_empty()) {
+                return Err(CaptureError::EmptyPayload);
+            }
+
             let payload = base64::engine::general_purpose::STANDARD
-                .decode(&input.data)
+                .decode(input.data.unwrap())
                 .map_err(|e| {
-                    if state.is_mirror_deploy {
-                        // get a peek at the headers and a short snip of the payload in mirror
-                        // see which capture.py "kludge warning" these may map to, if any
-                        error!(
-                            data = &input.data[0..input.data.len().min(128)],
-                            "failed to decode mirrored form w/error: {}", e
-                        );
-                    } else {
-                        error!("failed to decode base64 form data: {}", e);
-                    }
+                    error!("failed to decode base64 form data: {}", e);
                     CaptureError::RequestDecodingError(String::from(
                         "missing or invalid data field",
                     ))
                 })?;
-            RawRequest::from_bytes(payload.into(), state.event_size_limit)
+
+            // by setting compression "unsupported" here, we route handle_common
+            // outputs into the old RawRequest hydration behavior, prior to adding
+            // handle_legacy shims. handle_common doesn't extract compression hints
+            // as reliably as it should, and is probably losing some data due to
+            // this. We'll circle back once the legacy shims ship
+            RawRequest::from_bytes(
+                payload.into(),
+                Compression::Unsupported,
+                state.event_size_limit,
+                state.is_mirror_deploy,
+            )
         }
         ct => {
             Span::current().record("content_type", ct);
-
-            RawRequest::from_bytes(body, state.event_size_limit)
+            // see above for details
+            RawRequest::from_bytes(
+                body,
+                Compression::Unsupported,
+                state.event_size_limit,
+                state.is_mirror_deploy,
+            )
         }
     }?;
 
@@ -156,6 +486,70 @@ async fn handle_common(
     debug!(context=?context, events=?events, "decoded request");
 
     Ok((context, events))
+}
+
+#[instrument(
+    skip_all,
+    fields(
+        path,
+        token,
+        batch_size,
+        user_agent,
+        content_encoding,
+        content_type,
+        version,
+        compression,
+        historical_migration
+    )
+)]
+#[debug_handler]
+pub async fn event_legacy(
+    state: State<router::State>,
+    ip: InsecureClientIp,
+    meta: Query<EventQuery>,
+    headers: HeaderMap,
+    method: Method,
+    path: MatchedPath,
+    body: Bytes,
+) -> Result<Json<CaptureResponse>, CaptureError> {
+    let mut params: EventQuery = meta.0;
+
+    match handle_legacy(&state, &ip, &mut params, &headers, &method, &path, body).await {
+        Err(CaptureError::BillingLimit) => {
+            // Short term: return OK here to avoid clients retrying over and over
+            // Long term: v1 endpoints will return richer errors, sync w/SDK behavior
+            Ok(Json(CaptureResponse {
+                status: CaptureResponseCode::Ok,
+                quota_limited: None,
+            }))
+        }
+        Err(err) => Err(err),
+        Ok((context, events)) => {
+            if let Err(err) = process_events(
+                state.sink.clone(),
+                state.token_dropper.clone(),
+                state.historical_cfg.clone(),
+                &events,
+                &context,
+            )
+            .await
+            {
+                let cause = match err {
+                    CaptureError::MissingDistinctId => "missing_distinct_id",
+                    CaptureError::MissingEventName => "missing_event_name",
+                    _ => "process_events_error",
+                };
+                report_dropped_events(cause, events.len() as u64);
+                tracing::log::warn!("rejected invalid payload: {}", err);
+                return Err(err);
+            }
+
+            Ok(Json(CaptureResponse {
+                status: CaptureResponseCode::Ok,
+                quota_limited: None,
+            }))
+        }
+    }
 }
 
 #[instrument(

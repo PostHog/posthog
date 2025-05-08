@@ -19,6 +19,7 @@ import {
     HogFunctionInvocationSerialized,
 } from '../../types'
 import { HogFunctionManagerService } from '../hog-function-manager.service'
+import { cdpJobSizeKb } from './shared'
 
 export class CyclotronJobQueueKafka {
     private kafkaConsumer?: KafkaConsumer
@@ -66,32 +67,45 @@ export class CyclotronJobQueueKafka {
     }
 
     public async queueInvocations(invocations: HogFunctionInvocation[]) {
+        if (invocations.length === 0) {
+            return
+        }
+
         const producer = this.getKafkaProducer()
 
-        const messages = await Promise.all(
+        await Promise.all(
             invocations.map(async (x) => {
                 const serialized = serializeHogFunctionInvocation(x)
-                return {
-                    topic: `cdp_cyclotron_${x.queue}`,
-                    messages: [
-                        {
-                            value: this.config.CDP_CYCLOTRON_COMPRESS_KAFKA_DATA
-                                ? await compress(JSON.stringify(serialized))
-                                : JSON.stringify(serialized),
-                            key: x.id,
-                            headers: {
-                                hogFunctionId: x.hogFunction.id,
-                                teamId: x.globals.project.id.toString(),
-                            },
+
+                const value = this.config.CDP_CYCLOTRON_COMPRESS_KAFKA_DATA
+                    ? await compress(JSON.stringify(serialized))
+                    : JSON.stringify(serialized)
+
+                cdpJobSizeKb.observe(value.length / 1024)
+
+                await producer
+                    .produce({
+                        value: Buffer.from(value),
+                        key: Buffer.from(x.id),
+                        topic: `cdp_cyclotron_${x.queue}`,
+                        headers: {
+                            hogFunctionId: x.hogFunction.id,
+                            teamId: x.globals.project.id.toString(),
                         },
-                    ],
-                }
+                    })
+                    .catch((e) => {
+                        logger.error('🔄', 'Error producing kafka message', {
+                            error: String(e),
+                            teamId: x.teamId,
+                            hogFunctionId: x.hogFunction.id,
+                            payloadSizeKb: value.length / 1024,
+                            eventUrl: x.globals.event.url,
+                        })
+
+                        throw e
+                    })
             })
         )
-
-        logger.debug('🔄', 'Queueing kafka jobs', { messages })
-
-        await producer.queueMessages(messages)
     }
 
     public async queueInvocationResults(invocationResults: HogFunctionInvocationResult[]) {

@@ -108,6 +108,7 @@ mockall = "0.13.0"
 moka = { version = "0.12.8", features = ["sync", "future"] }
 posthog-rs = { version = "0.3.5", features = ["async-client"] }
 regex = "1.11.1"
+lz-str = "0.2.1"
 
 # Used for decrypting django encrypted fields
 fernet = "0.2"
