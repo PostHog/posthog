@@ -30,7 +30,7 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
     actions({
         setCurrentTab: (tab: HogFunctionSceneTab) => ({ tab }),
     }),
-    reducers(({}) => ({
+    reducers(() => ({
         currentTab: [
             'configuration' as HogFunctionSceneTab,
             {

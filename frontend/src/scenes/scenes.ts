@@ -472,6 +472,10 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: true,
         name: 'Hog function',
     },
+    [Scene.HogFunctionNew]: {
+        projectBased: true,
+        name: 'New hog function',
+    },
     ...productConfiguration,
 }
 
@@ -672,5 +676,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.startups()]: [Scene.StartupProgram, 'startupProgram'],
     [urls.startups(true)]: [Scene.StartupProgram, 'startupProgramYC'],
     [urls.hogFunction(':id')]: [Scene.HogFunction, 'hogFunction'],
+    [urls.hogFunctionNew(':id')]: [Scene.HogFunctionNew, 'hogFunctionNew'],
     ...productRoutes,
 }
