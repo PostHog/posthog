@@ -61,7 +61,7 @@ operations = [
     # second, add missing columns to writable table
     run_sql_with_exceptions(ADD_CAPTURED_AT_COLUMNS_WRITABLE_EVENTS_TABLE_SQL()),
     run_sql_with_exceptions(ADD_CAPTURED_AT_COLUMNS_EVENTS_RECENT_SQL()),
-    # third,add missing columns to distributed table
+    # third, add missing columns to distributed tables
     run_sql_with_exceptions(ADD_CAPTURED_AT_COLUMNS_DISTRIBUTED_EVENTS_TABLE_SQL(), node_role=NodeRole.ALL),
     run_sql_with_exceptions(ADD_CAPTURED_AT_COLUMNS_DISTRIBUTED_EVENTS_RECENT_SQL(), node_role=NodeRole.ALL),
     # recreate the kafka tables
