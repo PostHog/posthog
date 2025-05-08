@@ -57,7 +57,7 @@ class TestReplaySummarizer:
         self,
         summarizer: ReplaySummarizer,
         mock_raw_metadata: dict[str, Any],
-        mock_raw_events: list[list[Any]],
+        mock_raw_events: list[tuple[Any, ...]],
         mock_raw_events_columns: list[str],
         mock_valid_llm_yaml_response: str,
     ):
@@ -148,7 +148,7 @@ class TestReplaySummarizer:
         self,
         summarizer: ReplaySummarizer,
         mock_raw_metadata: dict[str, Any],
-        mock_raw_events: list[list[Any]],
+        mock_raw_events: list[tuple[Any, ...]],
         mock_raw_events_columns: list[str],
         mock_valid_llm_yaml_response: str,
     ):

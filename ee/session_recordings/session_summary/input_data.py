@@ -131,8 +131,8 @@ def _skip_exception_without_valid_context(
     # Keep exceptions with 5+ traces as blocking errors usually affect multiple flows
     if len(exception_fingerprint_record) >= 5:
         return False
-    # Search for keywords in functions names to try to catch API errors (that are usually blocking)
-    # Ensure to ignore letter case
+    # Search for keywords in functions names to try to catch API errors (that are usually blocking).
+    # Matching .* to also catch the usage in the middle of the filename or function. Ensure to ignore letter case.
     pattern = (
         r".*(api|http|fetch|request|post|put|delete|response|xhr|ajax|graphql|socket|websocket|auth|token|login).*"
     )
