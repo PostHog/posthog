@@ -359,11 +359,11 @@ def _calculate_segment_meta(
     # Calculate failure count
     failure_count = 0
     for key_action_event in key_group_events:
-        if_failure = key_action_event.get("failure")
-        if if_failure is None:
-            # If failure isn't generated yet - skip this event
-            continue
-        if if_failure:
+        abandonment = key_action_event.get("abandonment")
+        confusion = key_action_event.get("confusion")
+        exception = key_action_event.get("exception")
+        # If any of the fields indicate a failure, increment the count
+        if abandonment or confusion or exception:
             failure_count += 1
     segment_meta_data["failure_count"] = failure_count
     # Fallback - if enough events processed and the data drastically changes - calculate the meta from the key actions
