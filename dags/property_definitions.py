@@ -112,7 +112,7 @@ def ingest_event_properties(
     Ingest event properties from events_recent table into property_definitions table.
     """
     # Log the execution parameters
-    context.log.info(f"Ingesting person properties for {time_range!r}")
+    context.log.info(f"Ingesting event properties for {time_range!r}")
 
     # Query to insert event properties into property_definitions table
     insert_query = f"""
