@@ -1048,7 +1048,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         assert response.results[0][0] == variable_override_value
 
     @patch("posthog.api.query.sync_execute")
-    def test_query_progress(self, mock_sync_execute):
+    def test_progress(self, mock_sync_execute):
         # Mock the response from ClickHouse
         mock_sync_execute.return_value = [
             (100, 1024, 1000, 5, 4000000)  # (read_rows, read_bytes, total_rows_approx, elapsed, cpu_time)
@@ -1056,9 +1056,15 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         # Test successful case
         response = self.client.get(f"/api/environments/{self.team.id}/query/123/progress/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response["Content-Type"], "text/event-stream")
+
+        # Parse SSE response
+        content = b"".join(response.streaming_content)
+        data = json.loads(content.decode().split("data: ")[1])
+
         self.assertEqual(
-            response.json(),
+            data,
             {
                 "bytes_read": 1024,
                 "rows_read": 100,
@@ -1070,45 +1076,19 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         # Test case where no query is found
         mock_sync_execute.return_value = []
-        response = self.client.get(f"/api/environments/{self.team.id}/query/123/query_progress/")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-        self.assertEqual(response.json(), {"error": "No running query found with this ID"})
+        response = self.client.get(f"/api/environments/{self.team.id}/query/123/progress/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        content = b"".join(response.streaming_content)
+        data = json.loads(content.decode().split("data: ")[1])
+        self.assertEqual(data, {"error": "No running query found with this ID"})
 
         # Test case where ClickHouse throws an error
         mock_sync_execute.side_effect = Exception("ClickHouse error")
-        response = self.client.get(f"/api/environments/{self.team.id}/query/123/query_progress/")
-        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
-        self.assertEqual(response.json(), {"error": "ClickHouse error"})
-
-
-class TestQueryAwaited(ClickhouseTestMixin, APIBaseTest):
-    def test_async_query_invalid_json(self):
-        response = self.client.post(
-            f"/api/environments/{self.team.pk}/query_awaited/", data="invalid json", content_type="application/json"
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response["Content-Type"], "text/event-stream")
-
-        content = b"".join(response.streaming_content)  # type: ignore[attr-defined]
-        error_data_str = content.decode().strip()
-        error_data = json.loads(error_data_str.split("data: ")[1])
-        assert isinstance(error_data, dict)  # Type guard for mypy
-        self.assertEqual(error_data.get("type"), "invalid_request", error_data)
-        self.assertEqual(error_data.get("code"), "parse_error")
-
-    def test_async_auth(self):
-        self.client.logout()
-        query = HogQLQuery(query="select event, distinct_id, properties.key from events order by timestamp")
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/query_awaited/",
-            data=json.dumps({"query": query.dict()}),
-            content_type="application/json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-    def test_get_returns_405(self):
-        response = self.client.get(f"/api/environments/{self.team.id}/query_awaited/")
-        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        response = self.client.get(f"/api/environments/{self.team.id}/query/123/progress/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        content = b"".join(response.streaming_content)
+        data = json.loads(content.decode().split("data: ")[1])
+        self.assertEqual(data, {"error": "ClickHouse error"})
 
 
 class TestQueryRetrieve(APIBaseTest):

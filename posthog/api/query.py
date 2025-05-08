@@ -15,6 +15,7 @@ from rest_framework.response import Response
 from asgiref.sync import sync_to_async
 from concurrent.futures import ThreadPoolExecutor
 
+from posthog.clickhouse.client.connection import Workload
 from posthog import settings
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import AvailableFeature
@@ -24,14 +25,11 @@ from posthog.api.mixins import PydanticModelMixin
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
-from posthog.models.team import Team
-from django.contrib.auth.models import AnonymousUser
 
 from posthog.api.utils import action
 from posthog.clickhouse.client.execute_async import (
     cancel_query,
     get_query_status,
-    QueryStatusManager,
 )
 from posthog.clickhouse.query_tagging import tag_queries, get_query_tag_value
 from posthog.errors import ExposedCHQueryError
@@ -58,7 +56,6 @@ from posthog.schema import (
     QueryStatusResponse,
 )
 from posthog.hogql.constants import LimitContext
-from typing import cast
 from posthog.clickhouse.client.execute import sync_execute
 
 # Create a dedicated thread pool for query processing
@@ -257,62 +254,16 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
         tag_queries(client_query_id=query_id)
 
-    @action(detail=True, methods=["get"])
-    def progress(self, request: Request, pk=None, *args, **kwargs) -> Response:
-        """
-        Get the progress of a query directly from ClickHouse's system.processes table.
-        This bypasses the QueryStatusManager and Redis caching.
-        """
-        try:
-            # Query system.processes for the query progress
-            results = sync_execute(
-                """
-                SELECT
-                    read_rows,
-                    read_bytes,
-                    total_rows_approx,
-                    elapsed,
-                    ProfileEvents['OSCPUVirtualTimeMicroseconds'] as OSCPUVirtualTimeMicroseconds
-                FROM system.processes
-                WHERE query_id LIKE %(query_id)s and query LIKE %(user_id)s
-                """,
-                {"query_id": f"{request.user.id}_{pk}_%", "user_id": f"/* user_id:{request.user.id} %"},
-            )
 
-            if not results:
-                return Response(
-                    {"error": "No running query found with this ID"},
-                    status=status.HTTP_404_NOT_FOUND,
-                )
-
-            # Format the results to match ClickhouseQueryProgress
-            progress = {
-                "bytes_read": int(results[0][1]),
-                "rows_read": int(results[0][0]),
-                "estimated_rows_total": int(results[0][2]),
-                "time_elapsed": int(results[0][3]),
-                "active_cpu_time": int(results[0][4]),
-            }
-
-            return Response(progress)
-
-        except Exception as e:
-            capture_exception(e)
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
-
-MAX_QUERY_TIMEOUT = 600
-
-
-async def query_awaited(request: Request, *args, **kwargs) -> StreamingHttpResponse:
-    """Async endpoint for handling event source queries using Server-Sent Events (SSE)."""
+async def progress(request: Request, *args, **kwargs) -> StreamingHttpResponse:
+    """
+    Stream query progress updates using Server-Sent Events (SSE).
+    This endpoint will continuously send progress updates until the query completes or times out.
+    """
 
     # Call the auth check method on QueryViewSet
     request.META["HTTP_ACCEPT"] = "application/json"
-    view = await sync_to_async(QueryViewSet.as_view)({"post": "auth_for_awaiting"}, **kwargs)
+    view = await sync_to_async(QueryViewSet.as_view)({"get": "auth_for_awaiting"}, team_id=kwargs["team_id"])
     response = await sync_to_async(view)(request)
 
     if response.status_code != 200:  # Non-200 means we can return immediately, likely error
@@ -329,132 +280,75 @@ async def query_awaited(request: Request, *args, **kwargs) -> StreamingHttpRespo
             },
         )
 
-    try:
-        # Get the parsed data from the auth response
-        auth_content = json.loads(response.content)
-        json_data = auth_content["data"]
-        data = QueryRequest.model_validate(json_data)
-        team = await Team.objects.aget(pk=auth_content["team_id"])
-        query, client_query_id, execution_mode = await sync_to_async(_process_query_request)(
-            data,
-            team,
-            data.client_query_id,
-            request.user,
-        )
-        if execution_mode in (ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE):
-            execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
-        elif execution_mode == ExecutionMode.CALCULATE_ASYNC_ALWAYS:
-            execution_mode = ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+    async def event_stream():
+        start_time = time.time()
+        run_started = False
 
-        # Define an async wrapper for process_query_model using sync_to_async
-        # This provides better handling of task cancellation than run_in_executor
-        async_process_query_model = sync_to_async(
-            process_query_model,
-        )
+        # For things to feel snappy we want to frequently check initially, then back off
+        POLL_INTERVAL = 1
+        QUERY_START_TIMEOUT = 10  # query needs to start within 10 seconds
 
-        # Create a task from the async wrapper
-        query_task = asyncio.create_task(
-            async_process_query_model(
-                team=team,
-                query=query,
-                execution_mode=execution_mode,
-                query_id=client_query_id,
-                user=request.user if not isinstance(request.user, AnonymousUser) else None,
-                is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
-            )
-        )
+        while time.time() - start_time < MAX_QUERY_TIMEOUT:
+            try:
+                # Query system.processes for the query progress
+                results = await sync_to_async(sync_execute)(
+                    """
+                    SELECT
+                        read_rows,
+                        read_bytes,
+                        total_rows_approx,
+                        elapsed,
+                        ProfileEvents['OSCPUVirtualTimeMicroseconds'] as OSCPUVirtualTimeMicroseconds
+                    FROM clusterAllReplicas(%(cluster)s, system.processes)
+                    WHERE query_id LIKE %(query_id)s and query LIKE %(user_id)s
+                    """,
+                    {
+                        "cluster": settings.CLICKHOUSE_CLUSTER,
+                        "query_id": f"{request.user.id}_{kwargs['query_id']}_%",
+                        "user_id": f"/* user_id:{request.user.id} %",
+                    },
+                    workload=Workload.ONLINE,
+                )
 
-        # YOLO give the task a moment to materialize (otherwise the task looks like it's been cancelled)
-        await asyncio.sleep(0.5)
-
-        async def event_stream():
-            assert kwargs.get("team_id") is not None
-            manager = QueryStatusManager(client_query_id, cast(int, kwargs["team_id"]))
-            start_time = time.time()
-            last_update_time: float = start_time
-
-            # For things to feel snappy we want to frequently check initially, then back off so we don't overload redis
-            FAST_POLL_DURATION = 3.0  # First 3 seconds
-            MEDIUM_POLL_DURATION = 15.0  # Until 15 seconds
-            FAST_POLL_INTERVAL = 0.05
-            MEDIUM_POLL_INTERVAL = 0.1
-            SLOW_POLL_INTERVAL = 1.0
-            UPDATE_INTERVAL = 1.0  # How often to send updates to client
-
-            while time.time() - start_time < MAX_QUERY_TIMEOUT:
-                # Check if the query task has completed
-                if query_task.done():
-                    if query_task.cancelled():
-                        # Explicitly check for cancellation first
-                        yield f"data: {json.dumps({'error': 'Query was cancelled', 'status_code': 499})}\n\n".encode()
-                        capture_exception(Exception("Query was cancelled"))
-                        break
-                    try:
-                        result = query_task.result()
-                    except asyncio.CancelledError as e:
-                        # Handle the cancellation as an SSE event
-                        yield f"data: {json.dumps({'error': 'Query was cancelled', 'status_code': 499})}\n\n".encode()
-                        capture_exception(e)
-                        break
-                    except (ExposedHogQLError, ExposedCHQueryError) as e:
-                        yield f"data: {json.dumps({'error': str(e), 'status_code': 400})}\n\n".encode()
-                        break
-                    except Exception as e:
-                        # Include error details for better debugging
-                        error_message = str(e)
-                        yield f"data: {json.dumps({'error': f'Server error: {error_message}'})}\n\n".encode()
-                        capture_exception(e)
+                if not results or len(results) == 0:
+                    if run_started:
+                        break  # query completed, can break connection now
+                    elif time.time() - start_time > QUERY_START_TIMEOUT:
+                        # query never started, can break connection now
+                        yield f"data: {json.dumps({'error': 'No running query found with this ID'})}\n\n".encode()
                         break
 
-                    if isinstance(result, BaseModel):
-                        yield f"data: {result.model_dump_json(by_alias=True)}\n\n".encode()
-                    else:
-                        yield f"data: {json.dumps(result)}\n\n".encode()
-                    break
+                # Format the results to match ClickhouseQueryProgress
+                progress = {
+                    "bytes_read": int(results[0][1]),
+                    "rows_read": int(results[0][0]),
+                    "estimated_rows_total": int(results[0][2]),
+                    "time_elapsed": int(results[0][3]),
+                    "active_cpu_time": int(results[0][4]),
+                }
 
-                try:
-                    # Try to get a status updates while waiting
-                    current_time = time.time()
-                    if current_time - last_update_time >= UPDATE_INTERVAL:
-                        status = await sync_to_async(manager.get_clickhouse_progresses)()
+                yield f"data: {json.dumps(progress)}\n\n".encode()
 
-                        if isinstance(status, BaseModel):
-                            status_update = {"complete": False, **status.model_dump(by_alias=True)}
-                            yield f"data: {json.dumps(status_update)}\n\n".encode()
-                            last_update_time = current_time
-                # Just ignore errors when getting progress, shouldn't impact users
-                except Exception as e:
-                    capture_exception(e)
+                run_started = True
+            except Exception as e:
+                capture_exception(e)
+                yield f"data: {json.dumps({'error': str(e)})}\n\n".encode()
+                break
 
-                elapsed_time = time.time() - start_time
-                if elapsed_time < FAST_POLL_DURATION:
-                    await asyncio.sleep(FAST_POLL_INTERVAL)
-                elif elapsed_time < MEDIUM_POLL_DURATION:
-                    await asyncio.sleep(MEDIUM_POLL_INTERVAL)
-                else:
-                    await asyncio.sleep(SLOW_POLL_INTERVAL)
+            await asyncio.sleep(POLL_INTERVAL)
 
-        return StreamingHttpResponse(
-            event_stream(),
-            content_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "X-Accel-Buffering": "no",
-                "Connection": "keep-alive",
-            },
-        )
-    except (ExposedHogQLError, ExposedCHQueryError) as e:
-        error_response = f"data: {json.dumps({'error': str(e)})}\n\n".encode()
-        return StreamingHttpResponse(
-            [error_response],
-            content_type="text/event-stream",
-            status=status.HTTP_400_BAD_REQUEST,
-            headers={
-                "Cache-Control": "no-cache",
-                "X-Accel-Buffering": "no",
-                "Connection": "keep-alive",
-            },
-        )
+    return StreamingHttpResponse(
+        event_stream(),
+        content_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+MAX_QUERY_TIMEOUT = 600
 
 
 def is_insight_query(query):

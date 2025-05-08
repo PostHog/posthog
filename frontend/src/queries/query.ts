@@ -13,7 +13,6 @@ import {
     PersonsNode,
     QueryStatus,
     RefreshType,
-    ClickhouseQueryProgress,
 } from '~/queries/schema/schema-general'
 import { OnlineExportContext, QueryExportContext } from '~/types'
 
@@ -106,33 +105,36 @@ async function executeQuery<N extends DataNode>(
             refreshParam = refresh || 'blocking'
         }
 
-        // Start polling progress before the blocking query if needed
-        let isPolling = false
-        let shouldStopPolling = false
         if ((refreshParam === 'blocking' || refreshParam === 'force_blocking') && setPollResponse) {
-            isPolling = true
-            const pollProgress = async () => {
-                while (isPolling && !shouldStopPolling) {
-                    try {
-                        await delay(1000) // Wait 1 second between polls
-                        const progressResponse = await api.queryProgress.get(queryId || '')
-                        setPollResponse({
-                            id: queryId || '',
-                            team_id: 0,
-                            error: false,
-                            complete: false,
-                            query_async: true,
-                            error_message: null,
-                            query_progress: progressResponse
-                        })
-                    } catch (e) {
-                        // Ignore progress polling errors
-                        console.warn('Failed to poll query progress:', e)
-                        await delay(1000) // Still wait on error
-                    }
-                }
-            }
-            pollProgress() // Start polling in background
+            const currentTeamId = teamLogic.findMounted()?.values.currentTeamId
+            setTimeout(() => {
+                void api.stream(`/api/environments/${currentTeamId}/query/${queryId}/progress/`, {
+                    onMessage: (event) => {
+                        try {
+                            const progressData = JSON.parse(event.data)
+                            if (progressData.error) {
+                                console.warn('Failed to poll query progress:', progressData.error)
+                                return
+                            }
+                            setPollResponse({
+                                id: queryId || '',
+                                team_id: 0,
+                                error: false,
+                                complete: false,
+                                query_async: true,
+                                error_message: null,
+                                query_progress: progressData,
+                            })
+                        } catch (e) {
+                            console.warn('Failed to parse progress data:', e)
+                        }
+                    },
+                    onError: (error) => {
+                        console.warn('Failed to poll query progress:', error)
+                    },
+                    signal: methodOptions?.signal,
+                })
+            }, 500) // Give the query time to start
         }
 
         try {
@@ -176,40 +178,6 @@ async function executeQuery<N extends DataNode>(
     const statusResponse = await pollForResults(queryId, methodOptions, setPollResponse)
     return statusResponse.results
 }
-
-type LogType = 'error' | 'progress' | 'data'
-
-// Logging this as chrome devtools doesn't support showing the event stream for non-native EventSource, but EventSource doesn't support POST requests
-/* eslint-disable no-console */
-function logQueryEvent(type: LogType, data: any, queryNode: any): void {
-    const logConfig = {
-        error: {
-            title: '⚠️ Query Error',
-            titleColor: '#ff0000',
-            primaryLog: (data: any) => console.error('Error Details:', data),
-            secondaryLog: (queryNode: any) => console.warn('Query Payload:', queryNode),
-        },
-        progress: {
-            title: '🔄 Query Progress',
-            titleColor: '#2196f3',
-            primaryLog: (data: any) => console.info('Progress Update:', data),
-            secondaryLog: (queryNode: any) => console.debug('Query Payload:', queryNode),
-        },
-        data: {
-            title: '✅ Query Result',
-            titleColor: '#4caf50',
-            primaryLog: (data: any) => console.info('Data:', data),
-            secondaryLog: (queryNode: any) => console.debug('Query Payload:', queryNode),
-        },
-    }
-
-    const config = logConfig[type]
-    console.group(`%c${config.title}`, `color: ${config.titleColor}; font-weight: bold; font-size: 12px;`)
-    config.primaryLog(data)
-    config.secondaryLog(queryNode)
-    console.groupEnd()
-}
-/* eslint-enable no-console */
 
 // Return data for a given query
 export async function performQuery<N extends DataNode>(

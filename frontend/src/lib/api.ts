@@ -1009,20 +1009,12 @@ class ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('query')
     }
 
-    public queryProgress(queryId: string, teamId?: TeamType['id']): ApiRequest {
-        return this.query(teamId).addPathComponent(queryId).addPathComponent('progress')
-    }
-
     public queryStatus(queryId: string, showProgress: boolean, teamId?: TeamType['id']): ApiRequest {
         const apiRequest = this.query(teamId).addPathComponent(queryId)
         if (showProgress) {
             return apiRequest.withQueryString('show_progress=true')
         }
         return apiRequest
-    }
-
-    public queryAwaited(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('query_awaited')
     }
 
     // Conversations
@@ -3135,12 +3127,6 @@ const api = {
         },
     },
 
-    queryProgress: {
-        async get(queryId: string): Promise<ClickhouseQueryProgress> {
-            return await new ApiRequest().queryProgress(queryId).get()
-        },
-    },
-
     personalApiKeys: {
         async list(): Promise<PersonalAPIKeyType[]> {
             return await new ApiRequest().personalApiKeys().get()
@@ -3247,32 +3233,6 @@ const api = {
             : Record<string, any>
     > {
         return await new ApiRequest().query().create({
-            ...options,
-            data: {
-                query,
-                client_query_id: queryId,
-                refresh,
-                filters_override: filtersOverride,
-                variables_override: variablesOverride,
-            },
-        })
-    },
-
-    async queryAwaited<T extends Record<string, any> = QuerySchema>(
-        query: T,
-        options?: ApiMethodOptions,
-        queryId?: string,
-        refresh?: RefreshType,
-        filtersOverride?: DashboardFilter | null,
-        variablesOverride?: Record<string, HogQLVariable> | null
-    ): Promise<
-        T extends { [response: string]: any }
-            ? T['response'] extends infer P | undefined
-                ? P
-                : T['response']
-            : Record<string, any>
-    > {
-        return await new ApiRequest().queryAwaited().create({
             ...options,
             data: {
                 query,
