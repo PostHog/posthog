@@ -87,7 +87,7 @@ export function Surveys(): JSX.Element {
                         </LemonButton>
                     </>
                 }
-                className="flex items-center gap-2 justify-between min-w-full"
+                className="flex gap-2 justify-between items-center min-w-full"
                 caption={
                     <>
                         <div>
@@ -134,7 +134,6 @@ export function Surveys(): JSX.Element {
                                 {
                                     id: SurveyEventName.SENT,
                                     type: 'events',
-                                    order: 0,
                                 },
                             ],
                         }}
@@ -163,14 +162,14 @@ export function Surveys(): JSX.Element {
                     {!shouldShowEmptyState && (
                         <>
                             <div>
-                                <div className="flex flex-wrap justify-between gap-2 mb-4">
+                                <div className="flex flex-wrap gap-2 justify-between mb-4">
                                     <LemonInput
                                         type="search"
                                         placeholder="Search for surveys"
                                         onChange={setSearchTerm}
                                         value={searchTerm || ''}
                                     />
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex gap-2 items-center">
                                         <span>
                                             <b>Status</b>
                                         </span>

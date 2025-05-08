@@ -76,7 +76,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                 <>
                     <PageHeader
                         buttons={
-                            <div className="flex items-center gap-2">
+                            <div className="flex gap-2 items-center">
                                 <More
                                     overlay={
                                         <>
@@ -308,7 +308,6 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                     {
                                                         id: SurveyEventName.SENT,
                                                         type: 'events',
-                                                        order: 0,
                                                         properties: [
                                                             {
                                                                 key: SurveyEventProperties.SURVEY_ID,
@@ -494,7 +493,7 @@ function SurveyNPSResults({
         <div>
             {surveyNPSScore && (
                 <>
-                    <div className="flex items-center gap-2">
+                    <div className="flex gap-2 items-center">
                         <div className="text-4xl font-bold">{surveyNPSScore}</div>
                     </div>
                     <div className="mb-2 font-semibold text-secondary">
@@ -514,9 +513,9 @@ function SurveyNPSResults({
                 </>
             )}
             <div className="p-2 rounded deprecated-space-y-2 bg-surface-primary">
-                <div className="flex items-center justify-between gap-2">
+                <div className="flex gap-2 justify-between items-center">
                     <h4 className="text-lg font-semibold">NPS Trend</h4>
-                    <div className="flex items-center gap-2">
+                    <div className="flex gap-2 items-center">
                         <DateFilter
                             dateFrom={dateRange?.date_from ?? undefined}
                             dateTo={dateRange?.date_to ?? undefined}

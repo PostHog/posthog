@@ -148,19 +148,25 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
         ],
 
         urlForTemplate: [
-            (s, p) => [s.filters, p.subTemplateId],
-            (filters, subTemplateId): ((template: HogFunctionTemplateType) => string) => {
+            (_, p) => [p.forceFilters, p.subTemplateId],
+            (forceFilters, subTemplateId): ((template: HogFunctionTemplateType) => string) => {
                 return (template: HogFunctionTemplateType) => {
                     const subTemplate = getSubTemplate(template, subTemplateId)
+
+                    const configuration: Record<string, any> = {
+                        ...(subTemplate ?? {}),
+                    }
+                    if (forceFilters?.filters) {
+                        // Always use the forced filters if given
+                        configuration.filters = forceFilters.filters
+                    }
                     // Add the filters to the url and the template id
+
                     return combineUrl(
                         hogFunctionNewUrl(template.type, template.id),
                         {},
                         {
-                            configuration: {
-                                ...(subTemplate ?? {}),
-                                // filters: filters.filters, // Figuree this out...
-                            },
+                            configuration,
                         }
                     ).url
                 }

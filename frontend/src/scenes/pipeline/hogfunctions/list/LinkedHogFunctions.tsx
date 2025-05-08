@@ -23,10 +23,15 @@ export function LinkedHogFunctions({
 }: LinkedHogFunctionsProps): JSX.Element | null {
     const [showNewDestination, setShowNewDestination] = useState(false)
 
+    // TRICKY: All templates are destinations - internal destinations are just a different source
+    // and set by the subtemplate modifier
+
+    const templateType = type === 'internal_destination' ? 'destination' : type
+
     return showNewDestination ? (
         <HogFunctionTemplateList
             defaultFilters={{}}
-            type={type}
+            type={templateType}
             subTemplateId={subTemplateId}
             forceFilters={{ filters }}
             extraControls={
