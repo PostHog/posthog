@@ -402,7 +402,6 @@ export class HogFunctionManagerService {
     private async patchHogFunctionsWithTemplates(hogFunctions: HogFunctionType[]): Promise<void> {
         const templateIdsSet = new Set<string>()
         for (const fn of hogFunctions) {
-            // Prefer hog_function_template_id over template_id
             const templateId = fn.hog_function_template_id
             if (this.needsTemplatePatch(fn) && templateId) {
                 templateIdsSet.add(templateId)
@@ -416,7 +415,6 @@ export class HogFunctionManagerService {
         const templates = await this.templateLazyLoader.getMany(templateIds)
 
         for (const fn of hogFunctions) {
-            // Prefer hog_function_template_id over template_id
             const templateId = fn.hog_function_template_id
             if (this.needsTemplatePatch(fn) && templateId) {
                 const template = templates[templateId]
