@@ -112,7 +112,6 @@ def readyz(request: HttpRequest):
         return JsonResponse({"error": "InvalidRole"}, status=400)
 
     available_checks: dict[str, Callable] = {
-        "clickhouse": is_clickhouse_connected,
         "postgres": is_postgres_connected,
         "postgres_flags": lambda: is_postgres_connected(DATABASE_FOR_FLAG_MATCHING),
         "postgres_migrations_uptodate": are_postgres_migrations_uptodate,
