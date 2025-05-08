@@ -59,6 +59,9 @@ from posthog.schema import (
 )
 
 
+MAX_ONBOARDING_QUESTIONS = 3
+
+
 class MemoryInitializerContextMixin:
     _team: Team
 
@@ -277,7 +280,7 @@ class MemoryOnboardingEnquiryNode(AssistantNode):
 
         # count how many times "Question: " appears in the core memory
         questions_asked = core_memory.initial_text.count("Question: ")
-        questions_left = 3 - questions_asked
+        questions_left = MAX_ONBOARDING_QUESTIONS - questions_asked
         if questions_left > 0:
             prompt = ChatPromptTemplate.from_messages(
                 [("system", MEMORY_ONBOARDING_ENQUIRY_PROMPT)], template_format="mustache"
