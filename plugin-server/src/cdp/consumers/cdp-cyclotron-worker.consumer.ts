@@ -1,3 +1,5 @@
+import { captureException } from '~/src/utils/posthog'
+
 import { Hub } from '../../types'
 import { logger } from '../../utils/logger'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
@@ -44,11 +46,22 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
 
         // NOTE: We can queue and publish all metrics in the background whilst processing the next batch of invocations
         const backgroundTask = this.queueInvocationResults(invocationResults).then(() => {
-            // After this point we parallelize and any issues are logged rather than thrown as retrying now would end up in duplicate messages
+            // NOTE: After this point we parallelize and any issues are logged rather than thrown as retrying now would end up in duplicate messages
             return Promise.allSettled([
-                this.hogFunctionMonitoringService.processInvocationResults(invocationResults),
-                this.hogWatcher.observeResults(invocationResults),
-                this.hogFunctionMonitoringService.produceQueuedMessages(),
+                this.hogFunctionMonitoringService.processInvocationResults(invocationResults).catch((err) => {
+                    captureException(err)
+                    logger.error('Error processing invocation results', { err })
+                }),
+
+                this.hogWatcher.observeResults(invocationResults).catch((err) => {
+                    captureException(err)
+                    logger.error('Error observing results', { err })
+                }),
+
+                this.hogFunctionMonitoringService.produceQueuedMessages().catch((err) => {
+                    captureException(err)
+                    logger.error('Error producing queued messages for monitoring', { err })
+                }),
             ])
         })
 
