@@ -447,7 +447,24 @@ function SessionSummaryStats({ sessionSummary }: { sessionSummary: SessionSummar
     const healthPercentage =
         totalKeyActions > 0 ? Math.round((totalKeyActions / (totalKeyActions + totalIssueWeight)) * 100) : 100
 
-    const healthScoreType = healthPercentage >= 75 ? 'success' : healthPercentage >= 50 ? 'warning' : 'danger'
+    const successHealthLimit = 65
+    const failureHealthLimit = 35
+    const medianHealthLimit = 50
+
+    // Adjust health percentage based on session outcome
+    const adjustedHealthPercentage =
+        sessionSummary.session_outcome?.success === true
+            ? Math.max(healthPercentage, medianHealthLimit)
+            : sessionSummary.session_outcome?.success === false
+            ? Math.min(healthPercentage, medianHealthLimit)
+            : healthPercentage
+
+    const healthScoreType =
+        adjustedHealthPercentage >= successHealthLimit
+            ? 'success'
+            : adjustedHealthPercentage > failureHealthLimit
+            ? 'warning'
+            : 'danger'
 
     return (
         <div className="mb-4">
@@ -455,7 +472,7 @@ function SessionSummaryStats({ sessionSummary }: { sessionSummary: SessionSummar
                 {/* Left side - Health Score */}
                 <div className="flex flex-col items-center bg-bg-light rounded p-3 min-w-[120px]">
                     <span className="text-sm text-muted mb-1">Health Score</span>
-                    <div className={`text-2xl font-semibold text-${healthScoreType}`}>{healthPercentage}%</div>
+                    <div className={`text-2xl font-semibold text-${healthScoreType}`}>{adjustedHealthPercentage}%</div>
                 </div>
 
                 {/* Right side - Issue Metrics */}
