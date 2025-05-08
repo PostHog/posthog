@@ -17,6 +17,8 @@ from posthog.models.file_system.unfiled_file_saver import save_unfiled_files
 from posthog.models.user import User
 from posthog.models.team import Team
 
+HOG_FUNCTION_TYPES = ["broadcast", "campaign", "destination", "site_app", "source", "transformation"]
+
 
 class FileSystemSerializer(serializers.ModelSerializer):
     class Meta:
@@ -174,6 +176,8 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 elif field == "type":
                     if value.endswith("/"):
                         q = Q(type__startswith=value)
+                    elif value in HOG_FUNCTION_TYPES:
+                        q = Q(type="hog_function/" + value)
                     else:
                         q = Q(type=value)
                 elif field == "ref":

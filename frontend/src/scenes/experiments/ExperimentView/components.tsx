@@ -4,11 +4,13 @@ import {
     LemonButton,
     LemonDialog,
     LemonDivider,
+    LemonLabel,
     LemonModal,
     LemonSelect,
     LemonSkeleton,
     LemonTag,
     LemonTagType,
+    LemonTextArea,
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
@@ -39,6 +41,7 @@ import {
     AnyPropertyFilter,
     Experiment,
     Experiment as ExperimentType,
+    ExperimentConclusion,
     ExperimentIdType,
     InsightShortId,
 } from '~/types'
@@ -276,11 +279,11 @@ export function PageHeaderCustom(): JSX.Element {
     } = useValues(experimentLogic)
     const {
         launchExperiment,
-        endExperiment,
         archiveExperiment,
         createExposureCohort,
         openShipVariantModal,
         createExperimentDashboard,
+        openConclusionModal,
     } = useActions(experimentLogic)
 
     const exposureCohortId = experiment?.exposure_cohort
@@ -338,28 +341,7 @@ export function PageHeaderCustom(): JSX.Element {
                                     type="secondary"
                                     data-attr="stop-experiment"
                                     status="danger"
-                                    onClick={() => {
-                                        LemonDialog.open({
-                                            title: 'Stop this experiment?',
-                                            content: (
-                                                <div className="text-sm text-secondary">
-                                                    This action will end data collection. The experiment can be
-                                                    restarted later if needed.
-                                                </div>
-                                            ),
-                                            primaryButton: {
-                                                children: 'Stop',
-                                                type: 'primary',
-                                                onClick: () => endExperiment(),
-                                                size: 'small',
-                                            },
-                                            secondaryButton: {
-                                                children: 'Cancel',
-                                                type: 'tertiary',
-                                                size: 'small',
-                                            },
-                                        })
-                                    }}
+                                    onClick={() => openConclusionModal()}
                                 >
                                     Stop
                                 </LemonButton>
@@ -409,6 +391,127 @@ export function PageHeaderCustom(): JSX.Element {
                 </>
             }
         />
+    )
+}
+
+export function ConclusionModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
+    const { experiment, isConclusionModalOpen } = useValues(experimentLogic({ experimentId }))
+    const { setExperiment, closeConclusionModal, endExperiment } = useActions(experimentLogic({ experimentId }))
+
+    return (
+        <LemonModal
+            isOpen={isConclusionModalOpen}
+            onClose={closeConclusionModal}
+            title="Stop experiment"
+            width={600}
+            footer={
+                <div className="flex items-center gap-2">
+                    <LemonButton type="secondary" onClick={() => closeConclusionModal()}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton
+                        onClick={() => endExperiment()}
+                        type="primary"
+                        disabledReason={!experiment.conclusion && 'Select a conclusion'}
+                    >
+                        Stop experiment
+                    </LemonButton>
+                </div>
+            }
+        >
+            <div className="space-y-4">
+                <div>
+                    <div className="mb-2">
+                        Stopping the experiment will end data collection. You can restart it later if needed.
+                    </div>
+                    <LemonLabel>Conclusion</LemonLabel>
+                    <LemonSelect
+                        className="w-full"
+                        dropdownMaxContentWidth={true}
+                        value={experiment.conclusion}
+                        options={[
+                            {
+                                value: ExperimentConclusion.Won,
+                                label: (
+                                    <div className="py-2 px-1">
+                                        <div className="font-semibold mb-1.5">Won</div>
+                                        <div className="text-xs text-muted">
+                                            The test variant(s) outperformed the control with statistical significance.
+                                        </div>
+                                    </div>
+                                ),
+                            },
+                            {
+                                value: ExperimentConclusion.Lost,
+                                label: (
+                                    <div className="py-2 px-1">
+                                        <div className="font-semibold mb-1.5">Lost</div>
+                                        <div className="text-xs text-muted">
+                                            The test variant(s) underperformed compared to the control with statistical
+                                            significance.
+                                        </div>
+                                    </div>
+                                ),
+                            },
+                            {
+                                value: ExperimentConclusion.Inconclusive,
+                                label: (
+                                    <div className="py-2 px-1">
+                                        <div className="font-semibold mb-1.5">Inconclusive</div>
+                                        <div className="text-xs text-muted">
+                                            No significant difference was detected between the variant(s) and the
+                                            control.
+                                        </div>
+                                    </div>
+                                ),
+                            },
+                            {
+                                value: ExperimentConclusion.StoppedEarly,
+                                label: (
+                                    <div className="py-2 px-1">
+                                        <div className="font-semibold mb-1.5">Stopped Early</div>
+                                        <div className="text-xs text-muted">
+                                            The experiment was terminated before reaching a conclusive result.
+                                        </div>
+                                    </div>
+                                ),
+                            },
+                            {
+                                value: ExperimentConclusion.Invalid,
+                                label: (
+                                    <div className="py-2 px-1">
+                                        <div className="font-semibold mb-1.5">Invalid</div>
+                                        <div className="text-xs text-muted">
+                                            The experiment data is unreliable due to issues like tracking errors,
+                                            incorrect setup, or external disruptions.
+                                        </div>
+                                    </div>
+                                ),
+                            },
+                        ]}
+                        onChange={(value) => {
+                            setExperiment({
+                                conclusion: value || undefined,
+                            })
+                        }}
+                    />
+                </div>
+                <div>
+                    <LemonLabel>Comment (optional)</LemonLabel>
+                    <LemonTextArea
+                        className="w-full border rounded p-2"
+                        minRows={3}
+                        placeholder="Optional details about why this conclusion was selected..."
+                        value={experiment.conclusion_comment || ''}
+                        onChange={(value) =>
+                            setExperiment({
+                                conclusion_comment: value,
+                            })
+                        }
+                    />
+                </div>
+            </div>
+        </LemonModal>
     )
 }
 

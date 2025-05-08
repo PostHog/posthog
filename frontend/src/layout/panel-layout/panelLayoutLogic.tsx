@@ -7,6 +7,7 @@ import type { panelLayoutLogicType } from './panelLayoutLogicType'
 export type PanelLayoutNavIdentifier = 'Project' | 'Recent' // Add more identifiers here for more panels
 export type PanelLayoutTreeRef = React.RefObject<LemonTreeRef> | null
 export type PanelLayoutMainContentRef = React.RefObject<HTMLElement> | null
+export const PANEL_LAYOUT_DEFAULT_WIDTH: number = 320
 
 export const panelLayoutLogic = kea<panelLayoutLogicType>([
     path(['layout', 'panel-layout', 'panelLayoutLogic']),
@@ -28,6 +29,7 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         toggleLayoutNavCollapsed: (override?: boolean) => ({ override }),
         setVisibleSideAction: (sideAction: string) => ({ sideAction }),
         setProjectTreeMode: (mode: TreeMode) => ({ mode }),
+        setPanelWidth: (width: number) => ({ width }),
     }),
     reducers({
         isLayoutNavbarVisibleForDesktop: [
@@ -118,6 +120,13 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
             'tree' as TreeMode,
             {
                 setProjectTreeMode: (_, { mode }) => mode,
+            },
+        ],
+        panelWidth: [
+            PANEL_LAYOUT_DEFAULT_WIDTH,
+            { persist: true },
+            {
+                setPanelWidth: (_, { width }) => width,
             },
         ],
     }),
