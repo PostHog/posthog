@@ -655,13 +655,13 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                     "rollout_percentage": 100,
                     "properties": [
                         {
-                            "key": f"{SurveyEventProperties.SURVEY_DISMISSED.value}/{survey_key}",
+                            "key": f"{SurveyEventProperties.SURVEY_DISMISSED}/{survey_key}",
                             "value": "is_not_set",
                             "operator": "is_not_set",
                             "type": "person",
                         },
                         {
-                            "key": f"{SurveyEventProperties.SURVEY_RESPONDED.value}/{survey_key}",
+                            "key": f"{SurveyEventProperties.SURVEY_RESPONDED}/{survey_key}",
                             "value": "is_not_set",
                             "operator": "is_not_set",
                             "type": "person",
@@ -778,22 +778,22 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         unique_uuids_subquery = get_unique_survey_event_uuids_sql_subquery(
             base_conditions_sql=[
                 "team_id = %(team_id)s",
-                f"event = '{SurveyEventName.SENT.value}'",
+                f"event = '{SurveyEventName.SENT}'",
                 "timestamp >= %(timestamp)s",
             ],
             group_by_prefix_expressions=[
-                f"JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID.value}')"  # Deduplicate per survey_id
+                f"JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID}')"  # Deduplicate per survey_id
             ],
         )
 
         query = f"""
             SELECT
-                JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID.value}') as survey_id,
+                JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID}') as survey_id,
                 count()
             FROM events
             WHERE
                 team_id = %(team_id)s
-                AND event = '{SurveyEventName.SENT.value}'
+                AND event = '{SurveyEventName.SENT}'
                 AND timestamp >= %(timestamp)s
                 AND uuid IN {unique_uuids_subquery}
             GROUP BY survey_id
@@ -966,9 +966,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Add survey filter if specific survey
         survey_filter = ""
         if survey_id:
-            survey_filter = (
-                f"AND JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID.value}') = %(survey_id)s"
-            )
+            survey_filter = f"AND JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID}') = %(survey_id)s"
             params["survey_id"] = str(survey_id)
         else:
             # For global stats, only include non-archived surveys
@@ -985,18 +983,16 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         "unique_users_dismissal_rate": 0.0,
                     },
                 }
-            survey_filter = (
-                f"AND JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID.value}') IN %(survey_ids)s"
-            )
+            survey_filter = f"AND JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID}') IN %(survey_ids)s"
             params["survey_ids"] = [str(id) for id in active_survey_ids]
 
         unique_uuids_subquery = get_unique_survey_event_uuids_sql_subquery(
             base_conditions_sql=[
                 "team_id = %(team_id)s",
-                f"event = '{SurveyEventName.SENT.value}'",
+                f"event = '{SurveyEventName.SENT}'",
             ],
             group_by_prefix_expressions=[
-                f"JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID.value}')"  # Deduplicate per survey_id
+                f"JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID}')"  # Deduplicate per survey_id
             ],
         )
 
@@ -1016,7 +1012,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             AND (
                 event != %(dismissed)s
                 OR
-                COALESCE(JSONExtractBool(properties, '{SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED.value}'), False) = False
+                COALESCE(JSONExtractBool(properties, '{SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED}'), False) = False
             )
             AND (
                 event != %(sent)s
@@ -1046,7 +1042,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 AND (
                     event != %(dismissed)s
                     OR
-                    COALESCE(JSONExtractBool(properties, '{SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED.value}'), False) = False
+                    COALESCE(JSONExtractBool(properties, '{SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED}'), False) = False
                 )
                 GROUP BY person_id
                 HAVING sum(if(event = %(dismissed)s, 1, 0)) > 0
