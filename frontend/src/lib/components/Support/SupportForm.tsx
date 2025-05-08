@@ -64,24 +64,36 @@ export function SupportForm(): JSX.Element | null {
     const nameInputRef = useRef<HTMLInputElement>(null)
     const emailInputRef = useRef<HTMLInputElement>(null)
     const messageInputRef = useRef<HTMLTextAreaElement>(null)
+    // Track which fields have been initialized (had cursor positioned at end)
+    const initializedFields = useRef<Record<string, boolean>>({})
 
-    // Restore focus to the appropriate field after re-renders and position cursor at the end
+    // Restore focus to the appropriate field after re-renders
+    // Only position cursor at the end on first focus for each field
     useEffect(() => {
         if (focusedField === 'name' && nameInputRef.current) {
             nameInputRef.current.focus()
-            // Position cursor at the end of the text
-            const length = nameInputRef.current.value.length
-            nameInputRef.current.setSelectionRange(length, length)
+            // Position cursor at the end of the text only on first focus
+            if (!initializedFields.current['name']) {
+                const length = nameInputRef.current.value.length
+                nameInputRef.current.setSelectionRange(length, length)
+                initializedFields.current['name'] = true
+            }
         } else if (focusedField === 'email' && emailInputRef.current) {
             emailInputRef.current.focus()
-            // Position cursor at the end of the text
-            const length = emailInputRef.current.value.length
-            emailInputRef.current.setSelectionRange(length, length)
+            // Position cursor at the end of the text only on first focus
+            if (!initializedFields.current['email']) {
+                const length = emailInputRef.current.value.length
+                emailInputRef.current.setSelectionRange(length, length)
+                initializedFields.current['email'] = true
+            }
         } else if (focusedField === 'message' && messageInputRef.current) {
             messageInputRef.current.focus()
-            // Position cursor at the end of the text
-            const length = messageInputRef.current.value.length
-            messageInputRef.current.setSelectionRange(length, length)
+            // Position cursor at the end of the text only on first focus
+            if (!initializedFields.current['message']) {
+                const length = messageInputRef.current.value.length
+                messageInputRef.current.setSelectionRange(length, length)
+                initializedFields.current['message'] = true
+            }
         }
     }, [focusedField, sendSupportRequest])
 

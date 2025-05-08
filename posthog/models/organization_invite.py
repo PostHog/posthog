@@ -7,6 +7,7 @@ from django.utils import timezone
 from rest_framework import exceptions
 
 from ee.models.explicit_team_membership import ExplicitTeamMembership
+from ee.models.rbac.access_control import AccessControl
 from posthog.constants import INVITE_DAYS_VALIDITY
 from posthog.email import is_email_available
 from posthog.models.organization import OrganizationMembership
@@ -123,13 +124,23 @@ class OrganizationInvite(UUIDModel):
             except self.organization.teams.model.DoesNotExist:
                 # if the team doesn't exist, it was probably deleted. We can still continue with the invite.
                 continue
-            if not team.access_control:
-                continue
-            ExplicitTeamMembership.objects.create(
-                team=team,
-                parent_membership=parent_membership,
-                level=item["level"],
-            )
+
+            # This path is deprecated, and will be removed soon
+            if team.access_control:
+                ExplicitTeamMembership.objects.create(
+                    team=team,
+                    parent_membership=parent_membership,
+                    level=item["level"],
+                )
+            else:
+                # New access control
+                AccessControl.objects.create(
+                    team=team,
+                    resource="team",
+                    resource_id=str(team.id),
+                    organization_member=parent_membership,
+                    access_level="admin" if item["level"] == OrganizationMembership.Level.ADMIN else "member",
+                )
 
         if is_email_available(with_absolute_urls=True) and self.organization.is_member_join_email_enabled:
             from posthog.tasks.email import send_member_join
