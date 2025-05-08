@@ -46,6 +46,7 @@ class DetectPropertyTypeExpression:
     source_column: str
 
     def __str__(self) -> str:
+        # largely derived from https://github.com/PostHog/posthog/blob/052f4ea40c5043909115f835f09445e18dd9727c/rust/property-defs-rs/src/types.rs#L314-L373
         return f"""
             arrayMap(
                 (name, value) -> (name, multiIf(
