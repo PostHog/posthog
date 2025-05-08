@@ -1,7 +1,6 @@
 import { IconArrowUpRight, IconPlus } from '@posthog/icons'
-import { ProfilePicture, Spinner } from '@posthog/lemon-ui'
+import { Spinner } from '@posthog/lemon-ui'
 import { router } from 'kea-router'
-import { dayjs } from 'lib/dayjs'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
@@ -76,23 +75,13 @@ export function convertFileSystemEntryToTreeDataItem({
         const node: TreeDataItem = {
             id: nodeId,
             name: itemName,
-            displayName: (
-                <>
-                    {displayName}
-                    {recent && item.meta?.created_at ? (
-                        <span className="text-muted text-xs font-normal ml-1">
-                            - {dayjs(item.meta?.created_at).fromNow()}
-                        </span>
-                    ) : null}
-                    {user ? <ProfilePicture user={user} size="sm" className="ml-1" /> : null}
-                </>
-            ),
+            displayName,
             icon: item._loading ? (
                 <Spinner />
             ) : (
                 wrapWithShortcutIcon(item, ('icon' in item && item.icon) || iconForType(item.type))
             ),
-            record: item,
+            record: { ...item, user },
             checked: checkedItems[nodeId],
             onClick: () => {
                 if (item.href) {

@@ -2,8 +2,10 @@ import { IconCheckbox, IconChevronRight, IconFolder, IconFolderPlus, IconX } fro
 import { useActions, useValues } from 'kea'
 import { MoveFilesModal } from 'lib/components/FileSystem/MoveFilesModal'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
+import { dayjs } from 'lib/dayjs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { LemonTree, LemonTreeRef, TreeDataItem, TreeMode } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip/Tooltip'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
@@ -27,6 +29,7 @@ import { RefObject, useEffect, useRef } from 'react'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
+import { UserBasicType } from '~/types'
 
 import { PanelLayoutPanel } from '../PanelLayoutPanel'
 import { projectTreeLogic, ProjectTreeSortMethod } from './projectTreeLogic'
@@ -422,6 +425,7 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                 className="px-0 py-1"
                 data={treeData}
                 mode={projectTreeMode as TreeMode}
+                selectMode={selectMode}
                 tableViewKeys={treeTableKeys}
                 defaultSelectedFolderOrNodeId={lastViewedId || undefined}
                 isItemActive={(item) => {
@@ -430,7 +434,7 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                     }
                     return window.location.href.endsWith(item.record?.href)
                 }}
-                selectMode={selectMode}
+                treeElementSize={sortMethod === 'recent' && projectTreeMode === 'tree' ? 'lg' : 'base'}
                 onItemChecked={onItemChecked}
                 checkedItemCount={checkedItemCountNumeric}
                 onNodeClick={(node) => {
@@ -622,17 +626,7 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                                             }
                                             placement="top-start"
                                         >
-                                            <span
-                                                className={cn(
-                                                    'starting:opacity-0 opacity-100 delay-50 motion-safe:transition-opacity duration-100 font-normal truncate',
-                                                    {
-                                                        'font-normal': index > 1,
-                                                        'font-semibold':
-                                                            item.record?.type === 'folder' &&
-                                                            item.type !== 'empty-folder',
-                                                    }
-                                                )}
-                                            >
+                                            <span className="starting:opacity-0 opacity-100 delay-50 motion-safe:transition-opacity duration-100 font-normal truncate">
                                                 {header.formatComponent
                                                     ? header.formatComponent(value, item)
                                                     : header.formatString
@@ -645,6 +639,47 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                             })}
                         </>
                     )
+                }}
+                renderItem={(item, children) => {
+                    return (
+                        <>
+                            {sortMethod === 'recent' && projectTreeMode === 'tree' ? (
+                                <span className="flex flex-col gap-1 flex-1 row-span-2 truncate">
+                                    <span className="text-primary leading-[1.1] truncate w-fit max-w-full">
+                                        {children}
+                                    </span>
+                                    <span className="text-tertiary text-xs font-normal leading-[1.1] w-fit">
+                                        {dayjs(item.record?.created_at).fromNow()} by{' '}
+                                        {item.record?.user?.first_name || 'PostHog'}{' '}
+                                        {item.record?.user?.last_name || ''}
+                                    </span>
+                                </span>
+                            ) : (
+                                children
+                            )}
+                        </>
+                    )
+                }}
+                renderItemTooltip={(item) => {
+                    const user = item.record?.user as UserBasicType | undefined
+
+                    return projectTreeMode === 'tree' ? (
+                        <>
+                            Name: <span className="font-semibold">{item.displayName}</span> <br />
+                            Created by:{' '}
+                            <ProfilePicture
+                                user={user || { first_name: 'PostHog' }}
+                                size="sm"
+                                showName
+                                className="font-semibold"
+                            />
+                            <br />
+                            Created at:{' '}
+                            <span className="font-semibold">
+                                {dayjs(item.record?.created_at).format('MMM D, YYYY h:mm A')}
+                            </span>
+                        </>
+                    ) : undefined
                 }}
             />
 
