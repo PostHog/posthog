@@ -14,7 +14,6 @@ import { PanelLayout } from '~/layout/panel-layout/PanelLayout'
 import { navigationLogic } from '../navigation/navigationLogic'
 import { ProjectNotice } from '../navigation/ProjectNotice'
 import { MinimalNavigation } from './components/MinimalNavigation'
-import { Navbar } from './components/Navbar'
 import { Sidebar } from './components/Sidebar'
 import { TopBar } from './components/TopBar'
 import { navigation3000Logic } from './navigationLogic'
@@ -55,9 +54,9 @@ export function Navigation({
                 Skip to content
             </a>
 
-            <FlaggedFeature flag={FEATURE_FLAGS.TREE_VIEW} fallback={<Navbar />}>
-                <PanelLayout mainRef={mainRef} />
-            </FlaggedFeature>
+            {/*<FlaggedFeature flag={FEATURE_FLAGS.TREE_VIEW} fallback={<Navbar />}>*/}
+            <PanelLayout mainRef={mainRef} />
+            {/*</FlaggedFeature>*/}
             <FlaggedFeature flag={FEATURE_FLAGS.POSTHOG_3000_NAV}>
                 {activeNavbarItem && <Sidebar key={activeNavbarItem.identifier} navbarItem={activeNavbarItem} />}
             </FlaggedFeature>

@@ -310,13 +310,15 @@ export const treeItemsNew = [
 ]
 
 /** This const is auto-generated, as is the whole file */
-export const treeItemsExplore = [
+export const treeItemsAllProducts = [
+    { path: 'Broadcasts', href: () => urls.messagingBroadcasts(), icon: <IconMegaphone /> },
+    { path: 'Campaigns', href: () => urls.messagingCampaigns(), icon: <IconMegaphone /> },
     { path: 'Early access features', icon: <IconRocket />, href: () => urls.earlyAccessFeatures() },
-    { path: 'Explore/Revenue analytics', icon: <IconPiggyBank />, href: () => urls.revenueAnalytics() },
-    { path: 'People and groups/People', icon: <IconPerson />, href: () => urls.persons() },
-    { path: 'Recordings/Playlists', href: () => urls.replay(ReplayTabs.Playlists), icon: <IconRewindPlay /> },
-    { path: 'Recordings/Recordings', href: () => urls.replay(ReplayTabs.Home), icon: <IconRewindPlay /> },
-    { path: 'Recordings/Settings', href: () => urls.replay(ReplayTabs.Settings), icon: <IconRewindPlay /> },
-    { path: 'Recordings/What to watch', href: () => urls.replay(ReplayTabs.Templates), icon: <IconRewindPlay /> },
-    { path: 'Web Analytics', icon: <IconPieChart />, href: () => urls.webAnalytics() },
+    { path: `Experiments`, type: 'experiment', href: () => urls.experiments() },
+    { path: `Feature flags`, type: 'feature_flag', href: () => urls.featureFlags() },
+    { path: 'Persons', icon: <IconPerson />, href: () => urls.persons() },
+    { path: 'Product analytics', icon: <IconGraph />, href: () => urls.insights() },
+    { path: 'Revenue analytics', icon: <IconPiggyBank />, href: () => urls.revenueAnalytics() },
+    { path: 'Session replay', href: () => urls.replay(ReplayTabs.Home), icon: <IconRewindPlay /> },
+    { path: 'Web analytics', icon: <IconPieChart />, href: () => urls.webAnalytics() },
 ]

@@ -20,9 +20,9 @@ export const manifest: ProductManifest = {
     urls: {
         revenueAnalytics: (): string => '/revenue_analytics',
     },
-    treeItemsExplore: [
+    treeItemsAllProducts: [
         {
-            path: 'Explore/Revenue analytics',
+            path: 'Revenue analytics',
             icon: <IconPiggyBank />,
             href: () => urls.revenueAnalytics(),
         },

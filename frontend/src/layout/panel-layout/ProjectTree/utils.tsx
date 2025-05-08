@@ -21,6 +21,7 @@ export interface ConvertProps {
     disabledReason?: (item: FileSystemImport | FileSystemEntry) => string | undefined
     recent?: boolean
     users?: Record<string, UserBasicType>
+    foldersFirst?: boolean
 }
 
 export function getItemId(item: FileSystemImport | FileSystemEntry, root: string = 'project'): string {
@@ -64,6 +65,7 @@ export function convertFileSystemEntryToTreeDataItem({
     disabledReason,
     recent,
     users,
+    foldersFirst = true,
 }: ConvertProps): TreeDataItem[] {
     function itemToTreeDataItem(item: FileSystemImport | FileSystemEntry): TreeDataItem {
         const pathSplit = splitPath(item.path)
@@ -239,12 +241,13 @@ export function convertFileSystemEntryToTreeDataItem({
             if (b.id.startsWith(`${root}-load-more/`) || b.id.startsWith(`${root}-loading/`)) {
                 return -1
             }
-            // folders before files
-            if (a.record?.type === 'folder' && b.record?.type !== 'folder') {
-                return -1
-            }
-            if (b.record?.type === 'folder' && a.record?.type !== 'folder') {
-                return 1
+            if (foldersFirst) {
+                if (a.record?.type === 'folder' && b.record?.type !== 'folder') {
+                    return -1
+                }
+                if (b.record?.type === 'folder' && a.record?.type !== 'folder') {
+                    return 1
+                }
             }
             return String(a.name).localeCompare(String(b.name), undefined, { sensitivity: 'accent' })
         })

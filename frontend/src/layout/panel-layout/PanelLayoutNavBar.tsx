@@ -1,4 +1,5 @@
 import {
+    IconCdCase,
     IconChevronRight,
     IconClock,
     IconDashboard,
@@ -166,7 +167,10 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                 }
             },
             showChevron: true,
-            tooltip: isLayoutPanelVisible ? 'Close project tree' : 'Open project tree',
+            tooltip:
+                isLayoutPanelVisible && activePanelIdentifier === 'Project'
+                    ? 'Close project tree'
+                    : 'Open project tree',
         },
         {
             identifier: 'Recent',
@@ -178,30 +182,53 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                 }
             },
             showChevron: true,
-            tooltip: isLayoutPanelVisible ? 'Close recent' : 'Open recent',
+            tooltip: isLayoutPanelVisible && activePanelIdentifier === 'Recent' ? 'Close recent' : 'Open recent',
         },
-        {
-            identifier: 'Dashboards',
-            id: 'Dashboards',
-            icon: <IconDashboard />,
-            to: urls.dashboards(),
-            onClick: () => {
-                handleStaticNavbarItemClick(urls.dashboards(), true)
-            },
-            tooltip: 'Dashboards',
-            tooltipDocLink: 'https://posthog.com/docs/product-analytics/dashboards',
-        },
-        {
-            identifier: 'Notebooks',
-            id: 'Notebooks',
-            icon: <IconNotebook />,
-            to: urls.notebooks(),
-            onClick: () => {
-                handleStaticNavbarItemClick(urls.notebooks(), true)
-            },
-            tooltip: 'Notebooks',
-            tooltipDocLink: 'https://posthog.com/docs/notebooks',
-        },
+        ...(featureFlags[FEATURE_FLAGS.TREE_VIEW_PRODUCTS]
+            ? [
+                  {
+                      identifier: 'Products',
+                      id: 'All products',
+                      icon: <IconCdCase />,
+                      onClick: (e?: React.KeyboardEvent) => {
+                          if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
+                              handlePanelTriggerClick('Products')
+                          }
+                      },
+                      showChevron: true,
+                      tooltip:
+                          isLayoutPanelVisible && activePanelIdentifier === 'Products'
+                              ? 'Close products'
+                              : 'Open products',
+                  },
+              ]
+            : []),
+        ...(featureFlags[FEATURE_FLAGS.TREE_VIEW_PRODUCTS]
+            ? []
+            : [
+                  {
+                      identifier: 'Dashboards',
+                      id: 'Dashboards',
+                      icon: <IconDashboard />,
+                      to: urls.dashboards(),
+                      onClick: () => {
+                          handleStaticNavbarItemClick(urls.dashboards(), true)
+                      },
+                      tooltip: 'Dashboards',
+                      tooltipDocLink: 'https://posthog.com/docs/product-analytics/dashboards',
+                  },
+                  {
+                      identifier: 'Notebooks',
+                      id: 'Notebooks',
+                      icon: <IconNotebook />,
+                      to: urls.notebooks(),
+                      onClick: () => {
+                          handleStaticNavbarItemClick(urls.notebooks(), true)
+                      },
+                      tooltip: 'Notebooks',
+                      tooltipDocLink: 'https://posthog.com/docs/notebooks',
+                  },
+              ]),
         {
             identifier: 'DataManagement',
             id: 'Data management',
@@ -215,13 +242,21 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         },
         {
             identifier: 'PersonsManagement',
-            id: featureFlags[FEATURE_FLAGS.B2B_ANALYTICS] ? 'Persons and cohorts' : 'Persons and groups',
+            id: featureFlags[FEATURE_FLAGS.TREE_VIEW_PRODUCTS]
+                ? 'Persons'
+                : featureFlags[FEATURE_FLAGS.B2B_ANALYTICS]
+                ? 'Persons and cohorts'
+                : 'Persons and groups',
             icon: <IconPeople />,
             to: urls.persons(),
             onClick: () => {
                 handleStaticNavbarItemClick(urls.persons(), true)
             },
-            tooltip: featureFlags[FEATURE_FLAGS.B2B_ANALYTICS] ? 'Persons and cohorts' : 'Persons and groups',
+            tooltip: featureFlags[FEATURE_FLAGS.TREE_VIEW_PRODUCTS]
+                ? 'Persons'
+                : featureFlags[FEATURE_FLAGS.B2B_ANALYTICS]
+                ? 'Persons and cohorts'
+                : 'Persons and groups',
             tooltipDocLink: 'https://posthog.com/docs/data/persons',
         },
         {
@@ -298,7 +333,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                 }
                                             }}
                                         >
-                                            {item.identifier === 'Recent' || item.identifier === 'Project' ? (
+                                            {item.identifier === 'Recent' ||
+                                            item.identifier === 'Project' ||
+                                            item.identifier === 'Products' ? (
                                                 <ButtonPrimitive
                                                     active={activePanelIdentifier === item.id}
                                                     className="group"

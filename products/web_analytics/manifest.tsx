@@ -11,9 +11,9 @@ export const manifest: ProductManifest = {
         webAnalyticsPageReports: (): string => `/web/page-reports`,
     },
     fileSystemTypes: {},
-    treeItemsExplore: [
+    treeItemsAllProducts: [
         {
-            path: 'Web Analytics',
+            path: 'Web analytics',
             icon: <IconPieChart />,
             href: () => urls.webAnalytics(),
         },

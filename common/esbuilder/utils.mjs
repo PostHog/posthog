@@ -557,7 +557,7 @@ export function gatherProductManifests(__dirname) {
     const redirects = []
     const fileSystemTypes = []
     const treeItemsNew = {}
-    const treeItemsExplore = {}
+    const treeItemsAllProducts = {}
 
     const sourceFiles = []
     for (const product of products) {
@@ -667,14 +667,14 @@ export function gatherProductManifests(__dirname) {
             } else if (
                 ts.isPropertyAssignment(node) &&
                 ts.isArrayLiteralExpression(node.initializer) &&
-                node.name.text === 'treeItemsExplore'
+                node.name.text === 'treeItemsAllProducts'
             ) {
                 for (const element of node.initializer.elements) {
                     if (ts.isObjectLiteralExpression(element)) {
                         const pathNode = element.properties.find((p) => p.name.text === 'path')
                         const path = pathNode ? pathNode.initializer.text : null
                         if (path) {
-                            treeItemsExplore[path] = cloneNode(element)
+                            treeItemsAllProducts[path] = cloneNode(element)
                         } else {
                             console.error('Tree item without path:', element)
                         }
@@ -700,7 +700,7 @@ export function gatherProductManifests(__dirname) {
     const manifestRoutes = printer.printNode(ts.EmitHint.Unspecified, ts.factory.createObjectLiteralExpression(routes), sourceFile)
     const manifestFileSystemTypes = printer.printNode(ts.EmitHint.Unspecified, ts.factory.createObjectLiteralExpression(fileSystemTypes), sourceFile)
     const manifesttreeItemsNew = printer.printNode(ts.EmitHint.Unspecified, ts.factory.createArrayLiteralExpression(Object.keys(treeItemsNew).sort().map(key => treeItemsNew[key])), sourceFile)
-    const manifesttreeItemsExplore = printer.printNode(ts.EmitHint.Unspecified, ts.factory.createArrayLiteralExpression(Object.keys(treeItemsExplore).sort().map(key => treeItemsExplore[key])), sourceFile)
+    const manifesttreeItemsAllProducts = printer.printNode(ts.EmitHint.Unspecified, ts.factory.createArrayLiteralExpression(Object.keys(treeItemsAllProducts).sort().map(key => treeItemsAllProducts[key])), sourceFile)
 
     const autogenComment = "/** This const is auto-generated, as is the whole file */"
     let preservedImports = ''
@@ -735,7 +735,7 @@ export function gatherProductManifests(__dirname) {
         ${autogenComment}
         export const treeItemsNew = ${manifesttreeItemsNew}\n
         ${autogenComment}
-        export const treeItemsExplore = ${manifesttreeItemsExplore}\n
+        export const treeItemsAllProducts = ${manifesttreeItemsAllProducts}\n
     `
 
     // safe temporary path in /tmp

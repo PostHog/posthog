@@ -83,4 +83,16 @@ export const manifest: ProductManifest = {
             flag: FEATURE_FLAGS.MESSAGING_AUTOMATION,
         },
     ],
+    treeItemsAllProducts: [
+        {
+            path: 'Broadcasts',
+            href: () => urls.messagingBroadcasts(),
+            icon: <IconMegaphone />,
+        },
+        {
+            path: 'Campaigns',
+            href: () => urls.messagingCampaigns(),
+            icon: <IconMegaphone />,
+        },
+    ],
 }

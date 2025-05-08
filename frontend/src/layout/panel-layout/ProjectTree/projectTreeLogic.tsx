@@ -894,19 +894,21 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     folderStates,
                     root: 'new',
                     users,
+                    foldersFirst: false,
                 }),
         ],
-        treeItemsExplore: [
-            (s) => [s.featureFlags, s.groupNodes, s.folderStates, s.users],
-            (featureFlags, groupNodes: FileSystemImport[], folderStates, users): TreeDataItem[] =>
+        treeItemsAllProducts: [
+            (s) => [s.featureFlags, s.folderStates, s.users],
+            (featureFlags, folderStates, users): TreeDataItem[] =>
                 convertFileSystemEntryToTreeDataItem({
-                    imports: getDefaultTreeExplore(groupNodes).filter(
+                    imports: getDefaultTreeExplore().filter(
                         (f) => !f.flag || (featureFlags as Record<string, boolean>)[f.flag]
                     ),
                     checkedItems: {},
                     folderStates,
                     root: 'explore',
                     users,
+                    foldersFirst: false,
                 }),
         ],
         recentTreeItems: [

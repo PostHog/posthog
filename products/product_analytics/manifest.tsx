@@ -103,4 +103,11 @@ export const manifest: ProductManifest = {
             href: () => urls.insightNew({ type: InsightType.LIFECYCLE }),
         },
     ],
+    treeItemsAllProducts: [
+        {
+            path: 'Product analytics',
+            icon: <IconGraph />,
+            href: () => urls.insights(),
+        },
+    ],
 }

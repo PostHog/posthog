@@ -18,7 +18,7 @@ import {
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { fileSystemTypes, treeItemsExplore, treeItemsNew } from '~/products'
+import { fileSystemTypes, treeItemsAllProducts, treeItemsNew } from '~/products'
 import { FileSystemImport } from '~/queries/schema/schema-general'
 import { ActivityTab, PipelineStage } from '~/types'
 
@@ -88,9 +88,9 @@ export const getDefaultTreeNew = (): FileSystemImport[] =>
         },
     ].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
 
-export const getDefaultTreeExplore = (groupNodes: FileSystemImport[]): FileSystemImport[] =>
+export const getDefaultTreeExplore = (): FileSystemImport[] =>
     [
-        ...treeItemsExplore,
+        ...treeItemsAllProducts,
         {
             path: `AI chat`,
             type: 'aichat',
@@ -98,41 +98,39 @@ export const getDefaultTreeExplore = (groupNodes: FileSystemImport[]): FileSyste
             flag: FEATURE_FLAGS.ARTIFICIAL_HOG,
         },
         {
-            path: 'Data management/Event Definitions',
+            path: 'Event definitions',
             icon: <IconDatabase />,
             href: () => urls.eventDefinitions(),
         },
         {
-            path: 'Data management/Property Definitions',
+            path: 'Property definitions',
             icon: <IconDatabase />,
             href: () => urls.propertyDefinitions(),
         },
-
         {
-            path: 'Data management/Annotations',
+            path: 'Annotations',
             icon: <IconNotification />,
             href: () => urls.annotations(),
         },
-
         {
-            path: 'Data management/History',
-            icon: <IconDatabase />,
-            href: () => urls.dataManagementHistory(),
-        },
-
-        {
-            path: 'Data management/Revenue',
+            path: 'Revenue',
             icon: <IconHandMoney />,
             href: () => urls.revenueSettings(),
         },
         {
-            path: 'Data management/Ingestion Warnings',
+            path: 'Ingestion warnings',
             icon: <IconWarning />,
             href: () => urls.ingestionWarnings(),
             flag: FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED,
         },
         {
-            path: `SQL query`,
+            path: `Data pipelines`,
+            type: 'hog_function',
+            icon: <IconPlug />,
+            href: () => urls.pipeline(),
+        },
+        {
+            path: `SQL editor`,
             type: 'sql',
             href: () => urls.sqlEditor(),
         },
@@ -142,18 +140,22 @@ export const getDefaultTreeExplore = (groupNodes: FileSystemImport[]): FileSyste
             href: () => urls.sqlEditor(),
         },
         {
-            path: 'People and groups/Cohorts',
+            path: 'Cohorts',
             icon: <IconPeople />,
             href: () => urls.cohorts(),
         },
-        ...groupNodes.map((groupNode) => ({ ...groupNode, path: `People and groups/${groupNode.path}` })),
+        {
+            path: 'Group analytics',
+            icon: <IconPeople />,
+            href: () => urls.groups(0),
+        },
         {
             path: 'Activity',
             icon: <IconLive />,
             href: () => urls.activity(ActivityTab.ExploreEvents),
         },
         {
-            path: 'Live',
+            path: 'Live events',
             icon: <IconLive />,
             href: () => urls.activity(ActivityTab.LiveEvents),
         },
@@ -173,5 +175,10 @@ export const getDefaultTreeExplore = (groupNodes: FileSystemImport[]): FileSyste
             icon: <IconCursorClick />,
             href: () => urls.heatmaps(),
             flag: FEATURE_FLAGS.HEATMAPS_UI,
+        },
+        {
+            path: 'Surveys',
+            icon: <IconMessage />,
+            href: () => urls.surveys(),
         },
     ].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
