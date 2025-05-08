@@ -74,6 +74,9 @@ class SegmentMetaSerializer(serializers.Serializer):
     events_percentage = serializers.FloatField(min_value=0, max_value=1, required=False, allow_null=True)
     key_action_count = serializers.IntegerField(min_value=0, required=False, allow_null=True)
     failure_count = serializers.IntegerField(min_value=0, required=False, allow_null=True)
+    abandonment_count = serializers.IntegerField(min_value=0, required=False, allow_null=True)
+    confusion_count = serializers.IntegerField(min_value=0, required=False, allow_null=True)
+    exception_count = serializers.IntegerField(min_value=0, required=False, allow_null=True)
 
 
 class EnrichedSegmentSerializer(RawSegmentSerializer):
@@ -358,14 +361,27 @@ def _calculate_segment_meta(
     segment_meta_data["key_action_count"] = len(key_group_events)
     # Calculate failure count
     failure_count = 0
+    abandonment_count = 0
+    confusion_count = 0
+    exception_count = 0
     for key_action_event in key_group_events:
         abandonment = key_action_event.get("abandonment")
         confusion = key_action_event.get("confusion")
         exception = key_action_event.get("exception")
-        # If any of the fields indicate a failure, increment the count
+        # Count each type of issue
+        if abandonment:
+            abandonment_count += 1
+        if confusion:
+            confusion_count += 1
+        if exception:
+            exception_count += 1
+        # If any of the fields indicate a failure, increment the total count
         if abandonment or confusion or exception:
             failure_count += 1
     segment_meta_data["failure_count"] = failure_count
+    segment_meta_data["abandonment_count"] = abandonment_count
+    segment_meta_data["confusion_count"] = confusion_count
+    segment_meta_data["exception_count"] = exception_count
     # Fallback - if enough events processed and the data drastically changes - calculate the meta from the key actions
     if len(key_group_events) < 2:
         # If not enough events yet
