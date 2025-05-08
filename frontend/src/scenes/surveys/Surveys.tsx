@@ -30,7 +30,7 @@ import { isSurveyRunning } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { ActivityScope, ProductKey, ProgressStatus, Survey } from '~/types'
+import { ActivityScope, ProductKey, ProgressStatus, Survey, SurveyEventName } from '~/types'
 
 import { SURVEY_TYPE_LABEL_MAP, SurveyQuestionLabel } from './constants'
 import { SurveysDisabledBanner, SurveySettings } from './SurveySettings'
