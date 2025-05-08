@@ -239,4 +239,4 @@ def property_definitions_hourly_schedule(context):
     target_hour = previous_hour.isoformat()
 
     config = PropertyDefinitionsConfig(start_at=target_hour, duration="1 hour")
-    return {"ops": {"setup_job": config}}
+    return {"ops": {setup_job.name: config}}

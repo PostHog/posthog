@@ -10,6 +10,7 @@ from dags.property_definitions import (
     DetectPropertyTypeExpression,
     PropertyDefinitionsConfig,
     property_definitions_ingestion_job,
+    setup_job,
 )
 from posthog.clickhouse.cluster import ClickhouseCluster, Query
 
@@ -114,6 +115,6 @@ def test_detect_property_type_expression(cluster: ClickhouseCluster) -> None:
 def test_ingestion_job(cluster: ClickhouseCluster) -> None:
     config = PropertyDefinitionsConfig(start_at="2025-05-07T00:00:00", duration="1 hour")
     property_definitions_ingestion_job.execute_in_process(
-        run_config=dagster.RunConfig({"setup_job": config}),
+        run_config=dagster.RunConfig({setup_job.name: config}),
         resources={"cluster": cluster},
     )
