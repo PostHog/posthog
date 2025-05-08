@@ -327,7 +327,6 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         request = self.context["request"]
         validated_data["created_by"] = request.user
 
-        # Set the FK if template_id is present
         template_id = validated_data.get("template_id")
         if template_id:
             db_template = DBHogFunctionTemplate.get_template(template_id)
