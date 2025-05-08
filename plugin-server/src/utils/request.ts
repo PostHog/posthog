@@ -38,20 +38,34 @@ export class SecureRequestError extends errors.UndiciError {
     }
 }
 
+export class InvalidRequestError extends errors.UndiciError {
+    constructor(message: string) {
+        super(message)
+        this.name = 'InvalidRequestError'
+    }
+}
+
+export class ResolutionError extends errors.UndiciError {
+    constructor(message: string) {
+        super(message)
+        this.name = 'ResolutionError'
+    }
+}
+
 function validateUrl(url: string): URL {
     // Raise if the provided URL seems unsafe, otherwise do nothing.
     let parsedUrl: URL
     try {
         parsedUrl = new URL(url)
     } catch (err) {
-        throw new SecureRequestError('Invalid URL')
+        throw new InvalidRequestError('Invalid URL')
     }
     const { hostname, protocol } = parsedUrl
     if (!hostname) {
-        throw new SecureRequestError('No hostname')
+        throw new InvalidRequestError('No hostname')
     }
     if (!['http:', 'https:'].includes(protocol)) {
-        throw new SecureRequestError('Scheme must be either HTTP or HTTPS')
+        throw new InvalidRequestError('Scheme must be either HTTP or HTTPS')
     }
     return parsedUrl
 }
@@ -85,7 +99,7 @@ async function staticLookupAsync(hostname: string): Promise<LookupAddress> {
     try {
         addrinfo = await dns.lookup(hostname, { all: true })
     } catch (err) {
-        throw new SecureRequestError('Invalid hostname')
+        throw new ResolutionError('Invalid hostname')
     }
     for (const { address } of addrinfo) {
         const parsed = ipaddr.parse(address)
@@ -105,7 +119,7 @@ async function staticLookupAsync(hostname: string): Promise<LookupAddress> {
     }
     if (addrinfo.length === 0) {
         unsafeRequestCounter.inc({ reason: 'unable_to_resolve' })
-        throw new SecureRequestError(`Unable to resolve ${hostname}`)
+        throw new ResolutionError(`Unable to resolve ${hostname}`)
     }
 
     return addrinfo[0]

@@ -209,28 +209,65 @@ def _validate_enriched_summary(data: dict[str, Any], session_id: str) -> Session
     return session_summary
 
 
+def _pick_start_end_events(
+    start_event_id: str,
+    end_event_id: str,
+    event_index_index: int,
+    simplified_events_mapping: dict[str, list[Any]],
+) -> tuple[list[Any], list[Any]]:
+    start_event = simplified_events_mapping[start_event_id]
+    end_event = simplified_events_mapping[end_event_id]
+    # If events are in the correct order - return them as is
+    if start_event[event_index_index] < end_event[event_index_index]:
+        return start_event, end_event
+    # If events are in the wrong order - swap them
+    return end_event, start_event
+
+
 def _calculate_segment_duration(
     start_event_id: str,
     end_event_id: str,
     timestamp_index: int,
+    event_index_index: int,
     simplified_events_mapping: dict[str, list[Any]],
     session_total_duration: int,
 ) -> tuple[int, float]:
-    start_event, end_event = simplified_events_mapping[start_event_id], simplified_events_mapping[end_event_id]
+    start_event, end_event = _pick_start_end_events(
+        start_event_id=start_event_id,
+        end_event_id=end_event_id,
+        event_index_index=event_index_index,
+        simplified_events_mapping=simplified_events_mapping,
+    )
     start_event_timestamp = prepare_datetime(start_event[timestamp_index])
     end_event_timestamp = prepare_datetime(end_event[timestamp_index])
     duration = int((end_event_timestamp - start_event_timestamp).total_seconds())
-    duration_percentage = duration / session_total_duration
+    # Round to avoid floating point precision issues (like 1.0000000002)
+    duration_percentage = round(duration / session_total_duration, 4)
+    if duration_percentage > 1 and duration_percentage < 1.1:  # Round up to 100%
+        return duration, 1.0
+    # If miscalculation is too large (probably, a hallucination) - keep it 0 and hope for the fallback recalculation
+    if duration_percentage > 1 or duration_percentage < 0:
+        return 0, 0.0
     return duration, duration_percentage
 
 
 def _calculate_segment_events_count(
-    start_event_id: str, end_event_id: str, event_index_index: int, simplified_events_mapping: dict[str, list[Any]]
+    start_event_id: str,
+    end_event_id: str,
+    event_index_index: int,
+    simplified_events_mapping: dict[str, list[Any]],
 ) -> tuple[int, float]:
-    start_event, end_event = simplified_events_mapping[start_event_id], simplified_events_mapping[end_event_id]
-    # Events from the start to the end event (inclusive)
+    start_event, end_event = _pick_start_end_events(
+        start_event_id=start_event_id,
+        end_event_id=end_event_id,
+        event_index_index=event_index_index,
+        simplified_events_mapping=simplified_events_mapping,
+    )
     events_count = end_event[event_index_index] - start_event[event_index_index] + 1
-    events_percentage = events_count / len(simplified_events_mapping)
+    # Round to avoid floating point precision issues (like 1.0000000002)
+    events_percentage = round(events_count / len(simplified_events_mapping), 4)
+    if events_percentage > 1 and events_percentage < 1.1:  # Round up to 100%
+        events_percentage = 1.0
     return events_count, events_percentage
 
 
@@ -268,6 +305,7 @@ def _calculate_segment_meta(
             start_event_id=start_event_id,
             end_event_id=end_event_id,
             timestamp_index=timestamp_index,
+            event_index_index=event_index_index,
             simplified_events_mapping=simplified_events_mapping,
             session_total_duration=session_metadata.duration,
         )
@@ -353,6 +391,7 @@ def _calculate_segment_meta(
         start_event_id=fallback_start_event_id,
         end_event_id=fallback_end_event_id,
         timestamp_index=timestamp_index,
+        event_index_index=event_index_index,
         simplified_events_mapping=simplified_events_mapping,
         session_total_duration=session_metadata.duration,
     )
