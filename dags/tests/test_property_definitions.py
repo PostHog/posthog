@@ -122,14 +122,23 @@ def test_ingestion_job(cluster: ClickhouseCluster) -> None:
         Query(
             f"INSERT INTO events_recent (uuid, team_id, event, timestamp, properties) VALUES",
             [
-                (UUID(int=i), 1, "event", timestamp, json.dumps(properties))
-                for i, (timestamp, properties) in enumerate(
+                (UUID(int=i), 1, event, timestamp, json.dumps(properties))
+                for i, (event, timestamp, properties) in enumerate(
                     [
-                        (start_at - timedelta(minutes=30), {"too_old": "1"}),  # out of range (too old)
-                        (start_at, {"property": 1}),  # lower bound, should be inclkuded
-                        (start_at + duration / 2, {"property": 1}),  # midpoint
-                        (start_at + duration, {"too_new": 1}),  # upper bound, should be excluded
-                        (start_at + duration + timedelta(minutes=30), {"too_new": 1}),  # out of range (too new)
+                        ("event", start_at - timedelta(minutes=30), {"too_old": "1"}),  # out of range (too old)
+                        ("event", start_at, {"property": 1}),  # lower bound, should be included
+                        ("$$plugin_metrics", start_at, {"property": 1}),  # skipped event
+                        (
+                            "event",
+                            start_at + duration / 2,  # midpoint
+                            {"property": 1, "$set": {}},  # includes skipped property
+                        ),
+                        ("event", start_at + duration, {"too_new": 1}),  # upper bound, should be excluded
+                        (
+                            "event",
+                            start_at + duration + timedelta(minutes=30),  # out of range (too new)
+                            {"too_new": 1},
+                        ),
                     ]
                 )
             ],

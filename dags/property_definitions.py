@@ -107,7 +107,12 @@ def ingest_event_properties(
         {int(PropertyDefinition.Type.EVENT)} as type,
         max(timestamp) as last_seen_at
     FROM events_recent
-    WHERE {time_range.get_expression("timestamp")}
+    WHERE
+        {time_range.get_expression("timestamp")}
+        -- https://github.com/PostHog/posthog/blob/052f4ea40c5043909115f835f09445e18dd9727c/rust/property-defs-rs/src/types.rs#L13-L14C52
+        AND event NOT IN ('$$plugin_metrics')
+        -- https://github.com/PostHog/posthog/blob/052f4ea40c5043909115f835f09445e18dd9727c/rust/property-defs-rs/src/types.rs#L17-L28
+        AND name NOT IN ('$set', '$set_once', '$unset', '$group_0', '$group_1', '$group_2', '$group_3', '$group_4', '$groups')
     GROUP BY team_id, event, name, property_type
     ORDER BY team_id, event, name, property_type NULLS LAST
     LIMIT 1 by team_id, event, name
