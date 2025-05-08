@@ -54,9 +54,11 @@ from posthog.schema import (
     QueryRequest,
     QueryResponseAlternative,
     QueryStatusResponse,
+    ClickhouseQueryProgress,
 )
 from posthog.hogql.constants import LimitContext
 from posthog.clickhouse.client.execute import sync_execute
+from posthog.clickhouse.client.connection import default_client
 
 # Create a dedicated thread pool for query processing
 # Setting max_workers to ensure we don't overwhelm the system
@@ -282,60 +284,71 @@ async def progress(request: Request, *args, **kwargs) -> StreamingHttpResponse:
 
     async def event_stream():
         start_time = time.time()
-        run_started = False
 
         # For things to feel snappy we want to frequently check initially, then back off
         POLL_INTERVAL = 1
         QUERY_START_TIMEOUT = 10  # query needs to start within 10 seconds
-
-        while time.time() - start_time < MAX_QUERY_TIMEOUT:
-            try:
-                # Query system.processes for the query progress
+        QUERY = (
+            lambda table: f"""
+        SELECT
+            read_rows,
+            read_bytes,
+            total_rows_approx,
+            elapsed,
+            memory_usage,
+            hostname() as host
+        FROM {table}
+        WHERE query_id LIKE %(query_id)s and query LIKE %(user_id)s
+        LIMIT 1
+        SETTINGS max_execution_time = 5
+        """
+        )
+        QUERY_PARAMS = {
+            "cluster": settings.CLICKHOUSE_CLUSTER,
+            "query_id": f"{request.user.id}_{kwargs['query_id']}_%",
+            "user_id": f"/* user_id:{request.user.id} %",
+        }
+        try:
+            while time.time() - start_time < QUERY_START_TIMEOUT:
+                # First query the distributed table to find the initiatorhost, then only query the host from then on
                 results = await sync_to_async(sync_execute)(
-                    """
-                    SELECT
-                        read_rows,
-                        read_bytes,
-                        total_rows_approx,
-                        elapsed,
-                        memory_usage
-                    FROM clusterAllReplicas(%(cluster)s, system.processes)
-                    WHERE query_id LIKE %(query_id)s and query LIKE %(user_id)s
-                    """,
-                    {
-                        "cluster": settings.CLICKHOUSE_CLUSTER,
-                        "query_id": f"{request.user.id}_{kwargs['query_id']}_%",
-                        "user_id": f"/* user_id:{request.user.id} %",
-                    },
+                    QUERY("distributed_system_processes"),
+                    QUERY_PARAMS,
                     workload=Workload.ONLINE,
                 )
+                if results and len(results) > 0:
+                    break
+                else:
+                    await asyncio.sleep(POLL_INTERVAL)
 
-                if not results or len(results) == 0:
-                    if run_started:
-                        break  # query completed, can break connection now
-                    elif time.time() - start_time > QUERY_START_TIMEOUT:
-                        # query never started, can break connection now
-                        yield f"data: {json.dumps({'error': 'No running query found with this ID'})}\n\n".encode()
-                        break
+            if results:
+                while time.time() - start_time < MAX_QUERY_TIMEOUT:
+                    progress = ClickhouseQueryProgress(
+                        rows_read=int(results[0][0]),
+                        bytes_read=int(results[0][1]),
+                        estimated_rows_total=int(results[0][2]),
+                        memory_usage=int(results[0][4]),
+                        time_elapsed=int(results[0][3]),
+                    )
 
-                # Format the results to match ClickhouseQueryProgress
-                progress = {
-                    "bytes_read": int(results[0][1]),
-                    "rows_read": int(results[0][0]),
-                    "estimated_rows_total": int(results[0][2]),
-                    "time_elapsed": int(results[0][3]),
-                    "memory_usage": int(results[0][4]),
-                }
+                    yield f"data: {progress.model_dump_json()}\n\n".encode()
+                    await asyncio.sleep(POLL_INTERVAL)
 
-                yield f"data: {json.dumps(progress)}\n\n".encode()
+                    with default_client(host=results[0][5]) as client:
+                        results = sync_execute(
+                            QUERY("system.processes"),
+                            QUERY_PARAMS,
+                            sync_client=client,
+                        )
+                        if not results or len(results) == 0:
+                            break
 
-                run_started = True
-            except Exception as e:
-                capture_exception(e)
-                yield f"data: {json.dumps({'error': str(e)})}\n\n".encode()
-                break
+            else:
+                yield f"data: {json.dumps({'error': 'No running query found with this ID'})}\n\n".encode()
 
-            await asyncio.sleep(POLL_INTERVAL)
+        except Exception as e:
+            capture_exception(e)
+            yield f"data: {json.dumps({'error': 'Error fetching query progress'})}\n\n".encode()
 
     return StreamingHttpResponse(
         event_stream(),
