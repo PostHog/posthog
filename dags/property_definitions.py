@@ -107,7 +107,7 @@ def ingest_event_properties(
 
     # Query to insert event properties into property_definitions table
     insert_query = f"""
-    INSERT INTO property_definitions (* EXCEPT(version))
+    INSERT INTO property_definitions
     SELECT
         team_id,
         team_id as project_id,
@@ -162,7 +162,7 @@ def ingest_person_properties(
     # Query to insert person properties into property_definitions table
     # NOTE: this is a different data source from current, see https://github.com/PostHog/product-internal/pull/748/files#diff-78e7399938cb790eae10d5c5769f7edcb531972f33a32e0655872bded13f4977R165-R170
     insert_query = f"""
-    INSERT INTO property_definitions (* EXCEPT(version))
+    INSERT INTO property_definitions
     SELECT
         team_id,
         team_id as project_id,
