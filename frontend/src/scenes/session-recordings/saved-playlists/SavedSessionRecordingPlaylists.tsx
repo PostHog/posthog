@@ -245,10 +245,7 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                             </Link>{' '}
                             stay with filters.
                         </li>
-                        <li>
-                            <Link to={urls.replay(ReplayTabs.Playlists)}>Collections</Link> are simple recording lists —
-                            no filters involved.
-                        </li>
+                        <li>Collections are simple recording lists — no filters involved.</li>
                     </ul>
                     More predictable, less messy!
                 </p>
