@@ -14,6 +14,7 @@ import { BillingEmptyState } from './BillingEmptyState'
 import { BillingLineGraph } from './BillingLineGraph'
 import { billingUsageLogic } from './billingUsageLogic'
 import { USAGE_TYPES } from './constants'
+import { UsageBanner } from './UsageBanner'
 
 export function BillingUsage(): JSX.Element {
     const logic = billingUsageLogic({ dashboardItemId: 'usage' })
@@ -38,6 +39,7 @@ export function BillingUsage(): JSX.Element {
 
     return (
         <div className="space-y-4">
+            <UsageBanner />
             <div className="border rounded p-4 bg-bg-light space-y-4">
                 <div className="flex gap-4 items-start flex-wrap">
                     {/* Usage Types */}
