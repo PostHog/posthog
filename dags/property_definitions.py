@@ -9,11 +9,11 @@ from posthog.clickhouse.cluster import ClickhouseCluster, Query
 
 @dataclass(frozen=True)
 class TimeRange:
-    start_at: str
-    duration: str
+    start_time: datetime
+    end_time: datetime
 
     def get_expression(self, column: str) -> str:
-        return f"{column} BETWEEN parseDateTimeBestEffort('{self.start_at}') AND parseDateTimeBestEffort('{self.start_at}') + INTERVAL '{self.duration}'"
+        return f"{column} BETWEEN '{self.start_time.isoformat()}' AND '{self.end_time.isoformat()}'"
 
 
 class PropertyDefinitionsConfig(dagster.Config):
@@ -22,9 +22,14 @@ class PropertyDefinitionsConfig(dagster.Config):
     start_at: str
     duration: str = "1 hour"
 
-    def validate(self) -> TimeRange:
-        # TODO: actually validate
-        return TimeRange(self.start_at, self.duration)
+    def validate(self, cluster: ClickhouseCluster) -> TimeRange:
+        [[start_time, end_time]] = cluster.any_host(
+            Query(
+                f"SELECT parseDateTimeBestEffort(%(start_at)s) as start_time, start_time + INTERVAL %(duration)s",
+                {"start_at": self.start_at, "duration": self.duration},
+            )
+        ).result()
+        return TimeRange(start_time, end_time)
 
 
 @dagster.op
@@ -32,7 +37,7 @@ def setup_job(
     cluster: dagster.ResourceParam[ClickhouseCluster],
     config: PropertyDefinitionsConfig,
 ) -> TimeRange:
-    return config.validate()
+    return config.validate(cluster)
 
 
 @dagster.op
