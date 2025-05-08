@@ -32,8 +32,10 @@ from posthog.models.signals import mutable_receiver
 from posthog.models.utils import (
     UUIDClassicModel,
     generate_random_token_project,
+    generate_random_token_secret,
     sane_repr,
     validate_rate_limit,
+    mask_key_value,
 )
 from posthog.settings.utils import get_list
 from posthog.utils import GenericEmails
@@ -160,6 +162,21 @@ class TeamManager(models.Manager):
 
             team = Team.objects.get(api_token=token)
             set_team_in_cache(token, team)
+            return team
+
+        except Team.DoesNotExist:
+            return None
+
+    def get_team_from_cache_or_secret_api_token(self, secret_api_token: Optional[str]) -> Optional["Team"]:
+        if not secret_api_token:
+            return None
+        try:
+            team = get_team_in_cache(secret_api_token)
+            if team:
+                return team
+
+            team = Team.objects.get(secret_api_token=secret_api_token)
+            set_team_in_cache(secret_api_token, team)
             return team
 
         except Team.DoesNotExist:
@@ -525,6 +542,7 @@ class Team(UUIDClassicModel):
         self.api_token = generate_random_token_project()
         self.save()
         set_team_in_cache(old_token, None)
+        set_team_in_cache(self.api_token, self)
         log_activity(
             organization_id=self.organization_id,
             team_id=self.pk,
@@ -542,6 +560,99 @@ class Team(UUIDClassicModel):
                         field="api_token",
                         before=old_token,
                         after=self.api_token,
+                    )
+                ],
+            ),
+        )
+
+    def rotate_secret_token_and_save(self, *, user: "User", is_impersonated_session: bool):
+        from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+
+        # Rotate the tokens
+        old_primary_token = self.secret_api_token
+        new_token = generate_random_token_secret()
+        expired_token = self.secret_api_token_backup
+        self.secret_api_token = new_token
+        self.secret_api_token_backup = old_primary_token
+        self.save()
+
+        set_team_in_cache(new_token, self)
+        # Old token needs to continue to work until it's deleted.
+        if old_primary_token:
+            set_team_in_cache(old_primary_token, self)
+        if expired_token:
+            # Clear the previous backup token from cache since it's being replaced
+            set_team_in_cache(expired_token, None)
+
+        # Build up the changes.
+
+        masked_old_primary_token = mask_key_value(old_primary_token) if old_primary_token else None
+
+        before = {
+            "secret_api_token": masked_old_primary_token,
+        }
+        after = {
+            "secret_api_token": mask_key_value(new_token),
+        }
+
+        if masked_old_primary_token:
+            # We rotated keys rather than generated a new one.
+            before["secret_api_token_backup"] = mask_key_value(expired_token) if expired_token else None
+            after["secret_api_token_backup"] = masked_old_primary_token
+
+        log_activity(
+            organization_id=self.organization_id,
+            team_id=self.pk,
+            user=cast("User", user),
+            was_impersonated=is_impersonated_session,
+            scope="Team",
+            item_id=self.pk,
+            activity="updated",
+            detail=Detail(
+                name=str(self.name),
+                changes=[
+                    Change(
+                        type="Team",
+                        action="created" if old_primary_token is None else "changed",
+                        field="secret_api_token",
+                        before=before,
+                        after=after,
+                    )
+                ],
+            ),
+        )
+
+    def delete_secret_token_backup_and_save(self, *, user: "User", is_impersonated_session: bool):
+        from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+        from posthog.models.utils import mask_key_value
+
+        old_backup_token = self.secret_api_token_backup
+        if not old_backup_token:
+            # Nothing to delete.
+            return
+
+        masked_old_backup_token = mask_key_value(old_backup_token)
+        self.secret_api_token_backup = None
+        self.save()
+        set_team_in_cache(old_backup_token, None)
+
+        log_activity(
+            organization_id=self.organization_id,
+            team_id=self.pk,
+            user=cast("User", user),
+            was_impersonated=is_impersonated_session,
+            scope="Team",
+            item_id=self.pk,
+            activity="updated",
+            detail=Detail(
+                name=str(self.name),
+                changes=[
+                    Change(
+                        type="Team",
+                        action="deleted",
+                        field="secret_api_token_backup",
+                        before=masked_old_backup_token,
+                        after=None,
                     )
                 ],
             ),
