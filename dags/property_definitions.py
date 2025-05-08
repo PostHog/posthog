@@ -131,7 +131,9 @@ def ingest_event_properties(
     # Get the number of rows inserted for this specific time window
     count_query = f"""
     SELECT count() FROM property_definitions
-    WHERE type = 1 AND {time_range.get_expression("last_seen_at")}
+    WHERE
+        type = {int(PropertyDefinition.Type.EVENT)}
+        AND {time_range.get_expression("last_seen_at")}
     """
 
     rows = cluster.any_host(Query(count_query)).result()[0][0]
@@ -178,7 +180,9 @@ def ingest_person_properties(
     # Get the number of rows inserted for this specific time window
     count_query = f"""
     SELECT count() FROM property_definitions
-    WHERE type = 2 AND {time_range.get_expression("last_seen_at")}
+    WHERE
+        type = {int(PropertyDefinition.Type.PERSON)}
+        AND {time_range.get_expression("last_seen_at")}
     """
 
     rows = cluster.any_host(Query(count_query)).result()[0][0]
