@@ -245,19 +245,25 @@ After analyzing the chronological segments and key actions, evaluate the overall
 6.3. Session Success Determination:
 
 - Mark the session as successful (true) when:
-  - User completed one or more significant conversion actions
-  - User accomplished apparent goals despite minor obstacles
-  - Session shows logical progression and completion
+  - User completed one or more significant conversion actions, even if they experienced:
+    * Multiple non-blocking exceptions
+    * Minor confusion moments
+    * Abandonment of secondary/non-critical flows
+  - User accomplished their apparent primary goals despite obstacles
+  - Session shows logical progression to completion of key user objectives
+  
 - Mark the session as unsuccessful (false) when:
-  - User abandoned critical conversion flows
-  - Technical errors prevented completion of conversion attempts
-  - Session ended abruptly during an important process
+  - User experienced blocking technical errors that prevented completion of primary conversion attempts with no successful workaround
+  - User abandoned critical conversion flows (signup, checkout, upgrade, etc.) at a late stage
+  - Session ended abruptly during an important process that was the primary goal
+  - User showed clear signs of significant frustration (multiple rageclicks, repeated failed attempts) on critical paths with no successful resolution
 
 6.4. Final Outcome Description:
 
 - Provide a short focused summary (1-2 sentences, up to 30 words in total) of the overall user journey
-- Emphasize conversion successes or failures
-- Note any critical issues that affected the user's workflow
+- For successful sessions: emphasize completed conversions despite any minor issues encountered
+- For unsuccessful sessions: clearly identify the critical blocking issue that prevented the primary goal completion
+- Always prioritize conversion completions over minor issues when determining session success
 
 # Step 7: Self-Consistency Check
 
