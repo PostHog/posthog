@@ -1,5 +1,4 @@
 import datetime
-from typing import Optional
 
 import dagster
 
@@ -10,45 +9,11 @@ from posthog.clickhouse.cluster import ClickhouseCluster, Query
 class PropertyDefinitionsConfig(dagster.Config):
     """Configuration for property definitions ingestion job."""
 
-    # Process a specific hour (ISO format) instead of lookback
-    target_hour: Optional[str] = None
-    # For backfill runs, we can specify a start and end date
-    start_date: Optional[str] = None
-    end_date: Optional[str] = None
+    start_at: str
+    duration: str = "1 hour"
 
     def get_time_filter_expression(self, column: str) -> str:
-        if self.start_date and self.end_date:
-            # For backfill runs - these should already be in the right format
-            return f"{column} BETWEEN toDateTime('{self.start_date}') AND toDateTime('{self.end_date}')"
-        elif self.target_hour:
-            # For processing a specific complete hour
-            hour_start = datetime.datetime.fromisoformat(self.target_hour)
-            hour_end = hour_start + datetime.timedelta(hours=1)
-            start_formatted = format_datetime_for_clickhouse(hour_start)
-            end_formatted = format_datetime_for_clickhouse(hour_end)
-            return f"{column} BETWEEN toDateTime('{start_formatted}') AND toDateTime('{end_formatted}')"
-        else:
-            # Default to previous complete hour
-            now = datetime.datetime.now(datetime.UTC)
-            previous_hour = now.replace(minute=0, second=0, microsecond=0) - datetime.timedelta(hours=1)
-            hour_end = previous_hour + datetime.timedelta(hours=1)
-            start_formatted = format_datetime_for_clickhouse(previous_hour)
-            end_formatted = format_datetime_for_clickhouse(hour_end)
-            return f"{column} BETWEEN toDateTime('{start_formatted}') AND toDateTime('{end_formatted}')"
-
-
-def format_datetime_for_clickhouse(dt: datetime.datetime) -> str:
-    """
-    Format a datetime object for ClickHouse's toDateTime function.
-    Removes timezone information and returns a compatible format.
-
-    Args:
-        dt: A datetime object, potentially with timezone info
-
-    Returns:
-        A string in format 'YYYY-MM-DD HH:MM:SS' without timezone info
-    """
-    return dt.strftime("%Y-%m-%d %H:%M:%S")
+        return f"{column} BETWEEN parseDateTimeBestEffort('{self.start_at}') AND parseDateTimeBestEffort('{self.start_at}') + INTERVAL '{self.duration}'"
 
 
 @dagster.op
@@ -66,11 +31,7 @@ def ingest_event_properties(
     time_filter = config.get_time_filter_expression("timestamp")
 
     # Log the execution parameters
-    context.log.info(
-        f"Ingesting event properties with target_hour={config.target_hour}, "
-        f"start_date={config.start_date}, end_date={config.end_date}, "
-        f"time_filter={time_filter}"
-    )
+    context.log.info(f"Ingesting person properties with config={config!r}")
 
     # Query to insert event properties into property_definitions table
     query = f"""
@@ -128,11 +89,7 @@ def ingest_person_properties(
     time_filter = config.get_time_filter_expression("_timestamp")
 
     # Log the execution parameters
-    context.log.info(
-        f"Ingesting person properties with target_hour={config.target_hour}, "
-        f"start_date={config.start_date}, end_date={config.end_date}, "
-        f"time_filter={time_filter}"
-    )
+    context.log.info(f"Ingesting person properties with config={config!r}")
 
     # Query to insert person properties into property_definitions table
     query = f"""
@@ -239,51 +196,11 @@ def property_definitions_hourly_schedule(context):
     previous_hour = now.replace(minute=0, second=0, microsecond=0) - datetime.timedelta(hours=1)
     target_hour = previous_hour.isoformat()
 
+    config = PropertyDefinitionsConfig(start_at=target_hour, duration="1 hour")
     return {
         "ops": {
-            "ingest_event_properties": {"config": {"target_hour": target_hour}},
-            "ingest_person_properties": {"config": {"target_hour": target_hour}},
-            "optimize_property_definitions": {"config": {"target_hour": target_hour}},
-        }
-    }
-
-
-# Add a config for running a backfill for a specific day
-def run_backfill_for_day(date_str: str):
-    """
-    Helper function to create a run config for a backfill for a specific day.
-
-    Args:
-        date_str: Date string in YYYY-MM-DD format
-
-    Returns:
-        Dagster run config for the backfill
-    """
-    start_date = f"{date_str} 00:00:00"
-    end_date = f"{date_str} 23:59:59"
-
-    return {
-        "ops": {
-            "ingest_event_properties": {"config": {"start_date": start_date, "end_date": end_date}},
-            "ingest_person_properties": {"config": {"start_date": start_date, "end_date": end_date}},
-        }
-    }
-
-
-# Helper to run backfill for a specific hour
-def run_backfill_for_hour(hour_str: str):
-    """
-    Helper function to create a run config for a backfill for a specific hour.
-
-    Args:
-        hour_str: ISO format datetime string for the hour (e.g., "2023-05-15T14:00:00+00:00")
-
-    Returns:
-        Dagster run config for the backfill
-    """
-    return {
-        "ops": {
-            "ingest_event_properties": {"config": {"target_hour": hour_str}},
-            "ingest_person_properties": {"config": {"target_hour": hour_str}},
+            "ingest_event_properties": config,
+            "ingest_person_properties": config,
+            "optimize_property_definitions": config,
         }
     }
