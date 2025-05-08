@@ -13,6 +13,7 @@ import { CdpCyclotronWorkerFetch } from './cdp/consumers/cdp-cyclotron-worker-fe
 import { CdpCyclotronWorkerPlugins } from './cdp/consumers/cdp-cyclotron-worker-plugins.consumer'
 import { CdpEventsConsumer } from './cdp/consumers/cdp-events.consumer'
 import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.consumer'
+import { TemplateSyncService } from './cdp/templates/sync'
 import { defaultConfig } from './config/config'
 import {
     KAFKA_EVENTS_PLUGIN_INGESTION,
@@ -99,6 +100,18 @@ export class PluginServer {
 
         try {
             const serviceLoaders: (() => Promise<PluginServerService>)[] = []
+
+            // Run template sync in dev mode
+            if (isTestEnv()) {
+                try {
+                    logger.info('Running template sync in dev mode...')
+                    const templateSyncService = new TemplateSyncService(hub)
+                    const result = await templateSyncService.syncTemplates()
+                    logger.info('Template sync completed in dev mode', { result })
+                } catch (error) {
+                    logger.error('Error running template sync in dev mode', { error: error.stack ?? error })
+                }
+            }
 
             if (capabilities.ingestionV2Combined) {
                 // NOTE: This is for single process deployments like local dev and hobby - it runs all possible consumers

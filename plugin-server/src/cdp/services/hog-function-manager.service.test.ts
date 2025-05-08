@@ -7,6 +7,7 @@ import { PostgresUse } from '~/src/utils/db/postgres'
 import { createTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { insertHogFunction, insertHogFunctionTemplate, insertIntegration } from '../_tests/fixtures'
+import { template as piiHashingTemplate } from '../templates/_transformations/pii-hashing/pii-hashing.template'
 import { compileHog } from '../templates/compiler'
 import { HogFunctionManagerService } from './hog-function-manager.service'
 
@@ -718,21 +719,25 @@ describe('template patching', () => {
     })
 
     it('fills missing fields from template in DB', async () => {
-        // Insert template
+        // Insert the actual PII hashing template from the codebase
+        const bytecode = await compileHog(piiHashingTemplate.hog)
         const template = await insertHogFunctionTemplate(hub.postgres, {
-            template_id: 'template-integration-1',
-            inputs_schema: [
-                {
-                    type: 'integration',
-                    key: 'slack',
-                },
-            ],
+            template_id: piiHashingTemplate.id,
+            name: piiHashingTemplate.name,
+            description: piiHashingTemplate.description,
+            code: piiHashingTemplate.hog,
+            bytecode,
+            inputs_schema: piiHashingTemplate.inputs_schema,
+            status: piiHashingTemplate.status,
+            type: piiHashingTemplate.type,
+            // The fixture adds mappings by default, but we don't want them for this test
             mappings: null,
         })
 
         // Insert template based hog function (hog, bytecode, inputs_schema, mappings are null)
         const { id } = await insertHogFunction(hub.postgres, teamId, {
             template_id: template.template_id,
+            name: 'My PII Hashing Function',
             hog: null,
             bytecode: null,
             inputs_schema: null,
@@ -741,22 +746,48 @@ describe('template patching', () => {
 
         // Fetch via manager and assert fields are filled-in from template
         const fn = (await manager['fetchHogFunctions']([id]))[id]
-        expect(fn?.hog).toEqual(template.code)
-        expect(fn?.bytecode).toEqual(template.bytecode)
-        expect(fn?.inputs_schema).toEqual(template.inputs_schema)
-        expect(fn?.mappings).toEqual(template.mappings)
+
+        // Verify all template fields were correctly populated
+        expect(fn?.hog).toEqual(piiHashingTemplate.hog)
+        expect(fn?.bytecode).toEqual(bytecode)
+        expect(fn?.inputs_schema).toEqual(piiHashingTemplate.inputs_schema)
+
+        // PII hashing template doesn't have mappings
+        expect(fn?.mappings).toBeNull()
+
+        // Verify template code contains substantial code, not just "return event"
+        expect(fn?.hog).toEqual(piiHashingTemplate.hog)
+
+        // Verify inputs schema has the expected fields
+        expect(fn?.inputs_schema?.length).toBe(piiHashingTemplate.inputs_schema.length)
+        expect(fn?.inputs_schema?.[0]?.key).toBe('propertiesToHash')
+        expect(fn?.inputs_schema?.[1]?.key).toBe('hashDistinctId')
+        expect(fn?.inputs_schema?.[2]?.key).toBe('salt')
     })
 
     it('uses config of hog function instead of template for custom hog function', async () => {
-        // Insert template
-        const template = await insertHogFunctionTemplate(hub.postgres, {
-            template_id: 'template-integration-1',
-        })
+        // Insert the actual PII hashing template, but map 'hog' property to 'code' for the DB
+        const templateData = {
+            template_id: piiHashingTemplate.id,
+            name: piiHashingTemplate.name,
+            description: piiHashingTemplate.description,
+            code: piiHashingTemplate.hog,
+            status: piiHashingTemplate.status,
+            type: piiHashingTemplate.type,
+            // The fixture adds mappings by default, make sure to set it to null
+            mappings: null,
+        }
 
-        // custom hog but same template
-        const { id, hog, bytecode, inputs_schema } = await insertHogFunction(hub.postgres, teamId, {
-            hog: 'return event',
-            bytecode: await compileHog('return event'),
+        // Insert into database
+        const template = await insertHogFunctionTemplate(hub.postgres, templateData)
+
+        // Create a custom function using the template ID but with custom code
+        const customCode = 'return event'
+        const customBytecode = await compileHog(customCode)
+
+        const { id } = await insertHogFunction(hub.postgres, teamId, {
+            hog: customCode,
+            bytecode: customBytecode,
             template_id: template.template_id,
             inputs_schema: [
                 {
@@ -769,12 +800,21 @@ describe('template patching', () => {
             ],
             mappings: null,
         })
+
         const fn = (await manager['fetchHogFunctions']([id]))[id]
-        expect(fn?.hog).toEqual(hog)
-        expect(fn?.bytecode).toEqual(bytecode)
+
+        // Should use the function's code/inputs, not the template's
+        expect(fn?.hog).toEqual(customCode)
+        expect(fn?.bytecode).toEqual(customBytecode)
         expect(fn?.inputs_schema).not.toEqual(template.inputs_schema)
-        expect(fn?.inputs_schema).toEqual(inputs_schema)
-        expect(fn?.mappings).not.toEqual(template.mappings)
-        expect(fn?.mappings).toEqual(null)
+
+        // Both should have null mappings
+        expect(fn?.mappings).toBeNull()
+
+        // Verify function code is just "return event" (custom, not from template)
+        expect(fn?.hog).toBe('return event')
+
+        // Verify the function's code is different from the template's code
+        expect(fn?.hog).not.toEqual(piiHashingTemplate.hog)
     })
 })
