@@ -52,7 +52,7 @@ operations = [
     # First drop the materialized views
     run_sql_with_exceptions(DROP_EVENTS_TABLE_JSON_MV),
     run_sql_with_exceptions(DROP_EVENTS_RECENT_TABLE_JSON_MV),
-    # then drop the kafka table
+    # then drop the kafka tables
     run_sql_with_exceptions(DROP_KAFKA_EVENTS_TABLE_JSON),
     run_sql_with_exceptions(DROP_KAFKA_EVENTS_RECENT_TABLE_JSON),
     # add missing columns to all tables in correct order
