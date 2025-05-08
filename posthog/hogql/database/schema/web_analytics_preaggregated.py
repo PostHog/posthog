@@ -8,6 +8,8 @@ from posthog.hogql.database.models import (
 
 
 class WebOverviewDailyTable(Table):
+    """Pre-aggregated table for web analytics overview metrics."""
+    
     fields: dict[str, FieldOrTable] = {
         "team_id": IntegerDatabaseField(name="team_id"),
         "day_bucket": DateDatabaseField(name="day_bucket"),

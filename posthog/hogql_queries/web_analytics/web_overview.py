@@ -45,20 +45,19 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
 
         # Check if we should use pre-aggregated tables
         use_preaggregated = (
-            self.modifiers
-            and self.modifiers.useWebAnalyticsPreAggregatedTables
-            and self.preaggregated_query_builder.can_use_preaggregated_tables()
+            self.modifiers and 
+            self.modifiers.useWebAnalyticsPreAggregatedTables and 
+            self.preaggregated_query_builder.can_use_preaggregated_tables()
         )
-
+        
         # Execute the appropriate query
         if use_preaggregated:
             logger.info("Using pre-aggregated tables directly", extra={"team_id": self.team.pk})
-
+            
             # Get query from pre-aggregated tables
             query = self.preaggregated_query_builder.get_query()
-            context = self.preaggregated_query_builder.create_hogql_context()
-
-            # Execute the query with the pre-aggregated table context
+            
+            # Execute the query
             response = execute_hogql_query(
                 query_type="web_overview_preaggregated_query",
                 query=query,
@@ -66,12 +65,11 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
                 timings=self.timings,
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,
-                context=context,
             )
         else:
             # Get query results from standard tables
             query = self.to_query()
-
+            
             response = execute_hogql_query(
                 query_type="web_overview_query",
                 query=query,
