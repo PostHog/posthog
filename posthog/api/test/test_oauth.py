@@ -6,7 +6,13 @@ from django.test import override_settings
 from freezegun import freeze_time
 from rest_framework import status
 from posthog.test.base import APIBaseTest
-from posthog.models.oauth import OAuthApplication, OAuthApplicationAccessLevel, OAuthGrant, OAuthRefreshToken
+from posthog.models.oauth import (
+    OAuthAccessToken,
+    OAuthApplication,
+    OAuthApplicationAccessLevel,
+    OAuthGrant,
+    OAuthRefreshToken,
+)
 from django.utils import timezone
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 from django.conf import settings
@@ -445,6 +451,160 @@ class TestOAuthAPI(APIBaseTest):
         self.assertFalse(serializer.is_valid())
         self.assertIn("scoped_teams", serializer.errors)
         self.assertEqual(serializer.errors["scoped_teams"][0], "scoped_teams is required when access_level is team")
+
+    def test_full_oauth_flow_preserves_scoped_teams(self):
+        # Define scoped teams
+        scoped_teams = [1, 2, 3]
+
+        # 1. Get authorization request with scoped teams
+        authorization_data = {
+            **self.base_authorization_post_body,
+            "access_level": OAuthApplicationAccessLevel.TEAM.value,
+            "scoped_teams": scoped_teams,
+        }
+
+        response = self.client.post(
+            "/oauth/authorize/",
+            authorization_data,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Extract authorization code from redirect URL
+        redirect_to = response.json()["redirect_to"]
+        self.assertIn("code=", redirect_to)
+        code = redirect_to.split("code=")[1].split("&")[0]
+
+        self.assertIsNotNone(code)
+
+        grant = OAuthGrant.objects.get(code=code)
+
+        self.assertEqual(grant.scoped_teams, scoped_teams)
+
+        # 2. Exchange authorization code for tokens
+        token_data = {
+            **self.base_token_body,
+            "code": code,
+        }
+
+        token_response = self.post(
+            "/oauth/token/",
+            token_data,
+        )
+
+        self.assertEqual(token_response.status_code, status.HTTP_200_OK)
+        token_response_data = token_response.json()
+
+        # Check that the access token is present
+        self.assertIn("access_token", token_response_data)
+        self.assertIn("refresh_token", token_response_data)
+
+        access_token = OAuthAccessToken.objects.get(token=token_response_data["access_token"])
+
+        self.assertEqual(access_token.scoped_teams, scoped_teams)
+
+        refresh_token = OAuthRefreshToken.objects.get(token=token_response_data["refresh_token"])
+
+        self.assertEqual(refresh_token.scoped_teams, scoped_teams)
+
+        # refresh the access token
+        refresh_token_data = {
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token,
+            "client_id": self.confidential_application.client_id,
+            "client_secret": "test_confidential_client_secret",
+        }
+
+        refresh_token_response = self.post("/oauth/token/", refresh_token_data)
+
+        self.assertEqual(refresh_token_response.status_code, status.HTTP_200_OK)
+        refresh_token_response_data = refresh_token_response.json()
+
+        self.assertIn("access_token", refresh_token_response_data)
+        self.assertIn("refresh_token", refresh_token_response_data)
+
+        access_token = OAuthAccessToken.objects.get(token=refresh_token_response_data["access_token"])
+
+        self.assertEqual(access_token.scoped_teams, scoped_teams)
+
+        refresh_token = OAuthRefreshToken.objects.get(token=refresh_token_response_data["refresh_token"])
+
+        self.assertEqual(refresh_token.scoped_teams, scoped_teams)
+
+    def test_full_oauth_flow_preserves_scoped_organizations(self):
+        # Define scoped organizations
+        scoped_organizations = ["org1", "org2"]
+
+        # 1. Get authorization request with scoped organizations
+        authorization_data = {
+            **self.base_authorization_post_body,
+            "access_level": OAuthApplicationAccessLevel.ORGANIZATION.value,
+            "scoped_organizations": scoped_organizations,
+        }
+
+        response = self.client.post(
+            "/oauth/authorize/",
+            authorization_data,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Extract authorization code from redirect URL
+        redirect_to = response.json()["redirect_to"]
+        self.assertIn("code=", redirect_to)
+        code = redirect_to.split("code=")[1].split("&")[0]
+
+        self.assertIsNotNone(code)
+
+        grant = OAuthGrant.objects.get(code=code)
+
+        self.assertEqual(grant.scoped_organizations, scoped_organizations)
+
+        # 2. Exchange authorization code for tokens
+        token_data = {
+            **self.base_token_body,
+            "code": code,
+        }
+
+        token_response = self.post(
+            "/oauth/token/",
+            token_data,
+        )
+
+        self.assertEqual(token_response.status_code, status.HTTP_200_OK)
+        token_response_data = token_response.json()
+
+        access_token = OAuthAccessToken.objects.get(token=token_response_data["access_token"])
+
+        self.assertEqual(access_token.scoped_organizations, scoped_organizations)
+
+        refresh_token = OAuthRefreshToken.objects.get(token=token_response_data["refresh_token"])
+
+        self.assertEqual(refresh_token.scoped_organizations, scoped_organizations)
+
+        # refresh the access token
+        refresh_token_data = {
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token,
+            "client_id": self.confidential_application.client_id,
+            "client_secret": "test_confidential_client_secret",
+        }
+
+        refresh_token_response = self.post("/oauth/token/", refresh_token_data)
+
+        self.assertEqual(refresh_token_response.status_code, status.HTTP_200_OK)
+        refresh_token_response_data = refresh_token_response.json()
+
+        self.assertIn("access_token", refresh_token_response_data)
+        self.assertIn("refresh_token", refresh_token_response_data)
+
+        access_token = OAuthAccessToken.objects.get(token=refresh_token_response_data["access_token"])
+
+        self.assertEqual(access_token.scoped_organizations, scoped_organizations)
+
+        refresh_token = OAuthRefreshToken.objects.get(token=refresh_token_response_data["refresh_token"])
+
+        self.assertEqual(refresh_token.scoped_organizations, scoped_organizations)
 
     def test_id_token_returned_with_openid_scope(self):
         # Simulate a request with the openid scope
