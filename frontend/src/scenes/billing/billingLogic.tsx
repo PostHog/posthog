@@ -654,7 +654,7 @@ export const billingLogic = kea<billingLogicType>([
                 const contactName = values.billing.account_owner?.name || 'sales'
                 actions.setBillingAlert({
                     status: 'info',
-                    title: `Your free trial for the ${capitalizeFirstLetter(trial.type)} plan will end in ${
+                    title: `Your free trial for the ${capitalizeFirstLetter(trial.target)} plan will end in ${
                         remainingHours < 24 ? pluralize(remainingHours, 'hour') : pluralize(remainingDays, 'day')
                     }.`,
                     message: `If you have any questions, please reach out to ${contactName} at ${contactEmail}.`,
