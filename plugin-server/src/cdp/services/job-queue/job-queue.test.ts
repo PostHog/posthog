@@ -109,7 +109,7 @@ describe('CyclotronJobQueue', () => {
                 config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_FORCE_SCHEDULED_TO_POSTGRES = enforceRouting
                 const queue = buildQueue('*:kafka')
                 await queue.startAsProducer()
-                await queue.queueInvocations([
+                const invocations = [
                     {
                         ...createInvocation(
                             {
@@ -120,22 +120,23 @@ describe('CyclotronJobQueue', () => {
                         ),
                         queueScheduledAt: DateTime.now().plus({ seconds: 1 }),
                     },
-                ])
+                ]
+                await queue.queueInvocations(invocations)
 
                 if (enforceRouting) {
                     // With enforced routing and the main queue being kafka then both producers should be started
                     expect(queue['jobQueuePostgres'].startAsProducer).toHaveBeenCalled()
                     expect(queue['jobQueueKafka'].startAsProducer).toHaveBeenCalled()
 
-                    expect(queue['jobQueuePostgres'].queueInvocations).toHaveBeenCalled()
-                    expect(queue['jobQueueKafka'].queueInvocations).not.toHaveBeenCalled()
+                    expect(queue['jobQueuePostgres'].queueInvocations).toHaveBeenCalledWith(invocations)
+                    expect(queue['jobQueueKafka'].queueInvocations).toHaveBeenCalledWith([])
                 } else {
                     // Without enforced routing only the kafka producer should be started
                     expect(queue['jobQueuePostgres'].startAsProducer).not.toHaveBeenCalled()
                     expect(queue['jobQueueKafka'].startAsProducer).toHaveBeenCalled()
 
-                    expect(queue['jobQueuePostgres'].queueInvocations).not.toHaveBeenCalled()
-                    expect(queue['jobQueueKafka'].queueInvocations).toHaveBeenCalled()
+                    expect(queue['jobQueuePostgres'].queueInvocations).toHaveBeenCalledWith([])
+                    expect(queue['jobQueueKafka'].queueInvocations).toHaveBeenCalledWith(invocations)
                 }
             }
         )
