@@ -13,7 +13,7 @@ import { CdpCyclotronWorkerFetch } from './cdp/consumers/cdp-cyclotron-worker-fe
 import { CdpCyclotronWorkerPlugins } from './cdp/consumers/cdp-cyclotron-worker-plugins.consumer'
 import { CdpEventsConsumer } from './cdp/consumers/cdp-events.consumer'
 import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.consumer'
-import { TemplateSyncService } from './cdp/templates/sync'
+import { TemplateSyncService } from './cdp/templates/sync-hog-function-templates'
 import { defaultConfig } from './config/config'
 import {
     KAFKA_EVENTS_PLUGIN_INGESTION,

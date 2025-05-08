@@ -5,7 +5,7 @@ import { Hub } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { UUIDT } from '../../utils/utils'
 import { HOG_FUNCTION_TEMPLATES } from './index'
-import { TemplateSyncService } from './sync'
+import { TemplateSyncService } from './sync-hog-function-templates'
 
 describe('TemplateSyncService', () => {
     let hub: Hub
