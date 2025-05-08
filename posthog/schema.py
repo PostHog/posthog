@@ -3583,6 +3583,7 @@ class WebOverviewQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+    usedPreAggregatedTables: Optional[bool] = None
 
 
 class WebPageURLSearchQueryResponse(BaseModel):
@@ -5012,6 +5013,7 @@ class CachedWebOverviewQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+    usedPreAggregatedTables: Optional[bool] = None
 
 
 class CachedWebPageURLSearchQueryResponse(BaseModel):
@@ -5214,6 +5216,7 @@ class Response4(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+    usedPreAggregatedTables: Optional[bool] = None
 
 
 class Response5(BaseModel):
@@ -6124,6 +6127,7 @@ class QueryResponseAlternative18(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+    usedPreAggregatedTables: Optional[bool] = None
 
 
 class QueryResponseAlternative19(BaseModel):
@@ -6395,6 +6399,7 @@ class QueryResponseAlternative32(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+    usedPreAggregatedTables: Optional[bool] = None
 
 
 class QueryResponseAlternative33(BaseModel):
