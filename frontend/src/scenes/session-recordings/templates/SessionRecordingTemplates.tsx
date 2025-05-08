@@ -14,6 +14,7 @@ import {
     ReplayTemplateVariableType,
 } from '~/types'
 
+import { ReplayActiveHours } from '../components/ReplayActiveHours'
 import { replayTemplates } from './availableTemplates'
 import { sessionReplayTemplatesLogic } from './sessionRecordingTemplatesLogic'
 
@@ -192,6 +193,7 @@ const SessionRecordingTemplates = (): JSX.Element => {
     return (
         <div>
             <p>To get the most out of session replay, you just need to know where to start. </p>
+            <ReplayActiveHours />
             <p>
                 Use our templates to find a focus area, then watch the filtered replays to see where users struggle,
                 what could be made more clear, and other ways to improve.

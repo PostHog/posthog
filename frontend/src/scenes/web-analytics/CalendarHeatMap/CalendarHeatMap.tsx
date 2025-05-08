@@ -1,12 +1,14 @@
 import './CalendarHeatMap.scss'
 
 import { useValues } from 'kea'
+import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import React, { useCallback, useEffect, useState } from 'react'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 
 import { useResizeObserver } from '~/lib/hooks/useResizeObserver'
 
 import { CalendarHeatMapCell, HeatMapValues } from './CalendarHeatMapCell'
+
 export interface CalendarHeatMapProps {
     isLoading: boolean
     rowLabels: string[]
@@ -102,19 +104,21 @@ export function CalendarHeatMap({
                 className="CalendarHeatMap"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ '--heatmap-table-color': heatmapColor } as React.CSSProperties}
+                data-attr="calendar-heatmap"
             >
-                <tbody>
-                    {/* Header row */}
+                <thead>
                     <tr>
-                        <th className="bg" />
+                        <th className="CalendarHeatMap__TextTab" />
                         {columnLabels.map((label, i) => (
                             <th key={i}>{label}</th>
                         ))}
-                        {rowsAggregations[0] !== undefined && (
+                        {columnsAggregations[0] !== undefined && (
                             <th className="aggregation-border">{allAggregationsLabel}</th>
                         )}
                     </tr>
-
+                    <LemonTableLoader loading={isLoading} tag="th" />
+                </thead>
+                <tbody>
                     {/* Data rows */}
                     {rowLabels.map((rowLabel, yIndex) => (
                         <tr key={yIndex}>
