@@ -1,4 +1,3 @@
-import clsx from 'clsx'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { gradateColor, humanFriendlyLargeNumber } from 'lib/utils'
 
@@ -14,13 +13,14 @@ export interface HeatMapValues {
     maxValue: number
     minValue: number
 }
+
 export function CalendarHeatMapCell({ values, bg, fontSize, tooltip }: HeatMapCellProps): JSX.Element {
     const { backgroundColor, color } = getBackgroundAndTextColor({ values, backgroundColor: bg })
 
     return (
         <Tooltip delayMs={100} title={tooltip}>
             <div
-                className={clsx('EventsHeatMap__Cell')}
+                className="CalendarHeatMap__Cell"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ fontSize, backgroundColor, color }}
             >
