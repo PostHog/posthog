@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import { router } from 'kea-router'
 import { LemonTree, LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { RefObject, useRef, useState } from 'react'
 
@@ -30,7 +31,14 @@ export function ProductTree(): JSX.Element {
                         }
                     }
                 }}
-                onNodeClick={(node) => {
+                onItemClick={(node) => {
+                    if (node?.record?.href) {
+                        router.actions.push(
+                            typeof node.record.href === 'function'
+                                ? node.record.href(node.record.ref)
+                                : node.record.href
+                        )
+                    }
                     node?.onClick?.(true)
                 }}
                 expandedItemIds={expandedFolders}

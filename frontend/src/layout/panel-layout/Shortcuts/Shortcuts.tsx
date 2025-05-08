@@ -67,7 +67,7 @@ export function CombinedTree(): JSX.Element {
                 itemSideAction={(item) => {
                     return <DropdownMenuGroup>{renderMenuItems(item, 'dropdown')}</DropdownMenuGroup>
                 }}
-                onNodeClick={(node) => {
+                onItemClick={(node) => {
                     node && setSelectedItem(node)
                 }}
                 expandedItemIds={expandedFolders}
@@ -128,7 +128,7 @@ export function Shortcuts(): JSX.Element {
                         }
                     }
                 }}
-                onNodeClick={(node) => {
+                onItemClick={(node) => {
                     node?.onClick?.(true)
                 }}
                 expandedItemIds={expandedFolders}
