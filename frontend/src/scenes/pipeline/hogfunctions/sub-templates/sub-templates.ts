@@ -225,7 +225,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                     value: [
                         {
                             text: {
-                                text: '*{person.properties.email}* {event.properties.activity} {event.properties.scope} {event.properties.item_id} ',
+                                text: '*{person.name}* {event.properties.activity} {event.properties.scope} {event.properties.item_id} ',
                                 type: 'mrkdwn',
                             },
                             type: 'section',
@@ -233,7 +233,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                     ],
                 },
                 text: {
-                    value: '*{person.properties.email}* {event.properties.activity} {event.properties.scope} {event.properties.item_id}',
+                    value: '*{person.name}* {event.properties.activity} {event.properties.scope} {event.properties.item_id}',
                 },
             },
         },
