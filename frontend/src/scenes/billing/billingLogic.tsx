@@ -27,7 +27,6 @@ import {
     StartupProgramLabel,
 } from '~/types'
 
-import { canAccessBilling } from './billing-utils'
 import type { billingLogicType } from './billingLogicType'
 import { DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD } from './CreditCTAHero'
 
@@ -232,9 +231,6 @@ export const billingLogic = kea<billingLogicType>([
             null as BillingType | null,
             {
                 loadBilling: async () => {
-                    if (!canAccessBilling(values.currentOrganization)) {
-                        return null
-                    }
                     // Note: this is a temporary flag to skip forecasting in the billing page
                     // for customers running into performance issues until we have a more permanent fix
                     // of splitting the billing and forecasting data.
