@@ -41,7 +41,7 @@ export interface ProjectTreeProps {
 
 export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
     const {
-        treeData,
+        treeItemsProject,
         treeTableKeys,
         lastViewedId,
         viableItems,
@@ -423,7 +423,7 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                 ref={treeRef}
                 contentRef={mainContentRef as RefObject<HTMLElement>}
                 className="px-0 py-1"
-                data={treeData}
+                data={treeItemsProject}
                 mode={projectTreeMode as TreeMode}
                 selectMode={selectMode}
                 tableViewKeys={treeTableKeys}

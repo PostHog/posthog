@@ -34,6 +34,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { panelLayoutLogic, PanelLayoutNavIdentifier } from '~/layout/panel-layout/panelLayoutLogic'
+import { Shortcuts } from '~/layout/panel-layout/Shortcuts/Shortcuts'
 import { SidePanelTab } from '~/types'
 
 import { navigationLogic } from '../navigation/navigationLogic'
@@ -397,19 +398,13 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 <div className="border-b border-primary h-px my-1" />
 
                                 {featureFlags[FEATURE_FLAGS.TREE_VIEW_PRODUCTS] ? (
-                                    <div className={`px-1 ${!isLayoutNavCollapsed ? 'pt-1' : ''}`}>
+                                    <div className={!isLayoutNavCollapsed ? 'pt-1' : ''}>
                                         {!isLayoutNavCollapsed && (
-                                            <div className="flex justify-between items-center pl-2 pr-0 pb-2">
+                                            <div className="flex justify-between items-center pl-3 pr-1 pb-2">
                                                 <span className="text-xs font-semibold text-quaternary">Shortcuts</span>
                                             </div>
                                         )}
-                                        <div
-                                            className={`flex flex-col gap-px ${
-                                                isLayoutNavCollapsed ? 'items-center' : ''
-                                            }`}
-                                        >
-                                            <ul className="flex flex-col gap-px text-muted px-2">Coming soon...</ul>
-                                        </div>
+                                        <Shortcuts />
                                     </div>
                                 ) : (
                                     <div className={`px-1 ${!isLayoutNavCollapsed ? 'pt-1' : ''}`}>

@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 import { LemonTree, LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
-import { RefObject, useEffect, useRef, useState } from 'react'
+import { RefObject, useRef, useState } from 'react'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
@@ -13,24 +13,6 @@ export function ProductTree(): JSX.Element {
 
     const treeRef = useRef<LemonTreeRef>(null)
     const [expandedFolders, setExpandedFolders] = useState<string[]>(['/'])
-
-    useEffect((): void => {
-        // put all folders from treeItemsAllProducts recursively into expandedFolders
-        const allFolders: string[] = []
-        const getAllFolders = (items: any[]): void => {
-            items.forEach((item) => {
-                if (item.children) {
-                    allFolders.push(item.id)
-                    getAllFolders(item.children)
-                }
-            })
-        }
-        getAllFolders(treeItemsAllProducts)
-        setExpandedFolders((prev) => {
-            const newFolders = allFolders.filter((id) => !prev.includes(id))
-            return [...prev, ...newFolders]
-        })
-    }, [expandedFolders, treeItemsAllProducts])
 
     return (
         <PanelLayoutPanel>

@@ -980,7 +980,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 return results
             },
         ],
-        treeData: [
+        treeItemsProject: [
             (s) => [s.searchTerm, s.searchedTreeItems, s.projectTree, s.loadingPaths, s.recentTreeItems, s.sortMethod],
             (searchTerm, searchedTreeItems, projectTree, loadingPaths, recentTreeItems, sortMethod): TreeDataItem[] => {
                 if (searchTerm) {
@@ -1001,6 +1001,29 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 }
                 return projectTree
             },
+        ],
+        treeItemsCombined: [
+            (s) => [s.treeItemsProject, s.treeItemsAllProducts, s.treeItemsNew],
+            (project, allProducts, allNew): TreeDataItem[] => [
+                {
+                    id: 'project',
+                    name: 'Project',
+                    record: { type: 'folder', id: null, path: '/' },
+                    children: project,
+                },
+                {
+                    id: 'new',
+                    name: 'New',
+                    record: { type: 'folder', id: null, path: '/' },
+                    children: allNew,
+                },
+                {
+                    id: 'products',
+                    name: 'All Products',
+                    record: { type: 'folder', id: null, path: '/' },
+                    children: allProducts,
+                },
+            ],
         ],
         // TODO: use treeData + some other logic to determine the keys
         treeTableKeys: [
