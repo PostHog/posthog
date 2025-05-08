@@ -125,11 +125,11 @@ def test_ingestion_job(cluster: ClickhouseCluster) -> None:
                 (UUID(int=i), 1, "event", timestamp, json.dumps(properties))
                 for i, (timestamp, properties) in enumerate(
                     [
-                        (start_at - timedelta(minutes=30), {"property": "1"}),
-                        (start_at, {"property": 1}),
-                        (start_at + duration / 2, {"property": 1}),
-                        (start_at + duration, {"property": 1}),
-                        (start_at + duration + timedelta(minutes=30), {"property": 1}),
+                        (start_at - timedelta(minutes=30), {"too_old": "1"}),  # out of range (too old)
+                        (start_at, {"property": 1}),  # lower bound, should be inclkuded
+                        (start_at + duration / 2, {"property": 1}),  # midpoint
+                        (start_at + duration, {"too_new": 1}),  # upper bound, should be excluded
+                        (start_at + duration + timedelta(minutes=30), {"too_new": 1}),  # out of range (too new)
                     ]
                 )
             ],
@@ -157,6 +157,6 @@ def test_ingestion_job(cluster: ClickhouseCluster) -> None:
         ),
     ).result() == sorted(
         [
-            (1, 1, "property", "Numeric", "event", None, int(PropertyDefinition.Type.EVENT), start_at + duration),
+            (1, 1, "property", "Numeric", "event", None, int(PropertyDefinition.Type.EVENT), start_at + duration / 2),
         ]
     )

@@ -14,7 +14,7 @@ class TimeRange:
     end_time: datetime
 
     def get_expression(self, column: str) -> str:
-        return f"{column} BETWEEN '{self.start_time.isoformat()}' AND '{self.end_time.isoformat()}'"
+        return f"{column} >= '{self.start_time.isoformat()}' AND {column} < '{self.end_time.isoformat()}'"
 
 
 class PropertyDefinitionsConfig(dagster.Config):
