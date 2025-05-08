@@ -99,7 +99,7 @@ export function CalendarHeatMap({
     } = processedData
 
     if (isLoading) {
-        return <LemonSkeleton className="w-full" />
+        return <LemonSkeleton className="w-full h-[100px]" />
     }
 
     return (
