@@ -153,7 +153,7 @@ def ingest_person_properties(
     context.log.info(f"Ingesting person properties for {time_range!r}")
 
     # Query to insert person properties into property_definitions table
-    # NOTE: this is a different data source from current, assuming ok? https://github.com/PostHog/posthog/blob/052f4ea40c5043909115f835f09445e18dd9727c/rust/property-defs-rs/src/types.rs#L250-L26
+    # NOTE: this is a different data source from current, see https://github.com/PostHog/product-internal/pull/748/files#diff-78e7399938cb790eae10d5c5769f7edcb531972f33a32e0655872bded13f4977R165-R170
     insert_query = f"""
     INSERT INTO property_definitions (* EXCEPT(version))
     SELECT
