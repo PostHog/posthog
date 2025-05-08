@@ -340,7 +340,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
             )
         },
         reportSurveyShown: ({ surveyID }) => {
-            posthog.capture(SurveyEventName.SHOWN, {
+            posthog.capture('survey shown', {
                 $survey_id: surveyID,
             })
             actions.setSurveyID(surveyID)
@@ -351,14 +351,14 @@ export const billingProductLogic = kea<billingProductLogicType>([
             // $survey_response_1: this is the product type
             // $survey_response_2: list of reasons
             // The order is due to the form being built before reasons we're supported. Please do not change the order.
-            posthog.capture(SurveyEventName.SENT, {
+            posthog.capture('survey sent', {
                 $survey_id: surveyID,
                 ...surveyResponse,
             })
             actions.setSurveyID('')
         },
         reportSurveyDismissed: ({ surveyID }) => {
-            posthog.capture(SurveyEventName.DISMISSED, {
+            posthog.capture('survey dismissed', {
                 $survey_id: surveyID,
             })
             actions.setSurveyID('')
