@@ -1,7 +1,7 @@
 import './CalendarHeatMap.scss'
 
+import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import React, { useCallback, useEffect, useState } from 'react'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 
@@ -98,6 +98,10 @@ export function CalendarHeatMap({
         overallValue,
     } = processedData
 
+    if (isLoading) {
+        return <LemonSkeleton className="w-full" />
+    }
+
     return (
         <div className="CalendarHeatMapContainer" ref={elementRef}>
             <table
@@ -116,7 +120,6 @@ export function CalendarHeatMap({
                             <th className="aggregation-border">{allAggregationsLabel}</th>
                         )}
                     </tr>
-                    <LemonTableLoader loading={isLoading} tag="th" />
                 </thead>
                 <tbody>
                     {/* Data rows */}
@@ -131,8 +134,7 @@ export function CalendarHeatMap({
                                 rowLabel,
                                 fontSize,
                                 heatmapColor,
-                                getDataTooltip,
-                                isLoading
+                                getDataTooltip
                             )}
                             {renderRowsAggregationCell(
                                 {
@@ -144,8 +146,7 @@ export function CalendarHeatMap({
                                 fontSize,
                                 rowAggregationColor,
                                 allAggregationsLabel,
-                                getRowAggregationTooltip,
-                                isLoading
+                                getRowAggregationTooltip
                             )}
                         </tr>
                     ))}
@@ -163,16 +164,14 @@ export function CalendarHeatMap({
                             fontSize,
                             columnAggregationColor,
                             allAggregationsLabel,
-                            getColumnAggregationTooltip,
-                            isLoading
+                            getColumnAggregationTooltip
                         )}
                         {renderOverallCell(
                             overallValue,
                             fontSize,
                             backgroundColorOverall,
                             allAggregationsLabel,
-                            getOverallAggregationTooltip,
-                            isLoading
+                            getOverallAggregationTooltip
                         )}
                     </tr>
                 </tbody>
@@ -186,8 +185,7 @@ function renderOverallCell(
     fontSize: number,
     bg: string,
     allAggregationsLabel: string,
-    getOverallAggregationTooltip: (overallAggregationLabel: string, value: number) => string,
-    isLoading: boolean
+    getOverallAggregationTooltip: (overallAggregationLabel: string, value: number) => string
 ): JSX.Element {
     return (
         <td className="aggregation-border">
@@ -200,7 +198,6 @@ function renderOverallCell(
                 }}
                 bg={bg}
                 tooltip={getOverallAggregationTooltip(allAggregationsLabel, overallValue)}
-                isLoading={isLoading}
             />
         </td>
     )
@@ -214,8 +211,7 @@ function renderColumnsAggregationCells(
     fontSize: number,
     bg: string,
     allAggregationsLabel: string,
-    getColumnAggregationTooltip: (columnAggregationLabel: string, columnLabel: string, value: number) => string,
-    isLoading: boolean
+    getColumnAggregationTooltip: (columnAggregationLabel: string, columnLabel: string, value: number) => string
 ): JSX.Element[] {
     return columnLabels.map((columnLabel, index) => (
         <td key={index}>
@@ -228,7 +224,6 @@ function renderColumnsAggregationCells(
                 }}
                 bg={bg}
                 tooltip={getColumnAggregationTooltip(allAggregationsLabel, columnLabel, columnsAggregations[index])}
-                isLoading={isLoading}
             />
         </td>
     ))
@@ -240,8 +235,7 @@ function renderRowsAggregationCell(
     fontSize: number,
     bg: string,
     allAggregationsLabel: string,
-    getRowAggregationTooltip: (rowAggregationLabel: string, rowLabel: string, value: number) => string,
-    isLoading: boolean
+    getRowAggregationTooltip: (rowAggregationLabel: string, rowLabel: string, value: number) => string
 ): JSX.Element {
     return (
         <td className="aggregation-border">
@@ -250,7 +244,6 @@ function renderRowsAggregationCell(
                 values={values}
                 bg={bg}
                 tooltip={getRowAggregationTooltip(allAggregationsLabel, rowLabel, values.value)}
-                isLoading={isLoading}
             />
         </td>
     )
@@ -264,8 +257,7 @@ function renderDataCells(
     rowLabel: string,
     fontSize: number,
     bg: string,
-    getDataTooltip: (rowLabel: string, columnLabel: string, value: number) => string,
-    isLoading: boolean
+    getDataTooltip: (rowLabel: string, columnLabel: string, value: number) => string
 ): JSX.Element[] {
     return columnLabels.map((columnLabel, index) => (
         <td key={index}>
@@ -278,7 +270,6 @@ function renderDataCells(
                 }}
                 bg={bg}
                 tooltip={getDataTooltip(rowLabel, columnLabel, rowData[index])}
-                isLoading={isLoading}
             />
         </td>
     ))

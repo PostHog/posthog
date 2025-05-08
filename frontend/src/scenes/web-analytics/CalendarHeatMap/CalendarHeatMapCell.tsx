@@ -1,4 +1,3 @@
-import { LemonSkeleton } from '@posthog/lemon-ui'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { gradateColor, humanFriendlyLargeNumber } from 'lib/utils'
 
@@ -7,7 +6,6 @@ interface HeatMapCellProps {
     bg: string
     fontSize: number
     tooltip: string
-    isLoading: boolean
 }
 
 export interface HeatMapValues {
@@ -16,7 +14,7 @@ export interface HeatMapValues {
     minValue: number
 }
 
-export function CalendarHeatMapCell({ values, bg, fontSize, tooltip, isLoading }: HeatMapCellProps): JSX.Element {
+export function CalendarHeatMapCell({ values, bg, fontSize, tooltip }: HeatMapCellProps): JSX.Element {
     const { backgroundColor, color } = getBackgroundAndTextColor({ values, backgroundColor: bg })
 
     return (
@@ -26,7 +24,7 @@ export function CalendarHeatMapCell({ values, bg, fontSize, tooltip, isLoading }
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ fontSize, backgroundColor, color }}
             >
-                {isLoading ? <LemonSkeleton className="w-full h-full" /> : humanFriendlyLargeNumber(values.value)}
+                {humanFriendlyLargeNumber(values.value)}
             </div>
         </Tooltip>
     )
