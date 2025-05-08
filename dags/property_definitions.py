@@ -5,6 +5,7 @@ import dagster
 
 from dags.common import JobOwners
 from posthog.clickhouse.cluster import ClickhouseCluster, Query
+from posthog.models.property_definition import PropertyDefinition
 
 
 @dataclass(frozen=True)
@@ -103,7 +104,7 @@ def ingest_event_properties(
         property.2 as property_type,
         event,
         NULL as group_type_index,
-        1 as type,
+        {int(PropertyDefinition.Type.EVENT)} as type,
         max(timestamp) as last_seen_at
     FROM events_recent
     WHERE {time_range.get_expression("timestamp")}
@@ -149,7 +150,7 @@ def ingest_person_properties(
         property.2 as property_type,
         NULL as event,
         NULL as group_type_index,
-        2 as type,
+        {int(PropertyDefinition.Type.PERSON)} as type,
         max(_timestamp) as last_seen_at
     FROM person
     WHERE {time_range.get_expression("_timestamp")}
