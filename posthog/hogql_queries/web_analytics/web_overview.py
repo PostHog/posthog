@@ -54,9 +54,13 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
         if use_preaggregated:
             logger.info("Using pre-aggregated tables directly", extra={"team_id": self.team.pk})
             
-            # Get query from pre-aggregated tables
-            query = self.preaggregated_query_builder.get_query()
-            
+            try:
+                # Get query from pre-aggregated tables
+                query = self.preaggregated_query_builder.get_query()
+            except Exception as e:
+                logger.error(f"Error getting query from pre-aggregated tables: {e}", extra={"team_id": self.team.pk})
+                raise e
+                
             # Execute the query
             response = execute_hogql_query(
                 query_type="web_overview_preaggregated_query",
