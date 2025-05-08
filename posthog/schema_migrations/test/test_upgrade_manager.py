@@ -36,7 +36,7 @@ def test_upgrade_query_context_manager():
 def test_upgrade_query_and_replace_filters_manager():
     mock_insight = Mock()
     mock_insight.filters = {"aggregation_group_type_index": 2}
-    mock_insight.query = None
 
     with upgrade_query_and_replace_filters(mock_insight):
+        assert isinstance(mock_insight.query, dict)
         assert mock_insight.query["aggregationGroupTypeIndex"] == 2
