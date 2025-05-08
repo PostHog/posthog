@@ -2,12 +2,12 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Optional, Union
 
 from posthog.schema_migrations.upgrade import upgrade
+from posthog.schema_migrations.upgrade_manager import upgrade_query_and_replace_filters
 import structlog
 from pydantic import BaseModel
 
 from posthog.api.services.query import ExecutionMode, process_query_dict
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import conversion_to_query_based
 from posthog.hogql_queries.query_runner import get_query_runner_or_none
 from posthog.models import (
     Dashboard,
@@ -31,7 +31,7 @@ def calculate_cache_key(target: Union[DashboardTile, Insight]) -> Optional[str]:
     dashboard: Optional[Dashboard] = target.dashboard if isinstance(target, DashboardTile) else None
 
     if insight is not None:
-        with conversion_to_query_based(insight):
+        with upgrade_query_and_replace_filters(insight):
             if insight.query:
                 query_runner = get_query_runner_or_none(insight.query, insight.team)
                 if query_runner is None:
