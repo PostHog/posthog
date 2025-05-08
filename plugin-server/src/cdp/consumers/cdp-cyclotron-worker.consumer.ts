@@ -1,7 +1,6 @@
-import { captureException } from '~/src/utils/posthog'
-
 import { Hub } from '../../types'
 import { logger } from '../../utils/logger'
+import { captureException } from '../../utils/posthog'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import {
     HogFunctionInvocation,
