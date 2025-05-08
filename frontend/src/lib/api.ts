@@ -2200,7 +2200,6 @@ const api = {
         },
         async listTemplates(params: {
             types: HogFunctionTypeType[]
-            sub_template_id?: HogFunctionSubTemplateIdType
             db_templates?: boolean
         }): Promise<PaginatedResponse<HogFunctionTemplateType>> {
             const finalParams = {

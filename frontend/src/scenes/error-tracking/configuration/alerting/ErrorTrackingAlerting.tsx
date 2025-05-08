@@ -4,8 +4,8 @@ export function ErrorTrackingAlerting(): JSX.Element {
     return (
         <LinkedHogFunctions
             logicKey="error-tracking"
-            type="internal_destination"
-            subTemplateId="error-tracking"
+            type="destination"
+            subTemplateId="error-tracking-issue-created"
             filters={{}}
         />
     )

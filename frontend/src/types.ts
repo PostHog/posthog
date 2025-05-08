@@ -5120,7 +5120,6 @@ export type HogFunctionConfigurationType = Omit<
     'id' | 'created_at' | 'created_by' | 'updated_at' | 'status' | 'hog'
 > & {
     hog?: HogFunctionType['hog'] // In the config it can be empty if using a template
-    sub_template_id?: HogFunctionSubTemplateIdType
     _create_in_folder?: string | null
 }
 

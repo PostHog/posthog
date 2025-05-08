@@ -12,6 +12,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { HogFunctionSubTemplateIdType, HogFunctionTemplateType, HogFunctionTypeType, UserType } from '~/types'
 
+import { generateSubTemplate } from '../sub-templates/sub-templates'
 import type { hogFunctionTemplateListLogicType } from './hogFunctionTemplateListLogicType'
 
 // Helping kea-typegen navigate the exported default class for Fuse
@@ -94,7 +95,7 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
         ],
     })),
     loaders(({ props, values }) => ({
-        templates: [
+        rawTemplates: [
             [] as HogFunctionTemplateType[],
             {
                 loadHogFunctionTemplates: async () => {
@@ -102,7 +103,6 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                     return (
                         await api.hogFunctions.listTemplates({
                             types: [props.type],
-                            sub_template_id: props.subTemplateId,
                             db_templates: dbTemplates,
                         })
                     ).results
@@ -111,7 +111,25 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
         ],
     })),
     selectors({
-        loading: [(s) => [s.templatesLoading], (x) => x],
+        loading: [(s) => [s.rawTemplatesLoading], (x) => x],
+
+        templates: [
+            (s, p) => [s.rawTemplates, p.subTemplateId],
+            (rawTemplates, subTemplateId): HogFunctionTemplateType[] => {
+                const final: HogFunctionTemplateType[] = []
+
+                for (const template of rawTemplates) {
+                    const subTemplate = generateSubTemplate(template, subTemplateId)
+
+                    if (subTemplate) {
+                        final.push(subTemplate)
+                    }
+                }
+
+                return final
+            },
+        ],
+
         templatesFuse: [
             (s) => [s.templates],
             (hogFunctionTemplates): Fuse => {
@@ -142,14 +160,15 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
         ],
 
         urlForTemplate: [
-            (s) => [s.filters],
-            (filters): ((template: HogFunctionTemplateType) => string) => {
+            (s, p) => [s.filters, p.subTemplateId],
+            (filters, subTemplateId): ((template: HogFunctionTemplateType) => string) => {
                 return (template: HogFunctionTemplateType) => {
                     // Add the filters to the url and the template id
                     return combineUrl(
                         hogFunctionNewUrl(template.type, template.id),
                         {},
                         {
+                            sub_template_id: subTemplateId,
                             configuration: {
                                 filters: getFunctionFilters(filters, template.id),
                             },
