@@ -24,7 +24,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
-import { useEffect, useState } from 'react'
+import { HogFunctionBroadcastDelivery } from 'products/messaging/frontend/HogFunctionCustomConfiguration/HogFunctionBroadcastDelivery'
 import { useRef } from 'react'
 import { urls } from 'scenes/urls'
 
@@ -32,11 +32,11 @@ import { AvailableFeature } from '~/types'
 
 import { DestinationTag } from '../destinations/DestinationTag'
 import { HogFunctionFilters } from './filters/HogFunctionFilters'
-import { hogFunctionConfigurationLogic, mightDropEvents } from './hogFunctionConfigurationLogic'
+import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
 import { HogFunctionIconEditable } from './HogFunctionIcon'
 import { HogFunctionInputs } from './HogFunctionInputs'
 import { HogFunctionStatusIndicator } from './HogFunctionStatusIndicator'
-import { HogFunctionTest, HogFunctionTestPlaceholder } from './HogFunctionTest'
+import { HogFunctionTest } from './HogFunctionTest'
 import { HogFunctionMappings } from './mapping/HogFunctionMappings'
 import { HogFunctionEventEstimates } from './metrics/HogFunctionEventEstimates'
 export interface HogFunctionConfigurationProps {
@@ -88,31 +88,8 @@ export function HogFunctionConfiguration({
         type,
         usesGroups,
         hasGroupsAddon,
-        broadcastLoading,
+        mightDropEvents,
     } = useValues(logic)
-
-    // State for debounced mightDropEvents check
-    const [mightDrop, setMightDrop] = useState(false)
-    const [debouncedCode, setDebouncedCode] = useState('')
-
-    // Debounce the code check
-    useEffect(() => {
-        if (type !== 'transformation' || !configuration?.hog) {
-            setMightDrop(false)
-            return
-        }
-
-        const hogCode = configuration.hog || ''
-
-        const timeoutId = setTimeout(() => {
-            if (debouncedCode !== hogCode) {
-                setDebouncedCode(hogCode)
-                setMightDrop(mightDropEvents(hogCode))
-            }
-        }, 500)
-
-        return () => clearTimeout(timeoutId)
-    }, [configuration?.hog, type, debouncedCode])
 
     const {
         submitConfiguration,
@@ -123,11 +100,9 @@ export function HogFunctionConfiguration({
         duplicateFromTemplate,
         setConfigurationValue,
         deleteHogFunction,
-        sendBroadcast,
     } = useActions(logic)
     const canEditTransformationHogCode = useFeatureFlag('HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED')
     const sourceCodeRef = useRef<HTMLDivElement>(null)
-    const showTransformationFilters = useFeatureFlag('HOG_TRANSFORMATIONS_WITH_FILTERS')
 
     if (loading && !loaded) {
         return <SpinnerOverlay />
@@ -207,11 +182,11 @@ export function HogFunctionConfiguration({
     const showOverview = !(displayOptions.hideOverview ?? false)
     const showFilters =
         displayOptions.showFilters ??
-        (['destination', 'internal_destination', 'site_destination', 'broadcast', 'email'].includes(type) ||
-            (type === 'transformation' && showTransformationFilters))
+        ['destination', 'internal_destination', 'site_destination', 'broadcast', 'email', 'transformation'].includes(
+            type
+        )
     const showExpectedVolume =
-        displayOptions.showExpectedVolume ??
-        (['destination', 'site_destination'].includes(type) || (type === 'transformation' && showTransformationFilters))
+        displayOptions.showExpectedVolume ?? ['destination', 'site_destination', 'transformation'].includes(type)
     const showStatus =
         displayOptions.showStatus ?? ['destination', 'internal_destination', 'email', 'transformation'].includes(type)
     const showEnabled =
@@ -233,8 +208,7 @@ export function HogFunctionConfiguration({
                 (type === 'transformation' && canEditTransformationHogCode)))
     const showPersonsCount = displayOptions.showPersonsCount ?? ['broadcast'].includes(type)
     const showTesting =
-        displayOptions.showTesting ??
-        ['destination', 'internal_destination', 'transformation', 'broadcast', 'email'].includes(type)
+        displayOptions.showTesting ?? ['destination', 'internal_destination', 'transformation', 'email'].includes(type)
 
     const showLeftPanel = showOverview || showExpectedVolume || showPersonsCount || showFilters
 
@@ -273,7 +247,7 @@ export function HogFunctionConfiguration({
                     formKey="configuration"
                     className="deprecated-space-y-3"
                 >
-                    <div className="flex flex-wrap items-start gap-4">
+                    <div className="flex flex-wrap gap-4 items-start">
                         {showLeftPanel && (
                             <div className="flex flex-col flex-1 gap-4 min-w-100">
                                 <div
@@ -282,7 +256,7 @@ export function HogFunctionConfiguration({
                                         !embedded && 'border rounded'
                                     )}
                                 >
-                                    <div className="flex flex-row items-center gap-2 min-h-16">
+                                    <div className="flex flex-row gap-2 items-center min-h-16">
                                         <LemonField name="icon_url">
                                             {({ value, onChange }) => (
                                                 <HogFunctionIconEditable
@@ -293,7 +267,7 @@ export function HogFunctionConfiguration({
                                             )}
                                         </LemonField>
 
-                                        <div className="flex flex-col items-start justify-start flex-1 py-1">
+                                        <div className="flex flex-col flex-1 justify-start items-start py-1">
                                             <span className="font-semibold">{configuration.name}</span>
                                             {template && <DestinationTag status={template.status} />}
                                         </div>
@@ -336,7 +310,7 @@ export function HogFunctionConfiguration({
                                                         this function is not affected unless you choose to update it.
                                                     </p>
 
-                                                    <div className="flex items-center flex-1 gap-2 pt-2 border-t">
+                                                    <div className="flex flex-1 gap-2 items-center pt-2 border-t">
                                                         <div className="flex-1">
                                                             <LemonButton>Close</LemonButton>
                                                         </div>
@@ -360,8 +334,8 @@ export function HogFunctionConfiguration({
                                                 </div>
                                             }
                                         >
-                                            <div className="text-xs border border-dashed rounded text-secondary">
-                                                <Link subtle className="flex flex-wrap items-center gap-1 p-2">
+                                            <div className="text-xs rounded border border-dashed text-secondary">
+                                                <Link subtle className="flex flex-wrap gap-1 items-center p-2">
                                                     Built from template:
                                                     <span className="font-semibold">{hogFunction?.template.name}</span>
                                                     <DestinationTag status={hogFunction.template.status} />
@@ -377,7 +351,7 @@ export function HogFunctionConfiguration({
                                 {showFilters && <HogFunctionFilters />}
 
                                 {showPersonsCount && (
-                                    <div className="relative p-3 deprecated-space-y-2 border rounded bg-surface-primary">
+                                    <div className="relative p-3 rounded border deprecated-space-y-2 bg-surface-primary">
                                         <div>
                                             <LemonLabel>Matching persons</LemonLabel>
                                         </div>
@@ -389,6 +363,7 @@ export function HogFunctionConfiguration({
                                                         // TODO: swap for a link to the persons page
                                                         combineUrl(urls.activity(), {}, { q: personsListQuery }).url
                                                     }
+                                                    target="_blank"
                                                 >
                                                     <strong>
                                                         {personsCount ?? 0} {personsCount !== 1 ? 'people' : 'person'}
@@ -411,12 +386,12 @@ export function HogFunctionConfiguration({
                         )}
 
                         <div className="deprecated-space-y-4 flex-2 min-w-100">
-                            {type === 'transformation' && mightDrop && (
+                            {mightDropEvents && (
                                 <div>
-                                    <LemonBanner type="warning">
-                                        <b>Warning:</b> This transformation will drop events. If this is not intended,
-                                        please adjust your transformation code to return events instead of dropping
-                                        them.
+                                    <LemonBanner type="info">
+                                        <b>Warning:</b> This transformation can filter out events, dropping them
+                                        irreversibly. Make sure to double check your configuration, and use filters to
+                                        limit the events that this transformation is applied to.
                                     </LemonBanner>
                                 </div>
                             )}
@@ -429,7 +404,7 @@ export function HogFunctionConfiguration({
                                 <div className="deprecated-space-y-2">
                                     {usesGroups && !hasGroupsAddon ? (
                                         <LemonBanner type="warning">
-                                            <span className="flex items-center gap-2">
+                                            <span className="flex gap-2 items-center">
                                                 This function appears to use Groups but you do not have the Groups
                                                 Analytics addon. Without it, you may see empty values where you use
                                                 templates like {'"{groups.kind.properties}"'}
@@ -475,11 +450,11 @@ export function HogFunctionConfiguration({
                                 <div
                                     ref={sourceCodeRef}
                                     className={clsx(
-                                        'border rounded p-3 deprecated-space-y-2',
+                                        'p-3 rounded border deprecated-space-y-2',
                                         showSource ? 'bg-surface-primary' : 'bg-surface-secondary'
                                     )}
                                 >
-                                    <div className="flex items-center justify-end gap-2">
+                                    <div className="flex gap-2 justify-end items-center">
                                         <div className="flex-1 deprecated-space-y-2">
                                             <h2 className="mb-0">Edit source</h2>
                                             {!showSource ? <p>Click here to edit the function's source code</p> : null}
@@ -528,7 +503,7 @@ export function HogFunctionConfiguration({
                                                             for more info
                                                         </span>
                                                     ) : null}
-                                                    {type === 'transformation' && mightDrop && (
+                                                    {mightDropEvents && (
                                                         <LemonBanner type="warning" className="mt-2">
                                                             <b>Warning:</b> Returning null or undefined will drop the
                                                             event. If this is unintentional, return the event object
@@ -563,41 +538,8 @@ export function HogFunctionConfiguration({
                             {showTesting ? (
                                 <HogFunctionTest configurable={!displayOptions.hideTestingConfiguration} />
                             ) : null}
-                            {type === 'broadcast' ? (
-                                <HogFunctionTestPlaceholder
-                                    title="Send broadcast"
-                                    description={
-                                        id && id !== 'new' ? (
-                                            <div className="mt-2 space-y-2">
-                                                <LemonButton
-                                                    type="primary"
-                                                    onClick={sendBroadcast}
-                                                    loading={personsCountLoading || broadcastLoading}
-                                                >
-                                                    Send to {personsCount} emails
-                                                </LemonButton>
-                                                <div>
-                                                    <strong>Please note:</strong> Clicking the button above will
-                                                    synchronously send to all the e-mails. While this is fine for
-                                                    testing with small lists, please don't use this for production use
-                                                    cases yet.
-                                                </div>
-                                            </div>
-                                        ) : (
-                                            <div className="mt-2 space-y-2">
-                                                <LemonButton
-                                                    type="primary"
-                                                    disabledReason="Must save to send broadcast"
-                                                >
-                                                    Send to {personsCount} emails
-                                                </LemonButton>
-                                                <div>Save your configuration to send a broadcast</div>
-                                            </div>
-                                        )
-                                    }
-                                />
-                            ) : null}
-                            <div className="flex justify-end gap-2">{saveButtons}</div>
+                            {type === 'broadcast' && <HogFunctionBroadcastDelivery />}
+                            <div className="flex gap-2 justify-end">{saveButtons}</div>
                         </div>
                     </div>
                 </Form>

@@ -1,3 +1,4 @@
+// Flag evaluation counters
 pub const FLAG_EVALUATION_ERROR_COUNTER: &str = "flags_flag_evaluation_error_total";
 pub const FLAG_CACHE_HIT_COUNTER: &str = "flags_flag_cache_hit_total";
 pub const FLAG_CACHE_ERRORS_COUNTER: &str = "flags_flag_cache_errors_total";
@@ -16,7 +17,7 @@ pub const PROPERTY_CACHE_MISSES_COUNTER: &str = "flags_property_cache_misses_tot
 pub const DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER: &str =
     "flags_db_person_and_group_properties_reads_total";
 
-// Timing metrics
+// Flag evaluation timing
 pub const FLAG_EVALUATION_TIME: &str = "flags_evaluation_time";
 pub const FLAG_HASH_KEY_PROCESSING_TIME: &str = "flags_hash_key_processing_time";
 pub const FLAG_LOCAL_PROPERTY_OVERRIDE_MATCH_TIME: &str =
@@ -33,3 +34,6 @@ pub const FLAG_COHORT_PROCESSING_TIME: &str = "flags_cohort_processing_time";
 pub const FLAG_GROUP_QUERY_TIME: &str = "flags_group_query_time";
 pub const FLAG_GROUP_PROCESSING_TIME: &str = "flags_group_processing_time";
 pub const FLAG_DB_CONNECTION_TIME: &str = "flags_db_connection_time";
+
+// Flag request kludges (to see how often we have to massage our request data to be able to parse it)
+pub const FLAG_REQUEST_KLUDGE_COUNTER: &str = "flags_request_kludge_total";

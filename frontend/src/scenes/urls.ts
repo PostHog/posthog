@@ -68,7 +68,7 @@ export const urls = {
         }`,
     cohort: (id: string | number): string => `/cohorts/${id}`,
     cohorts: (): string => '/cohorts',
-    errorTracking: (): string => '/error_tracking',
+    errorTracking: (params = {}): string => combineUrl('/error_tracking', params).url,
     errorTrackingConfiguration: (): string => '/error_tracking/configuration',
     /** @param id A UUID or 'new'. ':id' for routing. */
     errorTrackingAlert: (id: string): string => `/error_tracking/alerts/${id}`,
@@ -171,9 +171,8 @@ export const urls = {
     messagingCampaignNew: (): string => '/messaging/campaigns/new',
     messagingCampaign: (id: string): string => `/messaging/campaigns/${id}`,
     messagingLibrary: (): string => '/messaging/library',
-    messagingLibraryTemplate: (id: string): string => `/messaging/library/template/${id}`,
-    messagingLibraryTemplateNew: (): string => '/messaging/library/template/new',
-    messagingLibraryMessage: (id: string): string => `/messaging/library/message/${id}`,
-    messagingLibraryMessageNew: (): string => '/messaging/library/message/new',
+    messagingLibraryTemplate: (id: string): string => `/messaging/library/templates/${id}`,
+    messagingLibraryTemplateNew: (): string => '/messaging/library/templates/new',
+    messagingLibraryMessage: (id: string): string => `/messaging/library/messages/${id}`,
     startups: (ycProgram?: boolean): string => `/startups${ycProgram ? '/yc' : ''}`,
 }

@@ -68,4 +68,8 @@ pub enum VmError {
     InvalidRegex(String, String),
     #[error("Integer overflow")]
     IntegerOverflow,
+    #[error("Unknown symbol {0}")]
+    UnknownSymbol(String),
+    #[error("{0}")]
+    Other(String),
 }

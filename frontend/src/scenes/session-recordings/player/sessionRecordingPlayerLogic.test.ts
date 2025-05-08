@@ -3,7 +3,6 @@ import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
 import { recordingMetaJson } from 'scenes/session-recordings/__mocks__/recording_meta'
 import { snapshotsAsJSONLines } from 'scenes/session-recordings/__mocks__/recording_snapshots'
@@ -16,6 +15,8 @@ import { urls } from 'scenes/urls'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+
+import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 
 describe('sessionRecordingPlayerLogic', () => {
     let logic: ReturnType<typeof sessionRecordingPlayerLogic.build>
@@ -65,7 +66,7 @@ describe('sessionRecordingPlayerLogic', () => {
     describe('core assumptions', () => {
         it('mounts other logics', async () => {
             await expectLogic(logic).toMount([
-                eventUsageLogic,
+                sessionRecordingEventUsageLogic,
                 sessionRecordingDataLogic({ sessionRecordingId: '2' }),
                 playerSettingsLogic,
             ])

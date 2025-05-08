@@ -8,16 +8,13 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use tracing::instrument;
 
+use super::cohort_models::CohortPropertyType;
+use super::cohort_models::CohortValues;
 use crate::cohorts::cohort_models::{Cohort, CohortId, CohortProperty, InnerCohortProperty};
 use crate::properties::property_matching::match_property;
 use crate::properties::property_models::OperatorType;
-use crate::{
-    api::errors::FlagError, client::database::Client as DatabaseClient,
-    properties::property_models::PropertyFilter,
-};
-
-use super::cohort_models::CohortPropertyType;
-use super::cohort_models::CohortValues;
+use crate::{api::errors::FlagError, properties::property_models::PropertyFilter};
+use common_database::Client as DatabaseClient;
 
 impl Cohort {
     /// Returns all cohorts for a given team
@@ -144,7 +141,8 @@ impl Cohort {
             for filter in &cohort_values.values {
                 if filter.is_cohort() {
                     // Assuming the value is a single integer CohortId
-                    if let Some(cohort_id) = filter.value.as_i64() {
+                    if let Some(cohort_id) = filter.value.as_ref().and_then(|value| value.as_i64())
+                    {
                         dependencies.insert(cohort_id as CohortId);
                     } else {
                         return Err(FlagError::CohortFiltersParsingError);
@@ -549,7 +547,7 @@ mod tests {
         let result = cohort.parse_filters().unwrap();
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].key, "$initial_browser_version");
-        assert_eq!(result[0].value, json!(["125"]));
+        assert_eq!(result[0].value, Some(json!(["125"])));
         assert_eq!(result[0].prop_type, "person");
     }
 
@@ -562,7 +560,7 @@ mod tests {
                 values: vec![
                     PropertyFilter {
                         key: "email".to_string(),
-                        value: json!("test@example.com"),
+                        value: Some(json!("test@example.com")),
                         operator: None,
                         prop_type: "person".to_string(),
                         group_type_index: None,
@@ -570,7 +568,7 @@ mod tests {
                     },
                     PropertyFilter {
                         key: "age".to_string(),
-                        value: json!(25),
+                        value: Some(json!(25)),
                         operator: None,
                         prop_type: "person".to_string(),
                         group_type_index: None,
@@ -583,9 +581,9 @@ mod tests {
         let result = cohort_property.to_inner();
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].key, "email");
-        assert_eq!(result[0].value, json!("test@example.com"));
+        assert_eq!(result[0].value, Some(json!("test@example.com")));
         assert_eq!(result[1].key, "age");
-        assert_eq!(result[1].value, json!(25));
+        assert_eq!(result[1].value, Some(json!(25)));
     }
 
     #[tokio::test]

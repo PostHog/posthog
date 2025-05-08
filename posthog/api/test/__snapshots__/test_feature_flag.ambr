@@ -425,38 +425,9 @@
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
-         AND "posthog_filesystem"."type" = 'cohort')
-  '''
-# ---
-# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.13
-  '''
-  SELECT "posthog_filesystem"."team_id",
-         "posthog_filesystem"."project_id",
-         "posthog_filesystem"."id",
-         "posthog_filesystem"."path",
-         "posthog_filesystem"."depth",
-         "posthog_filesystem"."type",
-         "posthog_filesystem"."ref",
-         "posthog_filesystem"."href",
-         "posthog_filesystem"."meta",
-         "posthog_filesystem"."created_at",
-         "posthog_filesystem"."created_by_id"
-  FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '0001'
-         AND "posthog_filesystem"."team_id" = 99999
-         AND "posthog_filesystem"."type" = 'cohort')
-  ORDER BY "posthog_filesystem"."id" ASC
-  LIMIT 1
-  '''
-# ---
-# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.14
-  '''
-  SELECT 1 AS "a"
-  FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."path" = 'Unfiled/Cohorts/some cohort'
-         AND "posthog_filesystem"."team_id" = 99999
-         AND NOT ("posthog_filesystem"."id" = '00000000000000000000000000000000'::uuid))
-  LIMIT 1
+         AND "posthog_filesystem"."type" = 'cohort'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.2
@@ -566,6 +537,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -600,7 +573,6 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -616,7 +588,8 @@
          "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."revenue_tracking_config"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -639,7 +612,9 @@
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
-         AND "posthog_filesystem"."type" = 'cohort')
+         AND "posthog_filesystem"."type" = 'cohort'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.8
@@ -802,6 +777,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -836,7 +813,6 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -852,7 +828,8 @@
          "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."revenue_tracking_config"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -875,17 +852,9 @@
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
-         AND "posthog_filesystem"."type" = 'cohort')
-  '''
-# ---
-# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too.14
-  '''
-  SELECT 1 AS "a"
-  FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."path" = 'Unfiled/Cohorts/some cohort'
-         AND "posthog_filesystem"."team_id" = 99999
-         AND NOT ("posthog_filesystem"."id" = '00000000000000000000000000000000'::uuid))
-  LIMIT 1
+         AND "posthog_filesystem"."type" = 'cohort'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too.2
@@ -1266,6 +1235,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -1300,7 +1271,6 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -1316,7 +1286,8 @@
          "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."revenue_tracking_config"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -1339,38 +1310,9 @@
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
-         AND "posthog_filesystem"."type" = 'cohort')
-  '''
-# ---
-# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.18
-  '''
-  SELECT "posthog_filesystem"."team_id",
-         "posthog_filesystem"."project_id",
-         "posthog_filesystem"."id",
-         "posthog_filesystem"."path",
-         "posthog_filesystem"."depth",
-         "posthog_filesystem"."type",
-         "posthog_filesystem"."ref",
-         "posthog_filesystem"."href",
-         "posthog_filesystem"."meta",
-         "posthog_filesystem"."created_at",
-         "posthog_filesystem"."created_by_id"
-  FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '0001'
-         AND "posthog_filesystem"."team_id" = 99999
-         AND "posthog_filesystem"."type" = 'cohort')
-  ORDER BY "posthog_filesystem"."id" ASC
-  LIMIT 1
-  '''
-# ---
-# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.19
-  '''
-  SELECT 1 AS "a"
-  FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."path" = 'Unfiled/Cohorts/some cohort2'
-         AND "posthog_filesystem"."team_id" = 99999
-         AND NOT ("posthog_filesystem"."id" = '00000000000000000000000000000000'::uuid))
-  LIMIT 1
+         AND "posthog_filesystem"."type" = 'cohort'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.2
@@ -1501,6 +1443,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -1535,7 +1479,6 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -1551,7 +1494,8 @@
          "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."revenue_tracking_config"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -1574,7 +1518,9 @@
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
-         AND "posthog_filesystem"."type" = 'cohort')
+         AND "posthog_filesystem"."type" = 'cohort'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.9
@@ -1647,6 +1593,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -1681,7 +1629,6 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -1697,7 +1644,8 @@
          "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."revenue_tracking_config"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -1720,17 +1668,9 @@
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
-         AND "posthog_filesystem"."type" = 'cohort')
-  '''
-# ---
-# name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_experience_continuity_flag.12
-  '''
-  SELECT 1 AS "a"
-  FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."path" = 'Unfiled/Cohorts/some cohort'
-         AND "posthog_filesystem"."team_id" = 99999
-         AND NOT ("posthog_filesystem"."id" = '00000000000000000000000000000000'::uuid))
-  LIMIT 1
+         AND "posthog_filesystem"."type" = 'cohort'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_experience_continuity_flag.2
@@ -1959,6 +1899,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -1993,7 +1935,6 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -2002,7 +1943,8 @@
          "posthog_team"."session_recording_retention_period_days",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."revenue_tracking_config"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -2173,6 +2115,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -2207,7 +2151,6 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -2223,47 +2166,14 @@
          "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."revenue_tracking_config"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
   '''
 # ---
 # name: TestFeatureFlag.test_creating_static_cohort.18
-  '''
-  SELECT "posthog_user"."id",
-         "posthog_user"."password",
-         "posthog_user"."last_login",
-         "posthog_user"."first_name",
-         "posthog_user"."last_name",
-         "posthog_user"."is_staff",
-         "posthog_user"."date_joined",
-         "posthog_user"."uuid",
-         "posthog_user"."current_organization_id",
-         "posthog_user"."current_team_id",
-         "posthog_user"."email",
-         "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
-         "posthog_user"."distinct_id",
-         "posthog_user"."is_email_verified",
-         "posthog_user"."requested_password_reset_at",
-         "posthog_user"."has_seen_product_intro_for",
-         "posthog_user"."strapi_id",
-         "posthog_user"."is_active",
-         "posthog_user"."role_at_organization",
-         "posthog_user"."theme_mode",
-         "posthog_user"."partial_notification_settings",
-         "posthog_user"."anonymize_data",
-         "posthog_user"."toolbar_mode",
-         "posthog_user"."hedgehog_config",
-         "posthog_user"."events_column_config",
-         "posthog_user"."email_opt_in"
-  FROM "posthog_user"
-  WHERE "posthog_user"."id" = 99999
-  LIMIT 21
-  '''
-# ---
-# name: TestFeatureFlag.test_creating_static_cohort.19
   '''
   SELECT "posthog_filesystem"."team_id",
          "posthog_filesystem"."project_id",
@@ -2280,22 +2190,12 @@
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
-         AND "posthog_filesystem"."type" = 'cohort')
+         AND "posthog_filesystem"."type" = 'cohort'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
-# name: TestFeatureFlag.test_creating_static_cohort.2
-  '''
-  SELECT "posthog_project"."id",
-         "posthog_project"."organization_id",
-         "posthog_project"."name",
-         "posthog_project"."created_at",
-         "posthog_project"."product_description"
-  FROM "posthog_project"
-  WHERE "posthog_project"."id" = 99999
-  LIMIT 21
-  '''
-# ---
-# name: TestFeatureFlag.test_creating_static_cohort.20
+# name: TestFeatureFlag.test_creating_static_cohort.19
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -2319,6 +2219,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -2353,7 +2255,6 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -2369,13 +2270,26 @@
          "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."revenue_tracking_config"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
   '''
 # ---
-# name: TestFeatureFlag.test_creating_static_cohort.21
+# name: TestFeatureFlag.test_creating_static_cohort.2
+  '''
+  SELECT "posthog_project"."id",
+         "posthog_project"."organization_id",
+         "posthog_project"."name",
+         "posthog_project"."created_at",
+         "posthog_project"."product_description"
+  FROM "posthog_project"
+  WHERE "posthog_project"."id" = 99999
+  LIMIT 21
+  '''
+# ---
+# name: TestFeatureFlag.test_creating_static_cohort.20
   '''
   SELECT "posthog_experiment"."id",
          "posthog_experiment"."name",
@@ -2403,65 +2317,16 @@
   WHERE "posthog_experiment"."exposure_cohort_id" = 99999
   '''
 # ---
+# name: TestFeatureFlag.test_creating_static_cohort.21
+  '''
+  /* user_id:0 celery:posthog.tasks.calculate_cohort.insert_cohort_from_feature_flag */
+  SELECT count(DISTINCT person_id)
+  FROM person_static_cohort
+  WHERE team_id = 99999
+    AND cohort_id = 99999
+  '''
+# ---
 # name: TestFeatureFlag.test_creating_static_cohort.22
-  '''
-  /* user_id:0 celery:posthog.tasks.calculate_cohort.insert_cohort_from_feature_flag */
-  SELECT count(DISTINCT person_id)
-  FROM person_static_cohort
-  WHERE team_id = 99999
-    AND cohort_id = 99999
-  '''
-# ---
-# name: TestFeatureFlag.test_creating_static_cohort.23
-  '''
-  /* user_id:0 request:_snapshot_ */
-  SELECT id
-  FROM person
-  INNER JOIN
-    (SELECT person_id
-     FROM person_static_cohort
-     WHERE team_id = 99999
-       AND cohort_id = 99999
-     GROUP BY person_id,
-              cohort_id,
-              team_id) cohort_persons ON cohort_persons.person_id = person.id
-  WHERE team_id = 99999
-  GROUP BY id
-  HAVING max(is_deleted) = 0
-  ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
-  '''
-# ---
-# name: TestFeatureFlag.test_creating_static_cohort.24
-  '''
-  /* user_id:0 request:_snapshot_ */
-  SELECT id
-  FROM person
-  INNER JOIN
-    (SELECT person_id
-     FROM person_static_cohort
-     WHERE team_id = 99999
-       AND cohort_id = 99999
-     GROUP BY person_id,
-              cohort_id,
-              team_id) cohort_persons ON cohort_persons.person_id = person.id
-  WHERE team_id = 99999
-  GROUP BY id
-  HAVING max(is_deleted) = 0
-  ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
-  '''
-# ---
-# name: TestFeatureFlag.test_creating_static_cohort.25
-  '''
-  /* user_id:0 celery:posthog.tasks.calculate_cohort.insert_cohort_from_feature_flag */
-  SELECT count(DISTINCT person_id)
-  FROM person_static_cohort
-  WHERE team_id = 99999
-    AND cohort_id = 99999
-  '''
-# ---
-# name: TestFeatureFlag.test_creating_static_cohort.26
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT id
@@ -2730,6 +2595,8 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
@@ -2764,7 +2631,6 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -2780,7 +2646,8 @@
          "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."revenue_tracking_config"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -2803,7 +2670,9 @@
   FROM "posthog_filesystem"
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
-         AND "posthog_filesystem"."type" = 'cohort')
+         AND "posthog_filesystem"."type" = 'cohort'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
 # name: TestResiliency.test_feature_flags_v3_with_a_working_slow_db

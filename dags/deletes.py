@@ -8,6 +8,7 @@ from django.conf import settings
 from functools import partial
 import uuid
 from django.utils import timezone
+from django.db.models import Q
 
 from posthog.clickhouse.cluster import (
     ClickhouseCluster,
@@ -16,9 +17,16 @@ from posthog.clickhouse.cluster import (
     NodeRole,
     Query,
 )
+from posthog.clickhouse.plugin_log_entries import PLUGIN_LOG_ENTRIES_TABLE
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.event.sql import EVENTS_DATA_TABLE
-from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
+from posthog.models.person.sql import (
+    PERSON_DISTINCT_ID2_TABLE,
+    PERSON_DISTINCT_ID_OVERRIDES_TABLE,
+    PERSON_STATIC_COHORT_TABLE,
+    PERSONS_TABLE,
+)
+from posthog.models.group.sql import GROUPS_TABLE
 
 from dags.common import JobOwners
 from dags.person_overrides import squash_person_overrides
@@ -60,9 +68,9 @@ ShardMutations = dict[int, MutationWaiter]
 
 
 @dataclass
-class PendingPersonEventDeletesTable:
+class PendingDeletesTable:
     """
-    Represents a table storing pending person event deletions.
+    Represents a table storing pending deletions.
     """
 
     timestamp: datetime
@@ -81,9 +89,9 @@ class PendingPersonEventDeletesTable:
     @property
     def table_name(self) -> str:
         if self.is_reporting:
-            return "pending_person_deletes_reporting"
+            return "pending_deletes_reporting"
         else:
-            return f"pending_person_deletes_{self.clickhouse_timestamp}"
+            return f"pending_deletes_{self.clickhouse_timestamp}"
 
     @property
     def qualified_name(self):
@@ -166,7 +174,7 @@ class PendingPersonEventDeletesTable:
 
 @dataclass
 class PendingDeletesDictionary:
-    source: PendingPersonEventDeletesTable
+    source: PendingDeletesTable
 
     @property
     def name(self) -> str:
@@ -178,17 +186,18 @@ class PendingDeletesDictionary:
 
     @property
     def query(self) -> str:
-        return f"SELECT team_id, key, created_at FROM {self.source.qualified_name} WHERE deletion_type = 1"
+        return f"SELECT team_id, deletion_type, key, created_at FROM {self.source.qualified_name} WHERE deletion_type IN ({DeletionType.Person}, {DeletionType.Team})"
 
     def create(self, client: Client, shards: int, max_execution_time: int, max_memory_usage: int) -> None:
         client.execute(
             f"""
             CREATE DICTIONARY IF NOT EXISTS {self.qualified_name} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' (
                 team_id Int64,
+                deletion_type UInt8,
                 key String,
                 created_at DateTime,
             )
-            PRIMARY KEY team_id, key
+            PRIMARY KEY team_id, deletion_type, key
             SOURCE(CLICKHOUSE(DB %(database)s USER %(user)s PASSWORD %(password)s QUERY %(query)s))
             LAYOUT(COMPLEX_KEY_HASHED(SHARDS {shards}))
             LIFETIME(0)
@@ -251,14 +260,6 @@ class PendingDeletesDictionary:
         [[checksum]] = results
         return checksum
 
-    @property
-    def delete_mutation_runner(self) -> LightweightDeleteMutationRunner:
-        return LightweightDeleteMutationRunner(
-            EVENTS_DATA_TABLE(),
-            "dictHas(%(dictionary)s, (team_id, person_id)) AND timestamp <= dictGet(%(dictionary)s, 'created_at', (team_id, person_id))",
-            parameters={"dictionary": self.qualified_name},
-        )
-
 
 @dagster.op
 def get_oldest_person_override_timestamp(
@@ -274,18 +275,18 @@ def get_oldest_person_override_timestamp(
 
 
 @dagster.op
-def create_pending_person_deletions_table(
+def create_pending_deletions_table(
     config: DeleteConfig,
     cluster: dagster.ResourceParam[ClickhouseCluster],
     oldest_person_override_timestamp: datetime,
-) -> PendingPersonEventDeletesTable:
+) -> PendingDeletesTable:
     """
     Create a merge tree table in ClickHouse to store pending deletes.
 
-    Important to note: we only get pending deletions for requests that happened before the oldest person override timestamp.
+    Important to note: we only get pending Person deletions for requests that happened before the oldest person override timestamp. The other type of deletions are not limited by this timestamp.
     """
 
-    table = PendingPersonEventDeletesTable(
+    table = PendingDeletesTable(
         timestamp=oldest_person_override_timestamp,
         team_id=config.team_id,
         cluster=settings.CLICKHOUSE_CLUSTER,
@@ -295,12 +296,12 @@ def create_pending_person_deletions_table(
 
 
 @dagster.op
-def create_reporting_pending_person_deletions_table(
+def create_reporting_pending_deletions_table(
     config: DeleteConfig,
     cluster: dagster.ResourceParam[ClickhouseCluster],
-) -> PendingPersonEventDeletesTable:
+) -> PendingDeletesTable:
     """Create a merge tree table in ClickHouse to store pending deletes."""
-    table = PendingPersonEventDeletesTable(
+    table = PendingDeletesTable(
         timestamp=config.parsed_timestamp,
         cluster=settings.CLICKHOUSE_CLUSTER,
         is_reporting=True,
@@ -311,25 +312,25 @@ def create_reporting_pending_person_deletions_table(
 
 
 @dagster.op
-def load_pending_person_deletions(
+def load_pending_deletions(
     context: dagster.OpExecutionContext,
-    create_pending_person_deletions_table: PendingPersonEventDeletesTable,
+    create_pending_deletions_table: PendingDeletesTable,
     cluster: dagster.ResourceParam[ClickhouseCluster],
     cleanup_delete_assets: bool | None = None,
-) -> PendingPersonEventDeletesTable:
-    """Query postgres using django ORM to get pending person deletions and insert directly into ClickHouse."""
+) -> PendingDeletesTable:
+    """Query postgres using django ORM to get pending deletions and insert directly into ClickHouse."""
 
     pending_deletions = AsyncDeletion.objects.all()
 
-    if not create_pending_person_deletions_table.is_reporting:
+    if not create_pending_deletions_table.is_reporting:
         pending_deletions = pending_deletions.filter(
-            deletion_type=DeletionType.Person,
+            Q(deletion_type=DeletionType.Person, created_at__lte=create_pending_deletions_table.timestamp)
+            | Q(deletion_type=DeletionType.Team),
             delete_verified_at__isnull=True,
-            created_at__lte=create_pending_person_deletions_table.timestamp,
         )
-        if create_pending_person_deletions_table.team_id:
+        if create_pending_deletions_table.team_id:
             pending_deletions = pending_deletions.filter(
-                team_id=create_pending_person_deletions_table.team_id,
+                team_id=create_pending_deletions_table.team_id,
             )
 
     # Process and insert in chunks
@@ -353,7 +354,7 @@ def load_pending_person_deletions(
 
         if len(current_chunk) >= chunk_size:
             cluster.any_host_by_role(
-                Query(create_pending_person_deletions_table.populate_query, current_chunk),
+                Query(create_pending_deletions_table.populate_query, current_chunk),
                 NodeRole.DATA,
             ).result()
             total_rows += len(current_chunk)
@@ -362,7 +363,7 @@ def load_pending_person_deletions(
     # Insert any remaining records
     if current_chunk:
         cluster.any_host_by_role(
-            Query(create_pending_person_deletions_table.populate_query, current_chunk),
+            Query(create_pending_deletions_table.populate_query, current_chunk),
             NodeRole.DATA,
         ).result()
         total_rows += len(current_chunk)
@@ -370,15 +371,15 @@ def load_pending_person_deletions(
     context.add_output_metadata(
         {
             "total_rows": dagster.MetadataValue.int(total_rows),
-            "table_name": dagster.MetadataValue.text(create_pending_person_deletions_table.table_name),
+            "table_name": dagster.MetadataValue.text(create_pending_deletions_table.table_name),
         }
     )
-    return create_pending_person_deletions_table
+    return create_pending_deletions_table
 
 
 @dagster.op
 def create_deletes_dict(
-    load_pending_person_deletions: PendingPersonEventDeletesTable,
+    load_pending_deletions: PendingDeletesTable,
     config: DeleteConfig,
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> PendingDeletesDictionary:
@@ -386,12 +387,12 @@ def create_deletes_dict(
 
     # Wait for the table to be fully replicated
     def sync_replica(client: Client):
-        client.execute(f"SYSTEM SYNC REPLICA {load_pending_person_deletions.qualified_name} STRICT")
+        client.execute(f"SYSTEM SYNC REPLICA {load_pending_deletions.qualified_name} STRICT")
 
     cluster.map_hosts_by_role(sync_replica, NodeRole.DATA).result()
 
     del_dict = PendingDeletesDictionary(
-        source=load_pending_person_deletions,
+        source=load_pending_deletions,
     )
 
     cluster.any_host_by_role(
@@ -418,18 +419,19 @@ def load_and_verify_deletes_dictionary(
 
 
 @dagster.op
-def delete_person_events(
+def delete_events(
     context: dagster.OpExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
     load_and_verify_deletes_dictionary: PendingDeletesDictionary,
 ) -> tuple[PendingDeletesDictionary, ShardMutations]:
-    """Delete events from sharded_events table for persons pending deletion."""
+    """Delete events from sharded_events table for pending deletions."""
 
     def count_pending_deletes(client: Client) -> int:
         result = client.execute(
             f"""
             SELECT count()
             FROM {load_and_verify_deletes_dictionary.qualified_name}
+            WHERE deletion_type IN ({DeletionType.Person}, {DeletionType.Team})
             """
         )
         return result[0][0] if result else 0
@@ -449,23 +451,106 @@ def delete_person_events(
         }
     )
 
+    delete_mutation_runner = LightweightDeleteMutationRunner(
+        EVENTS_DATA_TABLE(),
+        "(dictHas(%(dictionary)s, (team_id, %(person_deletion_type)s, person_id)) AND timestamp <= dictGet(%(dictionary)s, 'created_at', (team_id, %(person_deletion_type)s, person_id))) OR (dictHas(%(dictionary)s, (team_id, %(team_deletion_type)s, team_id)))",
+        parameters={
+            "dictionary": load_and_verify_deletes_dictionary.qualified_name,
+            "person_deletion_type": DeletionType.Person,
+            "team_deletion_type": DeletionType.Team,
+        },
+    )
+
     shard_mutations = {
         host.shard_num: mutation
-        for host, mutation in (
-            cluster.map_one_host_per_shard(load_and_verify_deletes_dictionary.delete_mutation_runner).result().items()
-        )
+        for host, mutation in (cluster.map_one_host_per_shard(delete_mutation_runner).result().items())
     }
 
     return (load_and_verify_deletes_dictionary, shard_mutations)
+
+
+def delete_team_data(
+    context: dagster.OpExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    table_name,
+    load_and_verify_deletes_dictionary: PendingDeletesDictionary,
+) -> tuple[PendingDeletesDictionary, ShardMutations]:
+    """Delete data from the specified table for teams pending deletion."""
+
+    def count_pending_deletes(client: Client) -> int:
+        result = client.execute(
+            f"""
+            SELECT count()
+            FROM {load_and_verify_deletes_dictionary.qualified_name}
+            WHERE deletion_type IN ({DeletionType.Team})
+            """
+        )
+        return result[0][0] if result else 0
+
+    count_result = cluster.map_hosts_by_role(count_pending_deletes, NodeRole.DATA).result()
+
+    all_zero = all(count == 0 for count in count_result.values())
+    if all_zero:
+        context.add_output_metadata(
+            {
+                "table_name": dagster.MetadataValue.text(table_name),
+                "teams_deleted": dagster.MetadataValue.int(0),
+                "message": "No pending deletions found",
+            }
+        )
+        return (load_and_verify_deletes_dictionary, {})
+
+    context.add_output_metadata(
+        {
+            "table_name": dagster.MetadataValue.text(table_name),
+            "teams_deleted": dagster.MetadataValue.int(sum(count_result.values())),
+        }
+    )
+
+    delete_mutation_runner = LightweightDeleteMutationRunner(
+        table_name,
+        "dictHas(%(dictionary)s, (team_id, %(team_deletion_type)s, team_id))",
+        parameters={
+            "dictionary": load_and_verify_deletes_dictionary.qualified_name,
+            "team_deletion_type": DeletionType.Team,
+        },
+    )
+
+    shard_mutations = {
+        host.shard_num: mutation
+        for host, mutation in (cluster.map_one_host_per_shard(delete_mutation_runner).result().items())
+    }
+
+    return (load_and_verify_deletes_dictionary, shard_mutations)
+
+
+def delete_team_data_from(
+    table: str,
+) -> dagster.OpDefinition:
+    @dagster.op(name=f"delete_team_data_from_{table}")
+    def delete_team_data_from_op(
+        context: dagster.OpExecutionContext,
+        cluster: dagster.ResourceParam[ClickhouseCluster],
+        load_and_verify_deletes_dictionary: PendingDeletesDictionary,
+        previous_mutations: PendingDeletesDictionary,
+    ) -> tuple[PendingDeletesDictionary, ShardMutations]:
+        return delete_team_data(
+            context,
+            cluster,
+            table,
+            load_and_verify_deletes_dictionary,
+        )
+
+    return delete_team_data_from_op
 
 
 @dagster.op
 def wait_for_delete_mutations(
     context: dagster.OpExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
-    delete_person_events: tuple[PendingDeletesDictionary, ShardMutations],
+    delete_mutations: tuple[PendingDeletesDictionary, ShardMutations],
 ) -> PendingDeletesDictionary:
-    pending_deletes_dict, shard_mutations = delete_person_events
+    pending_deletes_dict, shard_mutations = delete_mutations
 
     cluster.map_all_hosts_in_shards({shard: mutation.wait for shard, mutation in shard_mutations.items()}).result()
 
@@ -476,9 +561,9 @@ def wait_for_delete_mutations(
 def cleanup_delete_assets(
     cluster: dagster.ResourceParam[ClickhouseCluster],
     config: DeleteConfig,
-    create_pending_person_deletions_table: PendingPersonEventDeletesTable,
+    create_pending_deletions_table: PendingDeletesTable,
     create_deletes_dict: PendingDeletesDictionary,
-    wait_for_delete_mutations: PendingDeletesDictionary,
+    waited_mutation: PendingDeletesDictionary,
 ) -> bool:
     """Clean up temporary tables and mark deletions as verified."""
     # Drop the dictionary and table using the table object
@@ -488,40 +573,64 @@ def cleanup_delete_assets(
         return True
 
     # Mark deletions as verified in Django
-    if not create_pending_person_deletions_table.team_id:
+    if not create_pending_deletions_table.team_id:
         AsyncDeletion.objects.filter(
-            deletion_type=DeletionType.Person,
+            Q(deletion_type=DeletionType.Person, created_at__lte=create_pending_deletions_table.timestamp)
+            | Q(deletion_type=DeletionType.Team),
             delete_verified_at__isnull=True,
-            created_at__lte=create_pending_person_deletions_table.timestamp,
         ).update(delete_verified_at=timezone.now())
     else:
         AsyncDeletion.objects.filter(
-            deletion_type=DeletionType.Person,
-            team_id=create_pending_person_deletions_table.team_id,
+            Q(deletion_type=DeletionType.Person, created_at__lte=create_pending_deletions_table.timestamp)
+            | Q(deletion_type=DeletionType.Team),
+            team_id=create_pending_deletions_table.team_id,
             delete_verified_at__isnull=True,
-            created_at__lte=create_pending_person_deletions_table.timestamp,
+            created_at__lte=create_pending_deletions_table.timestamp,
         ).update(delete_verified_at=timezone.now())
 
     # Must drop dict first
     cluster.any_host_by_role(create_deletes_dict.drop, NodeRole.DATA).result()
-    cluster.any_host_by_role(create_pending_person_deletions_table.drop, NodeRole.DATA).result()
+    cluster.any_host_by_role(create_pending_deletions_table.drop, NodeRole.DATA).result()
 
     return True
 
 
 @dagster.job(tags={"owner": JobOwners.TEAM_CLICKHOUSE.value})
 def deletes_job():
-    """Job that handles deletion of person events."""
+    """Job that handles deletion of events."""
+    # Prepare requested deletions data
     oldest_override_timestamp = get_oldest_person_override_timestamp()
-    report_person_table = create_reporting_pending_person_deletions_table()
-    person_table = create_pending_person_deletions_table(oldest_override_timestamp)
-    loaded_person_table = load_pending_person_deletions(person_table)
-    create_deletes_dict_op = create_deletes_dict(loaded_person_table)
+    report_deletions_table = create_reporting_pending_deletions_table()
+    deletions_table = create_pending_deletions_table(oldest_override_timestamp)
+    loaded_deletions_table = load_pending_deletions(deletions_table)
+    create_deletes_dict_op = create_deletes_dict(loaded_deletions_table)
     load_dict = load_and_verify_deletes_dictionary(create_deletes_dict_op)
-    delete_events = delete_person_events(load_dict)
-    waited_mutation = wait_for_delete_mutations(delete_events)
-    cleaned = cleanup_delete_assets(person_table, create_deletes_dict_op, waited_mutation)
-    load_pending_person_deletions(report_person_table, cleaned)
+
+    # Delete all data requested
+    delete_mutations = delete_events(load_dict)
+    waited_mutation = wait_for_delete_mutations(delete_mutations)
+
+    delete_mutations = delete_team_data_from(PERSON_DISTINCT_ID2_TABLE)(load_dict, waited_mutation)
+    waited_mutation = wait_for_delete_mutations(delete_mutations)
+
+    delete_mutations = delete_team_data_from(PERSONS_TABLE)(load_dict, waited_mutation)
+    waited_mutation = wait_for_delete_mutations(delete_mutations)
+
+    delete_mutations = delete_team_data_from(GROUPS_TABLE)(load_dict, waited_mutation)
+    waited_mutation = wait_for_delete_mutations(delete_mutations)
+
+    delete_mutations = delete_team_data_from("cohortpeople")(load_dict, waited_mutation)
+    waited_mutation = wait_for_delete_mutations(delete_mutations)
+
+    delete_mutations = delete_team_data_from(PERSON_STATIC_COHORT_TABLE)(load_dict, waited_mutation)
+    waited_mutation = wait_for_delete_mutations(delete_mutations)
+
+    delete_mutations = delete_team_data_from(PLUGIN_LOG_ENTRIES_TABLE)(load_dict, waited_mutation)
+    waited_mutation = wait_for_delete_mutations(delete_mutations)
+
+    # Clean up
+    cleaned = cleanup_delete_assets(deletions_table, create_deletes_dict_op, waited_mutation)
+    load_pending_deletions(report_deletions_table, cleaned)
 
 
 @dagster.run_status_sensor(

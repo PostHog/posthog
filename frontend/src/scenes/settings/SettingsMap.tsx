@@ -2,6 +2,7 @@ import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { ErrorTrackingAlerting } from 'scenes/error-tracking/configuration/alerting/ErrorTrackingAlerting'
+import { ErrorTrackingAutoAssignment } from 'scenes/error-tracking/configuration/auto-assignment/ErrorTrackingAutoAssignment'
 import { ErrorTrackingSymbolSets } from 'scenes/error-tracking/configuration/symbol-sets/ErrorTrackingSymbolSets'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
@@ -12,6 +13,7 @@ import { DeadClicksAutocaptureSettings } from 'scenes/settings/environment/DeadC
 import { MaxMemorySettings } from 'scenes/settings/environment/MaxMemorySettings'
 import { PersonsJoinMode } from 'scenes/settings/environment/PersonsJoinMode'
 import { PersonsOnEvents } from 'scenes/settings/environment/PersonsOnEvents'
+import { PreAggregatedTablesSetting } from 'scenes/settings/environment/PreAggregatedTablesSetting'
 import { ReplayTriggers } from 'scenes/settings/environment/ReplayTriggers'
 import { SessionsTableVersion } from 'scenes/settings/environment/SessionsTableVersion'
 import { SessionsV2JoinModeSettings } from 'scenes/settings/environment/SessionsV2JoinModeSettings'
@@ -81,6 +83,7 @@ import { PersonalAPIKeys } from './user/PersonalAPIKeys'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
 import { TwoFactorSettings } from './user/TwoFactorSettings'
 import { UpdateEmailPreferences } from './user/UpdateEmailPreferences'
+import { UserDangerZone } from './user/UserDangerZone'
 import { UserDetails } from './user/UserDetails'
 
 export const SETTINGS_MAP: SettingSection[] = [
@@ -247,7 +250,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'revenue-base-currency',
                 title: 'Revenue base currency',
                 component: <RevenueBaseCurrencySettings />,
-                flag: 'WEB_REVENUE_TRACKING',
             },
             {
                 id: 'cookieless-server-hash-mode',
@@ -271,6 +273,12 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Session join mode',
                 component: <SessionsV2JoinModeSettings />,
                 flag: 'SETTINGS_SESSIONS_V2_JOIN',
+            },
+            {
+                id: 'web-analytics-pre-aggregated-tables',
+                title: 'Pre-aggregated tables',
+                component: <PreAggregatedTablesSetting />,
+                flag: 'SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES',
             },
         ],
     },
@@ -358,6 +366,12 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Integrations',
                 component: <ErrorTrackingIntegrations />,
                 flag: 'ERROR_TRACKING_INTEGRATIONS',
+            },
+            {
+                id: 'error-tracking-auto-assignment',
+                title: 'Auto assignment',
+                component: <ErrorTrackingAutoAssignment />,
+                flag: 'ERROR_TRACKING_ALERT_ROUTING',
             },
             {
                 id: 'error-tracking-symbol-sets',
@@ -690,6 +704,18 @@ export const SETTINGS_MAP: SettingSection[] = [
                         to customize yourself outside of the app
                     </div>
                 ),
+            },
+        ],
+    },
+    {
+        level: 'user',
+        id: 'user-danger-zone',
+        title: 'Danger zone',
+        settings: [
+            {
+                id: 'user-delete',
+                title: 'Delete account',
+                component: <UserDangerZone />,
             },
         ],
     },

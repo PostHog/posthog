@@ -103,6 +103,7 @@ STR_TO_HOGQL_MAPPING = {
     "DateDatabaseField": DateDatabaseField,
     "DateTimeDatabaseField": DateTimeDatabaseField,
     "IntegerDatabaseField": IntegerDatabaseField,
+    "DecimalDatabaseField": DecimalDatabaseField,
     "FloatDatabaseField": FloatDatabaseField,
     "StringArrayDatabaseField": StringArrayDatabaseField,
     "StringDatabaseField": StringDatabaseField,

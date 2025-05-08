@@ -51,6 +51,7 @@ export type SettingSectionId =
     | 'user-profile'
     | 'user-api-keys'
     | 'user-customization'
+    | 'user-danger-zone'
 
 export type SettingId =
     | 'replay-triggers'
@@ -84,6 +85,7 @@ export type SettingId =
     | 'error-tracking-symbol-sets'
     | 'error-tracking-alerting'
     | 'error-tracking-integrations'
+    | 'error-tracking-auto-assignment'
     | 'integration-webhooks'
     | 'integration-slack'
     | 'integration-error-tracking'
@@ -125,9 +127,11 @@ export type SettingId =
     | 'channel-type'
     | 'cookieless-server-hash-mode'
     | 'user-groups'
+    | 'user-delete'
     | 'web-revenue-events'
     | 'core-memory'
     | 'customization-irl'
+    | 'web-analytics-pre-aggregated-tables'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 
