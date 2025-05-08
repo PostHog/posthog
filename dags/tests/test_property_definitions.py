@@ -128,6 +128,7 @@ def test_ingestion_job(cluster: ClickhouseCluster) -> None:
                         ("event", start_at - timedelta(minutes=30), {"too_old": "1"}),  # out of range (too old)
                         ("event", start_at, {"property": 1}),  # lower bound, should be included
                         ("a" * 201, start_at, {"event_name_too_long": 1}),  # event name too long, should be skipped
+                        ("\u0000", start_at, {"property": 1}),  # null byte should be sanitized
                         ("event", start_at, {"p" * 201: 1}),  # property name too long, should be skipped
                         ("$$plugin_metrics", start_at, {"property": 1}),  # skipped event
                         (
@@ -228,6 +229,7 @@ def test_ingestion_job(cluster: ClickhouseCluster) -> None:
         ),
     ).result() == [
         (1, 1, "property", "Numeric", "event", None, int(PropertyDefinition.Type.EVENT), start_at + duration / 2),
+        (1, 1, "property", "Numeric", "\ufffd", None, int(PropertyDefinition.Type.EVENT), start_at),
         (1, 1, "property", "Numeric", None, 1, int(PropertyDefinition.Type.GROUP), start_at + duration / 2),
         (1, 1, "property", "Numeric", None, 2, int(PropertyDefinition.Type.GROUP), start_at),
         (1, 1, "property", "Numeric", None, None, int(PropertyDefinition.Type.PERSON), start_at + duration / 2),
