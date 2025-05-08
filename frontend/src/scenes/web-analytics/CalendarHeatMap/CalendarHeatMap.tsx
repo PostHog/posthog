@@ -111,11 +111,11 @@ export function CalendarHeatMap({
                 ) : (
                     <thead>
                         <tr>
-                            <th className="CalendarHeatMap__TextTab" />
+                            <th className="bg" />
                             {columnLabels.map((label, i) => (
                                 <th key={i}>{label}</th>
                             ))}
-                            {columnsAggregations[0] !== undefined && (
+                            {rowsAggregations[0] !== undefined && (
                                 <th className="aggregation-border">{allAggregationsLabel}</th>
                             )}
                         </tr>
