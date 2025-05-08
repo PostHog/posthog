@@ -127,14 +127,25 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
           "base_currency": "USD",
           "events": [
             {
+              "currencyAwareDecimal": false,
               "eventName": "purchase",
               "revenueCurrencyProperty": {
                 "static": "ZAR",
               },
               "revenueProperty": "value",
             },
+            {
+              "currencyAwareDecimal": true,
+              "eventName": "subscription_created",
+              "revenueCurrencyProperty": {
+                "property": "currency",
+              },
+              "revenueProperty": "subscription_value",
+            },
           ],
         },
+        "secret_api_token": "phs_default-team-secret-api-token",
+        "secret_api_token_backup": "phs_default-team-secret-api-token-backup",
         "session_recording_linked_flag": null,
         "session_recording_masking_config": {
           "maskAllInputs": true,

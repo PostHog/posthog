@@ -34,9 +34,6 @@ import { MessageWithTeam } from './teams/types'
 import { CaptureIngestionWarningFn } from './types'
 import { LibVersionMonitor } from './versions/lib-version-monitor'
 
-// Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
-require('@sentry/tracing')
-
 export class SessionRecordingIngester {
     kafkaConsumer: KafkaConsumer
     topic: string
@@ -154,7 +151,7 @@ export class SessionRecordingIngester {
 
         await runInstrumentedFunction({
             statsKey: `recordingingesterv2.handleEachBatch`,
-            sendTimeoutGuardToSentry: false,
+            sendException: false,
             func: async () => this.processBatchMessages(messages),
         })
     }

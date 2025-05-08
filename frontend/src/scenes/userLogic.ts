@@ -28,6 +28,7 @@ export const userLogic = kea<userLogicType>([
         setUserScenePersonalisation: (scene: DashboardCompatibleScenes, dashboard: number) => ({ scene, dashboard }),
         updateHasSeenProductIntroFor: (productKey: ProductKey, value: boolean) => ({ productKey, value }),
         switchTeam: (teamId: string | number, destination?: string) => ({ teamId, destination }),
+        deleteUser: true,
     })),
     forms(({ actions }) => ({
         userDetails: {
@@ -76,6 +77,11 @@ export const userLogic = kea<userLogicType>([
                         return values.user
                     }
                 },
+                deleteUser: async () => {
+                    return await api.delete('api/users/@me/').then(() => {
+                        return null
+                    })
+                },
                 setUserScenePersonalisation: async ({ scene, dashboard }) => {
                     if (!values.user) {
                         throw new Error('Current user has not been loaded yet, so it cannot be updated!')
@@ -118,12 +124,6 @@ export const userLogic = kea<userLogicType>([
         },
         loadUserSuccess: ({ user }) => {
             if (user && user.uuid) {
-                const Sentry = (window as any).Sentry
-                Sentry?.setUser({
-                    email: user.email,
-                    id: user.uuid,
-                })
-
                 if (posthog) {
                     posthog.identify(user.distinct_id)
                     posthog.people.set({
@@ -173,6 +173,17 @@ export const userLogic = kea<userLogicType>([
         updateUserFailure: () => {
             lemonToast.error(`Error saving preferences`, {
                 toastId: 'updateUser',
+            })
+        },
+        deleteUserSuccess: () => {
+            actions.logout()
+            lemonToast.success('Account deleted', {
+                toastId: 'deleteUser',
+            })
+        },
+        deleteUserFailure: () => {
+            lemonToast.error('Error deleting account', {
+                toastId: 'deleteUser',
             })
         },
         updateCurrentOrganization: async ({ organizationId, destination }, breakpoint) => {

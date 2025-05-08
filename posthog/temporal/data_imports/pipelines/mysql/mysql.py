@@ -1,4 +1,5 @@
-import dataclasses
+from __future__ import annotations
+
 import math
 import re
 from collections.abc import Iterator
@@ -23,6 +24,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     build_pyarrow_decimal_type,
     table_from_iterator,
 )
+from posthog.temporal.data_imports.pipelines.source.sql import Column, Table
 from posthog.temporal.data_imports.pipelines.sql_database.settings import (
     DEFAULT_CHUNK_SIZE,
 )
@@ -150,17 +152,92 @@ def _get_primary_keys(cursor: Cursor, schema: str, table_name: str) -> list[str]
     return None
 
 
-@dataclasses.dataclass
-class TableStructureRow:
-    column_name: str
-    data_type: str
-    column_type: str
-    is_nullable: bool
-    numeric_precision: int | None
-    numeric_scale: int | None
+class MySQLColumn(Column):
+    """Implementation of the `Column` protocol for a MySQL source.
+
+    Attributes:
+        name: The column's name.
+        data_type: The name of the column's data type as described in
+            https://www.postgresql.org/docs/current/datatype.html.
+        column_type:
+        nullable: Whether the column is nullable or not.
+        numeric_precision: The number of significant digits. Only used with
+            numeric `data_type`s, otherwise `None`.
+        numeric_scale: The number of significant digits to the right of
+            decimal point. Only used with numeric `data_type`s, otherwise
+            `None`.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        data_type: str,
+        column_type: str,
+        nullable: bool,
+        numeric_precision: int | None = None,
+        numeric_scale: int | None = None,
+    ) -> None:
+        self.name = name
+        self.data_type = data_type
+        self.column_type = column_type
+        self.nullable = nullable
+        self.numeric_precision = numeric_precision
+        self.numeric_scale = numeric_scale
+
+    def to_arrow_field(self) -> pa.Field[pa.DataType]:
+        """Return a `pyarrow.Field` that closely matches this column."""
+        arrow_type: pa.DataType
+
+        # Note that deltalake doesn't support unsigned types, so we need to convert integer types to larger types
+        # For example an uint32 should support values up to 2^32, but deltalake will only support 2^31
+        # so in order to support unsigned types we need to convert to int64
+        is_unsigned = "unsigned" in self.column_type
+
+        # Map MySQL type names to PyArrow types
+        match self.data_type.lower():
+            case "bigint":
+                # There's no larger type than (u)int64
+                arrow_type = pa.uint64() if is_unsigned else pa.int64()
+            case "int" | "integer" | "mediumint":
+                arrow_type = pa.uint64() if is_unsigned else pa.int32()
+            case "smallint":
+                arrow_type = pa.uint32() if is_unsigned else pa.int16()
+            case "tinyint":
+                arrow_type = pa.uint16() if is_unsigned else pa.int8()
+            case "decimal" | "numeric":
+                if not self.numeric_precision or not self.numeric_scale:
+                    raise TypeError("expected `numeric_precision` and `numeric_scale` to be `int`, got `NoneType`")
+
+                arrow_type = build_pyarrow_decimal_type(self.numeric_precision, self.numeric_scale)
+            case "float":
+                arrow_type = pa.float32()
+            case "double" | "double precision":
+                arrow_type = pa.float64()
+            case "varchar" | "char" | "text" | "mediumtext" | "longtext":
+                arrow_type = pa.string()
+            case "date":
+                arrow_type = pa.date32()
+            case "datetime" | "timestamp":
+                arrow_type = pa.timestamp("us")
+            case "time":
+                arrow_type = pa.time64("us")
+            case "boolean" | "bool":
+                arrow_type = pa.bool_()
+            case "binary" | "varbinary" | "blob" | "mediumblob" | "longblob":
+                arrow_type = pa.binary()
+            case "uuid":
+                arrow_type = pa.string()
+            case "json":
+                arrow_type = pa.string()
+            case _ if self.data_type.endswith("[]"):  # Array types (though not native in MySQL)
+                arrow_type = pa.string()
+            case _:
+                arrow_type = pa.string()
+
+        return pa.field(self.name, arrow_type, nullable=self.nullable)
 
 
-def _get_table_structure(cursor: Cursor, schema: str, table_name: str) -> list[TableStructureRow]:
+def _get_table(cursor: Cursor, schema: str, table_name: str) -> Table[MySQLColumn]:
     query = """
         SELECT
             column_name,
@@ -182,78 +259,33 @@ def _get_table_structure(cursor: Cursor, schema: str, table_name: str) -> list[T
             "table_name": table_name,
         },
     )
-    rows = cursor.fetchall()
-    return [
-        TableStructureRow(
-            column_name=row[0],
-            data_type=row[1],
-            column_type=row[2],
-            is_nullable=row[3],
-            numeric_precision=row[4],
-            numeric_scale=row[5],
+
+    numeric_data_types = {"numeric", "decimal"}
+    columns = []
+    for name, data_type, column_type, nullable, numeric_precision_candidate, numeric_scale_candidate in cursor:
+        if data_type in numeric_data_types:
+            numeric_precision = numeric_precision_candidate or DEFAULT_NUMERIC_PRECISION
+            numeric_scale = numeric_scale_candidate or DEFAULT_NUMERIC_SCALE
+        else:
+            numeric_precision = None
+            numeric_scale = None
+
+        columns.append(
+            MySQLColumn(
+                name=name,
+                data_type=data_type,
+                column_type=column_type,
+                nullable=nullable,
+                numeric_precision=numeric_precision,
+                numeric_scale=numeric_scale,
+            )
         )
-        for row in rows
-    ]
 
-
-def _get_arrow_schema_from_type_name(table_structure: list[TableStructureRow]) -> pa.Schema:
-    fields = []
-
-    for col in table_structure:
-        name = col.column_name
-        mysql_data_type = col.data_type.lower()
-        mysql_col_type = col.column_type.lower()
-
-        # Note that deltalake doesn't support unsigned types, so we need to convert integer types to larger types
-        # For example an uint32 should support values up to 2^32, but deltalake will only support 2^31
-        # so in order to support unsigned types we need to convert to int64
-        is_unsigned = "unsigned" in mysql_col_type
-
-        arrow_type: pa.DataType
-
-        # Map MySQL type names to PyArrow types
-        match mysql_data_type:
-            case "bigint":
-                # There's no larger type than (u)int64
-                arrow_type = pa.uint64() if is_unsigned else pa.int64()
-            case "int" | "integer" | "mediumint":
-                arrow_type = pa.uint64() if is_unsigned else pa.int32()
-            case "smallint":
-                arrow_type = pa.uint32() if is_unsigned else pa.int16()
-            case "tinyint":
-                arrow_type = pa.uint16() if is_unsigned else pa.int8()
-            case "decimal" | "numeric":
-                precision = col.numeric_precision if col.numeric_precision is not None else DEFAULT_NUMERIC_PRECISION
-                scale = col.numeric_scale if col.numeric_scale is not None else DEFAULT_NUMERIC_SCALE
-                arrow_type = build_pyarrow_decimal_type(precision, scale)
-            case "float":
-                arrow_type = pa.float32()
-            case "double" | "double precision":
-                arrow_type = pa.float64()
-            case "varchar" | "char" | "text" | "mediumtext" | "longtext":
-                arrow_type = pa.string()
-            case "date":
-                arrow_type = pa.date32()
-            case "datetime" | "timestamp":
-                arrow_type = pa.timestamp("us")
-            case "time":
-                arrow_type = pa.time64("us")
-            case "boolean" | "bool":
-                arrow_type = pa.bool_()
-            case "binary" | "varbinary" | "blob" | "mediumblob" | "longblob":
-                arrow_type = pa.binary()
-            case "uuid":
-                arrow_type = pa.string()
-            case "json":
-                arrow_type = pa.string()
-            case _ if mysql_data_type.endswith("[]"):  # Array types (though not native in MySQL)
-                arrow_type = pa.string()
-            case _:
-                arrow_type = pa.string()
-
-        fields.append(pa.field(name, arrow_type, nullable=col.is_nullable))
-
-    return pa.schema(fields)
+    return Table(
+        name=table_name,
+        parents=(schema,),
+        columns=columns,
+    )
 
 
 def mysql_source(
@@ -291,16 +323,15 @@ def mysql_source(
     ) as connection:
         with connection.cursor() as cursor:
             primary_keys = _get_primary_keys(cursor, schema, table_name)
-            table_structure = _get_table_structure(cursor, schema, table_name)
+            table = _get_table(cursor, schema, table_name)
             partition_settings = _get_partition_settings(cursor, schema, table_name) if is_incremental else None
 
-            # Falback on checking for an `id` field on the table
-            if primary_keys is None:
-                if any(ts.column_name == "id" for ts in table_structure):
-                    primary_keys = ["id"]
+            # Fallback on checking for an `id` field on the table
+            if primary_keys is None and "id" in table:
+                primary_keys = ["id"]
 
     def get_rows() -> Iterator[Any]:
-        arrow_schema = _get_arrow_schema_from_type_name(table_structure)
+        arrow_schema = table.to_arrow_schema()
 
         # PlanetScale needs this to be set
         init_command = "SET workload = 'OLAP';" if host.endswith("psdb.cloud") else None

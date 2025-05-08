@@ -1,3 +1,5 @@
+use hogvm::hog_stl;
+
 pub fn main() {
     let output_file = std::env::args()
         .last()
@@ -7,7 +9,9 @@ pub fn main() {
         "RUST_HOGVM_STL = [\n  {}\n]",
         hogvm::stl()
             .iter()
-            .map(|(name, _)| format!("\"{}\"", name))
+            .map(|(name, _)| *name)
+            .chain(hog_stl().functions().iter().map(|(name, _)| name.as_str()))
+            .map(|n| format!("\"{}\"", n))
             .collect::<Vec<_>>()
             .join(",\n  ")
     );

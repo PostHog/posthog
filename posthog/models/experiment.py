@@ -60,6 +60,23 @@ class Experiment(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
     stats_config = models.JSONField(default=dict, null=True, blank=True)
 
+    conclusion = models.CharField(
+        max_length=30,
+        choices=[
+            ("won", "Won"),
+            ("lost", "Lost"),
+            ("inconclusive", "Inconclusive"),
+            ("stopped_early", "Stopped Early"),
+            ("invalid", "Invalid"),
+        ],
+        null=True,
+        blank=True,
+    )
+    conclusion_comment = models.TextField(
+        null=True,
+        blank=True,
+    )
+
     def __str__(self):
         return self.name or "Untitled"
 
@@ -80,7 +97,7 @@ class Experiment(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(
-            base_folder="Unfiled/Experiments",
+            base_folder=self._create_in_folder or "Unfiled/Experiments",
             type="experiment",  # sync with APIScopeObject in scopes.py
             ref=str(self.id),
             name=self.name or "Untitled",
