@@ -1866,6 +1866,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                           },
                                           properties: webAnalyticsFilters,
                                           dateRange,
+                                          conversionGoal,
                                       },
                                       docs: {
                                           url: 'https://posthog.com/docs/web-analytics/dashboard#active-hours',

@@ -1,4 +1,3 @@
-// secure-request.ts
 import { LookupAddress } from 'dns'
 import dns from 'dns/promises'
 import * as ipaddr from 'ipaddr.js'
@@ -9,6 +8,7 @@ import { URL } from 'url'
 
 import { defaultConfig } from '../config/config'
 import { isProdEnv } from './env-utils'
+import { parseJSON } from './json-parse'
 
 const unsafeRequestCounter = new Counter({
     name: 'node_request_unsafe',
@@ -16,17 +16,19 @@ const unsafeRequestCounter = new Counter({
     labelNames: ['reason'],
 })
 
-export type SecureRequestOptions = {
+// NOTE: This isn't exactly fetch - it's meant to be very close but limited to only options we actually want to expose
+export type FetchOptions = {
     method?: string
     headers?: HeadersInit
     body?: string | Buffer
     timeoutMs?: number
 }
 
-export type SecureResponse = {
+export type FetchResponse = {
     status: number
     headers: Record<string, string>
-    body: string
+    json: () => Promise<any>
+    text: () => Promise<string>
 }
 
 export class SecureRequestError extends errors.UndiciError {
@@ -36,20 +38,34 @@ export class SecureRequestError extends errors.UndiciError {
     }
 }
 
+export class InvalidRequestError extends errors.UndiciError {
+    constructor(message: string) {
+        super(message)
+        this.name = 'InvalidRequestError'
+    }
+}
+
+export class ResolutionError extends errors.UndiciError {
+    constructor(message: string) {
+        super(message)
+        this.name = 'ResolutionError'
+    }
+}
+
 function validateUrl(url: string): URL {
     // Raise if the provided URL seems unsafe, otherwise do nothing.
     let parsedUrl: URL
     try {
         parsedUrl = new URL(url)
     } catch (err) {
-        throw new SecureRequestError('Invalid URL')
+        throw new InvalidRequestError('Invalid URL')
     }
     const { hostname, protocol } = parsedUrl
     if (!hostname) {
-        throw new SecureRequestError('No hostname')
+        throw new InvalidRequestError('No hostname')
     }
     if (!['http:', 'https:'].includes(protocol)) {
-        throw new SecureRequestError('Scheme must be either HTTP or HTTPS')
+        throw new InvalidRequestError('Scheme must be either HTTP or HTTPS')
     }
     return parsedUrl
 }
@@ -83,7 +99,7 @@ async function staticLookupAsync(hostname: string): Promise<LookupAddress> {
     try {
         addrinfo = await dns.lookup(hostname, { all: true })
     } catch (err) {
-        throw new SecureRequestError('Invalid hostname')
+        throw new ResolutionError('Invalid hostname')
     }
     for (const { address } of addrinfo) {
         const parsed = ipaddr.parse(address)
@@ -103,7 +119,7 @@ async function staticLookupAsync(hostname: string): Promise<LookupAddress> {
     }
     if (addrinfo.length === 0) {
         unsafeRequestCounter.inc({ reason: 'unable_to_resolve' })
-        throw new SecureRequestError(`Unable to resolve ${hostname}`)
+        throw new ResolutionError(`Unable to resolve ${hostname}`)
     }
 
     return addrinfo[0]
@@ -140,7 +156,7 @@ class SecureAgent extends Agent {
 
 const sharedSecureAgent = new SecureAgent()
 
-export async function secureRequest(url: string, options: SecureRequestOptions = {}): Promise<SecureResponse> {
+export async function fetch(url: string, options: FetchOptions = {}): Promise<FetchResponse> {
     let parsed: URL
     try {
         parsed = new URL(url)
@@ -171,11 +187,10 @@ export async function secureRequest(url: string, options: SecureRequestOptions =
         }
     }
 
-    const body = await result.body.text()
-
     return {
         status: result.statusCode,
         headers,
-        body,
+        json: async () => parseJSON(await result.body.text()),
+        text: async () => await result.body.text(),
     }
 }

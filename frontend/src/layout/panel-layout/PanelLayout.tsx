@@ -117,6 +117,7 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
         activePanelIdentifier,
         isLayoutNavCollapsed,
         projectTreeMode,
+        panelWidth,
     } = useValues(panelLayoutLogic)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
     const { showLayoutPanel, clearActivePanelIdentifier, setMainContentRef, setProjectTreeMode } =
@@ -144,6 +145,8 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                         projectTreeMode: projectTreeMode as TreeMode,
                     })
                 )}
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{ '--project-panel-width': `${panelWidth}px` } as React.CSSProperties}
             >
                 <PanelLayoutNavBar>
                     {activePanelIdentifier === 'Project' && <ProjectTree sortMethod="folder" />}

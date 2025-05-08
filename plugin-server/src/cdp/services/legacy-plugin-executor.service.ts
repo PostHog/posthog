@@ -4,9 +4,9 @@ import { Histogram } from 'prom-client'
 
 import { Hub } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
-import { Response, trackedFetch } from '../../utils/fetch'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
+import { fetch, FetchResponse } from '../../utils/request'
 import { DESTINATION_PLUGINS_BY_ID, TRANSFORMATION_PLUGINS_BY_ID } from '../legacy-plugins'
 import { firstTimeEventTrackerPluginProcessEventAsync } from '../legacy-plugins/_transformations/first-time-event-tracker'
 import { firstTimeEventTrackerPlugin } from '../legacy-plugins/_transformations/first-time-event-tracker/template'
@@ -40,15 +40,15 @@ export type PluginState = {
 const pluginConfigCheckCache: Record<string, boolean> = {}
 
 export type LegacyPluginExecutorOptions = {
-    fetch?: (...args: Parameters<typeof trackedFetch>) => Promise<Response>
+    fetch?: (...args: Parameters<typeof fetch>) => Promise<FetchResponse>
 }
 
 export class LegacyPluginExecutorService {
     constructor(private hub: Hub) {}
     private pluginState: Record<string, PluginState> = {}
 
-    public async fetch(...args: Parameters<typeof trackedFetch>): Promise<Response> {
-        return trackedFetch(...args)
+    public async fetch(...args: Parameters<typeof fetch>): Promise<FetchResponse> {
+        return fetch(...args)
     }
 
     private legacyStorage(teamId: number, pluginConfigId?: number | string): Pick<StorageExtension, 'get' | 'set'> {
@@ -213,7 +213,7 @@ export class LegacyPluginExecutorService {
 
             const isTestFunction = invocation.hogFunction.name.includes(CDP_TEST_ID)
 
-            const fetch = async (...args: Parameters<typeof trackedFetch>) => {
+            const request = async (...args: Parameters<typeof fetch>) => {
                 // TRICKY: We use the overridden fetch here if given as it is used by the comparer service
                 // Additionally we don't do real fetches for test functions
                 const method = args[1] && typeof args[1].method === 'string' ? args[1].method : 'GET'
@@ -236,12 +236,20 @@ export class LegacyPluginExecutorService {
                     await new Promise((resolve) => setTimeout(resolve, 200))
                     return {
                         status: 200,
+                        headers: {},
                         json: () =>
                             Promise.resolve({
                                 status: 'OK',
                                 message: 'Test function',
                             }),
-                    } as Response
+                        text: () =>
+                            Promise.resolve(
+                                JSON.stringify({
+                                    status: 'OK',
+                                    message: 'Test function',
+                                })
+                            ),
+                    } as FetchResponse
                 }
 
                 return (options?.fetch || this.fetch)(...args)
@@ -278,7 +286,7 @@ export class LegacyPluginExecutorService {
                     ...state.meta,
                     // NOTE: We override logger and fetch here so we can track the calls
                     logger: pluginLogger,
-                    fetch,
+                    fetch: request,
                     storage: this.legacyStorage(invocation.hogFunction.team_id, legacyPluginConfigId),
                 })
 
