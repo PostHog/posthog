@@ -133,7 +133,8 @@ class PropertyDefinition(UUIDModel):
 
 # ClickHouse Table DDL
 
-PROPERTY_DEFINITIONS_TABLE_SQL = f"""
+PROPERTY_DEFINITIONS_TABLE_SQL = (
+    lambda: f"""
 CREATE TABLE IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.`property_definitions`
 (
     -- Team and project relationships
@@ -160,5 +161,6 @@ ENGINE = {ReplacingMergeTree("property_definitions", replication_scheme=Replicat
 ORDER BY (team_id, type, COALESCE(event, ''), name, COALESCE(group_type_index, 255))
 SETTINGS index_granularity = 8192
 """
+)
 
-DROP_PROPERTY_DEFINITIONS_TABLE_SQL = "DROP TABLE IF EXISTS `{CLICKHOUSE_DATABASE}`.`property_definitions`"
+DROP_PROPERTY_DEFINITIONS_TABLE_SQL = lambda: f"DROP TABLE IF EXISTS `{CLICKHOUSE_DATABASE}`.`property_definitions`"
