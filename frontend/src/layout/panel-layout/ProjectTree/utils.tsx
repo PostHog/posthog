@@ -1,6 +1,5 @@
 import { IconArrowUpRight, IconPlus } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
-import { router } from 'kea-router'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
@@ -85,15 +84,9 @@ export function convertFileSystemEntryToTreeDataItem({
             ),
             record: { ...item, user },
             checked: checkedItems[nodeId],
-            onClick: () => {
-                if (item.href) {
-                    router.actions.push(typeof item.href === 'function' ? item.href(item.ref) : item.href)
-                }
-            },
         }
         if (item && disabledReason?.(item)) {
             node.disabledReason = disabledReason(item)
-            node.onClick = undefined
         }
         if (disableFolderSelect && item.type === 'folder') {
             node.disableSelect = true
@@ -140,7 +133,6 @@ export function convertFileSystemEntryToTreeDataItem({
             }
             if (folderNode.record && disabledReason?.(folderNode.record as FileSystemEntry)) {
                 folderNode.disabledReason = disabledReason(folderNode.record as FileSystemEntry)
-                folderNode.onClick = undefined
             }
             allFolderNodes.push(folderNode)
             nodes.push(folderNode)
