@@ -1,9 +1,19 @@
 import datetime
+from dataclasses import dataclass
 
 import dagster
 
 from dags.common import JobOwners
 from posthog.clickhouse.cluster import ClickhouseCluster, Query
+
+
+@dataclass(frozen=True)
+class TimeFilter:
+    start_at: str
+    duration: str
+
+    def get_expression(self, column: str) -> str:
+        return f"{column} BETWEEN parseDateTimeBestEffort('{self.start_at}') AND parseDateTimeBestEffort('{self.start_at}') + INTERVAL '{self.duration}'"
 
 
 class PropertyDefinitionsConfig(dagster.Config):
@@ -12,15 +22,24 @@ class PropertyDefinitionsConfig(dagster.Config):
     start_at: str
     duration: str = "1 hour"
 
-    def get_time_filter_expression(self, column: str) -> str:
-        return f"{column} BETWEEN parseDateTimeBestEffort('{self.start_at}') AND parseDateTimeBestEffort('{self.start_at}') + INTERVAL '{self.duration}'"
+    def validate(self) -> TimeFilter:
+        # TODO: actually validate
+        return TimeFilter(self.start_at, self.duration)
+
+
+@dagster.op
+def setup_job(
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    config: PropertyDefinitionsConfig,
+) -> TimeFilter:
+    return config.validate()
 
 
 @dagster.op
 def ingest_event_properties(
     context: dagster.OpExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
-    config: PropertyDefinitionsConfig,
+    time_filter: TimeFilter,
 ) -> int:
     """
     Ingest event properties from events_recent table into property_definitions table.
@@ -28,10 +47,8 @@ def ingest_event_properties(
     Uses the JSONExtractKeysAndValuesRaw function to extract property keys and values,
     then determines the property type using JSONType.
     """
-    time_filter = config.get_time_filter_expression("timestamp")
-
     # Log the execution parameters
-    context.log.info(f"Ingesting person properties with config={config!r}")
+    context.log.info(f"Ingesting person properties with time_filter={time_filter!r}")
 
     # Query to insert event properties into property_definitions table
     query = f"""
@@ -53,7 +70,7 @@ def ingest_event_properties(
         1 as type,
         max(timestamp) as last_seen_at
     FROM events_recent
-    WHERE {time_filter}
+    WHERE {time_filter.get_expression("timestamp")}
     GROUP BY team_id, event, name, property_type
     ORDER BY team_id, event, name, property_type NULLS LAST
     LIMIT 1 by team_id, event, name
@@ -65,7 +82,7 @@ def ingest_event_properties(
     # Get the number of rows inserted for this specific time window
     count_query = f"""
     SELECT count() FROM property_definitions
-    WHERE type = 1 AND {config.get_time_filter_expression("last_seen_at")}
+    WHERE type = 1 AND {time_filter.get_expression("last_seen_at")}
     """
 
     rows = cluster.any_host(Query(count_query)).result()[0][0]
@@ -78,7 +95,7 @@ def ingest_event_properties(
 def ingest_person_properties(
     context: dagster.OpExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
-    config: PropertyDefinitionsConfig,
+    time_filter: TimeFilter,
 ) -> int:
     """
     Ingest person properties from person table into property_definitions table.
@@ -86,10 +103,8 @@ def ingest_person_properties(
     Uses the JSONExtractKeysAndValuesRaw function to extract property keys and values,
     then determines the property type using JSONType.
     """
-    time_filter = config.get_time_filter_expression("_timestamp")
-
     # Log the execution parameters
-    context.log.info(f"Ingesting person properties with config={config!r}")
+    context.log.info(f"Ingesting person properties with time_filter={time_filter!r}")
 
     # Query to insert person properties into property_definitions table
     query = f"""
@@ -111,7 +126,7 @@ def ingest_person_properties(
         2 as type,
         max(_timestamp) as last_seen_at
     FROM person
-    WHERE {time_filter}
+    WHERE {time_filter.get_expression("_timestamp")}
     GROUP BY team_id, name, property_type
     ORDER BY team_id, name, property_type NULLS LAST
     LIMIT 1 by team_id, name
@@ -123,7 +138,7 @@ def ingest_person_properties(
     # Get the number of rows inserted for this specific time window
     count_query = f"""
     SELECT count() FROM property_definitions
-    WHERE type = 2 AND {config.get_time_filter_expression("last_seen_at")}
+    WHERE type = 2 AND {time_filter.get_expression("last_seen_at")}
     """
 
     rows = cluster.any_host(Query(count_query)).result()[0][0]
@@ -136,7 +151,7 @@ def ingest_person_properties(
 def optimize_property_definitions(
     context: dagster.OpExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
-    config: PropertyDefinitionsConfig,
+    time_filter: TimeFilter,
     event_count: int,
     person_count: int,
 ) -> int:
@@ -153,7 +168,7 @@ def optimize_property_definitions(
     # Get the total number of property definitions for this time window
     count_query = f"""
     SELECT count() FROM property_definitions
-    WHERE {config.get_time_filter_expression("last_seen_at")}
+    WHERE {time_filter.get_expression("last_seen_at")}
     """
 
     total = cluster.any_host(Query(count_query)).result()[0][0]
@@ -175,9 +190,10 @@ def property_definitions_ingestion_job():
     2. Ingest person properties
     3. Run OPTIMIZE FINAL on the table
     """
-    event_count = ingest_event_properties()
-    person_count = ingest_person_properties()
-    optimize_property_definitions(event_count, person_count)
+    time_filter = setup_job()
+    event_count = ingest_event_properties(time_filter)
+    person_count = ingest_person_properties(time_filter)
+    optimize_property_definitions(time_filter, event_count, person_count)
 
 
 @dagster.schedule(
@@ -197,10 +213,4 @@ def property_definitions_hourly_schedule(context):
     target_hour = previous_hour.isoformat()
 
     config = PropertyDefinitionsConfig(start_at=target_hour, duration="1 hour")
-    return {
-        "ops": {
-            "ingest_event_properties": config,
-            "ingest_person_properties": config,
-            "optimize_property_definitions": config,
-        }
-    }
+    return {"ops": {"setup_job": config}}
