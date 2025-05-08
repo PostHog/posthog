@@ -76,7 +76,6 @@ import {
     HogFunctionIconResponse,
     HogFunctionKind,
     HogFunctionStatus,
-    HogFunctionSubTemplateIdType,
     HogFunctionTemplateType,
     HogFunctionTestInvocationResult,
     HogFunctionType,
