@@ -87,6 +87,7 @@ class OAuthValidator(OAuth2Validator):
             "family_name": request.user.last_name,
             "email": request.user.email,
             "email_verified": request.user.is_email_verified or False,
+            "sub": request.user.uuid,
         }
 
     def _create_access_token(self, expires, request, token, source_refresh_token=None):

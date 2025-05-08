@@ -4,6 +4,7 @@ import hashlib
 from typing import Optional
 from django.test import override_settings
 from freezegun import freeze_time
+import jwt
 from rest_framework import status
 from posthog.test.base import APIBaseTest
 from posthog.models.oauth import (
@@ -116,8 +117,12 @@ class TestOAuthAPI(APIBaseTest):
         }
 
     @property
+    def private_key(self) -> str:
+        return settings.OAUTH2_PROVIDER["OIDC_RSA_PRIVATE_KEY"]
+
+    @property
     def public_key(self) -> str:
-        private_key = settings.OAUTH2_PROVIDER["OIDC_RSA_PRIVATE_KEY"]
+        private_key = self.private_key
 
         public_key = serialization.load_pem_public_key(private_key.encode()).public_bytes(
             encoding=serialization.Encoding.PEM,
@@ -635,11 +640,10 @@ class TestOAuthAPI(APIBaseTest):
 
         self.assertEqual(refresh_token.scoped_organizations, scoped_organizations)
 
-    def test_valid_id_token_returned_with_openid_scope(self):
-        # Simulate a request with the openid scope
+    def test_full_oidc_flow(self):
         data_with_openid = {
             **self.base_authorization_post_body,
-            "scope": "openid experiment:read",
+            "scope": "openid email profile experiment:read",
         }
 
         response = self.client.post("/oauth/authorize/", data_with_openid)
@@ -648,17 +652,11 @@ class TestOAuthAPI(APIBaseTest):
         redirect_to = response.json().get("redirect_to", "")
         self.assertIn("code=", redirect_to)
 
-        # Extract authorization code from redirect URL
         code = redirect_to.split("code=")[1].split("&")[0]
 
-        # Exchange code for tokens
         token_data = {
-            "grant_type": "authorization_code",
+            **self.base_token_body,
             "code": code,
-            "client_id": "test_confidential_client_id",
-            "client_secret": "test_confidential_client_secret",
-            "redirect_uri": "http://localhost:8000/callback",
-            "code_verifier": self.code_verifier,
         }
 
         token_response = self.post("/oauth/token/", token_data)
@@ -668,14 +666,23 @@ class TestOAuthAPI(APIBaseTest):
 
         self.assertIn("id_token", token_response_data)
 
-        # id_token = token_response_data["id_token"]
+        id_token = token_response_data["id_token"]
 
-        # decoded_token = jwt.decode(id_token, self.public_key, algorithms=["RS256"], audience=self.confidential_application.client_id)
+        decoded_token = jwt.decode(id_token, options={"verify_signature": False})
 
-        # print("decoded_token", decoded_token)
+        # Verify the user claim
+        self.assertEqual(decoded_token["sub"], str(self.user.uuid))
+        self.assertEqual(decoded_token["email"], self.user.email)
+        self.assertEqual(decoded_token["email_verified"], self.user.is_email_verified or False)
+        self.assertEqual(decoded_token["given_name"], self.user.first_name)
+        self.assertEqual(decoded_token["family_name"], self.user.last_name)
 
-        # # Verify the user claim
-        # self.assertEqual(decoded_token["sub"], str(self.user.distinct_id))
+    def test_jwks_endpoint_returns_jwks(self):
+        response = self.client.get("/oauth/.well-known/jwks.json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        jwks = response.json()
+        self.assertIn("keys", jwks)
 
     def test_id_token_not_returned_without_openid_scope(self):
         # Simulate a request without the openid scope
