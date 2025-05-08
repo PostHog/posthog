@@ -182,22 +182,25 @@ def test_ingestion_job(cluster: ClickhouseCluster) -> None:
         Query(
             f"INSERT INTO groups (team_id, group_key, group_type_index, _timestamp, group_properties) VALUES",
             [
-                (1, UUID(int=i).hex, 1, timestamp, json.dumps(properties))
-                for i, (timestamp, properties) in enumerate(
+                (1, UUID(int=i).hex, group_type_index, timestamp, json.dumps(properties))
+                for i, (group_type_index, timestamp, properties) in enumerate(
                     [
-                        (start_at - timedelta(minutes=30), {"too_old": "1"}),  # out of range (too old)
-                        (start_at, {"property": 1}),  # lower bound, should be included
-                        (start_at, {"p" * 201: 1}),  # property name too long, should be skipped
+                        (1, start_at - timedelta(minutes=30), {"too_old": "1"}),  # out of range (too old)
+                        (1, start_at, {"property": 1}),  # lower bound, should be included
+                        (1, start_at, {"p" * 201: 1}),  # property name too long, should be skipped
                         (
+                            1,
                             start_at + duration * 0.5,  # midpoint
                             {"property": 1},  # includes skipped property
                         ),
                         (
+                            1,
                             start_at + duration / 0.75,
                             {"property": None},
                         ),  # prior updates with detected types should take precedence
-                        (start_at + duration, {"too_new": 1}),  # upper bound, should be excluded
-                        (start_at + duration + timedelta(minutes=30), {"too_new": 1}),  # out of range (too new)
+                        (1, start_at + duration, {"too_new": 1}),  # upper bound, should be excluded
+                        (1, start_at + duration + timedelta(minutes=30), {"too_new": 1}),  # out of range (too new)
+                        (2, start_at, {"property": 1}),  # lower bound, should be included
                     ]
                 )
             ],
@@ -226,5 +229,6 @@ def test_ingestion_job(cluster: ClickhouseCluster) -> None:
     ).result() == [
         (1, 1, "property", "Numeric", "event", None, int(PropertyDefinition.Type.EVENT), start_at + duration / 2),
         (1, 1, "property", "Numeric", None, 1, int(PropertyDefinition.Type.GROUP), start_at + duration / 2),
+        (1, 1, "property", "Numeric", None, 2, int(PropertyDefinition.Type.GROUP), start_at),
         (1, 1, "property", "Numeric", None, None, int(PropertyDefinition.Type.PERSON), start_at + duration / 2),
     ]
