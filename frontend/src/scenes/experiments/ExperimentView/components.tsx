@@ -402,7 +402,7 @@ export function ConclusionModal({ experimentId }: { experimentId: Experiment['id
         <LemonModal
             isOpen={isConclusionModalOpen}
             onClose={closeConclusionModal}
-            title="Conclusion"
+            title="Stop experiment"
             width={600}
             footer={
                 <div className="flex items-center gap-2">
@@ -426,6 +426,7 @@ export function ConclusionModal({ experimentId }: { experimentId: Experiment['id
                     </div>
                     <LemonLabel>Conclusion</LemonLabel>
                     <LemonSelect
+                        className="w-full"
                         dropdownMaxContentWidth={true}
                         value={experiment.conclusion}
                         options={[
