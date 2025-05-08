@@ -21,7 +21,7 @@ class WebOverviewPreAggregatedQueryBuilder:
         """Check if the current query can use pre-aggregated tables"""
         # Conversion goals require the full event data
         if self.runner.query.conversionGoal:
-            logger.error(
+            logger.debug(
                 "Not using pre-aggregated tables: conversion goal requires full event data",
                 extra={"team_id": self.runner.team.pk}
             )
@@ -31,13 +31,13 @@ class WebOverviewPreAggregatedQueryBuilder:
         supported_props = {"$host", "$device_type"}
         for prop in self.runner.query.properties:
             if not hasattr(prop, "key") or prop.key not in supported_props:
-                logger.error(
+                logger.debug(
                     f"Not using pre-aggregated tables: property filter not supported ({getattr(prop, 'key', 'unknown')})",
                     extra={"team_id": self.runner.team.pk}
                 )
                 return False
         
-        logger.error(
+        logger.info(
             "Using pre-aggregated tables for web overview query", 
             extra={"team_id": self.runner.team.pk}
         )
@@ -49,7 +49,7 @@ class WebOverviewPreAggregatedQueryBuilder:
         include_revenue = self.runner.query.includeRevenue
         team_id = self.runner.team.pk
         
-        logger.error(
+        logger.info(
             "Building simplified pre-aggregated query for web overview", 
             extra={
                 "team_id": team_id,
@@ -107,7 +107,7 @@ FROM web_overview_daily
 WHERE {where_clause}
 """
         
-        logger.error(
+        logger.info(
             "Executing ClickHouse SQL query directly", 
             extra={
                 "team_id": team_id,
@@ -115,7 +115,7 @@ WHERE {where_clause}
             }
         )
 
-        logger.error(
+        logger.debug(
             sql, 
             extra={
                 "team_id": team_id,
