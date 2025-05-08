@@ -1040,7 +1040,7 @@ When set, the specified dashboard's filters and date range override will be appl
     def calculate_trends_hogql(self, request: request.Request) -> dict[str, Any]:
         team = self.team
         filter = Filter(request=request, team=team)
-        query = filter_to_query(filter.to_dict())
+        query = filter_to_query(filter.to_dict()).model_dump()
         query = upgrade(query)  # should not be necessary, but just in case
         query_runner = get_query_runner(query, team, limit_context=None)
 
@@ -1104,7 +1104,7 @@ When set, the specified dashboard's filters and date range override will be appl
         team = self.team
         filter = Filter(request=request, team=team)
         filter = filter.shallow_clone(overrides={"insight": "FUNNELS"})
-        query = filter_to_query(filter.to_dict())
+        query = filter_to_query(filter.to_dict()).model_dump()
         query = upgrade(query)  # should not be necessary, but just in case
         query_runner = get_query_runner(query, team, limit_context=None)
 
