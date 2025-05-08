@@ -736,7 +736,8 @@ describe('template patching', () => {
 
         // Insert template based hog function (hog, bytecode, inputs_schema, mappings are null)
         const { id } = await insertHogFunction(hub.postgres, teamId, {
-            template_id: template.template_id,
+            hog_function_template_id: template.id,
+            template_id: piiHashingTemplate.id,
             name: 'My PII Hashing Function',
             hog: null,
             bytecode: null,
@@ -788,7 +789,7 @@ describe('template patching', () => {
         const { id } = await insertHogFunction(hub.postgres, teamId, {
             hog: customCode,
             bytecode: customBytecode,
-            template_id: template.template_id,
+            hog_function_template_id: template.id, // Use the UUID from template.id
             inputs_schema: [
                 {
                     type: 'string',

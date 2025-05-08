@@ -23,6 +23,7 @@ const HOG_FUNCTION_FIELDS = [
     'masking',
     'type',
     'template_id',
+    'hog_function_template_id',
     'execution_order',
     'created_at',
     'updated_at',
@@ -386,12 +387,14 @@ export class HogFunctionManagerService {
     ): Promise<Record<string, HogFunctionTemplateType | undefined>> {
         const response = await this.hub.postgres.query<HogFunctionTemplateType>(
             PostgresUse.COMMON_READ,
-            `SELECT template_id, code, bytecode, inputs_schema, mappings FROM posthog_hogfunctiontemplate WHERE template_id = ANY($1)`,
+            `SELECT id, template_id, code, bytecode, inputs_schema, mappings 
+             FROM posthog_hogfunctiontemplate 
+             WHERE id = ANY($1)`,
             [templateIds],
             'fetchHogFunctionTemplates'
         )
         return response.rows.reduce((acc, template) => {
-            acc[template.template_id] = template
+            acc[template.id] = template
             return acc
         }, {} as Record<string, HogFunctionTemplateType | undefined>)
     }
@@ -399,8 +402,10 @@ export class HogFunctionManagerService {
     private async patchHogFunctionsWithTemplates(hogFunctions: HogFunctionType[]): Promise<void> {
         const templateIdsSet = new Set<string>()
         for (const fn of hogFunctions) {
-            if (this.needsTemplatePatch(fn) && fn.template_id) {
-                templateIdsSet.add(fn.template_id)
+            // Prefer hog_function_template_id over template_id
+            const templateId = fn.hog_function_template_id
+            if (this.needsTemplatePatch(fn) && templateId) {
+                templateIdsSet.add(templateId)
             }
         }
         const templateIds = Array.from(templateIdsSet)
@@ -411,11 +416,13 @@ export class HogFunctionManagerService {
         const templates = await this.templateLazyLoader.getMany(templateIds)
 
         for (const fn of hogFunctions) {
-            if (this.needsTemplatePatch(fn) && fn.template_id) {
-                const template = templates[fn.template_id]
+            // Prefer hog_function_template_id over template_id
+            const templateId = fn.hog_function_template_id
+            if (this.needsTemplatePatch(fn) && templateId) {
+                const template = templates[templateId]
                 if (!template) {
                     throw new Error(
-                        `[HogFunctionManager] Missing template for template_id=${fn.template_id} (function id=${fn.id})`
+                        `[HogFunctionManager] Missing template for template_id=${templateId} (function id=${fn.id})`
                     )
                 }
                 fn.hog = template.code
@@ -427,8 +434,8 @@ export class HogFunctionManagerService {
     }
 
     private needsTemplatePatch(fn: HogFunctionType): boolean {
-        return (
-            !!fn.template_id && fn.hog == null && fn.bytecode == null && fn.inputs_schema == null && fn.mappings == null
-        )
+        // Check if the function has a template_id or hog_function_template_id
+        const hasTemplateId = !!fn.hog_function_template_id
+        return hasTemplateId && fn.hog == null && fn.bytecode == null && fn.inputs_schema == null && fn.mappings == null
     }
 }

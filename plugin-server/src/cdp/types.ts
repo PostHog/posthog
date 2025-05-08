@@ -57,6 +57,7 @@ export type GroupType = {
 }
 
 export type HogFunctionTemplateType = {
+    id: string
     template_id: string
     sha: string
     name: string
@@ -345,6 +346,7 @@ export type HogFunctionType = {
     masking?: HogFunctionMasking | null
     depends_on_integration_ids?: Set<IntegrationType['id']>
     template_id?: string
+    hog_function_template_id?: string
     execution_order?: number
     created_at: string
     updated_at: string
