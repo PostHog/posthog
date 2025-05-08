@@ -301,7 +301,7 @@ def mock_filtered_events(
 
 @pytest.fixture
 def mock_events_mapping(
-    mock_raw_events: list[list[Any]],
+    mock_raw_events: list[tuple[Any, ...]],
     mock_url_mapping: dict[str, str],
     mock_window_mapping: dict[str, str],
     mock_valid_event_ids: list[str],
