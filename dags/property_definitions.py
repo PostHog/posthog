@@ -95,7 +95,7 @@ def ingest_event_properties(
     context.log.info(f"Ingesting person properties for {time_range!r}")
 
     # Query to insert event properties into property_definitions table
-    query = f"""
+    insert_query = f"""
     INSERT INTO property_definitions (* EXCEPT(version))
     SELECT
         team_id,
@@ -114,7 +114,7 @@ def ingest_event_properties(
     """
 
     context.log.info("Executing insert query...")
-    cluster.any_host(Query(query)).result()
+    cluster.any_host(Query(insert_query)).result()
 
     # Get the number of rows inserted for this specific time window
     count_query = f"""
@@ -141,7 +141,7 @@ def ingest_person_properties(
     context.log.info(f"Ingesting person properties for {time_range!r}")
 
     # Query to insert person properties into property_definitions table
-    query = f"""
+    insert_query = f"""
     INSERT INTO property_definitions (* EXCEPT(version))
     SELECT
         team_id,
@@ -160,7 +160,7 @@ def ingest_person_properties(
     """
 
     context.log.info("Executing insert query...")
-    cluster.any_host(Query(query)).result()
+    cluster.any_host(Query(insert_query)).result()
 
     # Get the number of rows inserted for this specific time window
     count_query = f"""
