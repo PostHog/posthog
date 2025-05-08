@@ -270,10 +270,10 @@ fn decompress_lz64(payload: &[u8], limit: usize) -> Result<String, CaptureError>
         Some(v) => v,
         None => {
             let max_chars: usize = std::cmp::min(payload.len(), MAX_PAYLOAD_SNIPPET_SIZE);
-            let form_data_snippet = String::from_utf8(payload[..max_chars].to_vec())
+            let payload_snippet = String::from_utf8(payload[..max_chars].to_vec())
                 .unwrap_or(String::from("INVALID_UTF8"));
             error!(
-                form_data = form_data_snippet,
+                payload_snippet = payload_snippet,
                 "decompress_lz64: failed decompress to UTF16"
             );
             return Err(CaptureError::RequestDecodingError(String::from(
