@@ -1041,6 +1041,7 @@ When set, the specified dashboard's filters and date range override will be appl
         team = self.team
         filter = Filter(request=request, team=team)
         query = filter_to_query(filter.to_dict())
+        query = upgrade(query)  # should not be necessary, but just in case
         query_runner = get_query_runner(query, team, limit_context=None)
 
         # we use the legacy caching mechanism (@cached_by_filters decorator), no need to cache in the query runner
@@ -1104,6 +1105,7 @@ When set, the specified dashboard's filters and date range override will be appl
         filter = Filter(request=request, team=team)
         filter = filter.shallow_clone(overrides={"insight": "FUNNELS"})
         query = filter_to_query(filter.to_dict())
+        query = upgrade(query)  # should not be necessary, but just in case
         query_runner = get_query_runner(query, team, limit_context=None)
 
         # we use the legacy caching mechanism (@cached_by_filters decorator), no need to cache in the query runner
