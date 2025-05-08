@@ -176,4 +176,6 @@ export const urls = {
     startups: (ycProgram?: boolean): string => `/startups${ycProgram ? '/yc' : ''}`,
     hogFunction: (id: string): string => `/functions/${id}`,
     hogFunctionNew: (templateId: string): string => `/functions/new/${templateId}`,
+    errorTrackingAlert: (id: string): string => `/error_tracking/alerts/${id}`,
+    errorTrackingAlertNew: (templateId: string): string => `/error_tracking/alerts/new/${templateId}`,
 }

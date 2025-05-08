@@ -1,10 +1,17 @@
-import { actions, connect, kea, path, props, reducers, selectors, useActions, useValues } from 'kea'
+import { actions, connect, kea, key, path, props, reducers, selectors, useActions, useValues } from 'kea'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { NotFound } from 'lib/components/NotFound'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { HogFunctionMetrics } from 'scenes/hog-functions/metrics/HogFunctionMetrics'
 import { HogFunctionTesting } from 'scenes/hog-functions/testing/HogFunctionTesting'
 import { HogFunctionConfiguration } from 'scenes/pipeline/hogfunctions/HogFunctionConfiguration'
-import { hogFunctionConfigurationLogic } from 'scenes/pipeline/hogfunctions/hogFunctionConfigurationLogic'
+import {
+    hogFunctionConfigurationLogic,
+    HogFunctionConfigurationLogicProps,
+} from 'scenes/pipeline/hogfunctions/hogFunctionConfigurationLogic'
 import { HogFunctionLogs } from 'scenes/pipeline/hogfunctions/logs/HogFunctionLogs'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -12,20 +19,16 @@ import { urls } from 'scenes/urls'
 import { ActivityScope, Breadcrumb } from '~/types'
 
 import type { hogFunctionSceneLogicType } from './HogFunctionSceneType'
-export type HogFunctionSceneLogicProps = { id: string }
+import { HogFunctionSkeleton } from './misc/HogFunctionSkeleton'
 
 export type HogFunctionSceneTab = 'configuration' | 'metrics' | 'logs' | 'testing' | 'history'
 
 export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
+    props({} as HogFunctionConfigurationLogicProps),
+    key(({ id, templateId }: HogFunctionConfigurationLogicProps) => id ?? templateId ?? 'new'),
     path((key) => ['scenes', 'hog-functions', 'hogFunctionSceneLogic', key]),
-    props({} as HogFunctionSceneLogicProps),
-    connect(({ id }: HogFunctionSceneLogicProps) => ({
-        values: [
-            hogFunctionConfigurationLogic({
-                id: id,
-            }),
-            ['configuration'],
-        ],
+    connect((props: HogFunctionConfigurationLogicProps) => ({
+        values: [hogFunctionConfigurationLogic(props), ['configuration', 'type', 'loading', 'loaded']],
     })),
     actions({
         setCurrentTab: (tab: HogFunctionSceneTab) => ({ tab }),
@@ -40,38 +43,87 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
     })),
     selectors({
         breadcrumbs: [
-            (_, p) => [p.id],
-            (id): Breadcrumb[] => [
-                {
-                    key: Scene.HogFunction,
-                    name: 'Hog functions',
-                },
-                {
-                    key: Scene.HogFunction,
-                    path: urls.hogFunction(id),
-                    name: id === 'new' ? 'Create hog function' : 'Edit hog function',
-                },
-                // {
-                //     key: Scene.ErrorTrackingAlert,
-                //     name: id === 'new' ? 'Create alert' : 'Edit alert',
-                // },
-            ],
+            (s) => [(_, props) => props, s.type],
+            ({ templateId, id }, type): Breadcrumb[] => {
+                const friendlyType =
+                    type === 'destination'
+                        ? 'Destination'
+                        : type === 'internal_destination'
+                        ? 'Notification'
+                        : capitalizeFirstLetter(type)
+
+                // TODO: Map URLs as well
+
+                return [
+                    {
+                        key: Scene.HogFunction,
+                        name: friendlyType,
+                    },
+                    {
+                        key: Scene.HogFunction,
+                        path: urls.hogFunction(id),
+                        name: templateId ? 'New' : 'Edit',
+                    },
+                    // {
+                    //     key: Scene.ErrorTrackingAlert,
+                    //     name: id === 'new' ? 'Create alert' : 'Edit alert',
+                    // },
+                ]
+            },
         ],
     }),
+    actionToUrl(({ values }) => ({
+        setCurrentTab: () => {
+            return [
+                router.values.location.pathname,
+                {
+                    ...router.values.searchParams,
+                    tab: values.currentTab,
+                },
+                router.values.hashParams,
+            ]
+        },
+    })),
+    urlToAction(({ actions }) => ({
+        '*': (_, search) => {
+            if ('tab' in search) {
+                actions.setCurrentTab(search.tab as HogFunctionSceneTab)
+                return
+            }
+        },
+    })),
 ])
 
 export const scene: SceneExport = {
     component: HogFunctionScene,
     logic: hogFunctionSceneLogic,
-    paramsToProps: ({ params: { id } }): (typeof hogFunctionSceneLogic)['props'] => ({ id }),
+    paramsToProps: ({ params: { id, templateId } }): (typeof hogFunctionSceneLogic)['props'] => ({ id, templateId }),
 }
 
-export function HogFunctionScene(props: HogFunctionSceneLogicProps): JSX.Element {
-    const { currentTab } = useValues(hogFunctionSceneLogic(props))
+export function HogFunctionScene(props: HogFunctionConfigurationLogicProps): JSX.Element {
+    const { id, templateId } = props
+    const { currentTab, loading, loaded } = useValues(hogFunctionSceneLogic(props))
     const { setCurrentTab } = useActions(hogFunctionSceneLogic(props))
-    // Check for hog function and render error if missing
-    if (!props) {
-        return <div>Error</div>
+
+    if (loading && !loaded) {
+        return (
+            <div className="flex flex-col gap-4">
+                <LemonSkeleton className="w-full h-12" />
+                <HogFunctionSkeleton />
+            </div>
+        )
+    }
+
+    if (!loaded) {
+        return <NotFound object="Hog function" />
+    }
+
+    if (templateId) {
+        return <HogFunctionConfiguration templateId={templateId} />
+    }
+
+    if (!id) {
+        return <NotFound object="Hog function" />
     }
 
     const tabs: LemonTab<HogFunctionSceneTab>[] = [
@@ -80,7 +132,7 @@ export function HogFunctionScene(props: HogFunctionSceneLogicProps): JSX.Element
             key: 'configuration',
             content: (
                 <HogFunctionConfiguration
-                    id={props.id}
+                    id={id}
                     // displayOptions={{ hideTestingConfiguration: false }}
                 />
             ),
@@ -88,22 +140,22 @@ export function HogFunctionScene(props: HogFunctionSceneLogicProps): JSX.Element
         {
             label: 'Metrics',
             key: 'metrics',
-            content: <HogFunctionMetrics id={props.id} />,
+            content: <HogFunctionMetrics id={id} />,
         },
         {
             label: 'Logs',
             key: 'logs',
-            content: <HogFunctionLogs hogFunctionId={props.id} />,
+            content: <HogFunctionLogs hogFunctionId={id} />,
         },
         {
             label: 'Testing',
             key: 'testing',
-            content: <HogFunctionTesting id={props.id} />,
+            content: <HogFunctionTesting id={id} />,
         },
         {
             label: 'History',
             key: 'history',
-            content: <ActivityLog id={props.id} scope={ActivityScope.HOG_FUNCTION} />,
+            content: <ActivityLog id={id} scope={ActivityScope.HOG_FUNCTION} />,
         },
     ]
 
