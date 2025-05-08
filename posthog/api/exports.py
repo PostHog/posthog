@@ -85,7 +85,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
         team = instance.team
 
         blocking_exports = posthoganalytics.feature_enabled(
-            "blocking_exports",
+            "blocking-exports",
             str(team.uuid),
             groups={
                 "organization": str(team.organization_id),
