@@ -100,7 +100,7 @@ export const TreeNodeDisplayIcon = ({
     }
 
     return (
-        <div className="flex gap-1 relative [&_svg]:size-4 items-start h-full">
+        <div className="h-[var(--lemon-tree-button-height)] flex gap-1 relative [&_svg]:size-4 items-start">
             {isFolder && (
                 <div
                     className={cn(
@@ -256,7 +256,7 @@ export const InlineEditField = ({
         >
             {/* Spacer to offset button padding */}
             <div
-                className="h-full bg-transparent pointer-events-none flex-shrink-0 transition-[width] duration-50"
+                className="h-[var(--lemon-tree-button-height)] bg-transparent pointer-events-none flex-shrink-0 transition-[width] duration-50"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={style}
             />

@@ -158,8 +158,6 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     tableModeHeader?: () => React.ReactNode
     /** The row to render for the table mode */
     tableModeRow?: (item: TreeDataItem, firstColumnOffset: number) => React.ReactNode
-    /** The size of the tree element */
-    treeElementSize?: 'base' | 'lg'
 }
 
 export type LemonTreeProps = LemonTreeBaseProps & {
@@ -362,7 +360,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                         >
                             {/* Spacer to offset button padding */}
                             <span
-                                className="h-full bg-transparent pointer-events-none flex-shrink-0 transition-[width] duration-50"
+                                className="h-[var(--lemon-tree-button-height)] bg-transparent pointer-events-none flex-shrink-0 transition-[width] duration-50"
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={{
                                     width: `${firstColumnOffset}px`,
@@ -635,7 +633,6 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             tableModeTotalWidth,
             tableModeHeader,
             tableModeRow,
-            treeElementSize = 'base',
             ...props
         },
         ref: ForwardedRef<LemonTreeRef>
@@ -1268,11 +1265,8 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                             // for scrollable shadows
                             '--scrollable-shadows-offset-top': mode === 'table' ? '30px' : '0px',
                             // for tree element
-                            '--lemon-tree-button-height':
-                                treeElementSize === 'lg'
-                                    ? 'var(--button-height-base-tall)'
-                                    : 'var(--button-height-base)',
-                            '--lemon-tree-button-icon-offset-top': treeElementSize === 'lg' ? '-4px' : '5px',
+                            '--lemon-tree-button-height': 'var(--button-height-base)',
+                            '--lemon-tree-button-icon-offset-top': '5px',
                         } as CSSProperties
                     }
                 >
