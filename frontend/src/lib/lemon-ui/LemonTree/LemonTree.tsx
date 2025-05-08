@@ -476,7 +476,6 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                 />
 
                                                 {isItemEditing?.(item) ? (
-                                                {isItemEditing?.(item) ? (
                                                     <InlineEditField
                                                         value={item.name}
                                                         handleSubmit={(value) => {
