@@ -1,0 +1,30 @@
+name: Project Management
+
+on:
+    create:
+        branches:
+            - '**'
+
+jobs:
+    move-issues-on-branch-creation:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Move Issue to In Progress
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const branchName = context.ref.replace('refs/heads/', '');
+                      const issueNumber = branchName.match(/\d+$/)?.[0];
+
+                      if(!issueNumber) {
+                        console.log('No issue number found in branch name');
+                        return;
+                      }
+
+                      // Get all the projects
+                      const { data: projects } = await github.rest.projects.listForRepo({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                      });
+
+                      console.log(projects);
