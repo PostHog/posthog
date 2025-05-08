@@ -184,7 +184,10 @@ def sync_execute(
         # these disruptions
         settings["use_hedged_requests"] = "0"
     elif workload == Workload.OFFLINE and is_personal_api_key:
-        # personal api keys are allowed to use hedged requests that can spill into the online resource pool
+        # Personal API keys are allowed to use hedged requests, which can spill into the online resource pool.
+        # This ensures faster and more reliable query execution for personal API key users, even at the cost of
+        # potentially impacting online workloads. This behavior differs from the previous retry logic, which
+        # would retry queries only after a failure, leading to higher latency for personal API key users.
         settings["use_hedged_requests"] = "1"
     start_time = perf_counter()
     try:
