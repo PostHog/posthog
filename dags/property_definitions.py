@@ -148,6 +148,7 @@ def ingest_person_properties(
     context.log.info(f"Ingesting person properties for {time_range!r}")
 
     # Query to insert person properties into property_definitions table
+    # NOTE: this is a different data source from current, assuming ok? https://github.com/PostHog/posthog/blob/052f4ea40c5043909115f835f09445e18dd9727c/rust/property-defs-rs/src/types.rs#L250-L26
     insert_query = f"""
     INSERT INTO property_definitions (* EXCEPT(version))
     SELECT
@@ -227,6 +228,7 @@ def property_definitions_ingestion_job():
     time_range = setup_job()
     event_count = ingest_event_properties(time_range)
     person_count = ingest_person_properties(time_range)
+    # TODO: handle group properties: https://github.com/PostHog/posthog/blob/052f4ea40c5043909115f835f09445e18dd9727c/rust/property-defs-rs/src/types.rs#L224-L245
     optimize_property_definitions(time_range, event_count, person_count)
 
 
