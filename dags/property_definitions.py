@@ -199,19 +199,73 @@ def ingest_person_properties(
 
 
 @dagster.op
+def ingest_group_properties(
+    context: dagster.OpExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    time_range: TimeRange,
+) -> int:
+    """
+    Ingest group properties from group table into property_definitions table.
+    """
+    # Log the execution parameters
+    context.log.info(f"Ingesting group properties for {time_range!r}")
+
+    # Query to insert group properties into property_definitions table
+    # NOTE: this is a different data source from current, see https://github.com/PostHog/product-internal/pull/748/files#diff-78e7399938cb790eae10d5c5769f7edcb531972f33a32e0655872bded13f4977R165-R170
+    insert_query = f"""
+    INSERT INTO property_definitions
+    SELECT
+        team_id,
+        team_id as project_id,
+        (arrayJoin({DetectPropertyTypeExpression('group_properties')}) as property).1 as name,
+        property.2 as property_type,
+        NULL as event,
+        group_type_index,
+        {int(PropertyDefinition.Type.GROUP)} as type,
+        max(_timestamp) as last_seen_at
+    FROM groups
+    WHERE
+        {time_range.get_expression("_timestamp")}
+        AND {COMMON_PROPERTY_FILTERS}
+    GROUP BY team_id, name, property_type, group_type_index
+    ORDER BY team_id, name, property_type NULLS LAST, group_type_index
+    LIMIT 1 by team_id, name, group_type_index
+    """
+
+    context.log.info("Executing insert query...")
+    cluster.any_host(Query(insert_query)).result()
+
+    # Get the number of rows inserted for this specific time window
+    count_query = f"""
+    SELECT count() FROM property_definitions
+    WHERE
+        type = {int(PropertyDefinition.Type.GROUP)}
+        AND {time_range.get_expression("last_seen_at")}
+    """
+
+    rows = cluster.any_host(Query(count_query)).result()[0][0]
+    context.log.info(f"Inserted {rows} group property definitions")
+
+    return rows
+
+
+@dagster.op
 def optimize_property_definitions(
     context: dagster.OpExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
     time_range: TimeRange,
     event_count: int,
     person_count: int,
+    group_count: int,
 ) -> int:
     """
     Run OPTIMIZE on property_definitions table to deduplicate inserted data.
 
     This runs after both event and person property ingestion completes successfully.
     """
-    context.log.info(f"Running OPTIMIZE TABLE for {event_count} event properties and {person_count} person properties")
+    context.log.info(
+        f"Running OPTIMIZE TABLE for {event_count} event properties, {person_count} person properties, {group_count} group properties"
+    )
 
     # Run OPTIMIZE after all inserts to merge duplicates using the ReplacingMergeTree's version column
     cluster.any_host(Query("OPTIMIZE TABLE property_definitions FINAL")).result()
@@ -244,8 +298,8 @@ def property_definitions_ingestion_job():
     time_range = setup_job()
     event_count = ingest_event_properties(time_range)
     person_count = ingest_person_properties(time_range)
-    # TODO: handle group properties: https://github.com/PostHog/posthog/blob/052f4ea40c5043909115f835f09445e18dd9727c/rust/property-defs-rs/src/types.rs#L224-L245
-    optimize_property_definitions(time_range, event_count, person_count)
+    group_count = ingest_group_properties(time_range)
+    optimize_property_definitions(time_range, event_count, person_count, group_count)
 
 
 @dagster.schedule(
