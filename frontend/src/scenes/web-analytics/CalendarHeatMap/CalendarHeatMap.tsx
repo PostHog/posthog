@@ -3,17 +3,12 @@ import './CalendarHeatMap.scss'
 import { useValues } from 'kea'
 import React, { useCallback, useEffect, useState } from 'react'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
-import { InsightLoadingState } from 'scenes/insights/EmptyStates'
-import { InsightsWrapper } from 'scenes/insights/InsightsWrapper'
 
 import { useResizeObserver } from '~/lib/hooks/useResizeObserver'
-import { QueryContext } from '~/queries/types'
 
 import { CalendarHeatMapCell, HeatMapValues } from './CalendarHeatMapCell'
 export interface CalendarHeatMapProps {
-    context: QueryContext
     isLoading: boolean
-    queryId: string | null
     rowLabels: string[]
     columnLabels: string[]
     allAggregationsLabel: string
@@ -46,7 +41,6 @@ interface ProcessedData {
 }
 
 export function CalendarHeatMap({
-    context,
     backgroundColorsOverride,
     initialFontSize,
     thresholdFontSize,
@@ -54,7 +48,6 @@ export function CalendarHeatMap({
     columnLabels,
     allAggregationsLabel,
     isLoading,
-    queryId,
     processedData,
     getDataTooltip,
     getColumnAggregationTooltip,
@@ -89,14 +82,6 @@ export function CalendarHeatMap({
 
         updateSize()
     }, [elementRef, updateSize])
-
-    if (isLoading) {
-        return (
-            <InsightsWrapper>
-                <InsightLoadingState queryId={queryId} key={queryId} insightProps={context.insightProps ?? {}} />
-            </InsightsWrapper>
-        )
-    }
 
     const {
         matrix,
@@ -142,7 +127,8 @@ export function CalendarHeatMap({
                                 rowLabel,
                                 fontSize,
                                 heatmapColor,
-                                getDataTooltip
+                                getDataTooltip,
+                                isLoading
                             )}
                             {renderRowsAggregationCell(
                                 {
@@ -154,7 +140,8 @@ export function CalendarHeatMap({
                                 fontSize,
                                 rowAggregationColor,
                                 allAggregationsLabel,
-                                getRowAggregationTooltip
+                                getRowAggregationTooltip,
+                                isLoading
                             )}
                         </tr>
                     ))}
@@ -172,14 +159,16 @@ export function CalendarHeatMap({
                             fontSize,
                             columnAggregationColor,
                             allAggregationsLabel,
-                            getColumnAggregationTooltip
+                            getColumnAggregationTooltip,
+                            isLoading
                         )}
                         {renderOverallCell(
                             overallValue,
                             fontSize,
                             backgroundColorOverall,
                             allAggregationsLabel,
-                            getOverallAggregationTooltip
+                            getOverallAggregationTooltip,
+                            isLoading
                         )}
                     </tr>
                 </tbody>
@@ -193,7 +182,8 @@ function renderOverallCell(
     fontSize: number,
     bg: string,
     allAggregationsLabel: string,
-    getOverallAggregationTooltip: (overallAggregationLabel: string, value: number) => string
+    getOverallAggregationTooltip: (overallAggregationLabel: string, value: number) => string,
+    isLoading: boolean
 ): JSX.Element {
     return (
         <td className="aggregation-border">
@@ -206,6 +196,7 @@ function renderOverallCell(
                 }}
                 bg={bg}
                 tooltip={getOverallAggregationTooltip(allAggregationsLabel, overallValue)}
+                isLoading={isLoading}
             />
         </td>
     )
@@ -219,7 +210,8 @@ function renderColumnsAggregationCells(
     fontSize: number,
     bg: string,
     allAggregationsLabel: string,
-    getColumnAggregationTooltip: (columnAggregationLabel: string, columnLabel: string, value: number) => string
+    getColumnAggregationTooltip: (columnAggregationLabel: string, columnLabel: string, value: number) => string,
+    isLoading: boolean
 ): JSX.Element[] {
     return columnLabels.map((columnLabel, index) => (
         <td key={index}>
@@ -232,6 +224,7 @@ function renderColumnsAggregationCells(
                 }}
                 bg={bg}
                 tooltip={getColumnAggregationTooltip(allAggregationsLabel, columnLabel, columnsAggregations[index])}
+                isLoading={isLoading}
             />
         </td>
     ))
@@ -243,7 +236,8 @@ function renderRowsAggregationCell(
     fontSize: number,
     bg: string,
     allAggregationsLabel: string,
-    getRowAggregationTooltip: (rowAggregationLabel: string, rowLabel: string, value: number) => string
+    getRowAggregationTooltip: (rowAggregationLabel: string, rowLabel: string, value: number) => string,
+    isLoading: boolean
 ): JSX.Element {
     return (
         <td className="aggregation-border">
@@ -252,6 +246,7 @@ function renderRowsAggregationCell(
                 values={values}
                 bg={bg}
                 tooltip={getRowAggregationTooltip(allAggregationsLabel, rowLabel, values.value)}
+                isLoading={isLoading}
             />
         </td>
     )
@@ -265,7 +260,8 @@ function renderDataCells(
     rowLabel: string,
     fontSize: number,
     bg: string,
-    getDataTooltip: (rowLabel: string, columnLabel: string, value: number) => string
+    getDataTooltip: (rowLabel: string, columnLabel: string, value: number) => string,
+    isLoading: boolean
 ): JSX.Element[] {
     return columnLabels.map((columnLabel, index) => (
         <td key={index}>
@@ -278,6 +274,7 @@ function renderDataCells(
                 }}
                 bg={bg}
                 tooltip={getDataTooltip(rowLabel, columnLabel, rowData[index])}
+                isLoading={isLoading}
             />
         </td>
     ))
