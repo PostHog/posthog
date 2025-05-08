@@ -1548,6 +1548,7 @@ export interface SessionRecordingPlaylistType {
      * marked as has more if the filters count onoy matched one page and there are more available
      */
     recordings_counts?: PlaylistRecordingsCounts
+    type: 'filters' | 'collection'
     _create_in_folder?: string | null
 }
 
