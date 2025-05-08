@@ -11,6 +11,7 @@ from django.utils.timezone import now
 from freezegun import freeze_time
 from requests import get, Response
 from rest_framework import status
+import urllib.parse
 
 from ee.api.billing import BillingUsageRequestSerializer
 from ee.api.test.base import APILicensedTest
@@ -1057,7 +1058,7 @@ class TestStartupApplicationBillingAPI(APILicensedTest):
         )
 
     def test_startup_apply_missing_org_id(self):
-        empty_data = {}
+        empty_data: dict[str, Any] = {}
 
         response = self.client.post(self.url, empty_data)
 
@@ -1126,14 +1127,13 @@ class TestBillingUsageRequestSerializer(TestCase):
     def test_start_date_all(self):
         serializer = BillingUsageRequestSerializer(data={"start_date": "all"})
         self.assertTrue(serializer.is_valid(), serializer.errors)
-        self.assertEqual(serializer.validated_data["start_date"], "2024-01-01")
+        self.assertEqual(serializer.validated_data["start_date"], "2020-01-01")
 
     def test_passthrough_fields(self):
-        # URL encoded JSON strings
         data = {
-            "usage_types": "%5Bevents%2C%20recordings%5D",
-            "team_ids": "%5B1%2C%202%2C%203%5D",
-            "breakdowns": "%5Bday%2C%20event%5D",
+            "usage_types": urllib.parse.quote('["event_count_in_period","recording_count_in_period"]'),
+            "team_ids": urllib.parse.quote("[1,2,3]"),
+            "breakdowns": urllib.parse.quote("[type,team]"),
             "interval": "week",
         }
         serializer = BillingUsageRequestSerializer(data=data)

@@ -154,7 +154,7 @@ export function BillingUsage(): JSX.Element {
                 )}
                 {showEmptyState && (
                     <BillingEmptyState
-                        heading="I couldn't find any usage data for your current query."
+                        heading="We couldn't find any usage data for your current query."
                         detail="Try adjusting the filters. If you think something is wrong, contact us!"
                     />
                 )}

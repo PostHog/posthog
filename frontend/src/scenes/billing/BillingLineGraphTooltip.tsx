@@ -1,6 +1,4 @@
-import React from 'react'
-
-import { SeriesColorDot } from './BillingLineGraph' // Import SeriesColorDot
+import { SeriesColorDot } from './BillingLineGraph'
 
 export interface BillingLineGraphTooltipSeriesItem {
     id: number | string

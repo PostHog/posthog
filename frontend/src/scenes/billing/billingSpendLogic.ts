@@ -1,6 +1,6 @@
+import { lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { dateMapping, toParams } from 'lib/utils'
@@ -52,15 +52,6 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
     connect({
         values: [organizationLogic, ['currentOrganization'], billingLogic, ['billing']],
     }),
-    // patch only team_ids
-    subscriptions((logic: billingSpendLogicType) => ({
-        currentOrganization: (org: OrganizationType | null, prevOrg: OrganizationType | null) => {
-            if (!prevOrg && org) {
-                const teamIds: number[] = org.teams?.map((t: TeamBasicType) => t.id) ?? []
-                logic.actions.setFilters({ team_ids: teamIds })
-            }
-        },
-    })),
     actions({
         setFilters: (filters: Partial<BillingSpendFilters>) => ({ filters }),
         setDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
@@ -84,8 +75,13 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
                         end_date: values.dateTo || dayjs().subtract(1, 'day').format('YYYY-MM-DD'),
                         ...(interval ? { interval } : {}),
                     }
-                    const response = await api.get(`api/billing/spend/?${toParams(params)}`)
-                    return response
+                    try {
+                        const response = await api.get(`api/billing/spend/?${toParams(params)}`)
+                        return response
+                    } catch (error) {
+                        lemonToast.error('Failed to load billing spend, please try again or contact support.')
+                        throw error
+                    }
                 },
             },
         ],

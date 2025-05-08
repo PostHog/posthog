@@ -1,12 +1,11 @@
+import { lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { dateMapping, toParams } from 'lib/utils'
 import { organizationLogic } from 'scenes/organizationLogic'
 
-import type { OrganizationType } from '~/types'
 import { BillingType, DateMappingOption } from '~/types'
 
 import { billingLogic } from './billingLogic'
@@ -53,17 +52,6 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
     connect({
         values: [organizationLogic, ['currentOrganization'], billingLogic, ['billing']],
     }),
-    subscriptions((logic: billingUsageLogicType) => ({
-        currentOrganization: (org: OrganizationType | null, prevOrg: OrganizationType | null) => {
-            if (!prevOrg && org) {
-                // patch only team_ids
-                const teamIds: number[] = org.teams?.map(({ id }) => id) ?? []
-                if (teamIds.length) {
-                    logic.actions.setFilters({ team_ids: teamIds })
-                }
-            }
-        },
-    })),
     actions({
         setFilters: (filters: Partial<BillingUsageFilters>) => ({ filters }),
         setDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
@@ -87,8 +75,13 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                         end_date: values.dateTo || dayjs().subtract(1, 'day').format('YYYY-MM-DD'),
                         ...(interval ? { interval } : {}),
                     }
-                    const response = await api.get(`api/billing/usage/?${toParams(params)}`)
-                    return response
+                    try {
+                        const response = await api.get(`api/billing/usage/?${toParams(params)}`)
+                        return response
+                    } catch (error) {
+                        lemonToast.error('Failed to load billing usage. Please try again or contact support.')
+                        throw error
+                    }
                 },
             },
         ],

@@ -10,15 +10,12 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { organizationLogic } from 'scenes/organizationLogic'
 
+import { currencyFormatter } from './billing-utils'
 import { BillingDataTable } from './BillingDataTable'
 import { BillingEmptyState } from './BillingEmptyState'
 import { BillingLineGraph } from './BillingLineGraph'
 import { billingSpendLogic } from './billingSpendLogic'
 import { USAGE_TYPES } from './constants'
-
-const currencyFormatter = (value: number): string => {
-    return value.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
-}
 
 export function BillingSpendView(): JSX.Element {
     const logic = billingSpendLogic({ dashboardItemId: 'spendView' })
@@ -160,7 +157,7 @@ export function BillingSpendView(): JSX.Element {
                 )}
                 {showEmptyState && (
                     <BillingEmptyState
-                        heading="I couldn't find any spend data for your current query."
+                        heading="We couldn't find any usage data for your current query."
                         detail="Try adjusting the filters. If you think something is wrong, contact us!"
                     />
                 )}
