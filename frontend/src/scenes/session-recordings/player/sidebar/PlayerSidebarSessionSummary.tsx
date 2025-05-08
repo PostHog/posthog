@@ -403,12 +403,6 @@ function SessionSummaryLoadingState({ operation, counter, name, outOf }: Session
 }
 
 function SessionSummaryStats({ sessionSummary }: { sessionSummary: SessionSummaryContent }): JSX.Element {
-    const totalKeyActions =
-        sessionSummary.segments?.reduce(
-            (acc: number, segment: SessionSegment) => acc + (segment.meta?.key_action_count || 0),
-            0
-        ) || 0
-
     // Count each issue type separately for display
     const totalAbandonment =
         sessionSummary.segments?.reduce(
@@ -425,7 +419,6 @@ function SessionSummaryStats({ sessionSummary }: { sessionSummary: SessionSummar
             (acc: number, segment: SessionSegment) => acc + (segment.meta?.exception_count || 0),
             0
         ) || 0
-
     // Calculate weighted health score
     const segmentScores =
         sessionSummary.segments?.map((segment: SessionSegment) => {
@@ -441,7 +434,6 @@ function SessionSummaryStats({ sessionSummary }: { sessionSummary: SessionSummar
             if (segmentKeyActions.length === 0) {
                 return 1
             }
-
             // Calculate total issue weight for this segment
             const totalIssueWeight = segmentKeyActions.reduce((weight, event) => {
                 // For each event, take the highest weight among its tags
@@ -463,25 +455,11 @@ function SessionSummaryStats({ sessionSummary }: { sessionSummary: SessionSummar
 
     return (
         <div className="space-y-2 mb-4">
-            <div className="grid grid-cols-2 gap-2 text-sm">
-                <div className="flex items-center gap-1">
-                    <IconKeyboard className={totalKeyActions > 0 ? 'text-success' : ''} />
-                    <span className="text-muted">Key actions:</span>
-                    <span>{totalKeyActions}</span>
-                </div>
-                <div className="flex items-center gap-1">
-                    <IconWarning
-                        className={totalAbandonment + totalConfusion + totalException > 0 ? 'text-danger' : ''}
-                    />
-                    <span className="text-muted">Issues:</span>
-                    <span>{totalAbandonment + totalConfusion + totalException}</span>
-                </div>
-            </div>
             <div className="flex items-center gap-1 text-sm">
                 <span className="text-muted">Health score:</span>
                 <LemonTag
                     size="small"
-                    type={healthPercentage >= 80 ? 'success' : healthPercentage >= 50 ? 'warning' : 'danger'}
+                    type={healthPercentage >= 75 ? 'success' : healthPercentage >= 50 ? 'warning' : 'danger'}
                 >
                     {healthPercentage}%
                 </LemonTag>
