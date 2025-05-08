@@ -89,9 +89,10 @@ export interface InsightTypeMetadata {
 export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.CalendarHeatmapQuery]: {
         name: 'Calendar Heatmap',
-        description: 'Calendar Heatmap',
+        description: 'Visualize total and unique users broken down by day and hour.',
         icon: IconHogQL,
         inMenu: true,
+        // tooltipDescription TODO: Add tooltip description
     },
     [NodeKind.TrendsQuery]: {
         name: 'Trends',

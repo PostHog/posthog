@@ -36,6 +36,7 @@ export const calendarHeatmapQueryDefault: CalendarHeatmapQuery = {
             math: BaseMathType.TotalCount,
         },
     ],
+    calendarHeatmapFilter: {},
 }
 
 export const funnelsQueryDefault: FunnelsQuery = {

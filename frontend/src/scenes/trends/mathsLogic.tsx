@@ -77,7 +77,7 @@ export const FUNNEL_MATH_DEFINITIONS: Record<FunnelMathType, MathDefinition> = {
     },
 }
 
-export const MAPA_CALOR_MATH_DEFINITIONS: Record<CalendarHeatmapMathType, MathDefinition> = {
+export const CALENDAR_HEATMAP_MATH_DEFINITIONS: Record<CalendarHeatmapMathType, MathDefinition> = {
     [CalendarHeatmapMathType.TotalCount]: {
         name: 'Total count',
         shortName: 'count',
@@ -454,7 +454,7 @@ export const mathsLogic = kea<mathsLogicType>([
             () => [],
             (): Partial<Record<MathType, MathDefinition>> => {
                 const calendarHeatmapMathDefinitions: Partial<Record<MathType, MathDefinition>> = Object.fromEntries(
-                    Object.entries(MAPA_CALOR_MATH_DEFINITIONS) as [MathType, MathDefinition][]
+                    Object.entries(CALENDAR_HEATMAP_MATH_DEFINITIONS) as [MathType, MathDefinition][]
                 )
                 return calendarHeatmapMathDefinitions
             },

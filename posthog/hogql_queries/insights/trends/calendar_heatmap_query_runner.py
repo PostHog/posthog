@@ -46,8 +46,9 @@ from posthog.schema import (
     EventsHeatMapStructuredResult,
 )
 
+SEPARATOR = "','"
 
-placeholderUniqueUsers = """
+templateUniqueUsers = """
 SELECT
     mapKeys(query.hoursAndDays) as hoursAndDaysKeys,
     mapValues(query.hoursAndDays) as hoursAndDaysValues,
@@ -58,7 +59,7 @@ SELECT
     query.total
 FROM (
     SELECT
-        uniqMap(map(concat(toString(toDayOfWeek(uniqueSessionEvents.timestamp)), ',' ,toString(toHour(uniqueSessionEvents.timestamp))), uniqueSessionEvents.person_id)) as hoursAndDays,
+        uniqMap(map(concatWithSeparator({separator},toString(toDayOfWeek(uniqueSessionEvents.timestamp)),toString(toHour(uniqueSessionEvents.timestamp))), uniqueSessionEvents.person_id)) as hoursAndDays,
         uniqMap(map(toHour(uniqueSessionEvents.timestamp), uniqueSessionEvents.person_id)) as hours,
         uniqMap(map(toDayOfWeek(uniqueSessionEvents.timestamp), uniqueSessionEvents.person_id)) as days,
         uniq(person_id) as total
@@ -79,7 +80,7 @@ FROM (
 ) as query
 """
 
-placeholderAllUsers = """
+templateAllUsers = """
 SELECT
     mapKeys(query.hoursAndDays) as hoursAndDaysKeys,
     mapValues(query.hoursAndDays) as hoursAndDaysValues,
@@ -90,9 +91,9 @@ SELECT
     query.total
 FROM (
     SELECT
-        uniqMap(map(concat(toString(toDayOfWeek(events.timestamp)), ',' ,toString(toHour(events.timestamp))), events.uuid)) as hoursAndDays,
-        uniqMap(map(toHour(events.timestamp), events.uuid)) as hours,
-        uniqMap(map(toDayOfWeek(events.timestamp), events.uuid)) as days,
+        sumMap(map(concatWithSeparator({separator},toString(toDayOfWeek(events.timestamp)) ,toString(toHour(events.timestamp))), 1)) as hoursAndDays,
+        sumMap(map(toHour(events.timestamp), 1)) as hours,
+        sumMap(map(toDayOfWeek(events.timestamp), 1)) as days,
         count(*) as total
     FROM events
     WHERE and(
@@ -148,14 +149,15 @@ class CalendarHeatmapQueryRunner(QueryRunner):
 
     def to_query(self) -> ast.SelectQuery:
         # Use the heatmap query logic
-        placeholder = placeholderUniqueUsers if self.query.series[0].math == "dau" else placeholderAllUsers
+        template = templateUniqueUsers if self.query.series[0].math == "dau" else templateAllUsers
         query = parse_select(
-            placeholder,
+            template,
             placeholders={
                 "all_properties": self._all_properties(),
                 "test_account_filters": self._test_account_filters,
                 "current_period": self._current_period_expression(field="timestamp"),
                 "event_expr": self.getEventExpr(),
+                "separator": ast.Constant(value=SEPARATOR),
             },
         )
         assert isinstance(query, ast.SelectQuery)
@@ -196,7 +198,7 @@ class CalendarHeatmapQueryRunner(QueryRunner):
         # Process day-hour combinations
         for i in range(len(hours_and_days_keys)):
             key = hours_and_days_keys[i]
-            day, hour = map(int, key.split(","))
+            day, hour = map(int, key.split(SEPARATOR))
             total = int(hours_and_days_values[i])
             day_and_hours.append(EventsHeatMapDataResult(row=day, column=hour, value=total))
 
@@ -360,22 +362,3 @@ class CalendarHeatmapQueryRunner(QueryRunner):
             )
         except PropertyDefinition.DoesNotExist:
             return "String"
-
-    # TODO: Move this to posthog/hogql_queries/legacy_compatibility/query_to_filter.py
-    def _query_to_filter(self) -> dict[str, Any]:
-        filter_dict = {
-            "insight": "CALENDAR_HEATMAP",
-            "properties": self.query.properties,
-            "filter_test_accounts": self.query.filterTestAccounts,
-            "date_to": self.query_date_range.date_to(),
-            "date_from": self.query_date_range.date_from(),
-            "entity_type": "events",
-            "sampling_factor": self.query.samplingFactor,
-            "aggregation_group_type_index": self.query.aggregation_group_type_index,
-            "interval": self.query.interval,
-        }
-
-        if self.query.calendarHeatmapFilter is not None:
-            filter_dict.update(self.query.calendarHeatmapFilter.__dict__)
-
-        return {k: v for k, v in filter_dict.items() if v is not None}

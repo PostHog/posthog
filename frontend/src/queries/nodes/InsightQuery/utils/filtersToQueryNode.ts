@@ -95,7 +95,7 @@ const funnelsMathTypes = [FunnelMathType.FirstTimeForUser, FunnelMathType.FirstT
 
 const calendarHeatmapMathTypes = [CalendarHeatmapMathType.TotalCount, CalendarHeatmapMathType.UniqueUsers]
 
-type FilterTypeActionsAndEvents = {
+export type FilterTypeActionsAndEvents = {
     events?: ActionFilter[]
     actions?: ActionFilter[]
     data_warehouse?: DataWarehouseFilter[]

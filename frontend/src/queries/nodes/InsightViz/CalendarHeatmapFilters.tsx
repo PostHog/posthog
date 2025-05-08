@@ -9,7 +9,7 @@ import { CalendarHeatmapQuery } from '~/queries/schema/schema-general'
 import { isInsightQueryNode } from '~/queries/utils'
 import { FilterType } from '~/types'
 
-import { actionsAndEventsToSeries } from '../InsightQuery/utils/filtersToQueryNode'
+import { actionsAndEventsToSeries, FilterTypeActionsAndEvents } from '../InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '../InsightQuery/utils/queryNodeToFilter'
 
 export function CalendarHeatmapFilters(): JSX.Element | null {
@@ -25,21 +25,19 @@ export function CalendarHeatmapFilters(): JSX.Element | null {
     const mathAvailability = MathAvailability.CalendarHeatmapOnly
 
     return (
-        <>
-            <ActionFilter
-                filters={filters}
-                setFilters={(payload: Partial<FilterType>): void => {
-                    updateQuerySource({
-                        series: actionsAndEventsToSeries(payload as any, true, mathAvailability),
-                    } as CalendarHeatmapQuery)
-                }}
-                typeKey={keyForInsightLogicProps('new')(insightProps)}
-                showSeriesIndicator
-                showNestedArrow
-                entitiesLimit={1}
-                mathAvailability={mathAvailability}
-                hideDeleteBtn={true}
-            />
-        </>
+        <ActionFilter
+            filters={filters}
+            setFilters={(payload: Partial<FilterType>): void => {
+                updateQuerySource({
+                    series: actionsAndEventsToSeries(payload as FilterTypeActionsAndEvents, true, mathAvailability),
+                } as CalendarHeatmapQuery)
+            }}
+            typeKey={keyForInsightLogicProps('new')(insightProps)}
+            showSeriesIndicator
+            showNestedArrow
+            entitiesLimit={1}
+            mathAvailability={mathAvailability}
+            hideDeleteBtn={true}
+        />
     )
 }
