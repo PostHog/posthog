@@ -1,11 +1,12 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
+import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
+
 import { posthogFilterOutPlugin } from '../../../src/cdp/legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { template as defaultTemplate } from '../../../src/cdp/templates/_transformations/default/default.template'
 import { template as geoipTemplate } from '../../../src/cdp/templates/_transformations/geoip/geoip.template'
 import { compileHog } from '../../../src/cdp/templates/compiler'
-import { getProducedKafkaMessages } from '../../../tests/helpers/mocks/producer.mock'
 import { forSnapshot } from '../../../tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
 import { Hub } from '../../types'
@@ -262,7 +263,7 @@ describe('HogTransformer', () => {
 
             await Promise.all(result.scheduledPromises)
 
-            const messages = getProducedKafkaMessages()
+            const messages = mockProducerObserver.getProducedKafkaMessages()
             // Replace certain messages that have changeable values
             messages.forEach((x) => {
                 if (typeof x.value.message === 'string' && x.value.message.includes('Function completed in')) {

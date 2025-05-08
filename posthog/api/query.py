@@ -3,9 +3,7 @@ import uuid
 import json
 import time
 import asyncio
-from contextlib import suppress
 
-import structlog
 from django.core.cache import cache
 from django.http import JsonResponse, StreamingHttpResponse
 from drf_spectacular.utils import OpenApiResponse
@@ -59,6 +57,7 @@ from posthog.schema import (
     QueryResponseAlternative,
     QueryStatusResponse,
 )
+from posthog.hogql.constants import LimitContext
 from typing import cast
 
 # Create a dedicated thread pool for query processing
@@ -68,8 +67,6 @@ QUERY_EXECUTOR = ThreadPoolExecutor(
     max_workers=50,  # 50 should be enough to have 200 simultaneous queries across clickhouse
     thread_name_prefix="query_processor",
 )
-
-logger = structlog.get_logger(__name__)
 
 
 def _process_query_request(
@@ -139,11 +136,6 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     @monitor(feature=Feature.QUERY, endpoint="query", method="POST")
     def create(self, request: Request, *args, **kwargs) -> Response:
         data = self.get_model(request.data, QueryRequest)
-        with suppress(Exception):
-            request_id = structlog.get_context(logger).get("request_id")
-            if request_id:
-                uuid.UUID(request_id)  # just to verify it is a real UUID
-                tag_queries(http_request_id=request_id)
         try:
             query, client_query_id, execution_mode = _process_query_request(
                 data, self.team, data.client_query_id, request.user
@@ -157,6 +149,12 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 query_id=client_query_id,
                 user=request.user,  # type: ignore[arg-type]
                 is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
+                limit_context=(
+                    # QUERY_ASYNC provides extended max execution time for insight queries
+                    LimitContext.QUERY_ASYNC
+                    if is_insight_query(query) and get_query_tag_value("access_method") != "personal_api_key"
+                    else None
+                ),
             )
             if isinstance(result, BaseModel):
                 result = result.model_dump(by_alias=True)
@@ -410,3 +408,27 @@ async def query_awaited(request: Request, *args, **kwargs) -> StreamingHttpRespo
                 "Connection": "keep-alive",
             },
         )
+
+
+def is_insight_query(query):
+    insight_kinds = {
+        "TrendsQuery",
+        "FunnelsQuery",
+        "RetentionQuery",
+        "PathsQuery",
+        "StickinessQuery",
+        "LifecycleQuery",
+    }
+    if getattr(query, "kind", None) in insight_kinds:
+        return True
+    if getattr(query, "kind", None) == "HogQLQuery":
+        return True
+    if getattr(query, "kind", None) == "DataTableNode":
+        source = getattr(query, "source", None)
+        if source and getattr(source, "kind", None) in insight_kinds:
+            return True
+    if getattr(query, "kind", None) == "DataVisualizationNode":
+        source = getattr(query, "source", None)
+        if source and getattr(source, "kind", None) in insight_kinds:
+            return True
+    return False

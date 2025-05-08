@@ -6,8 +6,9 @@ import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { objectClean, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
+import { MessageTemplate } from 'products/messaging/frontend/library/messageTemplatesLogic'
+import { ErrorTrackingAssignmentRule } from 'scenes/error-tracking/configuration/auto-assignment/errorTrackingAutoAssignmentLogic'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
-import { SessionSummaryResponse } from 'scenes/session-recordings/player/player-meta/types'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 
@@ -95,6 +96,7 @@ import {
     NotebookType,
     OrganizationFeatureFlags,
     OrganizationFeatureFlagsCopyBody,
+    OrganizationMemberScopedApiKeysResponse,
     OrganizationMemberType,
     OrganizationResourcePermissionType,
     OrganizationType,
@@ -128,7 +130,7 @@ import {
     SlackChannelType,
     SubscriptionType,
     Survey,
-    SurveyStats,
+    SurveyStatsResponse,
     TeamType,
     UserBasicType,
     UserGroup,
@@ -169,7 +171,9 @@ export interface PaginatedResponse<T> {
 export interface CountedPaginatedResponse<T> extends PaginatedResponse<T> {
     count: number
 }
-
+export interface CountedPaginatedResponseWithUsers<T> extends CountedPaginatedResponse<T> {
+    users: UserBasicType[]
+}
 export interface ActivityLogPaginatedResponse<T> extends PaginatedResponse<T> {
     count: number
 }
@@ -647,6 +651,10 @@ class ApiRequest {
         return this.organizationMembers().addPathComponent(uuid)
     }
 
+    public organizationMemberScopedApiKeys(uuid: OrganizationMemberType['user']['uuid']): ApiRequest {
+        return this.organizationMember(uuid).addPathComponent('scoped_api_keys')
+    }
+
     // # Persons
     public persons(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('persons')
@@ -785,7 +793,7 @@ class ApiRequest {
     }
 
     public errorTrackingIssues(teamId?: TeamType['id']): ApiRequest {
-        return this.errorTracking(teamId).addPathComponent('issue')
+        return this.errorTracking(teamId).addPathComponent('issues')
     }
 
     public errorTrackingIssue(id: ErrorTrackingIssue['id'], teamId?: TeamType['id']): ApiRequest {
@@ -816,6 +824,14 @@ class ApiRequest {
         return this.errorTracking().addPathComponent('stack_frames/batch_get')
     }
 
+    public errorTrackingAssignmentRules(teamId?: TeamType['id']): ApiRequest {
+        return this.errorTracking(teamId).addPathComponent('assignment_rules')
+    }
+
+    public errorTrackingAssignmentRule(id: ErrorTrackingAssignmentRule['id']): ApiRequest {
+        return this.errorTrackingAssignmentRules().addPathComponent(id)
+    }
+
     // # Warehouse
     public dataWarehouseTables(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('warehouse_tables')
@@ -830,6 +846,10 @@ class ApiRequest {
     }
     public dataWarehouseSavedQuery(id: DataWarehouseSavedQuery['id'], teamId?: TeamType['id']): ApiRequest {
         return this.dataWarehouseSavedQueries(teamId).addPathComponent(id)
+    }
+
+    public dataWarehouseSavedQueryActivity(id: DataWarehouseSavedQuery['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.dataWarehouseSavedQuery(id, teamId).addPathComponent('activity')
     }
 
     // # Data Modeling Jobs (ie) materialized view runs
@@ -1069,6 +1089,11 @@ class ApiRequest {
         return this.externalDataSchemas(teamId).addPathComponent(schemaId)
     }
 
+    // Fix HogQL errors
+    public fixHogQLErrors(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('fix_hogql')
+    }
+
     // Insight Variables
     public insightVariables(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('insight_variables')
@@ -1140,6 +1165,14 @@ class ApiRequest {
 
     public authenticateWizard(): ApiRequest {
         return this.environments().current().addPathComponent('authenticate_wizard')
+    }
+
+    public messagingTemplates(): ApiRequest {
+        return this.environments().current().addPathComponent('messaging_templates')
+    }
+
+    public messagingTemplate(templateId: MessageTemplate['id']): ApiRequest {
+        return this.messagingTemplates().addPathComponent(templateId)
     }
 }
 
@@ -1266,24 +1299,46 @@ const api = {
             depth,
             limit,
             offset,
+            orderBy,
             search,
             ref,
+            notType,
             type,
             type__startswith,
+            createdAtGt,
+            createdAtLt,
         }: {
             parent?: string
             path?: string
             depth?: number
             limit?: number
             offset?: number
+            orderBy?: string
             search?: string
             ref?: string
+            notType?: string
             type?: string
             type__startswith?: string
-        }): Promise<CountedPaginatedResponse<FileSystemEntry>> {
+            createdAtGt?: string
+            createdAtLt?: string
+        }): Promise<CountedPaginatedResponseWithUsers<FileSystemEntry>> {
             return await new ApiRequest()
                 .fileSystem()
-                .withQueryString({ parent, path, depth, limit, offset, search, ref, type, type__startswith })
+                .withQueryString({
+                    parent,
+                    path,
+                    depth,
+                    limit,
+                    offset,
+                    search,
+                    ref,
+                    type,
+                    not_type: notType,
+                    order_by: orderBy,
+                    type__startswith,
+                    created_at__gt: createdAtGt,
+                    created_at__lt: createdAtLt,
+                })
                 .get()
         },
         async unfiled(type?: string): Promise<CountedPaginatedResponse<FileSystemEntry>> {
@@ -1453,6 +1508,9 @@ const api = {
                 },
                 [ActivityScope.SURVEY]: () => {
                     return new ApiRequest().surveyActivity((props.id ?? null) as string, projectId)
+                },
+                [ActivityScope.DATA_WAREHOUSE_SAVED_QUERY]: () => {
+                    return new ApiRequest().dataWarehouseSavedQueryActivity((props.id ?? null) as string, projectId)
                 },
             }
 
@@ -1850,6 +1908,11 @@ const api = {
         ): Promise<OrganizationMemberType> {
             return new ApiRequest().organizationMember(uuid).update({ data })
         },
+        scopedApiKeys: {
+            async list(uuid: string): Promise<OrganizationMemberScopedApiKeysResponse> {
+                return new ApiRequest().organizationMemberScopedApiKeys(uuid).get()
+            },
+        },
     },
 
     resourceAccessPermissions: {
@@ -1944,6 +2007,16 @@ const api = {
         },
         determineListUrl(params: PersonListParams = {}): string {
             return new ApiRequest().persons().withQueryString(toParams(params)).assembleFullUrl()
+        },
+        async resetPersonDistinctId(distinctId: string): Promise<void> {
+            return await new ApiRequest()
+                .persons()
+                .withAction('reset_person_distinct_id')
+                .create({
+                    data: {
+                        distinct_id: distinctId,
+                    },
+                })
         },
     },
 
@@ -2128,15 +2201,17 @@ const api = {
         async listTemplates(params: {
             types: HogFunctionTypeType[]
             sub_template_id?: HogFunctionSubTemplateIdType
+            db_templates?: boolean
         }): Promise<PaginatedResponse<HogFunctionTemplateType>> {
             const finalParams = {
                 ...params,
                 types: params.types.join(','),
             }
+
             return new ApiRequest().hogFunctionTemplates().withQueryString(finalParams).get()
         },
-        async getTemplate(id: HogFunctionTemplateType['id']): Promise<HogFunctionTemplateType> {
-            return await new ApiRequest().hogFunctionTemplate(id).get()
+        async getTemplate(id: HogFunctionTemplateType['id'], db_templates?: boolean): Promise<HogFunctionTemplateType> {
+            return await new ApiRequest().hogFunctionTemplate(id).withQueryString({ db_templates }).get()
         },
 
         async listIcons(params: { query?: string } = {}): Promise<HogFunctionIconResponse[]> {
@@ -2268,6 +2343,25 @@ const api = {
         ): Promise<{ results: ErrorTrackingStackFrameRecord[] }> {
             return await new ApiRequest().errorTrackingStackFrames().create({ data: { raw_ids: raw_ids } })
         },
+
+        async assignmentRules(): Promise<{ results: ErrorTrackingAssignmentRule[] }> {
+            return await new ApiRequest().errorTrackingAssignmentRules().get()
+        },
+
+        async createAssignmentRule({
+            id: _,
+            ...data
+        }: ErrorTrackingAssignmentRule): Promise<ErrorTrackingAssignmentRule> {
+            return await new ApiRequest().errorTrackingAssignmentRules().create({ data })
+        },
+
+        async updateAssignmentRule({ id, ...data }: ErrorTrackingAssignmentRule): Promise<void> {
+            return await new ApiRequest().errorTrackingAssignmentRule(id).update({ data })
+        },
+
+        async deleteAssignmentRule(id: ErrorTrackingAssignmentRule['id']): Promise<void> {
+            return await new ApiRequest().errorTrackingAssignmentRule(id).delete()
+        },
     },
 
     userGroups: {
@@ -2316,8 +2410,15 @@ const api = {
             return await new ApiRequest().recording(recordingId).withAction('persist').create()
         },
 
-        async summarize(recordingId: SessionRecordingType['id']): Promise<SessionSummaryResponse> {
-            return await new ApiRequest().recording(recordingId).withAction('summarize').create()
+        async summarizeStream(recordingId: SessionRecordingType['id']): Promise<Response> {
+            return await api.createResponse(
+                new ApiRequest().recording(recordingId).withAction('summarize').assembleFullUrl(),
+                // No data to provide except for the recording id.
+                // Could be extended later with the state of the filters to better understand the user's intent.
+                undefined,
+                // TODO: Understand if I need to provide any signal data here
+                {}
+            )
         },
 
         async similarRecordings(recordingId: SessionRecordingType['id']): Promise<[string, number][]> {
@@ -2439,7 +2540,7 @@ const api = {
         },
         async update(
             notebookId: NotebookType['short_id'],
-            data: Partial<Pick<NotebookType, 'version' | 'content' | 'text_content' | 'title'>>
+            data: Partial<Pick<NotebookType, 'version' | 'content' | 'text_content' | 'title' | '_create_in_folder'>>
         ): Promise<NotebookType> {
             return await new ApiRequest().notebook(notebookId).update({ data })
         },
@@ -2480,7 +2581,9 @@ const api = {
                 .withQueryString({ recording_id: recordingId })
                 .get()
         },
-        async create(data?: Pick<NotebookType, 'content' | 'text_content' | 'title'>): Promise<NotebookType> {
+        async create(
+            data?: Pick<NotebookType, 'content' | 'text_content' | 'title' | '_create_in_folder'>
+        ): Promise<NotebookType> {
             return await new ApiRequest().notebooks().create({ data })
         },
         async delete(notebookId: NotebookType['short_id']): Promise<NotebookType> {
@@ -2627,12 +2730,21 @@ const api = {
         async getResponsesCount(): Promise<{ [key: string]: number }> {
             return await new ApiRequest().surveysResponsesCount().get()
         },
-        async summarize_responses(surveyId: Survey['id'], questionIndex: number | undefined): Promise<any> {
-            let apiRequest = new ApiRequest().survey(surveyId).withAction('summarize_responses')
+        async summarize_responses(
+            surveyId: Survey['id'],
+            questionIndex: number | undefined,
+            questionId: string | undefined
+        ): Promise<any> {
+            const apiRequest = new ApiRequest().survey(surveyId).withAction('summarize_responses')
+            const queryParams: Record<string, string> = {}
+
             if (questionIndex !== undefined) {
-                apiRequest = apiRequest.withQueryString('questionIndex=' + questionIndex)
+                queryParams['question_index'] = questionIndex.toString()
             }
-            return await apiRequest.create()
+            if (questionId !== undefined) {
+                queryParams['question_id'] = questionId
+            }
+            return await apiRequest.withQueryString(queryParams).create()
         },
         async getSurveyStats({
             surveyId,
@@ -2642,7 +2754,13 @@ const api = {
             surveyId: Survey['id']
             dateFrom?: string | null
             dateTo?: string | null
-        }): Promise<SurveyStats> {
+        }): Promise<
+            SurveyStatsResponse & {
+                survey_id: string
+                start_date: string
+                end_date?: string
+            }
+        > {
             const apiRequest = new ApiRequest().survey(surveyId).withAction('stats')
             const queryParams: Record<string, string> = {}
             if (dateFrom) {
@@ -2660,7 +2778,7 @@ const api = {
         }: {
             dateFrom?: string | null
             dateTo?: string | null
-        }): Promise<SurveyStats> {
+        }): Promise<SurveyStatsResponse> {
             const apiRequest = new ApiRequest().surveys().withAction('stats')
             const queryParams: Record<string, string> = {}
             if (dateFrom) {
@@ -2718,12 +2836,15 @@ const api = {
         },
         async update(
             viewId: DataWarehouseSavedQuery['id'],
-            data: Partial<DataWarehouseSavedQuery> & { types: string[][] }
+            data: Partial<DataWarehouseSavedQuery> & { types: string[][]; edited_history_id?: string }
         ): Promise<DataWarehouseSavedQuery> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).update({ data })
         },
         async run(viewId: DataWarehouseSavedQuery['id']): Promise<void> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).withAction('run').create()
+        },
+        async cancel(viewId: DataWarehouseSavedQuery['id']): Promise<void> {
+            return await new ApiRequest().dataWarehouseSavedQuery(viewId).withAction('cancel').create()
         },
         async ancestors(viewId: DataWarehouseSavedQuery['id'], level?: number): Promise<Record<string, string[]>> {
             return await new ApiRequest()
@@ -2828,6 +2949,11 @@ const api = {
                 .withAction('logs')
                 .withQueryString(params)
                 .get()
+        },
+    },
+    fixHogQLErrors: {
+        async fix(query: string, error?: string): Promise<Record<string, any>> {
+            return await new ApiRequest().fixHogQLErrors().create({ data: { query, error } })
         },
     },
 
@@ -3072,6 +3198,23 @@ const api = {
     wizard: {
         async authenticateWizard(data: { hash: string }): Promise<{ success: boolean }> {
             return await new ApiRequest().authenticateWizard().create({ data })
+        },
+    },
+    messaging: {
+        async getTemplates(): Promise<PaginatedResponse<MessageTemplate>> {
+            return await new ApiRequest().messagingTemplates().get()
+        },
+        async getTemplate(templateId: MessageTemplate['id']): Promise<MessageTemplate> {
+            return await new ApiRequest().messagingTemplate(templateId).get()
+        },
+        async createTemplate(data: Partial<MessageTemplate>): Promise<MessageTemplate> {
+            return await new ApiRequest().messagingTemplates().create({ data })
+        },
+        async updateTemplate(
+            templateId: MessageTemplate['id'],
+            data: Partial<MessageTemplate>
+        ): Promise<MessageTemplate> {
+            return await new ApiRequest().messagingTemplate(templateId).update({ data })
         },
     },
 

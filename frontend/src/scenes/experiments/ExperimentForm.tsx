@@ -37,7 +37,7 @@ const ExperimentFormFields = (): JSX.Element => {
         addVariant,
         removeExperimentGroup,
         setExperiment,
-        createExperiment,
+        submitExperiment,
         setExperimentType,
         validateFeatureFlag,
     } = useActions(experimentLogic)
@@ -62,6 +62,11 @@ const ExperimentFormFields = (): JSX.Element => {
                             placeholder="Pricing page conversion"
                             data-attr="experiment-name"
                             onBlur={() => {
+                                // bail if feature flag key is already set
+                                if (experiment.feature_flag_key) {
+                                    return
+                                }
+
                                 setExperiment({
                                     feature_flag_key: generateFeatureFlagKey(
                                         experiment.name,
@@ -309,12 +314,7 @@ const ExperimentFormFields = (): JSX.Element => {
                     </>
                 )}
             </div>
-            <LemonButton
-                className="mt-2"
-                type="primary"
-                data-attr="save-experiment"
-                onClick={() => createExperiment(true)}
-            >
+            <LemonButton className="mt-2" type="primary" data-attr="save-experiment" onClick={() => submitExperiment()}>
                 Save as draft
             </LemonButton>
         </div>

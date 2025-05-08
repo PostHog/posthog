@@ -122,6 +122,7 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
         let enable_historical_rerouting = false;
         let historical_rerouting_threshold_days = 1_i64;
         let historical_tokens_keys = None;
+        let is_mirror_deploy = false; // TODO(eli): come back to this after updating stale fixture payloads
 
         let app = router(
             timesource,
@@ -137,6 +138,7 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
             enable_historical_rerouting,
             historical_rerouting_threshold_days,
             historical_tokens_keys,
+            is_mirror_deploy,
         );
 
         let client = TestClient::new(app);

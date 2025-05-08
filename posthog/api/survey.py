@@ -26,6 +26,7 @@ from posthog.api.feature_flag import (
     BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
     FeatureFlagSerializer,
     MinimalFeatureFlagSerializer,
+    SURVEY_TARGETING_FLAG_PREFIX,
 )
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -50,7 +51,6 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.utils_cors import cors_response
 
-SURVEY_TARGETING_FLAG_PREFIX = "survey-targeting-"
 ALLOWED_LINK_URL_SCHEMES = ["https", "mailto"]
 EMAIL_REGEX = r"^mailto:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
 
@@ -177,6 +177,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
     )
     schedule = serializers.CharField(required=False, allow_null=True)
     enable_partial_responses = serializers.BooleanField(required=False, allow_null=True)
+    _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
         model = Survey
@@ -213,6 +214,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             "response_sampling_limit",
             "response_sampling_daily_limits",
             "enable_partial_responses",
+            "_create_in_folder",
         ]
         read_only_fields = ["id", "linked_flag", "targeting_flag", "created_at"]
 
@@ -1153,15 +1155,21 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except (ValueError, TypeError):
             question_index = None
 
+        question_id = request.query_params.get("question_id", None)
+
+        if question_index is None and question_id is None:
+            raise exceptions.ValidationError("question_index or question_id is required")
+
         summary = summarize_survey_responses(
             survey_id=survey_id,
             question_index=question_index,
+            question_id=question_id,
             survey_start=(survey.start_date or survey.created_at).replace(hour=0, minute=0, second=0, microsecond=0),
             survey_end=end_date,
             team=self.team,
             user=user,
         )
-        timings = summary.pop("timings", None)
+        timings_header = summary.pop("timings_header", None)
         cache.set(cache_key, summary, timeout=30)
 
         posthoganalytics.capture(
@@ -1170,10 +1178,8 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         # let the browser cache for half the time we cache on the server
         r = Response(summary, headers={"Cache-Control": "max-age=15"})
-        if timings:
-            r.headers["Server-Timing"] = ", ".join(
-                f"{key};dur={round(duration, ndigits=2)}" for key, duration in timings.items()
-            )
+        if timings_header:
+            r.headers["Server-Timing"] = timings_header
         return r
 
 

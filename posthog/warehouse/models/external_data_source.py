@@ -88,7 +88,7 @@ class ExternalDataSource(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
                 trigger_external_data_workflow(schema)
             except temporalio.service.RPCError as e:
                 if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
-                    sync_external_data_job_workflow(schema, create=True)
+                    sync_external_data_job_workflow(schema, create=True, should_sync=True)
 
             except Exception as e:
                 logger.exception(f"Could not trigger external data job for schema {schema.name}", exc_info=e)

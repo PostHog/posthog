@@ -1,6 +1,6 @@
 import './TopBar.scss'
 
-import { IconChevronDown, IconX } from '@posthog/icons'
+import { IconChevronDown, IconFolderMove, IconX } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -12,11 +12,13 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { IconMenu, IconSlash } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import React, { useLayoutEffect, useState } from 'react'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
+import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { Breadcrumb as IBreadcrumb } from '~/types'
 
 import { navigation3000Logic } from '../navigationLogic'
@@ -25,13 +27,20 @@ import { navigation3000Logic } from '../navigationLogic'
 export const BREADCRUMBS_HEIGHT_COMPACT = 44
 
 export function TopBar(): JSX.Element | null {
+    const { featureFlags } = useValues(featureFlagLogic)
     const { mobileLayout } = useValues(navigationLogic)
     const { showNavOnMobile } = useActions(navigation3000Logic)
-    const { breadcrumbs, renameState } = useValues(breadcrumbsLogic)
+    const { breadcrumbs: normalBreadcrumbs, renameState } = useValues(breadcrumbsLogic)
     const { setActionsContainer } = useActions(breadcrumbsLogic)
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
     const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
+    const { projectTreeRefEntry, projectTreeRefBreadcrumbs } = useValues(projectTreeLogic)
+    const { setMovingItems } = useActions(projectTreeLogic)
     const [compactionRate, setCompactionRate] = useState(0)
+
+    const breadcrumbs = featureFlags[FEATURE_FLAGS.TREE_VIEW]
+        ? projectTreeRefBreadcrumbs || normalBreadcrumbs
+        : normalBreadcrumbs
 
     // Always show in full on mobile, as there we are very constrained in width, but not so much height
     const effectiveCompactionRate = mobileLayout ? 0 : compactionRate
@@ -75,7 +84,7 @@ export function TopBar(): JSX.Element | null {
         return () => main.removeEventListener('scroll', handleScroll)
     }, [hasRenameState])
 
-    return breadcrumbs.length ? (
+    return breadcrumbs.length || (featureFlags[FEATURE_FLAGS.TREE_VIEW] && projectTreeRefEntry) ? (
         <div
             className={clsx(
                 'TopBar3000',
@@ -117,6 +126,17 @@ export function TopBar(): JSX.Element | null {
                                     </div>
                                 </React.Fragment>
                             ))}
+                            {featureFlags[FEATURE_FLAGS.TREE_VIEW] && projectTreeRefEntry && (
+                                <LemonButton
+                                    size="xsmall"
+                                    onClick={() => setMovingItems([projectTreeRefEntry])}
+                                    icon={<IconFolderMove />}
+                                    className="TopBar3000__move-button"
+                                    data-attr="top-bar-move-button"
+                                    tooltip="Move to another folder"
+                                    disabledReason={renameState ? "Can't move while renaming" : ''}
+                                />
+                            )}
                             <Breadcrumb
                                 breadcrumb={breadcrumbs[breadcrumbs.length - 1]}
                                 here
@@ -146,6 +166,8 @@ interface BreadcrumbProps {
 function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.Element {
     const { renameState } = useValues(breadcrumbsLogic)
     const { tentativelyRename, finishRenaming } = useActions(breadcrumbsLogic)
+    const { assureVisibility } = useActions(projectTreeLogic)
+    const { showLayoutPanel, setActivePanelIdentifier } = useActions(panelLayoutLogic)
     const [popoverShown, setPopoverShown] = useState(false)
 
     const joinedKey = joinBreadcrumbKey(breadcrumb.key)
@@ -187,7 +209,11 @@ function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.El
         )
     }
 
-    const Component = breadcrumb.path ? Link : 'div'
+    const isProjectTreeFolder = Boolean(
+        breadcrumb.name && breadcrumb.path && 'type' in breadcrumb && breadcrumb.type === 'folder'
+    )
+
+    const Component = !isProjectTreeFolder && breadcrumb.path ? Link : 'div'
     const breadcrumbContent = (
         <Component
             className={clsx(
@@ -198,6 +224,11 @@ function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.El
             )}
             onClick={() => {
                 breadcrumb.popover && setPopoverShown(!popoverShown)
+                if (isProjectTreeFolder && breadcrumb.path) {
+                    assureVisibility({ type: 'folder', ref: breadcrumb.path })
+                    showLayoutPanel(true)
+                    setActivePanelIdentifier('Project')
+                }
             }}
             data-attr={`breadcrumb-${joinedKey}`}
             to={breadcrumb.path}
