@@ -124,9 +124,14 @@ export function MaxInstance({ sidePanel }: MaxInstanceProps): JSX.Element {
                                 />
                             </AnimatedBackButton>
                             {chatTitle ? (
-                                <h3 className="font-semibold mb-0 line-clamp-1 text-sm ml-2 w-full">{chatTitle}</h3>
+                                <h3
+                                    className="font-semibold mb-0 line-clamp-1 text-sm ml-1"
+                                    title={chatTitle !== 'Max' ? chatTitle : undefined}
+                                >
+                                    {chatTitle}
+                                </h3>
                             ) : (
-                                <LemonSkeleton className="h-5 w-32" />
+                                <LemonSkeleton className="h-5 w-48 ml-1" />
                             )}
                         </div>
                         <LemonButton
