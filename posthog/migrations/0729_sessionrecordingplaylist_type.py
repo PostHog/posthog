@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0727_team_secret_api_token_unique"),
+        ("posthog", "0728_experiment_conclusion_experiment_conclusion_comment"),
     ]
 
     operations = [

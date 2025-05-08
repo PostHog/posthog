@@ -3561,6 +3561,14 @@ export interface Group {
     group_properties: Record<string, any>
 }
 
+export enum ExperimentConclusion {
+    Won = 'won',
+    Lost = 'lost',
+    Inconclusive = 'inconclusive',
+    StoppedEarly = 'stopped_early',
+    Invalid = 'invalid',
+}
+
 export interface Experiment {
     id: ExperimentIdType
     name: string
@@ -3609,6 +3617,8 @@ export interface Experiment {
         version?: number
     }
     _create_in_folder?: string | null
+    conclusion?: ExperimentConclusion | null
+    conclusion_comment?: string | null
 }
 
 export interface FunnelExperimentVariant {
