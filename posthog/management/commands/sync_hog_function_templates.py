@@ -14,7 +14,12 @@ TYPES_WITH_JAVASCRIPT_SOURCE = (HogFunctionType.SITE_DESTINATION, HogFunctionTyp
 
 # Templates to include in test mode
 TEST_INCLUDE_PYTHON_TEMPLATE_IDS = ["template-slack"]
-TEST_INCLUDE_NODEJS_TEMPLATE_IDS = ["template-webhook", "template-geoip"]
+TEST_INCLUDE_NODEJS_TEMPLATE_IDS = [
+    "template-webhook",
+    "template-geoip",
+    "plugin-posthog-plugin-geoip",
+    "plugin-taxonomy-plugin",
+]
 
 
 class Command(BaseCommand):
@@ -76,10 +81,6 @@ class Command(BaseCommand):
                 for template_data in nodejs_templates_json:
                     try:
                         if not self.should_include_nodejs_template(template_data):
-                            continue
-
-                        # Only process templates with type "transformation" or "destination"
-                        if template_data.get("type") not in ["transformation", "destination"]:
                             continue
 
                         serializer = HogFunctionTemplateSerializer(data=template_data)
