@@ -1,8 +1,26 @@
 import { LemonBanner, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LinkToSurveyFormSection } from 'scenes/surveys/components/LinkToSurveyFormSection'
-import { SurveyEditSection, surveyLogic } from 'scenes/surveys/surveyLogic'
+import { surveyLogic } from 'scenes/surveys/surveyLogic'
+
+export function PartialResponsesShuffleQuestionsBanner(): JSX.Element | null {
+    const { survey } = useValues(surveyLogic)
+
+    if (!survey.enable_partial_responses || !survey.appearance?.shuffleQuestions) {
+        return null
+    }
+
+    return (
+        <LemonBanner type="warning" hideIcon>
+            <h3 className="mb-0">Shuffle questions does not work with partial responses.</h3>
+            <p>
+                Shuffle questions is currently enabled for your survey. But it is not supported with partial responses.
+                Once the survey is saved, we'll disable shuffle questions for you. If you need to shuffle questions,
+                please disable partial responses.
+            </p>
+        </LemonBanner>
+    )
+}
 
 export function SurveyResponsesCollection(): JSX.Element | null {
     const { survey } = useValues(surveyLogic)
@@ -24,21 +42,7 @@ export function SurveyResponsesCollection(): JSX.Element | null {
                     }}
                 />
             </LemonField.Pure>
-            {survey.appearance?.shuffleQuestions && survey.enable_partial_responses && (
-                <LemonBanner type="info" hideIcon>
-                    <h3 className="mb-0">Shuffle questions does not work with partial responses.</h3>
-                    <p>
-                        Shuffle questions is currently enabled for your survey. However, it will have no effect if
-                        partial responses are enabled. Go to the{' '}
-                        <LinkToSurveyFormSection section={SurveyEditSection.Customization} /> to disable it.
-                    </p>
-                    <p>
-                        This is a temporary limitation that we'll fix in a future release. There's no action needed from
-                        you, just know that the order of the questions won't be shuffled if partial responses are
-                        enabled.
-                    </p>
-                </LemonBanner>
-            )}
+            <PartialResponsesShuffleQuestionsBanner />
         </div>
     )
 }
