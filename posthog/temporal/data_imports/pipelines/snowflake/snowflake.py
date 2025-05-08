@@ -1,6 +1,7 @@
 from typing import Any, Optional
 from collections.abc import Iterator
 
+from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
@@ -87,6 +88,32 @@ def _build_query(
     )
 
 
+def _get_rows_to_sync(
+    cursor: SnowflakeCursor, inner_query: str, inner_query_args: tuple[Any, ...], logger: FilteringBoundLogger
+) -> int:
+    try:
+        query = f"SELECT COUNT(*) FROM ({inner_query}) as t"
+
+        cursor.execute(query, inner_query_args)
+        row = cursor.fetchone()
+
+        if row is None:
+            logger.debug(f"_get_rows_to_sync: No results returned. Using 0 as rows to sync")
+            return 0
+
+        rows_to_sync = row[0] or 0
+        rows_to_sync_int = int(rows_to_sync)
+
+        logger.debug(f"_get_rows_to_sync: rows_to_sync_int={rows_to_sync_int}")
+
+        return int(rows_to_sync)
+    except Exception as e:
+        logger.debug(f"_get_rows_to_sync: Error: {e}. Using 0 as rows to sync", exc_info=e)
+        capture_exception(e)
+
+        return 0
+
+
 def _get_primary_keys(cursor: SnowflakeCursor, database: str, schema: str, table_name: str) -> list[str] | None:
     cursor.execute("SHOW PRIMARY KEYS IN IDENTIFIER(%s)", (f"{database}.{schema}.{table_name}",))
 
@@ -126,7 +153,17 @@ def snowflake_source(
         account_id, user, password, passphrase, private_key, auth_type, database, warehouse, schema, role
     ) as connection:
         with connection.cursor() as cursor:
+            inner_query, inner_query_params = _build_query(
+                database,
+                schema,
+                table_name,
+                is_incremental,
+                incremental_field,
+                incremental_field_type,
+                db_incremental_field_last_value,
+            )
             primary_keys = _get_primary_keys(cursor, database, schema, table_name)
+            rows_to_sync = _get_rows_to_sync(cursor, inner_query, inner_query_params, logger)
 
     def get_rows() -> Iterator[Any]:
         with _get_connection(
@@ -151,4 +188,4 @@ def snowflake_source(
 
     name = NamingConvention().normalize_identifier(table_name)
 
-    return SourceResponse(name=name, items=get_rows(), primary_keys=primary_keys)
+    return SourceResponse(name=name, items=get_rows(), primary_keys=primary_keys, rows_to_sync=rows_to_sync)

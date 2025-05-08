@@ -22,6 +22,7 @@ from posthog.temporal.data_imports.pipelines.bigquery import (
 from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
+from posthog.temporal.data_imports.row_tracking import setup_row_tracking
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSource
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
@@ -82,6 +83,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
 
     with HeartbeaterSync(factor=30, logger=logger), ShutdownMonitor() as shutdown_monitor:
         close_old_connections()
+        setup_row_tracking(inputs.team_id, inputs.schema_id)
 
         model = ExternalDataJob.objects.prefetch_related(
             "pipeline", Prefetch("schema", queryset=ExternalDataSchema.objects.prefetch_related("source"))
@@ -655,6 +657,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                         token_uri=token_uri,
                         table_name=schema.name,
                         is_incremental=schema.is_incremental,
+                        logger=logger,
                         bq_destination_table_id=destination_table,
                         incremental_field=schema.sync_type_config.get("incremental_field")
                         if schema.is_incremental
