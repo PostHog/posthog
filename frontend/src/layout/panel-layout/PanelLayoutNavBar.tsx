@@ -45,7 +45,7 @@ import { sidePanelStateLogic } from '../navigation-3000/sidepanel/sidePanelState
 import { OrganizationDropdownMenu } from './OrganizationDropdownMenu'
 
 const navBarStyles = cva({
-    base: 'flex flex-col max-h-screen relative min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] border-r border-primary',
+    base: 'flex flex-col max-h-screen relative min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] border-r border-primary relative',
     variants: {
         isLayoutNavCollapsed: {
             true: 'w-[var(--project-navbar-width-collapsed)]',

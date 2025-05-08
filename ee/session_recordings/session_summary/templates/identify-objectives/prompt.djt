@@ -9,10 +9,15 @@ You'll receive a list of events with columns:
 - $window_id: Unique identifier for browser window/tab - helps track multi-window workflows (use simplified references from window_mapping)
 - $current_url: Page URL where the interaction happened on (use simplified references from url_mapping)
 - $event_type: Type of interaction (e.g., click, submit) - specifies how the user interacted
+- $elements_chain_ids: IDs of the elements that are part of the interaction
+- $exception_types: Type of the exception occured, if applicable
+- $exception_values: Short description of the exception occured, if applicable
 - event_id: Unique identifier for the event - ALWAYS use this to reference specific events, NEVER generate or modify event IDs
 - event_index: Index of the event in the session - helps understand sequence
 
-Use these events to reconstruct the user journey. Events are provided in a chronologically order. Focus on what these events reveal about user intentions rather than the raw event data itself.
+Event columns are provided in the order the data for each event. So, the first element of the event is the event name, the second element is the timestamp, etc.
+
+Use these events to reconstruct the user journey. Events are provided in a chronological order. Focus on what these events reveal about user intentions rather than the raw event data itself.
 
 Don't include raw `elements_chain_texts` data in your summary, but use it to improve your understanding of user goals.
 </events_input_format>

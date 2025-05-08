@@ -3,7 +3,7 @@ import { Counter } from 'prom-client'
 
 import { PluginsServerConfig } from '../../types'
 import { logger } from '../../utils/logger'
-import { fetch, FetchOptions, FetchResponse } from '../../utils/request'
+import { fetch, FetchOptions, FetchResponse, InvalidRequestError, SecureRequestError } from '../../utils/request'
 import {
     CyclotronFetchFailureInfo,
     CyclotronFetchFailureKind,
@@ -18,6 +18,15 @@ const cdpHttpRequests = new Counter({
     help: 'HTTP requests and their outcomes',
     labelNames: ['status'],
 })
+
+const RETRIABLE_STATUS_CODES = [
+    408, // Request Timeout
+    429, // Too Many Requests (rate limiting)
+    500, // Internal Server Error
+    502, // Bad Gateway
+    503, // Service Unavailable
+    504, // Gateway Timeout
+]
 
 export class FetchExecutorService {
     constructor(private serverConfig: PluginsServerConfig) {}
@@ -59,8 +68,18 @@ export class FetchExecutorService {
             trace: [...metadata.trace, failure],
         }
 
+        let canRetry = !!response?.status && RETRIABLE_STATUS_CODES.includes(response.status)
+
+        if (error) {
+            if (error instanceof SecureRequestError || error instanceof InvalidRequestError) {
+                canRetry = false
+            } else {
+                canRetry = true // Only retry on general errors, not security or validation errors
+            }
+        }
+
         // If we haven't exceeded retry limit, schedule a retry with backoff
-        if (updatedMetadata.tries < maxTries) {
+        if (canRetry && updatedMetadata.tries < maxTries) {
             // Calculate backoff with jitter, similar to Rust implementation
             const backoffMs = Math.min(
                 this.serverConfig.CDP_FETCH_BACKOFF_BASE_MS * updatedMetadata.tries +

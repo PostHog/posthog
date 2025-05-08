@@ -1,14 +1,14 @@
 import './Billing.scss'
 
-import { LemonButton } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+import { LemonTabs } from '@posthog/lemon-ui'
+import { useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { Billing } from './Billing'
 import { billingLogic } from './billingLogic'
-import { BillingOverview } from './BillingOverview'
+import { BillingSpendView } from './BillingSpendView'
 import { BillingUsage } from './BillingUsage'
 
 export const scene: SceneExport = {
@@ -18,45 +18,28 @@ export const scene: SceneExport = {
 
 export function BillingSection(): JSX.Element {
     const { location } = useValues(router)
-    const { push } = useActions(router)
 
-    const activeSection = location.pathname.endsWith('/usage') ? 'usage' : 'overview'
-
-    useEffect(() => {
-        if (location.pathname === '/organization/billing') {
-            push(urls.organizationBillingSection('overview'))
-        }
-    }, [location.pathname])
+    const section = location.pathname.includes('spend')
+        ? 'spend'
+        : location.pathname.includes('usage')
+        ? 'usage'
+        : 'overview'
 
     return (
-        <div className="flex gap-8 items-start mt-0">
-            <div className="sticky top-16 flex-shrink-0 w-1/5 min-w-56 max-w-80 [.SidePanel3000_&]:top-0">
-                <ul className="deprecated-space-y-px">
-                    <li>
-                        <LemonButton
-                            onClick={() => push(urls.organizationBillingSection('overview'))}
-                            active={activeSection === 'overview'}
-                            size="small"
-                            fullWidth
-                        >
-                            Overview
-                        </LemonButton>
-                    </li>
-                    <li>
-                        <LemonButton
-                            onClick={() => push(urls.organizationBillingSection('usage'))}
-                            active={activeSection === 'usage'}
-                            size="small"
-                            fullWidth
-                        >
-                            Usage
-                        </LemonButton>
-                    </li>
-                </ul>
-            </div>
-            <div className="flex-1 w-full deprecated-space-y-2 min-w-0">
-                {activeSection === 'overview' ? <BillingOverview /> : <BillingUsage />}
-            </div>
+        <div className="flex flex-col">
+            <LemonTabs
+                activeKey={section}
+                onChange={(key) => router.actions.push(urls.organizationBillingSection(key))}
+                tabs={[
+                    { key: 'overview', label: 'Overview' },
+                    { key: 'usage', label: 'Usage' },
+                    { key: 'spend', label: 'Spend' },
+                ]}
+            />
+
+            {section === 'overview' && <Billing />}
+            {section === 'usage' && <BillingUsage />}
+            {section === 'spend' && <BillingSpendView />}
         </div>
     )
 }

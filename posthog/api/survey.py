@@ -772,37 +772,9 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )["start_date__min"]
         data = sync_execute(
             f"""
-            SELECT
-                JSONExtractString(properties, '$survey_id') as survey_id,
-                count()
+            SELECT JSONExtractString(properties, '$survey_id') as survey_id, count()
             FROM events
-            WHERE
-                team_id = %(team_id)s
-                AND event = 'survey sent'
-                AND timestamp >= %(timestamp)s
-                AND uuid IN ( -- Filter using the unique submission logic across all relevant surveys
-                    (
-                        -- Select events without a submission ID (older format)
-                        SELECT uuid
-                        FROM events
-                        WHERE team_id = %(team_id)s
-                          AND event = 'survey sent'
-                          AND timestamp >= %(timestamp)s
-                          AND COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') = ''
-                    )
-                    UNION ALL
-                    (
-                        -- Select the latest event for each submission ID
-                        SELECT argMax(uuid, timestamp) -- ClickHouse function to get the arg (uuid) for the max value (timestamp)
-                        FROM events
-                        WHERE team_id = %(team_id)s
-                          AND event = 'survey sent'
-                          AND timestamp >= %(timestamp)s
-                          AND COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') != ''
-                        -- Group by submission ID to find the latest event per submission
-                        GROUP BY JSONExtractString(properties, '$survey_id'), JSONExtractString(properties, '$survey_submission_id')
-                    )
-                )
+            WHERE event = 'survey sent' AND team_id = %(team_id)s AND timestamp >= %(timestamp)s
             GROUP BY survey_id
         """,
             {"team_id": self.team_id, "timestamp": earliest_survey_start_date},
@@ -1003,35 +975,6 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             AND event IN (%(shown)s, %(dismissed)s, %(sent)s)
             {survey_filter}
             {date_filter}
-            AND (
-                event != %(dismissed)s
-                OR
-                COALESCE(JSONExtractBool(properties, '$survey_partially_completed'), False) = False
-            )
-            AND (
-                event != %(sent)s
-                OR
-                uuid IN (
-                    (
-                        -- Select events without a submission ID (older format)
-                        SELECT uuid
-                        FROM events
-                        WHERE event = 'survey sent'
-                        AND JSONExtractString(properties, '$survey_id') {'= %(survey_id)s' if survey_id else 'IN %(survey_ids)s'}
-                        AND COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') = ''
-                    )
-                    UNION ALL
-                    (
-                        -- Select the latest event for each submission ID
-                        SELECT argMax(uuid, timestamp) -- ClickHouse function to get the arg (uuid) for the max value (timestamp)
-                        FROM events
-                        WHERE event = 'survey sent'
-                        AND JSONExtractString(properties, '$survey_id') {'= %(survey_id)s' if survey_id else 'IN %(survey_ids)s'}
-                        AND COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') != ''
-                        GROUP BY JSONExtractString(properties, '$survey_submission_id') -- Find the latest event per submission
-                    )
-                )
-            )
             GROUP BY event
         """
         query_params = {
@@ -1052,11 +995,6 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                   AND event IN (%(dismissed)s, %(sent)s)
                   {survey_filter}
                   {date_filter}
-                AND (
-                    event != %(dismissed)s
-                    OR
-                    COALESCE(JSONExtractBool(properties, '$survey_partially_completed'), False) = False
-                )
                 GROUP BY person_id
                 HAVING sum(if(event = %(dismissed)s, 1, 0)) > 0
                    AND sum(if(event = %(sent)s, 1, 0)) > 0
