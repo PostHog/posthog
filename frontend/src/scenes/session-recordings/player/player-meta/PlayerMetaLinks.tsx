@@ -1,4 +1,4 @@
-import { IconDownload, IconEllipsis, IconNotebook, IconPin, IconPinFilled, IconTrash } from '@posthog/icons'
+import { IconDownload, IconEllipsis, IconMinusSmall, IconNotebook, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDialog, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -24,8 +24,8 @@ function PinToPlaylistButton(): JSX.Element {
     const { maybePersistRecording } = useActions(sessionRecordingPlayerLogic)
     const nodeLogic = useNotebookNode()
 
-    const tooltip = logicProps.pinned ? 'Unpin from this list' : 'Pin to this list'
-    const description = 'Pin'
+    const tooltip = logicProps.pinned ? 'Remove from collection' : 'Add to collection'
+    const description = logicProps.pinned ? 'Remove from collection' : 'Add to collection'
 
     return logicProps.setPinned && !logicProps.pinned ? (
         <LemonButton
@@ -40,13 +40,13 @@ function PinToPlaylistButton(): JSX.Element {
             }}
             tooltip={tooltip}
             data-attr={logicProps.pinned ? 'unpin-from-this-list' : 'pin-to-this-list'}
-            icon={<IconPin />}
+            icon={<IconPlusSmall />}
         />
     ) : (
         <PlaylistPopoverButton
             tooltip={tooltip}
             setPinnedInCurrentPlaylist={logicProps.setPinned}
-            icon={logicProps.pinned ? <IconPinFilled /> : <IconPin />}
+            icon={logicProps.pinned ? <IconMinusSmall /> : <IconPlusSmall />}
             size="xsmall"
         >
             {description}
