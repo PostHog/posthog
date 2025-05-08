@@ -124,6 +124,10 @@ class PipelineNonDLT:
                 self._delta_table_helper.reset_table()
                 self._schema.update_sync_type_config_for_reset_pipeline()
 
+            dwh_table_exists: bool = (
+                ExternalDataSchema.objects.get(id=self._schema.id, team_id=self._job.team_id).table is not None
+            )
+
             for item in self._resource.items:
                 py_table = None
 
@@ -152,34 +156,13 @@ class PipelineNonDLT:
                     raise Exception(f"Unhandled item type: {item.__class__.__name__}")
 
                 assert py_table is not None
-
-                self._process_pa_table(pa_table=py_table, index=chunk_index)
-
                 row_count += py_table.num_rows
+
+                self._process_pa_table(
+                    pa_table=py_table, index=chunk_index, row_count=row_count, is_first_sync=not dwh_table_exists
+                )
+
                 chunk_index += 1
-                if self._reset_pipeline:
-                    delta_table = self._delta_table_helper.get_delta_table()
-
-                    if delta_table is None:
-                        # TODO - what do we do here? Can we actually get here?
-                        self._logger.debug("No deltalake table, not continuing with post-run ops")
-                        continue
-
-                    file_uris = delta_table.file_uris()
-                    self._logger.debug(f"Preparing S3 files for querying - total parquet files: {len(file_uris)}")
-                    prepare_s3_files_for_querying(
-                        self._job.folder_path(), self._resource_name, file_uris, ExternalDataJob.PipelineVersion.V2
-                    )
-                    self._logger.debug("Validating schema and updating table")
-                    validate_schema_and_update_table_sync(
-                        run_id=str(self._job.id),
-                        team_id=self._job.team_id,
-                        schema_id=self._schema.id,
-                        table_schema={},
-                        table_schema_dict=self._internal_schema.to_hogql_types(),
-                        row_count=row_count,
-                        table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
-                    )
 
                 # Cleanup
                 if "py_table" in locals() and py_table is not None:
@@ -192,8 +175,10 @@ class PipelineNonDLT:
 
             if len(buffer) > 0:
                 py_table = table_from_py_list(buffer)
-                self._process_pa_table(pa_table=py_table, index=chunk_index)
                 row_count += py_table.num_rows
+                self._process_pa_table(
+                    pa_table=py_table, index=chunk_index, row_count=row_count, is_first_sync=not dwh_table_exists
+                )
 
             self._post_run_operations(row_count=row_count)
         finally:
@@ -214,8 +199,9 @@ class PipelineNonDLT:
             pa_memory_pool.release_unused()
             gc.collect()
 
-    def _process_pa_table(self, pa_table: pa.Table, index: int):
+    def _process_pa_table(self, pa_table: pa.Table, index: int, row_count: int, is_first_sync: bool = False):
         delta_table = self._delta_table_helper.get_delta_table()
+        previous_file_uris = delta_table.file_uris() if delta_table else []
 
         pa_table = _append_debug_column_to_pyarrows_table(pa_table, self._load_id)
         pa_table = normalize_table_column_names(pa_table)
@@ -274,6 +260,32 @@ class PipelineNonDLT:
 
         _update_job_row_count(self._job.id, pa_table.num_rows, self._logger)
 
+        # if first sync, we make the delta table files available for querying and create the data warehouse table, so
+        # that the user has some data available to start using
+        if is_first_sync:
+            self._logger.debug(
+                "First sync, making delta table files available for querying and creating data warehouse table"
+            )
+            file_uris = delta_table.file_uris()
+            new_file_uris = [uri for uri in file_uris if uri not in previous_file_uris]
+            self._logger.debug(f"Adding {len(new_file_uris)} S3 files to query folder")
+            prepare_s3_files_for_querying(
+                folder_path=self._job.folder_path(),
+                table_name=self._resource_name,
+                file_uris=new_file_uris,
+                # delete existing files if it's the first chunk, otherwise we'll just append to the existing files
+                delete_existing=False if index > 0 else True,
+            )
+            self._logger.debug("Validating schema and updating table")
+            validate_schema_and_update_table_sync(
+                run_id=str(self._job.id),
+                team_id=self._job.team_id,
+                schema_id=self._schema.id,
+                table_schema_dict=self._internal_schema.to_hogql_types(),
+                row_count=row_count,
+                table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            )
+
     def _post_run_operations(self, row_count: int):
         delta_table = self._delta_table_helper.get_delta_table()
 
@@ -308,7 +320,6 @@ class PipelineNonDLT:
             run_id=str(self._job.id),
             team_id=self._job.team_id,
             schema_id=self._schema.id,
-            table_schema={},
             table_schema_dict=self._internal_schema.to_hogql_types(),
             row_count=row_count,
             table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
