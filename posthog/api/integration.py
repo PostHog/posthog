@@ -52,6 +52,16 @@ class IntegrationSerializer(serializers.ModelSerializer):
 
         elif validated_data["kind"] == "email":
             config = validated_data.get("config", {})
+
+            if config.get("vendor") == "mailjet" and not (config.get("api_key") and config.get("secret_key")):
+                raise ValidationError("Both api_key and secret_key are required for Mail integration")
+            instance = EmailIntegration.integration_from_keys(
+                config["api_key"],
+                config["secret_key"],
+                team_id,
+                request.user,
+            )
+
             if not (config.get("domain")):
                 raise ValidationError("Domain is required for email integration")
             instance = EmailIntegration.integration_from_domain(
