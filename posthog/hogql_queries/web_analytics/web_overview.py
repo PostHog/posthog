@@ -32,7 +32,7 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
         super().__init__(*args, **kwargs)
         self.preaggregated_query_builder = WebOverviewPreAggregatedQueryBuilder(self)
 
-    def to_query(self) -> ast.SelectQuery:
+    def to_query(self) -> Optional[ast.SelectQuery]:
         # Check if pre-aggregated tables should be used
         use_preaggregated = (
             self.modifiers and 
@@ -41,7 +41,9 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
         )
         
         if use_preaggregated:
-            return self.preaggregated_query_builder.build_query()
+            # Return None to indicate we're using pre-aggregated tables directly
+            # No HogQL query needed as we'll use direct ClickHouse execution
+            return None
         
         if not self.modifiers or not self.modifiers.useWebAnalyticsPreAggregatedTables:
             logger.info(
@@ -62,18 +64,77 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
             extra={"team_id": self.team.pk}
         )
         
-        response = execute_hogql_query(
-            query_type="overview_stats_pages_query",
-            query=self.to_query(),
-            team=self.team,
-            timings=self.timings,
-            modifiers=self.modifiers,
-            limit_context=self.limit_context,
+        # Check if we should use pre-aggregated tables
+        use_preaggregated = (
+            self.modifiers and 
+            self.modifiers.useWebAnalyticsPreAggregatedTables and 
+            self.preaggregated_query_builder.can_use_preaggregated_tables()
         )
+        
+        if use_preaggregated:
+            # Get results directly from pre-aggregated tables via ClickHouse
+            logger.info(
+                "Using pre-aggregated tables directly", 
+                extra={"team_id": self.team.pk}
+            )
+            
+            # Get the results directly without HogQL
+            results = self.preaggregated_query_builder.get_results()
+            row = results[0] if results else None
+            hogql = None  # No HogQL when using direct ClickHouse
+            response_timings = None
+        else:
+            # Use the standard HogQL query path
+            query = self.to_query()
+            # At this point query should always be a valid SelectQuery since use_preaggregated is False
+            assert query is not None
+            
+            response = execute_hogql_query(
+                query_type="overview_stats_pages_query",
+                query=query,
+                team=self.team,
+                timings=self.timings,
+                modifiers=self.modifiers,
+                limit_context=self.limit_context,
+            )
+            
+            if not response.results:
+                logger.error(
+                    "No results returned from HogQL query", 
+                    extra={"team_id": self.team.pk}
+                )
+                return WebOverviewQueryResponse(
+                    results=[],
+                    samplingRate=getattr(self, "_sample_rate", None),
+                    modifiers=self.modifiers,
+                    dateFrom=self.query_date_range.date_from_str,
+                    dateTo=self.query_date_range.date_to_str,
+                    hogql=response.hogql,
+                    timings=response.timings,
+                    usedPreAggregatedTables=False,
+                )
+                
+            row = response.results[0]
+            hogql = response.hogql
+            response_timings = response.timings
 
-        assert response.results
+        # Safety check - should never happen with our latest changes to pre-aggregated query
+        if not row:
+            logger.error(
+                "No results row available", 
+                extra={"team_id": self.team.pk}
+            )
+            return WebOverviewQueryResponse(
+                results=[],
+                samplingRate=getattr(self, "_sample_rate", None),
+                modifiers=self.modifiers,
+                dateFrom=self.query_date_range.date_from_str,
+                dateTo=self.query_date_range.date_to_str,
+                hogql=hogql,
+                timings=response_timings,
+                usedPreAggregatedTables=use_preaggregated,
+            )
 
-        row = response.results[0]
         include_previous = bool(self.query.compareFilter and self.query.compareFilter.compare)
 
         def get_prev_val(idx, use_unsample=True):
@@ -102,32 +163,25 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
                 results.append(to_data("conversion revenue", "currency", row[8], get_prev_val(9, False)))
             else:
                 results.append(to_data("revenue", "currency", row[10], get_prev_val(11, False)))
-
-        # Determine if pre-aggregated tables were used
-        used_preaggregated = (
-            self.modifiers and 
-            self.modifiers.useWebAnalyticsPreAggregatedTables and 
-            self.preaggregated_query_builder.can_use_preaggregated_tables()
-        )
         
         logger.info(
             "Web overview query completed", 
             extra={
                 "team_id": self.team.pk,
-                "used_preaggregated_tables": used_preaggregated,
+                "used_preaggregated_tables": use_preaggregated,
                 "sampling_rate": getattr(self, "_sample_rate", None)
             }
         )
 
         return WebOverviewQueryResponse(
             results=results,
-            samplingRate=self._sample_rate,
+            samplingRate=getattr(self, "_sample_rate", None),
             modifiers=self.modifiers,
             dateFrom=self.query_date_range.date_from_str,
             dateTo=self.query_date_range.date_to_str,
-            hogql=response.hogql,
-            timings=response.timings,
-            usedPreAggregatedTables=used_preaggregated,
+            hogql=hogql,
+            timings=response_timings,
+            usedPreAggregatedTables=use_preaggregated,
         )
 
     def all_properties(self) -> ast.Expr:
