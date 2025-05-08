@@ -222,8 +222,15 @@ def test_get_external_data_schemas(
     assert stripe_schema_2 in schemas
     assert old_stripe_schema in schemas
 
-    # test using team_id
-    schemas = _get_external_data_schemas(team_id=team_2.id)
+    # test using team_ids
+    schemas = _get_external_data_schemas(team_ids=f"{team.id},{team_2.id}")
+    assert len(schemas) == 6
+    schemas = _get_external_data_schemas(team_ids=f"{team_2.id}")
+    assert len(schemas) == 1
+    assert stripe_schema_team_2 in schemas
+
+    # test using exclude_team_ids
+    schemas = _get_external_data_schemas(exclude_team_ids=f"{team.id}")
     assert len(schemas) == 1
     assert stripe_schema_team_2 in schemas
 
@@ -262,6 +269,14 @@ def test_get_external_data_schemas(
     assert len(schemas) == 1
     assert old_stripe_schema in schemas
 
+    # test using a combination of filters
+    schemas = _get_external_data_schemas(
+        exclude_team_ids=f"{team.id}",
+        source_type="Stripe",
+    )
+    assert len(schemas) == 1
+    assert stripe_schema_team_2 in schemas
+
 
 def test_update_data_import_schedules_raises_error_if_no_args():
     """Test that the command raises an error if no arguments are provided.
@@ -279,4 +294,14 @@ def test_update_data_import_schedules_raises_error_if_no_schemas_found(team):
         call_command(
             "update_data_import_schedules",
             f"--source-type=NonExistentType",
+        )
+
+
+def test_update_data_import_schedules_raises_error_if_team_ids_and_exclude_team_ids_overlap(team):
+    """Test that the command raises an error if team_ids and exclude_team_ids overlap."""
+    with pytest.raises(CommandError, match=f"Team IDs {team.id} present in both include and exclude lists"):
+        call_command(
+            "update_data_import_schedules",
+            f"--team-ids={team.id}",
+            f"--exclude-team-ids={team.id}",
         )

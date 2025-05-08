@@ -44,8 +44,26 @@ def _get_external_data_schemas(**options) -> list[ExternalDataSchema]:
         queryset = queryset.filter(source_id=options["external_data_source_id"])
         filters_applied = True
 
-    if options.get("team_id") is not None:
-        queryset = queryset.filter(team_id=options["team_id"])
+    if options.get("team_ids") is not None:
+        try:
+            team_ids = [int(id) for id in options["team_ids"].split(",")]
+        except ValueError:
+            raise CommandError("team_ids must be a comma separated list of team IDs")
+        queryset = queryset.filter(team_id__in=team_ids)
+        filters_applied = True
+
+    if options.get("exclude_team_ids") is not None:
+        try:
+            exclude_team_ids = [int(id) for id in options["exclude_team_ids"].split(",")]
+        except ValueError:
+            raise CommandError("exclude_team_ids must be a comma separated list of team IDs")
+        # Check for overlap between include and exclude team IDs
+        if options.get("team_ids") is not None:
+            overlap = set(team_ids).intersection(exclude_team_ids)
+            if overlap:
+                overlap_str = ", ".join(map(str, overlap))
+                raise CommandError(f"Team IDs {overlap_str} present in both include and exclude lists")
+        queryset = queryset.exclude(team_id__in=exclude_team_ids)
         filters_applied = True
 
     if options.get("source_type") is not None:
@@ -95,7 +113,16 @@ class Command(BaseCommand):
             "--external-data-source-id", default=None, type=str, help="Single external data source ID to update"
         )
         parser.add_argument(
-            "--team-id", default=None, type=int, help="Team ID for which to update all external data sources"
+            "--team-ids",
+            default=None,
+            type=str,
+            help="Comma separated list of team IDs for which to update all external data sources",
+        )
+        parser.add_argument(
+            "--exclude-team-ids",
+            default=None,
+            type=str,
+            help="Comma separated list of team IDs for which to exclude updating external data sources",
         )
         parser.add_argument(
             "--source-type", default=None, type=str, help="Update all external data sources for a given source type"
@@ -143,7 +170,8 @@ class Command(BaseCommand):
                 logger.info("Aborting")
                 return
 
-        for external_data_schema in external_data_schemas:
+        for num, external_data_schema in enumerate(external_data_schemas):
             _update_external_data_schema_schedule(external_data_schema)
+            logger.info(f"Updated schedule {num + 1} of {len(external_data_schemas)}")
 
         logger.info("Done!")
