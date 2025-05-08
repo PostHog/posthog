@@ -436,7 +436,7 @@ impl FeatureFlagMatcher {
         let has_type_indexes = feature_flags
             .flags
             .iter()
-            .any(|flag| flag.active && !flag.deleted);
+            .any(|flag| flag.active && !flag.deleted && flag.get_group_type_index().is_some());
 
         if has_type_indexes {
             let group_type_mapping_timer =
