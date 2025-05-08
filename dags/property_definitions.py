@@ -40,6 +40,47 @@ def setup_job(
     return config.validate(cluster)
 
 
+@dataclass(frozen=True)
+class DetectPropertyTypeExpression:
+    source_column: str
+
+    def __str__(self) -> str:
+        return f"""
+            arrayMap(
+                (name, value) -> (name, multiIf(
+                    -- special cases: key patterns
+                    name ilike 'utm_%', 'String',
+                    name ilike '$feature/%', 'String',
+                    name ilike '$feature_flag_response', 'String',
+                    name ilike '$survey_response%', 'String',
+                    -- special cases: timestamp detection
+                    (
+                        multiSearchAnyCaseInsensitive(name, ['time', 'timestamp', 'date', '_at', '-at', 'createdat', 'updatedat'])
+                        AND JSONType(value) IN ('Int64', 'UInt64', 'Double')
+                        AND JSONExtract(value, 'Nullable(Float)') >= toUnixTimestamp(now() - interval '6 months')
+                    ), 'DateTime',
+                    -- special cases: string value patterns
+                    (
+                        JSONType(value) = 'String'
+                        AND trimBoth(JSONExtractString(value)) IN ('true', 'TRUE', 'false', 'FALSE')
+                    ), 'Boolean',
+                    (
+                        JSONType(value) = 'String'
+                        AND length(trimBoth(JSONExtractString(value)) as trimmed_value) >= 10  -- require at least a date part
+                        AND parseDateTime64BestEffortOrNull(trimmed_value) IS NOT NULL  -- can be parsed as a date
+                        AND JSONExtract(trimmed_value, 'Nullable(Float)') IS NULL  -- but not as a timestamp
+                    ), 'DateTime',
+                    -- primitive types
+                    JSONType(value) = 'Bool', 'Boolean',
+                    JSONType(value) = 'String', 'String',
+                    JSONType(value) IN ('Int64', 'UInt64', 'Double'), 'Numeric',
+                    NULL
+                )),
+                JSONExtractKeysAndValuesRaw({self.source_column})
+            )
+        """
+
+
 @dagster.op
 def ingest_event_properties(
     context: dagster.OpExecutionContext,
@@ -48,9 +89,6 @@ def ingest_event_properties(
 ) -> int:
     """
     Ingest event properties from events_recent table into property_definitions table.
-
-    Uses the JSONExtractKeysAndValuesRaw function to extract property keys and values,
-    then determines the property type using JSONType.
     """
     # Log the execution parameters
     context.log.info(f"Ingesting person properties for {time_range!r}")
@@ -61,15 +99,8 @@ def ingest_event_properties(
     SELECT
         team_id,
         team_id as project_id,
-        (arrayJoin(JSONExtractKeysAndValuesRaw(properties)) as x).1 as name,
-        map(
-            34, 'String',
-            98, 'Boolean',
-            100, 'Numeric',
-            105, 'Numeric',
-            117, 'Numeric',
-            0, NULL
-        )[JSONType(x.2)] as property_type,
+        (arrayJoin({DetectPropertyTypeExpression('properties')}) as property).1 as name,
+        property.2 as property_type,
         event,
         NULL as group_type_index,
         1 as type,
@@ -104,9 +135,6 @@ def ingest_person_properties(
 ) -> int:
     """
     Ingest person properties from person table into property_definitions table.
-
-    Uses the JSONExtractKeysAndValuesRaw function to extract property keys and values,
-    then determines the property type using JSONType.
     """
     # Log the execution parameters
     context.log.info(f"Ingesting person properties for {time_range!r}")
@@ -117,15 +145,8 @@ def ingest_person_properties(
     SELECT
         team_id,
         team_id as project_id,
-        (arrayJoin(JSONExtractKeysAndValuesRaw(properties)) as x).1 as name,
-        map(
-            34, 'String',
-            98, 'Boolean',
-            100, 'Numeric',
-            105, 'Numeric',
-            117, 'Numeric',
-            0, NULL
-        )[JSONType(x.2)] as property_type,
+        (arrayJoin({DetectPropertyTypeExpression('properties')}) as property).1 as name,
+        property.2 as property_type,
         NULL as event,
         NULL as group_type_index,
         2 as type,
