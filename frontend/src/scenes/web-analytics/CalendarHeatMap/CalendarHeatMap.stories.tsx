@@ -1,6 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { CalendarHeatMap, CalendarHeatMapProps } from './CalendarHeatMap'
+import { CalendarHeatMap } from './CalendarHeatMap'
 
 const meta: Meta<typeof CalendarHeatMap> = {
     title: 'Scenes/Web Analytics/CalendarHeatMap',
@@ -12,12 +12,6 @@ const meta: Meta<typeof CalendarHeatMap> = {
 export default meta
 type Story = StoryObj<typeof CalendarHeatMap>
 
-const mockContext: CalendarHeatMapProps['context'] = {
-    insightProps: {
-        dashboardItemId: undefined,
-    },
-}
-
 const mockTooltips = {
     getDataTooltip: (row: string, col: string, value: number) => `${row} - ${col}: ${value}`,
     getColumnAggregationTooltip: (label: string, col: string, value: number) => `${label} - ${col}: ${value}`,
@@ -27,9 +21,7 @@ const mockTooltips = {
 
 export const Loading: Story = {
     args: {
-        context: mockContext,
         isLoading: true,
-        queryId: 'loading-query',
         rowLabels: [],
         columnLabels: [],
         allAggregationsLabel: 'Total',
@@ -56,9 +48,7 @@ export const Loading: Story = {
 
 export const NoResults: Story = {
     args: {
-        context: mockContext,
         isLoading: false,
-        queryId: 'no-results-query',
         rowLabels: ['Page A', 'Page B', 'Page C'],
         columnLabels: ['Mon', 'Tue', 'Wed'],
         allAggregationsLabel: 'Total',
@@ -84,9 +74,7 @@ export const NoResults: Story = {
 
 export const WithData: Story = {
     args: {
-        context: mockContext,
         isLoading: false,
-        queryId: 'with-data-query',
         rowLabels: ['Homepage', 'Pricing', 'Docs', 'Blog'],
         columnLabels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
         allAggregationsLabel: 'Total',

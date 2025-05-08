@@ -33,6 +33,7 @@ export interface SavedSessionRecordingPlaylistsFilters {
     dateTo: string | dayjs.Dayjs | undefined | null
     page: number
     pinned: boolean
+    type?: 'collection' | 'saved_filters'
 }
 
 export interface SavedSessionRecordingPlaylistsLogicProps {
@@ -65,6 +66,7 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
         ) => ({ shortId, properties }),
         deletePlaylist: (playlist: SessionRecordingPlaylistType) => ({ playlist }),
         duplicatePlaylist: (playlist: SessionRecordingPlaylistType) => ({ playlist }),
+        checkForSavedFilterRedirect: true,
     })),
     reducers(() => ({
         filters: [
@@ -103,7 +105,7 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
                     date_from: undefined,
                     date_to: undefined,
                     pinned: undefined,
-                    type: 'saved_filters',
+                    type: 'filters',
                 }
 
                 const response = await api.recordings.listPlaylists(toParams(params))
@@ -131,6 +133,7 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
                     date_from: filters.dateFrom && filters.dateFrom != 'all' ? filters.dateFrom : undefined,
                     date_to: filters.dateTo ?? undefined,
                     pinned: filters.pinned ? true : undefined,
+                    type: 'collection',
                 }
 
                 const response = await api.recordings.listPlaylists(toParams(params))
@@ -182,6 +185,16 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
     listeners(({ actions }) => ({
         setSavedPlaylistsFilters: () => {
             actions.loadPlaylists()
+        },
+        checkForSavedFilterRedirect: async () => {
+            //If you want to load a saved filter via GET param, you can do it like this: ?savedFilterId=bndnfkxL
+            const { savedFilterId } = router.values.searchParams
+            if (savedFilterId) {
+                const savedFilter = await api.recordings.getPlaylist(savedFilterId)
+                if (savedFilter) {
+                    router.actions.push(urls.replay(ReplayTabs.Home, savedFilter.filters))
+                }
+            }
         },
     })),
 
@@ -290,5 +303,6 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
     afterMount(({ actions }) => {
         actions.loadPlaylists()
         actions.loadSavedFilters()
+        actions.checkForSavedFilterRedirect()
     }),
 ])
