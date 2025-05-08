@@ -371,16 +371,35 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         assert response.json()["last_modified_at"] == "2022-01-02T00:00:00Z"
 
     def test_rejects_updates_to_readonly_playlist_properties(self):
-        create_response = self._create_playlist()
-        short_id = create_response.json()["short_id"]
+        # Create a playlist with a specific initial type
+        initial_type = SessionRecordingPlaylist.PlaylistType.COLLECTION
+        create_response = self._create_playlist({"name": "initial for readonly test", "type": initial_type})
+        created_data = create_response.json()
+        short_id = created_data["short_id"]
+        assert created_data["type"] == initial_type  # Verify initial type
+
+        new_type_attempt = SessionRecordingPlaylist.PlaylistType.FILTERS
+        # Ensure we're trying to change to a different, valid type
+        assert new_type_attempt != initial_type and new_type_attempt in SessionRecordingPlaylist.PlaylistType.values
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/session_recording_playlists/{short_id}",
-            {"short_id": "something else", "pinned": True},
+            {
+                "short_id": "something else",  # Attempt to change a known read-only field
+                "type": new_type_attempt,  # Attempt to change the now read-only 'type' field
+                "name": "updated name for readonly test",  # A mutable field
+                "pinned": True,  # Another mutable field
+            },
+            format="json",  # Explicitly set format for clarity
         )
 
-        assert response.json()["short_id"] == short_id
-        assert response.json()["pinned"]
+        assert response.status_code == status.HTTP_200_OK  # Request should succeed
+        updated_data = response.json()
+
+        assert updated_data["short_id"] == short_id  # short_id should not have changed
+        assert updated_data["type"] == initial_type  # type should not have changed
+        assert updated_data["name"] == "updated name for readonly test"  # name should have been updated
+        assert updated_data["pinned"] is True  # pinned should have been updated
 
     def test_filters_based_on_params(self):
         other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
