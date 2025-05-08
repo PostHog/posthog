@@ -212,7 +212,9 @@ def load_hog_function_templates(django_db_setup, django_db_blocker):
     with django_db_blocker.unblock():
         from posthog.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 
-        with patch("posthog.plugins.plugin_server_api.get_hog_function_templates") as mock_get_templates:
+        with patch(
+            "posthog.management.commands.sync_hog_function_templates.get_hog_function_templates"
+        ) as mock_get_templates:
             mock_get_templates.return_value.status_code = 200
             mock_get_templates.return_value.json.return_value = MOCK_NODE_TEMPLATES
             from django.core.management import call_command
