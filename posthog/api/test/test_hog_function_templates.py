@@ -1,6 +1,6 @@
 import json
 import os
-from unittest.mock import ANY, patch
+from unittest.mock import patch
 from rest_framework import status
 
 from posthog.api.hog_function_template import HogFunctionTemplates
