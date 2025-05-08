@@ -1,3 +1,4 @@
+from typing import Any, Optional
 import pytest
 from unittest.mock import Mock
 from posthog.schema import NodeKind
@@ -36,7 +37,9 @@ def test_upgrade_insight_context_manager():
 def test_upgrade_query_and_replace_filters_manager():
     mock_insight = Mock()
     mock_insight.filters = {"aggregation_group_type_index": 2}
+    mock_insight.query = None
 
     with upgrade_query_and_replace_filters(mock_insight):
-        assert isinstance(mock_insight.query, dict)
-        assert mock_insight.query["aggregationGroupTypeIndex"] == 2
+        query: Optional[dict[str, Any]] = mock_insight.query
+        assert query is not None
+        assert query["aggregationGroupTypeIndex"] == 2
