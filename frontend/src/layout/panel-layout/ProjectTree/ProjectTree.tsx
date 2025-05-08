@@ -681,6 +681,18 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                         </>
                     )
                 }}
+                renderItem={(item) => {
+                    return (
+                        <span className="truncate">
+                            {item.displayName}
+                            {sortMethod === 'recent' && projectTreeMode === 'tree' && (
+                                <span className="text-tertiary text-xxs pt-[3px] ml-1">
+                                    {dayjs(item.record?.created_at).fromNow()}
+                                </span>
+                            )}
+                        </span>
+                    )
+                }}
             />
 
             {movingItems.length > 0 && (
