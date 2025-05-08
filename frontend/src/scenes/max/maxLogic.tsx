@@ -694,7 +694,7 @@ export const maxLogic = kea<maxLogicType>([
                     return null
                 }
 
-                return 'New chat'
+                return 'Max'
             },
         ],
 
