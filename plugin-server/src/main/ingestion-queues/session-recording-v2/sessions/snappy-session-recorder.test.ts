@@ -1120,6 +1120,52 @@ describe('SnappySessionRecorder', () => {
     })
 
     describe('switchover date', () => {
+        it('should not compute metadata when switchover date is null', async () => {
+            const recorder = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id', null)
+            const events = [
+                {
+                    type: RRWebEventType.IncrementalSnapshot,
+                    timestamp: new Date('2025-01-01T01:00:00Z').getTime(),
+                    data: { source: 2, type: 2 }, // MouseInteraction, Click
+                },
+                {
+                    type: RRWebEventType.IncrementalSnapshot,
+                    timestamp: new Date('2025-01-01T01:00:01Z').getTime(),
+                    data: { source: 5 }, // Input
+                },
+                {
+                    type: RRWebEventType.IncrementalSnapshot,
+                    timestamp: new Date('2025-01-01T01:00:02Z').getTime(),
+                    data: { source: 1 }, // MouseMove
+                },
+                {
+                    type: RRWebEventType.Meta,
+                    timestamp: new Date('2025-01-01T01:00:03Z').getTime(),
+                    data: { href: 'https://example.com' },
+                },
+            ]
+            const message = createMessage('window1', events)
+            recorder.recordMessage(message)
+            const result = await recorder.end()
+
+            // Verify no metadata is recorded
+            expect(result.clickCount).toBe(0)
+            expect(result.keypressCount).toBe(0)
+            expect(result.mouseActivityCount).toBe(0)
+            expect(result.activeMilliseconds).toBe(0)
+            expect(result.urls).toEqual([])
+            expect(result.firstUrl).toBeNull()
+
+            // Verify events are still written to buffer
+            const lines = await parseSnappyBuffer(result.buffer)
+            expect(lines).toEqual([
+                ['window1', events[0]],
+                ['window1', events[1]],
+                ['window1', events[2]],
+                ['window1', events[3]],
+            ])
+        })
+
         it('should not compute metadata for events before switchover date', async () => {
             const recorder = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id', SWITCHOVER_DATE)
             const beforeSwitchoverTs = new Date('2024-12-31T23:59:00Z').getTime()
