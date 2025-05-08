@@ -1770,7 +1770,7 @@ export interface BillingTierType {
     current_usage: number
     projected_usage: number | null
     projected_amount_usd: string | null
-    projected_amount_usd_with_limit: string | null
+    projected_amount_usd_with_limit?: string | null
     up_to: number | null
 }
 

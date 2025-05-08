@@ -451,7 +451,6 @@ export const billingJson: BillingType = {
                     current_usage: 882128,
                     projected_usage: 3910636,
                     projected_amount_usd: '128.12',
-                    projected_amount_usd_with_limit: '128.12',
                     plans: [
                         {
                             plan_key: 'addon-20230509',
@@ -658,7 +657,6 @@ export const billingJson: BillingType = {
                     current_usage: 0,
                     projected_usage: 0,
                     projected_amount_usd: '0.00',
-                    projected_amount_usd_with_limit: '0.00',
                     plans: [
                         {
                             plan_key: 'addon-20240111',
@@ -3158,7 +3156,6 @@ export const billingJson: BillingType = {
                     current_usage: 0,
                     projected_usage: 0,
                     projected_amount_usd: null,
-                    projected_amount_usd_with_limit: null,
                     plans: [
                         {
                             plan_key: 'addon-20240411',
