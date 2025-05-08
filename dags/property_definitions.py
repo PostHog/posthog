@@ -2,6 +2,7 @@ import datetime
 from dataclasses import dataclass
 
 import dagster
+import pydantic
 
 from dags.common import JobOwners
 from posthog.clickhouse.cluster import ClickhouseCluster, Query
@@ -20,10 +21,16 @@ class TimeRange:
 class PropertyDefinitionsConfig(dagster.Config):
     """Configuration for property definitions ingestion job."""
 
-    start_at: str
-    duration: str = "1 hour"
+    start_at: str = pydantic.Field(
+        description="The lower bound (inclusive) timestamp to be used when selecting rows to be included within the ingestion window. The value can be provided in any format that can be parsed by ClickHouse best-effort date parsing."
+    )
+    duration: str = pydantic.Field(
+        description="The size of the ingestion window, used to determine the upper bound (non-inclusive) of the time range. The value can be provided in any format that can be parsed as a ClickHouse interval.",
+        default="1 hour",
+    )
 
     def validate(self, cluster: ClickhouseCluster) -> TimeRange:
+        """Validate the configuration values, returning a time range."""
         [[start_time, end_time]] = cluster.any_host(
             Query(
                 f"SELECT parseDateTimeBestEffort(%(start_at)s) as start_time, start_time + INTERVAL %(duration)s",
@@ -38,6 +45,7 @@ def setup_job(
     cluster: dagster.ResourceParam[ClickhouseCluster],
     config: PropertyDefinitionsConfig,
 ) -> TimeRange:
+    """Validates the job configuration to be provided to other ops."""
     return config.validate(cluster)
 
 
@@ -293,7 +301,8 @@ def property_definitions_ingestion_job():
     This job runs in the following sequence:
     1. Ingest event properties
     2. Ingest person properties
-    3. Run OPTIMIZE FINAL on the table
+    3. Ingest group properties
+    4. Run OPTIMIZE FINAL on the table
     """
     time_range = setup_job()
     event_count = ingest_event_properties(time_range)
