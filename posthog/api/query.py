@@ -205,7 +205,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
         return JsonResponse(query_status_response.model_dump(), safe=False, status=http_code)
 
-    @action(methods=["POST"], detail=False)
+    @action(methods=["GET"], detail=False)
     def check_auth_for_async(self, request: Request, *args, **kwargs):
         return JsonResponse({"user": "ok"}, status=status.HTTP_200_OK)
 
@@ -298,7 +298,7 @@ async def progress(request: Request, *args, **kwargs) -> StreamingHttpResponse:
                         read_bytes,
                         total_rows_approx,
                         elapsed,
-                        ProfileEvents['OSCPUVirtualTimeMicroseconds'] as OSCPUVirtualTimeMicroseconds
+                        memory_usage
                     FROM clusterAllReplicas(%(cluster)s, system.processes)
                     WHERE query_id LIKE %(query_id)s and query LIKE %(user_id)s
                     """,
@@ -324,7 +324,7 @@ async def progress(request: Request, *args, **kwargs) -> StreamingHttpResponse:
                     "rows_read": int(results[0][0]),
                     "estimated_rows_total": int(results[0][2]),
                     "time_elapsed": int(results[0][3]),
-                    "active_cpu_time": int(results[0][4]),
+                    "memory_usage": int(results[0][4]),
                 }
 
                 yield f"data: {json.dumps(progress)}\n\n".encode()

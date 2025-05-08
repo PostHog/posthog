@@ -105,9 +105,9 @@ async function executeQuery<N extends DataNode>(
             refreshParam = refresh || 'blocking'
         }
 
-        if ((refreshParam === 'blocking' || refreshParam === 'force_blocking') && setPollResponse) {
+        if ((refreshParam === 'blocking' || refreshParam === 'force_blocking') && setPollResponse && queryId) {
             const currentTeamId = teamLogic.findMounted()?.values.currentTeamId
-            setTimeout(() => {
+            const timeoutId = setTimeout(() => {
                 void api.stream(`/api/environments/${currentTeamId}/query/${queryId}/progress/`, {
                     onMessage: (event) => {
                         try {
@@ -135,37 +135,29 @@ async function executeQuery<N extends DataNode>(
                     signal: methodOptions?.signal,
                 })
             }, 500) // Give the query time to start
+            methodOptions?.signal?.addEventListener('abort', () => {
+                clearTimeout(timeoutId)
+            })
         }
 
-        try {
-            const response = await api.query(
-                queryNode,
-                methodOptions,
-                queryId,
-                refreshParam,
-                filtersOverride,
-                variablesOverride
-            )
+        const response = await api.query(
+            queryNode,
+            methodOptions,
+            queryId,
+            refreshParam,
+            filtersOverride,
+            variablesOverride
+        )
 
-            if (response.detail) {
-                throw new Error(response.detail)
-            }
-
-            // Stop polling when query completes
-            shouldStopPolling = true
-            isPolling = false
-
-            if (!isAsyncResponse(response)) {
-                return response
-            }
-
-            queryId = response.query_status.id
-        } catch (e) {
-            // Stop polling on error
-            shouldStopPolling = true
-            isPolling = false
-            throw e
+        if (response.detail) {
+            throw new Error(response.detail)
         }
+
+        if (!isAsyncResponse(response)) {
+            return response
+        }
+
+        queryId = response.query_status.id
     } else {
         if (refresh !== 'async' && refresh !== 'force_async') {
             throw new Error('pollOnly is only supported for async queries')
