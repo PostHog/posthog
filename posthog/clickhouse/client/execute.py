@@ -24,7 +24,6 @@ from posthog.clickhouse.client.escape import substitute_params
 from posthog.clickhouse.query_tagging import tag_queries, get_query_tag_value, get_query_tags
 from posthog.cloud_utils import is_cloud
 from posthog.errors import wrap_query_error, ch_error_type
-from posthog.exceptions import ClickhouseAtCapacity
 from posthog.settings import TEST
 from posthog.utils import generate_short_id, patchable
 
@@ -173,61 +172,56 @@ def sync_execute(
             # process requests made to API from the PH app
             ch_user = ClickHouseUser.APP
 
-    while True:
-        settings = {
-            **core_settings,
-            "log_comment": json.dumps(tags, separators=(",", ":")),
-            "query_id": query_id,
-        }
-        if workload == Workload.OFFLINE:
-            # disabling hedged requests for offline queries reduces the likelihood of these queries bleeding over into the
-            # online resource pool when the offline resource pool is under heavy load. this comes at the cost of higher and
-            # more variable latency and a higher likelihood of query failures - but offline workloads should be tolerant to
-            # these disruptions
-            settings["use_hedged_requests"] = "0"
-        start_time = perf_counter()
-        try:
-            QUERY_STARTED_COUNTER.labels(
-                team_id=str(tags.get("team_id", "0")),
-                access_method=tags.get("access_method", "other"),
-                chargeable=str(tags.get("chargeable", "0")),
-            ).inc()
-            with sync_client or get_client_from_pool(workload, team_id, readonly, ch_user) as client:
-                result = client.execute(
-                    prepared_sql,
-                    params=prepared_args,
-                    settings=settings,
-                    with_column_types=with_column_types,
-                    query_id=query_id,
-                )
-        except Exception as e:
-            exception_type = ch_error_type(e)
-            QUERY_ERROR_COUNTER.labels(
-                exception_type=exception_type, query_type=query_type, workload=workload.value, chargeable=chargeable
-            ).inc()
-            err = wrap_query_error(e)
-            if isinstance(err, ClickhouseAtCapacity) and is_personal_api_key and workload == Workload.OFFLINE:
-                workload = Workload.ONLINE
-                tags["clickhouse_exception_type"] = exception_type
-                tags["workload"] = str(workload)
-                continue
-            raise err from e
-        finally:
-            execution_time = perf_counter() - start_time
+    settings = {
+        **core_settings,
+        "log_comment": json.dumps(tags, separators=(",", ":")),
+        "query_id": query_id,
+    }
+    if workload == Workload.OFFLINE and not is_personal_api_key:
+        # disabling hedged requests for offline queries reduces the likelihood of these queries bleeding over into the
+        # online resource pool when the offline resource pool is under heavy load. this comes at the cost of higher and
+        # more variable latency and a higher likelihood of query failures - but offline workloads should be tolerant to
+        # these disruptions
+        settings["use_hedged_requests"] = "0"
+    elif workload == Workload.OFFLINE and is_personal_api_key:
+        # personal api keys are allowed to use hedged requests that can spill into the online resource pool
+        settings["use_hedged_requests"] = "1"
+    start_time = perf_counter()
+    try:
+        QUERY_STARTED_COUNTER.labels(
+            team_id=str(tags.get("team_id", "0")),
+            access_method=tags.get("access_method", "other"),
+            chargeable=str(tags.get("chargeable", "0")),
+        ).inc()
+        with sync_client or get_client_from_pool(workload, team_id, readonly, ch_user) as client:
+            result = client.execute(
+                prepared_sql,
+                params=prepared_args,
+                settings=settings,
+                with_column_types=with_column_types,
+                query_id=query_id,
+            )
+    except Exception as e:
+        exception_type = ch_error_type(e)
+        QUERY_ERROR_COUNTER.labels(
+            exception_type=exception_type, query_type=query_type, workload=workload.value, chargeable=chargeable
+        ).inc()
+        err = wrap_query_error(e)
+        raise err from e
+    finally:
+        execution_time = perf_counter() - start_time
 
-            QUERY_FINISHED_COUNTER.labels(
-                team_id=str(tags.get("team_id", "0")),
-                access_method=tags.get("access_method", "other"),
-                chargeable=str(tags.get("chargeable", "0")),
-            ).inc()
+        QUERY_FINISHED_COUNTER.labels(
+            team_id=str(tags.get("team_id", "0")),
+            access_method=tags.get("access_method", "other"),
+            chargeable=str(tags.get("chargeable", "0")),
+        ).inc()
 
-            if query_counter := getattr(thread_local_storage, "query_counter", None):
-                query_counter.total_query_time += execution_time
+        if query_counter := getattr(thread_local_storage, "query_counter", None):
+            query_counter.total_query_time += execution_time
 
-            if app_settings.SHELL_PLUS_PRINT_SQL:
-                print("Execution time: %.6fs" % (execution_time,))  # noqa T201
-
-        break
+        if app_settings.SHELL_PLUS_PRINT_SQL:
+            print("Execution time: %.6fs" % (execution_time,))  # noqa T201
 
     return result
 
