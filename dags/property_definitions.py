@@ -103,9 +103,11 @@ def ingest_event_properties(
         team_id as project_id,
         (arrayJoin({DetectPropertyTypeExpression('properties')}) as property).1 as name,
         property.2 as property_type,
+        -- NOTE: event not sanitized, need to check if needed https://github.com/PostHog/posthog/blob/052f4ea40c5043909115f835f09445e18dd9727c/rust/property-defs-rs/src/types.rs#L172
         event,
         NULL as group_type_index,
         {int(PropertyDefinition.Type.EVENT)} as type,
+        -- NOTE: not floored, need to check if needed https://github.com/PostHog/posthog/blob/052f4ea40c5043909115f835f09445e18dd9727c/rust/property-defs-rs/src/types.rs#L175
         max(timestamp) as last_seen_at
     FROM events_recent
     WHERE
