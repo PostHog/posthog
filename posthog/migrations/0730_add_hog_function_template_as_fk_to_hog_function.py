@@ -8,7 +8,7 @@ import django.db.models.deletion
 class Migration(migrations.Migration):
     atomic = False  # Added to support concurrent index creation
     dependencies = [
-        ("posthog", "0726_team_secret_api_token_and_backup"),
+        ("posthog", "0729_sessionrecordingplaylist_type"),
     ]
 
     operations = [
