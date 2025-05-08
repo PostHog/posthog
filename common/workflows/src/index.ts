@@ -19,6 +19,60 @@ export interface Workflow {
 }
 
 ///////////////////////////////////////////////////////////////////////////////
+// Journey
+///////////////////////////////////////////////////////////////////////////////
+
+// A journey is an invocation of a workflow
+export interface Journey extends Workflow {
+    globals: JourneyGlobals
+    state: {
+        path: {
+            node_id: string
+            outgoing_edge_id: string | null
+        }[]
+        current_node_id: string
+    }
+}
+
+// TODO: DRY this out with HogFunctionInvocationGlobals in frontend/src/types.ts and plugin-server/src/types.ts
+type JourneyGlobals = {
+    project: {
+        id: number
+        name: string
+        url: string
+    }
+    source?: {
+        name: string
+        url: string
+    }
+    event: {
+        uuid: string
+        event: string
+        elements_chain: string
+        distinct_id: string
+        properties: Record<string, any>
+        timestamp: string
+        url: string
+    }
+    person?: {
+        id: string
+        properties: Record<string, any>
+        name: string
+        url: string
+    }
+    groups?: Record<
+        string,
+        {
+            id: string // the "key" of the group
+            type: string
+            index: number
+            url: string
+            properties: Record<string, any>
+        }
+    >
+}
+
+///////////////////////////////////////////////////////////////////////////////
 // Nodes
 ///////////////////////////////////////////////////////////////////////////////
 export type WorkflowNode = {
@@ -36,13 +90,6 @@ export interface WorkflowNodeData {
 export interface WorkflowNodeConfig {
     input_schema: WorkflowNodeInputSchemaType[]
     inputs: Record<string, unknown>
-
-    /**
-     * When a node executes, it will return a value for the outgoing_edge_id used for finding the next node:
-     * - Individual node types know about the edge(s) they have and when to use which one.
-     * - Exit nodes don't have an outgoing_edge_id. A null value indicates that this journey through the workflow is complete.
-     */
-    outgoing_edge_id: string | null
 }
 
 export interface TriggerNodeConfig extends WorkflowNodeConfig {
