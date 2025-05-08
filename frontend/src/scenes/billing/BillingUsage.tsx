@@ -38,7 +38,7 @@ export function BillingUsage(): JSX.Element {
 
     return (
         <div className="space-y-4">
-            <div className="border rounded p-4 bg-white space-y-4">
+            <div className="border rounded p-4 bg-bg-light space-y-4">
                 <div className="flex gap-4 items-start flex-wrap">
                     {/* Usage Types */}
                     <div className="flex flex-col gap-1">
