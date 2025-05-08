@@ -11,7 +11,6 @@ from django.utils import timezone
 from prometheus_client import Gauge
 from redis import Redis
 from structlog import get_logger
-from django.core.management import call_command
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_concurrency
 from posthog.clickhouse.query_tagging import tag_queries
@@ -923,8 +922,3 @@ def calculate_external_data_rows_synced() -> None:
         pass
     else:
         capture_external_data_rows_synced()
-
-
-@shared_task(ignore_result=True)
-def sync_hog_function_templates_task() -> None:
-    call_command("sync_hog_function_templates")

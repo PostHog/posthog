@@ -41,6 +41,7 @@ from freezegun import freeze_time
 from django.test import override_settings
 from unittest.mock import patch
 from posthog.hogql.query import execute_hogql_query
+from posthog.models.property_definition import PropertyDefinition, PropertyType
 
 
 class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -536,3 +537,71 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # Verify that execute_hogql_query was called with the correct modifiers
         called_modifiers: HogQLQueryModifiers = spy_execute_hogql_query.call_args[1]["modifiers"]
         self.assertEqual(called_modifiers.personsOnEventsMode, PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED)
+
+    def test_person_display_name_default(self):
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["id_email", "id_anon"],
+            properties={"email": "user@email.com", "name": "Test User"},
+        )
+        flush_persons_and_events()
+        query = ActorsQuery(select=["person_display_name"])
+        runner = self._create_runner(query)
+        response = runner.calculate()
+        display_names = [row[0]["display_name"] for row in response.results]
+        assert set(display_names) == {"user@email.com"}
+
+    def test_person_display_name_custom(self):
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["id_email", "id_anon"],
+            properties={"email": "user@email.com", "name": "Test User", "numeric_prop": 123},
+        )
+        self.team.person_display_name_properties = ["name", "numeric_prop"]
+        self.team.save()
+        self.team.refresh_from_db()
+        flush_persons_and_events()
+        PropertyDefinition.objects.create(
+            team_id=self.team.pk,
+            name="numeric_prop",
+            property_type=PropertyType.Numeric,
+            is_numerical=True,
+            type=PropertyDefinition.Type.PERSON,
+        )
+        query = ActorsQuery(select=["person_display_name"])
+        runner = self._create_runner(query)
+        response = runner.calculate()
+        display_names = [row[0]["display_name"] for row in response.results]
+        assert set(display_names) == {"Test User"}
+
+    def test_person_display_name_fallback(self):
+        person = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["id_email", "id_anon"],
+            properties={"email": "user@email.com", "name": "Test User"},
+        )
+        self.team.person_display_name_properties = ["nonexistent"]
+        self.team.save()
+        self.team.refresh_from_db()
+        flush_persons_and_events()
+        query = ActorsQuery(select=["person_display_name"])
+        runner = self._create_runner(query)
+        response = runner.calculate()
+        display_names = [row[0]["display_name"] for row in response.results]
+        assert set(display_names) == {str(person.uuid)}
+
+    def test_person_display_name_with_spaces_in_property_name(self):
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["id_email", "id_anon"],
+            properties={"email": "user@email.com", "Property With Spaces": "Test User With Spaces"},
+        )
+        self.team.person_display_name_properties = ["Property With Spaces"]
+        self.team.save()
+        self.team.refresh_from_db()
+        flush_persons_and_events()
+        query = ActorsQuery(select=["person_display_name"])
+        runner = self._create_runner(query)
+        response = runner.calculate()
+        display_names = [row[0]["display_name"] for row in response.results]
+        assert set(display_names) == {"Test User With Spaces"}

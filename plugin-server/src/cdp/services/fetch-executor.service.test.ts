@@ -1,7 +1,10 @@
 import { createServer } from 'http'
 import { AddressInfo } from 'net'
 
+import { logger } from '~/src/utils/logger'
+
 import { defaultConfig } from '../../config/config'
+import { promisifyCallback } from '../../utils/utils'
 import {
     HogFunctionInvocation,
     HogFunctionQueueParametersFetchRequest,
@@ -9,28 +12,41 @@ import {
 } from '../types'
 import { FetchExecutorService } from './fetch-executor.service'
 
-jest.unmock('node-fetch')
-
 describe('FetchExecutorService', () => {
-    jest.setTimeout(1000)
+    jest.setTimeout(10000)
     let server: any
     let baseUrl: string
     let service: FetchExecutorService
     let mockRequest = jest.fn()
 
-    beforeAll(() => {
+    let timeoutHandle: NodeJS.Timeout | undefined
+
+    beforeAll(async () => {
         server = createServer((req, res) => {
             mockRequest(req, res)
         })
 
-        server.listen(0) // Random available port
+        await promisifyCallback<void>((cb) => {
+            server.listen(0, () => {
+                logger.info('Server listening')
+                cb(null, server)
+            })
+        })
         const address = server.address() as AddressInfo
         baseUrl = `http://localhost:${address.port}`
         service = new FetchExecutorService(defaultConfig)
     })
 
-    afterAll((done) => {
-        server.close(done)
+    afterEach(() => {
+        clearTimeout(timeoutHandle)
+    })
+
+    afterAll(async () => {
+        logger.info('Closing server')
+        await promisifyCallback<void>((cb) => {
+            logger.info('Closed server')
+            server.close(cb)
+        })
     })
 
     beforeEach(() => {
@@ -116,7 +132,11 @@ describe('FetchExecutorService', () => {
         // Should now be complete with failure
         expect(retryResult.invocation.queue).toBe('hog')
         expect(params.trace?.length).toBe(2)
-        expect(params.response).toBeNull()
+        expect(params.response).toEqual({
+            status: 500,
+            headers: expect.objectContaining({ 'content-type': 'text/plain' }),
+        })
+        expect(params.body).toBe('test server error body')
         expect(attempts).toBe(2)
     })
 
@@ -139,10 +159,39 @@ describe('FetchExecutorService', () => {
         )
     })
 
+    it('handles security errors', async () => {
+        process.env.NODE_ENV = 'production' // Make sure the security features are enabled
+
+        const invocation = createInvocation({
+            url: 'http://localhost',
+            method: 'GET',
+            return_queue: 'hog',
+        })
+
+        const result = await service.execute(invocation)
+
+        // Should be scheduled for retry
+        expect(result.invocation.queue).toBe('hog')
+        expect(result.invocation.queueParameters).toMatchObject({
+            body: null,
+            response: null,
+            timings: [],
+            trace: [
+                {
+                    kind: 'requesterror',
+                    message: 'SecureRequestError: Internal hostname',
+                },
+            ],
+        })
+
+        process.env.NODE_ENV = 'test'
+    })
+
     it('handles timeouts', async () => {
         mockRequest.mockImplementation((_req: any, res: any) => {
             // Never send response
-            setTimeout(() => res.end(), 10000)
+            clearTimeout(timeoutHandle)
+            timeoutHandle = setTimeout(() => res.end(), 10000)
         })
 
         const invocation = createInvocation({

@@ -825,7 +825,9 @@ export function autoCaptureEventToDescription(
     }
 
     const getValue = (): string | null => {
-        if (event.elements?.[0]?.text) {
+        if (event.properties.$el_text) {
+            return `${shortForm ? '' : 'with text '}"${event.properties.$el_text}"`
+        } else if (event.elements?.[0]?.text) {
             return `${shortForm ? '' : 'with text '}"${event.elements[0].text}"`
         } else if (event.elements?.[0]?.attributes?.['attr__aria-label']) {
             return `${shortForm ? '' : 'with aria label '}"${event.elements[0].attributes['attr__aria-label']}"`
@@ -2066,4 +2068,37 @@ export const getJSHeapMemory = (): {
         }
     }
     return {}
+}
+
+export function getRelativeNextPath(nextPath: string | null | undefined, location: Location): string | null {
+    if (!nextPath || typeof nextPath !== 'string') {
+        return null
+    }
+    let decoded: string
+    try {
+        decoded = decodeURIComponent(nextPath)
+    } catch {
+        decoded = nextPath
+    }
+
+    // Protocol-relative URLs (e.g., //evil.com/test) are not allowed
+    if (decoded.startsWith('//')) {
+        return null
+    }
+
+    // Root-relative path
+    if (decoded.startsWith('/')) {
+        return decoded
+    }
+
+    // Try to parse as a full URL
+    try {
+        const url = new URL(decoded)
+        if ((url.protocol === 'http:' || url.protocol === 'https:') && url.origin === location.origin) {
+            return url.pathname + url.search + url.hash
+        }
+        return null
+    } catch {
+        return null
+    }
 }

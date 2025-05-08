@@ -1,10 +1,12 @@
-import { IconArrowLeft, IconArrowRight, IconChatHelp } from '@posthog/icons'
+import { IconArrowLeft, IconArrowRight, IconChatHelp, IconCopy } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonInput, LemonModal, LemonTabs, SpinnerOverlay } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useEffect, useState } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { InviteMembersButton } from '~/layout/navigation/TopBar/AccountPopover'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -17,7 +19,6 @@ import { useInstallationComplete } from './hooks/useInstallationComplete'
 import { RealtimeCheckIndicator } from './RealtimeCheckIndicator'
 import { sdksLogic } from './sdksLogic'
 import { SDKSnippet } from './SDKSnippet'
-
 export type SDKsProps = {
     sdkInstructionMap: SDKInstructionsMap
     stepKey?: OnboardingStepKey
@@ -120,6 +121,7 @@ export function OnboardingInstallStep({
     const { selectedTab, sidePanelOpen } = useValues(sidePanelStateLogic)
     const { openSupportForm } = useActions(supportLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
+    const { currentTeam } = useValues(teamLogic)
     const supportFormInOnboarding = useFeatureFlag('SUPPORT_FORM_IN_ONBOARDING')
 
     const installationComplete = useInstallationComplete(teamPropertyToVerify)
@@ -152,6 +154,15 @@ export function OnboardingInstallStep({
                             className="w-full max-w-[220px]"
                         />
                         <div className="flex flex-row flex-wrap gap-2">
+                            <LemonButton
+                                size="small"
+                                type="primary"
+                                onClick={() => void copyToClipboard(currentTeam?.api_token || '', 'Project API key')}
+                                icon={<IconCopy />}
+                                data-attr="copy-api-key"
+                            >
+                                Copy API key
+                            </LemonButton>
                             <InviteMembersButton
                                 type="primary"
                                 size="small"

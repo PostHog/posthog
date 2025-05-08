@@ -9,7 +9,7 @@ from ee.session_recordings.session_summary.output_data import (
     enrich_raw_session_summary_with_meta,
     load_raw_session_summary_from_llm_content,
 )
-from ee.session_recordings.session_summary.prompt_data import SessionSummaryMetadata, SessionSummaryPromptData
+from ee.session_recordings.session_summary.prompt_data import SessionSummaryMetadata
 
 
 class TestLoadRawSessionSummary:
@@ -124,10 +124,6 @@ def test_calculate_time_since_start(event_time: str, start_time: datetime, expec
 
 class TestEnrichRawSessionSummary:
     @pytest.fixture
-    def mock_valid_event_ids(self) -> list[str]:
-        return ["abcd1234", "defg4567", "vbgs1287", "gfgz6242", "ghij7890", "mnop3456", "stuv9012"]
-
-    @pytest.fixture
     def mock_raw_session_summary(
         self, mock_valid_llm_yaml_response: str, mock_valid_event_ids: list[str]
     ) -> RawSessionSummarySerializer:
@@ -136,70 +132,6 @@ class TestEnrichRawSessionSummary:
         )
         assert result is not None
         return result
-
-    @pytest.fixture
-    def mock_url_mapping_reversed(self) -> dict[str, str]:
-        return {
-            "url_1": "http://localhost:8010/login",
-            "url_2": "http://localhost:8010/signup",
-            "url_3": "http://localhost:8010/signup/error",
-        }
-
-    @pytest.fixture
-    def mock_url_mapping(self, mock_url_mapping_reversed: dict[str, str]) -> dict[str, str]:
-        return {v: k for k, v in mock_url_mapping_reversed.items()}
-
-    @pytest.fixture
-    def mock_window_mapping_reversed(self) -> dict[str, str]:
-        return {
-            "window_1": "0195ed81-7519-7595-9221-8bb8ddb1fdcc",
-        }
-
-    @pytest.fixture
-    def mock_window_mapping(self, mock_window_mapping_reversed: dict[str, str]) -> dict[str, str]:
-        return {v: k for k, v in mock_window_mapping_reversed.items()}
-
-    @pytest.fixture
-    def mock_events_mapping(
-        self,
-        mock_raw_events: list[list[Any]],
-        mock_url_mapping: dict[str, str],
-        mock_window_mapping: dict[str, str],
-        mock_valid_event_ids: list[str],
-    ) -> dict[str, list[Any]]:
-        events_mapping = {}
-        for event_index, (event_id, raw_event) in enumerate(zip(mock_valid_event_ids, mock_raw_events)):
-            (
-                event_type,
-                timestamp,
-                href,
-                texts,
-                elements,
-                window_id,
-                url,
-                action_type,
-                elements_chain_ids,
-                elements_chain,
-            ) = raw_event
-            events_mapping[event_id] = [
-                event_type,
-                timestamp.isoformat() + "Z",
-                href,
-                texts,
-                elements,
-                mock_window_mapping[window_id],
-                mock_url_mapping[url],
-                action_type,
-                elements_chain_ids,
-                elements_chain,
-                event_id,
-                event_index,
-            ]
-        return events_mapping
-
-    @pytest.fixture
-    def mock_session_metadata(self, mock_raw_metadata: dict[str, Any]) -> SessionSummaryMetadata:
-        return SessionSummaryPromptData()._prepare_metadata(mock_raw_metadata)
 
     def test_enrich_raw_session_summary_success(
         self,
@@ -308,8 +240,8 @@ class TestEnrichRawSessionSummary:
         assert segment_with_missing_end_id["meta"] is not None
         assert segment_with_missing_end_id["meta"]["duration"] == 4
         assert segment_with_missing_end_id["meta"]["events_count"] == 2
-        assert segment_with_missing_end_id["meta"]["duration_percentage"] == 0.0007514559458951719
-        assert segment_with_missing_end_id["meta"]["events_percentage"] == 0.33333333333333333
+        assert segment_with_missing_end_id["meta"]["duration_percentage"] == 0.0008
+        assert segment_with_missing_end_id["meta"]["events_percentage"] == 0.3333
 
     def test_enrich_raw_session_summary_invalid_schema(
         self,

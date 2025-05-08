@@ -11,7 +11,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
-import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { tagsModel } from '~/models/tagsModel'
 import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
 import { DashboardBasicType, DashboardTile, DashboardType, InsightShortId, QueryBasedInsightModel } from '~/types'
@@ -149,19 +149,25 @@ export const dashboardsModel = kea<dashboardsModelType>([
                 }
                 return getQueryBasedDashboard(response)
             },
-            deleteDashboard: async ({ id, deleteInsights }) =>
-                getQueryBasedDashboard(
+            deleteDashboard: async ({ id, deleteInsights }) => {
+                const deleted = getQueryBasedDashboard(
                     await api.update(`api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
                         deleted: true,
                         delete_insights: deleteInsights,
                     })
-                ) as DashboardType<QueryBasedInsightModel>,
-            restoreDashboard: async ({ id }) =>
-                getQueryBasedDashboard(
+                ) as DashboardType<QueryBasedInsightModel>
+                deleteFromTree('dashboard', String(id))
+                return deleted
+            },
+            restoreDashboard: async ({ id }) => {
+                const restored = getQueryBasedDashboard(
                     await api.update(`api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
                         deleted: false,
                     })
-                ) as DashboardType<QueryBasedInsightModel>,
+                ) as DashboardType<QueryBasedInsightModel>
+                refreshTreeItem('dashboard', String(id))
+                return restored
+            },
             pinDashboard: async ({ id, source }) => {
                 const response = await api.update(
                     `api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`,
