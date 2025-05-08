@@ -1,12 +1,16 @@
 from typing import Optional, Union
 import math
+import logging
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.web_analytics.web_analytics_query_runner import (
     WebAnalyticsQueryRunner,
+)
+from posthog.hogql_queries.web_analytics.web_overview_pre_aggregated import (
+    WebOverviewPreAggregatedQueryBuilder,
 )
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
@@ -16,16 +20,48 @@ from posthog.schema import (
 )
 from posthog.hogql.database.schema.exchange_rate import revenue_sum_expression_for_events
 
+logger = logging.getLogger(__name__)
+
 
 class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
     query: WebOverviewQuery
     response: WebOverviewQueryResponse
     cached_response: CachedWebOverviewQueryResponse
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.preaggregated_query_builder = WebOverviewPreAggregatedQueryBuilder(self)
+
     def to_query(self) -> ast.SelectQuery:
+        # Check if pre-aggregated tables should be used
+        use_preaggregated = (
+            self.modifiers and 
+            self.modifiers.useWebAnalyticsPreAggregatedTables and 
+            self.preaggregated_query_builder.can_use_preaggregated_tables()
+        )
+        
+        if use_preaggregated:
+            return self.preaggregated_query_builder.build_query()
+        
+        if not self.modifiers or not self.modifiers.useWebAnalyticsPreAggregatedTables:
+            logger.info(
+                "Not using pre-aggregated tables: feature flag disabled", 
+                extra={"team_id": self.team.pk}
+            )
+        
+        logger.info(
+            "Using standard query for web overview", 
+            extra={"team_id": self.team.pk}
+        )
         return self.outer_select
 
-    def calculate(self):
+    def calculate(self) -> WebOverviewQueryResponse:
+        # Start timing the query execution
+        logger.warning(
+            "Executing web overview query", 
+            extra={"team_id": self.team.pk}
+        )
+        
         response = execute_hogql_query(
             query_type="overview_stats_pages_query",
             query=self.to_query(),
@@ -67,12 +103,31 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
             else:
                 results.append(to_data("revenue", "currency", row[10], get_prev_val(11, False)))
 
+        # Determine if pre-aggregated tables were used
+        used_preaggregated = (
+            self.modifiers and 
+            self.modifiers.useWebAnalyticsPreAggregatedTables and 
+            self.preaggregated_query_builder.can_use_preaggregated_tables()
+        )
+        
+        logger.info(
+            "Web overview query completed", 
+            extra={
+                "team_id": self.team.pk,
+                "used_preaggregated_tables": used_preaggregated,
+                "sampling_rate": getattr(self, "_sample_rate", None)
+            }
+        )
+
         return WebOverviewQueryResponse(
             results=results,
             samplingRate=self._sample_rate,
             modifiers=self.modifiers,
             dateFrom=self.query_date_range.date_from_str,
             dateTo=self.query_date_range.date_to_str,
+            hogql=response.hogql,
+            timings=response.timings,
+            usedPreAggregatedTables=used_preaggregated,
         )
 
     def all_properties(self) -> ast.Expr:
