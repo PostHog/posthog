@@ -60,6 +60,23 @@ class Experiment(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
     stats_config = models.JSONField(default=dict, null=True, blank=True)
 
+    conclusion = models.CharField(
+        max_length=30,
+        choices=[
+            ("won", "Won"),
+            ("lost", "Lost"),
+            ("inconclusive", "Inconclusive"),
+            ("stopped_early", "Stopped Early"),
+            ("invalid", "Invalid"),
+        ],
+        null=True,
+        blank=True,
+    )
+    conclusion_comment = models.TextField(
+        null=True,
+        blank=True,
+    )
+
     def __str__(self):
         return self.name or "Untitled"
 

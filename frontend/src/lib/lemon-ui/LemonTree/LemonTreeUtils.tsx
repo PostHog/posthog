@@ -7,7 +7,7 @@ import { CSSProperties, useEffect, useRef } from 'react'
 import { LemonCheckbox } from '../LemonCheckbox'
 import { LemonTreeSelectMode, TreeDataItem } from './LemonTree'
 
-export const ICON_CLASSES = 'text-tertiary size-5 flex items-center justify-center'
+export const ICON_CLASSES = 'text-tertiary size-5 flex items-center justify-center relative'
 
 type TreeNodeDisplayIconWrapperProps = {
     item: TreeDataItem
@@ -62,7 +62,7 @@ export const TreeNodeDisplayIconWrapper = ({
                 />
 
                 <div
-                    className="absolute transition-all duration-50"
+                    className="flex h-full items-center absolute transition-all duration-50"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
                         // If multi-selection is enabled, we need to offset the icon to the right to make space for the checkbox
@@ -178,7 +178,7 @@ export const TreeNodeDisplayIcon = ({
     }
 
     return (
-        <div className="flex gap-1 relative [&_svg]:size-4">
+        <div className="flex gap-1 relative [&_svg]:size-4 items-start h-full">
             {isFolder && (
                 <div
                     className={cn(
@@ -196,7 +196,7 @@ export const TreeNodeDisplayIcon = ({
                         'text-tertiary': item.disabledReason,
                         'group-hover/lemon-tree-button-group:opacity-0': isFolder,
                     },
-                    'transition-opacity duration-150'
+                    'transition-opacity duration-150 top-[var(--lemon-tree-button-icon-offset-top)]'
                 )}
             >
                 {iconElement}
