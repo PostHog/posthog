@@ -470,37 +470,31 @@ function SessionSummaryStats({ sessionSummary }: { sessionSummary: SessionSummar
         <div className="mb-4">
             <div className="flex items-start gap-4">
                 {/* Left side - Health Score */}
-                <div className="flex flex-col items-center bg-bg-light rounded p-3 min-w-[120px]">
-                    <span className="text-sm text-muted mb-1">Health Score</span>
-                    <div className={`text-2xl font-semibold text-${healthScoreType}`}>{adjustedHealthPercentage}%</div>
+                <div className="flex flex-col bg-bg-light px-3">
+                    <span className="text-sm text-muted">Health Score</span>
+                    <div className={`text-2xl font-semibold text-${healthScoreType} mt-1`}>
+                        {adjustedHealthPercentage}%
+                    </div>
                 </div>
 
                 {/* Right side - Issue Metrics */}
-                {(totalAbandonment > 0 || totalConfusion > 0 || totalException > 0) && (
-                    <div className="flex flex-col gap-2 flex-1">
-                        <span className="text-sm text-muted">Issues Found</span>
-                        <div className="flex flex-wrap gap-2">
-                            {totalAbandonment > 0 && (
-                                <LemonTag size="small" type="warning">
-                                    <IconThumbsDown className="mr-1" />
-                                    {totalAbandonment} abandoned
-                                </LemonTag>
-                            )}
-                            {totalConfusion > 0 && (
-                                <LemonTag size="small" type="warning">
-                                    <IconWarning className="mr-1" />
-                                    {totalConfusion} confusion
-                                </LemonTag>
-                            )}
-                            {totalException > 0 && (
-                                <LemonTag size="small" type="danger">
-                                    <IconWarning className="mr-1" />
-                                    {totalException} exceptions
-                                </LemonTag>
-                            )}
-                        </div>
+                <div className="flex flex-col gap-2 flex-1">
+                    <span className="text-sm text-muted">Issues Found</span>
+                    <div className="flex flex-wrap gap-2">
+                        <LemonTag size="small" type={totalAbandonment > 0 ? 'warning' : undefined}>
+                            <IconThumbsDown className="mr-1" />
+                            {totalAbandonment || 0} abandoned
+                        </LemonTag>
+                        <LemonTag size="small" type={totalConfusion > 0 ? 'warning' : undefined}>
+                            <IconWarning className="mr-1" />
+                            {totalConfusion || 0} confusion
+                        </LemonTag>
+                        <LemonTag size="small" type={totalException > 0 ? 'danger' : undefined}>
+                            <IconWarning className="mr-1" />
+                            {totalException || 0} exceptions
+                        </LemonTag>
                     </div>
-                )}
+                </div>
             </div>
         </div>
     )
