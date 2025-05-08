@@ -73,7 +73,7 @@ impl From<serde_json::Error> for CaptureError {
 
 impl CaptureError {
     pub fn to_metric_tag(&self) -> &'static str {
-        match *self {
+        match self {
             CaptureError::RequestDecodingError(_) => "req_decoding",
             CaptureError::RequestParsingError(_) => "req_parsing",
             CaptureError::EmptyBatch => "empty_batch",
