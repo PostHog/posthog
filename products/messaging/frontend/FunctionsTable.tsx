@@ -6,7 +6,7 @@ import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { HogFunctionIcon } from 'scenes/pipeline/hogfunctions/HogFunctionIcon'
 import { HogFunctionStatusIndicator } from 'scenes/pipeline/hogfunctions/HogFunctionStatusIndicator'
-import { hogFunctionUrl } from 'scenes/pipeline/hogfunctions/urls'
+import { getHogFunctionUrl } from 'scenes/pipeline/hogfunctions/urls'
 import { urls } from 'scenes/urls'
 
 import { HogFunctionKind, HogFunctionType, HogFunctionTypeType } from '~/types'
@@ -24,7 +24,7 @@ export function FunctionsTableFilters(): JSX.Element | null {
 
     return (
         <div className="deprecated-space-y-2">
-            <div className="flex items-center gap-2">
+            <div className="flex gap-2 items-center">
                 <LemonInput
                     type="search"
                     placeholder="Search..."
@@ -66,12 +66,7 @@ export function FunctionsTable({ type, kind }: FunctionsTableProps): JSX.Element
                             render: function RenderPluginName(_, hogFunction) {
                                 return (
                                     <LemonTableLink
-                                        to={hogFunctionUrl(
-                                            hogFunction.type,
-                                            hogFunction.id,
-                                            hogFunction.template?.id,
-                                            hogFunction.kind
-                                        )}
+                                        to={getHogFunctionUrl(hogFunction)}
                                         title={
                                             <>
                                                 <Tooltip title="Click to update configuration, view metrics, and more">

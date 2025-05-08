@@ -25,7 +25,7 @@ import {
     PluginType,
 } from '~/types'
 
-import { hogFunctionUrl } from './hogfunctions/urls'
+import { getHogFunctionUrl } from './hogfunctions/urls'
 import { pipelineAccessLogic } from './pipelineAccessLogic'
 import { PluginImage, PluginImageSize } from './PipelinePluginImage'
 import {
@@ -128,7 +128,7 @@ export function RenderApp({ plugin, imageSize = 'small' }: RenderAppProps): JSX.
     }
 
     return (
-        <div className="flex items-center gap-4">
+        <div className="flex gap-4 items-center">
             <Tooltip
                 title={
                     <>
@@ -173,7 +173,7 @@ export function RenderBatchExportIcon({
     const sizePx = size === 'small' ? 30 : 60
 
     return (
-        <div className="flex items-center gap-4">
+        <div className="flex gap-4 items-center">
             <Tooltip
                 title={
                     <>
@@ -271,12 +271,7 @@ export function pipelineNodeMenuCommonItems(node: Transformation | SiteApp | Imp
             label: canConfigurePlugins ? 'Edit configuration' : 'View configuration',
             to:
                 'hog_function' in node && node.hog_function
-                    ? hogFunctionUrl(
-                          node.hog_function.type,
-                          node.hog_function.id,
-                          node.hog_function.template?.id,
-                          node.hog_function.kind
-                      )
+                    ? getHogFunctionUrl(node.hog_function)
                     : urls.pipelineNode(node.stage, node.id, PipelineNodeTab.Configuration),
         },
         {

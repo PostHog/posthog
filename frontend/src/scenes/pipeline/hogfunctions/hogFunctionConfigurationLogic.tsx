@@ -16,7 +16,7 @@ import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import posthog from 'posthog-js'
 import { ERROR_TRACKING_LOGIC_KEY } from 'scenes/error-tracking/utils'
 import { asDisplay } from 'scenes/persons/person-utils'
-import { hogFunctionNewUrl, hogFunctionUrl } from 'scenes/pipeline/hogfunctions/urls'
+import { getHogFunctionTemplateUrl, getHogFunctionUrl } from 'scenes/pipeline/hogfunctions/urls'
 import { pipelineNodeLogic } from 'scenes/pipeline/pipelineNodeLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -1168,20 +1168,35 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     ...values.configuration,
                     name: `${values.configuration.name} (copy)`,
                 }
-                const originalTemplate = values.hogFunction.template?.id ?? 'new'
-                router.actions.push(hogFunctionNewUrl(newConfig.type, originalTemplate), undefined, {
-                    configuration: newConfig,
-                })
+                // TODO: What to do if no template?
+                const originalTemplate = values.hogFunction.template!
+                router.actions.push(
+                    getHogFunctionTemplateUrl({
+                        ...originalTemplate,
+                        type: newConfig.type,
+                    }),
+                    undefined,
+                    {
+                        configuration: newConfig,
+                    }
+                )
             }
         },
         duplicateFromTemplate: async () => {
             if (values.hogFunction?.template) {
-                const newConfig = {
+                const newConfig: HogFunctionTemplateType = {
                     ...values.hogFunction.template,
                 }
-                router.actions.push(hogFunctionNewUrl(newConfig.type, newConfig.id), undefined, {
-                    configuration: newConfig,
-                })
+                router.actions.push(
+                    getHogFunctionTemplateUrl({
+                        ...newConfig,
+                        type: newConfig.type,
+                    }),
+                    undefined,
+                    {
+                        configuration: newConfig,
+                    }
+                )
             }
         },
         resetToTemplate: async () => {
@@ -1215,27 +1230,27 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         },
 
         deleteHogFunction: async () => {
-            if (!values.hogFunction) {
+            const hogFunction = values.hogFunction
+            if (!hogFunction) {
                 return
             }
-            const { id, name, type, template, kind } = values.hogFunction
             await deleteWithUndo({
                 endpoint: `projects/${values.currentProjectId}/hog_functions`,
                 object: {
-                    id,
-                    name,
+                    id: hogFunction.id,
+                    name: hogFunction.name,
                 },
                 callback(undo) {
                     if (undo) {
-                        router.actions.replace(hogFunctionUrl(type, id, template?.id, kind))
-                        refreshTreeItem('hog_function/', id)
+                        router.actions.replace(getHogFunctionUrl(hogFunction))
+                        refreshTreeItem('hog_function/', hogFunction.id)
                     } else {
-                        deleteFromTree('hog_function/', id)
+                        deleteFromTree('hog_function/', hogFunction.id)
                     }
                 },
             })
 
-            router.actions.replace(hogFunctionUrl(type, undefined, template?.id, kind))
+            router.actions.replace(getHogFunctionUrl(hogFunction))
         },
 
         persistForUnload: () => {
@@ -1271,9 +1286,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 // Catch all for any scenario where we need to redirect away from the template to the actual hog function
 
                 cache.disabledBeforeUnload = true
-                router.actions.replace(
-                    hogFunctionUrl(hogFunction.type, hogFunction.id, hogFunction.template.id, hogFunction.kind)
-                )
+                router.actions.replace(getHogFunctionUrl(hogFunction))
             }
         },
         sparklineQuery: async (sparklineQuery) => {

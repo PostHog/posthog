@@ -1,28 +1,41 @@
 import { urls } from 'scenes/urls'
 
-import { HogFunctionKind, HogFunctionTypeType, PipelineNodeTab, PipelineStage, PipelineTab } from '~/types'
+import {
+    HogFunctionTemplateWithSubTemplateType,
+    HogFunctionType,
+    HogFunctionTypeType,
+    PipelineNodeTab,
+    PipelineStage,
+    PipelineTab,
+} from '~/types'
 
-export function hogFunctionNewUrl(type: HogFunctionTypeType, template?: string): string {
-    return type === 'broadcast'
+export function getHogFunctionTemplateUrl(template: HogFunctionTemplateWithSubTemplateType): string {
+    return template.type === 'broadcast'
         ? urls.messagingBroadcastNew()
-        : type === 'internal_destination' && template?.includes('error-tracking')
-        ? urls.errorTrackingAlert(template)
-        : urls.pipelineNodeNew(hogFunctionTypeToPipelineStage(type), { id: template ? `hog-${template}` : undefined })
+        : template.type === 'internal_destination' && template.sub_template_id?.includes('error-tracking')
+        ? urls.errorTrackingAlert(template.id)
+        : urls.pipelineNodeNew(hogFunctionTypeToPipelineStage(template.type), {
+              id: template.id,
+          })
 }
 
-export function hogFunctionUrl(
-    type: HogFunctionTypeType | PipelineStage,
-    id?: string,
-    template?: string,
-    kind?: HogFunctionKind
-): string {
-    if (type === 'broadcast') {
-        return id ? urls.messagingBroadcast(id) : urls.messagingBroadcasts()
-    } else if (kind === 'messaging_campaign') {
-        return id ? urls.messagingCampaign(id) : urls.messagingCampaigns()
-    } else if (type === 'internal_destination' && template?.includes('error-tracking')) {
-        return id ? urls.errorTrackingAlert(id) : urls.errorTrackingConfiguration()
+export function getHogFunctionUrl(hogFunction: HogFunctionType): string {
+    if (hogFunction.type === 'broadcast') {
+        return urls.messagingBroadcast(hogFunction.id)
+    } else if (hogFunction.kind === 'messaging_campaign') {
+        return urls.messagingCampaign(hogFunction.id)
+    } else if (hogFunction.type === 'internal_destination' && hogFunction.template?.id?.includes('error-tracking')) {
+        return urls.errorTrackingAlert(hogFunction.id)
     }
+    return urls.pipelineNode(
+        hogFunctionTypeToPipelineStage(hogFunction.type),
+        hogFunction.id.startsWith('hog-') ? hogFunction.id : `hog-${hogFunction.id}`,
+        PipelineNodeTab.Configuration
+    )
+}
+
+// TODO: We will replace this with a new HogFunctionScene
+export function hogFunctionUrl(type: HogFunctionTypeType | PipelineStage, id?: string): string {
     return id
         ? urls.pipelineNode(
               hogFunctionTypeToPipelineStage(type),

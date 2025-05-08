@@ -5,7 +5,7 @@ import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { useEffect } from 'react'
-import { hogFunctionUrl } from 'scenes/pipeline/hogfunctions/urls'
+import { getHogFunctionUrl } from 'scenes/pipeline/hogfunctions/urls'
 import { AppMetricSparkLineV2 } from 'scenes/pipeline/metrics/AppMetricsV2Sparkline'
 import { urls } from 'scenes/urls'
 
@@ -29,7 +29,7 @@ export function HogFunctionList({
 
     return (
         <>
-            <div className="flex items-center mb-2 gap-2">
+            <div className="flex gap-2 items-center mb-2">
                 {!props.forceFilters?.search && (
                     <LemonInput
                         type="search"
@@ -73,12 +73,7 @@ export function HogFunctionList({
                             render: (_, hogFunction) => {
                                 return (
                                     <LemonTableLink
-                                        to={hogFunctionUrl(
-                                            hogFunction.type,
-                                            hogFunction.id,
-                                            hogFunction.template?.id,
-                                            hogFunction.kind
-                                        )}
+                                        to={getHogFunctionUrl(hogFunction)}
                                         title={
                                             <>
                                                 <Tooltip title="Click to update configuration, view metrics, and more">

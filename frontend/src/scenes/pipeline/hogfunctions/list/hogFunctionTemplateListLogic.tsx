@@ -6,7 +6,7 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
-import { hogFunctionNewUrl } from 'scenes/pipeline/hogfunctions/urls'
+import { getHogFunctionTemplateUrl } from 'scenes/pipeline/hogfunctions/urls'
 import { pipelineAccessLogic } from 'scenes/pipeline/pipelineAccessLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -173,7 +173,7 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                     // Add the filters to the url and the template id
 
                     return combineUrl(
-                        hogFunctionNewUrl(template.type, template.id),
+                        getHogFunctionTemplateUrl(template),
                         {},
                         {
                             configuration,
