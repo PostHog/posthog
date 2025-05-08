@@ -1,6 +1,10 @@
+import { PluginEvent } from '@posthog/plugin-scaffold'
 import { Message, MessageHeader } from 'node-rdkafka'
 import { Counter } from 'prom-client'
+import { populateTeamDataStep } from 'worker/ingestion/event-pipeline/populateTeamDataStep'
 import { z } from 'zod'
+
+import { CookielessStateForBatch } from '~/src/ingestion/cookieless/cookieless-manager'
 
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
 import { KafkaConsumer, parseKafkaHeaders } from '../kafka/consumer'
@@ -19,6 +23,7 @@ import {
     PipelineEvent,
     PluginServerService,
     PluginsServerConfig,
+    Team,
 } from '../types'
 import { normalizeEvent } from '../utils/event'
 import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restriction-manager'
@@ -42,6 +47,7 @@ const forcedOverflowEventsCounter = new Counter({
 })
 
 type IncomingEvent = { message: Message; event: PipelineEvent }
+type IncomingEventWithTeam = { message: Message; event: PluginEvent; team: Team }
 
 type EventsForDistinctId = {
     token: string
@@ -250,19 +256,31 @@ export class IngestionConsumer {
     public async handleKafkaBatch(messages: Message[]) {
         const parsedMessages = await this.runInstrumented('parseKafkaMessages', () => this.parseKafkaBatch(messages))
 
+        // Resolve teams for all messages in batch
+        const eventsWithTeams = await this.runInstrumented('resolveTeams', async () => {
+            return this.resolveTeams(parsedMessages)
+        })
+
+        // Resolve cookieless state for all messages in the batch
+        const cookielessStateForBatch = new CookielessStateForBatch(this.hub)
+        const postCookielessMessages = await cookielessStateForBatch.doBatch(eventsWithTeams)
+
+        // Group messages by token and distinct_id
+        const groupedMessages = this.groupEventsByDistinctId(postCookielessMessages)
+
         // Check if hogwatcher should be used (using the same sampling logic as in the transformer)
         const shouldRunHogWatcher = Math.random() < this.hub.CDP_HOG_WATCHER_SAMPLE_RATE
 
         // Get hog function IDs for all teams and cache function states only if hogwatcher is enabled
         if (shouldRunHogWatcher) {
-            await this.fetchAndCacheHogFunctionStates(parsedMessages)
+            await this.fetchAndCacheHogFunctionStates(groupedMessages)
         }
 
         const personsStoreForBatch = this.personStore.forBatch()
 
         await this.runInstrumented('processBatch', async () => {
             await Promise.all(
-                Object.values(parsedMessages).map(async (events) => {
+                Object.values(groupedMessages).map(async (events) => {
                     const eventsToProcess = this.redirectEvents(events)
 
                     const personsStoreForDistinctId = personsStoreForBatch.forDistinctID(
@@ -492,8 +510,8 @@ export class IngestionConsumer {
         return new EventPipelineRunner(this.hub, event, this.hogTransformer, breadcrumbs, personsStoreForDistinctId)
     }
 
-    private parseKafkaBatch(messages: Message[]): Promise<IncomingEventsByDistinctId> {
-        const batches: IncomingEventsByDistinctId = {}
+    private parseKafkaBatch(messages: Message[]): Promise<IncomingEvent[]> {
+        const batch: IncomingEvent[] = []
 
         for (const message of messages) {
             let distinctId: string | undefined
@@ -527,14 +545,23 @@ export class IngestionConsumer {
                 continue
             }
 
-            const eventKey = `${event.token}:${event.distinct_id}`
-
             if (this.shouldSkipPerson(event.token, event.distinct_id)) {
                 event.properties = {
                     ...(event.properties ?? {}),
                     $process_person_profile: false,
                 }
             }
+
+            batch.push({ message, event })
+        }
+
+        return Promise.resolve(batch)
+    }
+
+    private groupEventsByDistinctId(messages: IncomingEvent[]) {
+        const batches: IncomingEventsByDistinctId = {}
+        for (const { event, message } of messages) {
+            const eventKey = `${event.token}:${event.distinct_id}`
 
             // We collect the events grouped by token and distinct_id so that we can process batches in parallel whilst keeping the order of events
             // for a given distinct_id
@@ -548,8 +575,25 @@ export class IngestionConsumer {
 
             batches[eventKey].events.push({ message, event })
         }
+        return batches
+    }
 
-        return Promise.resolve(batches)
+    private async resolveTeams(messages: IncomingEvent[]) {
+        const resolvedMessaged: IncomingEventWithTeam[] = []
+        for (const { event, message } of messages) {
+            const {} = populateTeamDataStep
+            const result = await populateTeamDataStep(this.hub, event)
+            if (!result) {
+                // TODO log dropped event
+                continue
+            }
+            resolvedMessaged.push({
+                event: result.eventWithTeam,
+                team: result.team,
+                message,
+            })
+        }
+        return resolvedMessaged
     }
 
     private logDroppedEvent(token?: string, distinctId?: string) {
