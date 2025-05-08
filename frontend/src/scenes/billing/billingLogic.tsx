@@ -15,6 +15,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import {
@@ -796,7 +797,7 @@ export const billingLogic = kea<billingLogicType>([
         actions.loadBilling()
         actions.getInvoices()
     }),
-    urlToAction(({ actions }) => ({
+    urlToAction(({ actions, values }) => ({
         // IMPORTANT: This needs to be above the "*" so it takes precedence
         '/*/billing': (_params, _search, hash) => {
             if (hash.license) {
@@ -815,6 +816,16 @@ export const billingLogic = kea<billingLogicType>([
                     message: _search.billing_error,
                 })
             }
+
+            // Feature flag based redirect to same billing page but with new usage and spend dashboards accessible via tabs
+            if (
+                router.values.location.pathname === urls.organizationBilling() &&
+                values.featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]
+            ) {
+                router.actions.replace(urls.organizationBillingSection('overview'), router.values.searchParams)
+                return
+            }
+
             actions.setRedirectPath()
             actions.setIsOnboarding()
         },
