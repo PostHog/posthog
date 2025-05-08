@@ -22,8 +22,8 @@ from posthog.models import Action
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
     ActionConversionGoal,
+    CalendarHeatmapQuery,
     CustomEventConversionGoal,
-    EventsHeatMapQuery,
     EventPropertyFilter,
     WebOverviewQuery,
     WebPageURLSearchQuery,
@@ -44,7 +44,7 @@ WebQueryNode = Union[
     WebExternalClicksTableQuery,
     WebVitalsPathBreakdownQuery,
     WebPageURLSearchQuery,
-    EventsHeatMapQuery,
+    CalendarHeatmapQuery,
 ]
 
 

@@ -107,7 +107,6 @@ export enum NodeKind {
     WebVitalsQuery = 'WebVitalsQuery',
     WebVitalsPathBreakdownQuery = 'WebVitalsPathBreakdownQuery',
     WebPageURLSearchQuery = 'WebPageURLSearchQuery',
-    EventsHeatMapQuery = 'EventsHeatMapQuery',
 
     // Revenue analytics queries
     RevenueAnalyticsOverviewQuery = 'RevenueAnalyticsOverviewQuery',
@@ -169,7 +168,6 @@ export type AnyDataNode =
     | RecordingsQuery
     | TracesQuery
     | VectorSearchQuery
-    | EventsHeatMapQuery
 
 /**
  * @discriminator kind
@@ -207,7 +205,6 @@ export type QuerySchema =
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
     | WebPageURLSearchQuery
-    | EventsHeatMapQuery
 
     // Revenue analytics
     | RevenueAnalyticsOverviewQuery
@@ -713,7 +710,6 @@ export interface DataTableNode
                     | WebGoalsQuery
                     | WebVitalsQuery
                     | WebVitalsPathBreakdownQuery
-                    | EventsHeatMapQuery
                     | SessionAttributionExplorerQuery
                     | RevenueAnalyticsOverviewQuery
                     | RevenueAnalyticsGrowthRateQuery
@@ -743,7 +739,6 @@ export interface DataTableNode
         | WebGoalsQuery
         | WebVitalsQuery
         | WebVitalsPathBreakdownQuery
-        | EventsHeatMapQuery
         | SessionAttributionExplorerQuery
         | RevenueAnalyticsOverviewQuery
         | RevenueAnalyticsGrowthRateQuery
@@ -2969,16 +2964,6 @@ export type CachedWebPageURLSearchQueryResponse = CachedQueryResponse<WebPageURL
 
 export type HeatMapQuerySource = EventsNode
 
-export interface EventsHeatMapQuery extends WebAnalyticsQueryBase<EventsHeatMapQueryResponse> {
-    kind: NodeKind.EventsHeatMapQuery
-    source: HeatMapQuerySource
-}
-
-export interface EventsHeatMapQueryResponse extends AnalyticsQueryResponseBase<EventsHeatMapStructuredResult> {
-    hasMore?: boolean
-    limit?: integer
-}
-
 export interface EventsHeatMapDataResult {
     row: integer
     column: integer
@@ -3001,5 +2986,3 @@ export interface EventsHeatMapStructuredResult {
     columnAggregations: EventsHeatMapColumnAggregationResult[]
     allAggregations: integer
 }
-
-export type CachedEventsHeatMapQueryResponse = CachedQueryResponse<EventsHeatMapQueryResponse>

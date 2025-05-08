@@ -29,6 +29,7 @@ from posthog.models.action.action import Action
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property_definition import PropertyDefinition
 from posthog.schema import (
+    ActionConversionGoal,
     ActionsNode,
     CachedCalendarHeatmapQueryResponse,
     CustomEventConversionGoal,
@@ -265,9 +266,15 @@ class CalendarHeatmapQueryRunner(QueryRunner):
         elif isinstance(self.query.conversionGoal, CustomEventConversionGoal):
             return ast.CompareOperation(
                 left=ast.Field(chain=["events", "event"]),
+                # Support for insights with actions
                 op=ast.CompareOperationOp.Eq,
                 right=ast.Constant(value=self.query.conversionGoal.customEventName),
             )
+
+        # Support for web analytics
+        if isinstance(self.query.conversionGoal, ActionConversionGoal):
+            action = Action.objects.get(pk=self.query.conversionGoal.actionId, team__project_id=self.team.project_id)
+            return action_to_expr(action)
         else:
             return None
 
