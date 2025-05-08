@@ -327,7 +327,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                 hasSideActionRight: true,
                                 disabled: isEmptyFolder,
                                 className: cn(
-                                    'group/lemon-tree-button pl-0',
+                                    'group/lemon-tree-button gap-[5px]',
                                     'relative z-1 focus-visible:bg-fill-button-tertiary-hover motion-safe:transition-[padding] duration-50 h-[var(--lemon-tree-button-height)]',
                                     {
                                         'bg-fill-button-tertiary-hover':
@@ -360,7 +360,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                         >
                             {/* Spacer to offset button padding */}
                             <span
-                                className="h-[var(--lemon-tree-button-height)] bg-transparent pointer-events-none flex-shrink-0 transition-[width] duration-50"
+                                className="h-[var(--lemon-tree-button-height)] bg-transparent pointer-events-none flex-shrink-0 transition-[width] duration-50 -ml-1.5"
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={{
                                     width: `${firstColumnOffset}px`,

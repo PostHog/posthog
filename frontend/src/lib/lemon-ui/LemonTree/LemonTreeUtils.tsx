@@ -100,7 +100,7 @@ export const TreeNodeDisplayIcon = ({
     }
 
     return (
-        <div className="h-[var(--lemon-tree-button-height)] flex gap-1 relative [&_svg]:size-4 items-start">
+        <div className="h-[var(--lemon-tree-button-height)] flex gap-1 relative [&_svg]:size-4 items-start -ml-px">
             {isFolder && (
                 <div
                     className={cn(
