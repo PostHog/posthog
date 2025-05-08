@@ -439,7 +439,7 @@ function SessionSummaryStats({ sessionSummary }: { sessionSummary: SessionSummar
                 // For each event, take the highest weight among its tags
                 const eventWeight = Math.max(
                     event.confusion ? 0.25 : 0,
-                    event.exception === 'blocking' ? 1 : event.exception === 'non-blocking' ? 0.5 : 0,
+                    event.exception === 'blocking' ? 5 : event.exception === 'non-blocking' ? 0.5 : 0,
                     event.abandonment ? 0.75 : 0
                 )
                 return weight + eventWeight
@@ -453,39 +453,44 @@ function SessionSummaryStats({ sessionSummary }: { sessionSummary: SessionSummar
             ? Math.round((segmentScores.reduce((acc, score) => acc + score, 0) / segmentScores.length) * 100)
             : 100
 
+    const healthScoreType = healthPercentage >= 75 ? 'success' : healthPercentage >= 50 ? 'warning' : 'danger'
+
     return (
-        <div className="space-y-2 mb-4">
-            <div className="flex items-center gap-1 text-sm">
-                <span className="text-muted">Health score:</span>
-                <LemonTag
-                    size="small"
-                    type={healthPercentage >= 75 ? 'success' : healthPercentage >= 50 ? 'warning' : 'danger'}
-                >
-                    {healthPercentage}%
-                </LemonTag>
-            </div>
-            {(totalAbandonment > 0 || totalConfusion > 0 || totalException > 0) && (
-                <div className="flex flex-wrap gap-2">
-                    {totalAbandonment > 0 && (
-                        <LemonTag size="small" type="warning">
-                            <IconThumbsDown className="mr-1" />
-                            {totalAbandonment} abandoned
-                        </LemonTag>
-                    )}
-                    {totalConfusion > 0 && (
-                        <LemonTag size="small" type="warning">
-                            <IconWarning className="mr-1" />
-                            {totalConfusion} confusion
-                        </LemonTag>
-                    )}
-                    {totalException > 0 && (
-                        <LemonTag size="small" type="danger">
-                            <IconWarning className="mr-1" />
-                            {totalException} exceptions
-                        </LemonTag>
-                    )}
+        <div className="mb-4">
+            <div className="flex items-start gap-4">
+                {/* Left side - Health Score */}
+                <div className="flex flex-col items-center bg-bg-light rounded p-3 min-w-[120px]">
+                    <span className="text-sm text-muted mb-1">Health Score</span>
+                    <div className={`text-2xl font-semibold text-${healthScoreType}`}>{healthPercentage}%</div>
                 </div>
-            )}
+
+                {/* Right side - Issue Metrics */}
+                {(totalAbandonment > 0 || totalConfusion > 0 || totalException > 0) && (
+                    <div className="flex flex-col gap-2 flex-1">
+                        <span className="text-sm text-muted">Issues Found</span>
+                        <div className="flex flex-wrap gap-2">
+                            {totalAbandonment > 0 && (
+                                <LemonTag size="small" type="warning">
+                                    <IconThumbsDown className="mr-1" />
+                                    {totalAbandonment} abandoned
+                                </LemonTag>
+                            )}
+                            {totalConfusion > 0 && (
+                                <LemonTag size="small" type="warning">
+                                    <IconWarning className="mr-1" />
+                                    {totalConfusion} confusion
+                                </LemonTag>
+                            )}
+                            {totalException > 0 && (
+                                <LemonTag size="small" type="danger">
+                                    <IconWarning className="mr-1" />
+                                    {totalException} exceptions
+                                </LemonTag>
+                            )}
+                        </div>
+                    </div>
+                )}
+            </div>
         </div>
     )
 }
