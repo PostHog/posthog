@@ -6,7 +6,13 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'posthog-js'
 import React from 'react'
 
-import { BillingPlanType, BillingProductV2AddonType, BillingProductV2Type, BillingTierType } from '~/types'
+import {
+    BillingPlanType,
+    BillingProductV2AddonType,
+    BillingProductV2Type,
+    BillingTierType,
+    SurveyEventName,
+} from '~/types'
 
 import { convertAmountToUsage } from './billing-utils'
 import { billingLogic } from './billingLogic'
