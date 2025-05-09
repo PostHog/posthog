@@ -19,11 +19,11 @@ import { urls } from 'scenes/urls'
 
 import { AvailableFeature, HogFunctionTypeType, PipelineNodeTab, PipelineStage, ProductKey } from '~/types'
 
-import { AppMetricSparkLine } from '../AppMetricSparkLine'
-import { FrontendApps } from '../FrontendApps'
 import { HogFunctionIcon } from '../../hog-functions/configuration/HogFunctionIcon'
 import { HogFunctionStatusIndicator } from '../../hog-functions/misc/HogFunctionStatusIndicator'
 import { hogFunctionTypeToPipelineStage } from '../../hog-functions/misc/urls'
+import { AppMetricSparkLine } from '../AppMetricSparkLine'
+import { FrontendApps } from '../FrontendApps'
 import { NewButton } from '../NewButton'
 import { pipelineAccessLogic } from '../pipelineAccessLogic'
 import { Destination, FunctionDestination, PipelineBackend, SiteApp, Transformation } from '../types'
