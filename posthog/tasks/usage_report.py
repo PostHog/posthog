@@ -50,6 +50,7 @@ from posthog.utils import (
 )
 from posthog.warehouse.models import ExternalDataJob
 from posthog.models.error_tracking import ErrorTrackingIssue, ErrorTrackingSymbolSet
+from posthog.models.surveys.util import get_unique_survey_event_uuids_sql_subquery
 
 
 logger = structlog.get_logger(__name__)
@@ -790,38 +791,32 @@ def get_teams_with_survey_responses_count_in_period(
     begin: datetime,
     end: datetime,
 ) -> list[tuple[int, int]]:
-    results = sync_execute(
-        """
+    # Construct the subquery for unique event UUIDs
+    unique_uuids_subquery = get_unique_survey_event_uuids_sql_subquery(
+        base_conditions_sql=[
+            "event = 'survey sent'",
+            "timestamp BETWEEN %(begin)s AND %(end)s",
+        ],
+        group_by_prefix_expressions=[
+            "team_id",
+            "JSONExtractString(properties, '$survey_id')",  # Deduplicate per team_id, per survey_id
+        ],
+    )
+
+    query = f"""
         SELECT
             team_id,
             COUNT() as count
         FROM events
         WHERE
             event = 'survey sent'
-            AND timestamp between %(begin)s AND %(end)s
-            AND uuid IN ( -- Filter using the unique submission logic
-                (
-                    -- Select events without a submission ID (older format) within the period
-                    SELECT uuid
-                    FROM events
-                    WHERE event = 'survey sent'
-                      AND timestamp between %(begin)s AND %(end)s
-                      AND COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') = ''
-                )
-                UNION ALL
-                (
-                    -- Select the latest event for each submission ID within the period
-                    SELECT argMax(uuid, timestamp)
-                    FROM events
-                    WHERE event = 'survey sent'
-                      AND timestamp between %(begin)s AND %(end)s
-                      AND COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') != ''
-                    -- Group by team and submission ID to find the latest event per submission per team
-                    GROUP BY team_id, JSONExtractString(properties, '$survey_id'), JSONExtractString(properties, '$survey_submission_id')
-                )
-            )
+            AND timestamp BETWEEN %(begin)s AND %(end)s
+            AND uuid IN {unique_uuids_subquery}
         GROUP BY team_id
-    """,
+    """
+
+    results = sync_execute(
+        query,
         {"begin": begin, "end": end},
         workload=Workload.OFFLINE,
         settings=CH_BILLING_SETTINGS,

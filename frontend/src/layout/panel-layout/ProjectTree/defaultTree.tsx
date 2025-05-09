@@ -1,24 +1,18 @@
 import {
-    IconAI,
     IconBook,
     IconChevronRight,
     IconCursorClick,
     IconDatabase,
-    IconFeatures,
-    IconHandMoney,
     IconLive,
-    IconMessage,
     IconNotification,
-    IconPeople,
     IconPlug,
     IconServer,
-    IconSparkles,
     IconWarning,
 } from '@posthog/icons'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { fileSystemTypes, treeItemsExplore, treeItemsNew } from '~/products'
+import { fileSystemTypes, treeItemsNew, treeItemsProducts } from '~/products'
 import { FileSystemImport } from '~/queries/schema/schema-general'
 import { ActivityTab, PipelineStage } from '~/types'
 
@@ -30,12 +24,6 @@ export function iconForType(type?: string): JSX.Element {
         return fileSystemTypes[type as keyof typeof fileSystemTypes].icon
     }
     switch (type) {
-        case 'aichat':
-            return <IconSparkles />
-        case 'feature':
-            return <IconFeatures />
-        case 'survey':
-            return <IconMessage />
         case 'sql':
             return <IconServer />
         case 'folder':
@@ -51,21 +39,6 @@ export function iconForType(type?: string): JSX.Element {
 export const getDefaultTreeNew = (): FileSystemImport[] =>
     [
         ...treeItemsNew,
-        {
-            path: `Early access feature`,
-            type: 'early_access_feature',
-            href: () => urls.earlyAccessFeature('new'),
-        },
-        {
-            path: `Survey`,
-            type: 'survey',
-            href: () => urls.survey('new'),
-        },
-        {
-            path: `Cohort`,
-            type: 'cohort',
-            href: () => urls.cohort('new'),
-        },
         {
             path: `Data/Source`,
             type: 'hog_function/source',
@@ -88,9 +61,9 @@ export const getDefaultTreeNew = (): FileSystemImport[] =>
         },
     ].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
 
-export const getDefaultTreeExplore = (groupNodes: FileSystemImport[]): FileSystemImport[] =>
+export const getDefaultTreeProducts = (): FileSystemImport[] =>
     [
-        ...treeItemsExplore,
+        ...treeItemsProducts,
         {
             path: `AI chat`,
             type: 'aichat',
@@ -98,41 +71,34 @@ export const getDefaultTreeExplore = (groupNodes: FileSystemImport[]): FileSyste
             flag: FEATURE_FLAGS.ARTIFICIAL_HOG,
         },
         {
-            path: 'Data management/Event Definitions',
+            path: 'Event definitions',
             icon: <IconDatabase />,
             href: () => urls.eventDefinitions(),
         },
         {
-            path: 'Data management/Property Definitions',
+            path: 'Property definitions',
             icon: <IconDatabase />,
             href: () => urls.propertyDefinitions(),
         },
-
         {
-            path: 'Data management/Annotations',
+            path: 'Annotations',
             icon: <IconNotification />,
             href: () => urls.annotations(),
         },
-
         {
-            path: 'Data management/History',
-            icon: <IconDatabase />,
-            href: () => urls.dataManagementHistory(),
-        },
-
-        {
-            path: 'Data management/Revenue',
-            icon: <IconHandMoney />,
-            href: () => urls.revenueSettings(),
-        },
-        {
-            path: 'Data management/Ingestion Warnings',
+            path: 'Ingestion warnings',
             icon: <IconWarning />,
             href: () => urls.ingestionWarnings(),
             flag: FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED,
         },
         {
-            path: `SQL query`,
+            path: `Data pipelines`,
+            type: 'hog_function',
+            icon: <IconPlug />,
+            href: () => urls.pipeline(),
+        },
+        {
+            path: `SQL editor`,
             type: 'sql',
             href: () => urls.sqlEditor(),
         },
@@ -142,26 +108,14 @@ export const getDefaultTreeExplore = (groupNodes: FileSystemImport[]): FileSyste
             href: () => urls.sqlEditor(),
         },
         {
-            path: 'People and groups/Cohorts',
-            icon: <IconPeople />,
-            href: () => urls.cohorts(),
-        },
-        ...groupNodes.map((groupNode) => ({ ...groupNode, path: `People and groups/${groupNode.path}` })),
-        {
             path: 'Activity',
             icon: <IconLive />,
             href: () => urls.activity(ActivityTab.ExploreEvents),
         },
         {
-            path: 'Live',
+            path: 'Live events',
             icon: <IconLive />,
             href: () => urls.activity(ActivityTab.LiveEvents),
-        },
-        {
-            path: 'LLM observability',
-            icon: <IconAI />,
-            href: () => urls.llmObservabilityDashboard(),
-            flag: FEATURE_FLAGS.LLM_OBSERVABILITY,
         },
         {
             path: 'Error tracking',

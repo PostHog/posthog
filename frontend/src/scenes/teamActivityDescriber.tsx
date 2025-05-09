@@ -30,6 +30,24 @@ const teamActionsMapping: Record<
             description: [<>{prefix} the project API key</>],
         }
     },
+    secret_api_token: (change) => {
+        if (change === undefined || change.after === undefined) {
+            return null
+        }
+        const prefix = change.action === 'created' ? 'generated' : 'rotated'
+        return {
+            description: [<>{prefix} the Feature Flags secure API key</>],
+        }
+    },
+    secret_api_token_backup: (change) => {
+        if (change === undefined || change.after === undefined || change.action !== 'deleted') {
+            return null
+        }
+        return {
+            description: [<>Deleted the Feature Flags secure API key backup</>],
+        }
+    },
+
     // session replay
     session_recording_minimum_duration_milliseconds: (change) => {
         const after = change?.after
@@ -474,8 +492,6 @@ const teamActionsMapping: Record<
     product_intents: () => null,
     cookieless_server_hash_mode: () => null,
     access_control_version: () => null,
-    secret_api_token: () => null,
-    secret_api_token_backup: () => null,
 }
 
 function nameAndLink(logItem?: ActivityLogItem): JSX.Element {
