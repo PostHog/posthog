@@ -4,7 +4,12 @@ on:
     create:
         branches:
             - '**'
-
+    workflow_dispatch:
+        inputs:
+            branch_name:
+                description: 'Branch name to test with'
+                required: true
+                default: 'feature/test-123'
 jobs:
     move-issues-on-branch-creation:
         runs-on: ubuntu-latest
