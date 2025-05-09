@@ -190,12 +190,13 @@ describe('CdpCyclotronWorkerPlugins', () => {
 
             mockFetch.mockRejectedValue(new Error('Test error'))
 
-            const res = await processor.processBatch([invocation])
+            const { invocationResults, backgroundTask } = await processor.processBatch([invocation])
+            await backgroundTask
 
             expect(intercomPlugin.onEvent).toHaveBeenCalledTimes(1)
 
-            expect(res[0].error).toBeInstanceOf(Error)
-            expect(forSnapshot(res[0].logs)).toMatchInlineSnapshot(`[]`)
+            expect(invocationResults[0].error).toBeInstanceOf(Error)
+            expect(forSnapshot(invocationResults[0].logs)).toMatchInlineSnapshot(`[]`)
 
             expect(jest.mocked(processor['cyclotronJobQueue']!.queueInvocationResults).mock.calls[0][0]).toMatchObject([
                 {
