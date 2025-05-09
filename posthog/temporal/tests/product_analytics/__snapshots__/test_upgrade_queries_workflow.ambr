@@ -1,0 +1,19 @@
+# serializer version: 1
+# name: TestUpgradeQueriesWorkflow.test_get_insights_to_migrate
+  '''
+  WITH latest(kind, v_latest) AS (
+                                  VALUES ('InsightVizNode',
+                                          3),('TrendsQuery',
+                                              5),('EventsNode',
+                                                  7))
+  SELECT DISTINCT i.id
+  FROM posthog_dashboarditem AS i
+  CROSS JOIN latest AS l
+  WHERE jsonb_path_exists(i.query, format($$
+                  $.** ? (
+                      @.kind == "%s" &&
+                      ( @.v < %s || @.v == null )
+                  )
+                  $$, l.kind, l.v_latest)::jsonpath);
+  '''
+# ---

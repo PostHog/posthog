@@ -21,10 +21,7 @@ def get_insights_to_migrate() -> list[int]:
         latest_versions.append(f"('{kind}', {version})")
 
     sql = f"""
-        WITH latest(kind, v_latest) AS (
-            VALUES
-                {','.join(latest_versions)}
-        )
+        WITH latest(kind, v_latest) AS (VALUES {','.join(latest_versions)})
         SELECT DISTINCT i.id
         FROM posthog_dashboarditem AS i
         CROSS JOIN latest AS l
