@@ -16,6 +16,8 @@ from posthog.hogql.transforms.state_aggregations import (
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from datetime import datetime
+import math
+import numpy as np
 
 
 class TestStateTransforms(TestCase):
@@ -465,6 +467,60 @@ class TestStateTransforms(TestCase):
         # And should not be a field reference
         self.assertNotIsInstance(wrapper_null_expr, ast.Field)
 
+    def test_web_overview_style_query_with_constants(self):
+        """Test a web overview style query with NULL constants is correctly transformed."""
+        # Create a mock web overview query with aggregations and NULL constants
+        # similar to what the WebOverviewQueryRunner would generate
+        query_str = """
+        SELECT
+            uniq(distinct_id) AS unique_visitors,
+            count() AS pageviews,
+            uniq(session_id) AS sessions,
+            avg(session_duration) AS avg_session_duration,
+            NULL AS bounce_rate, 
+            NULL AS previous_period
+        FROM events
+        WHERE timestamp >= '2023-12-01' AND timestamp <= '2023-12-03'
+        """
+        
+        query_ast = parse_select(query_str)
+        
+        # Apply state transformations
+        state_query_ast = transform_query_to_state_aggregations(query_ast)
+        wrapper_query_ast = wrap_state_query_in_merge_query(state_query_ast)
+        
+        # Verify state transformations - aggregation functions should be transformed to *State
+        self.assertEqual(state_query_ast.select[0].expr.name, "uniqState")
+        self.assertEqual(state_query_ast.select[1].expr.name, "countState")
+        self.assertEqual(state_query_ast.select[2].expr.name, "uniqState")
+        self.assertEqual(state_query_ast.select[3].expr.name, "avgState")
+        
+        # Verify NULL constants are preserved as NULL constants
+        self.assertIsInstance(state_query_ast.select[4].expr, ast.Constant)
+        self.assertIsNone(state_query_ast.select[4].expr.value)
+        self.assertIsInstance(state_query_ast.select[5].expr, ast.Constant)
+        self.assertIsNone(state_query_ast.select[5].expr.value)
+        
+        # Verify merge transformations in wrapper - aggregation functions should be transformed to *Merge
+        self.assertEqual(wrapper_query_ast.select[0].expr.name, "uniqMerge")
+        self.assertEqual(wrapper_query_ast.select[1].expr.name, "countMerge")
+        self.assertEqual(wrapper_query_ast.select[2].expr.name, "uniqMerge")
+        self.assertEqual(wrapper_query_ast.select[3].expr.name, "avgMerge")
+        
+        # Verify NULL constants are preserved as NULL constants in the wrapper query too
+        self.assertIsInstance(wrapper_query_ast.select[4].expr, ast.Constant)
+        self.assertIsNone(wrapper_query_ast.select[4].expr.value)
+        self.assertIsInstance(wrapper_query_ast.select[5].expr, ast.Constant)
+        self.assertIsNone(wrapper_query_ast.select[5].expr.value)
+        
+        # Verify aliases are preserved
+        self.assertEqual(wrapper_query_ast.select[0].alias, "unique_visitors")
+        self.assertEqual(wrapper_query_ast.select[1].alias, "pageviews")
+        self.assertEqual(wrapper_query_ast.select[2].alias, "sessions")
+        self.assertEqual(wrapper_query_ast.select[3].alias, "avg_session_duration")
+        self.assertEqual(wrapper_query_ast.select[4].alias, "bounce_rate")
+        self.assertEqual(wrapper_query_ast.select[5].alias, "previous_period")
+
 
 class TestStateTransformsIntegration(ClickhouseTestMixin, APIBaseTest):
     """Integration tests for state transformations with ClickHouse execution."""
@@ -593,5 +649,25 @@ class TestStateTransformsIntegration(ClickhouseTestMixin, APIBaseTest):
         transformed_sql = print_ast(wrapper_query_ast, context=context_transformed, dialect="clickhouse")
         transformed_result = sync_execute(transformed_sql, context_transformed.values)
 
-        # Assert results are the same (both values and ordering)
-        self.assertEqual(original_result, transformed_result)
+        # Helper function to compare results with NaN handling
+        def compare_results_with_nan(result1, result2):
+            if len(result1) != len(result2):
+                return False
+            
+            for row1, row2 in zip(result1, result2):
+                if len(row1) != len(row2):
+                    return False
+                
+                for val1, val2 in zip(row1, row2):
+                    # Handle NaN values - consider NaN values equal to each other
+                    if isinstance(val1, float) and isinstance(val2, float) and math.isnan(val1) and math.isnan(val2):
+                        continue
+                    # Compare other values normally
+                    elif val1 != val2:
+                        return False
+            
+            return True
+        
+        # Assert results are the same (both values and ordering) with proper NaN handling
+        self.assertTrue(compare_results_with_nan(original_result, transformed_result), 
+                       f"Results differ:\nOriginal: {original_result}\nTransformed: {transformed_result}")
