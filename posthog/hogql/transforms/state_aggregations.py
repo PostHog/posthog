@@ -21,7 +21,7 @@ This is useful for:
 # These should be present in posthog/hogql/functions/mapping.py clickhouse allows many suffix combinations but
 # we are trying to keep the number of transformations minimal for now as State fields are binary data so this
 # is only really usefeul internally without the merge wrappers.
-SUPPORTED_FUNCTIONS = ["uniq", "uniqIf", "count", "countIf", "sum", "avg"]
+SUPPORTED_FUNCTIONS = ["uniq", "uniqIf", "count", "countIf", "sum", "avg", "sumIf", "avgIf"]
 HOGQL_AGGREGATIONS_KEYS_SET = set(HOGQL_AGGREGATIONS.keys())
 assert set(SUPPORTED_FUNCTIONS).issubset(
     HOGQL_AGGREGATIONS_KEYS_SET
@@ -34,10 +34,15 @@ assert set(AGGREGATION_TO_STATE_MAPPING.values()).issubset(
     HOGQL_AGGREGATIONS_KEYS_SET
 ), f"All supported state aggregation functions must be in HOGQL_AGGREGATIONS. Missing: {set(AGGREGATION_TO_STATE_MAPPING.values()) - HOGQL_AGGREGATIONS_KEYS_SET}"
 
-STATE_TO_MERGE_MAPPING = {state: state.replace("State", "Merge") for state in AGGREGATION_TO_STATE_MAPPING.values()}
-assert set(STATE_TO_MERGE_MAPPING.keys()).issubset(
+# Map state functions to their merge counterparts. MergeIf functions don't exist, the filter must be applied on the State intermediate result.
+STATE_TO_MERGE_MAPPING = {
+    state_func: f"{state_func.replace('State', 'Merge').replace('If', '')}" 
+    for state_func in AGGREGATION_TO_STATE_MAPPING.values()
+}
+
+assert set(STATE_TO_MERGE_MAPPING.values()).issubset(
     HOGQL_AGGREGATIONS_KEYS_SET
-), "All supported aggregation merge functions must be in HOGQL_AGGREGATIONS"
+), f"All supported aggregation merge functions must be in HOGQL_AGGREGATIONS. Missing: {set(STATE_TO_MERGE_MAPPING.values()) - HOGQL_AGGREGATIONS_KEYS_SET}"
 
 
 class AggregationStateTransformer(TraversingVisitor):
