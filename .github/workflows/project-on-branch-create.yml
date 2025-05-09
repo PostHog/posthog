@@ -24,19 +24,6 @@ jobs:
               with:
                   github-token: ${{ secrets.GITHUB_TOKEN }}
                   script: |
-                      const getIssueNumber = (branchName) => branchName.match(/\d+$/)?.[0];
-
-                      const branchName = context.ref.replace('refs/heads/', '');
-                      const issueNumber = getIssueNumber(branchName);
-
-                      console.log('Branch name:', branchName);
-                      console.log('Issue number:', issueNumber);
-
-                      if(!issueNumber) {
-                        console.log('No issue number found in branch name');
-                        return;
-                      }
-
                       // Get issue's project data
                       const issueQuery = `
                         query($owner: String!, $repo: String!, $number: Int!) {
@@ -115,22 +102,108 @@ jobs:
                         }
                       `;
 
-                      const issueResult = await github.graphql(issueQuery, {
-                        owner: context.repo.owner,
-                        repo: context.repo.repo,
-                        number: parseInt(issueNumber)
-                      });
+                      // Get issue number from branch name
+                      const getIssueNumber = (branchName) => branchName.match(/\d+$/)?.[0];
+
+                      const findProjectStatusField = (project) =>
+                        project.fields.nodes.find((field) =>
+                          field.name?.toLowerCase().includes("status")
+                        );
+
+                      const findProjectStatusOption = (statusField, status) =>
+                        statusField.options.find((option) =>
+                          option.name.toLowerCase().includes(status)
+                        );
+
+                      const getCurrentStatus = (item) =>
+                        item.fieldValues.nodes.find((value) =>
+                          value.field?.name.toLowerCase().includes("status")
+                        )?.name || "No status";
+
+                      const fetchIssue = async (issueNumber) =>
+                        await github.graphql(issueQuery, {
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          number: parseInt(issueNumber),
+                        });
+
+                      const updateStatus = async (projectId, itemId, fieldId, optionId) =>
+                        await github.graphql(updateMutation, {
+                          projectId: project.id,
+                          itemId: itemId,
+                          fieldId: fieldId,
+                          optionId: optionId,
+                        });
+
+                      const createCommentBody = (
+                        statusMessage,
+                        projectTitle,
+                        currentStatus,
+                        availableStatuses,
+                        branchName
+                      ) => `
+                      ### Project Status Update
+                      ${statusMessage}
+
+                      **Project:** ${projectTitle}
+                      **Current Status:** ${currentStatus}
+                      **Available Statuses:** ${availableStatuses.join(", ")}
+
+                      Branch: \`${branchName}\`
+                      `;
+
+                      const addComment = async (
+                        issueId,
+                        statusMessage,
+                        projectTitle,
+                        currentStatus,
+                        availableStatuses,
+                        branchName
+                      ) => {
+                        try {
+                          await github.graphql(addCommentMutation, {
+                            input: {
+                              subjectId: issueId,
+                              body: createCommentBody(
+                                statusMessage,
+                                projectTitle,
+                                currentStatus,
+                                availableStatuses,
+                                branchName
+                              ),
+                            },
+                          });
+                          console.log("✓ Added comment to issue");
+                        } catch (error) {
+                          console.log("✗ Failed to add comment:", error.message);
+                        }
+                      };
+
+                      // Get branch name and issue number
+                      const branchName = context.ref.replace('refs/heads/', '');
+                      const issueNumber = getIssueNumber(branchName);
+
+                      console.log('Branch name:', branchName);
+                      console.log('Issue number:', issueNumber);
+
+                      if(!issueNumber) {
+                        console.log('No issue number found in branch name');
+                        return;
+                      }
+
+                      // Fetch issue data
+                      const issueResult = await fetchIssue(issueNumber);
 
                       const issue = issueResult.repository.issue;
                       console.log(`\nProcessing Issue #${issue.number}: ${issue.title}`);
 
+                      // Process each project item for this issue.
+                      // The same issue can be in multiple projects, with different status fields.
                       for (const item of issue.projectItems.nodes) {
                         const project = item.project;
 
                         // Find status field and its options
-                        const statusField = project.fields.nodes.find(field =>
-                          field.name?.toLowerCase().includes('status')
-                        );
+                        const statusField = findProjectStatusField(project);
 
                         if (!statusField) {
                           console.log(`\nProject: ${project.title}\nStatus: No status field found\n-------------------`);
@@ -138,9 +211,7 @@ jobs:
                         }
 
                         // Find "In Progress" option
-                        const inProgressOption = statusField.options.find(option =>
-                          option.name.toLowerCase().includes('in progress')
-                        );
+                        const inProgressOption = findProjectStatusOption(statusField, 'in progress');
 
                         if (!inProgressOption) {
                           console.log('No "In Progress" status found in this project\n-------------------');
@@ -148,9 +219,7 @@ jobs:
                         }
 
                         // Get current status
-                        const currentStatus = item.fieldValues.nodes.find(value =>
-                          value.field?.name.toLowerCase().includes('status')
-                        )?.name || 'No status';
+                        const currentStatus = getCurrentStatus(item);
 
                         const availableStatuses = statusField.options.map(opt => opt.name);
                         console.log(`\nProject: ${project.title}\nCurrent Status: ${currentStatus}\nAvailable Statuses: ${availableStatuses.join(', ')}`);
@@ -166,12 +235,7 @@ jobs:
                           statusMessage = `ℹ️ Issue is already In Progress in project "${project.title}"`;
                         } else {
                           try {
-                            await github.graphql(updateMutation, {
-                              projectId: project.id,
-                              itemId: item.id,
-                              fieldId: statusField.id,
-                              optionId: inProgressOption.id
-                            });
+                            await updateStatus(project.id, item.id, statusField.id, inProgressOption.id);
                             statusMessage = `✅ Moved to In Progress in project "${project.title}"`;
                           } catch (error) {
                             statusMessage = `❌ Failed to update status in project "${project.title}": ${error.message}`;
@@ -183,27 +247,6 @@ jobs:
 
                         // Comment on the issue
                         if (needsComment) {
-                          const commentBody = `
-                      ### Project Status Update
-                      ${statusMessage}
-
-                      **Project:** ${project.title}
-                      **Current Status:** ${currentStatus}
-                      **Available Statuses:** ${availableStatuses.join(', ')}
-
-                      Branch: \`${branchName}\`
-                        `;
-
-                          try {
-                            await github.graphql(addCommentMutation, {
-                              input: {
-                                subjectId: issue.id,
-                                body: commentBody
-                              }
-                            });
-                            console.log('✓ Added comment to issue');
-                          } catch (error) {
-                            console.log('✗ Failed to add comment:', error.message);
-                          }
+                          await addComment(issue.id, statusMessage, project.title, currentStatus, availableStatuses, branchName);
                         }
                       }
