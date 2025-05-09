@@ -1,8 +1,9 @@
 import { useValues } from 'kea'
+import { CalendarHeatMap } from 'lib/components/CalendarHeatMap/CalendarHeatMap'
+import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { InsightLoadingState } from 'scenes/insights/EmptyStates'
 import { InsightsWrapper } from 'scenes/insights/InsightsWrapper'
 import { teamLogic } from 'scenes/teamLogic'
-import { CalendarHeatMap } from 'scenes/web-analytics/CalendarHeatMap/CalendarHeatMap'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import {
@@ -33,6 +34,8 @@ interface WebActiveHoursHeatmapProps {
 }
 
 export function WebActiveHoursHeatmap(props: WebActiveHoursHeatmapProps): JSX.Element {
+    const { themes, getTheme } = useValues(dataThemeLogic)
+    const theme = getTheme(themes?.[0]?.id)
     const { weekStartDay } = useValues(teamLogic)
 
     const { response, responseLoading, queryId } = useValues(
@@ -67,6 +70,7 @@ export function WebActiveHoursHeatmap(props: WebActiveHoursHeatmapProps): JSX.El
             getColumnAggregationTooltip={getColumnAggregationTooltip}
             getRowAggregationTooltip={getRowAggregationTooltip}
             getOverallAggregationTooltip={getOverallAggregationTooltip}
+            theme={theme}
         />
     )
 }
