@@ -107,7 +107,7 @@ export const getScopeDescription = (scope: string): string => {
     }
 
     if (scope === 'openid') {
-        return 'View your user profile'
+        return 'View your User ID'
     }
 
     if (scope === 'email') {

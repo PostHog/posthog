@@ -54,7 +54,7 @@ class TestOAuthAPI(APIBaseTest):
             client_secret="test_confidential_client_secret",
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="http://localhost:8000/callback",
+            redirect_uris="https://example.com/callback",
             user=self.user,
             hash_client_secret=True,
             algorithm="RS256",
@@ -66,7 +66,7 @@ class TestOAuthAPI(APIBaseTest):
             client_secret="test_public_client_secret",
             client_type=OAuthApplication.CLIENT_PUBLIC,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="http://localhost:8000/callback",
+            redirect_uris="https://example.com/callback",
             user=self.user,
             hash_client_secret=True,
             algorithm="RS256",
@@ -90,13 +90,13 @@ class TestOAuthAPI(APIBaseTest):
 
     @property
     def base_authorization_url(self) -> str:
-        return f"/oauth/authorize/?client_id=test_confidential_client_id&redirect_uri=http://localhost:8000/callback&response_type=code&code_challenge={self.code_challenge}&code_challenge_method=S256"
+        return f"/oauth/authorize/?client_id=test_confidential_client_id&redirect_uri=https://example.com/callback&response_type=code&code_challenge={self.code_challenge}&code_challenge_method=S256"
 
     @property
     def base_authorization_post_body(self) -> dict:
         return {
             "client_id": "test_confidential_client_id",
-            "redirect_uri": "http://localhost:8000/callback",
+            "redirect_uri": "https://example.com/callback",
             "response_type": "code",
             "code_challenge": self.code_challenge,
             "code_challenge_method": "S256",
@@ -112,7 +112,7 @@ class TestOAuthAPI(APIBaseTest):
             "grant_type": "authorization_code",
             "client_id": "test_confidential_client_id",
             "client_secret": "test_confidential_client_secret",
-            "redirect_uri": "http://localhost:8000/callback",
+            "redirect_uri": "https://example.com/callback",
             "code_verifier": self.code_verifier,
         }
 
@@ -211,7 +211,7 @@ class TestOAuthAPI(APIBaseTest):
             client_secret="test_confidential_client_secret_multiple_redirect_uris",
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="http://localhost:8000/callback http://localhost:8001/callback",
+            redirect_uris="https://example.com/callback https://example.com/callback2",
         )
 
         url_without_redirect_uri = self.replace_param_in_url(url, "redirect_uri", None)
@@ -296,7 +296,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         redirect_to = response.json()["redirect_to"]
-        self.assertEqual(redirect_to, "http://localhost:8000/callback?error=access_denied")
+        self.assertEqual(redirect_to, "https://example.com/callback?error=access_denied")
 
     def test_cannot_get_token_with_invalid_code(self):
         data = {
@@ -304,7 +304,7 @@ class TestOAuthAPI(APIBaseTest):
             "code": "invalid_code",
             "client_id": "test_confidential_client_id",
             "client_secret": "test_confidential_client_secret",
-            "redirect_uri": "http://localhost:8000/callback",
+            "redirect_uri": "https://example.com/callback",
             "code_verifier": self.code_verifier,
         }
 
@@ -330,7 +330,7 @@ class TestOAuthAPI(APIBaseTest):
             "code": expired_grant.code,
             "client_id": "test_confidential_client_id",
             "client_secret": "test_confidential_client_secret",
-            "redirect_uri": "http://localhost:8000/callback",
+            "redirect_uri": "https://example.com/callback",
             "code_verifier": self.code_verifier,
         }
 
@@ -351,7 +351,7 @@ class TestOAuthAPI(APIBaseTest):
             "code": "invalid_code",
             "client_id": "test_confidential_client_id",
             "client_secret": "test_confidential_client_secret",
-            "redirect_uri": "http://localhost:8000/callback",
+            "redirect_uri": "https://example.com/callback",
             "code_verifier": self.code_verifier,
         }
 
@@ -427,7 +427,7 @@ class TestOAuthAPI(APIBaseTest):
             "grant_type": "client_credentials",
             "client_id": "test_confidential_client_id",
             "client_secret": "wrong_secret",
-            "redirect_uri": "http://localhost:8000/callback",
+            "redirect_uri": "https://example.com/callback",
             "code_verifier": self.code_verifier,
             "code": grant.code,
         }
@@ -742,7 +742,7 @@ class TestOAuthAPI(APIBaseTest):
             "code": code,
             "client_id": "test_confidential_client_id",
             "client_secret": "test_confidential_client_secret",
-            "redirect_uri": "http://localhost:8000/callback",
+            "redirect_uri": "https://example.com/callback",
             "code_verifier": self.code_verifier,
         }
 

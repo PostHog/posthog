@@ -2,7 +2,7 @@ from datetime import timedelta
 import json
 import uuid
 from oauth2_provider.views import TokenView, RevokeTokenView, IntrospectTokenView
-from posthog.models import OAuthApplication, OAuthAccessToken
+from posthog.models import OAuthApplication, OAuthAccessToken, User, Team
 from oauth2_provider.settings import oauth2_settings
 from oauth2_provider.http import OAuth2ResponseRedirect
 from oauth2_provider.exceptions import OAuthToolkitError
@@ -20,6 +20,7 @@ import structlog
 from django.utils.decorators import method_decorator
 
 from posthog.models.oauth import OAuthApplicationAccessLevel, OAuthGrant, OAuthRefreshToken
+from posthog.user_permissions import UserPermissions
 from posthog.utils import render_template
 from posthog.views import login_required
 
@@ -35,7 +36,7 @@ class OAuthAuthorizationSerializer(serializers.Serializer):
     code_challenge_method = serializers.CharField(required=False, allow_null=True, default=None)
     nonce = serializers.CharField(required=False, allow_null=True, default=None)
     claims = serializers.CharField(required=False, allow_null=True, default=None)
-    scope = serializers.CharField(required=False, allow_null=True, default=None)
+    scope = serializers.CharField()
     allow = serializers.BooleanField()
     prompt = serializers.CharField(required=False, allow_null=True, default=None)
     approval_prompt = serializers.CharField(required=False, allow_null=True, default=None)
@@ -45,39 +46,55 @@ class OAuthAuthorizationSerializer(serializers.Serializer):
     )
     scoped_teams = serializers.ListField(child=serializers.IntegerField(), required=False, allow_null=True, default=[])
 
-    def validate_scoped_organizations(self, value):
+    def validate_scoped_organizations(self, scoped_organization_ids):
         access_level = self.initial_data.get("access_level")
-        if (
-            (
-                access_level == OAuthApplicationAccessLevel.ALL.value
-                or access_level == OAuthApplicationAccessLevel.TEAM.value
-            )
-            and value
-            and len(value) > 0
-        ):
+        requesting_user: User = self.context["request"].user
+        user_permissions = UserPermissions(requesting_user)
+        org_memberships = user_permissions.organization_memberships
+
+        if access_level == OAuthApplicationAccessLevel.ORGANIZATION.value:
+            if not scoped_organization_ids or len(scoped_organization_ids) == 0:
+                raise serializers.ValidationError(
+                    "scoped_organizations is required when access_level is 'organization'."
+                )
+            try:
+                organization_uuids = [uuid.UUID(org_id) for org_id in scoped_organization_ids]
+                for org_uuid in organization_uuids:
+                    if org_uuid not in org_memberships or not org_memberships[org_uuid].level:
+                        raise serializers.ValidationError(
+                            f"You must be a member of organization '{org_uuid}' to scope access to it."
+                        )
+            except ValueError:
+                raise serializers.ValidationError("Invalid organization UUID provided in scoped_organizations.")
+            return scoped_organization_ids
+        elif scoped_organization_ids and len(scoped_organization_ids) > 0:
             raise serializers.ValidationError(
-                f"scoped_organizations is not allowed when access_level is {access_level}"
+                f"scoped_organizations is not allowed when access_level is '{access_level}'."
             )
+        return []
 
-        if access_level == OAuthApplicationAccessLevel.ORGANIZATION.value and (not value or len(value) == 0):
-            raise serializers.ValidationError("scoped_organizations is required when access_level is organization")
-        return value
-
-    def validate_scoped_teams(self, value):
+    def validate_scoped_teams(self, scoped_team_ids):
         access_level = self.initial_data.get("access_level")
-        if (
-            (
-                access_level == OAuthApplicationAccessLevel.ALL.value
-                or access_level == OAuthApplicationAccessLevel.ORGANIZATION.value
-            )
-            and value
-            and len(value) > 0
-        ):
-            raise serializers.ValidationError(f"scoped_teams is not allowed when access_level is {access_level}")
+        requesting_user: User = self.context["request"].user
+        user_permissions = UserPermissions(requesting_user)
 
-        if access_level == OAuthApplicationAccessLevel.TEAM.value and (not value or len(value) == 0):
-            raise serializers.ValidationError("scoped_teams is required when access_level is team")
-        return value
+        if access_level == OAuthApplicationAccessLevel.TEAM.value:
+            if not scoped_team_ids or len(scoped_team_ids) == 0:
+                raise serializers.ValidationError("scoped_teams is required when access_level is 'team'.")
+
+            teams = Team.objects.filter(pk__in=scoped_team_ids)
+            if len(teams) != len(scoped_team_ids):
+                raise serializers.ValidationError("One or more specified teams in scoped_teams do not exist.")
+
+            for team in teams:
+                if user_permissions.team(team).effective_membership_level is None:
+                    raise serializers.ValidationError(
+                        f"You must be a member of team '{team.id}' ({team.name}) to scope access to it."
+                    )
+            return scoped_team_ids
+        elif scoped_team_ids and len(scoped_team_ids) > 0:
+            raise serializers.ValidationError(f"scoped_teams is not allowed when access_level is '{access_level}'.")
+        return []
 
 
 class OAuthValidator(OAuth2Validator):
@@ -253,7 +270,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         return render_template("index.html", request)
 
     def post(self, request, *args, **kwargs):
-        serializer = OAuthAuthorizationSerializer(data=request.data)
+        serializer = OAuthAuthorizationSerializer(data=request.data, context={"request": request})
 
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
