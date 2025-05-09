@@ -65,7 +65,7 @@ export function SavedInsightsFilters({
                         size="small"
                         options={insightTypeOptions}
                         value={insightType}
-                        onChange={(v: any): void => setFilters({ insightType: v })}
+                        onChange={(v?: string): void => setFilters({ insightType: v })}
                         dropdownMatchSelectWidth={false}
                         data-attr="insight-type"
                     />

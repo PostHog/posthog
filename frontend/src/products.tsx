@@ -303,6 +303,7 @@ export const treeItemsNew = [
         path: `Insight/Calendar Heatmap`,
         type: 'insight',
         href: () => urls.insightNew({ type: InsightType.CALENDAR_HEATMAP }),
+        flag: FEATURE_FLAGS.CALENDAR_HEATMAP_INSIGHT,
     },
     { path: `Insight/Funnel`, type: 'insight', href: () => urls.insightNew({ type: InsightType.FUNNELS }) },
     { path: `Insight/Lifecycle`, type: 'insight', href: () => urls.insightNew({ type: InsightType.LIFECYCLE }) },

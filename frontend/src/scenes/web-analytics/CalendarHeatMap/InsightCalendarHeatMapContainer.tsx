@@ -8,11 +8,11 @@ import { QueryContext } from '~/queries/types'
 
 import { WebActiveHoursHeatmap } from '../WebActiveHoursHeatmap/WebActiveHoursHeatmap'
 
-interface EventsHeatMapProps {
+interface CalendarHeatMapProps {
     context?: QueryContext
 }
 
-export function InsightCalendarHeatMapContainer({ context }: EventsHeatMapProps): JSX.Element | null {
+export function InsightCalendarHeatMapContainer({ context }: CalendarHeatMapProps): JSX.Element | null {
     const { insightProps, query } = useValues(insightLogic)
     return (
         <WebActiveHoursHeatmap

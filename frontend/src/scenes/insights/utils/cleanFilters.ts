@@ -533,6 +533,7 @@ export function cleanFilters(
         const calendarHeatmapFilter: Partial<CalendarHeatmapFilterType> = {
             insight: InsightType.CALENDAR_HEATMAP,
             ...filters,
+            ...commonFilters,
         }
         return calendarHeatmapFilter
     }

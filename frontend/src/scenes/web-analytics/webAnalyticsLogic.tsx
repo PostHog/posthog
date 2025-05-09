@@ -1935,7 +1935,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                               </>
                                           ),
                                       },
-                                      insightProps: createInsightProps(TileId.ACTIVE_HOURS, ActiveHoursTab.UNIQUE),
+                                      insightProps: createInsightProps(
+                                          TileId.ACTIVE_HOURS,
+                                          ActiveHoursTab.TOTAL_EVENTS
+                                      ),
                                   },
                               ],
                           }
