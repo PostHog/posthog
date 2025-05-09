@@ -1,4 +1,8 @@
 import { actions, kea, path, reducers } from 'kea'
+import { urlToAction } from 'kea-router'
+import { urls } from 'scenes/urls'
+
+import { ReplayTabs } from '~/types'
 
 import type { playlistLogicType } from './playlistLogicType'
 
@@ -29,4 +33,14 @@ export const playlistLogic = kea<playlistLogicType>([
             },
         ],
     }),
+    urlToAction(({ actions }) => ({
+        [urls.replay(ReplayTabs.Home)]: (_, searchParams) => {
+            if (searchParams.filtersTab && ['filters', 'saved'].includes(searchParams.filtersTab)) {
+                actions.setActiveFilterTab(searchParams.filtersTab)
+            }
+            if (searchParams.showFilters) {
+                actions.setIsFiltersExpanded(true)
+            }
+        },
+    })),
 ])
