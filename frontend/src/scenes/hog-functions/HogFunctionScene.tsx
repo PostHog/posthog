@@ -76,7 +76,7 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                         },
                         {
                             key: Scene.HogFunction,
-                            name: configuration?.name ?? '(Untitled)',
+                            name: configuration?.name || '(Untitled)',
                             path: urls.hogFunction(id),
                         },
                     ]
