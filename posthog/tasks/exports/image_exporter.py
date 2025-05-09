@@ -1,4 +1,3 @@
-import json
 import os
 import uuid
 from datetime import timedelta
@@ -12,10 +11,10 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.wait import WebDriverWait
-from sentry_sdk import configure_scope, push_scope
 from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.core.os_manager import ChromeType
 
+from posthog.clickhouse.query_tagging import tags_context, tag_queries
 from posthog.api.services.query import process_query_dict
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql.constants import LimitContext
@@ -156,24 +155,26 @@ def _screenshot_asset(
                 wait_for_css_selector=wait_for_css_selector,
                 image_path=image_path,
             )
-            with push_scope() as scope:
-                scope.set_extra("url_to_render", url_to_render)
+            with tags_context(url_to_render=url_to_render):
+                tag_queries(url_to_render=url_to_render)
                 try:
                     driver.save_screenshot(image_path)
-                    scope.add_attachment(None, None, image_path)
+                    tag_queries(image_path=image_path)
                 except Exception:
                     pass
                 capture_exception()
 
         # Get the height of the visualization container specifically
-        height = driver.execute_script("""
+        height = driver.execute_script(
+            """
             const element = document.querySelector('.InsightCard__viz') || document.querySelector('.ExportedInsight__content');
             if (element) {
                 const rect = element.getBoundingClientRect();
                 return Math.max(rect.height, document.body.scrollHeight);
             }
             return document.body.scrollHeight;
-        """)
+        """
+        )
 
         # For example funnels use a table that can get very wide, so try to get its width
         width = driver.execute_script(
@@ -196,32 +197,27 @@ def _screenshot_asset(
         driver.execute_script("return new Promise(resolve => setTimeout(resolve, 500))")
 
         # Get the final height after any dynamic adjustments
-        final_height = driver.execute_script("""
+        final_height = driver.execute_script(
+            """
             const element = document.querySelector('.InsightCard__viz') || document.querySelector('.ExportedInsight__content');
             if (element) {
                 const rect = element.getBoundingClientRect();
                 return Math.max(rect.height, document.body.scrollHeight);
             }
             return document.body.scrollHeight;
-        """)
+        """
+        )
 
         # Set final window size
         driver.set_window_size(width, final_height + HEIGHT_OFFSET)
         driver.save_screenshot(image_path)
     except Exception as e:
         # To help with debugging, add a screenshot and any chrome logs
-        with configure_scope() as scope:
-            scope.set_extra("url_to_render", url_to_render)
+        with tags_context(url_to_render=url_to_render):
             if driver:
-                # If we encounter issues getting extra info we should silently fail rather than creating a new exception
-                try:
-                    all_logs = list(driver.get_log("browser"))
-                    scope.add_attachment(json.dumps(all_logs).encode("utf-8"), "logs.txt")
-                except Exception:
-                    pass
                 try:
                     driver.save_screenshot(image_path)
-                    scope.add_attachment(None, None, image_path)
+                    tag_queries(image_path=image_path)
                 except Exception:
                     pass
         capture_exception(e)
@@ -233,10 +229,9 @@ def _screenshot_asset(
 
 
 def export_image(exported_asset: ExportedAsset) -> None:
-    with push_scope() as scope:
-        scope.set_tag("team_id", exported_asset.team.pk if exported_asset else "unknown")
-        scope.set_tag("asset_id", exported_asset.id if exported_asset else "unknown")
-
+    team_id = exported_asset.team.pk if exported_asset else "unknown"
+    asset_id = exported_asset.id if exported_asset else "unknown"
+    with tags_context(team_id=team_id, asset_id=asset_id):
         try:
             if exported_asset.insight:
                 # NOTE: Dashboards are regularly updated but insights are not
@@ -261,15 +256,8 @@ def export_image(exported_asset: ExportedAsset) -> None:
                     f"Export to format {exported_asset.export_format} is not supported for insights"
                 )
         except Exception as e:
-            if exported_asset:
-                team_id = str(exported_asset.team.id)
-            else:
-                team_id = "unknown"
-
-            with push_scope() as scope:
-                scope.set_tag("celery_task", "image_export")
-                scope.set_tag("team_id", team_id)
-                capture_exception(e)
+            tag_queries(celery_task="image_export", team_id=team_id)
+            capture_exception(e)
 
             logger.error("image_exporter.failed", exception=e, exc_info=True)
             EXPORT_FAILED_COUNTER.labels(type="image").inc()

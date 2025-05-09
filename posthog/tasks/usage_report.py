@@ -12,13 +12,11 @@ from collections.abc import Callable
 import requests
 import structlog
 import logging
-from cachetools import cached
 from celery import shared_task
 from dateutil import parser
 from django.conf import settings
 from django.db import connection
 from django.db.models import Count, Q, Sum
-from posthoganalytics.client import Client as PostHogClient
 from psycopg import sql
 from retry import retry
 
@@ -50,6 +48,7 @@ from posthog.utils import (
 )
 from posthog.warehouse.models import ExternalDataJob
 from posthog.models.error_tracking import ErrorTrackingIssue, ErrorTrackingSymbolSet
+from posthog.ph_client import get_us_client
 
 
 logger = structlog.get_logger(__name__)
@@ -305,11 +304,6 @@ def get_org_user_count(organization_id: str) -> int:
     return OrganizationMembership.objects.filter(organization_id=organization_id).count()
 
 
-@cached(cache={})
-def get_ph_client(*args: Any, **kwargs: Any) -> PostHogClient:
-    return PostHogClient("sTMFPsFhdP1Ssg", *args, **kwargs)
-
-
 @shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=3, rate_limit="5/s")
 def send_report_to_billing_service(org_id: str, report: dict[str, Any]) -> None:
     if not settings.EE_AVAILABLE:
@@ -318,6 +312,8 @@ def send_report_to_billing_service(org_id: str, report: dict[str, Any]) -> None:
     from ee.billing.billing_manager import BillingManager, build_billing_token
     from ee.billing.billing_types import BillingStatus
     from ee.settings import BILLING_SERVICE_URL
+
+    ph_client = get_us_client(sync_mode=True)
 
     try:
         license = get_cached_instance_license()
@@ -348,7 +344,7 @@ def send_report_to_billing_service(org_id: str, report: dict[str, Any]) -> None:
         )
         capture_exception(err)
         capture_event(
-            pha_client=get_ph_client(sync_mode=True),
+            pha_client=ph_client,
             name=f"organization usage report to billing service failure",
             organization_id=org_id,
             properties={"err": str(err)},
@@ -947,7 +943,7 @@ def capture_report(
     if not organization_id:
         raise ValueError("Organization_id must be provided")
     try:
-        pha_client = get_ph_client(sync_mode=True)
+        pha_client = get_us_client(sync_mode=True)
         capture_event(
             pha_client=pha_client,
             name="organization usage report",
@@ -1385,11 +1381,10 @@ def send_all_org_usage_reports(
     skip_capture_event: bool = False,
 ) -> None:
     import posthoganalytics
-    from sentry_sdk import capture_message
 
     are_usage_reports_disabled = posthoganalytics.feature_enabled("disable-usage-reports", "internal_billing_events")
     if are_usage_reports_disabled:
-        capture_message(f"Usage reports are disabled for {at}")
+        logger.info(f"Usage reports are disabled for {at}")
         return
 
     at_date = parser.parse(at) if at else None
@@ -1407,7 +1402,7 @@ def send_all_org_usage_reports(
     except Exception:
         pass
 
-    pha_client = get_ph_client(sync_mode=True)
+    pha_client = get_us_client(sync_mode=True)
 
     logger.info("Querying usage report data")
     query_time_start = datetime.now()
@@ -1428,7 +1423,6 @@ def send_all_org_usage_reports(
         "usage reports starting",
         {
             "total_orgs": total_orgs,
-            "region": get_instance_region(),
         },
         groups={"instance": settings.SITE_URL},
     )
@@ -1479,7 +1473,6 @@ def send_all_org_usage_reports(
             "query_time": query_time_duration,
             "queue_time": queue_time_duration,
             "total_time": query_time_duration + queue_time_duration,
-            "region": get_instance_region(),
         },
         groups={"instance": settings.SITE_URL},
     )

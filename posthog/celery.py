@@ -100,10 +100,9 @@ def receiver_bind_extra_request_metadata(sender, signal, task=None, logger=None)
 @worker_process_init.connect
 def on_worker_start(**kwargs) -> None:
     from prometheus_client import start_http_server
+    from posthog.ph_client import get_us_client
 
-    from posthog.settings import sentry_init
-
-    sentry_init()
+    get_us_client()
     start_http_server(int(os.getenv("CELERY_METRICS_PORT", "8001")))
 
 
