@@ -8,7 +8,6 @@ import { createTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { insertHogFunction, insertIntegration } from '../_tests/fixtures'
 import { template as geoipTemplate } from '../templates/_transformations/geoip/geoip.template'
-import { compileHog } from '../templates/compiler'
 import { HogFunctionManagerService } from './hog-function-manager.service'
 
 describe('HogFunctionManager', () => {
@@ -752,7 +751,7 @@ describe('template patching', () => {
     it('uses config of hog function instead of template for custom hog function', async () => {
         // Create a custom function using the template ID but with custom code
         const customCode = 'return event'
-        const customBytecode = await compileHog(customCode)
+        const customBytecode = ['_H', 1, 32, 'event', 1, 1, 38]
 
         const template = (
             await hub.postgres.query(
