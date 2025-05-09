@@ -189,8 +189,8 @@ impl RawRequest {
 
             let s = String::from_utf8(bytes.into()).map_err(|e| {
                 error!(
-                    "from_bytes: failed to convert request payload to UTF8: {:?}",
-                    e
+                    valid_up_to = &e.utf8_error().valid_up_to(),
+                    "from_bytes: failed to convert request payload to UTF8: {}", e
                 );
                 CaptureError::RequestDecodingError(String::from("invalid UTF8 in request payload"))
             })?;
