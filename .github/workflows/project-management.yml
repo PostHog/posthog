@@ -1,4 +1,4 @@
-name: Project Management
+name: Project - Update Issue on Branch Creation
 
 on:
     create:
