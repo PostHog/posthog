@@ -5,7 +5,7 @@ import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableSh
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
-import {
+import React, {
     CSSProperties,
     ForwardedRef,
     forwardRef,
@@ -166,7 +166,10 @@ export type LemonTreeProps = LemonTreeBaseProps & {
     /** handler for folder clicks.*/
     onFolderClick?: (folder: TreeDataItem | undefined, isExpanded: boolean) => void
     /** handler for node clicks. */
-    onNodeClick?: (node: TreeDataItem | undefined) => void
+    onItemClick?: (
+        node: TreeDataItem | undefined,
+        event: React.MouseEvent<HTMLElement> | React.KeyboardEvent<HTMLElement>
+    ) => void
     /** The ref of the content to focus when the tree is clicked. TODO: make non-optional. */
     contentRef?: React.RefObject<HTMLElement>
     /** Handler for when a drag operation completes */
@@ -179,7 +182,11 @@ export type LemonTreeNodeProps = LemonTreeBaseProps & {
     /** The ID of the item. */
     selectedId?: string
     /** Handle a click on the item. */
-    handleClick: (item: TreeDataItem | undefined, isKeyboardAction?: boolean) => void
+    handleClick: (
+        item: TreeDataItem | undefined,
+        isKeyboardAction: boolean,
+        event: React.MouseEvent<HTMLElement> | React.KeyboardEvent<HTMLElement>
+    ) => void
     /** The depth of the item. */
     depth?: number
     /** Tell <LemonTree> to disable keyboard input */
@@ -311,12 +318,18 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                             data-id={item.id}
                             // When dragging, don't allow links to be clicked,
                             // without this drag end would fire this href causing a reload
-                            to={item.disabledReason || isEmptyFolder ? '#' : item.record?.href || '#'}
+                            to={
+                                item.disabledReason || isEmptyFolder
+                                    ? '#'
+                                    : typeof item.record?.href === 'function'
+                                    ? item.record.href()
+                                    : item.record?.href || '#'
+                            }
                             onClick={(e) => {
                                 if (item.disabledReason) {
                                     e.preventDefault()
                                 } else {
-                                    handleClick(item)
+                                    handleClick(item, false, e)
                                 }
                             }}
                             disabled={isDragging}
@@ -608,7 +621,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             mode,
             defaultSelectedFolderOrNodeId,
             onFolderClick,
-            onNodeClick,
+            onItemClick,
             expandAllFolders = false,
             defaultNodeIcon,
             className,
@@ -855,13 +868,17 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
         }
 
         const handleClick = useCallback(
-            (item: TreeDataItem | undefined, isKeyboardAction = false): void => {
+            (
+                item: TreeDataItem | undefined,
+                isKeyboardAction = false,
+                event: React.MouseEvent<HTMLElement> | React.KeyboardEvent<HTMLElement>
+            ): void => {
                 const isFolder = (item?.children && item?.children?.length >= 0) || item?.record?.type === 'folder'
 
                 // Handle click on a node
                 if (!isFolder) {
-                    if (onNodeClick) {
-                        onNodeClick(item)
+                    if (onItemClick) {
+                        onItemClick(item, event)
                         // Only focus content if this was triggered by a keyboard action
                         if (isKeyboardAction) {
                             // Focus content when keyboard action on a node
@@ -887,7 +904,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
 
                 setSelectedId(item?.id)
             },
-            [expandedItemIdsState, onFolderClick, onNodeClick, focusContent]
+            [expandedItemIdsState, onFolderClick, onItemClick, focusContent]
         )
 
         /** Focus the element from the tree item ID. */
@@ -903,7 +920,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
 
         // Update handleKeyDown to use native focus
         const handleKeyDown = useCallback(
-            (e: React.KeyboardEvent) => {
+            (e: React.KeyboardEvent<HTMLElement>) => {
                 // Disabled if context menu is open or an item is being edited
                 if (disableKeyboardInput) {
                     return
@@ -1114,9 +1131,9 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                                     setExpandedItemIdsState(newExpandedIds)
                                 }
                             } else {
-                                if (onNodeClick) {
+                                if (onItemClick) {
                                     // Otherwise use default node click handler
-                                    onNodeClick(currentItem)
+                                    onItemClick(currentItem, e)
 
                                     // Set selectedId to currentItem.id
                                     setSelectedId(currentItem.id)
@@ -1140,7 +1157,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                 handleTypeAhead,
                 data,
                 focusContent,
-                onNodeClick,
+                onItemClick,
                 onFolderClick,
                 onSetExpandedItemIds,
                 disableKeyboardInput,

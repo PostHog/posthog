@@ -32,7 +32,7 @@ def get_query_results() -> list[Any]:
             read_bytes,
             total_rows_approx,
             elapsed,
-            ProfileEvents['OSCPUVirtualTimeMicroseconds'] as OSCPUVirtualTimeMicroseconds,
+            memory_usage,
             query_id
         FROM clusterAllReplicas(%(cluster)s, system.processes)
         WHERE initial_query_id REGEXP '\d+_[0-9a-f]{8}-'
@@ -42,12 +42,13 @@ def get_query_results() -> list[Any]:
             read_bytes,
             read_rows as total_rows_approx,
             query_duration_ms / 1000 as elapsed,
-            ProfileEvents['OSCPUVirtualTimeMicroseconds'] as OSCPUVirtualTimeMicroseconds,
+            memory_usage,
             query_id
         FROM clusterAllReplicas(%(cluster)s, system.query_log)
         WHERE initial_query_id REGEXP '\d+_[0-9a-f]{8}-'
         AND type = 'QueryFinish'
         AND event_time > subtractSeconds(now(), 10)
+        SETTINGS skip_unavailable_shards=1
         """
 
     raw_results = sync_execute(SYSTEM_PROCESSES_SQL, {"cluster": CLICKHOUSE_CLUSTER}, workload=Workload.ONLINE)
@@ -62,7 +63,7 @@ def get_query_results() -> list[Any]:
             "rows_read": noNaNInt(result[1]),
             "estimated_rows_total": noNaNInt(result[3]),
             "time_elapsed": noNaNInt(result[4]),
-            "active_cpu_time": noNaNInt(result[5]),
+            "memory_usage": noNaNInt(result[5]),
         }
         for result in raw_results
     ]
