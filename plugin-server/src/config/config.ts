@@ -47,6 +47,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
         CONSUMER_BATCH_SIZE: 500,
         CONSUMER_MAX_HEARTBEAT_INTERVAL_MS: 30_000,
+        CONSUMER_MAX_BACKGROUND_TASKS: 1,
         KAFKA_HOSTS: 'kafka:9092', // KEEP IN SYNC WITH posthog/settings/data_stores.py
         KAFKA_CLIENT_CERT_B64: undefined,
         KAFKA_CLIENT_CERT_KEY_B64: undefined,

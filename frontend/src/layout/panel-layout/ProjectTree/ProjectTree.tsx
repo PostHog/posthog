@@ -1,5 +1,6 @@
 import { IconCheckbox, IconChevronRight, IconFolder, IconFolderPlus, IconX } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { MoveFilesModal } from 'lib/components/FileSystem/MoveFilesModal'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
 import { dayjs } from 'lib/dayjs'
@@ -29,6 +30,7 @@ import { cn } from 'lib/utils/css-classes'
 import { RefObject, useEffect, useRef } from 'react'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
+import { shortcutsLogic } from '~/layout/panel-layout/Shortcuts/shortcutsLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
 
@@ -42,7 +44,7 @@ export interface ProjectTreeProps {
 
 export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
     const {
-        treeData,
+        treeItemsProject,
         treeTableKeys,
         lastViewedId,
         viableItems,
@@ -89,6 +91,7 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
         setTreeTableColumnSizes,
         setSelectMode,
     } = useActions(projectTreeLogic)
+    const { addShortcutItem } = useActions(shortcutsLogic)
 
     const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier, setProjectTreeMode } =
         useActions(panelLayoutLogic)
@@ -162,12 +165,20 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                             asChild
                             onClick={(e) => {
                                 e.stopPropagation()
+                                addShortcutItem(item)
+                            }}
+                        >
+                            <ButtonPrimitive menuItem>Add to shortcuts panel</ButtonPrimitive>
+                        </MenuItem>
+                        <MenuItem
+                            asChild
+                            onClick={(e) => {
+                                e.stopPropagation()
                                 void navigator.clipboard.writeText(document.location.origin + item.record?.href)
                             }}
                         >
                             <ButtonPrimitive menuItem>Copy link address</ButtonPrimitive>
                         </MenuItem>
-
                         <MenuSeparator />
                     </>
                 ) : null}
@@ -247,7 +258,13 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                                                                 if (folder) {
                                                                     setLastNewFolder(folder)
                                                                 }
-                                                                child.onClick?.()
+                                                                if (child.record?.href) {
+                                                                    router.actions.push(
+                                                                        typeof child.record.href === 'function'
+                                                                            ? child.record.href(child.record.ref)
+                                                                            : child.record.href
+                                                                    )
+                                                                }
                                                             }}
                                                         >
                                                             <ButtonPrimitive menuItem className="capitalize">
@@ -270,7 +287,13 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                                                 if (folder) {
                                                     setLastNewFolder(folder)
                                                 }
-                                                treeItem.onClick?.()
+                                                if (treeItem.record?.href) {
+                                                    router.actions.push(
+                                                        typeof treeItem.record.href === 'function'
+                                                            ? treeItem.record.href(treeItem.record.ref)
+                                                            : treeItem.record.href
+                                                    )
+                                                }
                                             }}
                                         >
                                             <ButtonPrimitive menuItem>
@@ -424,7 +447,7 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                 ref={treeRef}
                 contentRef={mainContentRef as RefObject<HTMLElement>}
                 className="px-0 py-1"
-                data={treeData}
+                data={treeItemsProject}
                 mode={projectTreeMode as TreeMode}
                 selectMode={selectMode}
                 tableViewKeys={treeTableKeys}
@@ -437,21 +460,27 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                 }}
                 onItemChecked={onItemChecked}
                 checkedItemCount={checkedItemCountNumeric}
-                onNodeClick={(node) => {
-                    if (node?.type === 'empty-folder' || node?.type === 'loading-indicator') {
+                onItemClick={(item) => {
+                    if (item?.type === 'empty-folder' || item?.type === 'loading-indicator') {
                         return
                     }
-
+                    if (item?.record?.href) {
+                        router.actions.push(
+                            typeof item.record.href === 'function'
+                                ? item.record.href(item.record.ref)
+                                : item.record.href
+                        )
+                    }
                     if (!isLayoutPanelPinned || projectTreeMode === 'table') {
                         clearActivePanelIdentifier()
                         showLayoutPanel(false)
                     }
 
-                    if (node?.record?.path) {
-                        setLastViewedId(node?.id || '')
+                    if (item?.record?.path) {
+                        setLastViewedId(item?.id || '')
                     }
-                    if (node?.id.startsWith('project-load-more/')) {
-                        const path = node.id.split('/').slice(1).join('/')
+                    if (item?.id.startsWith('project-load-more/')) {
+                        const path = item.id.split('/').slice(1).join('/')
                         if (path) {
                             loadFolder(path)
                         }

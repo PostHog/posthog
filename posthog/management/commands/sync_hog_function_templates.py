@@ -1,16 +1,43 @@
 from django.core.management.base import BaseCommand
 import structlog
 import time
+from django.conf import settings
 from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES
 from posthog.models.hog_function_template import HogFunctionTemplate as DBHogFunctionTemplate
 from posthog.plugins.plugin_server_api import get_hog_function_templates
 from posthog.api.hog_function_template import HogFunctionTemplateSerializer
+from posthog.models.hog_functions.hog_function import HogFunctionType
 
 logger = structlog.get_logger(__name__)
+
+TYPES_WITH_JAVASCRIPT_SOURCE = (HogFunctionType.SITE_DESTINATION, HogFunctionType.SITE_APP)
+
+# Templates to include in test mode
+TEST_INCLUDE_PYTHON_TEMPLATE_IDS = ["template-slack"]
+TEST_INCLUDE_NODEJS_TEMPLATE_IDS = [
+    "template-webhook",
+    "template-geoip",
+    "plugin-posthog-plugin-geoip",
+    "plugin-taxonomy-plugin",
+]
 
 
 class Command(BaseCommand):
     help = "Sync HogFunction templates from in-memory and node.js to database"
+
+    def should_include_python_template(self, template):
+        """Determine if a Python template should be included based on test mode"""
+        if not settings.TEST:
+            return True
+
+        return template.type in TYPES_WITH_JAVASCRIPT_SOURCE or template.id in TEST_INCLUDE_PYTHON_TEMPLATE_IDS
+
+    def should_include_nodejs_template(self, template_data):
+        """Determine if a Node.js template should be included based on test mode"""
+        if not settings.TEST:
+            return True
+
+        return template_data.get("id") in TEST_INCLUDE_NODEJS_TEMPLATE_IDS
 
     def handle(self, *args, **options):
         start_time = time.time()
@@ -25,8 +52,7 @@ class Command(BaseCommand):
         # Process templates from HOG_FUNCTION_TEMPLATES (Python templates)
         for template in HOG_FUNCTION_TEMPLATES:
             try:
-                # Only process templates with type "transformation" or "destination"
-                if template.type not in ["transformation", "destination"]:
+                if not self.should_include_python_template(template):
                     continue
 
                 total_templates += 1
@@ -54,8 +80,7 @@ class Command(BaseCommand):
                 nodejs_templates_json = response.json()
                 for template_data in nodejs_templates_json:
                     try:
-                        # Only process templates with type "transformation" or "destination"
-                        if template_data.get("type") not in ["transformation", "destination"]:
+                        if not self.should_include_nodejs_template(template_data):
                             continue
 
                         serializer = HogFunctionTemplateSerializer(data=template_data)
@@ -83,6 +108,7 @@ class Command(BaseCommand):
                 self.stdout.write(
                     self.style.WARNING(f"Failed to fetch Node.js templates. Status code: {response.status_code}")
                 )
+                raise Exception(f"Failed to fetch Node.js templates. Status code: {response.status_code}")
         except Exception as e:
             self.stdout.write(self.style.ERROR(f"Error fetching Node.js templates: {str(e)}"))
 
