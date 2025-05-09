@@ -6,6 +6,19 @@ from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 logger = logging.getLogger(__name__)
 
+"""
+This module provides utilities for transforming ClickHouse aggregate functions to their State and Merge variants.
+
+ClickHouse supports a two-step aggregation pattern where:
+1. Functions like uniq() can be converted to uniqState() for partial aggregation
+2. These state functions can then be processed with uniqMerge() to combine partial results
+
+This is useful for:
+- Optimizing queries by enabling parallel processing and pre-aggregation
+- Creating materialized views with partial aggregates
+- Combining preaggregated data with real-time data in a single query
+"""
+
 # Mapping of regular aggregation functions to their State equivalents
 AGGREGATION_TO_STATE_MAPPING = {
     "uniq": "uniqState",
@@ -69,6 +82,11 @@ class AggregationToStateTransformer(TraversingVisitor):
             cloned_node = clone_expr(node)
             state_func_name = AGGREGATION_TO_STATE_MAPPING[func_name]
 
+            # Special case for count() - countState() needs at least one argument
+            if func_name == "count" and (not node.args or len(node.args) == 0):
+                # Add a literal 1 as an argument for countState
+                cloned_node.args = [ast.Constant(value=1)]
+            
             # Track the transformation
             self.transformed_functions[func_name] = state_func_name
             # Update only the name in the cloned node
@@ -163,7 +181,5 @@ def create_merge_wrapper_query(state_query: ast.SelectQuery) -> ast.SelectQuery:
     # Create the outer query with the inner query as a subquery
     return ast.SelectQuery(
         select=outer_select,
-        select_from=ast.SelectFrom(
-            table=ast.JoinExpr(table=state_query)
-        )
+        select_from=ast.JoinExpr(table=state_query)
     ) 

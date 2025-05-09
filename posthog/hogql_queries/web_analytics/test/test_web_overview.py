@@ -5,7 +5,15 @@ from freezegun import freeze_time
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.parser import parse_select
+from posthog.hogql.printer import print_ast
+from posthog.hogql.context import HogQLContext
 from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
+from posthog.hogql_queries.web_analytics.web_overview_state_transform import (
+    transform_query_to_state,
+    state_functions_to_merge_functions,
+    create_merge_wrapper_query,
+)
 from posthog.models import Action, Element, Cohort
 from posthog.models.utils import uuid7
 from posthog.schema import (
@@ -945,3 +953,92 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertAlmostEqual(conversion_rate.value, 100 * 2 / 3)
         assert conversion_rate.previous is None
         assert conversion_rate.changeFromPreviousPct is None
+        
+    def test_state_transformation_sql(self):
+        """Test SQL transformation for state transform functions."""
+        from posthog.hogql import ast
+        from posthog.hogql.parser import parse_select
+        from posthog.hogql.printer import print_ast
+        from posthog.hogql.context import HogQLContext
+        from posthog.hogql_queries.web_analytics.web_overview_state_transform import (
+            transform_query_to_state,
+            state_functions_to_merge_functions,
+            create_merge_wrapper_query,
+        )
+        
+        # Create context but don't enable select queries - just for printing AST
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=False)
+        
+        # Test simple query transformation
+        simple_query = parse_select("SELECT uniq(events.distinct_id) AS unique_users, count() AS total_events FROM events WHERE equals(events.team_id, 137) LIMIT 50000")
+        
+        print("\n====== ORIGINAL SQL AST =======")
+        print(simple_query.__class__.__name__)
+        for item in simple_query.select:
+            print(f"Select item: {item.__class__.__name__}")
+            if isinstance(item, ast.Alias):
+                print(f"  Alias: {item.alias}")
+                print(f"  Expr: {item.expr.__class__.__name__}")
+                if isinstance(item.expr, ast.Call):
+                    print(f"    Function: {item.expr.name}")
+                    print(f"    Args: {[arg.__class__.__name__ for arg in item.expr.args]}")
+        print("================================\n")
+        
+        # Transform to state functions
+        state_query = transform_query_to_state(simple_query)
+        print("\n====== STATE SQL AST =======")
+        print(state_query.__class__.__name__)
+        for item in state_query.select:
+            print(f"Select item: {item.__class__.__name__}")
+            if isinstance(item, ast.Alias):
+                print(f"  Alias: {item.alias}")
+                print(f"  Expr: {item.expr.__class__.__name__}")
+                if isinstance(item.expr, ast.Call):
+                    print(f"    Function: {item.expr.name}")
+                    print(f"    Args: {[arg.__class__.__name__ for arg in item.expr.args]}")
+        print("==============================\n")
+        
+        # Transform to merge functions 
+        merge_query = state_functions_to_merge_functions(state_query)
+        print("\n====== MERGE SQL AST =======")
+        print(merge_query.__class__.__name__)
+        for item in merge_query.select:
+            print(f"Select item: {item.__class__.__name__}")
+            if isinstance(item, ast.Alias):
+                print(f"  Alias: {item.alias}")
+                print(f"  Expr: {item.expr.__class__.__name__}")
+                if isinstance(item.expr, ast.Call):
+                    print(f"    Function: {item.expr.name}")
+                    print(f"    Args: {[arg.__class__.__name__ for arg in item.expr.args]}")
+        print("==============================\n")
+        
+        # Create wrapper query
+        wrapper_query = create_merge_wrapper_query(state_query)
+        print("\n====== WRAPPER SQL AST =======")
+        print(wrapper_query.__class__.__name__)
+        print(f"Select list length: {len(wrapper_query.select)}")
+        for item in wrapper_query.select:
+            print(f"Select item: {item.__class__.__name__}")
+            if isinstance(item, ast.Alias) and isinstance(item.expr, ast.Call):
+                print(f"  Alias: {item.alias}")
+                print(f"  Expr: {item.expr.__class__.__name__}")
+                print(f"    Function: {item.expr.name}")
+                print(f"    Args: {[arg.__class__.__name__ for arg in item.expr.args]}")
+        print("================================\n")
+        
+        # Verify the transformation preserves structure
+        self.assertEqual(len(simple_query.select), len(state_query.select))
+        self.assertEqual(simple_query.select[0].alias, state_query.select[0].alias)
+        self.assertEqual(simple_query.select[1].alias, state_query.select[1].alias)
+        
+        # Verify state transformations
+        self.assertEqual(state_query.select[0].expr.name, "uniqState")
+        self.assertEqual(state_query.select[1].expr.name, "countState")
+        
+        # Verify create_merge_wrapper_query structure
+        self.assertEqual(len(wrapper_query.select), len(state_query.select))
+        self.assertEqual(wrapper_query.select[0].expr.name, "uniqMerge")
+        self.assertEqual(wrapper_query.select[1].expr.name, "countMerge")
+        
+        # Assert test passed
+        self.assertTrue(True)
