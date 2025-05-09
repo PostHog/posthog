@@ -291,12 +291,12 @@ function renderDataCells(
             <CalendarHeatMapCell
                 fontSize={fontSize}
                 values={{
-                    value: rowData[index],
+                    value: rowData?.[index] ?? 0,
                     maxValue,
                     minValue,
                 }}
                 bg={bg}
-                tooltip={getDataTooltip(rowLabel, columnLabel, rowData[index])}
+                tooltip={getDataTooltip(rowLabel, columnLabel, rowData?.[index] ?? 0)}
             />
         </td>
     ))
