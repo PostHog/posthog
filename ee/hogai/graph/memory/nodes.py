@@ -112,7 +112,7 @@ def should_run_onboarding_before_insights(team: Team, state: AssistantState) -> 
         # a user has already started the onboarding, we don't allow other users to start it again for 10 minutes
         return "continue"
 
-    if not core_memory or core_memory.initial_text == "":
+    if core_memory is None or core_memory.initial_text == "":
         return "memory_onboarding"
     return "continue"
 
@@ -159,7 +159,7 @@ class MemoryOnboardingNode(MemoryInitializerContextMixin, MemoryOnboardingShould
 
     def router(self, state: AssistantState) -> Literal["initialize_memory", "onboarding_enquiry"]:
         core_memory = self.core_memory
-        if not core_memory or core_memory.initial_text == "":
+        if core_memory is None or core_memory.initial_text == "":
             return "initialize_memory"
         return "onboarding_enquiry"
 
@@ -296,7 +296,7 @@ class MemoryOnboardingEnquiryNode(AssistantNode):
 
     def router(self, state: AssistantState) -> Literal["continue", "interrupt"]:
         core_memory = self.core_memory
-        if not core_memory:
+        if core_memory is None:
             raise ValueError("No core memory found.")
         if state.onboarding_question and core_memory.answers_left > 0:
             return "interrupt"
@@ -327,7 +327,7 @@ class MemoryOnboardingEnquiryInterruptNode(AssistantNode):
 class MemoryOnboardingFinalizeNode(AssistantNode):
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         core_memory = self.core_memory
-        if not core_memory:
+        if core_memory is None:
             raise ValueError("No core memory found.")
         # Compress the question/answer memory before saving it
         prompt = ChatPromptTemplate.from_messages(
@@ -350,7 +350,7 @@ class MemoryOnboardingFinalizeNode(AssistantNode):
 
     def router(self, state: AssistantState) -> Literal["continue", "insights"]:
         core_memory = self.core_memory
-        if not core_memory:
+        if core_memory is None:
             raise ValueError("No core memory found.")
         if state.root_tool_insight_plan:
             return "insights"
@@ -453,7 +453,7 @@ class MemoryCollectorToolsNode(AssistantNode):
         if not isinstance(last_message, LangchainAIMessage):
             raise ValueError("Last message must be an AI message.")
         core_memory = self.core_memory
-        if not core_memory:
+        if core_memory is None:
             raise ValueError("No core memory found.")
 
         tools_parser = PydanticToolsParser(tools=memory_collector_tools)
