@@ -279,6 +279,8 @@ async def test_stripe_charges(team, stripe_charge):
         mock_data_response=stripe_charge["data"],
     )
 
+    # Get team from the DB to remove cached config value
+    team = await sync_to_async(Team.objects.get)(id=team.id)
     assert team.revenue_analytics_config.notified_first_sync
 
 
