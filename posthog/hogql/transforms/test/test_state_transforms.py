@@ -102,14 +102,14 @@ class TestStateTransforms(TestCase):
         # Compare the AST structures directly instead of printing SQL
         # This avoids issues with different parameter placeholders in printed SQL
         query_clone = clone_expr(query)
-        
+
         # Check that no state or merge functions are used
         for select_item in state_query.select:
             if isinstance(select_item, ast.Alias) and isinstance(select_item.expr, ast.Call):
                 function_name = select_item.expr.name
                 self.assertFalse("State" in function_name, f"Found state function: {function_name}")
                 self.assertFalse("Merge" in function_name, f"Found merge function: {function_name}")
-        
+
         self.assertEqual(len(state_query.select), len(query_clone.select))
         self.assertEqual(state_query.where.type, query_clone.where.type)
         self.assertEqual(state_query.select_from.type, query_clone.select_from.type)
@@ -218,18 +218,18 @@ class TestStateTransforms(TestCase):
         # Compare the AST structures directly instead of printing SQL
         # This avoids issues with different parameter placeholders in printed SQL
         query_clone = clone_expr(query)
-        
+
         # Check that no state or merge functions are used
         for select_item in state_query.select:
             if isinstance(select_item, ast.Alias) and isinstance(select_item.expr, ast.Call):
                 function_name = select_item.expr.name
                 self.assertFalse("State" in function_name, f"Found state function: {function_name}")
                 self.assertFalse("Merge" in function_name, f"Found merge function: {function_name}")
-        
+
         self.assertEqual(len(state_query.select), len(query_clone.select))
         self.assertEqual(state_query.where.type, query_clone.where.type)
         self.assertEqual(state_query.select_from.type, query_clone.select_from.type)
-        
+
     def test_aggregation_with_groupby(self):
         # Query with GROUP BY
         original_query_str = """
@@ -254,7 +254,7 @@ class TestStateTransforms(TestCase):
             if isinstance(expr.expr, ast.Call) and expr.expr.name in ["count", "countIf"]:
                 self.assertIn("State", expr.expr.name)
 
-    def test_filtered_aggregation(self):       
+    def test_filtered_aggregation(self):
         # Query with aggregations and filtering
         original_query_str = """
         SELECT 
@@ -263,31 +263,31 @@ class TestStateTransforms(TestCase):
         FROM events
         WHERE event = '$pageview'
         """
-        
+
         original_query_ast = parse_select(original_query_str)
-        
+
         # Let's only check the AST transformation, not execute SQL
         state_query_ast = transform_query_to_state_aggregations(original_query_ast)
         wrapper_query_ast = wrap_state_query_in_merge_query(state_query_ast)
-        
+
         # Check that WHERE clauses are preserved
         self.assertIsNotNone(state_query_ast.where)
         self.assertIsNone(wrapper_query_ast.where)  # Wrapper query has no WHERE
-        
+
         # Check that aggregation functions were transformed
         for select_item in state_query_ast.select:
             if isinstance(select_item, ast.Alias) and isinstance(select_item.expr, ast.Call):
                 function_name = select_item.expr.name
                 # Should use State functions
                 self.assertTrue(function_name in ["uniqState", "countState"])
-                
+
         # Check that merge functions are used in the wrapper
         for select_item in wrapper_query_ast.select:
             if isinstance(select_item, ast.Alias) and isinstance(select_item.expr, ast.Call):
                 function_name = select_item.expr.name
                 # Should use Merge functions
                 self.assertTrue(function_name in ["uniqMerge", "countMerge"])
-                
+
     def test_complex_nested_aggregation(self):
         # Query with nested functions - use sumIf instead of count(if()) for conditional counting
         original_query_str = """
@@ -311,6 +311,7 @@ class TestStateTransforms(TestCase):
         self.assertIsNotNone(wrapper_query_ast.group_by)
         self.assertEqual(len(state_query_ast.group_by), 1)
         self.assertEqual(len(wrapper_query_ast.group_by), 1)
+
 
 class TestStateTransformsIntegration(ClickhouseTestMixin, APIBaseTest):
     """Integration tests for state transformations with ClickHouse execution."""
@@ -375,4 +376,73 @@ class TestStateTransformsIntegration(ClickhouseTestMixin, APIBaseTest):
         # Assert results are the same
         self.assertEqual(original_result, transformed_result)
 
+    def test_group_by_values_preserved(self):
+        """Test that GROUP BY values and results are correctly preserved in state transformations."""
+        self._create_test_events()
 
+        # Query with GROUP BY on $host
+        original_query_str = """
+        SELECT 
+            properties.$host as host,
+            uniq(distinct_id) as unique_users,
+            count() as total_events
+        FROM events
+        GROUP BY host
+        ORDER BY host ASC
+        """
+
+        original_query_ast = parse_select(original_query_str)
+
+        # Execute original query
+        context_original = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
+        original_sql = print_ast(original_query_ast, context=context_original, dialect="clickhouse")
+        original_result = sync_execute(original_sql, context_original.values)
+
+        # Full transformation (agg -> state -> merge)
+        state_query_ast = transform_query_to_state_aggregations(original_query_ast)
+        wrapper_query_ast = wrap_state_query_in_merge_query(state_query_ast)
+
+        # Execute transformed query
+        context_transformed = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
+        transformed_sql = print_ast(wrapper_query_ast, context=context_transformed, dialect="clickhouse")
+        transformed_result = sync_execute(transformed_sql, context_transformed.values)
+
+        # Assert results are the same (both values and ordering)
+        self.assertEqual(original_result, transformed_result)
+
+    def test_web_overview_query_transformation(self):
+        """Test that a web overview query with multiple metrics is correctly transformed."""
+        self._create_test_events()
+
+        # Import the WebOverviewQueryRunner
+        from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
+        from posthog.schema import WebOverviewQuery, DateRange, EventPropertyFilter
+
+        # Create a WebOverviewQuery
+        web_overview_query = WebOverviewQuery(
+            dateRange=DateRange(date_from="-7d", date_to="today"),
+            properties=[],
+            kind="WebOverviewQuery",
+        )
+
+        # Create a WebOverviewQueryRunner instance
+        web_overview_runner = WebOverviewQueryRunner(team=self.team, query=web_overview_query)
+
+        # Get the query AST
+        original_query_ast = web_overview_runner.to_query()
+
+        # Transform the query to state aggregations
+        state_query_ast = transform_query_to_state_aggregations(original_query_ast)
+        wrapper_query_ast = wrap_state_query_in_merge_query(state_query_ast)
+
+        # Execute original query
+        context_original = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
+        original_sql = print_ast(original_query_ast, context=context_original, dialect="clickhouse")
+        original_result = sync_execute(original_sql, context_original.values)
+
+        # Execute transformed query
+        context_transformed = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
+        transformed_sql = print_ast(wrapper_query_ast, context=context_transformed, dialect="clickhouse")
+        transformed_result = sync_execute(transformed_sql, context_transformed.values)
+
+        self.assertEqual(original_result, transformed_result)
