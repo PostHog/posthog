@@ -18,7 +18,7 @@ use crate::{
         decompress_lz64,
         is_likely_base64,
         Base64Option,
-        //MAX_PAYLOAD_SNIPPET_SIZE,
+        MAX_PAYLOAD_SNIPPET_SIZE,
     },
 };
 
@@ -264,8 +264,7 @@ impl RawRequest {
         if is_mirror_deploy {
             let truncate_at: usize = payload
                 .char_indices()
-                //.nth(MAX_PAYLOAD_SNIPPET_SIZE)
-                .nth(1024) // TODO(eli): temporary for odd /engage payload inspection
+                .nth(MAX_PAYLOAD_SNIPPET_SIZE)
                 .map(|(n, _)| n)
                 .unwrap_or(0);
             let payload_snippet = &payload[0..truncate_at];
