@@ -350,6 +350,7 @@ export type HogFunctionType = {
     execution_order?: number
     created_at: string
     updated_at: string
+    template?: HogFunctionTemplateType | null
 }
 
 export type HogFunctionInputType = {

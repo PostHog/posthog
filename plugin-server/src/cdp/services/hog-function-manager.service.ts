@@ -200,7 +200,7 @@ export class HogFunctionManagerService {
 
         this.sanitize(items)
         await this.enrichWithIntegrations(items)
-        await this.patchHogFunctionsWithTemplates(items)
+        await this.attachTemplatesToHogFunctions(items)
         return items[0] ?? null
     }
 
@@ -259,7 +259,7 @@ export class HogFunctionManagerService {
 
         this.sanitize(hogFunctions)
         await this.enrichWithIntegrations(hogFunctions)
-        await this.patchHogFunctionsWithTemplates(hogFunctions)
+        await this.attachTemplatesToHogFunctions(hogFunctions)
 
         return hogFunctions.reduce<Record<string, HogFunctionType | undefined>>((acc, hogFunction) => {
             acc[hogFunction.id] = hogFunction
@@ -399,41 +399,55 @@ export class HogFunctionManagerService {
         }, {} as Record<string, HogFunctionTemplateType | undefined>)
     }
 
-    private async patchHogFunctionsWithTemplates(hogFunctions: HogFunctionType[]): Promise<void> {
-        const templateIdsSet = new Set<string>()
-        for (const fn of hogFunctions) {
-            const templateId = fn.hog_function_template_id
-            if (this.needsTemplatePatch(fn) && templateId) {
-                templateIdsSet.add(templateId)
-            }
-        }
-        const templateIds = Array.from(templateIdsSet)
-
-        if (!templateIds.length) {
-            return
-        }
-        const templates = await this.templateLazyLoader.getMany(templateIds)
-
-        for (const fn of hogFunctions) {
-            const templateId = fn.hog_function_template_id
-            if (this.needsTemplatePatch(fn) && templateId) {
-                const template = templates[templateId]
-                if (!template) {
-                    throw new Error(
-                        `[HogFunctionManager] Missing template for template_id=${templateId} (function id=${fn.id})`
-                    )
-                }
-                fn.hog = template.code
-                fn.bytecode = template.bytecode
-                fn.inputs_schema = template.inputs_schema
-                fn.mappings = template.mappings
-            }
-        }
+    private isTemplateBasedHogFunction(fn: HogFunctionType): boolean {
+        // A function is considered "template based" if it has a template ID
+        // and its core execution/config fields (hog, bytecode, inputs_schema, mappings) are null,
+        // indicating these should be supplied by the template.
+        return (
+            fn.hog_function_template_id != null &&
+            fn.hog == null &&
+            fn.bytecode == null &&
+            fn.inputs_schema == null &&
+            fn.mappings == null
+        )
     }
 
-    private needsTemplatePatch(fn: HogFunctionType): boolean {
-        // Check if the function has a template_id or hog_function_template_id
-        const hasTemplateId = !!fn.hog_function_template_id
-        return hasTemplateId && fn.hog == null && fn.bytecode == null && fn.inputs_schema == null && fn.mappings == null
+    private async attachTemplatesToHogFunctions(hogFunctions: HogFunctionType[]): Promise<void> {
+        const templateBasedHogFunctions = hogFunctions.filter((fn) => this.isTemplateBasedHogFunction(fn))
+
+        if (templateBasedHogFunctions.length === 0) {
+            return
+        }
+
+        const templateIdsToFetch = new Set<string>()
+        for (const fn of templateBasedHogFunctions) {
+            templateIdsToFetch.add(fn.hog_function_template_id!)
+        }
+
+        if (templateIdsToFetch.size === 0) {
+            // This case should ideally not be hit if templateBasedHogFunctions.length > 0
+            // and isTemplateBasedHogFunction correctly implies hog_function_template_id is present.
+            // However, we've seen things happen in the wild and this is a safe guard.
+            logger.warn('[HogFunctionManager]', 'No template IDs to fetch despite having template-based functions.')
+            throw new Error('No template IDs found for template-based functions')
+        }
+
+        const templateIds = Array.from(templateIdsToFetch)
+        const templates = await this.templateLazyLoader.getMany(templateIds)
+
+        for (const fn of templateBasedHogFunctions) {
+            const templateId = fn.hog_function_template_id!
+            const template = templates[templateId]
+
+            if (template) {
+                fn.template = template
+            } else {
+                logger.warn(
+                    '[HogFunctionManager]',
+                    `Template not found for hog function during attachment. Hog Function ID: ${fn.id}, Template ID: ${templateId}`
+                )
+                throw new Error(`Template ${templateId} not found for hog function ${fn.id}`)
+            }
+        }
     }
 }

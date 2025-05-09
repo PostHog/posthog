@@ -697,7 +697,7 @@ describe('sanitize', () => {
     })
 })
 
-describe('template patching', () => {
+describe('HogFunctionManager - Template Based Hog Functions', () => {
     let hub: Hub
     let manager: HogFunctionManagerService
     let teamId: number
@@ -716,7 +716,7 @@ describe('template patching', () => {
         await closeHub(hub)
     })
 
-    it('fills missing fields from template in DB', async () => {
+    it('should correctly populate template-based hog function fields', async () => {
         // Get template from DB
         const template = (
             await hub.postgres.query(
@@ -743,12 +743,13 @@ describe('template patching', () => {
         const fn = (await manager['fetchHogFunctions']([id]))[id]
 
         // Verify all template fields were correctly populated
-        expect(fn?.hog).toEqual(geoipTemplate.hog)
-        expect(fn?.bytecode).toBeDefined()
-        expect(fn?.mappings).toBeNull()
+        expect(fn?.template).toBeDefined()
+        expect(fn?.template?.template_id).toEqual(geoipTemplate.id)
+        expect(fn?.template?.code).toEqual(geoipTemplate.hog)
+        expect(fn?.template?.bytecode).toBeDefined()
     })
 
-    it('uses config of hog function instead of template for custom hog function', async () => {
+    it('should correctly use custom hog function fields instead of template fields', async () => {
         // Create a custom function using the template ID but with custom code
         const customCode = 'return event'
         const customBytecode = ['_H', 1, 32, 'event', 1, 1, 38]
@@ -781,9 +782,8 @@ describe('template patching', () => {
         const fn = (await manager['fetchHogFunctions']([id]))[id]
 
         // Should use the function's code/inputs, not the template's
+        expect(fn?.template).toBeUndefined()
         expect(fn?.hog).toEqual(customCode)
         expect(fn?.bytecode).toEqual(customBytecode)
-        // Verify function code is just "return event" (custom, not from template)
-        expect(fn?.hog).toBe('return event')
     })
 })
