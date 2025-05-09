@@ -23,8 +23,8 @@ import { Link } from '../Link/Link'
 import { Spinner } from '../Spinner/Spinner'
 import {
     InlineEditField,
+    TreeNodeDisplayCheckbox,
     TreeNodeDisplayIcon,
-    TreeNodeDisplayIconWrapper,
     TreeNodeDraggable,
     TreeNodeDroppable,
 } from './LemonTreeUtils'
@@ -133,6 +133,7 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     /** The render function for the item. */
     renderItem?: (item: TreeDataItem, children: React.ReactNode) => React.ReactNode
     renderItemTooltip?: (item: TreeDataItem) => React.ReactNode | undefined
+    renderItemIcon?: (item: TreeDataItem) => React.ReactNode | undefined
     /** Set the IDs of the expanded items. */
     onSetExpandedItemIds?: (ids: string[]) => void
     /** Pass true if you need to wait for async events to populate the tree.
@@ -157,8 +158,6 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     tableModeHeader?: () => React.ReactNode
     /** The row to render for the table mode */
     tableModeRow?: (item: TreeDataItem, firstColumnOffset: number) => React.ReactNode
-    /** The size of the tree element */
-    treeElementSize?: 'base' | 'lg'
 }
 
 export type LemonTreeProps = LemonTreeBaseProps & {
@@ -207,6 +206,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
             handleClick,
             renderItem,
             renderItemTooltip,
+            renderItemIcon,
             expandedItemIds,
             onSetExpandedItemIds,
             defaultNodeIcon,
@@ -266,12 +266,10 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                     const isFolder = item.record?.type === 'folder'
                     const isEmptyFolder = item.type === 'empty-folder'
                     const folderLinesOffset = DEPTH_OFFSET
-                    const emptySpaceOffset = DEPTH_OFFSET + 16
-                    const iconWrapperOffset = DEPTH_OFFSET + 5
-                    const iconWrapperOffsetMultiSelection = DEPTH_OFFSET + 28
+                    const emptySpaceOffset = DEPTH_OFFSET
 
                     const firstColumnOffset =
-                        selectMode === 'multi' && !item.disableSelect ? emptySpaceOffset + 26 : emptySpaceOffset
+                        selectMode === 'multi' && !item.disableSelect ? emptySpaceOffset + 24 : emptySpaceOffset
 
                     // If table mode, renders: "tree item: Name: My App Dashboard, Created at: Mar 28, 2025, Created by: Adam etc"
                     // If empty folder, renders: "empty folder"
@@ -329,7 +327,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                 hasSideActionRight: true,
                                 disabled: isEmptyFolder,
                                 className: cn(
-                                    'group/lemon-tree-button',
+                                    'group/lemon-tree-button gap-[5px]',
                                     'relative z-1 focus-visible:bg-fill-button-tertiary-hover motion-safe:transition-[padding] duration-50 h-[var(--lemon-tree-button-height)]',
                                     {
                                         'bg-fill-button-tertiary-hover':
@@ -362,15 +360,25 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                         >
                             {/* Spacer to offset button padding */}
                             <span
-                                className="h-full bg-transparent pointer-events-none flex-shrink-0 transition-[width] duration-50"
+                                className="h-[var(--lemon-tree-button-height)] bg-transparent pointer-events-none flex-shrink-0 transition-[width] duration-50 -ml-1.5"
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={{
                                     width: `${firstColumnOffset}px`,
                                 }}
                             />
 
+                            {renderItemIcon ? (
+                                renderItemIcon?.(item)
+                            ) : (
+                                <TreeNodeDisplayIcon
+                                    item={item}
+                                    expandedItemIds={expandedItemIds ?? []}
+                                    defaultNodeIcon={defaultNodeIcon}
+                                />
+                            )}
+
                             {mode === 'table' ? (
-                                tableModeRow?.(item, firstColumnOffset + 20)
+                                tableModeRow?.(item, firstColumnOffset)
                             ) : (
                                 <span className="relative truncate text-left w-full">
                                     {renderItem ? (
@@ -450,17 +458,19 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                 fullWidth
                                                 className="group/lemon-tree-button-group relative h-[var(--lemon-tree-button-height)]"
                                             >
-                                                {/* The contents of this <TreeNodeDisplayIconWrapper> are positioned absolutely, so to give the effect it's inside the button */}
-                                                <TreeNodeDisplayIconWrapper
+                                                <TreeNodeDisplayCheckbox
                                                     item={item}
-                                                    expandedItemIds={expandedItemIds}
-                                                    defaultNodeIcon={defaultNodeIcon}
-                                                    handleClick={handleClick}
-                                                    selectMode={selectMode}
-                                                    defaultOffset={iconWrapperOffset}
-                                                    multiSelectionOffset={iconWrapperOffsetMultiSelection}
-                                                    onItemChecked={onItemChecked}
-                                                    isEmptyFolder={isEmptyFolder}
+                                                    handleCheckedChange={(checked, shift) => {
+                                                        onItemChecked?.(item.id, checked, shift)
+                                                    }}
+                                                    className={cn('absolute z-2', {
+                                                        // Hide checkboxwhen select mode is default/folder only
+                                                        hidden:
+                                                            selectMode === 'default' || selectMode === 'folder-only',
+                                                    })}
+                                                    style={{
+                                                        left: `${firstColumnOffset - 20}px`,
+                                                    }}
                                                 />
 
                                                 {isItemEditing?.(item) ? (
@@ -472,13 +482,28 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                         }}
                                                         className="z-1"
                                                         style={{
-                                                            paddingLeft: 'var(--button-padding-x-base)',
                                                             width:
                                                                 selectMode === 'multi' && !item.disableSelect
                                                                     ? `${emptySpaceOffset + 26}px`
                                                                     : `${emptySpaceOffset}px`,
                                                         }}
-                                                    />
+                                                        inputStyle={{
+                                                            maxWidth:
+                                                                mode === 'table'
+                                                                    ? `${tableViewKeys?.headers[0].width}px`
+                                                                    : undefined,
+                                                        }}
+                                                    >
+                                                        {renderItemIcon ? (
+                                                            renderItemIcon?.(item)
+                                                        ) : (
+                                                            <TreeNodeDisplayIcon
+                                                                item={item}
+                                                                expandedItemIds={expandedItemIds ?? []}
+                                                                defaultNodeIcon={defaultNodeIcon}
+                                                            />
+                                                        )}
+                                                    </InlineEditField>
                                                 ) : (
                                                     button
                                                 )}
@@ -531,6 +556,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                             showFolderActiveState={showFolderActiveState}
                                             renderItem={renderItem}
                                             renderItemTooltip={renderItemTooltip}
+                                            renderItemIcon={renderItemIcon}
                                             itemSideAction={itemSideAction}
                                             depth={depth + 1}
                                             isItemActive={isItemActive}
@@ -607,7 +633,6 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             tableModeTotalWidth,
             tableModeHeader,
             tableModeRow,
-            treeElementSize = 'base',
             ...props
         },
         ref: ForwardedRef<LemonTreeRef>
@@ -1240,17 +1265,14 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                             // for scrollable shadows
                             '--scrollable-shadows-offset-top': mode === 'table' ? '30px' : '0px',
                             // for tree element
-                            '--lemon-tree-button-height':
-                                treeElementSize === 'lg'
-                                    ? 'var(--button-height-base-tall)'
-                                    : 'var(--button-height-base)',
-                            '--lemon-tree-button-icon-offset-top': treeElementSize === 'lg' ? '-4px' : '5px',
+                            '--lemon-tree-button-height': 'var(--button-height-base)',
+                            '--lemon-tree-button-icon-offset-top': '5px',
                         } as CSSProperties
                     }
                 >
                     {mode === 'table' && (
                         <div
-                            className="h-[30px] sticky top-0 z-20 border-b border-primary bg-surface-secondary"
+                            className="sticky top-0 z-20 border-b border-primary bg-surface-secondary starting:h-0 h-[30px] motion-safe:transition-all [transition-behavior:allow-discrete] duration-500"
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{
                                 width: mode === 'table' ? `${tableModeTotalWidth}px` : undefined,
