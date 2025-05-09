@@ -9,7 +9,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
-from posthog.hogql_queries.web_analytics.web_overview_state_transform import (
+from posthog.hogql.transforms.state_transforms import (
     transform_query_to_state,
     state_functions_to_merge_functions,
     create_merge_wrapper_query,
@@ -960,7 +960,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         from posthog.hogql.parser import parse_select
         from posthog.hogql.printer import print_ast
         from posthog.hogql.context import HogQLContext
-        from posthog.hogql_queries.web_analytics.web_overview_state_transform import (
+        from posthog.hogql.transforms.state_transforms import (
             transform_query_to_state,
             state_functions_to_merge_functions,
             create_merge_wrapper_query,

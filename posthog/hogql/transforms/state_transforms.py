@@ -133,29 +133,6 @@ def transform_query_to_state(query: ast.SelectQuery) -> ast.SelectQuery:
     return transformed_query
 
 
-def state_functions_to_merge_functions(query: ast.SelectQuery) -> ast.SelectQuery:
-    """
-    Transform state functions to their merge equivalent
-    I.e. avgState(...) -> avgMerge(...), uniqState(...) -> uniqMerge(...)
-    """
-    cloned = clone_expr(query)
-    
-    for i, item in enumerate(cloned.select):
-        if isinstance(item, ast.Alias) and isinstance(item.expr, ast.Call):
-            call = item.expr
-            func_name = call.name
-            
-            if func_name in STATE_TO_MERGE_MAPPING:
-                # Special case for countMerge - it doesn't need arguments
-                if func_name == "countState":
-                    item.expr = ast.Call(name="countMerge")
-                else:
-                    merge_func_name = STATE_TO_MERGE_MAPPING[func_name]
-                    item.expr = ast.Call(name=merge_func_name, args=call.args)
-    
-    return cloned 
-
-
 def create_merge_wrapper_query(state_query: ast.SelectQuery) -> ast.SelectQuery:
     """
     Wrap a state query in an outer merge query.
