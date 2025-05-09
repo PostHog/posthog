@@ -38,59 +38,70 @@ export enum ConversionRateInputType {
     AUTOMATIC = 'automatic',
 }
 
-const getKindField = (metric: ExperimentMetric): NodeKind => {
-    if (isExperimentFunnelMetric(metric)) {
-        return NodeKind.EventsNode
-    }
-
+// Creates the correct identifier properties for a series item based on metric type
+const getSeriesItemProps = (metric: ExperimentMetric): { kind: NodeKind } & Record<string, any> => {
     if (isExperimentMeanMetric(metric)) {
-        const { kind } = metric.source
-        // For most sources, we can return the kind directly
-        if ([NodeKind.EventsNode, NodeKind.ActionsNode, NodeKind.ExperimentDataWarehouseNode].includes(kind)) {
-            return kind
+        const { source } = metric
+
+        if (source.kind === NodeKind.EventsNode) {
+            return {
+                kind: NodeKind.EventsNode,
+                event: source.event,
+            }
+        }
+
+        if (source.kind === NodeKind.ActionsNode) {
+            return {
+                kind: NodeKind.ActionsNode,
+                id: source.id,
+            }
+        }
+
+        if (source.kind === NodeKind.ExperimentDataWarehouseNode) {
+            return {
+                kind: NodeKind.ExperimentDataWarehouseNode,
+                table_name: source.table_name,
+            }
         }
     }
 
-    return NodeKind.EventsNode
-}
-
-const getEventField = (metric: ExperimentMetric): string | number | null | undefined => {
-    if (isExperimentMeanMetric(metric)) {
-        const { source } = metric
-        return source.kind === NodeKind.ExperimentDataWarehouseNode
-            ? source.table_name
-            : source.kind === NodeKind.EventsNode
-            ? source.event
-            : source.kind === NodeKind.ActionsNode
-            ? source.id
-            : null
-    }
-
     if (isExperimentFunnelMetric(metric)) {
-        /**
-         * For multivariate funnels, we select the last step
-         * Although we know that the last step is always an EventsNode, TS infers that the last step might be undefined
-         * so we use the non-null assertion operator (!) to tell TS that we know the last step is always an EventsNode
-         */
         const step = metric.series.at(-1)!
-        return step.kind === NodeKind.EventsNode ? step.event : step.kind === NodeKind.ActionsNode ? step.id : null
+
+        if (step.kind === NodeKind.EventsNode) {
+            return {
+                kind: NodeKind.EventsNode,
+                event: step.event,
+            }
+        }
+
+        if (step.kind === NodeKind.ActionsNode) {
+            return {
+                kind: NodeKind.ActionsNode,
+                id: step.id,
+            }
+        }
     }
 
-    return null
+    // Default fallback
+    return {
+        kind: NodeKind.EventsNode,
+        event: null,
+    }
 }
 
 const getTotalCountQuery = (metric: ExperimentMetric, experiment: Experiment): TrendsQuery => {
+    const baseProps = getSeriesItemProps(metric)
+
     return {
         kind: NodeKind.TrendsQuery,
         series: [
             {
-                kind: getKindField(metric),
-                event: getEventField(metric),
+                ...baseProps,
                 math: BaseMathType.UniqueUsers,
             },
             {
-                kind: getKindField(metric),
-                event: getEventField(metric),
+                ...baseProps,
                 math: CountPerActorMathType.Average,
             },
         ],
@@ -105,22 +116,26 @@ const getTotalCountQuery = (metric: ExperimentMetric, experiment: Experiment): T
 }
 
 const getSumQuery = (metric: ExperimentMetric, experiment: Experiment): TrendsQuery => {
+    const baseProps = getSeriesItemProps(metric)
+    const mathProperty =
+        metric.metric_type === ExperimentMetricType.MEAN
+            ? {
+                  math_property: metric.source.math_property,
+                  math_property_type: TaxonomicFilterGroupType.NumericalEventProperties,
+              }
+            : {}
+
     return {
         kind: NodeKind.TrendsQuery,
         series: [
             {
-                kind: getKindField(metric),
-                event: getEventField(metric),
+                ...baseProps,
                 math: BaseMathType.UniqueUsers,
             },
             {
-                kind: getKindField(metric),
-                event: getEventField(metric),
+                ...baseProps,
                 math: PropertyMathType.Sum,
-                math_property_type: TaxonomicFilterGroupType.NumericalEventProperties,
-                ...(metric.metric_type === ExperimentMetricType.MEAN && {
-                    math_property: metric.source.math_property,
-                }),
+                ...mathProperty,
             },
         ],
         trendsFilter: {},
@@ -138,6 +153,8 @@ const getFunnelQuery = (
     eventConfig: EventConfig | null,
     experiment: Experiment
 ): FunnelsQuery => {
+    const baseProps = getSeriesItemProps(metric)
+
     return {
         kind: NodeKind.FunnelsQuery,
         series: [
@@ -146,10 +163,7 @@ const getFunnelQuery = (
                 event: eventConfig?.event ?? '$pageview',
                 properties: eventConfig?.properties ?? [],
             },
-            {
-                kind: getKindField(metric),
-                event: getEventField(metric),
-            },
+            baseProps,
         ],
         funnelsFilter: {
             funnelVizType: FunnelVizType.Steps,
