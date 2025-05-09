@@ -59,9 +59,6 @@ from posthog.schema import (
 )
 
 
-MAX_ONBOARDING_QUESTIONS = 3
-
-
 class MemoryInitializerContextMixin:
     _team: Team
 
@@ -278,22 +275,20 @@ class MemoryOnboardingEnquiryNode(AssistantNode):
             core_memory.initial_text = ""
             core_memory.save()
 
-        # count how many times "Question: " appears in the core memory
-        questions_asked = core_memory.initial_text.count("Question: ")
-        questions_left = MAX_ONBOARDING_QUESTIONS - questions_asked
-        if questions_left > 0:
+        answers_left = core_memory.answers_left
+        if answers_left > 0:
             prompt = ChatPromptTemplate.from_messages(
                 [("system", MEMORY_ONBOARDING_ENQUIRY_PROMPT)], template_format="mustache"
-            ).partial(core_memory=core_memory.initial_text, questions_left=questions_left)
+            ).partial(core_memory=core_memory.initial_text, questions_left=answers_left)
 
             chain = prompt | self._model | StrOutputParser()
             response = chain.invoke({}, config=config)
 
-            if "[Done]" not in response:
+            if "[Done]" not in response and "===" in response:
                 question = self._format_question(response)
                 core_memory.append_question_to_initial_text(question)
                 return PartialAssistantState(onboarding_question=question)
-        return PartialAssistantState(messages=[], onboarding_question=None)
+        return PartialAssistantState(onboarding_question="")
 
     @property
     def _model(self):
@@ -303,7 +298,7 @@ class MemoryOnboardingEnquiryNode(AssistantNode):
         core_memory = self.core_memory
         if not core_memory:
             raise ValueError("No core memory found.")
-        if state.onboarding_question:
+        if state.onboarding_question and core_memory.answers_left > 0:
             return "interrupt"
         return "continue"
 
@@ -326,7 +321,7 @@ class MemoryOnboardingEnquiryInterruptNode(AssistantNode):
             raise ValueError("No onboarding question found.")
         if last_assistant_message and last_assistant_message.content != state.onboarding_question:
             raise NodeInterrupt(AssistantMessage(content=state.onboarding_question, id=str(uuid4())))
-        return PartialAssistantState(messages=[])
+        return PartialAssistantState(messages=[], onboarding_question="")
 
 
 class MemoryOnboardingFinalizeNode(AssistantNode):

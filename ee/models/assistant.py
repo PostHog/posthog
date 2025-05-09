@@ -116,6 +116,9 @@ class ConversationCheckpointWrite(UUIDModel):
         ]
 
 
+MAX_ONBOARDING_QUESTIONS = 3
+
+
 class CoreMemory(UUIDModel):
     class ScrapingStatus(models.TextChoices):
         PENDING = "pending", "Pending"
@@ -177,3 +180,11 @@ class CoreMemory(UUIDModel):
     @property
     def formatted_text(self) -> str:
         return self.text[0:5000]
+
+    @property
+    def answers_left(self) -> int:
+        answers_asked = self.initial_text.count("\nAnswer:")
+        answers_left = MAX_ONBOARDING_QUESTIONS - answers_asked
+        if self.initial_text.endswith("\nAnswer:"):
+            answers_left += 1
+        return answers_left

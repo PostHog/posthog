@@ -482,7 +482,7 @@ class TestMemoryOnboardingEnquiryNode(ClickhouseTestMixin, BaseTest):
                 messages=[HumanMessage(content="We target enterprise customers")],
             )
             new_state = self.node.run(state, {})
-            self.assertEqual(new_state, PartialAssistantState(messages=[], onboarding_question=None))
+            self.assertEqual(new_state, PartialAssistantState(onboarding_question=""))
 
     def test_memory_accepted(self):
         with patch.object(MemoryOnboardingEnquiryNode, "_model") as model_mock:
@@ -570,7 +570,7 @@ class TestMemoryEnquiryInterruptNode(ClickhouseTestMixin, BaseTest):
             ),
             {},
         )
-        self.assertEqual(new_state, PartialAssistantState(messages=[]))
+        self.assertEqual(new_state, PartialAssistantState(messages=[], onboarding_question=""))
 
 
 @override_settings(IN_UNIT_TESTING=True)

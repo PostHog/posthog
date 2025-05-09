@@ -843,7 +843,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
         # Mock the memory initializer to return a product description
         model_mock.return_value = RunnableLambda(lambda _: "PostHog is a product analytics platform.")
-        onboarding_enquiry_model_mock.return_value = RunnableLambda(lambda _: "What is your target market?")
+        onboarding_enquiry_model_mock.return_value = RunnableLambda(lambda _: "===What is your target market?")
 
         # Create a graph with memory initialization flow
         graph = AssistantGraph(self.team).add_memory_onboarding(AssistantNodeName.END, AssistantNodeName.END).compile()
