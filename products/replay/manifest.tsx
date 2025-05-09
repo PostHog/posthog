@@ -36,25 +36,10 @@ export const manifest: ProductManifest = {
             href: () => urls.replayPlaylist('new'),
         },
     ],
-    treeItemsExplore: [
+    treeItemsProducts: [
         {
-            path: 'Recordings/Recordings',
+            path: 'Session replay',
             href: () => urls.replay(ReplayTabs.Home),
-            icon: <IconRewindPlay />,
-        },
-        {
-            path: 'Recordings/What to watch',
-            href: () => urls.replay(ReplayTabs.Templates),
-            icon: <IconRewindPlay />,
-        },
-        {
-            path: 'Recordings/Playlists',
-            href: () => urls.replay(ReplayTabs.Playlists),
-            icon: <IconRewindPlay />,
-        },
-        {
-            path: 'Recordings/Settings',
-            href: () => urls.replay(ReplayTabs.Settings),
             icon: <IconRewindPlay />,
         },
     ],
