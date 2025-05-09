@@ -692,58 +692,51 @@ class TestPeriodicDigestReport(APIBaseTest):
         assert playlists[0]["name"] == "Custom Playlist"
         assert playlists[0]["id"] == custom_playlist.short_id
 
-    @freeze_time("2024-01-20T00:01:00Z")
     def test_interesting_playlists_sorted_by_views(self) -> None:
-        playlist1 = SessionRecordingPlaylist.objects.create(team=self.team, name="Playlist 1")
-        playlist2 = SessionRecordingPlaylist.objects.create(team=self.team, name="Playlist 2")
-        playlist3 = SessionRecordingPlaylist.objects.create(team=self.team, name="Playlist 3")
+        with freeze_time("2024-01-20T00:01:00Z") as frozen_time:
+            playlist1 = SessionRecordingPlaylist.objects.create(team=self.team, name="Playlist 1")
+            playlist2 = SessionRecordingPlaylist.objects.create(team=self.team, name="Playlist 2")
+            playlist3 = SessionRecordingPlaylist.objects.create(team=self.team, name="Playlist 3")
 
-        # Simulate views: playlist2 > playlist1 > playlist3
-        for i in range(5):
-            vad = datetime(2024, 1, 1 + i, 12 + i, i, i)
-            SessionRecordingPlaylistViewed.objects.create(
-                user=self.user, viewed_at=vad, team=self.team, playlist=playlist2
-            )
+            # Simulate views: playlist2 > playlist1 > playlist3
+            for i in range(5):
+                frozen_time.tick(delta=i)
+                SessionRecordingPlaylistViewed.objects.create(user=self.user, team=self.team, playlist=playlist2)
 
-        for i in range(3):
-            vad = datetime(2024, 1, 1 + i, 12 + i, i, i)
-            SessionRecordingPlaylistViewed.objects.create(
-                user=self.user, viewed_at=vad, team=self.team, playlist=playlist1
-            )
+            for i in range(3):
+                frozen_time.tick(delta=i)
+                SessionRecordingPlaylistViewed.objects.create(user=self.user, team=self.team, playlist=playlist1)
 
-        SessionRecordingPlaylistViewed.objects.create(
-            user=self.user, viewed_at=datetime(2024, 1, 1, 12, 0, 0), team=self.team, playlist=playlist3
-        )
+            frozen_time.tick(delta=1)
+            SessionRecordingPlaylistViewed.objects.create(user=self.user, team=self.team, playlist=playlist3)
 
-        results = get_teams_with_interesting_playlists(datetime(2024, 1, 20))
-        names = [p.name for p in results if p.name in {"Playlist 1", "Playlist 2", "Playlist 3"}]
+            results = get_teams_with_interesting_playlists(datetime(2024, 1, 20))
+            names = [p.name for p in results if p.name in {"Playlist 1", "Playlist 2", "Playlist 3"}]
 
-        assert names == ["Playlist 2", "Playlist 1", "Playlist 3"]
-        assert results[0].view_count == 5
-        assert results[1].view_count == 3
-        assert results[2].view_count == 1
+            assert names == ["Playlist 2", "Playlist 1", "Playlist 3"]
+            assert results[0].view_count == 5
+            assert results[1].view_count == 3
+            assert results[2].view_count == 1
 
-    @freeze_time("2024-01-20T00:01:00Z")
     def test_interesting_playlists_sorted_by_user_count(self) -> None:
-        playlist1 = SessionRecordingPlaylist.objects.create(team=self.team, name="Playlist 1")
-        playlist2 = SessionRecordingPlaylist.objects.create(team=self.team, name="Playlist 2")
+        with freeze_time("2024-01-20T00:01:00Z") as frozen_time:
+            playlist1 = SessionRecordingPlaylist.objects.create(team=self.team, name="Playlist 1")
+            playlist2 = SessionRecordingPlaylist.objects.create(team=self.team, name="Playlist 2")
 
-        # playlist1: 5 views from 1 user
-        for i in range(5):
-            vad = datetime(2024, 1, 1 + i, 12 + i, i, i)
-            SessionRecordingPlaylistViewed.objects.create(
-                user=self.user, viewed_at=vad, team=self.team, playlist=playlist1
-            )
+            # playlist1: 5 views from 1 user
+            for i in range(5):
+                frozen_time.tick(delta=i)
+                SessionRecordingPlaylistViewed.objects.create(user=self.user, team=self.team, playlist=playlist1)
 
-        # playlist2: 5 views from 5 different users
-        for i in range(5):
-            user = self._create_user(f"user{i}{i}@posthog.com")
-            vad = datetime(2024, 1, 1 + i, 12 + i, i, i)
-            SessionRecordingPlaylistViewed.objects.create(user=user, viewed_at=vad, team=self.team, playlist=playlist2)
+            # playlist2: 5 views from 5 different users
+            for i in range(5):
+                frozen_time.tick(delta=i)
+                user = self._create_user(f"user{i}{i}@posthog.com")
+                SessionRecordingPlaylistViewed.objects.create(user=user, team=self.team, playlist=playlist2)
 
-        results = get_teams_with_interesting_playlists(datetime(2024, 1, 20))
-        names = [p.name for p in results if p.name in {"Playlist 1", "Playlist 2"}]
+            results = get_teams_with_interesting_playlists(datetime(2024, 1, 20))
+            names = [p.name for p in results if p.name in {"Playlist 1", "Playlist 2"}]
 
-        assert names[0] == "Playlist 2"  # More unique users, so comes first
-        assert results[0].user_count == 5
-        assert results[1].user_count == 1
+            assert names[0] == "Playlist 2"  # More unique users, so comes first
+            assert results[0].user_count == 5
+            assert results[1].user_count == 1
