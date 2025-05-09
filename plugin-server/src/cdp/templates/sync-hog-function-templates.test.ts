@@ -59,7 +59,7 @@ describe('TemplateSyncService', () => {
         }
     }
 
-    test('should create a new template when it does not exist', async () => {
+    it('should create a new template when it does not exist', async () => {
         // Process the template
         const result = await service.processTemplate(geoipTemplate)
 
@@ -94,7 +94,7 @@ describe('TemplateSyncService', () => {
         expect(savedTemplate.bytecode).not.toBeNull()
     })
 
-    test('should skip template when it already exists with the same SHA', async () => {
+    it('should skip template when it already exists with the same SHA', async () => {
         // Insert it first
         await service.processTemplate(geoipTemplate)
 
@@ -105,7 +105,7 @@ describe('TemplateSyncService', () => {
         expect(result).toBe('skipped')
     })
 
-    test('should update template when it exists with a different SHA', async () => {
+    it('should update template when it exists with a different SHA', async () => {
         // Insert the template
         await service.processTemplate(geoipTemplate)
 
@@ -150,7 +150,7 @@ describe('TemplateSyncService', () => {
         await service.processTemplate(geoipTemplate)
     })
 
-    test('SHA hashes should be consistent for identical templates and different for modified templates', async () => {
+    it('SHA hashes should be consistent for identical templates and different for modified templates', async () => {
         // Insert the original template
         await service.processTemplate(geoipTemplate)
         const originalResult = await postgres.query(
