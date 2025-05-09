@@ -35,7 +35,6 @@ function getPersistedFeatureFlags(appContext: AppContext | undefined = getAppCon
 function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
     const appContext = getAppContext()
     const persistedFlags = getPersistedFeatureFlags(appContext)
-    persistedFlags['experiments-new-query-runner'] = true
     const availableFlags =
         appContext?.preflight?.cloud || appContext?.preflight?.is_debug || process.env.NODE_ENV === 'test'
             ? { ...persistedFlags, ...featureFlags }
