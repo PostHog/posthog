@@ -38,8 +38,9 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
             "export_context",
             "filename",
             "expires_after",
+            "exception",
         ]
-        read_only_fields = ["id", "created_at", "has_content", "filename"]
+        read_only_fields = ["id", "created_at", "has_content", "filename", "exception"]
 
     def validate(self, data: dict) -> dict:
         if not data.get("export_format"):
@@ -102,7 +103,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
             only_evaluate_locally=False,
             send_feature_flag_events=False,
         )
-        if blocking_exports:
+        if True or blocking_exports:
             exporter.export_asset(instance.id)
         else:
             exporter.export_asset.delay(instance.id)

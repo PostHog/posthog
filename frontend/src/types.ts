@@ -4102,6 +4102,7 @@ export interface ExportedAssetType {
     filename: string
     created_at: string
     expires_after?: string
+    exception?: string
 }
 
 export enum FeatureFlagReleaseType {
