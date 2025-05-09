@@ -73,6 +73,27 @@ case "$RS_SVC" in
     export ALLOW_INTERNAL_IPS=${ALLOW_INTERNAL_IPS:-true}
     ;;
 
+  feature-flags)
+    # Download MaxMind DB if it doesn't exist
+    if [ ! -f "../share/GeoLite2-City.mmdb" ]; then
+      mkdir -p ../share
+      curl -s -L "https://mmdbcdn.posthog.net/" --http1.1 | brotli --decompress --output=../share/GeoLite2-City.mmdb
+      chmod 755 ../share/GeoLite2-City.mmdb
+    fi
+
+    export RUST_LOG=debug
+    export RUST_BACKTRACE=1
+    export WRITE_DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog
+    export READ_DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog
+    export MAXMIND_DB_PATH=../share/GeoLite2-City.mmdb
+    export REDIS_URL=redis://localhost:6379/
+    export ADDRESS=0.0.0.0:3001
+    export SKIP_WRITES=false
+    export SKIP_READS=false
+    export DEBUG=1
+    export ALLOW_INTERNAL_IPS=${ALLOW_INTERNAL_IPS:-true}
+    ;;
+
   *)
     echo "ERROR unknown posthog/rust service '$RS_SVC' please register in: $0" >&2
     exit 1
