@@ -954,9 +954,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             }
         return rates
 
-    def _get_survey_stats(
-        self, request: request.Request, date_from: str | None, date_to: str | None, survey_id: str | None = None
-    ) -> dict:
+    def _get_survey_stats(self, date_from: str | None, date_to: str | None, survey_id: str | None = None) -> dict:
         """Get survey statistics from ClickHouse.
 
         Args:
@@ -1142,7 +1140,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except Survey.DoesNotExist:
             raise exceptions.NotFound("Survey not found")
 
-        response_data = self._get_survey_stats(request, date_from, date_to, survey_id)
+        response_data = self._get_survey_stats(date_from, date_to, survey_id)
 
         # Add survey metadata
         response_data["survey_id"] = survey_id
