@@ -6,7 +6,7 @@ import { PostgresUse } from '../../utils/db/postgres'
 import { logger } from '../../utils/logger'
 import { UUIDT } from '../../utils/utils'
 import { compileHog } from './compiler'
-import { HOG_FUNCTION_TEMPLATES } from './index'
+import { HOG_FUNCTION_TEMPLATES_FOR_TESTS } from './index'
 import { HogFunctionTemplate } from './types'
 
 export class TemplateSyncService {
@@ -29,7 +29,7 @@ export class TemplateSyncService {
         logger.info('Starting HogFunction template sync...')
 
         // Process all templates
-        for (const template of HOG_FUNCTION_TEMPLATES) {
+        for (const template of HOG_FUNCTION_TEMPLATES_FOR_TESTS) {
             try {
                 totalTemplates++
                 const result = await this.processTemplate(template)
