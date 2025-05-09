@@ -20,8 +20,8 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 import { groupsModel } from '~/models/groupsModel'
 import { EntityTypes, HogFunctionConfigurationType, HogFunctionMappingType } from '~/types'
 
-import { hogFunctionConfigurationLogic } from '../hogFunctionConfigurationLogic'
-import { HogFunctionInputs } from '../HogFunctionInputs'
+import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
+import { HogFunctionInputs } from '../configuration/HogFunctionInputs'
 
 const humanize = (value: string): string => {
     // Simple replacement from something like MY_STRING-here to My string here

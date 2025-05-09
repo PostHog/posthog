@@ -21,9 +21,9 @@ import { AvailableFeature, HogFunctionTypeType, PipelineNodeTab, PipelineStage, 
 
 import { AppMetricSparkLine } from '../AppMetricSparkLine'
 import { FrontendApps } from '../FrontendApps'
-import { HogFunctionIcon } from '../hogfunctions/HogFunctionIcon'
-import { HogFunctionStatusIndicator } from '../hogfunctions/HogFunctionStatusIndicator'
-import { hogFunctionTypeToPipelineStage } from '../hogfunctions/urls'
+import { HogFunctionIcon } from '../../hog-functions/configuration/HogFunctionIcon'
+import { HogFunctionStatusIndicator } from '../../hog-functions/misc/HogFunctionStatusIndicator'
+import { hogFunctionTypeToPipelineStage } from '../../hog-functions/misc/urls'
 import { NewButton } from '../NewButton'
 import { pipelineAccessLogic } from '../pipelineAccessLogic'
 import { Destination, FunctionDestination, PipelineBackend, SiteApp, Transformation } from '../types'

@@ -39,13 +39,13 @@ import {
     PipelineStage,
 } from '~/types'
 
-import { HogFunctionFilters } from '../../pipeline/hogfunctions/filters/HogFunctionFilters'
 import {
     convertToHogFunctionInvocationGlobals,
     hogFunctionConfigurationLogic,
-} from '../../pipeline/hogfunctions/hogFunctionConfigurationLogic'
-import { hogFunctionTestLogic } from '../../pipeline/hogfunctions/hogFunctionTestLogic'
-import { tagTypeForLevel } from '../../pipeline/hogfunctions/logs/LogsViewer'
+} from '../configuration/hogFunctionConfigurationLogic'
+import { hogFunctionTestLogic } from '../configuration/hogFunctionTestLogic'
+import { HogFunctionFilters } from '../filters/HogFunctionFilters'
+import { tagTypeForLevel } from '../logs/LogsViewer'
 import {
     hogFunctionTestingLogic,
     HogFunctionTestingLogicProps,

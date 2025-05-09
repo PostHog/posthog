@@ -8,7 +8,10 @@ import { ERROR_TRACKING_LOGIC_KEY } from 'scenes/error-tracking/utils'
 
 import { AnyPropertyFilter, HogFunctionFiltersType } from '~/types'
 
-import { hogFunctionConfigurationLogic, HogFunctionConfigurationLogicProps } from '../hogFunctionConfigurationLogic'
+import {
+    hogFunctionConfigurationLogic,
+    HogFunctionConfigurationLogicProps,
+} from '../configuration/hogFunctionConfigurationLogic'
 
 type FilterOption = { value: string; label: string }
 

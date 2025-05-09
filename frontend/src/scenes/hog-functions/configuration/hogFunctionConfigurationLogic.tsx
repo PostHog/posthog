@@ -59,7 +59,7 @@ import {
     PropertyGroupFilterValue,
 } from '~/types'
 
-import { EmailTemplate } from './email-templater/emailTemplaterLogic'
+import { EmailTemplate } from '../email-templater/emailTemplaterLogic'
 import type { hogFunctionConfigurationLogicType } from './hogFunctionConfigurationLogicType'
 
 export interface HogFunctionConfigurationLogicProps {

@@ -60,7 +60,7 @@ export function HogFunctionIconEditable({
             onClickOutside={() => setShowPopover(false)}
             overlay={
                 <div className="p-1 w-100 deprecated-space-y-2">
-                    <div className="flex items-center gap-2 justify-between">
+                    <div className="flex gap-2 justify-between items-center">
                         <h2 className="m-0">Choose an icon</h2>
 
                         <LemonFileInput
@@ -145,7 +145,7 @@ export function HogFunctionIcon({
                 <>
                     <img
                         className={clsx(
-                            'w-full h-full rounded overflow-hidden transition-opacity',
+                            'overflow-hidden w-full h-full rounded transition-opacity',
                             loaded ? 'opacity-100' : 'opacity-0'
                         )}
                         src={src}

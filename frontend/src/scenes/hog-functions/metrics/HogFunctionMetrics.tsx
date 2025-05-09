@@ -15,9 +15,9 @@ import { getColorVar } from 'lib/colors'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { humanFriendlyNumber, inStorybookTestRunner } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
+import { hogFunctionConfigurationLogic } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 
-import { hogFunctionConfigurationLogic } from '../../pipeline/hogfunctions/hogFunctionConfigurationLogic'
 import { ALL_METRIC_TYPES, hogFunctionMetricsLogic, HogFunctionMetricsLogicProps } from './hogFunctionMetricsLogic'
 
 const METRICS_INFO = {

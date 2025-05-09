@@ -2,7 +2,7 @@ import { useActions } from 'kea'
 
 import { HogFunctionInputSchemaType } from '~/types'
 
-import { hogFunctionConfigurationLogic } from '../hogFunctionConfigurationLogic'
+import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
 import { IntegrationChoice, IntegrationConfigureProps } from './IntegrationChoice'
 
 export type HogFunctionInputIntegrationProps = IntegrationConfigureProps & {

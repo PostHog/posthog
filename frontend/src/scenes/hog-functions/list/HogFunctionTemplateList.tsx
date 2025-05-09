@@ -8,7 +8,7 @@ import { DestinationTag } from 'scenes/pipeline/destinations/DestinationTag'
 
 import { AvailableFeature, PipelineStage } from '~/types'
 
-import { HogFunctionIcon } from '../HogFunctionIcon'
+import { HogFunctionIcon } from '../configuration/HogFunctionIcon'
 import { hogFunctionTemplateListLogic, HogFunctionTemplateListLogicProps } from './hogFunctionTemplateListLogic'
 
 export function HogFunctionTemplateList({

@@ -10,7 +10,7 @@ import { urls } from 'scenes/urls'
 
 import { HogFunctionType, PipelineNodeTab, PipelineStage } from '~/types'
 
-import { HogFunctionIcon } from '../HogFunctionIcon'
+import { HogFunctionIcon } from '../configuration/HogFunctionIcon'
 import { hogFunctionListLogic, HogFunctionListLogicProps } from './hogFunctionListLogic'
 
 export function HogFunctionList({

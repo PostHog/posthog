@@ -26,19 +26,20 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { HogFunctionBroadcastDelivery } from 'products/messaging/frontend/HogFunctionCustomConfiguration/HogFunctionBroadcastDelivery'
 import { useRef } from 'react'
+import { hogFunctionConfigurationLogic } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
+import { HogFunctionFilters } from 'scenes/hog-functions/filters/HogFunctionFilters'
+import { HogFunctionMappings } from 'scenes/hog-functions/mapping/HogFunctionMappings'
+import { HogFunctionEventEstimates } from 'scenes/hog-functions/metrics/HogFunctionEventEstimates'
+import { DestinationTag } from 'scenes/pipeline/destinations/DestinationTag'
 import { urls } from 'scenes/urls'
 
 import { AvailableFeature } from '~/types'
 
-import { DestinationTag } from '../destinations/DestinationTag'
-import { HogFunctionFilters } from './filters/HogFunctionFilters'
-import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
+import { HogFunctionStatusIndicator } from '../misc/HogFunctionStatusIndicator'
 import { HogFunctionIconEditable } from './HogFunctionIcon'
 import { HogFunctionInputs } from './HogFunctionInputs'
-import { HogFunctionStatusIndicator } from './HogFunctionStatusIndicator'
 import { HogFunctionTest } from './HogFunctionTest'
-import { HogFunctionMappings } from './mapping/HogFunctionMappings'
-import { HogFunctionEventEstimates } from './metrics/HogFunctionEventEstimates'
+
 export interface HogFunctionConfigurationProps {
     templateId?: string | null
     id?: string | null

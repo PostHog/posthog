@@ -31,7 +31,7 @@ export function HogFunctionTestPlaceholder({
     description?: string | JSX.Element
 }): JSX.Element {
     return (
-        <div className="border bg-accent-3000 rounded p-3 space-y-2">
+        <div className="p-3 space-y-2 rounded border bg-accent-3000">
             <h2 className="flex-1 m-0">{title || 'Testing'}</h2>
             <p>{description || 'Save your configuration to enable testing'}</p>
         </div>
@@ -192,9 +192,9 @@ export function HogFunctionTest({ configurable }: { configurable: boolean }): JS
                     expanded && configurable ? 'min-h-120' : ''
                 )}
             >
-                <div className="flex items-center justify-end gap-2">
+                <div className="flex gap-2 justify-end items-center">
                     <div className="flex-1 deprecated-space-y-2">
-                        <h2 className="flex items-center gap-2 mb-0">
+                        <h2 className="flex gap-2 items-center mb-0">
                             <span>Testing</span>
                             {sampleGlobalsLoading && !fetchCancelled ? <Spinner /> : null}
                         </h2>
@@ -367,7 +367,7 @@ export function HogFunctionTest({ configurable }: { configurable: boolean }): JS
 
                                 {type === 'transformation' && testResult.status !== 'error' ? (
                                     <>
-                                        <div className="flex items-center justify-between gap-2">
+                                        <div className="flex gap-2 justify-between items-center">
                                             <LemonLabel>Transformation result</LemonLabel>
 
                                             {sortedTestsResult?.hasDiff && (
@@ -477,7 +477,7 @@ export function HogFunctionTest({ configurable }: { configurable: boolean }): JS
                                                         : 'Here are all the global variables you can use in your code:'}
                                                 </div>
                                                 {sampleGlobalsLoading && !fetchCancelled && (
-                                                    <div className="flex items-center gap-2 text-muted">
+                                                    <div className="flex gap-2 items-center text-muted">
                                                         <Spinner />
                                                         <span>Fetching new event...</span>
                                                         <LemonButton
