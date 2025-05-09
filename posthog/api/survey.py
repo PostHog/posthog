@@ -736,6 +736,16 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     filter_backends = [filters.SearchFilter]
     search_fields = ["name", "description"]
 
+    def is_partial_responses_enabled(self) -> bool:
+        return posthoganalytics.feature_enabled(
+            SurveyFeatureFlags.SURVEYS_PARTIAL_RESPONSES,
+            self.request.user.distinct_id,
+            groups={"organization": str(self.organization.id)},
+            group_properties={
+                "organization": {"id": str(self.organization.id), "created_at": self.organization.created_at}
+            },
+        )
+
     def get_serializer_class(self) -> type[serializers.Serializer]:
         if self.request.method == "POST" or self.request.method == "PATCH":
             return SurveySerializerCreateUpdateOnly
@@ -775,10 +785,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # If there are no surveys or none have a start date, there can be no responses.
             return Response({})
 
-        partial_responses_enabled = posthoganalytics.feature_enabled(
-            SurveyFeatureFlags.SURVEYS_PARTIAL_RESPONSES, request.user.distinct_id
-        )
-
+        partial_responses_enabled = self.is_partial_responses_enabled()
         partial_responses_filter = "1=1"
         if partial_responses_enabled:
             unique_uuids_subquery = get_unique_survey_event_uuids_sql_subquery(
@@ -996,9 +1003,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             survey_filter = f"AND JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID}') IN %(survey_ids)s"
             params["survey_ids"] = [str(id) for id in active_survey_ids]
 
-        partial_responses_enabled = posthoganalytics.feature_enabled(
-            SurveyFeatureFlags.SURVEYS_PARTIAL_RESPONSES, request.user.distinct_id
-        )
+        partial_responses_enabled = self.is_partial_responses_enabled()
 
         partial_responses_filter = "1=1"
         if partial_responses_enabled:
