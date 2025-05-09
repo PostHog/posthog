@@ -38,13 +38,18 @@ const convertFetchResponse = async <Data = unknown>(response: FetchResponse): Pr
     const headers = new Headers() as ModifiedResponse['headers']
     Object.entries(response.headers).forEach(([key, value]) => {
         headers.set(key, value)
-    })
-    ;(headers as any).toJSON = () => {
+    });
+
+    headers.toJSON = () => {
         return Object.fromEntries(headers.entries())
     }
 
     const text = await response.text()
-    const json = parseJSON(text)
+    let json = undefined as Data
+
+    try {
+        json = parseJSON(text) as Data
+    } catch {}
 
     const modifiedResponse: ModifiedResponse<Data> = {
         ...response,
@@ -124,6 +129,7 @@ export class SegmentDestinationExecutorService {
 
             // All segment options are done as inputs
             const config = invocation.globals.inputs
+            addLog('warn', 'config', config)
 
             try {
                 const action = segmentDestination.destination.actions[config.internal_partner_action]
@@ -134,15 +140,20 @@ export class SegmentDestinationExecutorService {
 
                 await action.perform(
                     async (endpoint, options) => {
+                        addLog('warn', 'endpoint', endpoint)
+                        addLog('warn', 'options', options)
                         const requestExtension = segmentDestination.destination.extendRequest?.({
                             settings: config,
                             auth: config as any,
                             payload: config,
                         })
+                        addLog('warn', 'requestExtension', requestExtension)
                         const headers: Record<string, string> = {
                             ...options?.headers,
                             ...requestExtension?.headers,
                         }
+                        addLog('warn', 'headers', headers)
+
                         let body: string = ''
                         if (options?.json) {
                             body = JSON.stringify(options.json)
@@ -154,6 +165,7 @@ export class SegmentDestinationExecutorService {
                             body = options.body
                             headers['Content-Type'] = 'application/json'
                         }
+
                         const params = new URLSearchParams()
                         if (options?.searchParams && typeof options.searchParams === 'object') {
                             Object.entries(options.searchParams as Record<string, string>).forEach(([key, value]) =>
@@ -167,7 +179,7 @@ export class SegmentDestinationExecutorService {
                         }
 
                         const fetchOptions: FetchOptions = {
-                            method: options?.method ?? 'POST',
+                            method: options?.method ?? 'GET',
                             headers,
                             body,
                         }
@@ -206,8 +218,18 @@ export class SegmentDestinationExecutorService {
                             } as FetchResponse)
                         }
 
-                        const fetchResponse = await fetch(endpoint, fetchOptions)
-                        return convertFetchResponse(fetchResponse)
+                        fetchOptions.headers = {
+                            ...fetchOptions.headers,
+                            'endpoint': endpoint + '?' + params.toString()
+                        }
+
+                        addLog('warn', 'fetchOptions', fetchOptions)
+                        const fetchResponse = await this.fetch(`${endpoint}${params.toString() ? '?' + params.toString() : ''}`, fetchOptions)
+                        addLog('warn', 'fetchResponse text', await fetchResponse.text())
+                        addLog('warn', 'fetchResponse json', await fetchResponse.json())
+                        const convertedResponse = await convertFetchResponse(fetchResponse)
+                        addLog('warn', 'convertedResponse', convertedResponse.data)
+                        return convertedResponse
                     },
                     {
                         payload: config,
@@ -215,7 +237,7 @@ export class SegmentDestinationExecutorService {
                     }
                 )
             } catch (e) {
-                logger.error('error', e)
+                addLog('error', e.toString())
             }
 
             addLog('info', `Function completed in ${performance.now() - start}ms.`)
