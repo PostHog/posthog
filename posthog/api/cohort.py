@@ -101,11 +101,19 @@ class HogQLFilter(BaseModel, extra="forbid"):
 class BehavioralFilter(BaseModel, extra="forbid"):
     type: Literal["behavioral"]
     key: Union[str, int]  # action IDs can be ints
-    value: Literal["performed_event"]
-    event_type: Literal["events", "actions"]
+    value: str
+    event_type: str
     time_value: int | None = None
-    time_interval: Literal["day", "week", "hour"] | None = None
+    time_interval: str | None = None
     negation: bool = False
+    operator: str | None = None
+    operator_value: int | None = None
+    seq_time_interval: str | None = None
+    seq_time_value: int | None = None
+    seq_event: Union[str, int] | None = None  # Allow both string and int for seq_event
+    seq_event_type: str | None = None
+    total_periods: int | None = None
+    min_periods: int | None = None
     event_filters: list[Union[EventPropFilter, HogQLFilter]] | None = None
     explicit_datetime: str | None = None
 
@@ -270,6 +278,9 @@ class CohortSerializer(serializers.ModelSerializer):
         1. structural/schema check → pydantic
         2. domain rules (feature-flag gotchas) → bespoke fn
         """
+        # Skip validation for static cohorts
+        if self.initial_data.get("is_static") or getattr(self.instance, "is_static", False):
+            return raw
         if not isinstance(raw, dict) or "properties" not in raw:
             raise ValidationError(
                 {"detail": "Must contain a 'properties' key with type and values", "type": "validation_error"}
@@ -336,10 +347,7 @@ class CohortSerializer(serializers.ModelSerializer):
         dependent_cohorts = get_dependent_cohorts(nested_cohort)
 
         for dependent_cohort in [nested_cohort, *dependent_cohorts]:
-            if (
-                cohort_used_in_flags
-                and len([p for p in dependent_cohort.properties.flat if p.type == "behavioral"]) > 0
-            ):
+            if cohort_used_in_flags and any(p.type == "behavioral" for p in dependent_cohort.properties.flat):
                 raise serializers.ValidationError(
                     detail=f"A dependent cohort ({dependent_cohort.name}) has filters based on events. These cohorts can't be used in feature flags.",
                     code="behavioral_cohort_found",
@@ -620,7 +628,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
         item_id = kwargs["pk"]
         if not Cohort.objects.filter(id=item_id, team__project_id=self.project_id).exists():
-            return Response("", status=status.HTTP_404_NOT_FOUND)
+            return Response(status=status.HTTP_404_NOT_FOUND)
 
         activity_page = load_activity(
             scope="Cohort",

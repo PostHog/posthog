@@ -3,7 +3,7 @@ from uuid import UUID
 
 from django.core.exceptions import ValidationError
 
-from posthog.models.utils import uuid7, validate_rate_limit
+from posthog.models.utils import uuid7, validate_rate_limit, mask_key_value
 from posthog.test.base import BaseTest
 
 
@@ -36,3 +36,10 @@ class TestValidateRateLimit(BaseTest):
     def test_correct_values(self):
         for v in ["1/s", "2/m", "3/h", "4/d", "5/sec", "6/min", "7/hour", "8/day"]:
             self.assertIsNone(validate_rate_limit(v), f"validate_rate_limit should not raise for {v}")
+
+
+def test_mask_key_value():
+    assert mask_key_value("phx_1234567891011121314151617181920") == "phx_...1920"  # Normal case
+    assert mask_key_value("phx_shortenedAB") == "********"  # String shorter than 16 chars
+    assert mask_key_value("phx_00000000ABCD") == "phx_...ABCD"  # Exactly 8 chars
+    assert mask_key_value("") == "********"  # Empty string

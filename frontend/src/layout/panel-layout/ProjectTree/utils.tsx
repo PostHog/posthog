@@ -1,12 +1,12 @@
 import { IconArrowUpRight, IconPlus } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 import { router } from 'kea-router'
-import { dayjs } from 'lib/dayjs'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
 import { RecentResults, SearchResults } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
+import { UserBasicType } from '~/types'
 
 import { iconForType } from './defaultTree'
 import { FolderState } from './types'
@@ -20,6 +20,7 @@ export interface ConvertProps {
     disableFolderSelect?: boolean
     disabledReason?: (item: FileSystemImport | FileSystemEntry) => string | undefined
     recent?: boolean
+    users?: Record<string, UserBasicType>
 }
 
 export function getItemId(item: FileSystemImport | FileSystemEntry, root: string = 'project'): string {
@@ -62,29 +63,25 @@ export function convertFileSystemEntryToTreeDataItem({
     disableFolderSelect,
     disabledReason,
     recent,
+    users,
 }: ConvertProps): TreeDataItem[] {
     function itemToTreeDataItem(item: FileSystemImport | FileSystemEntry): TreeDataItem {
         const pathSplit = splitPath(item.path)
         const itemName = pathSplit.pop()!
         const nodeId = getItemId(item)
         const displayName = <SearchHighlightMultiple string={itemName} substring={searchTerm ?? ''} />
+        const user: UserBasicType | undefined = item.meta?.created_by ? users?.[item.meta.created_by] : undefined
+
         const node: TreeDataItem = {
             id: nodeId,
             name: itemName,
-            displayName: recent ? (
-                <>
-                    {displayName}{' '}
-                    <span className="text-muted text-xs font-normal">- {dayjs(item.created_at).fromNow()}</span>
-                </>
-            ) : (
-                <>{displayName}</>
-            ),
+            displayName,
             icon: item._loading ? (
                 <Spinner />
             ) : (
                 wrapWithShortcutIcon(item, ('icon' in item && item.icon) || iconForType(item.type))
             ),
-            record: item,
+            record: { ...item, user },
             checked: checkedItems[nodeId],
             onClick: () => {
                 if (item.href) {
@@ -226,6 +223,7 @@ export function convertFileSystemEntryToTreeDataItem({
                     name: 'Loading...',
                     icon: <Spinner />,
                     disableSelect: true,
+                    type: 'loading-indicator',
                 })
             }
             allFolderNodes.push(node)

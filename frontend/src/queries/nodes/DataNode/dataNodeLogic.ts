@@ -16,6 +16,7 @@ import {
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import api, { ApiMethodOptions } from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { shouldCancelQuery, uuid } from 'lib/utils'
@@ -154,13 +155,14 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     !('results' in props.cachedResults)))
         ) {
             // For normal loads, use appropriate refresh type
-            const refreshType = queryVarsHaveChanged
-                ? isInsightQueryNode(props.query) || isHogQLQuery(props.query)
-                    ? 'force_async'
-                    : 'force_blocking'
-                : isInsightQueryNode(props.query) || isHogQLQuery(props.query)
-                ? 'async'
-                : 'blocking'
+            let refreshType: RefreshType
+            if (queryVarsHaveChanged) {
+                refreshType =
+                    isInsightQueryNode(props.query) || isHogQLQuery(props.query) ? 'force_async' : 'force_blocking'
+            } else {
+                refreshType = isInsightQueryNode(props.query) || isHogQLQuery(props.query) ? 'async' : 'blocking'
+            }
+
             actions.loadData(refreshType)
         } else if (props.cachedResults) {
             // Use cached results if available, otherwise this logic will load the data again
@@ -202,7 +204,11 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     const query = overrideQuery ?? props.query
                     // Use the explicit refresh type passed, or determine it based on query type
                     // Default to non-force variants
-                    const refresh = refreshArg ?? (isInsightQueryNode(query) ? 'async' : 'blocking')
+                    let refresh: RefreshType = refreshArg ?? (isInsightQueryNode(query) ? 'async' : 'blocking')
+                    if (values.featureFlags[FEATURE_FLAGS.ALWAYS_QUERY_BLOCKING] && !pollOnly) {
+                        refresh =
+                            refresh === 'force_async' ? 'force_blocking' : refresh === 'async' ? 'blocking' : refresh
+                    }
 
                     if (props.doNotLoad) {
                         return props.cachedResults

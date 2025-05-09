@@ -1803,6 +1803,192 @@ email@example.org,
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["detail"], "Missing required keys for cohort filter: value")
 
+    @patch("posthog.api.cohort.report_user_action")
+    def test_behavioral_filter_with_operator_and_operator_value(self, patch_capture):
+        # Valid usage: operator and operator_value present
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "behavioral with operator",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "key": "$pageview",
+                                "type": "behavioral",
+                                "value": "performed_event",
+                                "event_type": "events",
+                                "operator": "gte",
+                                "operator_value": 5,
+                            }
+                        ],
+                    }
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        cohort_id = response.json()["id"]
+        while response.json()["is_calculating"]:
+            response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}")
+        # Should create successfully
+        self.assertEqual(response.status_code, 200, response.content)
+
+    @patch("posthog.api.cohort.report_user_action")
+    def test_behavioral_filter_missing_operator(self, patch_capture):
+        # operator_value present but operator missing
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "behavioral missing operator",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "key": "$pageview",
+                                "type": "behavioral",
+                                "value": "performed_event",
+                                "event_type": "events",
+                                "operator_value": 5,
+                            }
+                        ],
+                    }
+                },
+            },
+        )
+        # Should still succeed, as operator is optional
+        self.assertEqual(response.status_code, 201, response.content)
+
+    @patch("posthog.api.cohort.report_user_action")
+    def test_behavioral_filter_invalid_operator_value_type(self, patch_capture):
+        # operator_value as a list (invalid)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "behavioral invalid operator_value",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "key": "$pageview",
+                                "type": "behavioral",
+                                "value": "performed_event",
+                                "event_type": "events",
+                                "operator": "gte",
+                                "operator_value": [5],
+                            }
+                        ],
+                    }
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("operator_value", str(response.content))
+
+    @patch("posthog.api.cohort.report_user_action")
+    def test_behavioral_filter_extra_field_forbidden(self, patch_capture):
+        # Extra field not in model
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "behavioral extra field",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "key": "$pageview",
+                                "type": "behavioral",
+                                "value": "performed_event",
+                                "event_type": "events",
+                                "operator": "gte",
+                                "operator_value": 5,
+                                "not_a_field": 123,
+                            }
+                        ],
+                    }
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("not_a_field", str(response.content))
+
+    @patch("posthog.api.cohort.report_user_action")
+    def test_behavioral_filter_seq_event_types(self, patch_capture):
+        # Test with string seq_event
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "behavioral with string seq_event",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "key": "$pageview",
+                                "type": "behavioral",
+                                "value": "performed_event",
+                                "event_type": "events",
+                                "seq_event": "reauthentication_completed",
+                                "seq_event_type": "events",
+                            }
+                        ],
+                    }
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+
+        # Test with integer seq_event (action ID)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "behavioral with integer seq_event",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "key": "$pageview",
+                                "type": "behavioral",
+                                "value": "performed_event",
+                                "event_type": "events",
+                                "seq_event": 1,  # action ID
+                                "seq_event_type": "actions",
+                            }
+                        ],
+                    }
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+
+        # Test with null seq_event
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "behavioral with null seq_event",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "key": "$pageview",
+                                "type": "behavioral",
+                                "value": "performed_event",
+                                "event_type": "events",
+                                "seq_event": None,
+                                "seq_event_type": None,
+                            }
+                        ],
+                    }
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+
     def test_create_cohort_in_specific_folder(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",

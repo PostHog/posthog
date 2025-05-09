@@ -3,10 +3,10 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { useState } from 'react'
+import { errorFiltersLogic } from 'scenes/error-tracking/components/ErrorFilters/errorFiltersLogic'
 
 import { Query } from '~/queries/Query/Query'
 
-import { errorTrackingLogic } from '../../errorTrackingLogic'
 import { errorTrackingIssueBreakdownQuery } from '../../queries'
 
 const gridColumnsMap = {
@@ -53,7 +53,7 @@ export const BreakdownsTab = (): JSX.Element => {
 }
 
 const BreakdownGroup = ({ group }: { group: BreakdownGroup }): JSX.Element => {
-    const { dateRange, filterTestAccounts, filterGroup } = useValues(errorTrackingLogic)
+    const { dateRange, filterTestAccounts, filterGroup } = useValues(errorFiltersLogic)
     const [selectedProperty, setSelectedProperty] = useState<string>(group.options[0].value)
 
     return (

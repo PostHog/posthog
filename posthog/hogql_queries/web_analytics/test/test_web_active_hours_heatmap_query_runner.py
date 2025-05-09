@@ -12,6 +12,8 @@ from posthog.schema import (
     WebAnalyticsOrderByDirection,
     WebAnalyticsOrderByFields,
     EventsNode,
+    ActionConversionGoal,
+    CustomEventConversionGoal,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -19,6 +21,7 @@ from posthog.test.base import (
     _create_event,
     _create_person,
 )
+from posthog.models import Action
 
 
 # @snapshot_clickhouse_queries
@@ -232,3 +235,127 @@ class TestWebActiveHoursHeatMapQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.results.rowAggregations, [])
         self.assertEqual(response.results.columnAggregations, [])
         self.assertEqual(response.results.allAggregations, 0)
+
+    def test_custom_event(self):
+        self._create_events(
+            data=[
+                (
+                    "user1",
+                    [
+                        ("2023-12-02 10:00:00", {}),
+                    ],
+                ),
+            ],
+            event="custom_event",
+        )
+
+        # Set the event in the source node
+        query = EventsHeatMapQuery(
+            dateRange=DateRange(date_from="2023-12-01", date_to="2023-12-03"),
+            properties=[],
+            filterTestAccounts=False,
+            orderBy=None,
+            source=EventsNode(kind="EventsNode", event="custom_event"),
+        )
+        runner = EventsHeatMapQueryRunner(team=self.team, query=query, modifiers=HogQLQueryModifiers())
+        response = runner.calculate()
+        results_dict = {(r.row, r.column): r.value for r in response.results.data}
+        self.assertEqual(results_dict.get((6, 10)), 1)  # Should see the custom event
+
+    def test_conversion_goal_expr(self):
+        from posthog.hogql import ast
+
+        class CustomGoalRunner(EventsHeatMapQueryRunner):
+            @property
+            def conversion_goal_expr(self):
+                return ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["events", "event"]),
+                    right=ast.Constant(value="goal_event"),
+                )
+
+        self._create_events(
+            data=[
+                (
+                    "user1",
+                    [
+                        ("2023-12-02 10:00:00", {}),
+                    ],
+                ),
+            ],
+            event="goal_event",
+        )
+
+        query = EventsHeatMapQuery(
+            dateRange=DateRange(date_from="2023-12-01", date_to="2023-12-03"),
+            properties=[],
+            filterTestAccounts=False,
+            orderBy=None,
+            source=EventsNode(kind="EventsNode"),
+        )
+        runner = CustomGoalRunner(team=self.team, query=query, modifiers=HogQLQueryModifiers())
+        response = runner.calculate()
+        results_dict = {(r.row, r.column): r.value for r in response.results.data}
+        self.assertEqual(results_dict.get((6, 10)), 1)  # Should see the goal event
+
+    def test_action_conversion_goal(self):
+        action = Action.objects.create(
+            team=self.team,
+            name="Did Custom Event",
+            steps_json=[
+                {
+                    "event": "custom_event",
+                }
+            ],
+        )
+
+        self._create_events(
+            data=[
+                (
+                    "user1",
+                    [
+                        ("2023-12-02 10:00:00", {}),
+                    ],
+                ),
+            ],
+            event="custom_event",
+        )
+
+        query = EventsHeatMapQuery(
+            dateRange=DateRange(date_from="2023-12-01", date_to="2023-12-03"),
+            properties=[],
+            filterTestAccounts=False,
+            orderBy=None,
+            source=EventsNode(kind="EventsNode"),
+            conversionGoal=ActionConversionGoal(actionId=action.id),
+        )
+        runner = EventsHeatMapQueryRunner(team=self.team, query=query, modifiers=HogQLQueryModifiers())
+        response = runner.calculate()
+        results_dict = {(r.row, r.column): r.value for r in response.results.data}
+        self.assertEqual(results_dict.get((6, 10)), 1)
+
+    def test_custom_event_conversion_goal(self):
+        self._create_events(
+            data=[
+                (
+                    "user1",
+                    [
+                        ("2023-12-02 10:00:00", {}),
+                    ],
+                ),
+            ],
+            event="my_custom_event",
+        )
+
+        query = EventsHeatMapQuery(
+            dateRange=DateRange(date_from="2023-12-01", date_to="2023-12-03"),
+            properties=[],
+            filterTestAccounts=False,
+            orderBy=None,
+            source=EventsNode(kind="EventsNode"),
+            conversionGoal=CustomEventConversionGoal(customEventName="my_custom_event"),
+        )
+        runner = EventsHeatMapQueryRunner(team=self.team, query=query, modifiers=HogQLQueryModifiers())
+        response = runner.calculate()
+        results_dict = {(r.row, r.column): r.value for r in response.results.data}
+        self.assertEqual(results_dict.get((6, 10)), 1)

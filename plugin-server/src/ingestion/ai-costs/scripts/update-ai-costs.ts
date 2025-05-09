@@ -75,6 +75,9 @@ const main = async () => {
 
     const allProviders = Array.from(providerModels.values()).flat()
 
+    // Sort by model name for easier diffs
+    allProviders.sort((a, b) => a.model.localeCompare(b.model))
+
     // Write everything as a json file
     fs.writeFileSync(path.join(PATH_TO_PROVIDERS, 'generated-providers.json'), JSON.stringify(allProviders, null, 2))
 }

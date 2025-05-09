@@ -5,19 +5,21 @@ import { LemonCollapse, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { MouseEvent, useEffect, useMemo } from 'react'
+import { MouseEvent, useEffect } from 'react'
 import { cancelEvent } from 'scenes/error-tracking/utils'
 import { match, P } from 'ts-pattern'
 
 import { CodeLine, getLanguage, Language } from '../CodeSnippet/CodeSnippet'
 import { CopyToClipboardInline } from '../CopyToClipboard'
+import { errorPropertiesLogic } from './errorPropertiesLogic'
 import { FingerprintRecordPartDisplay } from './FingerprintRecordPartDisplay'
-import { FingerprintRecordPart, stackFrameLogic } from './stackFrameLogic'
+import { stackFrameLogic } from './stackFrameLogic'
 import {
     ErrorTrackingException,
     ErrorTrackingStackFrame,
     ErrorTrackingStackFrameContext,
     ErrorTrackingStackFrameContextLine,
+    FingerprintRecordPart,
 } from './types'
 import { stacktraceHasInAppFrames } from './utils'
 
@@ -46,22 +48,19 @@ function ExceptionHeader({ type, value, part }: ExceptionHeaderProps): JSX.Eleme
 type FrameContextClickHandler = (ctx: ErrorTrackingStackFrameContext, e: MouseEvent) => void
 
 export function ChainedStackTraces({
-    exceptionList,
     showAllFrames,
     renderExceptionHeader,
     onFrameContextClick,
     embedded = false,
-    fingerprintRecords = [],
 }: {
     renderExceptionHeader?: (props: ExceptionHeaderProps) => React.ReactNode
-    exceptionList: ErrorTrackingException[]
     fingerprintRecords?: FingerprintRecordPart[]
     showAllFrames: boolean
     embedded?: boolean
     onFrameContextClick?: FrameContextClickHandler
 }): JSX.Element {
     const { loadFromRawIds } = useActions(stackFrameLogic)
-    const getters = useFingerprintGetters(fingerprintRecords)
+    const { exceptionList, getExceptionFingerprint } = useValues(errorPropertiesLogic)
 
     useEffect(() => {
         const frames: ErrorTrackingStackFrame[] = exceptionList.flatMap((e) => {
@@ -78,7 +77,7 @@ export function ChainedStackTraces({
         <div className="flex flex-col gap-y-2">
             {exceptionList.map(({ stacktrace, value, type, id }, index) => {
                 const displayTrace = shouldDisplayTrace(stacktrace, showAllFrames)
-                const part = getters.getExceptionPart(id)
+                const part = getExceptionFingerprint(id)
                 const traceHeaderProps = { id, type, value, part, loading: false }
                 return (
                     <div
@@ -94,7 +93,6 @@ export function ChainedStackTraces({
                                 frames={stacktrace?.frames || []}
                                 showAllFrames={showAllFrames}
                                 embedded={embedded}
-                                getters={getters}
                                 onFrameContextClick={onFrameContextClick}
                             />
                         )}
@@ -123,13 +121,11 @@ function Trace({
     frames,
     showAllFrames,
     embedded,
-    getters,
     onFrameContextClick,
 }: {
     frames: ErrorTrackingStackFrame[]
     showAllFrames: boolean
     embedded: boolean
-    getters?: FingerprintGetters
     onFrameContextClick?: FrameContextClickHandler
 }): JSX.Element | null {
     const { stackFrameRecords } = useValues(stackFrameLogic)
@@ -140,7 +136,7 @@ function Trace({
         const record = stackFrameRecords[raw_id]
         return {
             key: idx,
-            header: <FrameHeaderDisplay frame={frame} getters={getters} />,
+            header: <FrameHeaderDisplay frame={frame} />,
             content:
                 record && record.context ? (
                     <div onClick={(e) => onFrameContextClick?.(record.context!, e)}>
@@ -154,15 +150,10 @@ function Trace({
     return <LemonCollapse embedded={embedded} multiple panels={panels} size="xsmall" />
 }
 
-export function FrameHeaderDisplay({
-    frame,
-    getters,
-}: {
-    frame: ErrorTrackingStackFrame
-    getters?: FingerprintGetters
-}): JSX.Element {
+export function FrameHeaderDisplay({ frame }: { frame: ErrorTrackingStackFrame }): JSX.Element {
     const { raw_id, source, line, column, resolved_name, resolved, resolve_failure, in_app } = frame
-    const part = getters?.getFramePart(raw_id)
+    const { getFrameFingerprint } = useValues(errorPropertiesLogic)
+    const part = getFrameFingerprint(raw_id)
     return (
         <div className="flex flex-1 justify-between items-center h-full">
             <div className="flex flex-wrap gap-x-1">
@@ -208,24 +199,6 @@ export function FrameHeaderDisplay({
             </div>
         </div>
     )
-}
-
-export type FingerprintGetters = {
-    getExceptionPart(excId: string): FingerprintRecordPart | undefined
-    getFramePart(frameId: string): FingerprintRecordPart | undefined
-}
-
-function useFingerprintGetters(fingerprintRecords: FingerprintRecordPart[]): FingerprintGetters {
-    return useMemo(() => {
-        return {
-            getExceptionPart(excId: string) {
-                return fingerprintRecords.find((record) => record.type === 'exception' && record.id === excId)
-            },
-            getFramePart(frameId: string) {
-                return fingerprintRecords.find((record) => record.type === 'frame' && record.raw_id === frameId)
-            },
-        }
-    }, [fingerprintRecords])
 }
 
 function FrameContext({
