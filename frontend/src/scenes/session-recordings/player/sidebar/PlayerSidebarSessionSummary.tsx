@@ -29,6 +29,7 @@ import {
     SessionSegment,
     SessionSegmentKeyActions,
     SessionSegmentOutcome,
+    SessionSummaryContent,
 } from '../player-meta/types'
 
 function formatEventMetaInfo(event: SessionKeyAction): JSX.Element {
@@ -401,6 +402,104 @@ function SessionSummaryLoadingState({ operation, counter, name, outOf }: Session
     )
 }
 
+function SessionSummaryStats({ sessionSummary }: { sessionSummary: SessionSummaryContent }): JSX.Element {
+    // Count each issue type separately for display
+    const totalAbandonment =
+        sessionSummary.segments?.reduce(
+            (acc: number, segment: SessionSegment) => acc + (segment.meta?.abandonment_count || 0),
+            0
+        ) || 0
+    const totalConfusion =
+        sessionSummary.segments?.reduce(
+            (acc: number, segment: SessionSegment) => acc + (segment.meta?.confusion_count || 0),
+            0
+        ) || 0
+    const totalException =
+        sessionSummary.segments?.reduce(
+            (acc: number, segment: SessionSegment) => acc + (segment.meta?.exception_count || 0),
+            0
+        ) || 0
+
+    // Calculate global health score
+    const totalKeyActions =
+        sessionSummary.segments?.reduce(
+            (acc: number, segment: SessionSegment) => acc + (segment.meta?.key_action_count || 0),
+            0
+        ) || 0
+
+    // Calculate total issue weight across all segments
+    const totalIssueWeight =
+        sessionSummary.key_actions?.reduce((weight, keyAction) => {
+            return (
+                weight +
+                (keyAction.events || []).reduce((acc, event) => {
+                    // For each event, take the highest weight among its tags
+                    const eventWeight = Math.max(
+                        event.confusion ? 0.25 : 0,
+                        event.exception === 'blocking' ? 3 : event.exception === 'non-blocking' ? 0.5 : 0,
+                        event.abandonment ? 0.75 : 0
+                    )
+                    return acc + eventWeight
+                }, 0)
+            )
+        }, 0) || 0
+
+    const healthPercentage =
+        totalKeyActions > 0 ? Math.round((totalKeyActions / (totalKeyActions + totalIssueWeight)) * 100) : 100
+
+    const successHealthLimit = 65
+    const failureHealthLimit = 35
+    const medianHealthLimit = 50
+
+    // Adjust health percentage based on session outcome
+    const adjustedHealthPercentage =
+        sessionSummary.session_outcome?.success === true
+            ? Math.max(healthPercentage, medianHealthLimit)
+            : sessionSummary.session_outcome?.success === false
+            ? Math.min(healthPercentage, medianHealthLimit)
+            : healthPercentage
+
+    const healthScoreType =
+        adjustedHealthPercentage >= successHealthLimit
+            ? 'success'
+            : adjustedHealthPercentage > failureHealthLimit
+            ? 'warning'
+            : 'danger'
+
+    return (
+        <div className="mb-4">
+            <div className="flex items-start gap-4">
+                {/* Left side - Health Score */}
+                <div className="flex flex-col bg-bg-light px-3">
+                    <span className="text-sm text-muted">Health Score</span>
+                    <div className={`text-2xl font-semibold text-${healthScoreType} mt-1`}>
+                        {adjustedHealthPercentage}%
+                    </div>
+                </div>
+
+                {/* Right side - Issue Metrics */}
+                <div className="flex flex-col gap-2 flex-1">
+                    <span className="text-sm text-muted">Issues Found</span>
+                    <div className="flex flex-wrap gap-2">
+                        <LemonTag size="small" type={totalAbandonment > 0 ? 'warning' : undefined}>
+                            <IconThumbsDown className="mr-1" />
+                            {totalAbandonment || 0} abandoned
+                        </LemonTag>
+                        <LemonTag size="small" type={totalConfusion > 0 ? 'warning' : undefined}>
+                            <IconWarning className="mr-1" />
+                            {totalConfusion || 0} confusion
+                        </LemonTag>
+                        <LemonTag size="small" type={totalException > 0 ? 'danger' : undefined}>
+                            <IconWarning className="mr-1" />
+                            {totalException || 0} exceptions
+                        </LemonTag>
+                    </div>
+                </div>
+            </div>
+        </div>
+    )
+}
+
 function SessionSummary(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { seekToTime } = useActions(sessionRecordingPlayerLogic)
@@ -519,6 +618,8 @@ function SessionSummary(): JSX.Element {
                         )}
                         <LemonDivider />
                     </div>
+
+                    <SessionSummaryStats sessionSummary={sessionSummary} />
 
                     {sessionSummary?.segments?.map((segment) => {
                         const matchingSegmentOutcome = sessionSummary?.segment_outcomes?.find(
