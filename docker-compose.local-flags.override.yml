@@ -1,0 +1,56 @@
+services:
+    proxy: # Targets the existing 'proxy' service from docker-compose.base.yml
+        environment:
+            CADDYFILE: |
+                http://localhost:8000 { # This is the internal port Caddy listens on in the container
+                    @replay-capture {
+                        path /s
+                        path /s/*
+                    }
+
+                    @capture {
+                        path /e
+                        path /e/*
+                        path /i/v0/*
+                        path /batch
+                        path /batch*
+                        path /capture
+                        path /capture*
+                    }
+
+                    @flags {
+                        path /flags
+                        path /flags*
+                    }
+
+                    handle @capture {
+                        reverse_proxy capture:3000
+                    }
+
+                    handle @replay-capture {
+                        reverse_proxy replay-capture:3000
+                    }
+
+                    handle @flags {
+                        # MODIFIED: Route /flags to the local Rust service running on the host
+                        reverse_proxy host.docker.internal:3001
+                    }
+
+                    handle { # Default handler for all other requests
+                        reverse_proxy web:8000 # To the main web application
+                    }
+                }
+
+    feature-flags: # Targets the existing 'feature-flags' service from docker-compose.base.yml
+        # MODIFIED: Make this service inert to avoid running two instances of feature-flags logic
+        image: alpine/git # A small, harmless image
+        command:
+            [
+                'sh',
+                '-c',
+                "echo 'Dockerized feature-flags service is disabled in local-flags mode; local version is used via mprocs.' && tail -f /dev/null",
+            ]
+        ports: [] # Remove any port mappings if they existed
+        volumes: [] # Clear volumes if not needed for an inert service
+        depends_on: [] # Clear dependencies if they are not relevant for an inert service
+        restart: 'no'
