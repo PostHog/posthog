@@ -1,5 +1,6 @@
 import dataclasses
 import datetime as dt
+import typing
 
 from django.db import connection
 import temporalio.workflow
@@ -11,7 +12,7 @@ from posthog.schema_migrations import LATEST_VERSIONS
 
 
 @temporalio.activity.defn
-def get_insights_to_migrate() -> list[int]:
+def get_insights_to_migrate(inputs: typing.Any) -> list[int]:
     # TODO: Add index
     # TODO: Cross-join or run separately for each kind?
     # CREATE INDEX insight_query_gin_path
@@ -75,8 +76,12 @@ def migrate_insights_batch(inputs: MigrateInsightsBatchInputs) -> None:
 
 @temporalio.workflow.defn(name="upgrade-queries")
 class UpgradeQueriesWorkflow(PostHogWorkflow):
+    @staticmethod
+    def parse_inputs() -> typing.Any:
+        return None
+
     @temporalio.workflow.run
-    async def run(self):
+    async def run(self, inputs: typing.Any) -> None:
         # TODO: use a while-loop to process insights in batches
         insight_ids = await temporalio.workflow.execute_activity(
             get_insights_to_migrate,
@@ -94,7 +99,7 @@ class UpgradeQueriesWorkflow(PostHogWorkflow):
 
             temporalio.workflow.execute_activity(
                 migrate_insights_batch,
-                MigrateInsightsBatchInputs(insight_ids=[insight.id for insight in batch]),
+                MigrateInsightsBatchInputs(insight_ids=batch),
                 start_to_close_timeout=dt.timedelta(minutes=10),
                 retry_policy=temporalio.common.RetryPolicy(
                     initial_interval=dt.timedelta(minutes=10),
