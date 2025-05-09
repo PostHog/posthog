@@ -110,8 +110,8 @@ jobs:
                       // Get the issues linked to a pull request
                       const getLinkedIssues = (pr) => {
                           if (!pr) {
-                              console.log('No pull request data found in the event payload')
-                              return ''
+                              console.log('No pull request data found in the event payload');
+                              return [];
                           }
 
                           const body = pr.body || ''
