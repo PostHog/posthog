@@ -41,16 +41,10 @@ const LONG_SCALE: u64 = 0xfffffffffffffff;
 /// * `f64` - A number between 0 and 1
 pub fn calculate_hash(prefix: &str, hashed_identifier: &str, salt: &str) -> Result<f64, FlagError> {
     let hash_key = format!("{}{}{}", prefix, hashed_identifier, salt);
-    let mut hasher = Sha1::new();
-    hasher.update(hash_key.as_bytes());
-    let result = hasher.finalize();
-    // :TRICKY: Convert the first 15 characters of the digest to a hexadecimal string
-    let hex_str = result.iter().fold(String::new(), |mut acc, byte| {
-        let _ = write!(acc, "{:02x}", byte);
-        acc
-    })[..15]
-        .to_string();
-    let hash_val = u64::from_str_radix(&hex_str, 16).unwrap();
+    let hash_value = Sha1::digest(hash_key.as_bytes());
+    let hash_val = hash_value[..15].iter().fold(0u64, |acc:u64, byte| {
+        acc<<1 + *byte as u64
+    });
     Ok(hash_val as f64 / LONG_SCALE as f64)
 }
 
