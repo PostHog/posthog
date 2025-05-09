@@ -55,7 +55,7 @@ operations = [
     # then drop the kafka tables
     run_sql_with_exceptions(DROP_KAFKA_EVENTS_TABLE_JSON),
     run_sql_with_exceptions(DROP_KAFKA_EVENTS_RECENT_TABLE_JSON),
-    # add missing columns to all tables in correct order
+    # add missing columns to all tables in the correct order
     # first the sharded tables
     run_sql_with_exceptions(ADD_CAPTURED_AT_COLUMNS_SHARDED_EVENTS_TABLE_SQL(), sharded=True),
     # second, add missing columns to writable table
