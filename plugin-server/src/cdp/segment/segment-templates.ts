@@ -322,6 +322,8 @@ const APPROVED_DESTINATIONS = [
     'segment-canny',
     'segment-fullstory-cloud',
     'segment-drip',
+    'segment-heap',
+    'segment-pipedrive',
 ]
 
 const HIDDEN_DESTINATIONS = [

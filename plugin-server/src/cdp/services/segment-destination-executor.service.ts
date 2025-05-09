@@ -139,6 +139,7 @@ export class SegmentDestinationExecutorService {
                 }
 
                 await action.perform(
+                    // @ts-ignore
                     async (endpoint, options) => {
                         addLog('warn', 'endpoint', endpoint)
                         addLog('warn', 'options', options)
@@ -154,7 +155,7 @@ export class SegmentDestinationExecutorService {
                         }
                         addLog('warn', 'headers', headers)
 
-                        let body: string = ''
+                        let body: string | undefined = undefined
                         if (options?.json) {
                             body = JSON.stringify(options.json)
                             headers['Content-Type'] = 'application/json'
@@ -179,7 +180,7 @@ export class SegmentDestinationExecutorService {
                         }
 
                         const fetchOptions: FetchOptions = {
-                            method: options?.method ?? 'GET',
+                            method: options?.method?.toUpperCase() ?? 'GET',
                             headers,
                             body,
                         }
@@ -225,10 +226,8 @@ export class SegmentDestinationExecutorService {
 
                         addLog('warn', 'fetchOptions', fetchOptions)
                         const fetchResponse = await this.fetch(`${endpoint}${params.toString() ? '?' + params.toString() : ''}`, fetchOptions)
-                        addLog('warn', 'fetchResponse text', await fetchResponse.text())
-                        addLog('warn', 'fetchResponse json', await fetchResponse.json())
                         const convertedResponse = await convertFetchResponse(fetchResponse)
-                        addLog('warn', 'convertedResponse', convertedResponse.data)
+                        addLog('warn', 'convertedResponse', convertedResponse.data, convertedResponse.content, convertedResponse.body)
                         return convertedResponse
                     },
                     {
