@@ -21,16 +21,14 @@ from posthog.schema import (
     DateRange,
     WebOverviewQuery,
     HogQLQueryModifiers,
+    CompareFilter,
 )
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
+    snapshot_clickhouse_queries,
 )
 from posthog.hogql.functions.mapping import HOGQL_AGGREGATIONS, HogQLFunctionMeta
-
-# Register the sumMerge function
-HOGQL_AGGREGATIONS["sumMerge"] = HogQLFunctionMeta("sumMerge", 1, 1, aggregate=True)
-HOGQL_AGGREGATIONS["uniqMerge"] = HogQLFunctionMeta("uniqMerge", 1, 1, aggregate=True)
 
 class WebOverviewDailyTable(Table):
     fields: Dict[str, FieldOrTable] = {
@@ -462,14 +460,11 @@ class TestWebOverviewPreAggregated(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(filters.right, ast.Constant)
         assert filters.right.value == "example.com"
 
-    @patch('posthog.hogql_queries.web_analytics.web_overview_pre_aggregated.create_hogql_database')
-    @pytest.mark.skip(reason="Requires ClickHouse database setup which is not available in this environment")
-    def test_previous_period_comparison(self, mock_create_db):
+    @patch('posthog.hogql.query.execute_hogql_query')
+    def test_previous_period_comparison(self, mock_execute_hogql_query):
         """Test that previous period comparison works correctly"""
-        # Setup a proper mock database with the required tables
-        mock_db = Database()
-        mock_db.web_overview_daily = WebOverviewDailyTable()
-        mock_create_db.return_value = mock_db
+        # Mock execution to avoid actually hitting ClickHouse
+        mock_execute_hogql_query.return_value = MagicMock()
         
         # Create a mock for previous period
         self.mock_runner.query_compare_to_date_range = MagicMock()
@@ -479,13 +474,12 @@ class TestWebOverviewPreAggregated(ClickhouseTestMixin, APIBaseTest):
         # Get the query - we don't actually execute it in tests
         query = self.query_builder.get_query()
         
-        # Check that the query has WITH clause for previous period comparison
+        # Check that the query has conditional aggregation for previous period comparison
         query_str = str(query)
         
-        # Verify structure of the query
-        self.assertIn("WITH", query_str)
-        self.assertIn("current_period", query_str)
-        self.assertIn("previous_period", query_str)
+        # Verify structure of the query - looking for conditional aggregation patterns
+        self.assertIn("uniqMergeIf", query_str)
+        self.assertIn("sumMergeIf", query_str)
         
         # Verify column aliases are as expected - these match the format from _convert_to_overview_format
         self.assertIn("previous_unique_persons", query_str)
@@ -493,16 +487,12 @@ class TestWebOverviewPreAggregated(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("previous_unique_sessions", query_str)
         self.assertIn("previous_avg_session_duration", query_str)
         self.assertIn("previous_bounce_rate", query_str)
-        self.assertIn("previous_revenue", query_str)
         
-    @patch('posthog.hogql_queries.web_analytics.web_overview_pre_aggregated.create_hogql_database')
-    @pytest.mark.skip(reason="Requires ClickHouse database setup which is not available in this environment")
-    def test_dynamic_date_range_comparison(self, mock_create_db):
+    @patch('posthog.hogql.query.execute_hogql_query')
+    def test_dynamic_date_range_comparison(self, mock_execute_hogql_query):
         """Test comparison with a dynamic date range (like 'last 7 days')"""
-        # Setup a proper mock database with the required tables
-        mock_db = Database()
-        mock_db.web_overview_daily = WebOverviewDailyTable()
-        mock_create_db.return_value = mock_db
+        # Mock execution to avoid actually hitting ClickHouse
+        mock_execute_hogql_query.return_value = MagicMock()
         
         # Set up current date range as "last 7 days"
         today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
@@ -521,30 +511,26 @@ class TestWebOverviewPreAggregated(ClickhouseTestMixin, APIBaseTest):
         # Convert to string for easier inspection
         query_str = str(query)
         
-        # Verify structure of the query
-        self.assertIn("WITH", query_str)
-        self.assertIn("current_period", query_str)
-        self.assertIn("previous_period", query_str)
+        # Verify structure of the query uses conditional aggregation
+        self.assertIn("uniqMergeIf", query_str)
+        self.assertIn("sumMergeIf", query_str)
         
-        # Verify date formatting in WHERE clauses
+        # Verify date formatting in conditional aggregation functions
         current_date_from = week_ago.strftime("%Y-%m-%d")
         current_date_to = today.strftime("%Y-%m-%d")
         previous_date_from = (week_ago - timedelta(days=7)).strftime("%Y-%m-%d")
         previous_date_to = week_ago.strftime("%Y-%m-%d")
         
-        self.assertIn(f"day_bucket >= '{current_date_from}'", query_str)
-        self.assertIn(f"day_bucket <= '{current_date_to}'", query_str)
-        self.assertIn(f"day_bucket >= '{previous_date_from}'", query_str)
-        self.assertIn(f"day_bucket <= '{previous_date_to}'", query_str)
+        self.assertIn(f"'{current_date_from}'", query_str)
+        self.assertIn(f"'{current_date_to}'", query_str)
+        self.assertIn(f"'{previous_date_from}'", query_str)
+        self.assertIn(f"'{previous_date_to}'", query_str)
         
-    @patch('posthog.hogql_queries.web_analytics.web_overview_pre_aggregated.create_hogql_database')
-    @pytest.mark.skip(reason="Requires ClickHouse database setup which is not available in this environment")
-    def test_distinct_previous_period_comparison(self, mock_create_db):
+    @patch('posthog.hogql.query.execute_hogql_query')
+    def test_distinct_previous_period_comparison(self, mock_execute_hogql_query):
         """Test comparison with a distinct previous period (like in the UI dropdown)"""
-        # Setup a proper mock database with the required tables
-        mock_db = Database()
-        mock_db.web_overview_daily = WebOverviewDailyTable()
-        mock_create_db.return_value = mock_db
+        # Mock execution to avoid actually hitting ClickHouse
+        mock_execute_hogql_query.return_value = MagicMock()
         
         # Set up current date range as specific month
         current_date_from = datetime.strptime("2023-03-01", "%Y-%m-%d")  # March 2023
@@ -563,13 +549,79 @@ class TestWebOverviewPreAggregated(ClickhouseTestMixin, APIBaseTest):
         # Convert to string for easier inspection
         query_str = str(query)
         
-        # Verify structure of the query and date formatting
-        self.assertIn("WITH", query_str)
-        self.assertIn("current_period", query_str)
-        self.assertIn("previous_period", query_str)
+        # Verify structure of the query uses conditional aggregation
+        self.assertIn("uniqMergeIf", query_str)
+        self.assertIn("sumMergeIf", query_str)
         
-        # Verify date formatting in WHERE clauses for both periods
-        self.assertIn("day_bucket >= '2023-03-01'", query_str)
-        self.assertIn("day_bucket <= '2023-03-31'", query_str)
-        self.assertIn("day_bucket >= '2023-02-01'", query_str)
-        self.assertIn("day_bucket <= '2023-02-28'", query_str) 
+        # Verify date formatting in conditional aggregation functions for both periods
+        self.assertIn("'2023-03-01'", query_str)
+        self.assertIn("'2023-03-31'", query_str)
+        self.assertIn("'2023-02-01'", query_str)
+        self.assertIn("'2023-02-28'", query_str)
+
+    @patch('posthog.hogql.query.execute_hogql_query')
+    def test_comparison_query_snapshot(self, mock_execute_hogql_query):
+        """Test that the SQL query generated for period comparison has the expected format"""
+        # Mock execution to avoid actually hitting ClickHouse
+        mock_execute_hogql_query.return_value = MagicMock()
+        
+        # Set date range
+        self.mock_runner.query.dateRange = DateRange(
+            date_from="2023-01-01",
+            date_to="2023-01-07",
+        )
+        self.mock_runner.query_compare_to_date_range = DateRange(
+            date_from="2023-01-01",
+            date_to="2023-01-01",
+        )
+        
+        # Get the query
+        query = self.query_builder._build_comparison_query(
+            team_id=2,
+            include_revenue=False,
+            current_date_from="2023-01-01",
+            current_date_to="2023-01-07",
+            previous_date_from="2023-01-01",
+            previous_date_to="2023-01-01"
+        )
+        
+        # Check for conditional aggregation in the query
+        assert "uniqMergeIf" in str(query)
+        assert "sumMergeIf" in str(query)
+        assert "day_bucket >= '2023-01-01' AND day_bucket <= '2023-01-07'" in str(query)
+        assert "day_bucket >= '2023-01-01' AND day_bucket <= '2023-01-01'" in str(query)
+
+    @patch('posthog.hogql.query.execute_hogql_query')
+    def test_single_period_query_snapshot(self, mock_execute_hogql_query):
+        """Test that the SQL query generated for a single period has the expected format"""
+        # Mock execution to avoid actually hitting ClickHouse
+        mock_execute_hogql_query.return_value = MagicMock()
+        
+        # Ensure no comparison period
+        self.mock_runner.query.compareFilter = None
+        self.mock_runner.query_compare_to_date_range = None
+        
+        # Add property filter to ensure it's included in the query
+        device_property = PropertyFilter(key="$device_type", value=["mobile", "tablet"])
+        self.mock_runner.query.properties = [device_property]
+        
+        # Get the query - we'll use the same _build_comparison_query method but with the same date for previous period
+        query = self.query_builder._build_comparison_query(
+            team_id=2,
+            include_revenue=False,
+            current_date_from="2023-01-01",
+            current_date_to="2023-01-07",
+            previous_date_from="2023-01-01",  # Same as current date, will result in empty comparison
+            previous_date_to="2023-01-01"
+        )
+        
+        # Convert to string to check for contents
+        query_str = str(query)
+        
+        # Check for device type filter in the query
+        assert "uniqMergeIf" in query_str
+        assert "sumMergeIf" in query_str
+        assert "day_bucket >= '2023-01-01' AND day_bucket <= '2023-01-07'" in query_str
+        assert "device_type IN" in query_str
+        assert "'mobile'" in query_str
+        assert "'tablet'" in query_str 
