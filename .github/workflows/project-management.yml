@@ -8,23 +8,195 @@ on:
 jobs:
     move-issues-on-branch-creation:
         runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            issues: write
+            repository-projects: read
+
         steps:
-            - name: Move Issue to In Progress
+            - name: Move Issue to In Progress on branch creation
               uses: actions/github-script@v7
               with:
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
                   script: |
                       const branchName = context.ref.replace('refs/heads/', '');
                       const issueNumber = branchName.match(/\d+$/)?.[0];
+
+                      console.log('Branch name:', branchName);
+                      console.log('Issue number:', issueNumber);
 
                       if(!issueNumber) {
                         console.log('No issue number found in branch name');
                         return;
                       }
 
-                      // Get all the projects
-                      const { data: projects } = await github.rest.projects.listForRepo({
+                      // Get issue's project data
+                      const issueQuery = `
+                        query($owner: String!, $repo: String!, $number: Int!) {
+                          repository(owner: $owner, name: $repo) {
+                            issue(number: $number) {
+                              id
+                              number
+                              title
+                              projectItems(first: 10) {
+                                nodes {
+                                  id
+                                  fieldValues(first: 20) {
+                                    nodes {
+                                      ... on ProjectV2ItemFieldSingleSelectValue {
+                                        name
+                                        field {
+                                          ... on ProjectV2SingleSelectField {
+                                            name
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                  project {
+                                    id
+                                    title
+                                    fields(first: 20) {
+                                      nodes {
+                                        ... on ProjectV2SingleSelectField {
+                                          id
+                                          name
+                                          options {
+                                            id
+                                            name
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      `;
+
+                      // Update status to In Progress
+                      const updateMutation = `
+                        mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
+                          updateProjectV2ItemFieldValue(
+                            input: {
+                              projectId: $projectId
+                              itemId: $itemId
+                              fieldId: $fieldId
+                              value: {
+                                singleSelectOptionId: $optionId
+                              }
+                            }
+                          ) {
+                            projectV2Item {
+                              id
+                            }
+                          }
+                        }
+                      `;
+
+                      const addCommentMutation = `
+                        mutation($input: AddCommentInput!) {
+                          addComment(input: $input) {
+                            commentEdge {
+                              node {
+                                id
+                              }
+                            }
+                          }
+                        }
+                      `;
+
+                      const issueResult = await github.graphql(issueQuery, {
                         owner: context.repo.owner,
                         repo: context.repo.repo,
+                        number: parseInt(issueNumber)
                       });
 
-                      console.log(projects);
+                      const issue = issueResult.repository.issue;
+                      console.log(`\nProcessing Issue #${issue.number}: ${issue.title}`);
+
+                      for (const item of issue.projectItems.nodes) {
+                        const project = item.project;
+
+                        // Find status field and its options
+                        const statusField = project.fields.nodes.find(field =>
+                          field.name?.toLowerCase().includes('status')
+                        );
+
+                        if (!statusField) {
+                          console.log(`\nProject: ${project.title}\nStatus: No status field found\n-------------------`);
+                          continue;
+                        }
+
+                        // Find "In Progress" option
+                        const inProgressOption = statusField.options.find(option =>
+                          option.name.toLowerCase().includes('in progress')
+                        );
+
+                        if (!inProgressOption) {
+                          console.log('No "In Progress" status found in this project\n-------------------');
+                          continue;
+                        }
+
+                        // Get current status
+                        const currentStatus = item.fieldValues.nodes.find(value =>
+                          value.field?.name.toLowerCase().includes('status')
+                        )?.name || 'No status';
+
+                        const availableStatuses = statusField.options.map(opt => opt.name);
+                        console.log(`\nProject: ${project.title}\nCurrent Status: ${currentStatus}\nAvailable Statuses: ${availableStatuses.join(', ')}`);
+
+                        let statusMessage = '';
+                        let needsComment = false;
+
+                        // Check if issue is in a final state
+                        if (currentStatus.toLowerCase().includes('done') || currentStatus.toLowerCase().includes('in review')) {
+                          statusMessage = `🚫 Oops! This issue is already ${currentStatus}! You might want to reset it to a different status.`;
+                          needsComment = true;
+                        } else if (currentStatus.toLowerCase().includes('in progress')) {
+                          statusMessage = `ℹ️ Issue is already In Progress in project "${project.title}"`;
+                        } else {
+                          try {
+                            await github.graphql(updateMutation, {
+                              projectId: project.id,
+                              itemId: item.id,
+                              fieldId: statusField.id,
+                              optionId: inProgressOption.id
+                            });
+                            statusMessage = `✅ Moved to In Progress in project "${project.title}"`;
+                          } catch (error) {
+                            statusMessage = `❌ Failed to update status in project "${project.title}": ${error.message}`;
+                            needsComment = true;
+                          }
+                        }
+
+                        console.log(statusMessage);
+
+                        // Comment on the issue
+                        if (needsComment) {
+                          const commentBody = `
+                      ### Project Status Update
+                      ${statusMessage}
+
+                      **Project:** ${project.title}
+                      **Current Status:** ${currentStatus}
+                      **Available Statuses:** ${availableStatuses.join(', ')}
+
+                      Branch: \`${branchName}\`
+                        `;
+
+                          try {
+                            await github.graphql(addCommentMutation, {
+                              input: {
+                                subjectId: issue.id,
+                                body: commentBody
+                              }
+                            });
+                            console.log('✓ Added comment to issue');
+                          } catch (error) {
+                            console.log('✗ Failed to add comment:', error.message);
+                          }
+                        }
+                      }
