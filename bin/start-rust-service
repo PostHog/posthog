@@ -75,11 +75,7 @@ case "$RS_SVC" in
 
   feature-flags)
     # Download MaxMind DB if it doesn't exist
-    if [ ! -f "../share/GeoLite2-City.mmdb" ]; then
-      mkdir -p ../share
-      curl -s -L "https://mmdbcdn.posthog.net/" --http1.1 | brotli --decompress --output=../share/GeoLite2-City.mmdb
-      chmod 755 ../share/GeoLite2-City.mmdb
-    fi
+    ./bin/download-mmdb
 
     export RUST_LOG=debug
     export RUST_BACKTRACE=1

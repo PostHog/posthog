@@ -43,13 +43,7 @@ services:
 
     feature-flags: # Targets the existing 'feature-flags' service from docker-compose.base.yml
         # MODIFIED: Make this service inert to avoid running two instances of feature-flags logic
-        image: alpine/git # A small, harmless image
-        command:
-            [
-                'sh',
-                '-c',
-                "echo 'Dockerized feature-flags service is disabled in local-flags mode; local version is used via mprocs.' && tail -f /dev/null",
-            ]
+        image: hello-world # A small, harmless image
         ports: [] # Remove any port mappings if they existed
         volumes: [] # Clear volumes if not needed for an inert service
         depends_on: [] # Clear dependencies if they are not relevant for an inert service
