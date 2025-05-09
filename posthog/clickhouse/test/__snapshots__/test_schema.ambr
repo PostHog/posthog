@@ -681,6 +681,15 @@
   
   '''
 # ---
+# name: test_create_table_query[distributed_system_processes]
+  '''
+  
+          CREATE TABLE IF NOT EXISTS distributed_system_processes ON CLUSTER 'posthog'
+          ENGINE = Distributed(posthog, system, processes)
+          SETTINGS skip_unavailable_shards=1
+      
+  '''
+# ---
 # name: test_create_table_query[error_tracking_issue_fingerprint_overrides]
   '''
   
