@@ -189,7 +189,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             ? [
                   {
                       identifier: 'Products',
-                      id: 'All products',
+                      id: 'Products',
                       icon: <IconCdCase />,
                       onClick: (e?: React.KeyboardEvent) => {
                           if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
@@ -399,11 +399,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                                 {featureFlags[FEATURE_FLAGS.TREE_VIEW_PRODUCTS] ? (
                                     <div className={!isLayoutNavCollapsed ? 'pt-1' : ''}>
-                                        {!isLayoutNavCollapsed && (
-                                            <div className="flex justify-between items-center pl-3 pr-1 pb-2">
-                                                <span className="text-xs font-semibold text-quaternary">Shortcuts</span>
-                                            </div>
-                                        )}
                                         <Shortcuts />
                                     </div>
                                 ) : (

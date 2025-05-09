@@ -1012,16 +1012,16 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     children: project,
                 },
                 {
-                    id: 'new',
-                    name: 'New',
-                    record: { type: 'folder', id: null, path: '/' },
-                    children: allNew,
-                },
-                {
                     id: 'products',
                     name: 'Products',
                     record: { type: 'folder', id: null, path: '/' },
                     children: products,
+                },
+                {
+                    id: 'new',
+                    name: 'New',
+                    record: { type: 'folder', id: null, path: '/' },
+                    children: allNew,
                 },
             ],
         ],

@@ -1,3 +1,4 @@
+import { IconPlus } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -108,19 +109,29 @@ export function AddShortcutModal(): JSX.Element {
 }
 
 export function Shortcuts(): JSX.Element {
-    const { shortcutsWithAdd } = useValues(shortcutsLogic)
-    const { mainContentRef } = useValues(panelLayoutLogic)
+    const { shortcuts } = useValues(shortcutsLogic)
+    const { showModal } = useActions(shortcutsLogic)
+    const { mainContentRef, isLayoutNavCollapsed } = useValues(panelLayoutLogic)
 
     const treeRef = useRef<LemonTreeRef>(null)
     const [expandedFolders, setExpandedFolders] = useState<string[]>(['/'])
 
     return (
         <>
+            {!isLayoutNavCollapsed && (
+                <div className="flex justify-between items-center pl-3 pr-1 relative">
+                    <span className="text-xs font-semibold text-quaternary">Shortcuts</span>
+                    <ButtonPrimitive onClick={showModal}>
+                        <IconPlus className="size-3 text-secondary" />
+                    </ButtonPrimitive>
+                </div>
+            )}
+            {shortcuts.length === 0 && <div className="pl-3 text-muted">No shortcuts added</div>}
             <LemonTree
                 ref={treeRef}
                 contentRef={mainContentRef as RefObject<HTMLElement>}
                 className="px-0 py-1"
-                data={shortcutsWithAdd}
+                data={shortcuts}
                 onFolderClick={(folder) => {
                     if (folder?.id) {
                         if (expandedFolders.includes(folder.id)) {

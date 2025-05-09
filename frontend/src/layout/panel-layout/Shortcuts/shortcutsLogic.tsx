@@ -1,5 +1,4 @@
-import { IconPlus } from '@posthog/icons'
-import { actions, kea, path, reducers, selectors } from 'kea'
+import { actions, kea, path, reducers } from 'kea'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 
 import type { shortcutsLogicType } from './shortcutsLogicType'
@@ -37,13 +36,4 @@ export const shortcutsLogic = kea<shortcutsLogicType>([
             },
         ],
     }),
-    selectors(({ actions }) => ({
-        shortcutsWithAdd: [
-            (s) => [s.shortcuts],
-            (shortcuts) => [
-                ...shortcuts,
-                { id: 'shortcuts/add', icon: <IconPlus />, name: 'Add new', onClick: () => actions.showModal() },
-            ],
-        ],
-    })),
 ])
