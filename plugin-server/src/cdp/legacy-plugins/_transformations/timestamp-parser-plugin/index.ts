@@ -14,7 +14,10 @@ export function processEvent(event: PluginEvent, _meta: LegacyTransformationPlug
 
     // Handle Unix timestamp (milliseconds)
     if (typeof event['timestamp'] === 'number') {
-        dt = event['timestamp'] > 999999999999 ? DateTime.fromMillis(event['timestamp']) : DateTime.fromSeconds(event['timestamp'])
+        dt =
+            event['timestamp'] > 999999999999
+                ? DateTime.fromMillis(event['timestamp'])
+                : DateTime.fromSeconds(event['timestamp'])
     }
     // Handle ISO string
     else if (typeof event['timestamp'] === 'string') {
