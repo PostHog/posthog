@@ -1909,10 +1909,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 const payload = {
                     ...surveyPayload,
                     conditions: sanitizeSurveyDisplayConditions(surveyPayload.conditions),
-                    appearance: sanitizeSurveyAppearance(
-                        surveyPayload.appearance,
-                        !!surveyPayload.enable_partial_responses
-                    ),
+                    appearance: sanitizeSurveyAppearance(surveyPayload.appearance),
                 }
 
                 // when the survey is being submitted, we should turn off editing mode
