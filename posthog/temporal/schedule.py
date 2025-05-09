@@ -63,7 +63,28 @@ async def create_run_quota_limiting_schedule(client: Client):
         )
 
 
-schedules = [create_sync_vectors_schedule, create_run_quota_limiting_schedule]
+async def create_upgrade_queries_schedule(client: Client):
+    """Create or update the schedule for the UpgradeQueriesWorkflow.
+
+    This schedule runs every 6 hours.
+    """
+    upgrade_queries_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "upgrade-queries",
+            None,
+            id="upgrade-queries-schedule",
+            task_queue=GENERAL_PURPOSE_TASK_QUEUE,
+        ),
+        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(hours=6))]),
+    )
+
+    if await a_schedule_exists(client, "upgrade-queries-schedule"):
+        await a_update_schedule(client, "upgrade-queries-schedule", upgrade_queries_schedule)
+    else:
+        await a_create_schedule(client, "upgrade-queries-schedule", upgrade_queries_schedule, trigger_immediately=False)
+
+
+schedules = [create_sync_vectors_schedule, create_run_quota_limiting_schedule, create_upgrade_queries_schedule]
 
 
 async def a_init_general_queue_schedules():
