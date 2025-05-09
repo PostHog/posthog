@@ -1,4 +1,21 @@
 # serializer version: 1
+# name: TestStateTransforms.test_combine_two_different_state_queries_into_one_merge_query
+  '''
+  
+  SELECT countMerge(total_pageviews) AS total_pageviews 
+  FROM (
+  SELECT countState() AS total_pageviews 
+  FROM events 
+  WHERE and(equals(events.team_id, 420), less(toTimeZone(events.timestamp, %(hogql_val_0)s), minus(now64(6, %(hogql_val_1)s), toIntervalDay(1))))) 
+  LIMIT 50000 UNION ALL 
+  SELECT countMerge(total_pageviews) AS total_pageviews 
+  FROM (
+  SELECT countState() AS total_pageviews 
+  FROM events 
+  WHERE and(equals(events.team_id, 420), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_2)s), minus(now64(6, %(hogql_val_3)s), toIntervalDay(1))))) 
+  LIMIT 50000
+  '''
+# ---
 # name: TestStateTransforms.test_filtered_aggregation
   '''
   
@@ -101,6 +118,32 @@
   SELECT uniqState(events.distinct_id) AS unique_users, countState(if(equals(events.event, %(hogql_val_0)s), 1, 0)) AS pageview_count 
   FROM events 
   WHERE and(equals(events.team_id, 420), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s)) 
+  LIMIT 50000
+  '''
+# ---
+# name: TestStateTransforms.test_transform_simple_query_to_state_aggregations
+  '''
+  
+  SELECT uniqState(events.distinct_id) AS unique_users, countState() AS total_events 
+  FROM events 
+  WHERE and(equals(events.team_id, 420), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_0)s), %(hogql_val_1)s)) 
+  LIMIT 50000
+  '''
+# ---
+# name: TestStateTransforms.test_union_all_state_queries_into_one_merge_query
+  '''
+  
+  SELECT countMerge(total_pageviews) AS total_pageviews 
+  FROM (
+  SELECT countState() AS total_pageviews 
+  FROM events 
+  WHERE and(equals(events.team_id, 420), less(toTimeZone(events.timestamp, %(hogql_val_0)s), minus(now64(6, %(hogql_val_1)s), toIntervalDay(1))))) 
+  LIMIT 50000 UNION ALL 
+  SELECT countMerge(total_pageviews) AS total_pageviews 
+  FROM (
+  SELECT countState() AS total_pageviews 
+  FROM events 
+  WHERE and(equals(events.team_id, 420), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_2)s), minus(now64(6, %(hogql_val_3)s), toIntervalDay(1))))) 
   LIMIT 50000
   '''
 # ---
