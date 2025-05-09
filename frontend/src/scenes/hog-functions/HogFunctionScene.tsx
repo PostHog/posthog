@@ -16,7 +16,7 @@ import { HogFunctionLogs } from 'scenes/pipeline/hogfunctions/logs/HogFunctionLo
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { ActivityScope, Breadcrumb } from '~/types'
+import { ActivityScope, Breadcrumb, PipelineTab } from '~/types'
 
 import type { hogFunctionSceneLogicType } from './HogFunctionSceneType'
 import { HogFunctionSkeleton } from './misc/HogFunctionSkeleton'
@@ -45,21 +45,48 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
     selectors({
         logicProps: [() => [(_, props) => props], (props) => props],
         breadcrumbs: [
-            (s) => [(_, props) => props, s.type],
-            ({ templateId, id }, type): Breadcrumb[] => {
-                const friendlyType =
-                    type === 'destination'
-                        ? 'Destination'
-                        : type === 'internal_destination'
-                        ? 'Notification'
-                        : capitalizeFirstLetter(type)
+            (s) => [(_, props) => props, s.type, s.loading, s.configuration],
+            ({ templateId, id }, type, loading, configuration): Breadcrumb[] => {
+                if (loading) {
+                    return [
+                        {
+                            key: Scene.HogFunction,
+                            name: 'Loading...',
+                        },
+                        {
+                            key: Scene.HogFunction,
+                            name: '',
+                        },
+                    ]
+                }
 
-                // TODO: Map URLs as well
+                if (type === 'transformation' || type === 'destination') {
+                    return [
+                        {
+                            key: Scene.Pipeline,
+                            name: 'Data pipelines',
+                            path: urls.pipeline(PipelineTab.Overview),
+                        },
+                        {
+                            key: Scene.HogFunction,
+                            name: `${capitalizeFirstLetter(type)}s`,
+                            path: urls.pipeline(
+                                type === 'destination' ? PipelineTab.Destinations : PipelineTab.Transformations
+                            ),
+                        },
+                        {
+                            key: Scene.HogFunction,
+                            name: configuration?.name ?? '(Untitled)',
+                            path: urls.hogFunction(id),
+                        },
+                    ]
+                }
 
                 return [
                     {
                         key: Scene.HogFunction,
-                        name: friendlyType,
+                        name: 'Function',
+                        path: urls.hogFunction(id),
                     },
                     {
                         key: Scene.HogFunction,
