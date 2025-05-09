@@ -37,7 +37,7 @@ export class CyclotronJobQueuePostgres {
         private config: PluginsServerConfig,
         private queue: HogFunctionInvocationJobQueue,
         private hogFunctionManager: HogFunctionManagerService,
-        private consumeBatch: (invocations: HogFunctionInvocation[]) => Promise<any>
+        private consumeBatch: (invocations: HogFunctionInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
     ) {}
 
     /**
