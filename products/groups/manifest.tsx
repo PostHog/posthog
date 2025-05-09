@@ -1,3 +1,6 @@
+import { IconPeople } from '@posthog/icons'
+import { urls } from 'scenes/urls'
+
 import { ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
@@ -16,4 +19,11 @@ export const manifest: ProductManifest = {
     fileSystemTypes: {
         // TODO: create group node entries in the backend
     },
+    treeItemsProducts: [
+        {
+            path: 'Group analytics',
+            icon: <IconPeople />,
+            href: () => urls.groups(0),
+        },
+    ],
 }
