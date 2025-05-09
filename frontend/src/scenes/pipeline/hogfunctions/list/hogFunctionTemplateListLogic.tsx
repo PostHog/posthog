@@ -18,7 +18,7 @@ import {
     UserType,
 } from '~/types'
 
-import { generateSubTemplate, getSubTemplate } from '../sub-templates/sub-templates'
+import { getSubTemplate } from '../sub-templates/sub-templates'
 import type { hogFunctionTemplateListLogicType } from './hogFunctionTemplateListLogicType'
 
 // Helping kea-typegen navigate the exported default class for Fuse
@@ -109,15 +109,27 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
 
         templates: [
             (s) => [s.rawTemplates, (_, props) => props],
-            (rawTemplates, { subTemplateIds }): HogFunctionTemplateWithSubTemplateType[] => {
+            (
+                rawTemplates,
+                { subTemplateIds }: HogFunctionTemplateListLogicProps
+            ): HogFunctionTemplateWithSubTemplateType[] => {
+                if (!subTemplateIds) {
+                    return rawTemplates
+                }
+
                 const final: HogFunctionTemplateWithSubTemplateType[] = []
 
+                // Special case for listing sub templates - we
                 for (const template of rawTemplates) {
-                    // TODO: Update this...
-                    for (const subTemplateId of subTemplateIds) {
-                        const subTemplate = generateSubTemplate(template, subTemplateId)
+                    for (const subTemplateId of subTemplateIds ?? []) {
+                        const subTemplate = getSubTemplate(template, subTemplateId)
+
                         if (subTemplate) {
-                            final.push(subTemplate)
+                            // Store it with the overrides applied
+                            final.push({
+                                ...template,
+                                ...subTemplate,
+                            })
                         }
                     }
                 }

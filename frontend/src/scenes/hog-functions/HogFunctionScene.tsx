@@ -136,14 +136,13 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
             ]
         },
     })),
-    urlToAction(({ actions }) => {
-        const reactToTabChange = (_: any, search: Record<string, string>) => {
-            if ('tab' in search) {
-                actions.setCurrentTab(
-                    HOG_FUNCTION_SCENE_TABS.includes(search.tab as HogFunctionSceneTab)
-                        ? (search.tab as HogFunctionSceneTab)
-                        : 'configuration'
-                )
+    urlToAction(({ actions, values }) => {
+        const reactToTabChange = (_: any, search: Record<string, string>): void => {
+            const possibleTab = (search.tab ?? 'configuration') as HogFunctionSceneTab
+
+            const tab = HOG_FUNCTION_SCENE_TABS.includes(possibleTab) ? possibleTab : 'configuration'
+            if (tab !== values.currentTab) {
+                actions.setCurrentTab(tab)
             }
         }
 
