@@ -1,28 +1,18 @@
 import { parseJSON } from '~/src/utils/json-parse'
 
 import { defaultConfig } from '../../config/config'
-import { Hub } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
-import { UUIDT } from '../../utils/utils'
 import { HOG_FUNCTION_TEMPLATES } from './index'
 import { TemplateSyncService } from './sync-hog-function-templates'
 
 describe('TemplateSyncService', () => {
-    let hub: Hub
     let service: TemplateSyncService
     let postgres: PostgresRouter
     let geoipTemplate: any
 
     beforeEach(async () => {
         postgres = new PostgresRouter(defaultConfig)
-
-        // Create a minimal hub with a real database connection
-        hub = {
-            postgres,
-            instanceId: new UUIDT().toString(),
-        } as unknown as Hub
-
-        service = new TemplateSyncService(hub)
+        service = new TemplateSyncService(postgres)
 
         // Find the geoip template to use in our tests
         geoipTemplate = HOG_FUNCTION_TEMPLATES.find((template) => template.id === 'template-geoip')

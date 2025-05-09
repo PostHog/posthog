@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon'
 
+import { TemplateSyncService } from '../../src/cdp/templates/sync-hog-function-templates'
 import { defaultConfig } from '../../src/config/config'
 import {
     Hub,
@@ -143,6 +144,10 @@ export async function resetTestDatabase(
             await insertRow(db, 'posthog_pluginattachment', pluginAttachment)
         }
     }
+
+    const templateSyncService = new TemplateSyncService(db)
+    await templateSyncService.syncTemplates()
+
     await db.end()
 }
 

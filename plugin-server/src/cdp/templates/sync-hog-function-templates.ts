@@ -1,8 +1,7 @@
 import crypto from 'crypto'
 
 import { insertRow } from '../../../tests/helpers/sql'
-import { Hub } from '../../types'
-import { PostgresUse } from '../../utils/db/postgres'
+import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { logger } from '../../utils/logger'
 import { UUIDT } from '../../utils/utils'
 import { compileHog } from './compiler'
@@ -10,10 +9,10 @@ import { HOG_FUNCTION_TEMPLATES_FOR_TESTS } from './index'
 import { HogFunctionTemplate } from './types'
 
 export class TemplateSyncService {
-    private hub: Hub
+    private db: PostgresRouter
 
-    constructor(hub: Hub) {
-        this.hub = hub
+    constructor(db: PostgresRouter) {
+        this.db = db
     }
 
     /**
@@ -71,7 +70,7 @@ export class TemplateSyncService {
         const sha = this.generateShaFromTemplate(template)
 
         // Check if template already exists with the same SHA (exactly the same content)
-        const existingTemplateWithSameSha = await this.hub.postgres.query(
+        const existingTemplateWithSameSha = await this.db.query(
             PostgresUse.COMMON_READ,
             `SELECT id FROM posthog_hogfunctiontemplate WHERE template_id = $1 AND sha = $2`,
             [template.id, sha],
@@ -109,7 +108,7 @@ export class TemplateSyncService {
 
         // Fetch existing template ID if it exists
         let templateId: string | null = null
-        const existingTemplate = await this.hub.postgres.query(
+        const existingTemplate = await this.db.query(
             PostgresUse.COMMON_READ,
             `SELECT id FROM posthog_hogfunctiontemplate WHERE template_id = $1`,
             [template.id],
@@ -147,7 +146,7 @@ export class TemplateSyncService {
         try {
             if (existingTemplate.rows.length > 0) {
                 // Update existing template with on conflict handling
-                await this.hub.postgres.query(
+                await this.db.query(
                     PostgresUse.COMMON_WRITE,
                     `UPDATE posthog_hogfunctiontemplate SET 
                         sha = $1,
@@ -194,7 +193,7 @@ export class TemplateSyncService {
                 return 'updated'
             } else {
                 // Create new template
-                await insertRow(this.hub.postgres, 'posthog_hogfunctiontemplate', templateData)
+                await insertRow(this.db, 'posthog_hogfunctiontemplate', templateData)
                 logger.info('Created template', { template_id: template.id })
                 return 'created'
             }

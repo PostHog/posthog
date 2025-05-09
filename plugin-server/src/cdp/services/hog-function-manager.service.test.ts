@@ -705,8 +705,8 @@ describe('template patching', () => {
 
     beforeEach(async () => {
         hub = await createHub()
+        await resetTestDatabase()
         manager = new HogFunctionManagerService(hub)
-
         const team = await getTeam(hub, 2)
         teamId = await createTeam(hub.db.postgres, team!.organization_id)
         await manager.start()
