@@ -1,4 +1,3 @@
-use anyhow::Result;
 use feature_flags::flags::flag_matching_utils::calculate_hash;
 
 pub mod common;
