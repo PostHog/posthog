@@ -3,12 +3,17 @@
 // The imports are preserved between builds, so please update if any are missing or extra.
 
 import {
+    IconAI,
     IconDashboard,
     IconGraph,
+    IconHandMoney,
     IconMegaphone,
     IconMessage,
     IconNotebook,
     IconPeople,
+    IconPerson,
+    IconPieChart,
+    IconPiggyBank,
     IconRewindPlay,
     IconRocket,
     IconTestTube,

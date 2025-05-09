@@ -155,16 +155,15 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
                 <div className="flex justify-end gap-2">
                     {item.data.event === '$exception' && '$exception_issue_id' in item.data.properties ? (
                         <LemonButton
-                            fullWidth
                             targetBlank
                             sideIcon={<IconOpenInNew />}
-                            data-attr="events-table-exception-link"
+                            data-attr="replay-inspector-issue-link"
                             to={urls.errorTrackingIssue(
                                 item.data.properties.$exception_issue_id,
                                 item.data.properties.$exception_fingerprint
                             )}
                         >
-                            Visit issue
+                            View issue
                         </LemonButton>
                     ) : null}
                     <LemonMenu
