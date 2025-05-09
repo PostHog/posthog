@@ -51,7 +51,7 @@ def get_transpiled_function(hog_function: HogFunction) -> str:
 
     response += "return inputs;}\n"
 
-    response += f"const source = {transpile(hog_function.hog or '', 'site')}();"
+    response += f"const source = {transpile(hog_function.hog, 'site')}();"
 
     # Convert the global filters to code
     filters_expr = hog_function_filters_to_expr(hog_function.filters or {}, hog_function.team, {})

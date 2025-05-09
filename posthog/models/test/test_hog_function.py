@@ -25,7 +25,8 @@ class TestHogFunction(TestCase):
     def test_hog_function_basic(self):
         item = HogFunction.objects.create(name="Test", team=self.team, type="destination")
         assert item.name == "Test"
-        assert item.hog is None
+        assert item.hog == ""
+        assert item.bytecode == []
         assert not item.enabled
 
     def test_hog_function_team_no_filters_compilation(self):
