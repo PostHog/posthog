@@ -49,11 +49,6 @@ export const integrationsLogic = kea<integrationsLogicType>([
             key,
             callback,
         }),
-        newMailjetKey: (apiKey: string, secretKey: string, callback?: (integration: IntegrationType) => void) => ({
-            apiKey,
-            secretKey,
-            callback,
-        }),
         deleteIntegration: (id: number) => ({ id }),
     }),
 
@@ -99,23 +94,6 @@ export const integrationsLogic = kea<integrationsLogicType>([
                         return [...(values.integrations ?? []), responseWithIcon]
                     } catch (e) {
                         lemonToast.error('Failed to upload Google Cloud key.')
-                        throw e
-                    }
-                },
-                newMailjetKey: async ({ apiKey, secretKey, callback }) => {
-                    try {
-                        const response = await api.integrations.create({
-                            kind: 'email',
-                            config: { api_key: apiKey, secret_key: secretKey },
-                        })
-                        const responseWithIcon = { ...response, icon_url: ICONS['email'] }
-
-                        // run onChange after updating the integrations loader
-                        window.setTimeout(() => callback?.(responseWithIcon), 0)
-
-                        return [...(values.integrations ?? []), responseWithIcon]
-                    } catch (e) {
-                        lemonToast.error('Failed to upload Mailjet key.')
                         throw e
                     }
                 },

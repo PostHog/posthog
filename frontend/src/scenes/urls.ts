@@ -174,5 +174,6 @@ export const urls = {
     messagingLibraryTemplate: (id: string): string => `/messaging/library/templates/${id}`,
     messagingLibraryTemplateNew: (): string => '/messaging/library/templates/new',
     messagingLibraryMessage: (id: string): string => `/messaging/library/messages/${id}`,
+    messagingSenders: (): string => '/messaging/senders',
     startups: (ycProgram?: boolean): string => `/startups${ycProgram ? '/yc' : ''}`,
 }

@@ -18,12 +18,17 @@ export const manifest: ProductManifest = {
             projectBased: true,
         },
         MessagingLibrary: {
-            import: () => import('./frontend/library/MessageLibrary'),
+            import: () => import('./frontend/Library/MessageLibrary'),
             name: 'Messaging',
             projectBased: true,
         },
         MessagingLibraryTemplate: {
-            import: () => import('./frontend/library/MessageTemplate'),
+            import: () => import('./frontend/Library/MessageTemplate'),
+            name: 'Messaging',
+            projectBased: true,
+        },
+        MessageSenders: {
+            import: () => import('./frontend/Senders/MessageSenders'),
             name: 'Messaging',
             projectBased: true,
         },
@@ -43,6 +48,7 @@ export const manifest: ProductManifest = {
             'MessagingLibraryTemplate',
             'messagingLibraryTemplateFromMessage',
         ],
+        '/messaging/senders': ['MessageSenders', 'messageSenders'],
     },
     redirects: {
         '/messaging': '/messaging/broadcasts',
