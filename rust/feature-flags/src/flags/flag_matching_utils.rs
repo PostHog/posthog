@@ -4,7 +4,6 @@ use common_types::{PersonId, ProjectId, TeamId};
 use serde_json::Value;
 use sha1::{Digest, Sha1};
 use sqlx::{postgres::PgQueryResult, Acquire, Row};
-use std::fmt::Write;
 use std::time::Duration;
 use tokio::time::{sleep, timeout};
 use tracing::info;
@@ -42,9 +41,9 @@ const LONG_SCALE: u64 = 0xfffffffffffffff;
 pub fn calculate_hash(prefix: &str, hashed_identifier: &str, salt: &str) -> Result<f64, FlagError> {
     let hash_key = format!("{}{}{}", prefix, hashed_identifier, salt);
     let hash_value = Sha1::digest(hash_key.as_bytes());
-    let hash_val = hash_value[..15].iter().fold(0u64, |acc:u64, byte| {
-        acc<<1 + *byte as u64
-    });
+    let hash_val = hash_value[..8].iter().fold(0u64, |acc:u64, byte| {
+        acc<<8 | (*byte as u64)
+    })>>4;
     Ok(hash_val as f64 / LONG_SCALE as f64)
 }
 
