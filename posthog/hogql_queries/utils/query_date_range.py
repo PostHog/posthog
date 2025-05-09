@@ -198,13 +198,13 @@ class QueryDateRange:
     def date_to_as_hogql(self) -> ast.Expr:
         return ast.Call(
             name="assumeNotNull",
-            args=[ast.Call(name="toDateTime", args=[ast.Constant(value=self.date_to_str)])],
+            args=[ast.Call(name="toDateTime", args=[(ast.Constant(value=self.date_to_str))])],
         )
 
     def date_from_as_hogql(self) -> ast.Expr:
         return ast.Call(
             name="assumeNotNull",
-            args=[ast.Call(name="toDateTime", args=[ast.Constant(value=self.date_from_str)])],
+            args=[ast.Call(name="toDateTime", args=[(ast.Constant(value=self.date_from_str))])],
         )
 
     def previous_period_date_from_as_hogql(self) -> ast.Expr:
@@ -213,7 +213,7 @@ class QueryDateRange:
             args=[
                 ast.Call(
                     name="toDateTime",
-                    args=[ast.Constant(value=self.previous_period_date_from_str)],
+                    args=[(ast.Constant(value=self.previous_period_date_from_str))],
                 )
             ],
         )

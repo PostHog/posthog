@@ -95,7 +95,10 @@ class SessionReplayEvents:
                 sum(console_log_count) as console_log_count,
                 sum(console_warn_count) as console_warn_count,
                 sum(console_error_count) as console_error_count,
-                argMinMerge(snapshot_source) as snapshot_source
+                argMinMerge(snapshot_source) as snapshot_source,
+                groupArrayArray(block_first_timestamps) as block_first_timestamps,
+                groupArrayArray(block_last_timestamps) as block_last_timestamps,
+                groupArrayArray(block_urls) as block_urls
             FROM
                 session_replay_events
             PREWHERE
@@ -133,6 +136,9 @@ class SessionReplayEvents:
             console_warn_count=replay[10],
             console_error_count=replay[11],
             snapshot_source=replay[12] or "web",
+            block_first_timestamps=replay[13],
+            block_last_timestamps=replay[14],
+            block_urls=replay[15],
         )
 
     def get_metadata(
