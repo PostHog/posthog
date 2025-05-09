@@ -113,6 +113,7 @@ export function HogFunctionConfiguration({
     }
 
     const isLegacyPlugin = (template?.id || hogFunction?.template?.id)?.startsWith('plugin-')
+    const isSegmentPlugin = (template?.id || hogFunction?.template?.id)?.startsWith('segment-')
 
     const headerButtons = (
         <>
@@ -204,6 +205,7 @@ export function HogFunctionConfiguration({
         displayOptions.canEditSource ??
         // Never allow editing for legacy plugins
         (!isLegacyPlugin &&
+            !isSegmentPlugin &&
             (['destination', 'email', 'site_destination', 'site_app'].includes(type) ||
                 (type === 'transformation' && canEditTransformationHogCode)))
     const showPersonsCount = displayOptions.showPersonsCount ?? ['broadcast'].includes(type)
@@ -298,7 +300,7 @@ export function HogFunctionConfiguration({
                                         <LemonTextArea disabled={loading} />
                                     </LemonField>
 
-                                    {isLegacyPlugin ? null : hogFunction?.template &&
+                                    {isLegacyPlugin || isSegmentPlugin ? null : hogFunction?.template &&
                                       !hogFunction.template.id.startsWith('template-blank-') ? (
                                         <LemonDropdown
                                             showArrow

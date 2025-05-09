@@ -74,6 +74,7 @@ export enum PluginServerMode {
     cdp_internal_events = 'cdp-internal-events',
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
     cdp_cyclotron_worker_plugins = 'cdp-cyclotron-worker-plugins',
+    cdp_cyclotron_worker_segment = 'cdp-cyclotron-worker-segment',
     cdp_cyclotron_worker_fetch = 'cdp-cyclotron-worker-fetch',
     cdp_api = 'cdp-api',
     functional_tests = 'functional-tests',
@@ -395,6 +396,7 @@ export interface PluginServerCapabilities {
     cdpInternalEvents?: boolean
     cdpCyclotronWorker?: boolean
     cdpCyclotronWorkerPlugins?: boolean
+    cdpCyclotronWorkerSegment?: boolean
     cdpCyclotronWorkerFetch?: boolean
     cdpApi?: boolean
     appManagementSingleton?: boolean
@@ -1004,6 +1006,11 @@ export interface EventPropertyFilter extends PropertyFilterWithOperator {
 }
 
 /** Sync with posthog/frontend/src/types.ts */
+export interface HogQLPropertyFilter extends PropertyFilterWithOperator {
+    type: 'hogql'
+}
+
+/** Sync with posthog/frontend/src/types.ts */
 export interface PersonPropertyFilter extends PropertyFilterWithOperator {
     type: 'person'
 }
@@ -1038,6 +1045,7 @@ export type PropertyFilter =
     | CohortPropertyFilter
     | DataWarehousePropertyFilter
     | DataWarehousePersonPropertyFilter
+    | HogQLPropertyFilter
 
 /** Sync with posthog/frontend/src/types.ts */
 export enum StringMatching {

@@ -330,7 +330,11 @@ export function createInvocation(
         globals,
         teamId: hogFunction.team_id,
         hogFunction,
-        queue: isLegacyPluginHogFunction(hogFunction) ? 'plugin' : 'hog',
+        queue: isLegacyPluginHogFunction(hogFunction)
+            ? 'plugin'
+            : isSegmentPluginHogFunction(hogFunction)
+            ? 'segment'
+            : 'hog',
         queuePriority: 1,
         timings: [],
     }
@@ -360,6 +364,10 @@ export function cloneInvocation(
 
 export function isLegacyPluginHogFunction(hogFunction: HogFunctionType): boolean {
     return hogFunction.template_id?.startsWith('plugin-') ?? false
+}
+
+export function isSegmentPluginHogFunction(hogFunction: HogFunctionType): boolean {
+    return hogFunction.template_id?.startsWith('segment-') ?? false
 }
 
 export function filterExists<T>(value: T): value is NonNullable<T> {
