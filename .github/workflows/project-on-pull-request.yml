@@ -1,0 +1,292 @@
+name: Project - Update Issue on Pull Request
+
+on:
+    pull_request:
+        types:
+            - opened
+            - ready_for_review
+            - converted_to_draft
+            - closed
+    workflow_dispatch:
+        inputs:
+            pr_number:
+                description: 'PR number to test with'
+                required: true
+                type: number
+
+jobs:
+    update-issue-status:
+        runs-on: ubuntu-latest
+        permissions:
+            issues: write
+            contents: read
+            pull-requests: read
+            repository-projects: read
+
+        steps:
+            - name: Update Issue Status
+              uses: actions/github-script@v7
+              with:
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  script: |
+                      // Get issue's project data
+                      const issueQuery = `
+                        query($owner: String!, $repo: String!, $number: Int!) {
+                          repository(owner: $owner, name: $repo) {
+                            issue(number: $number) {
+                              id
+                              number
+                              title
+                              projectItems(first: 10) {
+                                nodes {
+                                  id
+                                  fieldValues(first: 20) {
+                                    nodes {
+                                      ... on ProjectV2ItemFieldSingleSelectValue {
+                                        name
+                                        field {
+                                          ... on ProjectV2SingleSelectField {
+                                            name
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                  project {
+                                    id
+                                    title
+                                    fields(first: 20) {
+                                      nodes {
+                                        ... on ProjectV2SingleSelectField {
+                                          id
+                                          name
+                                          options {
+                                            id
+                                            name
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      `;
+
+                      // Update status to In Progress
+                      const updateMutation = `
+                        mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
+                          updateProjectV2ItemFieldValue(
+                            input: {
+                              projectId: $projectId
+                              itemId: $itemId
+                              fieldId: $fieldId
+                              value: {
+                                singleSelectOptionId: $optionId
+                              }
+                            }
+                          ) {
+                            projectV2Item {
+                              id
+                            }
+                          }
+                        }
+                      `;
+
+                      const addCommentMutation = `
+                        mutation($input: AddCommentInput!) {
+                          addComment(input: $input) {
+                            commentEdge {
+                              node {
+                                id
+                              }
+                            }
+                          }
+                        }
+                      `;
+
+                      // Get the issues linked to a pull request
+                      const getLinkedIssues = (pr) => {
+                          if (!pr) {
+                              console.log('No pull request data found in the event payload')
+                              return ''
+                          }
+
+                          const body = pr.body || ''
+
+                          // Define keywords that should trigger issue updates. All others are ignored.
+                          const triggerKeywords = ['fixes', 'resolves', 'closes', 'fix', 'resolve', 'close']
+
+                          // Find all issue references with trigger keywords
+                          const issueRefs = []
+                          for (const keyword of triggerKeywords) {
+                              const regex = new RegExp(`${keyword}\\s+#(\\d+)`, 'gi')
+                              const matches = body.matchAll(regex)
+                              for (const match of matches) {
+                                  issueRefs.push(match[1])
+                              }
+                          }
+
+                          // Remove duplicates
+                          return [...new Set(issueRefs)]
+                      }
+
+                      const findProjectStatusField = (project) =>
+                        project.fields.nodes.find((field) =>
+                          field.name?.toLowerCase().includes("status")
+                        );
+
+                      const findProjectStatusOption = (statusField, status) =>
+                        statusField.options.find((option) =>
+                          option.name.toLowerCase().includes(status)
+                        );
+
+                      const getCurrentStatus = (item) =>
+                        item.fieldValues.nodes.find((value) =>
+                          value.field?.name.toLowerCase().includes("status")
+                        )?.name || "No status";
+
+                      const fetchIssue = async (issueNumber) =>
+                        await github.graphql(issueQuery, {
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          number: parseInt(issueNumber),
+                        });
+
+                      const updateStatus = async (projectId, itemId, fieldId, optionId) =>
+                        await github.graphql(updateMutation, {
+                          projectId: project.id,
+                          itemId: itemId,
+                          fieldId: fieldId,
+                          optionId: optionId,
+                        });
+
+                      const createCommentBody = (
+                        statusMessage,
+                        projectTitle,
+                        currentStatus,
+                        availableStatuses,
+                        prNumber
+                      ) => `
+                      ### Project Status Update
+                      ${statusMessage}
+
+                      **Project:** ${projectTitle}
+                      **Current Status:** ${currentStatus}
+                      **Available Statuses:** ${availableStatuses.join(', ')}
+
+                      Updated via Draft PR #${prNumber}
+                      `;
+
+                      const addComment = async (
+                        issueId,
+                        statusMessage,
+                        projectTitle,
+                        currentStatus,
+                        availableStatuses,
+                        prNumber
+                      ) => {
+                        try {
+                          await github.graphql(addCommentMutation, {
+                            input: {
+                              subjectId: issueId,
+                              body: createCommentBody(
+                                statusMessage,
+                                projectTitle,
+                                currentStatus,
+                                availableStatuses,
+                                prNumber
+                              ),
+                            },
+                          });
+                          console.log("✓ Added comment to issue");
+                        } catch (error) {
+                          console.log("✗ Failed to add comment:", error.message);
+                        }
+                      };
+
+                      const pr = context.payload.pull_request;
+                      const action = context.payload.action;
+
+                      const isDraft = pr.draft;
+
+                      // Only handle draft PRs for now
+                      if (!isDraft && action !== 'converted_to_draft') {
+                          console.log('Not a draft PR, skipping...');
+                          return;
+                      }
+
+                      console.log(`\nProcessing Draft PR #${pr.number}: ${pr.title}`);
+
+                      const linkedIssues = getLinkedIssues(pr);
+
+                      if (linkedIssues.length === 0) {
+                          console.log('No linked issues found');
+                          return;
+                      }
+                      console.log(`Linked issues: ${linkedIssues}`);
+
+                      // Update each linked issue
+                      for (const issueNumber of linkedIssues) {
+                          try {
+                              const issueResult = await fetchIssue(issueNumber);
+
+                              const issue = issueResult.repository.issue;
+                              console.log(`\nProcessing Issue #${issue.number}: ${issue.title}`);
+
+                              for (const item of issue.projectItems.nodes) {
+                                const project = item.project;
+
+                                // Find status field and its options
+                                const statusField = findProjectStatusField(project);
+
+                                if (!statusField) {
+                                  console.log(`\nProject: ${project.title}\nStatus: No status field found\n-------------------`);
+                                  continue;
+                                }
+
+                                // Find "In Progress" option
+                                const inProgressOption = findProjectStatusOption(statusField, "in progress");
+
+                                if (!inProgressOption) {
+                                  console.log('No "In Progress" status found in this project\n-------------------');
+                                  continue;
+                                }
+
+                                // Get current status
+                                const currentStatus = getCurrentStatus(item);
+
+                                const availableStatuses = statusField.options.map(opt => opt.name);
+                                console.log(`\nProject: ${project.title}\nCurrent Status: ${currentStatus}\nAvailable Statuses: ${availableStatuses.join(', ')}`);
+
+                                let statusMessage = '';
+                                let needsComment = false;
+
+                                if (currentStatus.toLowerCase().includes('done') || currentStatus.toLowerCase().includes('in review')) {
+                                    statusMessage = `🚫 Oops! This issue is already ${currentStatus}! You might want to reset it to a different status.`;
+                                    needsComment = true;
+                                } else if (currentStatus.toLowerCase().includes('in progress')) {
+                                    statusMessage = `ℹ️ Issue is already In Progress in project "${project.title}"`;
+                                } else {
+                                    try {
+                                        await updateStatus(project.id, item.id, statusField.id, inProgressOption.id);
+                                        statusMessage = `✅ Moved to In Progress in project "${project.title}"`;
+                                    } catch (error) {
+                                        statusMessage = `❌ Failed to update status in project "${project.title}": ${error.message}`;
+                                        needsComment = true;
+                                    }
+                                }
+
+                                console.log(statusMessage);
+
+                                if (needsComment) {
+                                    await addComment(issue.id, statusMessage, project.title, currentStatus, availableStatuses, pr.number);
+                                }
+                              }
+                          } catch (error) {
+                              console.log(`❌ Failed to fetch Issue #${issueNumber}: ${error.message}`);
+                              continue;
+                          }
+                      }
