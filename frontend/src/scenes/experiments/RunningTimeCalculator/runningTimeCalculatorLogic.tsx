@@ -66,6 +66,11 @@ const getSeriesItemProps = (metric: ExperimentMetric): { kind: NodeKind } & Reco
     }
 
     if (isExperimentFunnelMetric(metric)) {
+        /**
+         * For multivariate funnels, we select the last step
+         * Although we know that the last step is always an EventsNode, TS infers that the last step might be undefined
+         * so we use the non-null assertion operator (!) to tell TS that we know the last step is always an EventsNode
+         */
         const step = metric.series.at(-1)!
 
         if (step.kind === NodeKind.EventsNode) {
@@ -83,11 +88,7 @@ const getSeriesItemProps = (metric: ExperimentMetric): { kind: NodeKind } & Reco
         }
     }
 
-    // Default fallback
-    return {
-        kind: NodeKind.EventsNode,
-        event: null,
-    }
+    throw new Error(`Unsupported metric type: ${metric.metric_type || 'unknown'}`)
 }
 
 const getTotalCountQuery = (metric: ExperimentMetric, experiment: Experiment): TrendsQuery => {
