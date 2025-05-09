@@ -7,6 +7,7 @@ module.exports = {
     coverageProvider: 'v8',
     setupFilesAfterEnv: ['./jest.setup.js'],
     testMatch: ['<rootDir>/tests/**/*.test.ts', '<rootDir>/src/**/*.test.ts'],
+    globalSetup: './globalSetup.js',
     testTimeout: 60000,
     modulePathIgnorePatterns: ['<rootDir>/.tmp/'],
 

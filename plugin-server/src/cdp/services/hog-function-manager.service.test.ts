@@ -9,7 +9,6 @@ import { createTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { insertHogFunction, insertIntegration } from '../_tests/fixtures'
 import { template as geoipTemplate } from '../templates/_transformations/geoip/geoip.template'
 import { compileHog } from '../templates/compiler'
-import { TemplateSyncService } from '../templates/sync-hog-function-templates'
 import { HogFunctionManagerService } from './hog-function-manager.service'
 
 describe('HogFunctionManager', () => {
@@ -95,7 +94,6 @@ describe('HogFunctionManager', () => {
                 },
             })
         )
-
         await manager.start()
     })
 
@@ -707,11 +705,7 @@ describe('template patching', () => {
 
     beforeEach(async () => {
         hub = await createHub()
-        await resetTestDatabase()
         manager = new HogFunctionManagerService(hub)
-
-        const templateSyncService = new TemplateSyncService(hub)
-        await templateSyncService.syncTemplates()
 
         const team = await getTeam(hub, 2)
         teamId = await createTeam(hub.db.postgres, team!.organization_id)
