@@ -2,7 +2,7 @@ import { LemonBanner } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { actionEditLogic } from 'scenes/actions/actionEditLogic'
 import { actionLogic } from 'scenes/actions/actionLogic'
-import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
+import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 
 import { HogFunctionFiltersType } from '~/types'
 

@@ -29,11 +29,11 @@ import {
     HogFunctionMappingType,
 } from '~/types'
 
-import { EmailTemplater } from './email-templater/EmailTemplater'
+import { EmailTemplater } from '../email-templater/EmailTemplater'
+import { HogFunctionInputIntegration } from '../integrations/HogFunctionInputIntegration'
+import { HogFunctionInputIntegrationField } from '../integrations/HogFunctionInputIntegrationField'
 import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
 import { formatJsonValue, hogFunctionInputLogic } from './HogFunctionInputLogic'
-import { HogFunctionInputIntegration } from './integrations/HogFunctionInputIntegration'
-import { HogFunctionInputIntegrationField } from './integrations/HogFunctionInputIntegrationField'
 
 export type HogFunctionInputProps = {
     schema: HogFunctionInputSchemaType
@@ -172,7 +172,7 @@ function DictionaryField({
     return (
         <div className="deprecated-space-y-2">
             {entries.map(([key, val], index) => (
-                <div className="flex items-center gap-2" key={index}>
+                <div className="flex gap-2 items-center" key={index}>
                     <LemonInput
                         value={key}
                         className="flex-1 min-w-60"
@@ -294,7 +294,7 @@ function HogFunctionInputSchemaControls({
 
     return (
         <div className="flex flex-col gap-2">
-            <div className="flex flex-wrap items-center flex-1 gap-2">
+            <div className="flex flex-wrap flex-1 gap-2 items-center">
                 <LemonSelect
                     size="small"
                     options={typeList.map((type) => ({
@@ -460,7 +460,7 @@ export function HogFunctionInputWithSchema({
                     }) => {
                         return (
                             <>
-                                <div className="flex items-center gap-2">
+                                <div className="flex gap-2 items-center">
                                     <LemonLabel
                                         className={showSource ? 'cursor-grab' : ''}
                                         showOptional={!schema.required}
@@ -487,7 +487,7 @@ export function HogFunctionInputWithSchema({
                                             to="https://posthog.com/docs/cdp/destinations/customizing-destinations#customizing-payload"
                                             sideIcon={<IconInfo />}
                                             noPadding
-                                            className="p-1 transition-opacity opacity-0 group-hover:opacity-100"
+                                            className="p-1 opacity-0 transition-opacity group-hover:opacity-100"
                                         >
                                             Supports templating
                                         </LemonButton>
@@ -502,7 +502,7 @@ export function HogFunctionInputWithSchema({
                                     )}
                                 </div>
                                 {value?.secret ? (
-                                    <div className="flex items-center gap-2 p-1 border border-dashed rounded">
+                                    <div className="flex gap-2 items-center p-1 rounded border border-dashed">
                                         <span className="flex-1 p-1 italic text-secondary">
                                             This value is secret and is not displayed here.
                                         </span>
@@ -528,7 +528,7 @@ export function HogFunctionInputWithSchema({
                     }}
                 </LemonField>
             ) : (
-                <div className="p-2 deprecated-space-y-4 border border-dashed rounded">
+                <div className="p-2 rounded border border-dashed deprecated-space-y-4">
                     <HogFunctionInputSchemaControls
                         value={schema}
                         onChange={onSchemaChange}

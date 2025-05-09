@@ -80,7 +80,7 @@ export function HogFunctionStatusIndicator({ hogFunction }: HogFunctionStatusInd
             overlay={
                 <>
                     <div className="p-2 deprecated-space-y-2">
-                        <h2 className="flex items-center m-0 gap-2">
+                        <h2 className="flex gap-2 items-center m-0">
                             Function status - <LemonTag type={tagType}>{display}</LemonTag>
                         </h2>
 

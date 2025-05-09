@@ -12,10 +12,7 @@ import { EventsNode, EventsQuery, EventsQueryResponse, NodeKind, TrendsQuery } f
 import { escapePropertyAsHogQlIdentifier } from '~/queries/utils'
 import { BaseMathType, ChartDisplayType, HogFunctionInvocationGlobals, HogFunctionTestInvocationResult } from '~/types'
 
-import {
-    hogFunctionConfigurationLogic,
-    sanitizeConfiguration,
-} from '../../pipeline/hogfunctions/hogFunctionConfigurationLogic'
+import { hogFunctionConfigurationLogic, sanitizeConfiguration } from '../configuration/hogFunctionConfigurationLogic'
 import type { hogFunctionTestingLogicType } from './hogFunctionTestingLogicType'
 
 export interface HogFunctionTestingLogicProps {

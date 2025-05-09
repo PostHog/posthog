@@ -1,4 +1,4 @@
-import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
+import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 
 export function SidePanelActivitySubscriptions(): JSX.Element {
     return (

@@ -14,7 +14,7 @@ import { SlackChannelPicker } from 'lib/integrations/SlackIntegrationHelpers'
 
 import { HogFunctionInputSchemaType } from '~/types'
 
-import { hogFunctionConfigurationLogic } from '../hogFunctionConfigurationLogic'
+import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
 
 export type HogFunctionInputIntegrationFieldProps = {
     schema: HogFunctionInputSchemaType

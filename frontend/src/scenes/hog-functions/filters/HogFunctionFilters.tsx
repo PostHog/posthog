@@ -13,7 +13,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, EntityTypes, FilterType, HogFunctionFiltersType } from '~/types'
 
-import { hogFunctionConfigurationLogic } from '../hogFunctionConfigurationLogic'
+import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
 import { HogFunctionFiltersInternal } from './HogFunctionFiltersInternal'
 
 function sanitizeActionFilters(filters?: FilterType): Partial<HogFunctionFiltersType> {
