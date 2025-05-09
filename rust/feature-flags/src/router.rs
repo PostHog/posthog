@@ -27,9 +27,10 @@ use crate::{
 
 #[derive(Clone)]
 pub struct State {
-    pub redis: Arc<dyn RedisClient + Send + Sync>,
-    pub reader: Arc<dyn DatabaseClient + Send + Sync>,
-    pub writer: Arc<dyn DatabaseClient + Send + Sync>,
+    pub redis_writer: Arc<dyn RedisClient + Send + Sync>,
+    pub redis_reader: Arc<dyn RedisClient + Send + Sync>,
+    pub postgres_reader: Arc<dyn DatabaseClient + Send + Sync>,
+    pub postgres_writer: Arc<dyn DatabaseClient + Send + Sync>,
     pub cohort_cache_manager: Arc<CohortCacheManager>,
     pub geoip: Arc<GeoIpClient>,
     pub team_ids_to_track: TeamIdsToTrack,
@@ -39,9 +40,10 @@ pub struct State {
 
 #[allow(clippy::too_many_arguments)]
 pub fn router<R, D>(
-    redis: Arc<R>,
-    reader: Arc<D>,
-    writer: Arc<D>,
+    redis_writer: Arc<R>,
+    redis_reader: Arc<R>,
+    postgres_reader: Arc<D>,
+    postgres_writer: Arc<D>,
     cohort_cache: Arc<CohortCacheManager>,
     geoip: Arc<GeoIpClient>,
     liveness: HealthRegistry,
@@ -54,9 +56,10 @@ where
     D: DatabaseClient + Send + Sync + 'static,
 {
     let state = State {
-        redis,
-        reader,
-        writer,
+        redis_writer,
+        redis_reader,
+        postgres_reader,
+        postgres_writer,
         cohort_cache_manager: cohort_cache,
         geoip,
         team_ids_to_track: config.team_ids_to_track.clone(),

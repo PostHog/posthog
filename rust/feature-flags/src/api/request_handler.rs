@@ -112,7 +112,11 @@ pub type RequestPropertyOverrides = (
 /// 4) Evaluates the requested flags,
 /// 5) Returns a [`ServiceResponse`] or an error.
 pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, FlagError> {
-    let flag_service = FlagService::new(context.state.redis.clone(), context.state.reader.clone());
+    let flag_service = FlagService::new(
+        context.state.redis_writer.clone(),
+        context.state.redis_reader.clone(),
+        context.state.postgres_reader.clone(),
+    );
 
     let (original_distinct_id, verified_token, request) =
         parse_and_authenticate_request(&context, &flag_service).await?;
@@ -174,7 +178,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
     // NB don't charge if all the flags are survey targeting flags
     {
         if let Err(e) = increment_request_count(
-            context.state.redis.clone(),
+            context.state.redis_writer.clone(),
             team_id,
             1,
             FlagRequestType::Decide,
@@ -294,8 +298,8 @@ async fn evaluate_flags_for_request(
         project_id,
         distinct_id,
         feature_flags: filtered_flags,
-        reader: state.reader.clone(),
-        writer: state.writer.clone(),
+        reader: state.postgres_reader.clone(),
+        writer: state.postgres_writer.clone(),
         cohort_cache: state.cohort_cache_manager.clone(),
         person_property_overrides,
         group_property_overrides,

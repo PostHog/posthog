@@ -271,9 +271,10 @@ mod tests {
 
     #[tokio::test]
     async fn token_is_returned_correctly() {
-        let redis_client = setup_redis_client(None);
+        let redis_writer_client = setup_redis_client(None);
+        let redis_reader_client = setup_redis_client(None);
         let pg_client = setup_pg_reader_client(None).await;
-        let team = insert_new_team_in_redis(redis_client.clone())
+        let team = insert_new_team_in_redis(redis_writer_client.clone())
             .await
             .expect("Failed to insert new team in Redis");
 
@@ -289,7 +290,11 @@ mod tests {
             .extract_token()
             .expect("failed to extract token");
 
-        let flag_service = FlagService::new(redis_client.clone(), pg_client.clone());
+        let flag_service = FlagService::new(
+            redis_writer_client.clone(),
+            redis_reader_client.clone(),
+            pg_client.clone(),
+        );
 
         match flag_service.verify_token(&token).await {
             Ok(extracted_token) => assert_eq!(extracted_token, team.api_token),
@@ -299,7 +304,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_error_cases() {
-        let redis_client = setup_redis_client(None);
+        let redis_writer_client = setup_redis_client(None);
+        let redis_reader_client = setup_redis_client(None);
         let pg_client = setup_pg_reader_client(None).await;
 
         // Test invalid token
@@ -311,7 +317,11 @@ mod tests {
             .extract_token()
             .expect("failed to extract token");
 
-        let flag_service = FlagService::new(redis_client.clone(), pg_client.clone());
+        let flag_service = FlagService::new(
+            redis_writer_client.clone(),
+            redis_reader_client.clone(),
+            pg_client.clone(),
+        );
         assert!(matches!(
             flag_service.verify_token(&result).await,
             Err(FlagError::TokenValidationError)
