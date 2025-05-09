@@ -4,6 +4,7 @@ import api from 'lib/api'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { getUpgradeProductLink } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import type { paymentEntryLogicType } from './paymentEntryLogicType'
 
@@ -69,12 +70,27 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
             null as string | null,
             {
                 setRedirectPath: (_, { redirectPath }) => redirectPath,
-                showPaymentEntryModal: (state, { redirectPath }) => redirectPath ?? state,
             },
         ],
     },
 
     listeners: ({ actions, values }) => ({
+        showPaymentEntryModal: ({ redirectPath }) => {
+            const { billing } = billingLogic.values
+
+            if (billing?.customer_id) {
+                // If customer_id exists, redirect to the upgrade product link
+                const product = router.values.searchParams?.product || undefined
+                window.location.href = getUpgradeProductLink({
+                    product,
+                    redirectPath: redirectPath || undefined,
+                })
+                return
+            }
+
+            // Otherwise, proceed with showing the modal
+            actions.setRedirectPath(redirectPath || null)
+        },
         initiateAuthorization: async () => {
             actions.setLoading(true)
             actions.setError(null)
