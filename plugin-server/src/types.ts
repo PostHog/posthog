@@ -184,6 +184,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
 
     CONSUMER_BATCH_SIZE: number // Primarily for kafka consumers the batch size to use
     CONSUMER_MAX_HEARTBEAT_INTERVAL_MS: number // Primarily for kafka consumers the max heartbeat interval to use after which it will be considered unhealthy
+    CONSUMER_MAX_BACKGROUND_TASKS: number
 
     // Kafka params - identical for client and producer
     KAFKA_HOSTS: string // comma-delimited Kafka hosts
@@ -316,8 +317,12 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: string
     SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: string
     SESSION_RECORDING_V2_S3_TIMEOUT_MS: number
+    SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC: string
     SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: string
     SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: number
+
+    // New: switchover flag for v2 session recording metadata
+    SESSION_RECORDING_V2_METADATA_SWITCHOVER: string
 
     // Destination Migration Diffing
     DESTINATION_MIGRATION_DIFFING_ENABLED: boolean

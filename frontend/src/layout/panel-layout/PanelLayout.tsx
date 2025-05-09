@@ -4,6 +4,8 @@ import { TreeMode } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { cn } from 'lib/utils/css-classes'
 import { useEffect } from 'react'
 
+import { ProductTree } from '~/layout/panel-layout/ProductTree/ProductTree'
+
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { panelLayoutLogic } from './panelLayoutLogic'
 import { PanelLayoutNavBar } from './PanelLayoutNavBar'
@@ -151,6 +153,7 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                 <PanelLayoutNavBar>
                     {activePanelIdentifier === 'Project' && <ProjectTree sortMethod="folder" />}
                     {activePanelIdentifier === 'Recent' && <ProjectTree sortMethod="recent" />}
+                    {activePanelIdentifier === 'Products' && <ProductTree />}
                 </PanelLayoutNavBar>
             </div>
 
