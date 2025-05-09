@@ -12,7 +12,12 @@ interface EventsHeatMapProps {
     context?: QueryContext
 }
 
-export function EventsHeatMapContainer({ context }: EventsHeatMapProps): JSX.Element | null {
-    const { query } = useValues(insightLogic)
-    return <WebActiveHoursHeatmap context={context} query={query as CalendarHeatmapQuery} />
+export function InsightCalendarHeatMapContainer({ context }: EventsHeatMapProps): JSX.Element | null {
+    const { insightProps, query } = useValues(insightLogic)
+    return (
+        <WebActiveHoursHeatmap
+            context={{ ...context, insightProps: insightProps }}
+            query={(insightProps.query || query) as CalendarHeatmapQuery}
+        />
+    )
 }

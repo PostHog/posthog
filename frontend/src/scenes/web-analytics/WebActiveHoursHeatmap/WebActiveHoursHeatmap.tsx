@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import { useState } from 'react'
 import { InsightLoadingState } from 'scenes/insights/EmptyStates'
 import { InsightsWrapper } from 'scenes/insights/InsightsWrapper'
 import { teamLogic } from 'scenes/teamLogic'
@@ -31,20 +32,20 @@ interface WebActiveHoursHeatmapProps {
     context?: QueryContext
     cachedResults?: AnyResponseType
 }
+let uniqueNode = 0
 
 export function WebActiveHoursHeatmap(props: WebActiveHoursHeatmapProps): JSX.Element {
     const { weekStartDay } = useValues(teamLogic)
+    const [key] = useState(() => `WebActiveHoursHeatmap.${uniqueNode++}`)
 
-    const { response, responseLoading, queryId } = useValues(
-        dataNodeLogic({
-            query: props.query,
-            key: 'active-hours-heatmap',
-            dataNodeCollectionId: props.context?.insightProps?.dataNodeCollectionId,
-            cachedResults: props.cachedResults,
-        })
-    )
+    const logic = dataNodeLogic({
+        query: props.query,
+        key: key,
+        dataNodeCollectionId: props.context?.insightProps?.dataNodeCollectionId,
+        cachedResults: props.cachedResults,
+    })
 
-    const data = processData(weekStartDay, response?.results ?? {}, HoursAbbreviated.values, rowLabels(weekStartDay))
+    const { response, responseLoading, queryId } = useValues(logic)
 
     if (responseLoading) {
         return (
@@ -53,6 +54,8 @@ export function WebActiveHoursHeatmap(props: WebActiveHoursHeatmapProps): JSX.El
             </InsightsWrapper>
         )
     }
+
+    const data = processData(weekStartDay, response?.results ?? {}, HoursAbbreviated.values, rowLabels(weekStartDay))
 
     return (
         <CalendarHeatMap

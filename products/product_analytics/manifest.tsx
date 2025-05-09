@@ -102,5 +102,10 @@ export const manifest: ProductManifest = {
             type: 'insight',
             href: () => urls.insightNew({ type: InsightType.LIFECYCLE }),
         },
+        {
+            path: `Insight/Calendar Heatmap`,
+            type: 'insight',
+            href: () => urls.insightNew({ type: InsightType.CALENDAR_HEATMAP }),
+        },
     ],
 }

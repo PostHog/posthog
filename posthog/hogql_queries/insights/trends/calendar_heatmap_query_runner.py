@@ -19,11 +19,7 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.trends.series_with_extras import SeriesWithExtras
 from posthog.hogql_queries.insights.utils.utils import convert_active_user_math_based_on_interval
 from posthog.hogql_queries.query_runner import QueryRunner
-from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.hogql_queries.utils.query_previous_period_date_range import (
-    QueryPreviousPeriodDateRange,
-)
 from posthog.models import Team
 from posthog.models.action.action import Action
 from posthog.models.filters.mixins.utils import cached_property
@@ -303,23 +299,6 @@ class CalendarHeatmapQueryRunner(QueryRunner):
             now=datetime.now(),
         )
 
-    @cached_property
-    def query_previous_date_range(self):
-        if self.query.compareFilter is not None and isinstance(self.query.compareFilter.compare_to, str):
-            return QueryCompareToDateRange(
-                date_range=self.query.dateRange,
-                team=self.team,
-                interval=self.query.interval,
-                now=datetime.now(),
-                compare_to=self.query.compareFilter.compare_to,
-            )
-        return QueryPreviousPeriodDateRange(
-            date_range=self.query.dateRange,
-            team=self.team,
-            interval=self.query.interval,
-            now=datetime.now(),
-        )
-
     def series_event(self, series: Union[EventsNode, ActionsNode, DataWarehouseNode]) -> str | None:
         if isinstance(series, EventsNode):
             return series.event
@@ -333,15 +312,6 @@ class CalendarHeatmapQueryRunner(QueryRunner):
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
         super().apply_dashboard_filters(dashboard_filter=dashboard_filter)
-
-        if (
-            self.query.compareFilter is not None
-            and self.query.compareFilter.compare
-            and dashboard_filter.date_from == "all"
-        ):
-            # TODO: Move this "All time" range handling out of `apply_dashboard_filters` – if the date range is "all",
-            # we should disable `compare` _no matter how_ we arrived at the final executed query
-            self.query.compareFilter.compare = False
 
     @cached_property
     def formula_nodes(self) -> list[TrendsFormulaNode]:
