@@ -321,6 +321,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "indexOf": HogQLFunctionMeta("indexOf", 2, 2),
     "arrayCount": HogQLFunctionMeta("arrayCount", 1, None),
     "countEqual": HogQLFunctionMeta("countEqual", 2, 2),
+    "countMerge": HogQLFunctionMeta("countMerge", 1, 1),
     "arrayEnumerate": HogQLFunctionMeta("arrayEnumerate", 1, 1),
     "arrayEnumerateUniq": HogQLFunctionMeta("arrayEnumerateUniq", 2, None),
     "arrayPopBack": HogQLFunctionMeta("arrayPopBack", 1, 1),
