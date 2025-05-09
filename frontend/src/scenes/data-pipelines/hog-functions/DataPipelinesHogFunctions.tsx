@@ -35,34 +35,39 @@ export function DataPipelinesHogFunctions({ kind, additionalKinds }: DataPipelin
                 actionElementOverride={newButton}
                 // isEmpty={shouldShowEmptyState}
             />
-            <HogFunctionList
-                logicKey={kind}
-                type={kind}
-                extraControls={
-                    <>
-                        <LemonButton
-                            type="primary"
-                            size="small"
-                            // disabledReason={newDisabledReason}
-                            // onClick={() => setShowNewDestination(true)}
-                        >
-                            New {kind}
-                        </LemonButton>
-                    </>
-                }
-            />
-            <HogFunctionTemplateList
-                defaultFilters={{}}
-                type={kind}
-                extraControls={
-                    <></>
-                    // <>
-                    //     <LemonButton type="secondary" size="small" onClick={() => setShowNewDestination(false)}>
-                    //         Cancel
-                    //     </LemonButton>
-                    // </>
-                }
-            />
+            <div>
+                <HogFunctionList
+                    logicKey={kind}
+                    type={kind}
+                    extraControls={
+                        <>
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                // disabledReason={newDisabledReason}
+                                // onClick={() => setShowNewDestination(true)}
+                            >
+                                New {kind}
+                            </LemonButton>
+                        </>
+                    }
+                />
+                <div>
+                    <h2 className="mt-4">Create a new {kind}</h2>
+                    <HogFunctionTemplateList
+                        defaultFilters={{}}
+                        type={kind}
+                        extraControls={
+                            <></>
+                            // <>
+                            //     <LemonButton type="secondary" size="small" onClick={() => setShowNewDestination(false)}>
+                            //         Cancel
+                            //     </LemonButton>
+                            // </>
+                        }
+                    />
+                </div>
+            </div>
         </>
     )
 }

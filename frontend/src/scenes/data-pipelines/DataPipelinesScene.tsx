@@ -1,14 +1,16 @@
 import { actions, kea, listeners, path, props, reducers, selectors, useActions, useValues } from 'kea'
 import { router, urlToAction } from 'kea-router'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb } from '~/types'
+import { ActivityScope, Breadcrumb } from '~/types'
 
 import type { dataPipelinesSceneLogicType } from './DataPipelinesSceneType'
 import { DataPipelinesHogFunctions } from './hog-functions/DataPipelinesHogFunctions'
 import { DataPipelinesSources } from './sources/DataPipelinesSources'
+import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 
 const DATA_PIPELINES_SCENE_TABS = [
     'overview',
@@ -41,12 +43,16 @@ export const dataPipelinesSceneLogic = kea<dataPipelinesSceneLogicType>([
     selectors({
         logicProps: [() => [(_, props) => props], (props) => props],
         breadcrumbs: [
-            () => [],
-            (): Breadcrumb[] => {
+            () => [(_, props) => props],
+            ({ kind }): Breadcrumb[] => {
                 return [
                     {
                         key: Scene.DataPipelines,
                         name: 'Data Pipelines',
+                    },
+                    {
+                        key: Scene.DataPipelines,
+                        name: capitalizeFirstLetter(kind),
                     },
                 ]
             },
@@ -103,7 +109,7 @@ export function DataPipelinesScene(): JSX.Element {
         {
             label: 'Destinations',
             key: 'destinations',
-            content: <DataPipelinesHogFunctions kind="transformation" additionalKinds={['destination']} />,
+            content: <DataPipelinesHogFunctions kind="destination" additionalKinds={['site_destination']} />,
         },
         {
             label: 'Apps',
@@ -113,7 +119,7 @@ export function DataPipelinesScene(): JSX.Element {
         {
             label: 'History',
             key: 'history',
-            content: <div>History</div>,
+            content: <ActivityLog scope={[ActivityScope.HOG_FUNCTION]} />,
         },
     ]
 
