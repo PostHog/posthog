@@ -27,6 +27,8 @@ export interface CalendarHeatMapProps {
     getColumnAggregationTooltip: (columnAggregationLabel: string, columnLabel: string, value: number) => string
     getRowAggregationTooltip: (rowAggregationLabel: string, rowLabel: string, value: number) => string
     getOverallAggregationTooltip: (overallAggregationLabel: string, value: number) => string
+    showRowAggregations?: boolean
+    showColumnAggregations?: boolean
 }
 
 interface ProcessedData {
@@ -55,6 +57,8 @@ export function CalendarHeatMap({
     getColumnAggregationTooltip,
     getRowAggregationTooltip,
     getOverallAggregationTooltip,
+    showRowAggregations = true,
+    showColumnAggregations = true,
 }: CalendarHeatMapProps): JSX.Element {
     const { themes, getTheme } = useValues(dataThemeLogic)
     const theme = getTheme(themes?.[0]?.id)
@@ -115,7 +119,7 @@ export function CalendarHeatMap({
                             {columnLabels.map((label, i) => (
                                 <th key={i}>{label}</th>
                             ))}
-                            {rowsAggregations[0] !== undefined && (
+                            {rowsAggregations[0] !== undefined && showRowAggregations && (
                                 <th className="aggregation-border">{allAggregationsLabel}</th>
                             )}
                         </tr>
@@ -139,44 +143,49 @@ export function CalendarHeatMap({
                                     heatmapColor,
                                     getDataTooltip
                                 )}
-                                {renderRowsAggregationCell(
-                                    {
-                                        value: rowsAggregations[yIndex],
-                                        maxValue: maxRowAggregation,
-                                        minValue: minRowAggregation,
-                                    },
-                                    rowLabel,
-                                    fontSize,
-                                    rowAggregationColor,
-                                    allAggregationsLabel,
-                                    getRowAggregationTooltip
-                                )}
+                                {showRowAggregations &&
+                                    renderRowsAggregationCell(
+                                        {
+                                            value: rowsAggregations[yIndex],
+                                            maxValue: maxRowAggregation,
+                                            minValue: minRowAggregation,
+                                        },
+                                        rowLabel,
+                                        fontSize,
+                                        rowAggregationColor,
+                                        allAggregationsLabel,
+                                        getRowAggregationTooltip
+                                    )}
                             </tr>
                         ))}
 
                         {/* Aggregation column */}
-                        <tr className="aggregation-border">
-                            {columnsAggregations[0] !== undefined && (
-                                <td className="CalendarHeatMap__TextTab">{allAggregationsLabel}</td>
-                            )}
-                            {renderColumnsAggregationCells(
-                                columnsAggregations,
-                                columnLabels,
-                                maxColumnAggregation,
-                                minColumnAggregation,
-                                fontSize,
-                                columnAggregationColor,
-                                allAggregationsLabel,
-                                getColumnAggregationTooltip
-                            )}
-                            {renderOverallCell(
-                                overallValue,
-                                fontSize,
-                                backgroundColorOverall,
-                                allAggregationsLabel,
-                                getOverallAggregationTooltip
-                            )}
-                        </tr>
+                        {showColumnAggregations && (
+                            <tr className="aggregation-border" data-attr="column-aggregations">
+                                {columnsAggregations[0] !== undefined && (
+                                    <td className="CalendarHeatMap__TextTab">{allAggregationsLabel}</td>
+                                )}
+                                {renderColumnsAggregationCells(
+                                    columnsAggregations,
+                                    columnLabels,
+                                    maxColumnAggregation,
+                                    minColumnAggregation,
+                                    fontSize,
+                                    columnAggregationColor,
+                                    allAggregationsLabel,
+                                    getColumnAggregationTooltip
+                                )}
+                                {showColumnAggregations &&
+                                    showRowAggregations &&
+                                    renderOverallCell(
+                                        overallValue,
+                                        fontSize,
+                                        backgroundColorOverall,
+                                        allAggregationsLabel,
+                                        getOverallAggregationTooltip
+                                    )}
+                            </tr>
+                        )}
                     </tbody>
                 )}
             </table>
