@@ -6,13 +6,9 @@ import api from 'lib/api'
 import { DEFAULT_OAUTH_SCOPES, getMinimumEquivalentScopes, getScopeDescription } from 'lib/scopes'
 import { userLogic } from 'scenes/userLogic'
 
-import type { OrganizationBasicType, TeamBasicType } from '~/types'
+import type { OAuthApplicationPublicMetadata, OrganizationBasicType, TeamBasicType, UserType } from '~/types'
 
 import type { oauthAuthorizeLogicType } from './oauthAuthorizeLogicType'
-
-export type OAuthApplicationMetadataType = {
-    name: string
-}
 
 export type OAuthAuthorizationFormValues = {
     scoped_organizations: number[]
@@ -66,13 +62,11 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             },
         ],
         oauthApplication: [
-            null as OAuthApplicationMetadataType | null,
+            null as OAuthApplicationPublicMetadata | null,
             {
                 loadOAuthApplication: async () => {
-                    // TODO: This will be implemented in a seperate PR implementing the OAuthApplication API
-                    return {
-                        name: 'Example application',
-                    }
+                    const params = new URLSearchParams(location.search)
+                    return await api.oauthApplication.getPublicMetadata(params.get('client_id') as string)
                 },
             },
         ],
@@ -124,13 +118,13 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
     selectors(() => ({
         allOrganizations: [
             (s) => [s.user],
-            (user): OrganizationBasicType[] => {
+            (user: UserType): OrganizationBasicType[] => {
                 return user?.organizations ?? []
             },
         ],
         scopeDescriptions: [
             (s) => [s.scopes],
-            (scopes): string[] => {
+            (scopes: string[]): string[] => {
                 const minimumEquivalentScopes = getMinimumEquivalentScopes(scopes)
 
                 return minimumEquivalentScopes.map(getScopeDescription)

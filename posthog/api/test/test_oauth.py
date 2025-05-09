@@ -122,14 +122,17 @@ class TestOAuthAPI(APIBaseTest):
 
     @property
     def public_key(self) -> str:
-        private_key = self.private_key
+        private_key_pem = self.private_key
 
-        public_key = serialization.load_pem_public_key(private_key.encode()).public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        private_key = serialization.load_pem_private_key(private_key_pem.encode(), password=None)
+
+        public_key = private_key.public_key()
+
+        public_key_pem = public_key.public_bytes(
+            encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo
         )
 
-        return public_key.decode("utf-8")
+        return public_key_pem.decode("utf-8")
 
     def post(self, url: str, body: dict, headers: dict | None = None):
         return self.client.post(
@@ -640,6 +643,8 @@ class TestOAuthAPI(APIBaseTest):
 
         self.assertEqual(refresh_token.scoped_organizations, scoped_organizations)
 
+    # OIDC tests
+
     def test_full_oidc_flow(self):
         data_with_openid = {
             **self.base_authorization_post_body,
@@ -668,24 +673,57 @@ class TestOAuthAPI(APIBaseTest):
 
         id_token = token_response_data["id_token"]
 
-        decoded_token = jwt.decode(id_token, options={"verify_signature": False})
+        decoded_token = jwt.decode(
+            id_token, self.public_key, algorithms=["RS256"], audience=self.confidential_application.client_id
+        )
 
-        # Verify the user claim
+        # Verify the claims
         self.assertEqual(decoded_token["sub"], str(self.user.uuid))
         self.assertEqual(decoded_token["email"], self.user.email)
         self.assertEqual(decoded_token["email_verified"], self.user.is_email_verified or False)
         self.assertEqual(decoded_token["given_name"], self.user.first_name)
         self.assertEqual(decoded_token["family_name"], self.user.last_name)
 
-    def test_jwks_endpoint_returns_jwks(self):
+        # Fetch /oauth/userinfo
+        userinfo_response = self.client.get(
+            "/oauth/userinfo/", headers={"Authorization": f"Bearer {token_response_data['access_token']}"}
+        )
+        self.assertEqual(userinfo_response.status_code, status.HTTP_200_OK)
+        userinfo_data = userinfo_response.json()
+
+        # Verify the response matches the decoded token
+        self.assertEqual(userinfo_data["sub"], str(self.user.uuid))
+        self.assertEqual(userinfo_data["email"], self.user.email)
+        self.assertEqual(userinfo_data["email_verified"], self.user.is_email_verified or False)
+        self.assertEqual(userinfo_data["given_name"], self.user.first_name)
+        self.assertEqual(userinfo_data["family_name"], self.user.last_name)
+
+    def test_jwks_endpoint_returns_valid_jwks(self):
         response = self.client.get("/oauth/.well-known/jwks.json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         jwks = response.json()
         self.assertIn("keys", jwks)
 
+        jwks = response.json()
+
+        key_data = jwks["keys"][0]
+        public_numbers = rsa.RSAPublicNumbers(
+            e=int.from_bytes(base64.urlsafe_b64decode(key_data["e"] + "=="), "big"),
+            n=int.from_bytes(base64.urlsafe_b64decode(key_data["n"] + "=="), "big"),
+        )
+
+        public_key = public_numbers.public_key()
+
+        public_key_pem = public_key.public_bytes(
+            encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo
+        )
+
+        public_key_pem = public_key_pem.decode("utf-8")
+
+        self.assertEqual(public_key_pem, self.public_key)
+
     def test_id_token_not_returned_without_openid_scope(self):
-        # Simulate a request without the openid scope
         data_without_openid = {
             **self.base_authorization_post_body,
             "scope": "experiment:read action:write",
@@ -697,10 +735,8 @@ class TestOAuthAPI(APIBaseTest):
         redirect_to = response.json().get("redirect_to", "")
         self.assertIn("code=", redirect_to)
 
-        # Extract authorization code from redirect URL
         code = redirect_to.split("code=")[1].split("&")[0]
 
-        # Exchange code for tokens
         token_data = {
             "grant_type": "authorization_code",
             "code": code,
@@ -718,10 +754,10 @@ class TestOAuthAPI(APIBaseTest):
         self.assertIn("access_token", token_response_data)
         self.assertIn("refresh_token", token_response_data)
 
-        # Check that id_token is not present
         self.assertNotIn("id_token", token_response_data)
 
     # Revoking tokens
+
     @freeze_time("2025-01-01 00:00:00")
     def test_revoke_refresh_token_for_application(self):
         token_value = f"test_refresh_token_to_revoke"

@@ -38,8 +38,8 @@ from posthog.api import (
     uploaded_media,
     user,
 )
-from .api.web_experiment import web_experiments
-from .api.utils import hostname_in_allowed_url_list
+from posthog.api.web_experiment import web_experiments
+from posthog.api.utils import hostname_in_allowed_url_list
 from products.early_access_features.backend.api import early_access_features
 from posthog.api.survey import surveys
 from posthog.constants import PERMITTED_FORUM_DOMAINS

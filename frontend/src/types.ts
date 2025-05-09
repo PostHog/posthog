@@ -5345,3 +5345,8 @@ export interface ProjectTreeRef {
      */
     ref: string | null
 }
+
+export type OAuthApplicationPublicMetadata = {
+    name: string
+    client_id: string
+}

@@ -1,4 +1,6 @@
 import enum
+from urllib.parse import urlparse
+from django.conf import settings
 from oauth2_provider.models import (
     AbstractAccessToken,
     AbstractIDToken,
@@ -11,6 +13,7 @@ from posthog.models.utils import UUIDT
 
 from django.db import models
 from django.contrib.postgres.fields import ArrayField
+from django.core.exceptions import ValidationError
 
 
 class OAuthApplicationAccessLevel(enum.Enum):
@@ -28,31 +31,49 @@ class OAuthApplication(AbstractApplication):
             models.CheckConstraint(
                 check=models.Q(skip_authorization=False),
                 name="enforce_skip_authorization_false",
-            )
+            ),
+            # Note: We do not support HS256 since we don't want to store the client secret in plaintext
+            models.CheckConstraint(check=models.Q(algorithm="RS256"), name="enforce_rs256_algorithm"),
+            models.CheckConstraint(
+                check=models.Q(authorization_grant_type=AbstractApplication.GRANT_AUTHORIZATION_CODE),
+                name="enforce_supported_grant_types",
+            ),
         ]
 
+    def clean(self):
+        super().clean()
+
+        allowed_schemes = ["http", "https"] if settings.DEBUG else ["https"]
+
+        for uri in self.redirect_uris.split(" "):
+            if not uri:
+                continue
+
+            parsed_uri = urlparse(uri)
+
+            if parsed_uri.scheme not in allowed_schemes:
+                raise ValidationError(
+                    {
+                        "redirect_uris": f"Redirect URI {uri} must start with one of the following schemes: {', '.join(allowed_schemes)}"
+                    }
+                )
+
+            if not parsed_uri.netloc:
+                raise ValidationError({"redirect_uris": f"Redirect URI {uri} must contain a host"})
+
+            if parsed_uri.fragment:
+                raise ValidationError({"redirect_uris": f"Redirect URI {uri} cannot contain fragments"})
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
-
     # Note: We do not require an organization or user to be linked to an OAuth application - this is so that we can support dynamic client registration
-    organization = models.ForeignKey("posthog.Organization", on_delete=models.CASCADE, null=True, blank=True)
-    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, null=True, blank=True)
-
-    # Note: We do not support HS256 since we don't want to store the client secret in plaintext
-    algorithm = models.CharField(
-        max_length=255,
-        choices=[
-            ("RS256", "RSA with SHA-2 256"),
-        ],
-        default="RS256",
+    organization: models.ForeignKey = models.ForeignKey(
+        "posthog.Organization", on_delete=models.SET_NULL, null=True, blank=True
     )
-
-    authorization_grant_type = models.CharField(
-        max_length=255,
-        choices=[
-            (AbstractApplication.GRANT_AUTHORIZATION_CODE, "Authorization code"),
-        ],
-        default=AbstractApplication.GRANT_AUTHORIZATION_CODE,
-    )
+    user: models.ForeignKey = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
 
 
 class OAuthAccessToken(AbstractAccessToken):
@@ -63,8 +84,8 @@ class OAuthAccessToken(AbstractAccessToken):
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
 
-    scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True)
-    scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True)
+    scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True, blank=True)
+    scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True, blank=True)
 
 
 class OAuthIDToken(AbstractIDToken):
@@ -84,8 +105,8 @@ class OAuthRefreshToken(AbstractRefreshToken):
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
 
-    scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True)
-    scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True)
+    scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True, blank=True)
+    scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True, blank=True)
 
 
 class OAuthGrant(AbstractGrant):
@@ -94,13 +115,14 @@ class OAuthGrant(AbstractGrant):
         verbose_name_plural = "OAuth Grants"
         swappable = "OAUTH2_PROVIDER_GRANT_MODEL"
 
-    id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
-    code_challenge_method = models.CharField(
-        max_length=255,
-        choices=[
-            (AbstractGrant.CODE_CHALLENGE_S256, "SHA-256"),
-        ],
-    )
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(code_challenge_method=AbstractGrant.CODE_CHALLENGE_S256),
+                name="enforce_supported_code_challenge_method",
+            )
+        ]
 
-    scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True)
-    scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True)
+    id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
+
+    scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True, blank=True)
+    scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True, blank=True)
