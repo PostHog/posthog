@@ -23,6 +23,7 @@ def send_events_for_early_access_feature_stage_change(feature_id: str, from_stag
             continue
 
         distinct_id = person.distinct_ids[0]
+        email = person.properties.get("email", "")
 
         posthoganalytics.capture(
             distinct_id,
@@ -32,5 +33,7 @@ def send_events_for_early_access_feature_stage_change(feature_id: str, from_stag
                 "to": to_stage,
                 "feature_flag_key": feature_flag.key,
                 "feature_id": instance.id,
+                "feature_name": instance.name,
+                "user_email": email,
             },
         )

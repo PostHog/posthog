@@ -36,6 +36,8 @@ class TestSendEventsForEarlyAccessFeatureStageChange(APIBaseTest):
                 "to": "beta",
                 "feature_flag_key": feature_flag.key,
                 "feature_id": feature.id,
+                "feature_name": "Test Feature",
+                "user_email": "test@example.com",
             },
         )
 
