@@ -2537,9 +2537,9 @@ class ClickhouseQueryProgress(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    active_cpu_time: int
     bytes_read: int
     estimated_rows_total: int
+    memory_usage: int
     rows_read: int
     time_elapsed: int
 
