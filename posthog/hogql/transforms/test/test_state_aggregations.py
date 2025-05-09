@@ -1,3 +1,4 @@
+from typing import Any
 import pytest
 
 from posthog.hogql import ast
@@ -10,8 +11,6 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql.transforms.state_aggregations import (
     transform_query_to_state_aggregations,
     wrap_state_query_in_merge_query,
-    AGGREGATION_TO_STATE_MAPPING,
-    STATE_TO_MERGE_MAPPING,
 )
 
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
@@ -19,7 +18,9 @@ from datetime import datetime
 
 
 class TestStateTransforms(BaseTest):
-    def _print_select(self, expr: ast.SelectQuery):
+    snapshot: Any
+
+    def _print_select(self, expr: ast.SelectQuery | ast.SelectSetQuery):
         query = print_ast(
             expr,
             HogQLContext(team_id=self.team.pk, enable_select_queries=True),
@@ -27,12 +28,12 @@ class TestStateTransforms(BaseTest):
         )
         return pretty_print_in_tests(query, self.team.pk)
 
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_transform_simple_query_to_state_aggregations(self):
         query_str = """
         SELECT
             uniq(distinct_id) AS unique_users,
-            count() AS total_events,
-            avg(session_duration) AS avg_duration
+            count() AS total_events
         FROM events
         WHERE timestamp >= '2023-01-01'
         """
@@ -40,17 +41,8 @@ class TestStateTransforms(BaseTest):
         query = parse_select(query_str)
         state_query = transform_query_to_state_aggregations(query)
 
-        # Check that functions have been transformed but aliases remain unchanged
-        for select_item in state_query.select:
-            if isinstance(select_item, ast.Alias) and isinstance(select_item.expr, ast.Call):
-                # Original alias should be preserved
-                self.assertFalse(select_item.alias.endswith("_state"))
-
-                # Function name should be transformed to State version
-                function_name = select_item.expr.name
-                original_function = function_name.replace("State", "")
-                if original_function in AGGREGATION_TO_STATE_MAPPING:
-                    self.assertEqual(AGGREGATION_TO_STATE_MAPPING[original_function], function_name)
+        printed = self._print_select(state_query)
+        assert printed == self.snapshot
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_transform_nested_expressions(self):
@@ -83,9 +75,6 @@ class TestStateTransforms(BaseTest):
         query = parse_select(query_str)
         state_query = transform_query_to_state_aggregations(query)
 
-        # GROUP BY should be preserved
-        self.assertEqual(len(state_query.group_by), 1)
-
         printed = self._print_select(state_query)
         assert printed == self.snapshot
 
@@ -94,7 +83,7 @@ class TestStateTransforms(BaseTest):
         query_str = """
         SELECT
             distinct_id as distinct_id,
-            properties.$pathname as pathname,
+            properties.$pathname as pathname
         FROM events
         WHERE timestamp >= '2023-01-01'
         """
@@ -119,28 +108,6 @@ class TestStateTransforms(BaseTest):
         state_query = parse_select(query_str)
 
         wrapper_query = wrap_state_query_in_merge_query(state_query)
-
-        self.assertEqual(len(wrapper_query.select), len(state_query.select))
-
-        # Keeping the assertions here to check the AST structure as well as the printed query, it is useful for debugging and improving the transform
-        for i, item in enumerate(wrapper_query.select):
-            state_item = state_query.select[i]
-            if isinstance(state_item, ast.Alias):
-                self.assertEqual(item.alias, state_item.alias)
-
-            if isinstance(item, ast.Alias) and isinstance(item.expr, ast.Call):
-                if isinstance(state_item.expr, ast.Call) and state_item.expr.name in STATE_TO_MERGE_MAPPING:
-                    expected_merge_func = STATE_TO_MERGE_MAPPING[state_item.expr.name]
-                    self.assertEqual(item.expr.name, expected_merge_func)
-
-                    # Args should be a reference to the alias
-                    self.assertEqual(len(item.expr.args), 1)
-                    self.assertIsInstance(item.expr.args[0], ast.Field)
-                    self.assertEqual(item.expr.args[0].chain, [state_item.alias])
-
-        # Verify we have a subquery with the original state query
-        self.assertIsInstance(wrapper_query.select_from, ast.JoinExpr)
-        self.assertEqual(wrapper_query.select_from.table, state_query)
 
         printed = self._print_select(wrapper_query)
         assert printed == self.snapshot
@@ -243,23 +210,6 @@ class TestStateTransforms(BaseTest):
         state_query_ast = transform_query_to_state_aggregations(original_query_ast, transform_nested_aggregations=False)
         wrapper_query_ast = wrap_state_query_in_merge_query(state_query_ast)
 
-        # Check that in the transformed query:
-        # 1. The outer sum() should be transformed to sumState()
-        # 2. The inner countIf() should NOT be transformed to countStateIf()
-
-        # Verify the outer sum is transformed to sumState
-        outer_function = state_query_ast.select[0].expr
-        self.assertEqual(outer_function.name, "sumState")
-
-        # Verify the inner countIf is NOT transformed to countStateIf
-        subquery_table = state_query_ast.select_from.table
-        inner_function = subquery_table.select[0].expr
-        self.assertEqual(inner_function.name, "countIf")  # Should still be countIf, not countStateIf
-
-        # In the wrapper query, verify we have sumMerge
-        wrapper_outer_function = wrapper_query_ast.select[0].expr
-        self.assertEqual(wrapper_outer_function.name, "sumMerge")
-
         printed = self._print_select(wrapper_query_ast)
         assert printed == self.snapshot
 
@@ -280,7 +230,6 @@ class TestStateTransforms(BaseTest):
         )
         """
 
-        # Parse the query
         mock_web_query_ast = parse_select(mock_web_query_str)
         state_query_ast = transform_query_to_state_aggregations(mock_web_query_ast)
         wrapper_query_ast = wrap_state_query_in_merge_query(state_query_ast)
@@ -301,13 +250,72 @@ class TestStateTransforms(BaseTest):
         """
 
         query_ast = parse_select(query_str)
-
-        # Transform with our approach
         state_query_ast = transform_query_to_state_aggregations(query_ast)
         wrapper_query_ast = wrap_state_query_in_merge_query(state_query_ast)
 
         printed = self._print_select(wrapper_query_ast)
         assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_combine_two_different_state_queries_into_one_merge_query(self):
+        """Test combining two different state queries into one merge query without database interaction."""
+        # Define the queries
+        old_data_query = """
+        SELECT
+            count() AS total_pageviews
+        FROM events
+        WHERE timestamp < now() - INTERVAL 1 DAY
+        """
+        current_data_query = """
+        SELECT
+            count() AS total_pageviews
+        FROM events
+        WHERE timestamp >= now() - INTERVAL 1 DAY
+        """
+
+        old_data_query_ast = parse_select(old_data_query)
+        current_data_query_ast = parse_select(current_data_query)
+
+        old_data_state_query_ast = transform_query_to_state_aggregations(old_data_query_ast)
+        current_data_state_query_ast = transform_query_to_state_aggregations(current_data_query_ast)
+
+        # Create a SelectSetQuery with the two queries. This is a possible way we can combine the pre-aggregated data with the current data.
+        # Example: web_overview_daily with the current day results of web_overview query.
+        select_set_query_ast = ast.SelectSetQuery(
+            initial_select_query=old_data_state_query_ast,
+            subsequent_select_queries=[
+                ast.SelectSetNode(select_query=current_data_state_query_ast, set_operator="UNION ALL")
+            ],
+        )
+
+        wrapper_query_ast = wrap_state_query_in_merge_query(select_set_query_ast)
+
+        wrapper_simplified = self._print_select(wrapper_query_ast)
+        assert wrapper_simplified == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_union_all_state_queries_into_one_merge_query(self):
+        """Test combining two different state queries into one merge query without database interaction."""
+        # Define the queries
+        query = """
+        SELECT
+            count() AS total_pageviews
+        FROM events
+        WHERE timestamp < now() - INTERVAL 1 DAY
+        UNION ALL
+        SELECT
+            count() AS total_pageviews
+        FROM events
+        WHERE timestamp >= now() - INTERVAL 1 DAY
+        """
+
+        query_ast = parse_select(query)
+
+        state_query_ast = transform_query_to_state_aggregations(query_ast)
+        wrapper_query_ast = wrap_state_query_in_merge_query(state_query_ast)
+
+        wrapper_simplified = self._print_select(wrapper_query_ast)
+        assert wrapper_simplified == self.snapshot
 
 
 class TestStateTransformsIntegration(ClickhouseTestMixin, APIBaseTest):
@@ -316,6 +324,14 @@ class TestStateTransformsIntegration(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
         self._create_test_events()
+
+    def _print_select(self, expr: ast.SelectQuery):
+        query = print_ast(
+            expr,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            "clickhouse",
+        )
+        return pretty_print_in_tests(query, self.team.pk)
 
     def _create_test_events(self):
         _create_event(
@@ -363,7 +379,7 @@ class TestStateTransformsIntegration(ClickhouseTestMixin, APIBaseTest):
         return original_result, transformed_result
 
     def test_simple_aggregation_with_db(self):
-        original_query_str = f"""
+        original_query_str = """
         SELECT
             uniq(distinct_id) as unique_users,
             count() as total_pageviews
