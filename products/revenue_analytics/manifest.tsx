@@ -20,7 +20,7 @@ export const manifest: ProductManifest = {
     urls: {
         revenueAnalytics: (): string => '/revenue_analytics',
     },
-    treeItemsAllProducts: [
+    treeItemsProducts: [
         {
             path: 'Revenue analytics',
             icon: <IconPiggyBank />,

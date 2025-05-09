@@ -5338,7 +5338,7 @@ export interface ProductManifest {
     urls?: Record<string, string | ((...args: any[]) => string)>
     fileSystemTypes?: Record<string, FileSystemType>
     treeItemsNew?: FileSystemImport[]
-    treeItemsAllProducts?: FileSystemImport[]
+    treeItemsProducts?: FileSystemImport[]
 }
 
 export interface ProjectTreeRef {

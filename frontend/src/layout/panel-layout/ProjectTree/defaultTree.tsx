@@ -12,7 +12,7 @@ import {
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { fileSystemTypes, treeItemsAllProducts, treeItemsNew } from '~/products'
+import { fileSystemTypes, treeItemsNew, treeItemsProducts } from '~/products'
 import { FileSystemImport } from '~/queries/schema/schema-general'
 import { ActivityTab, PipelineStage } from '~/types'
 
@@ -61,9 +61,9 @@ export const getDefaultTreeNew = (): FileSystemImport[] =>
         },
     ].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
 
-export const getDefaultTreeAllProducts = (): FileSystemImport[] =>
+export const getDefaultTreeProducts = (): FileSystemImport[] =>
     [
-        ...treeItemsAllProducts,
+        ...treeItemsProducts,
         {
             path: `AI chat`,
             type: 'aichat',

@@ -33,7 +33,7 @@ export const manifest: ProductManifest = {
             href: () => urls.experiment('new'),
         },
     ],
-    treeItemsAllProducts: [
+    treeItemsProducts: [
         {
             path: `Experiments`,
             type: 'experiment',

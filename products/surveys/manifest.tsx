@@ -25,7 +25,7 @@ export const manifest: ProductManifest = {
             href: () => urls.survey('new'),
         },
     ],
-    treeItemsAllProducts: [
+    treeItemsProducts: [
         {
             path: 'Surveys',
             icon: <IconMessage />,

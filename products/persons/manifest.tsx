@@ -13,7 +13,7 @@ export const manifest: ProductManifest = {
         persons: (): string => '/persons',
     },
     fileSystemTypes: {},
-    treeItemsAllProducts: [
+    treeItemsProducts: [
         {
             path: 'Persons',
             icon: <IconPerson />,

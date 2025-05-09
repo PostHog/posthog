@@ -85,7 +85,7 @@ export const manifest: ProductManifest = {
             flag: FEATURE_FLAGS.MESSAGING_AUTOMATION,
         },
     ],
-    treeItemsAllProducts: [
+    treeItemsProducts: [
         {
             path: 'Broadcasts',
             href: () => urls.messagingBroadcasts(),

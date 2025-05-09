@@ -45,7 +45,7 @@ export const manifest: ProductManifest = {
             href: () => urls.earlyAccessFeature('new'),
         },
     ],
-    treeItemsAllProducts: [
+    treeItemsProducts: [
         {
             path: 'Early access features',
             icon: <IconRocket />,

@@ -9,7 +9,7 @@ import { PanelLayoutPanel } from '../PanelLayoutPanel'
 import { projectTreeLogic } from '../ProjectTree/projectTreeLogic'
 
 export function ProductTree(): JSX.Element {
-    const { treeItemsAllProducts } = useValues(projectTreeLogic)
+    const { treeItemsProducts } = useValues(projectTreeLogic)
     const { mainContentRef } = useValues(panelLayoutLogic)
 
     const treeRef = useRef<LemonTreeRef>(null)
@@ -21,7 +21,7 @@ export function ProductTree(): JSX.Element {
                 ref={treeRef}
                 contentRef={mainContentRef as RefObject<HTMLElement>}
                 className="px-0 py-1"
-                data={treeItemsAllProducts}
+                data={treeItemsProducts}
                 onFolderClick={(folder) => {
                     if (folder?.id) {
                         if (expandedFolders.includes(folder.id)) {

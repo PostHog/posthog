@@ -60,7 +60,7 @@ export const manifest: ProductManifest = {
     },
     fileSystemTypes: {},
     treeItemsNew: [],
-    treeItemsAllProducts: [
+    treeItemsProducts: [
         {
             path: 'LLM observability',
             icon: <IconAI />,

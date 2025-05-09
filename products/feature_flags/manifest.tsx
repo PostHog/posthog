@@ -23,7 +23,7 @@ export const manifest: ProductManifest = {
             href: () => urls.featureFlag('new'),
         },
     ],
-    treeItemsAllProducts: [
+    treeItemsProducts: [
         {
             path: `Feature flags`,
             type: 'feature_flag',

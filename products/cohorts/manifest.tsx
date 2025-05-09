@@ -22,7 +22,7 @@ export const manifest: ProductManifest = {
             href: () => urls.cohort('new'),
         },
     ],
-    treeItemsAllProducts: [
+    treeItemsProducts: [
         {
             path: 'Cohorts',
             icon: <IconPeople />,

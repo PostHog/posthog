@@ -36,7 +36,7 @@ export const manifest: ProductManifest = {
             href: () => urls.replayPlaylist('new'),
         },
     ],
-    treeItemsAllProducts: [
+    treeItemsProducts: [
         {
             path: 'Session replay',
             href: () => urls.replay(ReplayTabs.Home),

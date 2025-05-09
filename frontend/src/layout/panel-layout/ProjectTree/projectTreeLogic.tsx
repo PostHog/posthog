@@ -18,7 +18,7 @@ import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-gener
 import { Breadcrumb, ProjectTreeBreadcrumb, ProjectTreeRef, UserBasicType } from '~/types'
 
 import { panelLayoutLogic } from '../panelLayoutLogic'
-import { getDefaultTreeAllProducts, getDefaultTreeNew } from './defaultTree'
+import { getDefaultTreeNew, getDefaultTreeProducts } from './defaultTree'
 import type { projectTreeLogicType } from './projectTreeLogicType'
 import { FolderState, ProjectTreeAction } from './types'
 import {
@@ -897,11 +897,11 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     foldersFirst: false,
                 }),
         ],
-        treeItemsAllProducts: [
+        treeItemsProducts: [
             (s) => [s.featureFlags, s.folderStates, s.users],
             (featureFlags, folderStates, users): TreeDataItem[] =>
                 convertFileSystemEntryToTreeDataItem({
-                    imports: getDefaultTreeAllProducts().filter(
+                    imports: getDefaultTreeProducts().filter(
                         (f) => !f.flag || (featureFlags as Record<string, boolean>)[f.flag]
                     ),
                     checkedItems: {},
@@ -1003,8 +1003,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             },
         ],
         treeItemsCombined: [
-            (s) => [s.treeItemsProject, s.treeItemsAllProducts, s.treeItemsNew],
-            (project, allProducts, allNew): TreeDataItem[] => [
+            (s) => [s.treeItemsProject, s.treeItemsProducts, s.treeItemsNew],
+            (project, products, allNew): TreeDataItem[] => [
                 {
                     id: 'project',
                     name: 'Project',
@@ -1019,9 +1019,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 },
                 {
                     id: 'products',
-                    name: 'All Products',
+                    name: 'Products',
                     record: { type: 'folder', id: null, path: '/' },
-                    children: allProducts,
+                    children: products,
                 },
             ],
         ],

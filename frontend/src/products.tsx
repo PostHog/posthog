@@ -327,7 +327,7 @@ export const treeItemsNew = [
 ]
 
 /** This const is auto-generated, as is the whole file */
-export const treeItemsAllProducts = [
+export const treeItemsProducts = [
     { path: 'Broadcasts', href: () => urls.messagingBroadcasts(), icon: <IconMegaphone /> },
     { path: 'Campaigns', href: () => urls.messagingCampaigns(), icon: <IconMegaphone /> },
     { path: 'Cohorts', icon: <IconPeople />, href: () => urls.cohorts() },
