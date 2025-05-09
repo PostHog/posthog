@@ -737,9 +737,10 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     search_fields = ["name", "description"]
 
     def is_partial_responses_enabled(self) -> bool:
+        distinct_id = "" if self.request.user.is_anonymous else str(self.request.user.distinct_id)
         return posthoganalytics.feature_enabled(
             SurveyFeatureFlags.SURVEYS_PARTIAL_RESPONSES,
-            self.request.user.distinct_id,
+            distinct_id,
             groups={"organization": str(self.organization.id)},
             group_properties={
                 "organization": {"id": str(self.organization.id), "created_at": self.organization.created_at}
