@@ -24,8 +24,10 @@ jobs:
               with:
                   github-token: ${{ secrets.GITHUB_TOKEN }}
                   script: |
+                      const getIssueNumber = (branchName) => branchName.match(/\d+$/)?.[0];
+
                       const branchName = context.ref.replace('refs/heads/', '');
-                      const issueNumber = branchName.match(/\d+$/)?.[0];
+                      const issueNumber = getIssueNumber(branchName);
 
                       console.log('Branch name:', branchName);
                       console.log('Issue number:', issueNumber);
