@@ -41,7 +41,7 @@ const translateFilters = (subscribe: string): { events: HogFunctionFilterEvent[]
     }
 }
 
-const translateInputs = (defaultVal: any) => {
+const translateInputs = (defaultVal: any, multiple: boolean = false) => {
     const normalizeValue = (value: string) => {
         let modifiedVal = value
 
@@ -244,7 +244,7 @@ const translateInputs = (defaultVal: any) => {
             if (modifiedVal === '') {
                 return ''
             } else {
-                return `{${modifiedVal}}`
+                return multiple ? `{[${modifiedVal}]}` : `{${modifiedVal}}`
             }
         } else if (defaultVal && '@if' in defaultVal) {
             if (JSON.stringify(defaultVal['@if'].exists) === JSON.stringify(defaultVal['@if'].then)) {
@@ -271,7 +271,7 @@ const translateInputs = (defaultVal: any) => {
                 } else if (val !== '' && fallbackVal === '') {
                     return `{${val}}`
                 } else {
-                    return `{${val} ?? ${fallbackVal}}`
+                    return `{${multiple ? '[' : ''}${val} ?? ${fallbackVal}${multiple ? ']' : ''}}`
                 }
             } else {
                 return JSON.stringify(defaultVal)
@@ -305,11 +305,11 @@ const translateInputsSchema = (inputs_schema: Record<string, any> | undefined): 
             description: field.description,
             default:
                 field.type !== 'object' || (typeof field.default !== 'undefined' && '@path' in field.default)
-                    ? translateInputs(field.default)
+                    ? translateInputs(field.default, field.multiple)
                     : Object.fromEntries(
-                          Object.entries(field.properties ?? {}).map(([key, _]) => {
+                          Object.entries(field.properties ?? {}).map(([key, { multiple }]) => {
                               const defaultVal = (field.default as Record<string, object>) ?? {}
-                              return [key, translateInputs(defaultVal[key])]
+                              return [key, translateInputs(defaultVal[key], multiple)]
                           })
                       ),
             required: field.required ?? false,
