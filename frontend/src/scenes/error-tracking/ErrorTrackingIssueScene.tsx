@@ -38,13 +38,15 @@ export const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {
 }
 
 export function ErrorTrackingIssueScene(): JSX.Element {
-    const { issue, issueId, issueLoading, properties, propertiesLoading } = useValues(errorTrackingIssueSceneLogic)
+    const { issue, issueId, issueLoading, displayedEvent, firstSeenEvent, firstSeenEventLoading, customEvent } =
+        useValues(errorTrackingIssueSceneLogic)
     const { loadIssue } = useActions(errorTrackingIssueSceneLogic)
     const { updateIssueAssignee, updateIssueStatus } = useActions(issueActionsLogic)
 
     useEffect(() => {
         loadIssue()
     }, [loadIssue])
+
     function getEventLabel(): JSX.Element {
         if (displayedEvent && firstSeenEvent && displayedEvent?.uuid == firstSeenEvent.uuid) {
             return <ErrorTag color="blue" label="First Seen" />

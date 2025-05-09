@@ -93,49 +93,9 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 return prevLastSeen
             },
         },
-    }),
-    selectors({
-        breadcrumbs: [
-            (s) => [s.issue],
-            (issue: ErrorTrackingRelationalIssue | null): Breadcrumb[] => {
-                const exceptionType: string = issue?.name || 'Issue'
-                return [
-                    {
-                        key: Scene.ErrorTracking,
-                        name: 'Error tracking',
-                        path: urls.errorTracking(),
-                    },
-                    {
-                        key: [Scene.ErrorTrackingIssue, exceptionType],
-                        name: exceptionType,
-                    },
-                ]
-            },
-        ],
-
-        [SIDE_PANEL_CONTEXT_KEY]: [
-            (_, p) => [p.id],
-            (issueId): SidePanelSceneContext => {
-                return {
-                    activity_scope: ActivityScope.ERROR_TRACKING_ISSUE,
-                    activity_item_id: issueId,
-                }
-            },
-        ],
-        issueId: [(_, p) => [p.id], (id: string) => id],
-        firstSeen: [
-            (s) => [s.issue],
-            (issue: ErrorTrackingRelationalIssue | null) => (issue ? dayjs(issue.first_seen) : null),
-        ],
-
-        displayedEvent: [
-            (s) => [s.customEvent, s.firstSeenEvent],
-            (customEvt: ErrorEventType | null, firstSeenEvt: ErrorEventType | null) => {
-                return customEvt ?? firstSeenEvt
-            },
-        ],
-
-        aggregations: [(s) => [s.summary], (summary: ErrorTrackingIssueSummary | null) => summary?.aggregations],
+        customEvent: {
+            setCustomEvent: (_, { event }) => event,
+        },
     }),
 
     loaders(({ values, actions, props }) => ({
@@ -193,6 +153,50 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             },
         },
     })),
+
+    selectors({
+        breadcrumbs: [
+            (s) => [s.issue],
+            (issue: ErrorTrackingRelationalIssue | null): Breadcrumb[] => {
+                const exceptionType: string = issue?.name || 'Issue'
+                return [
+                    {
+                        key: Scene.ErrorTracking,
+                        name: 'Error tracking',
+                        path: urls.errorTracking(),
+                    },
+                    {
+                        key: [Scene.ErrorTrackingIssue, exceptionType],
+                        name: exceptionType,
+                    },
+                ]
+            },
+        ],
+
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            (_, p) => [p.id],
+            (issueId): SidePanelSceneContext => {
+                return {
+                    activity_scope: ActivityScope.ERROR_TRACKING_ISSUE,
+                    activity_item_id: issueId,
+                }
+            },
+        ],
+        issueId: [(_, p) => [p.id], (id: string) => id],
+        firstSeen: [
+            (s) => [s.issue],
+            (issue: ErrorTrackingRelationalIssue | null) => (issue ? dayjs(issue.first_seen) : null),
+        ],
+
+        displayedEvent: [
+            (s) => [s.customEvent, s.firstSeenEvent],
+            (customEvt: ErrorEventType | null, firstSeenEvt: ErrorEventType | null) => {
+                return customEvt ?? firstSeenEvt
+            },
+        ],
+
+        aggregations: [(s) => [s.summary], (summary: ErrorTrackingIssueSummary | null) => summary?.aggregations],
+    }),
 
     listeners(({ actions }) => {
         return {

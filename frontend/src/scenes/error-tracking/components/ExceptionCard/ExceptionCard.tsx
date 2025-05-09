@@ -2,7 +2,7 @@ import { IconBox, IconDocument, IconList } from '@posthog/icons'
 import { LemonCard } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { errorPropertiesLogic, ErrorPropertiesLogicProps } from 'lib/components/Errors/errorPropertiesLogic'
-import { ErrorEventProperties } from 'lib/components/Errors/types'
+import { ErrorEventType } from 'lib/components/Errors/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import ViewRecordingButton, { mightHaveRecording } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { IconSubtitles, IconSubtitlesOff } from 'lib/lemon-ui/icons'
@@ -23,27 +23,34 @@ import { StacktraceTextDisplay } from './Stacktrace/StacktraceTextDisplay'
 interface ExceptionCardContentProps {
     issue?: ErrorTrackingRelationalIssue
     issueLoading: boolean
+    label?: JSX.Element
 }
 
 export interface ExceptionCardProps extends ExceptionCardContentProps {
-    properties?: ErrorEventProperties
-    propertiesLoading: boolean
+    event?: ErrorEventType
+    eventLoading: boolean
 }
 
-export function ExceptionCard({ issue, issueLoading, properties, propertiesLoading }: ExceptionCardProps): JSX.Element {
+export function ExceptionCard({ issue, issueLoading, label, event, eventLoading }: ExceptionCardProps): JSX.Element {
     return (
-        <BindLogic logic={exceptionCardLogic} props={{ loading: propertiesLoading }}>
+        <BindLogic logic={exceptionCardLogic} props={{ loading: eventLoading }}>
             <BindLogic
                 logic={errorPropertiesLogic}
-                props={{ properties, id: issue?.id ?? 'error' } as ErrorPropertiesLogicProps}
+                props={
+                    {
+                        properties: event?.properties,
+                        timestamp: event?.timestamp,
+                        id: issue?.id ?? 'error',
+                    } as ErrorPropertiesLogicProps
+                }
             >
-                <ExceptionCardContent issue={issue} issueLoading={issueLoading} />
+                <ExceptionCardContent issue={issue} label={label} issueLoading={issueLoading} />
             </BindLogic>
         </BindLogic>
     )
 }
 
-function ExceptionCardContent({ issue, issueLoading }: ExceptionCardContentProps): JSX.Element {
+function ExceptionCardContent({ issue, issueLoading, label }: ExceptionCardContentProps): JSX.Element {
     const { loading, showContext, isExpanded } = useValues(exceptionCardLogic)
     const { properties, exceptionAttributes, additionalProperties, timestamp, sessionId } =
         useValues(errorPropertiesLogic)
@@ -67,7 +74,10 @@ function ExceptionCardContent({ issue, issueLoading }: ExceptionCardContentProps
                 <ExceptionCardToggles />
             </ExceptionCardActions>
             <div className="flex justify-between items-center pt-1">
-                <ExceptionAttributesPreview attributes={exceptionAttributes} loading={loading} />
+                <div className="flex items-center gap-1">
+                    {label}
+                    <ExceptionAttributesPreview attributes={exceptionAttributes} loading={loading} />
+                </div>
                 <ExceptionCardActions>
                     {timestamp && <TZLabel className="text-muted text-xs" time={timestamp} />}
                     <ViewRecordingButton

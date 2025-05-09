@@ -7,10 +7,13 @@ import { match } from 'ts-pattern'
 
 export interface ExceptionAttributesPreviewProps {
     attributes: ExceptionAttributes | null
-    loading: boolean
+    loading?: boolean
 }
 
-export function ExceptionAttributesPreview({ attributes, loading }: ExceptionAttributesPreviewProps): JSX.Element {
+export function ExceptionAttributesPreview({
+    attributes,
+    loading = false,
+}: ExceptionAttributesPreviewProps): JSX.Element {
     return (
         <span className="flex items-center gap-1 text-muted group-hover:text-brand-red">
             {match(loading)

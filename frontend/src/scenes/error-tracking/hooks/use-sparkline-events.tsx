@@ -5,7 +5,7 @@ import { SparklineEvent } from '../components/SparklineChart/SparklineChart'
 import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
 
 export function useSparklineEvents(): SparklineEvent<string>[] {
-    const { firstSeen, lastSeen } = useValues(errorTrackingIssueSceneLogic)
+    const { firstSeen, lastSeen, customEvent } = useValues(errorTrackingIssueSceneLogic)
     return useMemo(() => {
         const events = []
         if (firstSeen) {
@@ -14,6 +14,15 @@ export function useSparklineEvents(): SparklineEvent<string>[] {
                 date: firstSeen.toDate(),
                 color: 'var(--brand-blue)',
                 payload: 'First Seen',
+                radius: 6,
+            })
+        }
+        if (customEvent) {
+            events.push({
+                id: 'custom',
+                date: new Date(customEvent.timestamp),
+                color: 'var(--brand-yellow)',
+                payload: 'Custom',
                 radius: 6,
             })
         }
@@ -27,5 +36,5 @@ export function useSparklineEvents(): SparklineEvent<string>[] {
             })
         }
         return events
-    }, [firstSeen, lastSeen])
+    }, [firstSeen, lastSeen, customEvent])
 }

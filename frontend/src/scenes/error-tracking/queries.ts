@@ -83,23 +83,22 @@ export const errorTrackingIssueEventsQuery = ({
     filterGroup,
     searchQuery,
     dateRange,
+    columns,
 }: {
     issueId: string | null
     filterTestAccounts: boolean
     filterGroup: UniversalFiltersGroup
     searchQuery: string
     dateRange: DateRange
-}): DataTableNode | null => {
+    columns: string[]
+}): EventsQuery => {
     if (!issueId) {
-        return null
+        throw new Error('issue id is required')
     }
     if (!dateRange.date_from) {
         throw new Error('date_from is required')
     }
 
-    // const select = ['person', 'timestamp', 'recording_button(properties.$session_id)']
-    // row expansion only works when you fetch the entire event with '*'
-    const columns = ['*', 'person', 'timestamp', 'recording_button(properties.$session_id)']
     const group = filterGroup.values[0] as UniversalFiltersGroup
     const properties = [...group.values] as AnyPropertyFilter[]
 
@@ -129,15 +128,7 @@ export const errorTrackingIssueEventsQuery = ({
         before: dateRange.date_to || undefined,
     }
 
-    return {
-        kind: NodeKind.DataTableNode,
-        source: eventsQuery,
-        showActions: false,
-        showTimings: false,
-        columns: columns,
-        expandable: true,
-        embedded: true,
-    }
+    return eventsQuery
 }
 
 export const errorTrackingIssueBreakdownQuery = ({
