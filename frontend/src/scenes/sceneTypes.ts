@@ -13,7 +13,6 @@ export enum Scene {
     ErrorTracking = 'ErrorTracking',
     ErrorTrackingIssue = 'ErrorTrackingIssue',
     ErrorTrackingConfiguration = 'ErrorTrackingConfiguration',
-    ErrorTrackingAlert = 'ErrorTrackingAlert',
     Dashboards = 'Dashboards',
     Dashboard = 'Dashboard',
     Insight = 'Insight',
@@ -96,6 +95,7 @@ export enum Scene {
     MessagingLibrary = 'MessagingLibrary',
     Wizard = 'Wizard',
     StartupProgram = 'StartupProgram',
+    HogFunction = 'HogFunction',
 }
 
 export type SceneProps = Record<string, any>
