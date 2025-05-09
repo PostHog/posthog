@@ -36,7 +36,7 @@ export function BillingEarlyAccessBanner(): JSX.Element {
                     <ul className="list-disc list-inside pl-2">
                         <li>Usage data updates daily (UTC) - so today's numbers show up tomorrow</li>
                         <li>
-                            Some product add-ons (like data pipelines) aren't in here{' '}
+                            Some product add-ons (like group analytics and data pipelines) aren't in here{' '}
                             <span className="italic">yet</span>
                         </li>
                     </ul>
