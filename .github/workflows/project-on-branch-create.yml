@@ -228,7 +228,7 @@ jobs:
                         let needsComment = false;
 
                         // Check if issue is in a final state
-                        if (currentStatus.toLowerCase().includes('done') || currentStatus.toLowerCase().includes('in review')) {
+                        if(['done', 'in review'].includes(currentStatus.toLowerCase())) {
                           statusMessage = `🚫 Oops! This issue is already ${currentStatus}! You might want to reset it to a different status.`;
                           needsComment = true;
                         } else if (currentStatus.toLowerCase().includes('in progress')) {
