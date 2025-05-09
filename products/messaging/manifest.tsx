@@ -55,7 +55,9 @@ export const manifest: ProductManifest = {
         messagingBroadcast: (id?: string): string => `/messaging/broadcasts/${id}`,
         messagingBroadcastNew: (): string => '/messaging/broadcasts/new',
         messagingLibrary: (): string => '/messaging/library',
+        messagingLibraryMessage: (id: string): string => `/messaging/library/messages/${id}`,
         messagingLibraryTemplate: (id?: string): string => `/messaging/library/templates/${id}`,
+        messagingLibraryTemplateNew: (): string => '/messaging/library/templates/new',
         messagingLibraryTemplateFromMessage: (id?: string): string =>
             `/messaging/library/templates/new?messageId=${id}`,
     },
