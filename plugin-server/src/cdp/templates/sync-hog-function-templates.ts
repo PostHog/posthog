@@ -1,5 +1,4 @@
 import crypto from 'crypto'
-import { DateTime } from 'luxon'
 
 import { insertRow } from '../../../tests/helpers/sql'
 import { Hub } from '../../types'
@@ -21,7 +20,6 @@ export class TemplateSyncService {
      * Sync all templates to the database
      */
     public async syncTemplates(): Promise<SyncResult> {
-        const startTime = DateTime.now()
         let totalTemplates = 0
         let createdCount = 0
         let updatedCount = 0
@@ -53,15 +51,12 @@ export class TemplateSyncService {
             }
         }
 
-        const duration = DateTime.now().diff(startTime).milliseconds
-
         const result = {
             totalTemplates,
             createdCount,
             updatedCount,
             skippedCount,
             errorCount,
-            durationMs: duration,
         }
 
         logger.info(`Template sync completed`, result)
@@ -254,5 +249,4 @@ export interface SyncResult {
     updatedCount: number
     skippedCount: number
     errorCount: number
-    durationMs: number
 }
