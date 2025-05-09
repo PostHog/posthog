@@ -34,7 +34,7 @@ pub const MAX_PAYLOAD_SNIPPET_SIZE: usize = 20;
 pub const FORM_MIME_TYPE: &str = "application/x-www-form-urlencoded";
 
 #[derive(PartialEq, Eq)]
-enum Base64Option {
+pub enum Base64Option {
     // hasn't been decoded from urlencoded payload; won't include spaces
     Strict,
     // input might have been urlencoded; might include spaces that need touching up
@@ -322,7 +322,7 @@ fn is_likely_urlencoded_form(payload: &[u8]) -> bool {
 
 // relatively cheap check for base64 encoded payload since these can show up at
 // various decoding layers in requests from different PostHog SDKs and versions
-fn is_likely_base64(payload: &[u8], opt: Base64Option) -> bool {
+pub fn is_likely_base64(payload: &[u8], opt: Base64Option) -> bool {
     if payload.is_empty() {
         return false;
     }
@@ -342,7 +342,7 @@ fn is_likely_base64(payload: &[u8], opt: Base64Option) -> bool {
     prefix_chars_b64_compatible && is_b64_aligned
 }
 
-fn decode_base64(payload: &[u8], location: &str) -> Result<Vec<u8>, CaptureError> {
+pub fn decode_base64(payload: &[u8], location: &str) -> Result<Vec<u8>, CaptureError> {
     match base64::engine::general_purpose::STANDARD.decode(payload) {
         Ok(decoded_payload) => Ok(decoded_payload),
         Err(e) => {
