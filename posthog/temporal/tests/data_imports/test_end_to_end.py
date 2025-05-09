@@ -1930,7 +1930,7 @@ async def test_row_tracking_incrementing(team, postgres_config, postgres_connect
             mock_data_response=[],
         )
 
-    mock_decrement_rows.assert_called_once()
+    mock_decrement_rows.assert_called_once_with(team.id, schema_id)
     mock_finish_row_tracking.assert_called_once()
 
     schema_id = inputs.external_data_schema_id
