@@ -20,7 +20,7 @@ test.describe('Survey Settings', () => {
         }
     }
 
-    test('enables and disable surveys', async ({ page }) => {
+    test('enables and disables surveys', async ({ page }) => {
         await expect(page.locator('h1')).toContainText('Surveys')
         await expect(page).toHaveTitle('Surveys • PostHog')
 
