@@ -222,6 +222,9 @@ const translateInputs = (defaultVal: any) => {
         if (modifiedVal.includes('integrations.')) {
             modifiedVal = modifiedVal.replaceAll(/integrations\.[^}]+/g, '')
         }
+        if (modifiedVal.startsWith('context.')) {
+            modifiedVal = modifiedVal.replaceAll('context.', 'event.properties.')
+        }
 
         if (modifiedVal.endsWith('.')) {
             return ''

@@ -1160,7 +1160,7 @@ exports[`segment templates template segment-acoustic-campaign matches expected r
       "type": "string",
     },
     {
-      "default": "Version 3.1   (nodeJS: v18.20.5)",
+      "default": "Version 3.1   (nodeJS: v18.20.6)",
       "description": "
 Last-Modified: 06.28.2023 16.15.37
 ",
@@ -22366,7 +22366,7 @@ exports[`segment templates template segment-pinterest-conversions-api matches ex
           "type": "dictionary",
         },
         {
-          "default": "{context.app.id}",
+          "default": "{event.properties.app.id}",
           "description": "The app store app ID.",
           "key": "app_id",
           "label": "App ID",
@@ -22402,7 +22402,7 @@ exports[`segment templates template segment-pinterest-conversions-api matches ex
           "type": "string",
         },
         {
-          "default": "{context.device.carrier}",
+          "default": "{event.properties.device.carrier}",
           "description": "User device’s mobile carrier. ",
           "key": "device_carrier",
           "label": "Device Carrier",
@@ -22643,7 +22643,7 @@ exports[`segment templates template segment-pinterest-conversions-api matches ex
           "type": "dictionary",
         },
         {
-          "default": "{context.app.id}",
+          "default": "{event.properties.app.id}",
           "description": "The app store app ID.",
           "key": "app_id",
           "label": "App ID",
@@ -22679,7 +22679,7 @@ exports[`segment templates template segment-pinterest-conversions-api matches ex
           "type": "string",
         },
         {
-          "default": "{context.device.carrier}",
+          "default": "{event.properties.device.carrier}",
           "description": "User device’s mobile carrier. ",
           "key": "device_carrier",
           "label": "Device Carrier",
@@ -22920,7 +22920,7 @@ exports[`segment templates template segment-pinterest-conversions-api matches ex
           "type": "dictionary",
         },
         {
-          "default": "{context.app.id}",
+          "default": "{event.properties.app.id}",
           "description": "The app store app ID.",
           "key": "app_id",
           "label": "App ID",
@@ -22956,7 +22956,7 @@ exports[`segment templates template segment-pinterest-conversions-api matches ex
           "type": "string",
         },
         {
-          "default": "{context.device.carrier}",
+          "default": "{event.properties.device.carrier}",
           "description": "User device’s mobile carrier. ",
           "key": "device_carrier",
           "label": "Device Carrier",
@@ -23197,7 +23197,7 @@ exports[`segment templates template segment-pinterest-conversions-api matches ex
           "type": "dictionary",
         },
         {
-          "default": "{context.app.id}",
+          "default": "{event.properties.app.id}",
           "description": "The app store app ID.",
           "key": "app_id",
           "label": "App ID",
@@ -23233,7 +23233,7 @@ exports[`segment templates template segment-pinterest-conversions-api matches ex
           "type": "string",
         },
         {
-          "default": "{context.device.carrier}",
+          "default": "{event.properties.device.carrier}",
           "description": "User device’s mobile carrier. ",
           "key": "device_carrier",
           "label": "Device Carrier",
@@ -23474,7 +23474,7 @@ exports[`segment templates template segment-pinterest-conversions-api matches ex
           "type": "dictionary",
         },
         {
-          "default": "{context.app.id}",
+          "default": "{event.properties.app.id}",
           "description": "The app store app ID.",
           "key": "app_id",
           "label": "App ID",
@@ -23510,7 +23510,7 @@ exports[`segment templates template segment-pinterest-conversions-api matches ex
           "type": "string",
         },
         {
-          "default": "{context.device.carrier}",
+          "default": "{event.properties.device.carrier}",
           "description": "User device’s mobile carrier. ",
           "key": "device_carrier",
           "label": "Device Carrier",
@@ -23751,7 +23751,7 @@ exports[`segment templates template segment-pinterest-conversions-api matches ex
           "type": "dictionary",
         },
         {
-          "default": "{context.app.id}",
+          "default": "{event.properties.app.id}",
           "description": "The app store app ID.",
           "key": "app_id",
           "label": "App ID",
@@ -23787,7 +23787,7 @@ exports[`segment templates template segment-pinterest-conversions-api matches ex
           "type": "string",
         },
         {
-          "default": "{context.device.carrier}",
+          "default": "{event.properties.device.carrier}",
           "description": "User device’s mobile carrier. ",
           "key": "device_carrier",
           "label": "Device Carrier",
@@ -24028,7 +24028,7 @@ exports[`segment templates template segment-pinterest-conversions-api matches ex
           "type": "dictionary",
         },
         {
-          "default": "{context.app.id}",
+          "default": "{event.properties.app.id}",
           "description": "The app store app ID.",
           "key": "app_id",
           "label": "App ID",
@@ -24064,7 +24064,7 @@ exports[`segment templates template segment-pinterest-conversions-api matches ex
           "type": "string",
         },
         {
-          "default": "{context.device.carrier}",
+          "default": "{event.properties.device.carrier}",
           "description": "User device’s mobile carrier. ",
           "key": "device_carrier",
           "label": "Device Carrier",
@@ -24305,7 +24305,7 @@ exports[`segment templates template segment-pinterest-conversions-api matches ex
           "type": "dictionary",
         },
         {
-          "default": "{context.app.id}",
+          "default": "{event.properties.app.id}",
           "description": "The app store app ID.",
           "key": "app_id",
           "label": "App ID",
@@ -24341,7 +24341,7 @@ exports[`segment templates template segment-pinterest-conversions-api matches ex
           "type": "string",
         },
         {
-          "default": "{context.device.carrier}",
+          "default": "{event.properties.device.carrier}",
           "description": "User device’s mobile carrier. ",
           "key": "device_carrier",
           "label": "Device Carrier",
@@ -24868,7 +24868,7 @@ exports[`segment templates template segment-pipedrive matches expected result 1`
     },
   ],
   "name": "Pipedrive",
-  "status": "alpha",
+  "status": "beta",
   "type": "destination",
 }
 `;
