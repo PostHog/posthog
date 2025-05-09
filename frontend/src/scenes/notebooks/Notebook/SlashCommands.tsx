@@ -367,11 +367,11 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
     const [selectedHorizontalIndex, setSelectedHorizontalIndex] = useState(0)
 
     const calendarHeatmapInsightEnabled = featureFlags[FEATURE_FLAGS.CALENDAR_HEATMAP_INSIGHT]
-    const filteredSlashCommands = SLASH_COMMANDS.filter(
+    const slashCommands = SLASH_COMMANDS.filter(
         (command) => calendarHeatmapInsightEnabled || command.title !== 'Calendar Heatmap'
     )
 
-    const allCommmands = [...TEXT_CONTROLS, ...filteredSlashCommands]
+    const allCommmands = [...TEXT_CONTROLS, ...slashCommands]
 
     const fuse = useMemo(() => {
         return new Fuse(allCommmands, {
@@ -388,8 +388,8 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
     }, [query, fuse])
 
     const filteredSlashCommands = useMemo(
-        () => filteredCommands.filter((item) => filteredSlashCommands.includes(item)),
-        [filteredCommands, filteredSlashCommands]
+        () => filteredCommands.filter((item) => slashCommands.includes(item)),
+        [filteredCommands, slashCommands]
     )
 
     useEffect(() => {
@@ -427,7 +427,7 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
         setSelectedIndex(Math.max(selectedIndex - 1, -1))
     }
     const onPressDown = (): void => {
-        setSelectedIndex(Math.min(selectedIndex + 1, filteredSlashCommands.length - 1))
+        setSelectedIndex(Math.min(selectedIndex + 1, slashCommands.length - 1))
     }
 
     const onPressLeft = (): void => {
