@@ -7,15 +7,24 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.hogql.visitor import clone_expr
 from posthog.hogql.context import HogQLContext
+from posthog.clickhouse.client.execute import sync_execute
 
 from posthog.hogql.transforms.state_transforms import (
     transform_query_to_state,
-    state_functions_to_merge_functions,
     create_merge_wrapper_query,
     AggregationToStateTransformer,
     AGGREGATION_TO_STATE_MAPPING,
     STATE_TO_MERGE_MAPPING
 )
+
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    flush_persons_and_events
+)
+from posthog.models.team.team import Team # Required for ClickhouseTestMixin
+from datetime import datetime # Required for _create_event
 
 
 class TestStateTransforms(TestCase):
@@ -108,65 +117,6 @@ class TestStateTransforms(TestCase):
 
         # GROUP BY should be preserved
         self.assertEqual(len(state_query.group_by), 1)
-
-    def test_transform_state_functions_to_merge(self):
-        """Test transforming state functions to merge functions"""
-        # Query with state functions
-        query_str = """
-        SELECT
-            uniqState(distinct_id) AS unique_users,
-            countState() AS total_events
-        FROM events
-        WHERE timestamp >= '2023-01-01'
-        """
-
-        # Parse the query
-        query = parse_select(query_str)
-
-        # Transform state to merge functions
-        merge_query = state_functions_to_merge_functions(query)
-
-        # Check that functions are transformed to merge versions
-        for select_item in merge_query.select:
-            if isinstance(select_item, ast.Alias) and isinstance(select_item.expr, ast.Call):
-                function_name = select_item.expr.name
-                original_function = function_name.replace("Merge", "State")
-                if original_function in STATE_TO_MERGE_MAPPING:
-                    self.assertEqual(STATE_TO_MERGE_MAPPING[original_function], function_name)
-
-    def test_end_to_end_transform_chain(self):
-        """Test the complete transformation chain from regular query to state to merge functions"""
-        # Original query
-        query_str = """
-        SELECT
-            uniq(distinct_id) AS unique_users,
-            count() AS total_events
-        FROM events
-        WHERE timestamp >= '2023-01-01'
-        """
-
-        # Parse the query
-        original_query = parse_select(query_str)
-
-        # Transform to state query
-        state_query = transform_query_to_state(original_query)
-
-        # Check state transformations
-        for select_item in state_query.select:
-            if isinstance(select_item, ast.Alias) and isinstance(select_item.expr, ast.Call):
-                function_name = select_item.expr.name
-                if function_name in ["uniqState", "countState"]:
-                    self.assertTrue(function_name.endswith("State"))
-
-        # Transform state to merge functions
-        merge_query = state_functions_to_merge_functions(state_query)
-
-        # Check merge transformations
-        for select_item in merge_query.select:
-            if isinstance(select_item, ast.Alias) and isinstance(select_item.expr, ast.Call):
-                function_name = select_item.expr.name
-                if function_name in ["uniqMerge", "countMerge"]:
-                    self.assertTrue(function_name.endswith("Merge"))
 
     def test_create_merge_wrapper_query(self):
         """Test creating a wrapper query that applies merge functions to a state query."""
@@ -291,3 +241,67 @@ class TestStateTransforms(TestCase):
         
         if query.limit:
             print(f"LIMIT: {query.limit}") 
+
+
+class TestStateTransformsIntegration(ClickhouseTestMixin, APIBaseTest):
+    """Integration tests for state transformations with ClickHouse execution."""
+
+    def _create_test_events(self):
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="user_1",
+            timestamp=datetime(2023, 1, 1, 12, 0, 0),
+            properties={"session_duration": 10, "$host": "app.posthog.com"}
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="user_1",
+            timestamp=datetime(2023, 1, 1, 12, 5, 0),
+            properties={"session_duration": 20, "$host": "app.posthog.com"}
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="user_2",
+            timestamp=datetime(2023, 1, 1, 13, 0, 0),
+            properties={"session_duration": 30, "$host": "docs.posthog.com"}
+        )
+        flush_persons_and_events() 
+
+    def test_simple_aggregation_with_db(self):
+        """Test full transformation chain executes and matches original query result."""
+        self._create_test_events()
+
+        original_query_str = f"""
+        SELECT 
+            uniq(distinct_id) as unique_users,
+            count() as total_pageviews
+        FROM events
+        """
+        original_query_ast = parse_select(original_query_str)
+
+        # Execute original query
+        context_original = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
+        context_original.enable_select_queries = True # Allow full query printing
+        original_sql = print_ast(original_query_ast, context=context_original, dialect="clickhouse")
+        original_result = sync_execute(original_sql, context_original.values)
+
+        # Full transformation
+        state_query_ast = transform_query_to_state(original_query_ast)
+        wrapper_query_ast = create_merge_wrapper_query(state_query_ast)
+
+        # Execute transformed query
+        context_transformed = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
+        context_transformed.enable_select_queries = True # Allow full query printing
+        transformed_sql = print_ast(wrapper_query_ast, context=context_transformed, dialect="clickhouse")
+        transformed_result = sync_execute(transformed_sql, context_transformed.values)
+
+        # Assert results are the same
+        self.assertEqual(original_result, transformed_result)
+
+        # Expected values based on created events
+        self.assertEqual(len(original_result), 1) 
+        self.assertEqual(original_result[0][0], 2)
+        self.assertEqual(original_result[0][1], 3)
