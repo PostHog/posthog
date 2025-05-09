@@ -1,0 +1,121 @@
+import { actions, kea, listeners, path, props, reducers, selectors, useActions, useValues } from 'kea'
+import { router, urlToAction } from 'kea-router'
+import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
+import { Breadcrumb } from '~/types'
+
+import type { dataPipelinesSceneLogicType } from './DataPipelinesSceneType'
+import { DataPipelinesHogFunctions } from './hog-functions/DataPipelinesHogFunctions'
+import { DataPipelinesSources } from './sources/DataPipelinesSources'
+
+const DATA_PIPELINES_SCENE_TABS = [
+    'overview',
+    'sources',
+    'transformations',
+    'destinations',
+    'site_apps',
+    'history',
+] as const
+export type DataPipelinesSceneTab = (typeof DATA_PIPELINES_SCENE_TABS)[number]
+
+export type DataPipelinesSceneProps = {
+    kind: DataPipelinesSceneTab
+}
+
+export const dataPipelinesSceneLogic = kea<dataPipelinesSceneLogicType>([
+    props({} as DataPipelinesSceneProps),
+    path(() => ['scenes', 'data-pipelines', 'dataPipelinesSceneLogic']),
+    actions({
+        setCurrentTab: (tab: DataPipelinesSceneTab) => ({ tab }),
+    }),
+    reducers(() => ({
+        currentTab: [
+            'overview' as DataPipelinesSceneTab,
+            {
+                setCurrentTab: (_, { tab }) => tab,
+            },
+        ],
+    })),
+    selectors({
+        logicProps: [() => [(_, props) => props], (props) => props],
+        breadcrumbs: [
+            () => [],
+            (): Breadcrumb[] => {
+                return [
+                    {
+                        key: Scene.DataPipelines,
+                        name: 'Data Pipelines',
+                    },
+                ]
+            },
+        ],
+    }),
+    listeners({
+        setCurrentTab: ({ tab }) => {
+            router.actions.push(urls.dataPipelines(tab))
+        },
+    }),
+    urlToAction(({ actions, values }) => {
+        return {
+            // All possible routes for this scene need to be listed here
+            [urls.dataPipelines(':kind')]: ({ kind }) => {
+                const possibleTab = kind ?? 'overview'
+
+                const tab = DATA_PIPELINES_SCENE_TABS.includes(possibleTab) ? possibleTab : 'overview'
+                if (tab !== values.currentTab) {
+                    actions.setCurrentTab(tab)
+                }
+            },
+        }
+    }),
+])
+
+export const scene: SceneExport = {
+    component: DataPipelinesScene,
+    logic: dataPipelinesSceneLogic,
+    paramsToProps: ({ params: { kind } }): (typeof dataPipelinesSceneLogic)['props'] => ({
+        kind,
+    }),
+}
+
+export function DataPipelinesScene(): JSX.Element {
+    const { currentTab } = useValues(dataPipelinesSceneLogic)
+    const { setCurrentTab } = useActions(dataPipelinesSceneLogic)
+
+    const tabs: LemonTab<DataPipelinesSceneTab>[] = [
+        {
+            label: 'Overview',
+            key: 'overview',
+            content: <div>Overview</div>,
+        },
+        {
+            label: 'Sources',
+            key: 'sources',
+            content: <DataPipelinesSources />,
+        },
+        {
+            label: 'Transformations',
+            key: 'transformations',
+            content: <DataPipelinesHogFunctions kind="transformation" />,
+        },
+        {
+            label: 'Destinations',
+            key: 'destinations',
+            content: <DataPipelinesHogFunctions kind="transformation" additionalKinds={['destination']} />,
+        },
+        {
+            label: 'Apps',
+            key: 'site_apps',
+            content: <DataPipelinesHogFunctions kind="site_app" />,
+        },
+        {
+            label: 'History',
+            key: 'history',
+            content: <div>History</div>,
+        },
+    ]
+
+    return <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} />
+}

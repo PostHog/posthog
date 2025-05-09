@@ -7,9 +7,9 @@ import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataW
 
 import { PipelineStage, ProductKey } from '~/types'
 
-import { NewButton } from '../NewButton'
+import { NewButton } from '../../pipeline/NewButton'
 
-export function Sources(): JSX.Element {
+export function DataPipelinesSources(): JSX.Element {
     const { dataWarehouseSources, dataWarehouseSourcesLoading } = useValues(dataWarehouseSettingsLogic)
 
     return (
