@@ -40,68 +40,36 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
         return self.outer_select
 
     def calculate(self) -> WebOverviewQueryResponse:
-        # Start timing the query execution
-        logger.warning("Executing web overview query", extra={"team_id": self.team.pk})
-
-        # Check if we should use pre-aggregated tables
         use_preaggregated = (
             self.modifiers and 
             self.modifiers.useWebAnalyticsPreAggregatedTables and 
             self.preaggregated_query_builder.can_use_preaggregated_tables()
         )
         
-        # Execute the appropriate query
+        query_type="web_overview_query"
+        query=self.to_query()
+
         if use_preaggregated:
-            logger.info("Using pre-aggregated tables directly", extra={"team_id": self.team.pk})
-            
-            try:
-                # Get query from pre-aggregated tables
-                query = self.preaggregated_query_builder.get_query()
-            except Exception as e:
-                logger.error(f"Error getting query from pre-aggregated tables: {e}", extra={"team_id": self.team.pk})
-                raise e
-                
-            # Execute the query
+            query = self.preaggregated_query_builder.get_query()
+            query_type = "web_overview_preaggregated_query"
+
+        try:
             response = execute_hogql_query(
-                query_type="web_overview_preaggregated_query",
+                query_type=query_type,
                 query=query,
                 team=self.team,
                 timings=self.timings,
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,
             )
-        else:
-            # Get query results from standard tables
-            query = self.to_query()
-            
-            response = execute_hogql_query(
-                query_type="web_overview_query",
-                query=query,
-                team=self.team,
-                timings=self.timings,
-                modifiers=self.modifiers,
-                limit_context=self.limit_context,
-            )
+        except Exception as e:
+            logger.error(f"Error executing HogQL query: {e}", extra={"team_id": self.team.pk})
+            logger.error(f"{query}", extra={"team_id": self.team.pk})
+            raise e
 
-        # Handle empty results
-        if not response.results:
-            logger.error("No results returned from HogQL query", extra={"team_id": self.team.pk})
-            return WebOverviewQueryResponse(
-                results=[],
-                samplingRate=getattr(self, "_sample_rate", None),
-                modifiers=self.modifiers,
-                dateFrom=self.query_date_range.date_from_str,
-                dateTo=self.query_date_range.date_to_str,
-                hogql=response.hogql,
-                timings=response.timings,
-                usedPreAggregatedTables=use_preaggregated,
-            )
+        assert response.results
 
-        # Extract results
         row = response.results[0]
-        hogql = response.hogql
-        response_timings = response.timings
-
         include_previous = bool(self.query.compareFilter and self.query.compareFilter.compare)
 
         def get_prev_val(idx, use_unsample=True):
@@ -131,23 +99,12 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
             else:
                 results.append(to_data("revenue", "currency", row[10], get_prev_val(11, False)))
 
-        logger.info(
-            "Web overview query completed",
-            extra={
-                "team_id": self.team.pk,
-                "used_preaggregated_tables": use_preaggregated,
-                "sampling_rate": getattr(self, "_sample_rate", None),
-            },
-        )
-
         return WebOverviewQueryResponse(
             results=results,
             samplingRate=getattr(self, "_sample_rate", None),
             modifiers=self.modifiers,
             dateFrom=self.query_date_range.date_from_str,
             dateTo=self.query_date_range.date_to_str,
-            hogql=hogql,
-            timings=response_timings,
             usedPreAggregatedTables=use_preaggregated,
         )
 
