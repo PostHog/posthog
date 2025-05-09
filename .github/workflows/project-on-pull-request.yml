@@ -155,12 +155,31 @@ jobs:
                           number: parseInt(issueNumber),
                         });
 
+                      const getTargetStatus = (action, isDraft, isMerged) => {
+                          // If the PR is merged, set the status to "done"
+                          if (action === 'closed' && isMerged) {
+                              return 'done';
+                          }
+
+                          // If the PR is a draft, or has been converted to a draft, set the status to "in progress"
+                          if (action === 'converted_to_draft' || isDraft) {
+                              return 'in progress';
+                          }
+
+                          // If the PR is opened or ready for review, set the status to "in review"
+                          if (action === 'opened' || action === 'ready_for_review') {
+                              return 'in review';
+                          }
+
+                          return null;
+                      };
+
                       const updateStatus = async (projectId, itemId, fieldId, optionId) =>
                         await github.graphql(updateMutation, {
-                          projectId: project.id,
-                          itemId: itemId,
-                          fieldId: fieldId,
-                          optionId: optionId,
+                          projectId,
+                          itemId,
+                          fieldId,
+                          optionId,
                         });
 
                       const createCommentBody = (
@@ -168,7 +187,8 @@ jobs:
                         projectTitle,
                         currentStatus,
                         availableStatuses,
-                        prNumber
+                        prNumber,
+                        isDraft
                       ) => `
                       ### Project Status Update
                       ${statusMessage}
@@ -177,7 +197,7 @@ jobs:
                       **Current Status:** ${currentStatus}
                       **Available Statuses:** ${availableStatuses.join(', ')}
 
-                      Updated via Draft PR #${prNumber}
+                      Updated via ${isDraft ? 'Draft' : 'Ready for Review'} PR #${prNumber}
                       `;
 
                       const addComment = async (
@@ -210,15 +230,7 @@ jobs:
                       const pr = context.payload.pull_request;
                       const action = context.payload.action;
 
-                      const isDraft = pr.draft;
-
-                      // Only handle draft PRs for now
-                      if (!isDraft && action !== 'converted_to_draft') {
-                          console.log('Not a draft PR, skipping...');
-                          return;
-                      }
-
-                      console.log(`\nProcessing Draft PR #${pr.number}: ${pr.title}`);
+                      console.log(`\nProcessing PR #${pr.number}: ${pr.title}`);
 
                       const linkedIssues = getLinkedIssues(pr);
 
@@ -247,11 +259,11 @@ jobs:
                                   continue;
                                 }
 
-                                // Find "In Progress" option
-                                const inProgressOption = findProjectStatusOption(statusField, "in progress");
+                                const targetStatus = getTargetStatus(action, pr.draft, pr.merged);
+                                const targetOption = findProjectStatusOption(statusField, targetStatus);
 
-                                if (!inProgressOption) {
-                                  console.log('No "In Progress" status found in this project\n-------------------');
+                                if (!targetOption) {
+                                  console.log(`No "${targetStatus}" status found in this project\n-------------------`);
                                   continue;
                                 }
 
@@ -264,29 +276,29 @@ jobs:
                                 let statusMessage = '';
                                 let needsComment = false;
 
-                                if (currentStatus.toLowerCase().includes('done') || currentStatus.toLowerCase().includes('in review')) {
+                                if (currentStatus.toLowerCase().includes('done')) {
                                     statusMessage = `🚫 Oops! This issue is already ${currentStatus}! You might want to reset it to a different status.`;
                                     needsComment = true;
-                                } else if (currentStatus.toLowerCase().includes('in progress')) {
-                                    statusMessage = `ℹ️ Issue is already In Progress in project "${project.title}"`;
+                                } else if (currentStatus.toLowerCase().includes(targetStatus)) {
+                                    statusMessage = `ℹ️ Issue is already ${targetStatus} in project "${project.title}"`;
                                 } else {
                                     try {
-                                        await updateStatus(project.id, item.id, statusField.id, inProgressOption.id);
-                                        statusMessage = `✅ Moved to In Progress in project "${project.title}"`;
+                                        await updateStatus(project.id, item.id, statusField.id, targetOption.id);
+                                        statusMessage = `✅ Moved to ${targetStatus} in project "${project.title}"`;
                                     } catch (error) {
                                         statusMessage = `❌ Failed to update status in project "${project.title}": ${error.message}`;
-                                        needsComment = true;
+                                        // needsComment = true;
                                     }
                                 }
 
                                 console.log(statusMessage);
 
                                 if (needsComment) {
-                                    await addComment(issue.id, statusMessage, project.title, currentStatus, availableStatuses, pr.number);
+                                    await addComment(issue.id, statusMessage, project.title, currentStatus, availableStatuses, pr.number, isDraft);
                                 }
                               }
                           } catch (error) {
-                              console.log(`❌ Failed to fetch Issue #${issueNumber}: ${error.message}`);
+                              console.log(`\n❌ Failed to fetch Issue #${issueNumber}: ${error.message}`);
                               continue;
                           }
                       }
