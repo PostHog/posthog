@@ -866,6 +866,7 @@ class InsightViewSet(
                     "PATHS": schema.NodeKind.PATHS_QUERY,
                     "STICKINESS": schema.NodeKind.STICKINESS_QUERY,
                     "LIFECYCLE": schema.NodeKind.LIFECYCLE_QUERY,
+                    "CALENDAR_HEATMAP": schema.NodeKind.CALENDAR_HEATMAP_QUERY,
                 }
                 if insight == "JSON":
                     queryset = queryset.filter(query__isnull=False)

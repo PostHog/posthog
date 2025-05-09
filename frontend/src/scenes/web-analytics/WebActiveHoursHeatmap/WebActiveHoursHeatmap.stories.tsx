@@ -1,7 +1,7 @@
 import { Meta, StoryObj } from '@storybook/react'
 
 import { NodeKind } from '~/queries/schema/schema-general'
-import { EventsHeatMapQuery } from '~/queries/schema/schema-general'
+import { CalendarHeatmapQuery } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { BaseMathType } from '~/types'
 
@@ -16,14 +16,16 @@ const meta: Meta<typeof WebActiveHoursHeatmap> = {
 export default meta
 type Story = StoryObj<typeof WebActiveHoursHeatmap>
 
-const theQuery: EventsHeatMapQuery = {
-    kind: NodeKind.EventsHeatMapQuery,
-    source: {
-        kind: NodeKind.EventsNode,
-        event: '$pageview',
-        name: '$pageview',
-        math: BaseMathType.UniqueUsers,
-    },
+const theQuery: CalendarHeatmapQuery = {
+    kind: NodeKind.CalendarHeatmapQuery,
+    series: [
+        {
+            kind: NodeKind.EventsNode,
+            event: '$pageview',
+            name: '$pageview',
+            math: BaseMathType.UniqueUsers,
+        },
+    ],
     dateRange: {
         date_from: '-7d',
         date_to: 'now',

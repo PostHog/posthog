@@ -5,6 +5,7 @@ import { convertLegacyFiltersToUniversalFilters } from 'scenes/session-recording
 
 import {
     breakdownFilterToQuery,
+    calendarHeatmapFilterToQuery,
     compareFilterToQuery,
     exlusionEntityToNode,
     funnelsFilterToQuery,
@@ -226,6 +227,10 @@ function convertInsightQueriesToNewSchema(content: JSONContent[]): JSONContent[]
         if ((query.kind === NodeKind.TrendsQuery || query.kind === NodeKind.FunnelsQuery) && 'breakdown' in query) {
             query.breakdownFilter = breakdownFilterToQuery(query.breakdown as any, query.kind === NodeKind.TrendsQuery)
             delete query.breakdown
+        }
+
+        if (query.kind === NodeKind.CalendarHeatmapQuery) {
+            query.calendarHeatmapFilter = calendarHeatmapFilterToQuery(query.calendarHeatmapFilter as any)
         }
 
         return {
