@@ -45,8 +45,8 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
     selectors({
         logicProps: [() => [(_, props) => props], (props) => props],
         breadcrumbs: [
-            (s) => [(_, props) => props, s.type, s.loading, s.configuration],
-            ({ templateId, id }, type, loading, configuration): Breadcrumb[] => {
+            (s) => [s.type, s.loading, s.configuration],
+            (type, loading, configuration): Breadcrumb[] => {
                 if (loading) {
                     return [
                         {
@@ -58,6 +58,11 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                             name: '',
                         },
                     ]
+                }
+
+                const finalCrumb: Breadcrumb = {
+                    key: Scene.HogFunction,
+                    name: configuration?.name || '(Untitled)',
                 }
 
                 if (type === 'transformation' || type === 'destination') {
@@ -74,25 +79,47 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                                 type === 'destination' ? PipelineTab.Destinations : PipelineTab.Transformations
                             ),
                         },
-                        {
-                            key: Scene.HogFunction,
-                            name: configuration?.name || '(Untitled)',
-                            path: urls.hogFunction(id),
-                        },
+                        finalCrumb,
                     ]
                 }
 
+                if (type === 'internal_destination') {
+                    // Returns a Scene that is closest to the element based on the configuration.
+                    // This is used to help the HogFunctionScene render correct breadcrumbs and redirections
+                    if (configuration.type === 'internal_destination') {
+                        if (configuration.filters?.events?.some((e) => e.id.includes('error_tracking'))) {
+                            // Error tracking scene
+                            return [
+                                {
+                                    key: Scene.ErrorTracking,
+                                    name: 'Error tracking',
+                                    path: urls.errorTracking(),
+                                },
+                                {
+                                    key: Scene.HogFunction,
+                                    name: 'Alerts',
+                                    path:
+                                        urls.errorTrackingConfiguration() + '#selectedSetting=error-tracking-alerting',
+                                },
+                                finalCrumb,
+                            ]
+                        }
+                    }
+
+                    return [
+                        {
+                            key: Scene.HogFunction,
+                            name: 'Notifications',
+                        },
+                        finalCrumb,
+                    ]
+                }
                 return [
                     {
                         key: Scene.HogFunction,
                         name: 'Function',
-                        path: urls.hogFunction(id),
                     },
-                    {
-                        key: Scene.HogFunction,
-                        path: urls.hogFunction(id),
-                        name: templateId ? 'New' : 'Edit',
-                    },
+                    finalCrumb,
                 ]
             },
         ],
@@ -109,18 +136,23 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
             ]
         },
     })),
-    urlToAction(({ actions }) => ({
-        '*': (_, search) => {
+    urlToAction(({ actions }) => {
+        const reactToTabChange = (_: any, search: Record<string, string>) => {
             if ('tab' in search) {
                 actions.setCurrentTab(
                     HOG_FUNCTION_SCENE_TABS.includes(search.tab as HogFunctionSceneTab)
                         ? (search.tab as HogFunctionSceneTab)
                         : 'configuration'
                 )
-                return
             }
-        },
-    })),
+        }
+
+        return {
+            // All possible routes for this scene need to be listed here
+            [urls.hogFunction(':id')]: reactToTabChange,
+            [urls.errorTrackingAlert(':id')]: reactToTabChange,
+        }
+    }),
 ])
 
 export const scene: SceneExport = {
