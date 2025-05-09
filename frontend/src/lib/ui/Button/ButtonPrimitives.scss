@@ -40,6 +40,7 @@
         &[data-current='true'],
         &[data-state='open'],
         &[data-state='checked'],
+        &[aria-selected='true'],
         &[data-highlighted],
         &.button-primitive--active {
             background-color: var(--bg-fill-button-tertiary-active);

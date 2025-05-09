@@ -1,5 +1,4 @@
-import { IconCheck, IconFilter, IconPin, IconPinFilled, IconSearch, IconX } from '@posthog/icons'
-import { LemonInput } from '@posthog/lemon-ui'
+import { IconCheck, IconFilter, IconPin, IconPinFilled } from '@posthog/icons'
 import { cva } from 'cva'
 import { useActions, useValues } from 'kea'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
@@ -18,8 +17,27 @@ import { useRef } from 'react'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
+import { SearchTagAutocomplete } from 'lib/components/SearchTagAutocomplete/SearchTagAutocomplete'
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { ProjectDropdownMenu } from './ProjectDropdownMenu'
+
+// Match with FileSystemViewSet
+const productTypes = [
+    ['action', 'Actions'],
+    ['broadcast', 'Broadcasts'],
+    ['campaign', 'Campaigns'],
+    ['dashboard', 'Dashboards'],
+    ['destination', 'Destinations'],
+    ['early_access_feature', 'Early access features'],
+    ['experiment', 'Experiments'],
+    ['feature_flag', 'Feature flags'],
+    ['insight', 'Insights'],
+    ['notebook', 'Notebooks'],
+    ['session_recording_playlist', 'Replay playlists'],
+    ['site_app', 'Site apps'],
+    ['source', 'Sources'],
+    ['transformation', 'Transformations'],
+]
 
 interface PanelLayoutPanelProps {
     searchPlaceholder?: string
@@ -76,22 +94,6 @@ interface FiltersDropdownProps {
 }
 
 export function FiltersDropdown({ setSearchTerm, searchTerm }: FiltersDropdownProps): JSX.Element {
-    const types = [
-        ['action', 'Actions'],
-        ['broadcast', 'Broadcasts'],
-        ['campaign', 'Campaigns'],
-        ['dashboard', 'Dashboards'],
-        ['destination', 'Destinations'],
-        ['early_access_feature', 'Early access features'],
-        ['experiment', 'Experiments'],
-        ['feature_flag', 'Feature flags'],
-        ['insight', 'Insights'],
-        ['notebook', 'Notebooks'],
-        ['session_recording_playlist', 'Replay playlists'],
-        ['site_app', 'Site apps'],
-        ['source', 'Sources'],
-        ['transformation', 'Transformations'],
-    ]
     const removeTagsStarting = (str: string, tag: string): string =>
         str
             .split(' ')
@@ -134,7 +136,7 @@ export function FiltersDropdown({ setSearchTerm, searchTerm }: FiltersDropdownPr
                         </ButtonPrimitive>
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
-                    {types.map(([obj, label]) => (
+                    {productTypes.map(([obj, label]) => (
                         <DropdownMenuItem
                             key={obj}
                             onClick={(e) => {
@@ -205,7 +207,7 @@ export function PanelLayoutPanel({ searchPlaceholder, panelActions, children }: 
             <div className="border-b border-primary h-px" />
             <div className="z-main-nav flex flex-1 flex-col justify-between overflow-y-auto bg-surface-secondary">
                 <div className="flex gap-1 p-1 items-center justify-between">
-                    <LemonInput
+                    {/* <LemonInput
                         placeholder={searchPlaceholder}
                         className="w-full"
                         prefix={
@@ -240,6 +242,38 @@ export function PanelLayoutPanel({ searchPlaceholder, panelActions, children }: 
                                 }
                             }
                         }}
+                    />  */}
+                    <SearchTagAutocomplete
+                        inputPlaceholder={searchPlaceholder}
+                        searchData={[
+                            [
+                                'user',
+                                [{ value: 'me', label: 'Me' }],
+                                "type a user's name",
+                            ],
+                            [
+                                'type',
+                                productTypes.map(([value, label]) => ({ value, label })),
+                            ],
+                            [
+                                'name',
+                                undefined,
+                                'type a name',
+                            ],
+                        ]}
+                        autoFocus
+                        onKeyDown={(e) => {
+                            if (e.key === 'ArrowDown') {
+                                e.preventDefault() // Prevent scrolling
+                                const visibleItems = panelTreeRef?.current?.getVisibleItems()
+                                if (visibleItems && visibleItems.length > 0) {
+                                    e.currentTarget.blur() // Remove focus from input
+                                    panelTreeRef?.current?.focusItem(visibleItems[0].id)
+                                }
+                            }
+                        }}
+                        // onChange={(value) => setSearchTerm(value)}
+                        // onSubmit={(value) => setSearchTerm(value)}
                     />
                     <FiltersDropdown setSearchTerm={setSearchTerm} searchTerm={searchTerm} />
                 </div>
