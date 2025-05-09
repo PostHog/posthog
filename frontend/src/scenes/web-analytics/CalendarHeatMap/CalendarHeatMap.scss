@@ -1,4 +1,4 @@
-.EventsHeatMapContainer {
+.CalendarHeatMapContainer {
     max-width: 100%;
     padding: 0.5rem;
     overflow-x: auto;
@@ -7,7 +7,7 @@
     border-radius: var(--radius);
 }
 
-.EventsHeatMap {
+.CalendarHeatMap {
     width: 100%;
     font-weight: 500;
 
@@ -42,7 +42,7 @@
         border-left: 5px solid transparent;
     }
 
-    .EventsHeatMap__TextTab {
+    .CalendarHeatMap__TextTab {
         display: flex;
         align-items: center;
         justify-content: center;
@@ -53,7 +53,7 @@
         white-space: nowrap;
     }
 
-    .EventsHeatMap__Cell {
+    .CalendarHeatMap__Cell {
         display: flex;
         align-items: center;
         justify-content: center;
@@ -64,7 +64,7 @@
         background-color: var(--heatmap-table-color); // NOTE: This is usually overridden in JS
         border-radius: var(--radius);
 
-        &.EventsHeatMap__Cell--clickable {
+        &.CalendarHeatMap__Cell--clickable {
             transition: transform 200ms ease-out;
 
             &:hover {
@@ -72,7 +72,7 @@
             }
         }
 
-        &.EventsHeatMap__Cell--period {
+        &.CalendarHeatMap__Cell--period {
             color: var(--text-secondary);
             background-color: var(--bg-surface-primary);
             border: 1px solid var(--border-primary);
@@ -80,14 +80,14 @@
         }
     }
 
-    &.EventsHeatMap--non-interactive {
+    &.CalendarHeatMap--non-interactive {
         tr {
             &:hover {
                 border-left-color: transparent;
             }
         }
 
-        .EventsHeatMap__Cell {
+        .CalendarHeatMap__Cell {
             cursor: initial;
 
             &:hover {

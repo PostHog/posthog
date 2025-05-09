@@ -6,6 +6,12 @@ from posthog.batch_exports.service import batch_export_delete_schedule
 from posthog.cache_utils import cache_for
 from posthog.models.async_migration import is_async_migration_complete
 
+actions_that_require_current_team = [
+    "rotate_secret_token",
+    "delete_secret_token_backup",
+    "reset_token",
+]
+
 
 def delete_bulky_postgres_data(team_ids: list[int]):
     "Efficiently delete large tables for teams from postgres. Using normal CASCADE delete here can time out"
