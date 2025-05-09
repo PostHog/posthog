@@ -153,6 +153,20 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
         <div data-attr="item-event" className="font-light w-full">
             <div className="px-2 py-1 text-xs border-t">
                 <div className="flex justify-end gap-2">
+                    {item.data.event === '$exception' && '$exception_issue_id' in item.data.properties ? (
+                        <LemonButton
+                            fullWidth
+                            targetBlank
+                            sideIcon={<IconOpenInNew />}
+                            data-attr="events-table-exception-link"
+                            to={urls.errorTrackingIssue(
+                                item.data.properties.$exception_issue_id,
+                                item.data.properties.$exception_fingerprint
+                            )}
+                        >
+                            Visit issue
+                        </LemonButton>
+                    ) : null}
                     <LemonMenu
                         items={[
                             {

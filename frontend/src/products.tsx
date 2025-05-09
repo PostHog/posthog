@@ -322,4 +322,25 @@ export const treeItemsNew = [
 ]
 
 /** This const is auto-generated, as is the whole file */
-export const treeItemsExplore = []
+export const treeItemsProducts = [
+    { path: 'Broadcasts', href: () => urls.messagingBroadcasts(), icon: <IconMegaphone /> },
+    { path: 'Campaigns', href: () => urls.messagingCampaigns(), icon: <IconMegaphone /> },
+    { path: 'Cohorts', icon: <IconPeople />, href: () => urls.cohorts() },
+    { path: 'Early access features', icon: <IconRocket />, href: () => urls.earlyAccessFeatures() },
+    { path: `Experiments`, type: 'experiment', href: () => urls.experiments() },
+    { path: `Feature flags`, type: 'feature_flag', href: () => urls.featureFlags() },
+    { path: 'Group analytics', icon: <IconPeople />, href: () => urls.groups(0) },
+    {
+        path: 'LLM observability',
+        icon: <IconAI />,
+        href: () => urls.llmObservabilityDashboard(),
+        flag: FEATURE_FLAGS.LLM_OBSERVABILITY,
+    },
+    { path: 'Persons', icon: <IconPerson />, href: () => urls.persons() },
+    { path: 'Product analytics', icon: <IconGraph />, href: () => urls.insights() },
+    { path: 'Revenue analytics', icon: <IconPiggyBank />, href: () => urls.revenueAnalytics() },
+    { path: 'Revenue settings', icon: <IconHandMoney />, href: () => urls.revenueSettings() },
+    { path: 'Session replay', href: () => urls.replay(ReplayTabs.Home), icon: <IconRewindPlay /> },
+    { path: 'Surveys', icon: <IconMessage />, href: () => urls.surveys() },
+    { path: 'Web analytics', icon: <IconPieChart />, href: () => urls.webAnalytics() },
+]
