@@ -34,7 +34,6 @@ import {
     GroupType,
     GroupTypeIndex,
     HogFunctionInvocationGlobals,
-    HogFunctionTestInvocationResult,
     LogEntry,
     PipelineNodeTab,
     PipelineStage,
@@ -47,15 +46,11 @@ import {
 } from '../../pipeline/hogfunctions/hogFunctionConfigurationLogic'
 import { hogFunctionTestLogic } from '../../pipeline/hogfunctions/hogFunctionTestLogic'
 import { tagTypeForLevel } from '../../pipeline/hogfunctions/logs/LogsViewer'
-import { hogFunctionTestingLogic } from '../../pipeline/hogFunctionTestingLogic'
-
-export interface HogFunctionTestingProps {
-    id: string
-}
-
-export interface HogFunctionTestInvocationResultWithEventId extends HogFunctionTestInvocationResult {
-    eventId: string
-}
+import {
+    hogFunctionTestingLogic,
+    HogFunctionTestingLogicProps,
+    HogFunctionTestInvocationResultWithEventId,
+} from './hogFunctionTestingLogic'
 
 const buildGlobals = (
     row: any,
@@ -90,7 +85,7 @@ const buildGlobals = (
     return globals
 }
 
-export function HogFunctionTesting({ id }: HogFunctionTestingProps): JSX.Element {
+export function HogFunctionTesting({ id }: HogFunctionTestingLogicProps): JSX.Element {
     const { selectingMany, eventsWithRetries, loadingRetries, selectedForRetry } = useValues(
         hogFunctionTestingLogic({ id })
     )

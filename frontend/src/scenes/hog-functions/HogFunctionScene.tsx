@@ -43,6 +43,7 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
         ],
     })),
     selectors({
+        logicProps: [() => [(_, props) => props], (props) => props],
         breadcrumbs: [
             (s) => [(_, props) => props, s.type],
             ({ templateId, id }, type): Breadcrumb[] => {
@@ -101,10 +102,11 @@ export const scene: SceneExport = {
     paramsToProps: ({ params: { id, templateId } }): (typeof hogFunctionSceneLogic)['props'] => ({ id, templateId }),
 }
 
-export function HogFunctionScene(props: HogFunctionConfigurationLogicProps): JSX.Element {
-    const { id, templateId } = props
-    const { currentTab, loading, loaded } = useValues(hogFunctionSceneLogic(props))
-    const { setCurrentTab } = useActions(hogFunctionSceneLogic(props))
+export function HogFunctionScene(): JSX.Element {
+    const { currentTab, loading, loaded, logicProps } = useValues(hogFunctionSceneLogic)
+    const { setCurrentTab } = useActions(hogFunctionSceneLogic)
+
+    const { id, templateId } = logicProps
 
     if (loading && !loaded) {
         return (

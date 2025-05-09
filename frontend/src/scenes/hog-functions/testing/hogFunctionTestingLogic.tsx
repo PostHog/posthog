@@ -12,9 +12,11 @@ import { EventsNode, EventsQuery, EventsQueryResponse, NodeKind, TrendsQuery } f
 import { escapePropertyAsHogQlIdentifier } from '~/queries/utils'
 import { BaseMathType, ChartDisplayType, HogFunctionInvocationGlobals, HogFunctionTestInvocationResult } from '~/types'
 
-import { hogFunctionConfigurationLogic, sanitizeConfiguration } from './hogfunctions/hogFunctionConfigurationLogic'
+import {
+    hogFunctionConfigurationLogic,
+    sanitizeConfiguration,
+} from '../../pipeline/hogfunctions/hogFunctionConfigurationLogic'
 import type { hogFunctionTestingLogicType } from './hogFunctionTestingLogicType'
-import { HogFunctionTestInvocationResultWithEventId } from './TestingMenu'
 
 export interface HogFunctionTestingLogicProps {
     id: string
@@ -23,6 +25,10 @@ export interface HogFunctionTestingLogicProps {
 export interface EventsResultType {
     before: string | undefined
     results: EventsQueryResponse['results']
+}
+
+export interface HogFunctionTestInvocationResultWithEventId extends HogFunctionTestInvocationResult {
+    eventId: string
 }
 
 const PAGE_ROWS = 20
