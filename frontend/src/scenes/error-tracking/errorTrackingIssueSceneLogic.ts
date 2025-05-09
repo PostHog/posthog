@@ -54,7 +54,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         loadFirstSeenEvent: (timestamp: string) => ({ timestamp }),
         setIssue: (issue: ErrorTrackingRelationalIssue) => ({ issue }),
         setLastSeen: (lastSeen: Dayjs) => ({ lastSeen }),
-        setCustomEvent: (event: ErrorEventType | null) => ({
+        selectEvent: (event: ErrorEventType | null) => ({
             event,
         }),
     }),
@@ -65,10 +65,10 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         properties: null as ErrorEventProperties | null,
         lastSeen: null as Dayjs | null,
         firstSeenEvent: null as ErrorEventType | null,
-        customEvent: null as ErrorEventType | null,
+        selectedEvent: null as ErrorEventType | null,
     }),
 
-    reducers({
+    reducers(({ values }) => ({
         issue: {
             setIssue: (_, { issue }: { issue: ErrorTrackingRelationalIssue }) => issue,
             updateIssueAssignee: (state, { id, assignee }) => {
@@ -93,10 +93,15 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 return prevLastSeen
             },
         },
-        customEvent: {
-            setCustomEvent: (_, { event }) => event,
+        selectedEvent: {
+            selectEvent: (_, { event }) => {
+                if (!event && values.firstSeenEvent) {
+                    return values.firstSeenEvent
+                }
+                return event
+            },
         },
-    }),
+    })),
 
     loaders(({ values, actions, props }) => ({
         issue: {
@@ -109,20 +114,26 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                         issueId: props.id,
                         dateRange: getNarrowDateRange(timestamp),
                         filterTestAccounts: false,
+                        withAggregations: false,
+                        withFirstEvent: true,
                     }),
                     {},
                     undefined,
                     'blocking'
                 )
                 const issue = response.results[0]
-                if (!issue.earliest) {
+                if (!issue.first_event) {
                     return null
                 }
+                const first_event_properties = JSON.parse(issue.first_event.properties)
                 const firstSeenEvent: ErrorEventType = {
-                    uuid: `${values.issue?.id}_first_seen`,
-                    timestamp,
+                    uuid: issue.first_event.uuid,
+                    timestamp: issue.first_event.timestamp,
                     person: { distinct_ids: [], properties: {} },
-                    properties: JSON.parse(issue.earliest),
+                    properties: first_event_properties,
+                }
+                if (!values.selectedEvent) {
+                    actions.selectEvent(firstSeenEvent)
                 }
                 return firstSeenEvent
             },
@@ -137,6 +148,8 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                         filterGroup: values.filterGroup,
                         searchQuery: values.searchQuery,
                         volumeResolution: ERROR_TRACKING_DETAILS_RESOLUTION,
+                        withAggregations: true,
+                        withFirstEvent: false,
                     }),
                     {},
                     undefined,
@@ -147,6 +160,9 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 }
                 actions.setLastSeen(dayjs(response.results[0].last_seen))
                 const summary = response.results[0]
+                if (!summary.aggregations) {
+                    return null
+                }
                 return {
                     aggregations: summary.aggregations,
                 }
@@ -186,13 +202,6 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         firstSeen: [
             (s) => [s.issue],
             (issue: ErrorTrackingRelationalIssue | null) => (issue ? dayjs(issue.first_seen) : null),
-        ],
-
-        displayedEvent: [
-            (s) => [s.customEvent, s.firstSeenEvent],
-            (customEvt: ErrorEventType | null, firstSeenEvt: ErrorEventType | null) => {
-                return customEvt ?? firstSeenEvt
-            },
         ],
 
         aggregations: [(s) => [s.summary], (summary: ErrorTrackingIssueSummary | null) => summary?.aggregations],

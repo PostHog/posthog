@@ -13,14 +13,12 @@ import {
     getSessionId,
     hasStacktrace,
 } from 'lib/components/Errors/utils'
-import { dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import type { errorPropertiesLogicType } from './errorPropertiesLogicType'
 
 export interface ErrorPropertiesLogicProps {
     properties?: ErrorEventProperties
-    timestamp?: string
     id: ErrorEventId
 }
 
@@ -46,12 +44,6 @@ export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
             (s) => [s.properties],
             (properties: ErrorEventProperties) => {
                 return properties ? getExceptionList(properties) : []
-            },
-        ],
-        timestamp: [
-            () => [(_, props) => props.timestamp as string | null],
-            (timestamp: string) => {
-                return timestamp ? dayjs(timestamp) : null
             },
         ],
         additionalProperties: [

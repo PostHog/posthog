@@ -12,6 +12,7 @@ import { ErrorTrackingIssueAggregations } from '~/queries/schema/schema-general'
 import { EventsTable } from '../components/EventsTable/EventsTable'
 import { SparklineChart, SparklineDatum, SparklineEvent } from '../components/SparklineChart/SparklineChart'
 import { TimeBoundary } from '../components/TimeBoundary'
+import { useErrorTagRenderer } from '../hooks/use-error-tag-renderer'
 import { useSparklineDataIssueScene } from '../hooks/use-sparkline-data'
 import { useSparklineEvents } from '../hooks/use-sparkline-events'
 import { useSparklineOptions } from '../hooks/use-sparkline-options'
@@ -29,11 +30,12 @@ type SelectedDataType =
     | null
 
 export const Metadata = (): JSX.Element => {
-    const { aggregations, issueId, customEvent, summaryLoading, issueLoading, firstSeen, lastSeen } =
+    const { aggregations, issueId, selectedEvent, firstSeenEvent, summaryLoading, issueLoading, firstSeen, lastSeen } =
         useValues(errorTrackingIssueSceneLogic)
-    const { setCustomEvent } = useActions(errorTrackingIssueSceneLogic)
+    const { selectEvent } = useActions(errorTrackingIssueSceneLogic)
     const [hoveredDatum, setHoveredDatum] = useState<SelectedDataType>(null)
     const sparklineData = useSparklineDataIssueScene()
+    const tagRenderer = useErrorTagRenderer()
     const sparklineEvents = useSparklineEvents()
     const sparklineOptions = useSparklineOptions(
         {
@@ -107,7 +109,14 @@ export const Metadata = (): JSX.Element => {
                     className="h-full pt-0"
                 />
             </div>
-            <EventsTable issueId={issueId} selectedEvent={customEvent} onEventSelect={setCustomEvent} />
+            <EventsTable
+                issueId={issueId}
+                renderLabel={tagRenderer}
+                selectedEvent={selectedEvent}
+                onEventSelect={(selectedEvent) =>
+                    selectedEvent ? selectEvent(selectedEvent) : selectEvent(firstSeenEvent)
+                }
+            />
         </LemonCard>
     )
 }

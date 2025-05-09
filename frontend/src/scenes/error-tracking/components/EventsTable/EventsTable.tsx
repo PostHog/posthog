@@ -6,7 +6,6 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
 import { DataTable, DataTableColumn } from '../DataTable/DataTable'
-import { ErrorTag } from '../ErrorTag'
 import { ExceptionAttributesPreview } from '../ExceptionAttributesPreview'
 import { eventsQueryLogic } from './eventsQueryLogic'
 import { eventsSourceLogic } from './eventsSourceLogic'
@@ -14,10 +13,11 @@ import { eventsSourceLogic } from './eventsSourceLogic'
 export interface EventsTableProps {
     issueId: string
     selectedEvent: ErrorEventType | null
+    renderLabel: (evt: ErrorEventType) => JSX.Element
     onEventSelect: (event: ErrorEventType | null) => void
 }
 
-export function EventsTable({ issueId, selectedEvent, onEventSelect }: EventsTableProps): JSX.Element {
+export function EventsTable({ issueId, renderLabel, selectedEvent, onEventSelect }: EventsTableProps): JSX.Element {
     const { query, queryKey } = useValues(eventsQueryLogic({ issueId }))
     const dataSource = eventsSourceLogic({ queryKey, query })
 
@@ -36,10 +36,6 @@ export function EventsTable({ issueId, selectedEvent, onEventSelect }: EventsTab
 
     function renderPerson(record: ErrorEventType): JSX.Element {
         return <PersonDisplay person={record.person} withIcon noPopover noLink />
-    }
-
-    function renderLabel(record: ErrorEventType): JSX.Element {
-        return <>{record.uuid == selectedEvent?.uuid && <ErrorTag label="Custom" color="yellow" />}</>
     }
 
     function renderAttributes(record: ErrorEventType): JSX.Element {

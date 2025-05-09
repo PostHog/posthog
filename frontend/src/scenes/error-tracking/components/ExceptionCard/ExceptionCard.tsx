@@ -23,10 +23,11 @@ import { StacktraceTextDisplay } from './Stacktrace/StacktraceTextDisplay'
 interface ExceptionCardContentProps {
     issue?: ErrorTrackingRelationalIssue
     issueLoading: boolean
+    timestamp?: string
     label?: JSX.Element
 }
 
-export interface ExceptionCardProps extends ExceptionCardContentProps {
+export interface ExceptionCardProps extends Omit<ExceptionCardContentProps, 'timestamp'> {
     event?: ErrorEventType
     eventLoading: boolean
 }
@@ -44,16 +45,20 @@ export function ExceptionCard({ issue, issueLoading, label, event, eventLoading 
                     } as ErrorPropertiesLogicProps
                 }
             >
-                <ExceptionCardContent issue={issue} label={label} issueLoading={issueLoading} />
+                <ExceptionCardContent
+                    issue={issue}
+                    label={label}
+                    timestamp={event?.timestamp}
+                    issueLoading={issueLoading}
+                />
             </BindLogic>
         </BindLogic>
     )
 }
 
-function ExceptionCardContent({ issue, issueLoading, label }: ExceptionCardContentProps): JSX.Element {
+function ExceptionCardContent({ issue, issueLoading, timestamp, label }: ExceptionCardContentProps): JSX.Element {
     const { loading, showContext, isExpanded } = useValues(exceptionCardLogic)
-    const { properties, exceptionAttributes, additionalProperties, timestamp, sessionId } =
-        useValues(errorPropertiesLogic)
+    const { properties, exceptionAttributes, additionalProperties, sessionId } = useValues(errorPropertiesLogic)
     return (
         <LemonCard hoverEffect={false} className="group py-2 px-3 relative overflow-hidden">
             <Collapsible isExpanded={isExpanded} className="pb-1 flex w-full" minHeight="calc(var(--spacing) * 12)">

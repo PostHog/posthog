@@ -11,13 +11,13 @@ import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 import { AssigneeIconDisplay, AssigneeLabelDisplay } from './components/Assignee/AssigneeDisplay'
 import { AssigneeSelect } from './components/Assignee/AssigneeSelect'
 import { ErrorFilters } from './components/ErrorFilters'
-import { ErrorTag } from './components/ErrorTag'
 import { ErrorTrackingSetupPrompt } from './components/ErrorTrackingSetupPrompt/ErrorTrackingSetupPrompt'
 import { ExceptionCard } from './components/ExceptionCard'
 import { GenericSelect } from './components/GenericSelect'
 import { IssueStatus, StatusIndicator } from './components/Indicator'
 import { issueActionsLogic } from './components/IssueActions/issueActionsLogic'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
+import { useErrorTagRenderer } from './hooks/use-error-tag-renderer'
 import { Metadata } from './issue/Metadata'
 
 export const scene: SceneExport = {
@@ -38,24 +38,15 @@ export const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {
 }
 
 export function ErrorTrackingIssueScene(): JSX.Element {
-    const { issue, issueId, issueLoading, displayedEvent, firstSeenEvent, firstSeenEventLoading, customEvent } =
+    const { issue, issueId, issueLoading, selectedEvent, firstSeenEventLoading } =
         useValues(errorTrackingIssueSceneLogic)
     const { loadIssue } = useActions(errorTrackingIssueSceneLogic)
     const { updateIssueAssignee, updateIssueStatus } = useActions(issueActionsLogic)
+    const tagRenderer = useErrorTagRenderer()
 
     useEffect(() => {
         loadIssue()
     }, [loadIssue])
-
-    function getEventLabel(): JSX.Element {
-        if (displayedEvent && firstSeenEvent && displayedEvent?.uuid == firstSeenEvent.uuid) {
-            return <ErrorTag color="blue" label="First Seen" />
-        }
-        if (displayedEvent && customEvent && displayedEvent.uuid == customEvent.uuid) {
-            return <ErrorTag color="yellow" label="Custom" />
-        }
-        return <></>
-    }
 
     return (
         <ErrorTrackingSetupPrompt>
@@ -96,9 +87,9 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                 <ExceptionCard
                     issue={issue ?? undefined}
                     issueLoading={issueLoading}
-                    event={displayedEvent ?? undefined}
+                    event={selectedEvent ?? undefined}
                     eventLoading={firstSeenEventLoading}
-                    label={getEventLabel()}
+                    label={tagRenderer(selectedEvent)}
                 />
                 <ErrorFilters.Root>
                     <ErrorFilters.DateRange />

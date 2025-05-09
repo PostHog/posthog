@@ -44,6 +44,8 @@ export const errorTrackingQuery = ({
             searchQuery: searchQuery,
             limit: limit,
             orderDirection,
+            withAggregations: true,
+            withFirstEvent: false,
         },
         showActions: false,
         showTimings: false,
@@ -58,6 +60,8 @@ export const errorTrackingIssueQuery = ({
     filterTestAccounts,
     searchQuery,
     volumeResolution = 0,
+    withFirstEvent = false,
+    withAggregations = false,
 }: {
     issueId: string
     dateRange: DateRange
@@ -65,6 +69,8 @@ export const errorTrackingIssueQuery = ({
     filterTestAccounts: boolean
     searchQuery?: string
     volumeResolution?: number
+    withFirstEvent?: boolean
+    withAggregations?: boolean
 }): ErrorTrackingQuery => {
     return {
         kind: NodeKind.ErrorTrackingQuery,
@@ -74,6 +80,8 @@ export const errorTrackingIssueQuery = ({
         filterTestAccounts,
         searchQuery,
         volumeResolution,
+        withFirstEvent,
+        withAggregations,
     }
 }
 

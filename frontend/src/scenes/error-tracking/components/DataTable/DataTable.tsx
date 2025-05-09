@@ -1,6 +1,6 @@
 import { LemonButton, LemonTable, LemonTableColumn } from '@posthog/lemon-ui'
 import { BuiltLogic, useActions, useValues } from 'kea'
-import { Children, isValidElement, MouseEvent, useCallback, useMemo } from 'react'
+import { Children, isValidElement, MouseEvent, ReactElement, useCallback, useMemo } from 'react'
 
 import { DataSourceLogic } from './types'
 
@@ -25,7 +25,7 @@ export function DataTable<T extends Record<string, any>>({
         return Children.toArray(children)
             .filter((child) => isValidElement(child))
             .map((child) => {
-                const props = child.props as DataTableColumnProps<T>
+                const props = (child as ReactElement).props as DataTableColumnProps<T>
                 return {
                     title: props.title,
                     align: props.align,

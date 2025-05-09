@@ -1,11 +1,13 @@
 import { useValues } from 'kea'
+import { ErrorEventType } from 'lib/components/Errors/types'
+import { Dayjs } from 'lib/dayjs'
 import { useMemo } from 'react'
 
 import { SparklineEvent } from '../components/SparklineChart/SparklineChart'
 import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
 
 export function useSparklineEvents(): SparklineEvent<string>[] {
-    const { firstSeen, lastSeen, customEvent } = useValues(errorTrackingIssueSceneLogic)
+    const { firstSeen, firstSeenEvent, lastSeen, selectedEvent } = useValues(errorTrackingIssueSceneLogic)
     return useMemo(() => {
         const events = []
         if (firstSeen) {
@@ -17,10 +19,10 @@ export function useSparklineEvents(): SparklineEvent<string>[] {
                 radius: 6,
             })
         }
-        if (customEvent) {
+        if (selectedEvent && !isFistOrLastEvent(firstSeenEvent, lastSeen, selectedEvent)) {
             events.push({
                 id: 'custom',
-                date: new Date(customEvent.timestamp),
+                date: new Date(selectedEvent.timestamp),
                 color: 'var(--brand-yellow)',
                 payload: 'Custom',
                 radius: 6,
@@ -36,5 +38,19 @@ export function useSparklineEvents(): SparklineEvent<string>[] {
             })
         }
         return events
-    }, [firstSeen, lastSeen, customEvent])
+    }, [firstSeen, firstSeenEvent, lastSeen, selectedEvent])
+}
+
+function isFistOrLastEvent(
+    firstSeenEvent: ErrorEventType | null,
+    lastSeen: Dayjs | null,
+    selectedEvent: ErrorEventType | null
+): boolean {
+    if (selectedEvent && firstSeenEvent && firstSeenEvent.uuid == selectedEvent.uuid) {
+        return true
+    }
+    if (selectedEvent && lastSeen?.isSame(selectedEvent.timestamp)) {
+        return true
+    }
+    return false
 }
