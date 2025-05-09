@@ -17,6 +17,7 @@ import { capitalizeFirstLetter, Form } from 'kea-forms'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
+import { IconDecisionTree, IconHourglass, IconLeave, IconSend } from 'node_modules/@posthog/icons/dist'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -46,10 +47,10 @@ const initialEdges: Edge[] = [{ id: 'trigger-node-exit-node', source: 'trigger-n
 
 // Node types available for adding to the flow
 const TOOLBAR_NODE_TYPES = [
-    { type: 'message', label: 'Message' },
-    { type: 'condition', label: 'Condition' },
-    { type: 'delay', label: 'Delay' },
-    { type: 'exit', label: 'Exit' },
+    { type: 'message', label: 'Message', icon: <IconSend /> },
+    { type: 'condition', label: 'Condition', icon: <IconDecisionTree /> },
+    { type: 'delay', label: 'Delay', icon: <IconHourglass /> },
+    { type: 'exit', label: 'Exit', icon: <IconLeave /> },
 ]
 type ToolbarNodeType = (typeof TOOLBAR_NODE_TYPES)[number]['type']
 
@@ -61,10 +62,12 @@ type WorkflowEditorProps = {
 function ToolbarNode({
     type,
     label,
+    icon,
     setNewNodeType,
 }: {
     type: ToolbarNodeType
     label: string
+    icon: React.ReactNode
     setNewNodeType: (nodeType: ToolbarNodeType) => void
 }): JSX.Element {
     const onDragStart = (event: React.DragEvent): void => {
@@ -79,6 +82,7 @@ function ToolbarNode({
             draggable
             onDragStart={onDragStart}
         >
+            {icon}
             {label}
         </div>
     )
@@ -90,7 +94,13 @@ function Toolbar({ setNewNodeType }: { setNewNodeType: (nodeType: ToolbarNodeTyp
             <h3 className="text-sm font-semibold mb-2">Drag to add nodes</h3>
             <div className="space-y-1">
                 {TOOLBAR_NODE_TYPES.map((type) => (
-                    <ToolbarNode key={type.type} type={type.type} label={type.label} setNewNodeType={setNewNodeType} />
+                    <ToolbarNode
+                        key={type.type}
+                        type={type.type}
+                        label={type.label}
+                        icon={type.icon}
+                        setNewNodeType={setNewNodeType}
+                    />
                 ))}
             </div>
         </div>

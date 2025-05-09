@@ -1,9 +1,11 @@
 import { LemonInput, LemonTable, LemonTableColumn, Link, Tooltip } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { HogFunctionIcon } from 'scenes/pipeline/hogfunctions/HogFunctionIcon'
 import { HogFunctionStatusIndicator } from 'scenes/pipeline/hogfunctions/HogFunctionStatusIndicator'
 import { hogFunctionUrl } from 'scenes/pipeline/hogfunctions/urls'
@@ -40,6 +42,8 @@ export function FunctionsTable({ type, kind }: FunctionsTableProps): JSX.Element
     const { hogFunctions, filteredHogFunctions, loading } = useValues(functionsTableLogic({ type, kind }))
     const { deleteHogFunction, resetFilters } = useActions(functionsTableLogic({ type, kind }))
 
+    const { featureFlags } = useValues(featureFlagLogic)
+
     return (
         <BindLogic logic={functionsTableLogic} props={{ type, kind }}>
             <div className="deprecated-space-y-2">
@@ -67,7 +71,8 @@ export function FunctionsTable({ type, kind }: FunctionsTableProps): JSX.Element
                                 return (
                                     <LemonTableLink
                                         to={
-                                            kind === 'messaging_campaign'
+                                            kind === 'messaging_campaign' &&
+                                            featureFlags[FEATURE_FLAGS.MESSAGING_AUTOMATION_WORKFLOWS]
                                                 ? urls.messagingCampaign(hogFunction.id)
                                                 : hogFunctionUrl(
                                                       hogFunction.type,
