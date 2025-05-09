@@ -19,8 +19,12 @@ pub const FORM_MIME_TYPE: &str = "application/x-www-form-urlencoded";
 pub enum Base64Option {
     // hasn't been decoded from urlencoded payload; won't include spaces
     Strict,
+
     // input might have been urlencoded; might include spaces that need touching up
     Loose,
+
+    // data may have originated in a URL query param (GET request) and may use alt characters
+    URL,
 }
 pub fn random_bytes<const N: usize>() -> [u8; N] {
     let mut ret = [0u8; N];
@@ -141,9 +145,8 @@ pub fn is_likely_base64(payload: &[u8], opt: Base64Option) -> bool {
         (*b >= b'A' && *b <= b'Z')
             || (*b >= b'a' && *b <= b'z')
             || (*b >= b'0' && *b <= b'9')
-            || *b == b'+'
-            || *b == b'/'
-            || *b == b'='
+            || (opt != Base64Option::URL && (*b == b'+' || *b == b'/' || *b == b'='))
+            || (opt == Base64Option::URL && (*b == b'_' || *b == b'-'))
             || (opt == Base64Option::Loose && *b == b' ')
     });
 
@@ -153,6 +156,7 @@ pub fn is_likely_base64(payload: &[u8], opt: Base64Option) -> bool {
 }
 
 pub fn decode_base64(payload: &[u8], location: &str) -> Result<Vec<u8>, CaptureError> {
+    // TODO(eli): parameterize to use general_purpose::URL_SAFE_NO_PAD engine for GET req payloads
     match base64::engine::general_purpose::STANDARD.decode(payload) {
         Ok(decoded_payload) => Ok(decoded_payload),
         Err(e) => {
