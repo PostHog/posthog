@@ -3,7 +3,7 @@ import { LemonInput } from "lib/lemon-ui/LemonInput";
 import { ButtonPrimitive } from "lib/ui/Button/ButtonPrimitives";
 import { ListBox, ListBoxHandle } from "lib/ui/ListBox/ListBox";
 import { PopoverPrimitive, PopoverPrimitiveContent, PopoverPrimitiveTrigger } from "lib/ui/PopoverPrimitive/PopoverPrimitive";
-import { forwardRef, useState, useEffect, useRef } from "react";
+import { forwardRef, useState, useRef } from "react";
 
 type Category = string;
 type Suggestion = { label: string; value: string };
@@ -100,7 +100,7 @@ export const SearchTagAutocomplete = forwardRef<HTMLInputElement, SearchWithTags
                     </PopoverPrimitiveTrigger>
                     <PopoverPrimitiveContent onOpenAutoFocus={e => e.preventDefault()} className='primitive-menu-content w-[var(--radix-popover-trigger-width)] max-w-none'>
                         <ListBox ref={listBoxRef} className="flex flex-col gap-px p-1">
-                            {suggestions.map((item, index) => (
+                            {suggestions.map((item) => (
                                 <ListBox.Item asChild key={item}>
                                     <ButtonPrimitive 
                                         onClick={() => handleSuggestionClick(item)}
