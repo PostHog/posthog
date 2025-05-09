@@ -191,62 +191,66 @@ jobs:
                         return;
                       }
 
-                      // Fetch issue data
-                      const issueResult = await fetchIssue(issueNumber);
+                      try {
+                        // Fetch issue data
+                        const issueResult = await fetchIssue(issueNumber);
 
-                      const issue = issueResult.repository.issue;
-                      console.log(`\nProcessing Issue #${issue.number}: ${issue.title}`);
+                        const issue = issueResult.repository.issue;
+                        console.log(`\nProcessing Issue #${issue.number}: ${issue.title}`);
 
-                      // Process each project item for this issue.
-                      // The same issue can be in multiple projects, with different status fields.
-                      for (const item of issue.projectItems.nodes) {
-                        const project = item.project;
+                        // Process each project item for this issue.
+                        // The same issue can be in multiple projects, with different status fields.
+                        for (const item of issue.projectItems.nodes) {
+                          const project = item.project;
 
-                        // Find status field and its options
-                        const statusField = findProjectStatusField(project);
+                          // Find status field and its options
+                          const statusField = findProjectStatusField(project);
 
-                        if (!statusField) {
-                          console.log(`\nProject: ${project.title}\nStatus: No status field found\n-------------------`);
-                          continue;
-                        }
+                          if (!statusField) {
+                            console.log(`\nProject: ${project.title}\nStatus: No status field found\n-------------------`);
+                            continue;
+                          }
 
-                        // Find "In Progress" option
-                        const inProgressOption = findProjectStatusOption(statusField, 'in progress');
+                          // Find "In Progress" option
+                          const inProgressOption = findProjectStatusOption(statusField, 'in progress');
 
-                        if (!inProgressOption) {
-                          console.log('No "In Progress" status found in this project\n-------------------');
-                          continue;
-                        }
+                          if (!inProgressOption) {
+                            console.log('No "In Progress" status found in this project\n-------------------');
+                            continue;
+                          }
 
-                        // Get current status
-                        const currentStatus = getCurrentStatus(item);
+                          // Get current status
+                          const currentStatus = getCurrentStatus(item);
 
-                        const availableStatuses = statusField.options.map(opt => opt.name);
-                        console.log(`\nProject: ${project.title}\nCurrent Status: ${currentStatus}\nAvailable Statuses: ${availableStatuses.join(', ')}`);
+                          const availableStatuses = statusField.options.map(opt => opt.name);
+                          console.log(`\nProject: ${project.title}\nCurrent Status: ${currentStatus}\nAvailable Statuses: ${availableStatuses.join(', ')}`);
 
-                        let statusMessage = '';
-                        let needsComment = false;
+                          let statusMessage = '';
+                          let needsComment = false;
 
-                        // Check if issue is in a final state
-                        if(['done', 'in review'].includes(currentStatus.toLowerCase())) {
-                          statusMessage = `🚫 Oops! This issue is already ${currentStatus}! You might want to reset it to a different status.`;
-                          needsComment = true;
-                        } else if (currentStatus.toLowerCase().includes('in progress')) {
-                          statusMessage = `ℹ️ Issue is already In Progress in project "${project.title}"`;
-                        } else {
-                          try {
-                            await updateStatus(project.id, item.id, statusField.id, inProgressOption.id);
-                            statusMessage = `✅ Moved to In Progress in project "${project.title}"`;
-                          } catch (error) {
-                            statusMessage = `❌ Failed to update status in project "${project.title}": ${error.message}`;
+                          // Check if issue is in a final state
+                          if(['done', 'in review'].includes(currentStatus.toLowerCase())) {
+                            statusMessage = `🚫 Oops! This issue is already ${currentStatus}! You might want to reset it to a different status.`;
                             needsComment = true;
+                          } else if (currentStatus.toLowerCase().includes('in progress')) {
+                            statusMessage = `ℹ️ Issue is already In Progress in project "${project.title}"`;
+                          } else {
+                            try {
+                              await updateStatus(project.id, item.id, statusField.id, inProgressOption.id);
+                              statusMessage = `✅ Moved to In Progress in project "${project.title}"`;
+                            } catch (error) {
+                              statusMessage = `❌ Failed to update status in project "${project.title}": ${error.message}`;
+                              needsComment = true;
+                            }
+                          }
+
+                          console.log(statusMessage);
+
+                          // Comment on the issue
+                          if (needsComment) {
+                            await addComment(issue.id, statusMessage, project.title, currentStatus, availableStatuses, branchName);
                           }
                         }
-
-                        console.log(statusMessage);
-
-                        // Comment on the issue
-                        if (needsComment) {
-                          await addComment(issue.id, statusMessage, project.title, currentStatus, availableStatuses, branchName);
-                        }
+                      } catch (error) {
+                        console.log(`\n❌ Failed to fetch Issue #${issueNumber}: ${error.message}`);
                       }
