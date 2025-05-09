@@ -7,12 +7,11 @@ import uuid
 from collections.abc import Iterator, Sequence
 from ipaddress import IPv4Address, IPv6Address
 from typing import Any, Optional
-from posthog.exceptions_capture import capture_exception
-import posthoganalytics
 
 import deltalake as deltalake
 import numpy as np
 import orjson
+import posthoganalytics
 import pyarrow as pa
 import pyarrow.compute as pc
 from dateutil import parser
@@ -22,6 +21,7 @@ from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 from dlt.sources import DltResource
 
+from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.temporal.data_imports.pipelines.pipeline.typings import (
@@ -29,9 +29,13 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import (
     PartitionMode,
     SourceResponse,
 )
-from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 from posthog.temporal.data_imports.pipelines.stripe.constants import (
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
+)
+from posthog.warehouse.models import (
+    ExternalDataJob,
+    ExternalDataSchema,
+    ExternalDataSource,
 )
 
 DLT_TO_PA_TYPE_MAP = {
@@ -778,3 +782,11 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
                 arrow_schema = arrow_schema.remove(arrow_schema.get_field_index(str(column)))
 
     return pa.Table.from_pydict(columnar_table_data, schema=arrow_schema)
+
+
+def supports_partial_data_loading(schema: ExternalDataSchema) -> bool:
+    """
+    We should be able to roll this out to all source types but initially we only support it for Stripe so we can verify
+    the approach.
+    """
+    return schema.source.type == ExternalDataSource.Type.STRIPE

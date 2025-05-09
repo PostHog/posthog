@@ -6,6 +6,7 @@ import deltalake as deltalake
 import pyarrow as pa
 from dlt.sources import DltSource
 
+from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.deltalake_compaction_job import (
@@ -29,6 +30,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     append_partition_key_to_table,
     normalize_table_column_names,
     should_partition_table,
+    supports_partial_data_loading,
     table_from_py_list,
 )
 from posthog.temporal.data_imports.pipelines.pipeline_sync import (
@@ -124,9 +126,8 @@ class PipelineNonDLT:
                 self._delta_table_helper.reset_table()
                 self._schema.update_sync_type_config_for_reset_pipeline()
 
-            dwh_table_exists: bool = (
-                ExternalDataSchema.objects.get(id=self._schema.id, team_id=self._job.team_id).table is not None
-            )
+            # If the schema has no DWH table, it's a first ever sync
+            is_first_ever_sync: bool = self._schema.table is None
 
             for item in self._resource.items:
                 py_table = None
@@ -159,7 +160,7 @@ class PipelineNonDLT:
                 row_count += py_table.num_rows
 
                 self._process_pa_table(
-                    pa_table=py_table, index=chunk_index, row_count=row_count, is_first_sync=not dwh_table_exists
+                    pa_table=py_table, index=chunk_index, row_count=row_count, is_first_ever_sync=is_first_ever_sync
                 )
 
                 chunk_index += 1
@@ -177,7 +178,7 @@ class PipelineNonDLT:
                 py_table = table_from_py_list(buffer)
                 row_count += py_table.num_rows
                 self._process_pa_table(
-                    pa_table=py_table, index=chunk_index, row_count=row_count, is_first_sync=not dwh_table_exists
+                    pa_table=py_table, index=chunk_index, row_count=row_count, is_first_ever_sync=is_first_ever_sync
                 )
 
             self._post_run_operations(row_count=row_count)
@@ -199,7 +200,7 @@ class PipelineNonDLT:
             pa_memory_pool.release_unused()
             gc.collect()
 
-    def _process_pa_table(self, pa_table: pa.Table, index: int, row_count: int, is_first_sync: bool = False):
+    def _process_pa_table(self, pa_table: pa.Table, index: int, row_count: int, is_first_ever_sync: bool):
         delta_table = self._delta_table_helper.get_delta_table()
         previous_file_uris = delta_table.file_uris() if delta_table else []
 
@@ -260,31 +261,57 @@ class PipelineNonDLT:
 
         _update_job_row_count(self._job.id, pa_table.num_rows, self._logger)
 
-        # if first sync, we make the delta table files available for querying and create the data warehouse table, so
-        # that the user has some data available to start using
-        if is_first_sync:
-            self._logger.debug(
-                "First sync, making delta table files available for querying and creating data warehouse table"
-            )
-            file_uris = delta_table.file_uris()
-            new_file_uris = [uri for uri in file_uris if uri not in previous_file_uris]
-            self._logger.debug(f"Adding {len(new_file_uris)} S3 files to query folder")
-            prepare_s3_files_for_querying(
-                folder_path=self._job.folder_path(),
-                table_name=self._resource_name,
-                file_uris=new_file_uris,
-                # delete existing files if it's the first chunk, otherwise we'll just append to the existing files
-                delete_existing=False if index > 0 else True,
-            )
-            self._logger.debug("Validating schema and updating table")
-            validate_schema_and_update_table_sync(
-                run_id=str(self._job.id),
-                team_id=self._job.team_id,
-                schema_id=self._schema.id,
-                table_schema_dict=self._internal_schema.to_hogql_types(),
+        # if it's the first ever sync for this schema and the source supports partial data loading, we make the delta
+        # table files available for querying and create the data warehouse table, so that the user has some data
+        # available to start using
+        # TODO - enable this for all source types
+        if is_first_ever_sync and supports_partial_data_loading(self._schema):
+            self._process_partial_data(
+                previous_file_uris=previous_file_uris,
+                file_uris=delta_table.file_uris(),
                 row_count=row_count,
-                table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+                chunk_index=index,
             )
+
+    def _process_partial_data(
+        self, previous_file_uris: list[str], file_uris: list[str], row_count: int, chunk_index: int
+    ):
+        self._logger.debug(
+            "Source supports partial data loading and is first ever sync -> "
+            "making delta table files available for querying and creating data warehouse table"
+        )
+        new_file_uris = [uri for uri in file_uris if uri not in previous_file_uris]
+        # in theory, we should always be appending files for a first time sync but we just check that this is the
+        # case in case we update this assumption
+        files_modified = [uri for uri in previous_file_uris if uri not in file_uris]
+        if len(files_modified) > 0:
+            self._logger.warning(
+                "Should always be appending delta table files for a first time sync but found modified files!"
+            )
+            capture_exception(
+                Exception(
+                    "Should always be appending delta table files for a first time sync but found modified files!"
+                )
+            )
+            return
+
+        self._logger.debug(f"Adding {len(new_file_uris)} S3 files to query folder")
+        prepare_s3_files_for_querying(
+            folder_path=self._job.folder_path(),
+            table_name=self._resource_name,
+            file_uris=new_file_uris,
+            # delete existing files if it's the first chunk, otherwise we'll just append to the existing files
+            delete_existing=False if chunk_index > 0 else True,
+        )
+        self._logger.debug("Validating schema and updating table")
+        validate_schema_and_update_table_sync(
+            run_id=str(self._job.id),
+            team_id=self._job.team_id,
+            schema_id=self._schema.id,
+            table_schema_dict=self._internal_schema.to_hogql_types(),
+            row_count=row_count,
+            table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+        )
 
     def _post_run_operations(self, row_count: int):
         delta_table = self._delta_table_helper.get_delta_table()
