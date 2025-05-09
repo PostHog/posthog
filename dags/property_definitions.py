@@ -1,273 +1,296 @@
 import datetime
-from typing import Optional
+from dataclasses import dataclass
 
-from dagster import schedule, job, op, Config, In, Out
-from dagster_slack import slack_resource
+import dagster
+import pydantic
 
-from dags.common import ClickhouseClusterResource, JobOwners
-from posthog.clickhouse.client import sync_execute
+from dags.common import JobOwners
+from posthog.clickhouse.cluster import ClickhouseCluster, Query
+from posthog.models.property_definition import PropertyDefinition
 
 
-class PropertyDefinitionsConfig(Config):
+@dataclass(frozen=True)
+class TimeRange:
+    start_time: datetime
+    end_time: datetime
+
+    def get_expression(self, column: str) -> str:
+        return f"{column} >= '{self.start_time.isoformat()}' AND {column} < '{self.end_time.isoformat()}'"
+
+
+class PropertyDefinitionsConfig(dagster.Config):
     """Configuration for property definitions ingestion job."""
 
-    # Process a specific hour (ISO format) instead of lookback
-    target_hour: Optional[str] = None
-    # For backfill runs, we can specify a start and end date
-    start_date: Optional[str] = None
-    end_date: Optional[str] = None
-    # Batch size for inserts to control memory usage
-    batch_size: int = 10000
-    # Timeout for query execution in seconds
-    max_execution_time: int = 6000
+    start_at: str = pydantic.Field(
+        description="The lower bound (inclusive) timestamp to be used when selecting rows to be included within the "
+        "ingestion window. The value can be provided in any format that can be parsed by ClickHouse best-effort date "
+        "parsing."
+    )
+    duration: str = pydantic.Field(
+        description="The size of the ingestion window, used to determine the upper bound (non-inclusive) of the time "
+        "range. The value can be provided in any format that can be parsed as a ClickHouse interval.",
+        default="1 hour",
+    )
+
+    def validate(self, cluster: ClickhouseCluster) -> TimeRange:
+        """Validate the configuration values, returning a time range."""
+        [[start_time, end_time]] = cluster.any_host(
+            Query(
+                f"SELECT parseDateTimeBestEffort(%(start_at)s) as start_time, start_time + INTERVAL %(duration)s",
+                {"start_at": self.start_at, "duration": self.duration},
+            )
+        ).result()
+        return TimeRange(start_time, end_time)
 
 
-def format_datetime_for_clickhouse(dt: datetime.datetime) -> str:
-    """
-    Format a datetime object for ClickHouse's toDateTime function.
-    Removes timezone information and returns a compatible format.
-
-    Args:
-        dt: A datetime object, potentially with timezone info
-
-    Returns:
-        A string in format 'YYYY-MM-DD HH:MM:SS' without timezone info
-    """
-    return dt.strftime("%Y-%m-%d %H:%M:%S")
+@dagster.op
+def setup_job(
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    config: PropertyDefinitionsConfig,
+) -> TimeRange:
+    """Validates the job configuration to be provided to other ops."""
+    return config.validate(cluster)
 
 
-@op(
-    required_resource_keys={"cluster"},
-    out={"inserted_count": Out(int), "time_window": Out(tuple[str, str])},
-)
-def ingest_event_properties(context) -> tuple[int, tuple[str, str]]:
+@dataclass(frozen=True)
+class DetectPropertyTypeExpression:
+    source_column: str
+
+    def __str__(self) -> str:
+        # largely derived from https://github.com/PostHog/posthog/blob/052f4ea40c5043909115f835f09445e18dd9727c/rust/property-defs-rs/src/types.rs#L314-L373
+        return f"""
+            arrayMap(
+                (name, value) -> (name, multiIf(
+                    -- special cases: key patterns
+                    name ilike 'utm_%', 'String',
+                    name ilike '$feature/%', 'String',
+                    name ilike '$feature_flag_response', 'String',
+                    name ilike '$survey_response%', 'String',
+                    -- special cases: timestamp detection
+                    (
+                        multiSearchAnyCaseInsensitive(name, ['time', 'timestamp', 'date', '_at', '-at', 'createdat', 'updatedat'])
+                        AND JSONType(value) IN ('Int64', 'UInt64', 'Double')
+                        AND JSONExtract(value, 'Nullable(Float)') >= toUnixTimestamp(now() - interval '6 months')
+                    ), 'DateTime',
+                    -- special cases: string value patterns
+                    (
+                        JSONType(value) = 'String'
+                        AND trimBoth(JSONExtractString(value)) IN ('true', 'TRUE', 'false', 'FALSE')
+                    ), 'Boolean',
+                    (
+                        JSONType(value) = 'String'
+                        AND length(trimBoth(JSONExtractString(value)) as trimmed_value) >= 10  -- require at least a date part
+                        AND parseDateTime64BestEffortOrNull(trimmed_value) IS NOT NULL  -- can be parsed as a date
+                        AND JSONExtract(trimmed_value, 'Nullable(Float)') IS NULL  -- but not as a timestamp
+                    ), 'DateTime',
+                    -- primitive types
+                    JSONType(value) = 'Bool', 'Boolean',
+                    JSONType(value) = 'String', 'String',
+                    JSONType(value) IN ('Int64', 'UInt64', 'Double'), 'Numeric',
+                    NULL
+                )),
+                arrayFilter(
+                    (name, value) -> (
+                        -- https://github.com/PostHog/posthog/blob/052f4ea40c5043909115f835f09445e18dd9727c/rust/property-defs-rs/src/types.rs#L17-L28
+                        name NOT IN ('$set', '$set_once', '$unset', '$group_0', '$group_1', '$group_2', '$group_3', '$group_4', '$groups')
+                        -- https://github.com/PostHog/posthog/blob/052f4ea40c5043909115f835f09445e18dd9727c/rust/property-defs-rs/src/types.rs#L279-L286
+                        AND length(name) <= 200
+                    ),
+                    JSONExtractKeysAndValuesRaw({self.source_column})
+                )
+            )
+        """
+
+
+@dagster.op
+def ingest_event_properties(
+    context: dagster.OpExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    time_range: TimeRange,
+) -> int:
     """
     Ingest event properties from events_recent table into property_definitions table.
-
-    Uses the JSONExtractKeysAndValuesRaw function to extract property keys and values,
-    then determines the property type using JSONType.
     """
-    # Get config from context
-    config_dict = getattr(context, "op_config", {}) or {}
-
-    # Convert to PropertyDefinitionsConfig
-    config = PropertyDefinitionsConfig(
-        target_hour=config_dict.get("target_hour"),
-        start_date=config_dict.get("start_date"),
-        end_date=config_dict.get("end_date"),
-        batch_size=config_dict.get("batch_size", 10000),
-        max_execution_time=config_dict.get("max_execution_time", 6000),
-    )
-
-    # Build the time filter based on config
-    if config.start_date and config.end_date:
-        # For backfill runs - these should already be in the right format
-        time_filter = f"timestamp BETWEEN toDateTime('{config.start_date}') AND toDateTime('{config.end_date}')"
-    elif config.target_hour:
-        # For processing a specific complete hour
-        hour_start = datetime.datetime.fromisoformat(config.target_hour)
-        hour_end = hour_start + datetime.timedelta(hours=1)
-        start_formatted = format_datetime_for_clickhouse(hour_start)
-        end_formatted = format_datetime_for_clickhouse(hour_end)
-        time_filter = f"timestamp BETWEEN toDateTime('{start_formatted}') AND toDateTime('{end_formatted}')"
-    else:
-        # Default to previous complete hour
-        now = datetime.datetime.now(datetime.UTC)
-        previous_hour = now.replace(minute=0, second=0, microsecond=0) - datetime.timedelta(hours=1)
-        hour_end = previous_hour + datetime.timedelta(hours=1)
-        start_formatted = format_datetime_for_clickhouse(previous_hour)
-        end_formatted = format_datetime_for_clickhouse(hour_end)
-        time_filter = f"timestamp BETWEEN toDateTime('{start_formatted}') AND toDateTime('{end_formatted}')"
-
     # Log the execution parameters
-    context.log.info(
-        f"Ingesting event properties with target_hour={config.target_hour}, "
-        f"start_date={config.start_date}, end_date={config.end_date}, "
-        f"time_filter={time_filter}"
-    )
+    context.log.info(f"Ingesting event properties for {time_range!r}")
 
     # Query to insert event properties into property_definitions table
-    query = f"""
-    INSERT INTO property_definitions (* EXCEPT(version))
+    insert_query = f"""
+    INSERT INTO property_definitions
     SELECT
         team_id,
         team_id as project_id,
-        (arrayJoin(JSONExtractKeysAndValuesRaw(properties)) as x).1 as name,
-        map(
-            34, 'String',
-            98, 'Boolean',
-            100, 'Numeric',
-            105, 'Numeric',
-            117, 'Numeric',
-            0, NULL
-        )[JSONType(x.2)] as property_type,
-        event,
+        (arrayJoin({DetectPropertyTypeExpression('properties')}) as property).1 as name,
+        property.2 as property_type,
+        replaceAll(event, '\\0', '\ufffd') as event,  -- https://github.com/PostHog/posthog/blob/052f4ea40c5043909115f835f09445e18dd9727c/rust/property-defs-rs/src/types.rs#L172
         NULL as group_type_index,
-        1 as type,
+        {int(PropertyDefinition.Type.EVENT)} as type,
+        -- NOTE: not floored, need to check if needed https://github.com/PostHog/posthog/blob/052f4ea40c5043909115f835f09445e18dd9727c/rust/property-defs-rs/src/types.rs#L175
         max(timestamp) as last_seen_at
     FROM events_recent
-    WHERE {time_filter}
+    WHERE
+        {time_range.get_expression("timestamp")}
+        -- https://github.com/PostHog/posthog/blob/052f4ea40c5043909115f835f09445e18dd9727c/rust/property-defs-rs/src/types.rs#L13-L14C52
+        AND event NOT IN ('$$plugin_metrics')
+        -- https://github.com/PostHog/posthog/blob/052f4ea40c5043909115f835f09445e18dd9727c/rust/property-defs-rs/src/types.rs#L187-L191
+        AND length(event) <= 200
     GROUP BY team_id, event, name, property_type
     ORDER BY team_id, event, name, property_type NULLS LAST
     LIMIT 1 by team_id, event, name
-    SETTINGS max_execution_time = {config.max_execution_time}
     """
 
     context.log.info("Executing insert query...")
-    sync_execute(query)
-
-    # Parse the time range for the count query
-    count_time_range = time_filter.split("BETWEEN ")[1]
-    start_time, end_time = count_time_range.split(" AND ")
+    cluster.any_host(Query(insert_query)).result()
 
     # Get the number of rows inserted for this specific time window
     count_query = f"""
     SELECT count() FROM property_definitions
-    WHERE type = 1 AND last_seen_at BETWEEN {start_time} AND {end_time}
+    WHERE
+        type = {int(PropertyDefinition.Type.EVENT)}
+        AND {time_range.get_expression("last_seen_at")}
     """
 
-    rows = sync_execute(count_query)[0][0]
+    rows = cluster.any_host(Query(count_query)).result()[0][0]
     context.log.info(f"Inserted {rows} event property definitions")
 
-    # Return both the count and the time window for later use
-    return rows, (start_time, end_time)
+    return rows
 
 
-@op(
-    required_resource_keys={"cluster"},
-    ins={"event_time_window": In(tuple[str, str])},
-    out={"inserted_count": Out(int), "time_window": Out(tuple[str, str])},
-)
-def ingest_person_properties(context, event_time_window: tuple[str, str]) -> tuple[int, tuple[str, str]]:
+@dagster.op
+def ingest_person_properties(
+    context: dagster.OpExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    time_range: TimeRange,
+) -> int:
     """
     Ingest person properties from person table into property_definitions table.
-
-    Uses the JSONExtractKeysAndValuesRaw function to extract property keys and values,
-    then determines the property type using JSONType.
     """
-    # Get config from context
-    config_dict = getattr(context, "op_config", {}) or {}
-
-    # Convert to PropertyDefinitionsConfig
-    config = PropertyDefinitionsConfig(
-        target_hour=config_dict.get("target_hour"),
-        start_date=config_dict.get("start_date"),
-        end_date=config_dict.get("end_date"),
-        batch_size=config_dict.get("batch_size", 10000),
-        max_execution_time=config_dict.get("max_execution_time", 6000),
-    )
-
-    # Build the time filter based on config
-    if config.start_date and config.end_date:
-        # For backfill runs - these should already be in the right format
-        time_filter = f"_timestamp BETWEEN toDateTime('{config.start_date}') AND toDateTime('{config.end_date}')"
-    elif config.target_hour:
-        # For processing a specific complete hour
-        hour_start = datetime.datetime.fromisoformat(config.target_hour)
-        hour_end = hour_start + datetime.timedelta(hours=1)
-        start_formatted = format_datetime_for_clickhouse(hour_start)
-        end_formatted = format_datetime_for_clickhouse(hour_end)
-        time_filter = f"_timestamp BETWEEN toDateTime('{start_formatted}') AND toDateTime('{end_formatted}')"
-    else:
-        # Default to previous complete hour
-        now = datetime.datetime.now(datetime.UTC)
-        previous_hour = now.replace(minute=0, second=0, microsecond=0) - datetime.timedelta(hours=1)
-        hour_end = previous_hour + datetime.timedelta(hours=1)
-        start_formatted = format_datetime_for_clickhouse(previous_hour)
-        end_formatted = format_datetime_for_clickhouse(hour_end)
-        time_filter = f"_timestamp BETWEEN toDateTime('{start_formatted}') AND toDateTime('{end_formatted}')"
-
     # Log the execution parameters
-    context.log.info(
-        f"Ingesting person properties with target_hour={config.target_hour}, "
-        f"start_date={config.start_date}, end_date={config.end_date}, "
-        f"time_filter={time_filter}"
-    )
+    context.log.info(f"Ingesting person properties for {time_range!r}")
 
     # Query to insert person properties into property_definitions table
-    query = f"""
-    INSERT INTO property_definitions (* EXCEPT(version))
+    # NOTE: this is a different data source from current, see https://github.com/PostHog/product-internal/pull/748/files#diff-78e7399938cb790eae10d5c5769f7edcb531972f33a32e0655872bded13f4977R165-R170
+    insert_query = f"""
+    INSERT INTO property_definitions
     SELECT
         team_id,
         team_id as project_id,
-        (arrayJoin(JSONExtractKeysAndValuesRaw(properties)) as x).1 as name,
-        map(
-            34, 'String',
-            98, 'Boolean',
-            100, 'Numeric',
-            105, 'Numeric',
-            117, 'Numeric',
-            0, NULL
-        )[JSONType(x.2)] as property_type,
+        (arrayJoin({DetectPropertyTypeExpression('properties')}) as property).1 as name,
+        property.2 as property_type,
         NULL as event,
         NULL as group_type_index,
-        2 as type,
+        {int(PropertyDefinition.Type.PERSON)} as type,
         max(_timestamp) as last_seen_at
     FROM person
-    WHERE {time_filter}
+    WHERE
+        {time_range.get_expression("_timestamp")}
     GROUP BY team_id, name, property_type
     ORDER BY team_id, name, property_type NULLS LAST
     LIMIT 1 by team_id, name
-    SETTINGS max_execution_time = {config.max_execution_time}
     """
 
     context.log.info("Executing insert query...")
-    sync_execute(query)
-
-    # Parse the time range for the count query
-    count_time_range = time_filter.split("BETWEEN ")[1]
-    start_time, end_time = count_time_range.split(" AND ")
+    cluster.any_host(Query(insert_query)).result()
 
     # Get the number of rows inserted for this specific time window
     count_query = f"""
     SELECT count() FROM property_definitions
-    WHERE type = 2 AND last_seen_at BETWEEN {start_time} AND {end_time}
+    WHERE
+        type = {int(PropertyDefinition.Type.PERSON)}
+        AND {time_range.get_expression("last_seen_at")}
     """
 
-    rows = sync_execute(count_query)[0][0]
+    rows = cluster.any_host(Query(count_query)).result()[0][0]
     context.log.info(f"Inserted {rows} person property definitions")
 
-    # Return both the person count and reuse the event time window (both are needed in optimize)
-    return rows, event_time_window
+    return rows
 
 
-@op(
-    required_resource_keys={"cluster"},
-    ins={"event_count": In(int), "person_count": In(int), "time_window": In(tuple[str, str])},
-    out={"total_count": Out(int)},
-)
-def optimize_property_definitions(context, event_count: int, person_count: int, time_window: tuple[str, str]) -> int:
+@dagster.op
+def ingest_group_properties(
+    context: dagster.OpExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    time_range: TimeRange,
+) -> int:
+    """
+    Ingest group properties from group table into property_definitions table.
+    """
+    # Log the execution parameters
+    context.log.info(f"Ingesting group properties for {time_range!r}")
+
+    # Query to insert group properties into property_definitions table
+    # NOTE: this is a different data source from current, see https://github.com/PostHog/product-internal/pull/748/files#diff-78e7399938cb790eae10d5c5769f7edcb531972f33a32e0655872bded13f4977R165-R170
+    insert_query = f"""
+    INSERT INTO property_definitions
+    SELECT
+        team_id,
+        team_id as project_id,
+        (arrayJoin({DetectPropertyTypeExpression('group_properties')}) as property).1 as name,
+        property.2 as property_type,
+        NULL as event,
+        group_type_index,
+        {int(PropertyDefinition.Type.GROUP)} as type,
+        max(_timestamp) as last_seen_at
+    FROM groups
+    WHERE
+        {time_range.get_expression("_timestamp")}
+    GROUP BY team_id, name, property_type, group_type_index
+    ORDER BY team_id, name, property_type NULLS LAST, group_type_index
+    LIMIT 1 by team_id, name, group_type_index
+    """
+
+    context.log.info("Executing insert query...")
+    cluster.any_host(Query(insert_query)).result()
+
+    # Get the number of rows inserted for this specific time window
+    count_query = f"""
+    SELECT count() FROM property_definitions
+    WHERE
+        type = {int(PropertyDefinition.Type.GROUP)}
+        AND {time_range.get_expression("last_seen_at")}
+    """
+
+    rows = cluster.any_host(Query(count_query)).result()[0][0]
+    context.log.info(f"Inserted {rows} group property definitions")
+
+    return rows
+
+
+@dagster.op
+def optimize_property_definitions(
+    context: dagster.OpExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    time_range: TimeRange,
+    event_count: int,
+    person_count: int,
+    group_count: int,
+) -> int:
     """
     Run OPTIMIZE on property_definitions table to deduplicate inserted data.
 
     This runs after both event and person property ingestion completes successfully.
     """
-    start_time, end_time = time_window
-
-    context.log.info(f"Running OPTIMIZE TABLE for {event_count} event properties and {person_count} person properties")
-    context.log.info(f"Time window: {start_time} to {end_time}")
+    context.log.info(
+        f"Running OPTIMIZE TABLE for {event_count} event properties, {person_count} person properties, {group_count} group properties"
+    )
 
     # Run OPTIMIZE after all inserts to merge duplicates using the ReplacingMergeTree's version column
-    sync_execute("OPTIMIZE TABLE property_definitions FINAL")
+    cluster.any_host(Query("OPTIMIZE TABLE property_definitions FINAL")).result()
 
     # Get the total number of property definitions for this time window
     count_query = f"""
     SELECT count() FROM property_definitions
-    WHERE last_seen_at BETWEEN {start_time} AND {end_time}
+    WHERE {time_range.get_expression("last_seen_at")}
     """
 
-    total = sync_execute(count_query)[0][0]
+    total = cluster.any_host(Query(count_query)).result()[0][0]
     context.log.info(f"Total property definitions after optimization: {total}")
 
     return total
 
 
-@job(
+@dagster.job(
     name="property_definitions_ingestion",
-    resource_defs={
-        "cluster": ClickhouseClusterResource.configure_at_launch(),
-        "slack": slack_resource,
-    },
     tags={"owner": JobOwners.TEAM_CLICKHOUSE.value},
 )
 def property_definitions_ingestion_job():
@@ -277,14 +300,17 @@ def property_definitions_ingestion_job():
     This job runs in the following sequence:
     1. Ingest event properties
     2. Ingest person properties
-    3. Run OPTIMIZE FINAL on the table
+    3. Ingest group properties
+    4. Run OPTIMIZE FINAL on the table
     """
-    event_count, time_window = ingest_event_properties()
-    person_count, time_window = ingest_person_properties(event_time_window=time_window)
-    optimize_property_definitions(event_count, person_count, time_window)
+    time_range = setup_job()
+    event_count = ingest_event_properties(time_range)
+    person_count = ingest_person_properties(time_range)
+    group_count = ingest_group_properties(time_range)
+    optimize_property_definitions(time_range, event_count, person_count, group_count)
 
 
-@schedule(
+@dagster.schedule(
     job=property_definitions_ingestion_job,
     cron_schedule="5 * * * *",  # Run 5 minutes after the hour
     execution_timezone="UTC",
@@ -300,50 +326,5 @@ def property_definitions_hourly_schedule(context):
     previous_hour = now.replace(minute=0, second=0, microsecond=0) - datetime.timedelta(hours=1)
     target_hour = previous_hour.isoformat()
 
-    return {
-        "ops": {
-            "ingest_event_properties": {"config": {"target_hour": target_hour}},
-            "ingest_person_properties": {"config": {"target_hour": target_hour}},
-        }
-    }
-
-
-# Add a config for running a backfill for a specific day
-def run_backfill_for_day(date_str: str):
-    """
-    Helper function to create a run config for a backfill for a specific day.
-
-    Args:
-        date_str: Date string in YYYY-MM-DD format
-
-    Returns:
-        Dagster run config for the backfill
-    """
-    start_date = f"{date_str} 00:00:00"
-    end_date = f"{date_str} 23:59:59"
-
-    return {
-        "ops": {
-            "ingest_event_properties": {"config": {"start_date": start_date, "end_date": end_date}},
-            "ingest_person_properties": {"config": {"start_date": start_date, "end_date": end_date}},
-        }
-    }
-
-
-# Helper to run backfill for a specific hour
-def run_backfill_for_hour(hour_str: str):
-    """
-    Helper function to create a run config for a backfill for a specific hour.
-
-    Args:
-        hour_str: ISO format datetime string for the hour (e.g., "2023-05-15T14:00:00+00:00")
-
-    Returns:
-        Dagster run config for the backfill
-    """
-    return {
-        "ops": {
-            "ingest_event_properties": {"config": {"target_hour": hour_str}},
-            "ingest_person_properties": {"config": {"target_hour": hour_str}},
-        }
-    }
+    config = PropertyDefinitionsConfig(start_at=target_hour, duration="1 hour")
+    return {"ops": {setup_job.name: config}}
