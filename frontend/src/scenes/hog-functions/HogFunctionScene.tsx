@@ -21,7 +21,8 @@ import { ActivityScope, Breadcrumb } from '~/types'
 import type { hogFunctionSceneLogicType } from './HogFunctionSceneType'
 import { HogFunctionSkeleton } from './misc/HogFunctionSkeleton'
 
-export type HogFunctionSceneTab = 'configuration' | 'metrics' | 'logs' | 'testing' | 'history'
+const HOG_FUNCTION_SCENE_TABS = ['configuration', 'metrics', 'logs', 'testing', 'history'] as const
+export type HogFunctionSceneTab = (typeof HOG_FUNCTION_SCENE_TABS)[number]
 
 export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
     props({} as HogFunctionConfigurationLogicProps),
@@ -83,7 +84,11 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
     urlToAction(({ actions }) => ({
         '*': (_, search) => {
             if ('tab' in search) {
-                actions.setCurrentTab(search.tab as HogFunctionSceneTab)
+                actions.setCurrentTab(
+                    HOG_FUNCTION_SCENE_TABS.includes(search.tab as HogFunctionSceneTab)
+                        ? (search.tab as HogFunctionSceneTab)
+                        : 'configuration'
+                )
                 return
             }
         },
