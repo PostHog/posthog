@@ -1,6 +1,6 @@
 import './ImagePreview.scss'
 
-import { IconShare } from '@posthog/icons'
+import { IconShare, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonMenu, LemonTabs, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
@@ -167,6 +167,25 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
                                     )
                                 },
                             },
+                            item.data.event === '$exception' && '$exception_issue_id' in item.data.properties
+                                ? {
+                                      label: 'Copy link to issue',
+                                      icon: <IconWarning />,
+                                      onClick: () => {
+                                          void copyToClipboard(
+                                              urls.absolute(
+                                                  urls.currentProject(
+                                                      urls.errorTrackingIssue(
+                                                          item.data.properties.$exception_issue_id,
+                                                          item.data.properties.$exception_fingerprint
+                                                      )
+                                                  )
+                                              ),
+                                              'issue link'
+                                          )
+                                      },
+                                  }
+                                : null,
                             insightUrl
                                 ? {
                                       label: 'Try out in Insights',
