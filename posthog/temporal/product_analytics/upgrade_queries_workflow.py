@@ -30,8 +30,12 @@ def get_insights_to_migrate() -> list[int]:
             format(
                 $$
                 $.** ? (
-                    @.kind == "%s" &&
-                    ( @.v < %s || @.v == null )
+                    @.kind == "%s" &&    /* kind matches */
+                    (
+                        !exists(@.v)     /* no v property */
+                        || @.v == null   /* or v:null */
+                        || @.v <= %s     /* or version ≤ latest */
+                    )
                 )
                 $$,
                 l.kind,

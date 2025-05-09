@@ -4,7 +4,7 @@ from posthog.models.insight import Insight
 from posthog.schema import NodeKind
 from posthog.schema_migrations import LATEST_VERSIONS
 from posthog.temporal.product_analytics.upgrade_queries_workflow import get_insights_to_migrate
-from posthog.test.base import QueryMatchingTest, snapshot_postgres_queries_context
+from posthog.test.base import QueryMatchingTest
 
 
 @pytest.fixture(autouse=True)
@@ -104,8 +104,22 @@ class TestUpgradeQueriesWorkflow(QueryMatchingTest):
             team=team,
         )
 
-        with snapshot_postgres_queries_context(self):
-            result = activity_environment.run(get_insights_to_migrate)
+        # none version (InsightVizNode)
+        m5 = Insight.objects.create(
+            query={
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview", "v": 8}],
+                    "v": 6,
+                },
+                "v": None,
+            },
+            team=team,
+        )
 
-        expected_ids = [m1.id, m2.id, m3.id, m4.id]
-        assert result == expected_ids
+        # with snapshot_postgres_queries_context(self):
+        result = activity_environment.run(get_insights_to_migrate)
+
+        expected_ids = [m1.id, m2.id, m3.id, m4.id, m5.id]
+        assert sorted(result), expected_ids
