@@ -280,20 +280,23 @@ class PipelineNonDLT:
             "Source supports partial data loading and is first ever sync -> "
             "making delta table files available for querying and creating data warehouse table"
         )
-        new_file_uris = [uri for uri in file_uris if uri not in previous_file_uris]
-        # in theory, we should always be appending files for a first time sync but we just check that this is the
-        # case in case we update this assumption
-        files_modified = [uri for uri in previous_file_uris if uri not in file_uris]
-        if len(files_modified) > 0:
-            self._logger.warning(
-                "Should always be appending delta table files for a first time sync but found modified files!"
-            )
-            capture_exception(
-                Exception(
+        if chunk_index == 0:
+            new_file_uris = file_uris
+        else:
+            new_file_uris = list(set(file_uris) - set(previous_file_uris))
+            # in theory, we should always be appending files for a first time sync but we just check that this is the
+            # case in case we update this assumption
+            files_modified = set(previous_file_uris) - set(file_uris)
+            if len(files_modified) > 0:
+                self._logger.warning(
                     "Should always be appending delta table files for a first time sync but found modified files!"
                 )
-            )
-            return
+                capture_exception(
+                    Exception(
+                        "Should always be appending delta table files for a first time sync but found modified files!"
+                    )
+                )
+                return
 
         self._logger.debug(f"Adding {len(new_file_uris)} S3 files to query folder")
         prepare_s3_files_for_querying(
