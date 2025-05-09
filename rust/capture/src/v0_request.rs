@@ -13,7 +13,7 @@ use crate::{
     api::CaptureError,
     prometheus::report_dropped_events,
     token::validate_token,
-    v0_endpoint::{decode_base64, is_likely_base64, Base64Option, MAX_PAYLOAD_SNIPPET_SIZE},
+    utils::{decode_base64, is_likely_base64, Base64Option, MAX_PAYLOAD_SNIPPET_SIZE},
 };
 
 #[derive(Deserialize, Default, Clone, Copy, PartialEq, Eq)]
@@ -200,20 +200,32 @@ impl RawRequest {
                 error!("from_bytes: request size limit reached");
                 report_dropped_events("event_too_big", 1);
                 return Err(CaptureError::EventTooBig(format!(
-                    "Event or batch wasn't compressed, size exceeded {}",
-                    limit
+                    "Uncompressed payload size limit {} exceeded: {}",
+                    limit,
+                    s.len(),
                 )));
             }
             s
         };
 
+        // TODO(eli): remove special casing and additional logging after migration is completed
         if is_mirror_deploy {
             if is_likely_base64(payload.as_bytes(), Base64Option::Strict) {
                 warn!("from_bytes: payload still base64 after decoding step");
                 payload = match decode_base64(payload.as_bytes(), "from_bytes_after_decoding") {
                     Ok(out) => {
                         match String::from_utf8(out) {
-                            Ok(unwrapped_payload) => unwrapped_payload,
+                            Ok(unwrapped_payload) => {
+                                if unwrapped_payload.len() > limit {
+                                    error!("from_bytes: request size limit exceeded after post-decode base64 unwrap");
+                                    report_dropped_events("event_too_big", 1);
+                                    return Err(CaptureError::EventTooBig(format!(
+                                        "from_bytes: payload size limit {} exceeded after post-decode base64 unwrap: {}",
+                                        limit, unwrapped_payload.len(),
+                                    )));
+                                }
+                                unwrapped_payload
+                            }
                             Err(e) => {
                                 error!("from_bytes: failed UTF8 conversion after post-decode base64: {}", e);
                                 payload
