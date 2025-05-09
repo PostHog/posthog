@@ -1,18 +1,12 @@
 import {
-    IconAI,
     IconBook,
     IconChevronRight,
     IconCursorClick,
     IconDatabase,
-    IconFeatures,
-    IconHandMoney,
     IconLive,
-    IconMessage,
     IconNotification,
-    IconPeople,
     IconPlug,
     IconServer,
-    IconSparkles,
     IconWarning,
 } from '@posthog/icons'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -30,12 +24,6 @@ export function iconForType(type?: string): JSX.Element {
         return fileSystemTypes[type as keyof typeof fileSystemTypes].icon
     }
     switch (type) {
-        case 'aichat':
-            return <IconSparkles />
-        case 'feature':
-            return <IconFeatures />
-        case 'survey':
-            return <IconMessage />
         case 'sql':
             return <IconServer />
         case 'folder':
@@ -51,21 +39,6 @@ export function iconForType(type?: string): JSX.Element {
 export const getDefaultTreeNew = (): FileSystemImport[] =>
     [
         ...treeItemsNew,
-        {
-            path: `Early access feature`,
-            type: 'early_access_feature',
-            href: () => urls.earlyAccessFeature('new'),
-        },
-        {
-            path: `Survey`,
-            type: 'survey',
-            href: () => urls.survey('new'),
-        },
-        {
-            path: `Cohort`,
-            type: 'cohort',
-            href: () => urls.cohort('new'),
-        },
         {
             path: `Data/Source`,
             type: 'hog_function/source',
@@ -88,7 +61,7 @@ export const getDefaultTreeNew = (): FileSystemImport[] =>
         },
     ].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
 
-export const getDefaultTreeExplore = (): FileSystemImport[] =>
+export const getDefaultTreeAllProducts = (): FileSystemImport[] =>
     [
         ...treeItemsAllProducts,
         {
@@ -113,11 +86,6 @@ export const getDefaultTreeExplore = (): FileSystemImport[] =>
             href: () => urls.annotations(),
         },
         {
-            path: 'Revenue',
-            icon: <IconHandMoney />,
-            href: () => urls.revenueSettings(),
-        },
-        {
             path: 'Ingestion warnings',
             icon: <IconWarning />,
             href: () => urls.ingestionWarnings(),
@@ -140,16 +108,6 @@ export const getDefaultTreeExplore = (): FileSystemImport[] =>
             href: () => urls.sqlEditor(),
         },
         {
-            path: 'Cohorts',
-            icon: <IconPeople />,
-            href: () => urls.cohorts(),
-        },
-        {
-            path: 'Group analytics',
-            icon: <IconPeople />,
-            href: () => urls.groups(0),
-        },
-        {
             path: 'Activity',
             icon: <IconLive />,
             href: () => urls.activity(ActivityTab.ExploreEvents),
@@ -158,12 +116,6 @@ export const getDefaultTreeExplore = (): FileSystemImport[] =>
             path: 'Live events',
             icon: <IconLive />,
             href: () => urls.activity(ActivityTab.LiveEvents),
-        },
-        {
-            path: 'LLM observability',
-            icon: <IconAI />,
-            href: () => urls.llmObservabilityDashboard(),
-            flag: FEATURE_FLAGS.LLM_OBSERVABILITY,
         },
         {
             path: 'Error tracking',
@@ -175,10 +127,5 @@ export const getDefaultTreeExplore = (): FileSystemImport[] =>
             icon: <IconCursorClick />,
             href: () => urls.heatmaps(),
             flag: FEATURE_FLAGS.HEATMAPS_UI,
-        },
-        {
-            path: 'Surveys',
-            icon: <IconMessage />,
-            href: () => urls.surveys(),
         },
     ].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))

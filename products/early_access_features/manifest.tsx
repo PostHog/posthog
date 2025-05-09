@@ -38,6 +38,13 @@ export const manifest: ProductManifest = {
             href: (ref: string) => urls.earlyAccessFeature(ref),
         },
     },
+    treeItemsNew: [
+        {
+            path: `Early access feature`,
+            type: 'early_access_feature',
+            href: () => urls.earlyAccessFeature('new'),
+        },
+    ],
     treeItemsAllProducts: [
         {
             path: 'Early access features',

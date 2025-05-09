@@ -18,7 +18,7 @@ import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-gener
 import { Breadcrumb, ProjectTreeBreadcrumb, ProjectTreeRef, UserBasicType } from '~/types'
 
 import { panelLayoutLogic } from '../panelLayoutLogic'
-import { getDefaultTreeExplore, getDefaultTreeNew } from './defaultTree'
+import { getDefaultTreeAllProducts, getDefaultTreeNew } from './defaultTree'
 import type { projectTreeLogicType } from './projectTreeLogicType'
 import { FolderState, ProjectTreeAction } from './types'
 import {
@@ -901,7 +901,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             (s) => [s.featureFlags, s.folderStates, s.users],
             (featureFlags, folderStates, users): TreeDataItem[] =>
                 convertFileSystemEntryToTreeDataItem({
-                    imports: getDefaultTreeExplore().filter(
+                    imports: getDefaultTreeAllProducts().filter(
                         (f) => !f.flag || (featureFlags as Record<string, boolean>)[f.flag]
                     ),
                     checkedItems: {},
