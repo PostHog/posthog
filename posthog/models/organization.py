@@ -33,6 +33,9 @@ class OrganizationUsageResource(TypedDict):
     usage: Optional[int]
     limit: Optional[int]
     todays_usage: Optional[int]
+    quota_limited_until: Optional[int]
+    quota_limiting_suspended_until: Optional[int]
+    updated_at: Optional[int]
 
 
 # The "usage" field is essentially cached info from the Billing Service to be used for visual reporting to the user
@@ -101,6 +104,18 @@ class Organization(UUIDModel):
                 name="single_for_internal_metrics",
             )
         ]
+        
+    @property
+    def usage(self):
+        """Backward compatibility property that returns usage in the old format"""
+        from posthog.models.organization_usage import get_organization_usage_info
+        return get_organization_usage_info(self)
+        
+    @usage.setter
+    def usage(self, value):
+        """Backward compatibility setter that updates the new models"""
+        from posthog.models.organization_usage import update_organization_usage_from_dict
+        update_organization_usage_from_dict(self, value)
 
     class PluginsAccessLevel(models.IntegerChoices):
         # None means the organization can't use plugins at all. They're hidden. Cloud default.

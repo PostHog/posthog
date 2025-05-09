@@ -2,6 +2,7 @@ import copy
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
 from enum import Enum
+import time
 from typing import Optional, TypedDict, cast, Any
 
 import dateutil.parser
@@ -148,16 +149,43 @@ def org_quota_limited_until(
     organization: Organization, resource: QuotaResource, previously_quota_limited_team_tokens: list[str]
 ) -> Optional[OrgQuotaLimitingInformation]:
     if not organization.usage:
+        report_organization_action(
+            organization,
+            "org_quota_limited_until",
+            properties={
+                "event": "org usage not found",
+                "org_id": str(organization.id),
+                "resource": resource.value,
+            },
+        )
         return None
 
     summary = organization.usage.get(resource.value, {})
     if not summary:
+        report_organization_action(
+            organization,
+            "org_quota_limited_until",
+            properties={
+                "event": "org usage not found",
+                "org_id": str(organization.id),
+                "resource": resource.value,
+            },
+        )
         return None
     usage = summary.get("usage", 0)
     todays_usage = summary.get("todays_usage", 0)
     limit = summary.get("limit")
 
     if limit is None:
+        report_organization_action(
+            organization,
+            "org_quota_limited_until",
+            properties={
+                "event": "org usage limit not found",
+                "org_id": str(organization.id),
+                "resource": resource.value,
+            },
+        )
         return None
 
     is_over_limit = usage + todays_usage >= limit + OVERAGE_BUFFER[resource]
@@ -502,14 +530,14 @@ def update_org_billing_quotas(organization: Organization):
     report_quota_limiting_event("update_org_billing_quotas finished", {"organization_id": organization.id})
 
 
-def set_org_usage_summary(
+def update_org_usage_from_billing(
     organization: Organization,
     new_usage: Optional[OrganizationUsageInfo] = None,
-    todays_usage: Optional[UsageCounters] = None,
 ) -> bool:
-    # TRICKY: We don't want to overwrite the "todays_usage" value unless the usage from the billing service is different than what we have locally.
-    # Also we want to return if anything changed so that the caller can update redis
-
+    """
+    Update organization usage from billing service information.
+    Returns True if usage has changed, False otherwise.
+    """
     has_changed = False
     new_usage = new_usage or cast(Optional[OrganizationUsageInfo], organization.usage)
     original_usage = cast(dict, copy.deepcopy(organization.usage)) if organization.usage else {}
@@ -519,6 +547,7 @@ def set_org_usage_summary(
         return False
 
     new_usage = copy.deepcopy(new_usage)
+    current_time = int(time.time())
 
     for field in [
         "events",
@@ -548,21 +577,64 @@ def set_org_usage_summary(
         ):
             resource_usage["quota_limiting_suspended_until"] = original_field_usage["quota_limiting_suspended_until"]
 
-        if todays_usage:
-            resource_usage["todays_usage"] = todays_usage.get(field, 0)
+        # Preserve todays_usage if usage hasn't changed, otherwise reset it
+        original_usage_value = original_field_usage.get("usage") if original_field_usage else None
+        if original_usage_value != resource_usage.get("usage"):
+            resource_usage["todays_usage"] = 0
+            resource_usage["updated_at"] = current_time
         else:
-            # TRICKY: If we are not explicitly setting todays_usage, we want to reset it to 0 IF the incoming new_usage is different
-            original_usage_value = original_field_usage.get("usage") if original_field_usage else None
+            todays_usage_value = original_field_usage.get("todays_usage", 0) if original_field_usage else 0
+            resource_usage["todays_usage"] = todays_usage_value
+            # Only update timestamp if we're actually changing the usage value
             if original_usage_value != resource_usage.get("usage"):
-                resource_usage["todays_usage"] = 0
-            else:
-                todays_usage_value = original_field_usage.get("todays_usage", 0) if original_field_usage else 0
-                resource_usage["todays_usage"] = todays_usage_value
+                resource_usage["updated_at"] = current_time
+            elif "updated_at" in original_field_usage:
+                resource_usage["updated_at"] = original_field_usage["updated_at"]
 
     has_changed = new_usage != organization.usage
     organization.usage = new_usage
 
     return has_changed
+
+
+def update_org_usage_with_todays_usage(
+    organization: Organization,
+    todays_usage: UsageCounters,
+) -> None:
+    """
+    Update organization usage with today's usage counters.
+    This function directly saves the organization if changes are made.
+    """
+    if not organization.usage or not organization.usage.get("period"):
+        # If we don't have usage data from billing, we can't update it
+        return
+    
+    new_usage = copy.deepcopy(organization.usage)
+    current_time = int(time.time())
+    has_changed = False
+
+    for field in [
+        "events",
+        "exceptions",
+        "recordings",
+        "rows_synced",
+        "feature_flag_requests",
+        "api_queries_read_bytes",
+    ]:
+        resource_usage = cast(dict, new_usage.get(field, {"limit": None, "usage": 0, "todays_usage": 0}))
+
+        if not resource_usage:
+            continue
+
+        new_todays_usage = todays_usage.get(field, 0)
+        if resource_usage.get("todays_usage") != new_todays_usage:
+            resource_usage["todays_usage"] = new_todays_usage
+            resource_usage["updated_at"] = current_time
+            has_changed = True
+
+    if has_changed:
+        organization.usage = new_usage
+        organization.save(update_fields=["usage"])
 
 
 def update_all_orgs_billing_quotas(
@@ -708,8 +780,7 @@ def update_all_orgs_billing_quotas(
             org = orgs_by_id[org_id]
 
             if org.usage and org.usage.get("period"):
-                if set_org_usage_summary(org, todays_usage=todays_report):
-                    org.save(update_fields=["usage"])
+                update_org_usage_with_todays_usage(org, todays_report)
 
                 for field in [
                     "events",

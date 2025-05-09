@@ -19,6 +19,8 @@ from ee.billing.quota_limiting import (
     set_org_usage_summary,
     update_org_billing_quotas,
     update_all_orgs_billing_quotas,
+    update_org_usage_from_billing,
+    update_org_usage_with_todays_usage,
     TRUST_SCORE_KEYS,
 )
 from posthog.api.test.test_team import create_team
@@ -659,6 +661,7 @@ class TestQuotaLimiting(BaseTest):
             "recordings": {"usage": 1, "limit": 100},
             "rows_synced": {"usage": 5, "limit": 100},
             "feature_flag_requests": {"usage": 5, "limit": 100},
+            "api_queries_read_bytes": {"usage": 10, "limit": 100},
             "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
         }
         self.organization.save()
@@ -669,23 +672,93 @@ class TestQuotaLimiting(BaseTest):
             "recordings": {"usage": 2, "limit": 100},
             "rows_synced": {"usage": 6, "limit": 100},
             "feature_flag_requests": {"usage": 6, "limit": 100},
-            "period": [
-                "2021-01-01T00:00:00Z",
-                "2021-01-31T23:59:59Z",
-            ],
+            "api_queries_read_bytes": {"usage": 11, "limit": 100},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
         }
 
         assert set_org_usage_summary(self.organization, new_usage=new_usage)
 
-        assert self.organization.usage == {
-            "events": {"usage": 100, "limit": 100, "todays_usage": 0},
-            "exceptions": {"usage": 20, "limit": 100, "todays_usage": 0},
-            "recordings": {"usage": 2, "limit": 100, "todays_usage": 0},
-            "rows_synced": {"usage": 6, "limit": 100, "todays_usage": 0},
-            "feature_flag_requests": {"usage": 6, "limit": 100, "todays_usage": 0},
+        assert self.organization.usage["events"]["usage"] == 100
+        assert self.organization.usage["events"]["todays_usage"] == 0
+        assert self.organization.usage["exceptions"]["usage"] == 20
+        assert self.organization.usage["exceptions"]["todays_usage"] == 0
+        assert self.organization.usage["recordings"]["usage"] == 2
+        assert self.organization.usage["recordings"]["todays_usage"] == 0
+        
+    def test_update_org_usage_from_billing(self):
+        self.organization.usage = {
+            "events": {"usage": 99, "limit": 100},
+            "exceptions": {"usage": 10, "limit": 100},
+            "recordings": {"usage": 1, "limit": 100},
+            "rows_synced": {"usage": 5, "limit": 100},
+            "feature_flag_requests": {"usage": 5, "limit": 100},
+            "api_queries_read_bytes": {"usage": 10, "limit": 100},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+        self.organization.save()
+
+        new_usage = {
+            "events": {"usage": 100, "limit": 100},
+            "exceptions": {"usage": 10, "limit": 100},  # unchanged
+            "recordings": {"usage": 2, "limit": 100},
+            "rows_synced": {"usage": 6, "limit": 100},
+            "feature_flag_requests": {"usage": 6, "limit": 100},
+            "api_queries_read_bytes": {"usage": 11, "limit": 100},
             "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
         }
 
+        with freeze_time("2023-01-01T12:00:00Z"):
+            current_time = int(time.time())
+            has_changed = update_org_usage_from_billing(self.organization, new_usage=new_usage)
+
+            assert has_changed is True
+            # Check that updated fields have updated_at timestamp
+            assert self.organization.usage["events"]["usage"] == 100
+            assert self.organization.usage["events"]["todays_usage"] == 0
+            assert self.organization.usage["events"]["updated_at"] == current_time
+            # Check that unchanged fields don't have updated_at timestamp
+            assert self.organization.usage["exceptions"]["usage"] == 10
+            assert self.organization.usage["exceptions"]["todays_usage"] == 0
+            assert "updated_at" not in self.organization.usage["exceptions"]
+            # Check other fields
+            assert self.organization.usage["recordings"]["usage"] == 2
+            assert self.organization.usage["recordings"]["updated_at"] == current_time
+            
+    def test_update_org_usage_with_todays_usage(self):
+        self.organization.usage = {
+            "events": {"usage": 99, "limit": 100, "todays_usage": 5},
+            "exceptions": {"usage": 10, "limit": 100, "todays_usage": 2},
+            "recordings": {"usage": 1, "limit": 100, "todays_usage": 0},
+            "rows_synced": {"usage": 5, "limit": 100, "todays_usage": 1},
+            "feature_flag_requests": {"usage": 5, "limit": 100, "todays_usage": 0},
+            "api_queries_read_bytes": {"usage": 10, "limit": 100, "todays_usage": 0},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+        self.organization.save()
+
+        todays_usage = {
+            "events": 10,
+            "exceptions": 2,  # unchanged
+            "recordings": 3,
+            "rows_synced": 5,
+            "feature_flag_requests": 2,
+            "api_queries_read_bytes": 1,
+        }
+
+        with freeze_time("2023-01-01T12:00:00Z"):
+            current_time = int(time.time())
+            update_org_usage_with_todays_usage(self.organization, todays_usage)
+            self.organization.refresh_from_db()
+            
+            # Check that updated fields have updated_at timestamp
+            assert self.organization.usage["events"]["todays_usage"] == 10
+            assert self.organization.usage["events"]["updated_at"] == current_time
+            # Check that unchanged fields don't have updated_at timestamp
+            assert self.organization.usage["exceptions"]["todays_usage"] == 2
+            assert "updated_at" not in self.organization.usage["exceptions"]
+            # Check other fields
+            assert self.organization.usage["recordings"]["todays_usage"] == 3
+            assert self.organization.usage["recordings"]["updated_at"] == current_time
     def test_set_org_usage_summary_does_nothing_if_the_same(self):
         self.organization.usage = {
             "events": {"usage": 99, "limit": 100, "todays_usage": 10},

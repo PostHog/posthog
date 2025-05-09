@@ -13,7 +13,7 @@ from rest_framework.exceptions import NotAuthenticated
 from sentry_sdk import capture_message
 
 from ee.billing.billing_types import BillingStatus
-from ee.billing.quota_limiting import set_org_usage_summary, update_org_billing_quotas
+from ee.billing.quota_limiting import update_org_usage_from_billing, update_org_billing_quotas
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
 from posthog.cloud_utils import get_cached_instance_license
@@ -332,7 +332,7 @@ class BillingManager:
                 ],
             )
 
-            if set_org_usage_summary(organization, new_usage=usage_info):
+            if update_org_usage_from_billing(organization, new_usage=usage_info):
                 org_modified = True
                 update_org_billing_quotas(organization)
 
