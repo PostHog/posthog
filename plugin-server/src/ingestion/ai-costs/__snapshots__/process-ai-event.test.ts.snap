@@ -352,11 +352,35 @@ exports[`processAiEvent() smoke test every model processes deepseek-chat-v3-0324
 }
 `;
 
+exports[`processAiEvent() smoke test every model processes deepseek-coder 1`] = `
+{
+  "$ai_input_cost_usd": 0.000004,
+  "$ai_output_cost_usd": 0.000006,
+  "$ai_total_cost_usd": 0.00001,
+}
+`;
+
+exports[`processAiEvent() smoke test every model processes deepseek-prover-v2 1`] = `
+{
+  "$ai_input_cost_usd": 0.00005,
+  "$ai_output_cost_usd": 0.000109,
+  "$ai_total_cost_usd": 0.000159,
+}
+`;
+
+exports[`processAiEvent() smoke test every model processes deepseek-prover-v2:free 1`] = `
+{
+  "$ai_input_cost_usd": 0,
+  "$ai_output_cost_usd": 0,
+  "$ai_total_cost_usd": 0,
+}
+`;
+
 exports[`processAiEvent() smoke test every model processes deepseek-r1 1`] = `
 {
   "$ai_input_cost_usd": 0.00005,
-  "$ai_output_cost_usd": 0.00015,
-  "$ai_total_cost_usd": 0.0002,
+  "$ai_output_cost_usd": 0.000109,
+  "$ai_total_cost_usd": 0.000159,
 }
 `;
 
@@ -488,7 +512,23 @@ exports[`processAiEvent() smoke test every model processes gemini-2.0-flash-lite
 }
 `;
 
-exports[`processAiEvent() smoke test every model processes gemini-2.0-flash-thinking-exp:free 1`] = `
+exports[`processAiEvent() smoke test every model processes gemini-2.5-flash-preview 1`] = `
+{
+  "$ai_input_cost_usd": 0.000015,
+  "$ai_output_cost_usd": 0.00003,
+  "$ai_total_cost_usd": 0.000045,
+}
+`;
+
+exports[`processAiEvent() smoke test every model processes gemini-2.5-flash-preview:thinking 1`] = `
+{
+  "$ai_input_cost_usd": 0.000015,
+  "$ai_output_cost_usd": 0.000175,
+  "$ai_total_cost_usd": 0.00019,
+}
+`;
+
+exports[`processAiEvent() smoke test every model processes gemini-2.5-pro-exp-03-25 1`] = `
 {
   "$ai_input_cost_usd": 0,
   "$ai_output_cost_usd": 0,
@@ -496,19 +536,19 @@ exports[`processAiEvent() smoke test every model processes gemini-2.0-flash-thin
 }
 `;
 
-exports[`processAiEvent() smoke test every model processes gemini-2.0-flash-thinking-exp-1219:free 1`] = `
+exports[`processAiEvent() smoke test every model processes gemini-2.5-pro-preview 1`] = `
 {
-  "$ai_input_cost_usd": 0,
-  "$ai_output_cost_usd": 0,
-  "$ai_total_cost_usd": 0,
+  "$ai_input_cost_usd": 0.000125,
+  "$ai_output_cost_usd": 0.0005,
+  "$ai_total_cost_usd": 0.000625,
 }
 `;
 
-exports[`processAiEvent() smoke test every model processes gemini-2.5-pro-exp-03-25:free 1`] = `
+exports[`processAiEvent() smoke test every model processes gemini-2.5-pro-preview:large 1`] = `
 {
-  "$ai_input_cost_usd": 0,
-  "$ai_output_cost_usd": 0,
-  "$ai_total_cost_usd": 0,
+  "$ai_input_cost_usd": 0.000125,
+  "$ai_output_cost_usd": 0.0005,
+  "$ai_total_cost_usd": 0.000625,
 }
 `;
 
@@ -544,14 +584,6 @@ exports[`processAiEvent() smoke test every model processes gemini-flash-1.5-8b-e
 }
 `;
 
-exports[`processAiEvent() smoke test every model processes gemini-pro 1`] = `
-{
-  "$ai_input_cost_usd": 0.00005,
-  "$ai_output_cost_usd": 0.000075,
-  "$ai_total_cost_usd": 0.000125,
-}
-`;
-
 exports[`processAiEvent() smoke test every model processes gemini-pro-1.5 1`] = `
 {
   "$ai_input_cost_usd": 0.000125,
@@ -570,9 +602,9 @@ exports[`processAiEvent() smoke test every model processes gemini-pro-vision 1`]
 
 exports[`processAiEvent() smoke test every model processes gemma-2-9b-it 1`] = `
 {
-  "$ai_input_cost_usd": 0.000007,
-  "$ai_output_cost_usd": 0.0000035,
-  "$ai_total_cost_usd": 0.0000105,
+  "$ai_input_cost_usd": 0.000002,
+  "$ai_output_cost_usd": 0.000003,
+  "$ai_total_cost_usd": 0.000005,
 }
 `;
 
@@ -586,9 +618,9 @@ exports[`processAiEvent() smoke test every model processes gemma-2-9b-it:free 1`
 
 exports[`processAiEvent() smoke test every model processes gemma-2-27b-it 1`] = `
 {
-  "$ai_input_cost_usd": 0.00008,
-  "$ai_output_cost_usd": 0.00004,
-  "$ai_total_cost_usd": 0.00012,
+  "$ai_input_cost_usd": 0.00001,
+  "$ai_output_cost_usd": 0.000015,
+  "$ai_total_cost_usd": 0.000025,
 }
 `;
 
@@ -872,14 +904,6 @@ exports[`processAiEvent() smoke test every model processes learnlm-1.5-pro-exper
 }
 `;
 
-exports[`processAiEvent() smoke test every model processes llama-2-13b-chat 1`] = `
-{
-  "$ai_input_cost_usd": 0.000022,
-  "$ai_output_cost_usd": 0.000011,
-  "$ai_total_cost_usd": 0.000033,
-}
-`;
-
 exports[`processAiEvent() smoke test every model processes llama-2-70b-chat 1`] = `
 {
   "$ai_input_cost_usd": 0.00009,
@@ -891,8 +915,8 @@ exports[`processAiEvent() smoke test every model processes llama-2-70b-chat 1`] 
 exports[`processAiEvent() smoke test every model processes llama-3.1-8b-instruct 1`] = `
 {
   "$ai_input_cost_usd": 0.000002,
-  "$ai_output_cost_usd": 0.00000225,
-  "$ai_total_cost_usd": 0.00000425,
+  "$ai_output_cost_usd": 0.0000015,
+  "$ai_total_cost_usd": 0.0000035,
 }
 `;
 
@@ -906,9 +930,9 @@ exports[`processAiEvent() smoke test every model processes llama-3.1-8b-instruct
 
 exports[`processAiEvent() smoke test every model processes llama-3.1-70b-instruct 1`] = `
 {
-  "$ai_input_cost_usd": 0.000012,
+  "$ai_input_cost_usd": 0.00001,
   "$ai_output_cost_usd": 0.000014,
-  "$ai_total_cost_usd": 0.000026,
+  "$ai_total_cost_usd": 0.000024,
 }
 `;
 
@@ -917,6 +941,14 @@ exports[`processAiEvent() smoke test every model processes llama-3.1-405b 1`] = 
   "$ai_input_cost_usd": 0.0002,
   "$ai_output_cost_usd": 0.0001,
   "$ai_total_cost_usd": 0.0003,
+}
+`;
+
+exports[`processAiEvent() smoke test every model processes llama-3.1-405b:free 1`] = `
+{
+  "$ai_input_cost_usd": 0,
+  "$ai_output_cost_usd": 0,
+  "$ai_total_cost_usd": 0,
 }
 `;
 
@@ -946,9 +978,9 @@ exports[`processAiEvent() smoke test every model processes llama-3.1-sonar-small
 
 exports[`processAiEvent() smoke test every model processes llama-3.2-1b-instruct 1`] = `
 {
-  "$ai_input_cost_usd": 0.000001,
+  "$ai_input_cost_usd": 5e-7,
   "$ai_output_cost_usd": 5e-7,
-  "$ai_total_cost_usd": 0.0000015,
+  "$ai_total_cost_usd": 0.000001,
 }
 `;
 
@@ -962,9 +994,9 @@ exports[`processAiEvent() smoke test every model processes llama-3.2-1b-instruct
 
 exports[`processAiEvent() smoke test every model processes llama-3.2-3b-instruct 1`] = `
 {
-  "$ai_input_cost_usd": 0.0000015,
-  "$ai_output_cost_usd": 0.00000125,
-  "$ai_total_cost_usd": 0.00000275,
+  "$ai_input_cost_usd": 0.000001,
+  "$ai_output_cost_usd": 0.000001,
+  "$ai_total_cost_usd": 0.000002,
 }
 `;
 
@@ -994,9 +1026,9 @@ exports[`processAiEvent() smoke test every model processes llama-3.2-11b-vision-
 
 exports[`processAiEvent() smoke test every model processes llama-3.2-90b-vision-instruct 1`] = `
 {
-  "$ai_input_cost_usd": 0.00008,
-  "$ai_output_cost_usd": 0.00008,
-  "$ai_total_cost_usd": 0.00016,
+  "$ai_input_cost_usd": 0.00012,
+  "$ai_output_cost_usd": 0.00006,
+  "$ai_total_cost_usd": 0.00018,
 }
 `;
 
@@ -1034,9 +1066,9 @@ exports[`processAiEvent() smoke test every model processes llama-3-70b-instruct 
 
 exports[`processAiEvent() smoke test every model processes llama-4-maverick 1`] = `
 {
-  "$ai_input_cost_usd": 0.000018,
+  "$ai_input_cost_usd": 0.000017,
   "$ai_output_cost_usd": 0.00003,
-  "$ai_total_cost_usd": 0.000048,
+  "$ai_total_cost_usd": 0.000047,
 }
 `;
 
@@ -1074,9 +1106,17 @@ exports[`processAiEvent() smoke test every model processes llama-guard-2-8b 1`] 
 
 exports[`processAiEvent() smoke test every model processes llama-guard-3-8b 1`] = `
 {
-  "$ai_input_cost_usd": 0.00002,
-  "$ai_output_cost_usd": 0.00001,
-  "$ai_total_cost_usd": 0.00003,
+  "$ai_input_cost_usd": 0.000002,
+  "$ai_output_cost_usd": 0.000003,
+  "$ai_total_cost_usd": 0.000005,
+}
+`;
+
+exports[`processAiEvent() smoke test every model processes llama-guard-4-12b 1`] = `
+{
+  "$ai_input_cost_usd": 0.000005,
+  "$ai_output_cost_usd": 0.0000025,
+  "$ai_total_cost_usd": 0.0000075,
 }
 `;
 
@@ -1098,9 +1138,9 @@ exports[`processAiEvent() smoke test every model processes ministral-8b 1`] = `
 
 exports[`processAiEvent() smoke test every model processes mistral-7b-instruct 1`] = `
 {
-  "$ai_input_cost_usd": 0.000003,
-  "$ai_output_cost_usd": 0.00000275,
-  "$ai_total_cost_usd": 0.00000575,
+  "$ai_input_cost_usd": 0.0000028,
+  "$ai_output_cost_usd": 0.0000027,
+  "$ai_total_cost_usd": 0.0000055,
 }
 `;
 
@@ -1114,9 +1154,9 @@ exports[`processAiEvent() smoke test every model processes mistral-7b-instruct:f
 
 exports[`processAiEvent() smoke test every model processes mistral-7b-instruct-v0.1 1`] = `
 {
-  "$ai_input_cost_usd": 0.00002,
-  "$ai_output_cost_usd": 0.00001,
-  "$ai_total_cost_usd": 0.00003,
+  "$ai_input_cost_usd": 0.000011,
+  "$ai_output_cost_usd": 0.0000095,
+  "$ai_total_cost_usd": 0.0000205,
 }
 `;
 
@@ -1130,9 +1170,9 @@ exports[`processAiEvent() smoke test every model processes mistral-7b-instruct-v
 
 exports[`processAiEvent() smoke test every model processes mistral-7b-instruct-v0.3 1`] = `
 {
-  "$ai_input_cost_usd": 0.000004,
-  "$ai_output_cost_usd": 0.00000275,
-  "$ai_total_cost_usd": 0.00000675,
+  "$ai_input_cost_usd": 0.0000028,
+  "$ai_output_cost_usd": 0.0000027,
+  "$ai_total_cost_usd": 0.0000055,
 }
 `;
 
@@ -1170,9 +1210,9 @@ exports[`processAiEvent() smoke test every model processes mistral-medium 1`] = 
 
 exports[`processAiEvent() smoke test every model processes mistral-nemo 1`] = `
 {
-  "$ai_input_cost_usd": 0.0000035,
-  "$ai_output_cost_usd": 0.000004,
-  "$ai_total_cost_usd": 0.0000075,
+  "$ai_input_cost_usd": 0.000003,
+  "$ai_output_cost_usd": 0.0000035,
+  "$ai_total_cost_usd": 0.0000065,
 }
 `;
 
@@ -1202,9 +1242,9 @@ exports[`processAiEvent() smoke test every model processes mistral-small 1`] = `
 
 exports[`processAiEvent() smoke test every model processes mistral-small-3.1-24b-instruct 1`] = `
 {
-  "$ai_input_cost_usd": 0.00001,
-  "$ai_output_cost_usd": 0.000015,
-  "$ai_total_cost_usd": 0.000025,
+  "$ai_input_cost_usd": 0.000005,
+  "$ai_output_cost_usd": 0.0000075,
+  "$ai_total_cost_usd": 0.0000125,
 }
 `;
 
@@ -1218,9 +1258,9 @@ exports[`processAiEvent() smoke test every model processes mistral-small-3.1-24b
 
 exports[`processAiEvent() smoke test every model processes mistral-small-24b-instruct-2501 1`] = `
 {
-  "$ai_input_cost_usd": 0.000007,
-  "$ai_output_cost_usd": 0.000007,
-  "$ai_total_cost_usd": 0.000014,
+  "$ai_input_cost_usd": 0.000006,
+  "$ai_output_cost_usd": 0.000006,
+  "$ai_total_cost_usd": 0.000012,
 }
 `;
 
@@ -1242,17 +1282,17 @@ exports[`processAiEvent() smoke test every model processes mistral-tiny 1`] = `
 
 exports[`processAiEvent() smoke test every model processes mixtral-8x7b-instruct 1`] = `
 {
-  "$ai_input_cost_usd": 0.000024,
+  "$ai_input_cost_usd": 0.000008,
   "$ai_output_cost_usd": 0.000012,
-  "$ai_total_cost_usd": 0.000036,
+  "$ai_total_cost_usd": 0.00002,
 }
 `;
 
 exports[`processAiEvent() smoke test every model processes mixtral-8x22b-instruct 1`] = `
 {
-  "$ai_input_cost_usd": 0.00009,
-  "$ai_output_cost_usd": 0.000045,
-  "$ai_total_cost_usd": 0.000135,
+  "$ai_input_cost_usd": 0.00004,
+  "$ai_output_cost_usd": 0.00006,
+  "$ai_total_cost_usd": 0.0001,
 }
 `;
 
@@ -1341,38 +1381,6 @@ exports[`processAiEvent() smoke test every model processes o4-mini-high 1`] = `
   "$ai_input_cost_usd": 0.00011,
   "$ai_output_cost_usd": 0.00022,
   "$ai_total_cost_usd": 0.00033,
-}
-`;
-
-exports[`processAiEvent() smoke test every model processes palm-2-chat-bison 1`] = `
-{
-  "$ai_input_cost_usd": 0.0001,
-  "$ai_output_cost_usd": 0.0001,
-  "$ai_total_cost_usd": 0.0002,
-}
-`;
-
-exports[`processAiEvent() smoke test every model processes palm-2-chat-bison-32k 1`] = `
-{
-  "$ai_input_cost_usd": 0.0001,
-  "$ai_output_cost_usd": 0.0001,
-  "$ai_total_cost_usd": 0.0002,
-}
-`;
-
-exports[`processAiEvent() smoke test every model processes palm-2-codechat-bison 1`] = `
-{
-  "$ai_input_cost_usd": 0.0001,
-  "$ai_output_cost_usd": 0.0001,
-  "$ai_total_cost_usd": 0.0002,
-}
-`;
-
-exports[`processAiEvent() smoke test every model processes palm-2-codechat-bison-32k 1`] = `
-{
-  "$ai_input_cost_usd": 0.0001,
-  "$ai_output_cost_usd": 0.0001,
-  "$ai_total_cost_usd": 0.0002,
 }
 `;
 

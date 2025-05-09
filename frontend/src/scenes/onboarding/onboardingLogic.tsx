@@ -116,6 +116,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
         goToPreviousStep: true,
         resetStepKey: true,
         setOnCompleteOnboardingRedirectUrl: (url: string | null) => ({ url }),
+        skipOnboarding: true,
     }),
     reducers(() => ({
         productKey: [
@@ -230,6 +231,12 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 return !billingProduct?.subscribed || subscribedDuringOnboarding
             },
         ],
+        hasIngestedEvent: [
+            (s) => [s.currentTeam],
+            (currentTeam) => {
+                return currentTeam?.ingested_event
+            },
+        ],
         shouldShowReverseProxyStep: [
             (s) => [s.productKey],
             (productKey) => {
@@ -333,6 +340,9 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 actions.openSidePanel(SidePanelTab.Activation)
             }
         },
+        skipOnboarding: () => {
+            router.actions.push(values.onCompleteOnboardingRedirectUrl)
+        },
         setAllOnboardingSteps: () => {
             if (values.isStepKeyInvalid) {
                 actions.resetStepKey()
@@ -347,7 +357,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             values.allOnboardingSteps[0] && actions.setStepKey(values.allOnboardingSteps[0]?.props.stepKey)
         },
     })),
-    actionToUrl(({ values }) => ({
+    actionToUrl(({ actions, values }) => ({
         setStepKey: ({ stepKey }) => {
             if (stepKey) {
                 return [`/onboarding/${values.productKey}`, { ...router.values.searchParams, step: stepKey }]
@@ -382,7 +392,9 @@ export const onboardingLogic = kea<onboardingLogicType>([
         },
         updateCurrentTeamSuccess(val) {
             if (values.productKey && val.payload?.has_completed_onboarding_for?.[values.productKey]) {
-                return [values.onCompleteOnboardingRedirectUrl]
+                const redirectUrl = values.onCompleteOnboardingRedirectUrl
+                actions.setOnCompleteOnboardingRedirectUrl(null)
+                return [redirectUrl]
             }
         },
     })),

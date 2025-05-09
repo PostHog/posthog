@@ -1,7 +1,5 @@
 import { IconArrowUpRight, IconPlus } from '@posthog/icons'
-import { ProfilePicture, Spinner } from '@posthog/lemon-ui'
-import { router } from 'kea-router'
-import { dayjs } from 'lib/dayjs'
+import { Spinner } from '@posthog/lemon-ui'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
@@ -22,6 +20,7 @@ export interface ConvertProps {
     disabledReason?: (item: FileSystemImport | FileSystemEntry) => string | undefined
     recent?: boolean
     users?: Record<string, UserBasicType>
+    foldersFirst?: boolean
 }
 
 export function getItemId(item: FileSystemImport | FileSystemEntry, root: string = 'project'): string {
@@ -65,6 +64,7 @@ export function convertFileSystemEntryToTreeDataItem({
     disabledReason,
     recent,
     users,
+    foldersFirst = true,
 }: ConvertProps): TreeDataItem[] {
     function itemToTreeDataItem(item: FileSystemImport | FileSystemEntry): TreeDataItem {
         const pathSplit = splitPath(item.path)
@@ -76,33 +76,17 @@ export function convertFileSystemEntryToTreeDataItem({
         const node: TreeDataItem = {
             id: nodeId,
             name: itemName,
-            displayName: (
-                <>
-                    {displayName}
-                    {recent && item.meta?.created_at ? (
-                        <span className="text-muted text-xs font-normal ml-1">
-                            - {dayjs(item.meta?.created_at).fromNow()}
-                        </span>
-                    ) : null}
-                    {user ? <ProfilePicture user={user} size="sm" className="ml-1" /> : null}
-                </>
-            ),
+            displayName,
             icon: item._loading ? (
                 <Spinner />
             ) : (
                 wrapWithShortcutIcon(item, ('icon' in item && item.icon) || iconForType(item.type))
             ),
-            record: item,
+            record: { ...item, user },
             checked: checkedItems[nodeId],
-            onClick: () => {
-                if (item.href) {
-                    router.actions.push(typeof item.href === 'function' ? item.href(item.ref) : item.href)
-                }
-            },
         }
         if (item && disabledReason?.(item)) {
             node.disabledReason = disabledReason(item)
-            node.onClick = undefined
         }
         if (disableFolderSelect && item.type === 'folder') {
             node.disableSelect = true
@@ -149,7 +133,6 @@ export function convertFileSystemEntryToTreeDataItem({
             }
             if (folderNode.record && disabledReason?.(folderNode.record as FileSystemEntry)) {
                 folderNode.disabledReason = disabledReason(folderNode.record as FileSystemEntry)
-                folderNode.onClick = undefined
             }
             allFolderNodes.push(folderNode)
             nodes.push(folderNode)
@@ -234,6 +217,7 @@ export function convertFileSystemEntryToTreeDataItem({
                     name: 'Loading...',
                     icon: <Spinner />,
                     disableSelect: true,
+                    type: 'loading-indicator',
                 })
             }
             allFolderNodes.push(node)
@@ -249,12 +233,13 @@ export function convertFileSystemEntryToTreeDataItem({
             if (b.id.startsWith(`${root}-load-more/`) || b.id.startsWith(`${root}-loading/`)) {
                 return -1
             }
-            // folders before files
-            if (a.record?.type === 'folder' && b.record?.type !== 'folder') {
-                return -1
-            }
-            if (b.record?.type === 'folder' && a.record?.type !== 'folder') {
-                return 1
+            if (foldersFirst) {
+                if (a.record?.type === 'folder' && b.record?.type !== 'folder') {
+                    return -1
+                }
+                if (b.record?.type === 'folder' && a.record?.type !== 'folder') {
+                    return 1
+                }
             }
             return String(a.name).localeCompare(String(b.name), undefined, { sensitivity: 'accent' })
         })

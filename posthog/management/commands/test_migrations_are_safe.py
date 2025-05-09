@@ -38,9 +38,8 @@ def validate_migration_sql(sql) -> bool:
                 return True
 
         if (
-            re.findall(r"(?<!DROP) (NOT NULL|DEFAULT .* NOT NULL)", operation_sql, re.M & re.I)
-            and "CREATE TABLE" not in operation_sql
-            and "ADD CONSTRAINT" not in operation_sql
+            "ALTER TABLE" in operation_sql  # Only check ALTER TABLE operations
+            and re.findall(r"(?<!DROP) (NOT NULL|DEFAULT .* NOT NULL)", operation_sql, re.M & re.I)
             and "-- not-null-ignore" not in operation_sql
             # Ignore for brand-new tables
             and (table_being_altered not in tables_created_so_far or table_being_altered not in new_tables)
