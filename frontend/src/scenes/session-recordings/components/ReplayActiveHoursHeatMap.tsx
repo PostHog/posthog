@@ -20,6 +20,8 @@ export const ReplayActiveHoursHeatMap = ({ startDate, endDate }: { startDate: Da
                 getColumnAggregationTooltip={() => ''}
                 getRowAggregationTooltip={() => ''}
                 getOverallAggregationTooltip={() => ''}
+                showColumnAggregations={false}
+                showRowAggregations={false}
             />
         </div>
     )

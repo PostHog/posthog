@@ -1,6 +1,7 @@
 import { afterMount, kea, key, listeners, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { now } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { CalendarHeatMapProps } from 'scenes/web-analytics/CalendarHeatMap/CalendarHeatMap'
 
@@ -21,7 +22,8 @@ export const replayActiveHoursHeatMapLogic = kea<replayActiveHoursHeatMapLogicTy
     loaders(() => ({
         recordingsPerHour: {
             loadRecordingsPerHour: async (_, breakpoint): Promise<HogQLQueryResponse> => {
-                const q = hogql`SELECT
+                const q = hogql`
+SELECT
     hour_block,
     countIf(_toDate(mints) = today() - 6) AS "Day -6",
     countIf(_toDate(mints) = today() - 5) AS "Day -5",
@@ -123,8 +125,23 @@ ORDER BY hour_block`
                 }
 
                 return {
-                    rowLabels: ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00'],
-                    columnLabels: ['Day -6', 'Day -5', 'Day -4', 'Day -3', 'Day -2', 'Day -1', 'Today'],
+                    rowLabels: [
+                        '00:00 - 04:00',
+                        '04:00 - 08:00',
+                        '08:00 - 12:00',
+                        '12:00 - 16:00',
+                        '16:00 - 20:00',
+                        '20:00 - 00:00',
+                    ],
+                    columnLabels: [
+                        now().subtract(6, 'day').format('ddd D'),
+                        now().subtract(5, 'day').format('ddd D'),
+                        now().subtract(4, 'day').format('ddd D'),
+                        now().subtract(3, 'day').format('ddd D'),
+                        now().subtract(2, 'day').format('ddd D'),
+                        now().subtract(1, 'day').format('ddd D'),
+                        'Today',
+                    ],
                     processedData: processedData,
                 }
             },
