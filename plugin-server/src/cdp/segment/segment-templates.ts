@@ -307,7 +307,7 @@ const translateInputsSchema = (inputs_schema: Record<string, any> | undefined): 
                 field.type !== 'object' || (typeof field.default !== 'undefined' && '@path' in field.default)
                     ? translateInputs(field.default, field.multiple)
                     : Object.fromEntries(
-                          Object.entries(field.properties ?? {}).map(([key, { multiple }]) => {
+                          Object.entries(field.properties ?? {}).map(([key, { multiple }]: [string, any]) => {
                               const defaultVal = (field.default as Record<string, object>) ?? {}
                               return [key, translateInputs(defaultVal[key], multiple)]
                           })
