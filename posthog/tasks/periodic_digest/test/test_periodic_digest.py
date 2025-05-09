@@ -700,14 +700,14 @@ class TestPeriodicDigestReport(APIBaseTest):
 
             # Simulate views: playlist2 > playlist1 > playlist3
             for i in range(5):
-                frozen_time.tick(delta=i)
+                frozen_time.tick(delta=timedelta(seconds=i))
                 SessionRecordingPlaylistViewed.objects.create(user=self.user, team=self.team, playlist=playlist2)
 
             for i in range(3):
-                frozen_time.tick(delta=i)
+                frozen_time.tick(delta=timedelta(seconds=i))
                 SessionRecordingPlaylistViewed.objects.create(user=self.user, team=self.team, playlist=playlist1)
 
-            frozen_time.tick(delta=1)
+            frozen_time.tick()
             SessionRecordingPlaylistViewed.objects.create(user=self.user, team=self.team, playlist=playlist3)
 
             results = get_teams_with_interesting_playlists(datetime(2024, 1, 20))
@@ -725,12 +725,12 @@ class TestPeriodicDigestReport(APIBaseTest):
 
             # playlist1: 5 views from 1 user
             for i in range(5):
-                frozen_time.tick(delta=i)
+                frozen_time.tick(delta=timedelta(seconds=i))
                 SessionRecordingPlaylistViewed.objects.create(user=self.user, team=self.team, playlist=playlist1)
 
             # playlist2: 5 views from 5 different users
             for i in range(5):
-                frozen_time.tick(delta=i)
+                frozen_time.tick(delta=timedelta(seconds=i))
                 user = self._create_user(f"user{i}{i}@posthog.com")
                 SessionRecordingPlaylistViewed.objects.create(user=user, team=self.team, playlist=playlist2)
 
