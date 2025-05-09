@@ -49,68 +49,142 @@ class AggregationStateTransformer(TraversingVisitor):
     with pre-aggregated data using the corresponding Merge functions.
     """
 
-    def __init__(self):
+    def __init__(self, transform_nested_aggregations=False):
         super().__init__()
+        # Flag to control whether nested aggregations should be transformed
+        self.transform_nested_aggregations = transform_nested_aggregations
+        # Tracks depth of queries to identify top-level vs nested
+        self.query_depth = 0
+        # Tracks whether we're in a top-level SELECT list
+        self.in_top_level_select = False
 
     def visit_field(self, node: ast.Field) -> ast.Field:
         """Ensure fields are properly cloned and returned."""
         # For Field nodes, just return a clone to ensure we don't lose any properties
         return clone_expr(node)
+        
+    def visit_constant(self, node: ast.Constant) -> ast.Constant:
+        """Handle constants including NULL literals."""
+        return clone_expr(node)
+        
+    def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
+        """Transform aggregations in SELECT queries."""
+        # Clone the query to avoid modifying the original
+        transformed_query = clone_expr(node)
+        
+        # Track the query depth
+        old_query_depth = self.query_depth
+        old_in_top_level_select = self.in_top_level_select
+        
+        # Increment query depth for this query
+        self.query_depth += 1
+        
+        # Set flag for top-level select list of the main query
+        is_top_level = (self.query_depth == 1)
+        
+        # First handle the FROM clause and subqueries - before processing the select list
+        if transformed_query.select_from is not None:
+            transformed_query.select_from = self.visit(transformed_query.select_from)
+            
+        # Handle WHERE clause
+        if transformed_query.where is not None:
+            transformed_query.where = self.visit(transformed_query.where)
+            
+        # Now process the SELECT list, with appropriate flag for top-level
+        self.in_top_level_select = is_top_level
+        new_select = []
+        for item in transformed_query.select:
+            if isinstance(item, ast.Alias):
+                # Handle aliases
+                cloned_item = clone_expr(item)
+                cloned_item.expr = self.visit(cloned_item.expr)
+                new_select.append(cloned_item)
+            else:
+                # For non-alias items, apply resolver
+                new_select.append(self.visit(item))
+                
+        transformed_query.select = new_select
+        self.in_top_level_select = old_in_top_level_select
+            
+        # Handle GROUP BY
+        if transformed_query.group_by is not None:
+            new_group_by = []
+            for item in transformed_query.group_by:
+                new_group_by.append(self.visit(item))
+            transformed_query.group_by = new_group_by
+            
+        # Handle HAVING
+        if transformed_query.having is not None:
+            transformed_query.having = self.visit(transformed_query.having)
+            
+        # Restore query depth
+        self.query_depth = old_query_depth
+            
+        return transformed_query
+        
+    def visit_join_expr(self, node: ast.JoinExpr) -> ast.JoinExpr:
+        """Handle JOIN expressions and transform any subqueries in them."""
+        cloned_node = clone_expr(node)
+        
+        # Transform table if it's a subquery
+        if isinstance(cloned_node.table, ast.SelectQuery):
+            cloned_node.table = self.visit(cloned_node.table)
+        
+        # Transform the constraint if it exists
+        if cloned_node.constraint is not None:
+            cloned_node.constraint = self.visit(cloned_node.constraint)
+            
+        return cloned_node
+        
+    def visit_arithmetic_operation(self, node: ast.ArithmeticOperation) -> ast.ArithmeticOperation:
+        """Visit arithmetic operations to handle expressions in WHERE clauses."""
+        cloned_node = clone_expr(node)
+        cloned_node.left = self.visit(cloned_node.left)
+        cloned_node.right = self.visit(cloned_node.right)
+        return cloned_node
+        
+    def visit_compare_operation(self, node: ast.CompareOperation) -> ast.CompareOperation:
+        """Visit compare operations to handle expressions in WHERE clauses."""
+        cloned_node = clone_expr(node)
+        cloned_node.left = self.visit(cloned_node.left)
+        cloned_node.right = self.visit(cloned_node.right)
+        return cloned_node
 
     def visit_call(self, node: ast.Call) -> ast.Call:
         """Visit a function call and transform it to a State function if it's an aggregation function."""
-        # Traverse the arguments first - this replaces the arguments with their transformed versions
-        args = []
-        for arg in node.args:
-            transformed_arg = self.visit(arg)
-            # Only add non-None arguments
-            if transformed_arg is not None:
-                args.append(transformed_arg)
-            else:
-                # If the transformed arg is None, keep the original argument
-                args.append(clone_expr(arg))
-
-        # Update the args in case they were transformed
-        node.args = args
-
-        # Check if this is an aggregation function that needs to be transformed
-        func_name = node.name
-        if func_name in AGGREGATION_TO_STATE_MAPPING:
-            # Transform to State function using clone_expr to preserve all properties
-            cloned_node = clone_expr(node)
-            state_func_name = AGGREGATION_TO_STATE_MAPPING[func_name]
-
-            # Update only the name in the cloned node
+        # First handle the arguments
+        cloned_node = clone_expr(node)
+        
+        # Process arguments
+        for i, arg in enumerate(cloned_node.args):
+            visited_arg = self.visit(arg)
+            if visited_arg is not None:
+                cloned_node.args[i] = visited_arg
+            # If visit returns None, we keep the original argument
+            
+        # Only transform aggregation functions in the top-level SELECT list or if explicitly requested
+        if ((self.in_top_level_select or self.transform_nested_aggregations) and 
+                cloned_node.name in AGGREGATION_TO_STATE_MAPPING):
+            # Transform to State function
+            state_func_name = AGGREGATION_TO_STATE_MAPPING[cloned_node.name]
             cloned_node.name = state_func_name
-            return cloned_node
+            
+        return cloned_node
 
-        return node
 
-
-def transform_query_to_state_aggregations(query: ast.SelectQuery) -> ast.SelectQuery:
+def transform_query_to_state_aggregations(query: ast.SelectQuery, transform_nested_aggregations=False) -> ast.SelectQuery:
     """
     Transforms a regular query to use State aggregation functions.
+    This will transform only the top-level aggregation functions by default.
+    
+    Args:
+        query: The HogQL query AST to transform
+        transform_nested_aggregations: Whether to transform nested aggregations (default: False)
     """
-    # Clone the query to avoid modifying the original
-    transformed_query = clone_expr(query)
-    transformer = AggregationStateTransformer()
-
-    new_select = []
-    for item in transformed_query.select:
-        if isinstance(item, ast.Alias):
-            # Handle aliases (most common case)
-            cloned_item = clone_expr(item)
-
-            # Apply resolver to the expression within the alias
-            cloned_item.expr = transformer.visit(cloned_item.expr)
-            new_select.append(cloned_item)
-        else:
-            # For non-alias items, apply resolver and add to new select list
-            new_select.append(transformer.visit(item))
-
-    # Replace the select list with the new one
-    transformed_query.select = new_select
-
+    # Use the transformer to recursively transform all levels of the query
+    transformer = AggregationStateTransformer(transform_nested_aggregations=transform_nested_aggregations)
+    transformed_query = transformer.visit(query)
+    
     return transformed_query
 
 
@@ -125,6 +199,21 @@ def wrap_state_query_in_merge_query(state_query: ast.SelectQuery) -> ast.SelectQ
     """
     # Create the outer select list with merge functions
     outer_select = []
+    # Track which fields need to be in GROUP BY (those used by aggregation functions)
+    agg_fields = set()
+    # Track aliased fields
+    all_field_aliases = set()
+    
+    # First pass: collect all alias names and identify which ones are used in aggregations
+    for item in state_query.select:
+        if isinstance(item, ast.Alias):
+            alias_name = item.alias
+            all_field_aliases.add(alias_name)
+            # Check if the expression is an aggregation state function
+            if isinstance(item.expr, ast.Call) and item.expr.name in STATE_TO_MERGE_MAPPING:
+                agg_fields.add(alias_name)
+    
+    # Second pass: build the outer select
     for item in state_query.select:
         if isinstance(item, ast.Alias):
             alias_name = item.alias
@@ -133,38 +222,69 @@ def wrap_state_query_in_merge_query(state_query: ast.SelectQuery) -> ast.SelectQ
                 merge_func = STATE_TO_MERGE_MAPPING[item.expr.name]
                 merge_call = ast.Call(name=merge_func, args=[ast.Field(chain=[alias_name])])
                 outer_select.append(ast.Alias(alias=alias_name, expr=merge_call))
+            elif isinstance(item.expr, ast.Constant):
+                # For constants like NULL, pass through the constant directly
+                # This ensures they don't need to be in GROUP BY
+                outer_select.append(ast.Alias(alias=alias_name, expr=clone_expr(item.expr)))
             else:
-                # For non-state functions, just reference the field
-                outer_select.append(ast.Field(chain=[alias_name]))
+                # For non-state functions, just reference the field directly without group by
+                outer_select.append(ast.Alias(alias=alias_name, expr=ast.Field(chain=[alias_name])))
+        elif isinstance(item, ast.Constant):
+            # For direct constants (like NULL literals), just pass them through directly
+            outer_select.append(clone_expr(item))
+        else:
+            # For non-alias items, just reference them directly
+            outer_select.append(clone_expr(item))
 
     # Create the outer query with the inner query as a subquery
     outer_query = ast.SelectQuery(select=outer_select, select_from=ast.JoinExpr(table=state_query))
     
     # If the state query has a GROUP BY, preserve it in the outer query
     if state_query.group_by and len(state_query.group_by) > 0:
-        outer_query.group_by = []
+        outer_group_by = []
+        
+        # For each item in the original GROUP BY
         for group_item in state_query.group_by:
             if isinstance(group_item, ast.Alias):
-                # If it's an alias, use the alias name as a field reference
-                outer_query.group_by.append(ast.Field(chain=[group_item.alias]))
+                # Group by the alias name as a field
+                outer_group_by.append(ast.Field(chain=[group_item.alias]))
             elif isinstance(group_item, ast.Field):
-                # If it's already a field, use it directly if it's a simple field
+                # If it's a field, try to find a matching alias in the SELECT
                 if len(group_item.chain) == 1:
-                    outer_query.group_by.append(ast.Field(chain=[group_item.chain[0]]))
+                    # Simple field reference - check if it's in our aliases
+                    field_name = group_item.chain[0]
+                    if field_name in all_field_aliases:
+                        outer_group_by.append(ast.Field(chain=[field_name]))
+                    else:
+                        # Field not aliased in SELECT, use it directly
+                        outer_group_by.append(clone_expr(group_item))
                 else:
-                    # For complex fields, we need to reference it in the outer query by its position
-                    # in the SELECT clause or its alias if it has one
+                    # Complex field - find matching alias or use as is
+                    found_alias = False
                     for select_item in state_query.select:
                         if (isinstance(select_item, ast.Alias) and 
                             isinstance(select_item.expr, ast.Field) and 
                             select_item.expr.chain == group_item.chain):
-                            outer_query.group_by.append(ast.Field(chain=[select_item.alias]))
+                            outer_group_by.append(ast.Field(chain=[select_item.alias]))
+                            found_alias = True
                             break
+                    if not found_alias:
+                        # No matching alias, use the field directly
+                        outer_group_by.append(clone_expr(group_item))
             else:
-                # For other expressions, try to find a matching alias in the SELECT
+                # For expressions, try to find a matching alias in the SELECT
+                found_alias = False
                 for select_item in state_query.select:
                     if isinstance(select_item, ast.Alias) and select_item.expr == group_item:
-                        outer_query.group_by.append(ast.Field(chain=[select_item.alias]))
+                        outer_group_by.append(ast.Field(chain=[select_item.alias]))
+                        found_alias = True
                         break
+                if not found_alias:
+                    # No matching alias, clone the expression
+                    outer_group_by.append(clone_expr(group_item))
+        
+        # Only add GROUP BY if we found fields to group by
+        if outer_group_by:
+            outer_query.group_by = outer_group_by
 
     return outer_query

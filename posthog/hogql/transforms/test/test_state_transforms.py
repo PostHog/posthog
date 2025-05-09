@@ -312,6 +312,159 @@ class TestStateTransforms(TestCase):
         self.assertEqual(len(state_query_ast.group_by), 1)
         self.assertEqual(len(wrapper_query_ast.group_by), 1)
 
+    def test_nested_aggregations_in_subquery(self):
+        """Test that nested aggregations in subqueries don't get transformed to State functions."""
+        # Original query with sum(countIf()) - this is similar to the web overview query
+        original_query_str = """
+        SELECT
+            sum(filtered_count) AS total_filtered_count
+        FROM (
+            SELECT
+                countIf(event = 'pageview') AS filtered_count
+            FROM events
+            GROUP BY distinct_id
+        )
+        """
+
+        original_query_ast = parse_select(original_query_str)
+        
+        # Transform with our top-level only transformation approach
+        state_query_ast = transform_query_to_state_aggregations(original_query_ast, transform_nested_aggregations=False)
+        wrapper_query_ast = wrap_state_query_in_merge_query(state_query_ast)
+        
+        # Check that in the transformed query:
+        # 1. The outer sum() should be transformed to sumState()
+        # 2. The inner countIf() should NOT be transformed to countStateIf()
+        
+        # Verify the outer sum is transformed to sumState
+        outer_function = state_query_ast.select[0].expr
+        self.assertEqual(outer_function.name, "sumState")
+        
+        # Verify the inner countIf is NOT transformed to countStateIf
+        subquery_table = state_query_ast.select_from.table
+        inner_function = subquery_table.select[0].expr
+        self.assertEqual(inner_function.name, "countIf")  # Should still be countIf, not countStateIf
+        
+        # In the wrapper query, verify we have sumMerge
+        wrapper_outer_function = wrapper_query_ast.select[0].expr
+        self.assertEqual(wrapper_outer_function.name, "sumMerge")
+
+    def test_web_overview_query_transformation_sql(self):
+        """Test transformation of a web overview query by examining output SQL without executing it."""
+        # Create a minimalist mock of a web overview query with nested aggregations
+        mock_web_query_str = """
+        SELECT
+            sum(pageview_count) AS total_pageviews,
+            uniq(user_id) AS unique_users
+        FROM (
+            SELECT
+                distinct_id AS user_id,
+                countIf(event = 'pageview') AS pageview_count
+            FROM events
+            GROUP BY distinct_id
+        )
+        """
+        
+        # Parse the query
+        mock_web_query_ast = parse_select(mock_web_query_str)
+        
+        # Apply state transformations
+        state_query_ast = transform_query_to_state_aggregations(mock_web_query_ast)
+        wrapper_query_ast = wrap_state_query_in_merge_query(state_query_ast)
+        
+        # Now check the structure of the transformed query
+        
+        # Check outer select in state query - should have sumState() and uniqState()
+        outer_sum = state_query_ast.select[0].expr
+        outer_uniq = state_query_ast.select[1].expr
+        self.assertEqual(outer_sum.name, "sumState")
+        self.assertEqual(outer_uniq.name, "uniqState")
+        
+        # Check inner select in state query - countIf should NOT be transformed
+        inner_query = state_query_ast.select_from.table
+        inner_count = inner_query.select[1].expr
+        self.assertEqual(inner_count.name, "countIf")
+        
+        # Check wrapper query has sumMerge and uniqMerge
+        wrapper_sum = wrapper_query_ast.select[0].expr
+        wrapper_uniq = wrapper_query_ast.select[1].expr
+        self.assertEqual(wrapper_sum.name, "sumMerge")
+        self.assertEqual(wrapper_uniq.name, "uniqMerge")
+
+    def test_query_with_null_and_constants(self):
+        """Test that NULL constants and other literals are properly handled in the transformation."""
+        # Query with NULL literals and constants alongside aggregations
+        query_str = """
+        SELECT
+            uniq(distinct_id) AS unique_users,
+            NULL AS previous_unique_users,
+            count() AS total_events,
+            123 AS constant_value
+        FROM events
+        WHERE timestamp >= '2023-01-01'
+        """
+
+        query_ast = parse_select(query_str)
+        
+        # Transform with our approach
+        state_query_ast = transform_query_to_state_aggregations(query_ast)
+        wrapper_query_ast = wrap_state_query_in_merge_query(state_query_ast)
+        
+        # Verify state query transformations - only aggregation functions should be transformed
+        self.assertEqual(state_query_ast.select[0].expr.name, "uniqState")
+        self.assertIsInstance(state_query_ast.select[1].expr, ast.Constant)
+        self.assertIsNone(state_query_ast.select[1].expr.value)  # NULL value
+        self.assertEqual(state_query_ast.select[2].expr.name, "countState")
+        self.assertIsInstance(state_query_ast.select[3].expr, ast.Constant)
+        self.assertEqual(state_query_ast.select[3].expr.value, 123)  # Number constant
+        
+        # Verify wrapper query structure - constants should be passed through directly
+        self.assertEqual(wrapper_query_ast.select[0].expr.name, "uniqMerge")
+        
+        # For NULL constants, they should be preserved as constants
+        self.assertEqual(wrapper_query_ast.select[1].alias, "previous_unique_users")
+        self.assertIsInstance(wrapper_query_ast.select[1].expr, ast.Constant)
+        self.assertIsNone(wrapper_query_ast.select[1].expr.value)
+        
+        # For numeric constants, they should also be preserved as constants
+        self.assertEqual(wrapper_query_ast.select[3].alias, "constant_value")
+        self.assertIsInstance(wrapper_query_ast.select[3].expr, ast.Constant)
+        self.assertEqual(wrapper_query_ast.select[3].expr.value, 123)
+        
+        # Verify that GROUP BY only includes fields used in aggregation functions
+        # Constant fields should NOT be in GROUP BY
+        self.assertIsNone(wrapper_query_ast.group_by)
+
+    def test_null_constants_preserved_in_wrapper(self):
+        """Test that NULL constants are preserved directly in the wrapper query, not referenced as fields."""
+        # Query with NULLs alongside aggregates
+        query_str = """
+        SELECT
+            uniq(distinct_id) AS unique_users,
+            NULL AS previous_users,  
+            count() AS total_events
+        FROM events
+        """
+
+        query_ast = parse_select(query_str)
+        
+        # Apply transformations
+        state_query_ast = transform_query_to_state_aggregations(query_ast)
+        wrapper_query_ast = wrap_state_query_in_merge_query(state_query_ast)
+        
+        # Check that the NULL value is directly preserved in the wrapper, not as a field reference
+        self.assertEqual(state_query_ast.select[1].alias, "previous_users")
+        self.assertIsInstance(state_query_ast.select[1].expr, ast.Constant)
+        self.assertIsNone(state_query_ast.select[1].expr.value)  # NULL value
+        
+        # The wrapper should preserve NULL as a constant
+        wrapper_null_expr = wrapper_query_ast.select[1].expr
+        self.assertIsInstance(wrapper_null_expr, ast.Constant)
+        self.assertIsNone(wrapper_null_expr.value)
+        
+        # And should not be a field reference
+        self.assertNotIsInstance(wrapper_null_expr, ast.Field)
+
 
 class TestStateTransformsIntegration(ClickhouseTestMixin, APIBaseTest):
     """Integration tests for state transformations with ClickHouse execution."""
