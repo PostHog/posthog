@@ -789,4 +789,4 @@ def supports_partial_data_loading(schema: ExternalDataSchema) -> bool:
     We should be able to roll this out to all source types but initially we only support it for Stripe so we can verify
     the approach.
     """
-    return schema.source.type == ExternalDataSource.Type.STRIPE
+    return schema.source.source_type == ExternalDataSource.Type.STRIPE
