@@ -726,7 +726,12 @@ export const maxLogic = kea<maxLogicType>([
             sidePanelStateLogic.values.selectedTab === SidePanelTab.Max &&
             sidePanelStateLogic.values.selectedTabOptions
         ) {
-            actions.setQuestion(sidePanelStateLogic.values.selectedTabOptions)
+            const cleanedQuestion = sidePanelStateLogic.values.selectedTabOptions.replace(/^!/, '')
+            if (sidePanelStateLogic.values.selectedTabOptions.startsWith('!')) {
+                actions.askMax(cleanedQuestion)
+            } else {
+                actions.setQuestion(cleanedQuestion)
+            }
         }
         // Load conversation history on mount
         actions.loadConversationHistory()

@@ -47,6 +47,7 @@ export class CyclotronJobQueue {
     private consumerMode: CyclotronJobQueueKind
     private producerMapping: CyclotronJobQueueRouting
     private producerTeamMapping: CyclotronJobQueueTeamRouting
+    private producerForceScheduledToPostgres: boolean
     private jobQueuePostgres: CyclotronJobQueuePostgres
     private jobQueueKafka: CyclotronJobQueueKafka
 
@@ -59,6 +60,7 @@ export class CyclotronJobQueue {
         this.consumerMode = this.config.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE
         this.producerMapping = getProducerMapping(this.config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING)
         this.producerTeamMapping = getProducerTeamMapping(this.config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING)
+        this.producerForceScheduledToPostgres = this.config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_FORCE_SCHEDULED_TO_POSTGRES
 
         this.jobQueueKafka = new CyclotronJobQueueKafka(
             this.config,
@@ -115,7 +117,7 @@ export class CyclotronJobQueue {
         // If any target is a non-100% then we need both producers ready
         const anySplitRouting = allTargets.some((x) => x.percentage < 1)
 
-        if (anySplitRouting || targets.has('postgres')) {
+        if (anySplitRouting || targets.has('postgres') || this.producerForceScheduledToPostgres) {
             await this.jobQueuePostgres.startAsProducer()
         }
 
@@ -152,6 +154,11 @@ export class CyclotronJobQueue {
     }
 
     private getTarget(invocation: HogFunctionInvocation): CyclotronJobQueueKind {
+        if (this.producerForceScheduledToPostgres && invocation.queueScheduledAt) {
+            // Kafka doesn't support delays so if enabled we should force scheduled jobs to postgres
+            return 'postgres'
+        }
+
         const teamId = invocation.teamId
         const mapping = this.producerTeamMapping[teamId] ?? this.producerMapping
         const producerConfig = mapping[invocation.queue] ?? mapping['*']
@@ -180,12 +187,10 @@ export class CyclotronJobQueue {
             }
         }
 
-        if (postgresInvocations.length > 0) {
-            await this.jobQueuePostgres.queueInvocations(postgresInvocations)
-        }
-        if (kafkaInvocations.length > 0) {
-            await this.jobQueueKafka.queueInvocations(kafkaInvocations)
-        }
+        await Promise.all([
+            this.jobQueuePostgres.queueInvocations(postgresInvocations),
+            this.jobQueueKafka.queueInvocations(kafkaInvocations),
+        ])
     }
 
     public async queueInvocationResults(invocationResults: HogFunctionInvocationResult[]) {
@@ -222,25 +227,29 @@ export class CyclotronJobQueue {
             ),
         })
 
+        const promises: Promise<any>[] = []
+
         if (postgresInvocationsToUpdate.length > 0) {
-            await this.jobQueuePostgres.queueInvocationResults(postgresInvocationsToUpdate)
+            promises.push(this.jobQueuePostgres.queueInvocationResults(postgresInvocationsToUpdate))
         }
 
         if (postgresInvocationsToCreate.length > 0) {
-            await this.jobQueuePostgres.queueInvocations(postgresInvocationsToCreate.map((x) => x.invocation))
+            promises.push(this.jobQueuePostgres.queueInvocations(postgresInvocationsToCreate.map((x) => x.invocation)))
         }
 
         if (kafkaInvocations.length > 0) {
-            await this.jobQueueKafka.queueInvocationResults(kafkaInvocations)
+            promises.push(this.jobQueueKafka.queueInvocationResults(kafkaInvocations))
 
             const jobsToRelease = kafkaInvocations
                 .filter((x) => x.invocation.queueSource === 'postgres')
                 .map((x) => x.invocation)
 
             if (jobsToRelease.length > 0) {
-                await this.jobQueuePostgres.releaseInvocations(jobsToRelease)
+                promises.push(this.jobQueuePostgres.releaseInvocations(jobsToRelease))
             }
         }
+
+        await Promise.all(promises)
     }
 }
 

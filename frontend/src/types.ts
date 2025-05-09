@@ -519,6 +519,8 @@ export interface TeamBasicType extends WithAccessControl {
     organization: string // Organization ID
     project_id: number
     api_token: string
+    secret_api_token: string
+    secret_api_token_backup: string
     name: string
     completed_snippet_onboarding: boolean
     has_completed_onboarding_for?: Record<string, boolean>
@@ -1548,6 +1550,7 @@ export interface SessionRecordingPlaylistType {
      * marked as has more if the filters count onoy matched one page and there are more available
      */
     recordings_counts?: PlaylistRecordingsCounts
+    type: 'filters' | 'collection'
     _create_in_folder?: string | null
 }
 
@@ -1858,6 +1861,9 @@ export interface BillingType {
     products: BillingProductV2Type[]
 
     custom_limits_usd?: {
+        [key: string]: number | null
+    }
+    next_period_custom_limits_usd?: {
         [key: string]: number | null
     }
     billing_period?: {
@@ -3557,6 +3563,14 @@ export interface Group {
     group_properties: Record<string, any>
 }
 
+export enum ExperimentConclusion {
+    Won = 'won',
+    Lost = 'lost',
+    Inconclusive = 'inconclusive',
+    StoppedEarly = 'stopped_early',
+    Invalid = 'invalid',
+}
+
 export interface Experiment {
     id: ExperimentIdType
     name: string
@@ -3605,6 +3619,8 @@ export interface Experiment {
         version?: number
     }
     _create_in_folder?: string | null
+    conclusion?: ExperimentConclusion | null
+    conclusion_comment?: string | null
 }
 
 export interface FunnelExperimentVariant {
@@ -5338,7 +5354,7 @@ export interface ProductManifest {
     urls?: Record<string, string | ((...args: any[]) => string)>
     fileSystemTypes?: Record<string, FileSystemType>
     treeItemsNew?: FileSystemImport[]
-    treeItemsExplore?: FileSystemImport[]
+    treeItemsProducts?: FileSystemImport[]
 }
 
 export interface ProjectTreeRef {

@@ -7,11 +7,11 @@ use flate2::read::GzDecoder;
 use serde::Deserialize;
 use time::format_description::well_known::Iso8601;
 use time::OffsetDateTime;
-use tracing::{debug, error, instrument};
+use tracing::{error, instrument, warn};
 
 use crate::{
     api::CaptureError, prometheus::report_dropped_events, token::validate_token,
-    v0_endpoint::MAX_CHARS_TO_CHECK,
+    v0_endpoint::MAX_PAYLOAD_SNIPPET_SIZE,
 };
 
 #[derive(Deserialize, Default, Clone, Copy, PartialEq, Eq)]
@@ -41,7 +41,7 @@ pub struct EventQuery {
     pub compression: Option<Compression>,
 
     // legacy GET requests can include data as query param
-    pub data: Option<Vec<u8>>,
+    pub data: Option<String>,
 
     #[serde(alias = "ver")]
     pub lib_version: Option<String>,
@@ -71,7 +71,7 @@ impl EventQuery {
 // Some SDKs like posthog-js-lite can include metadata in the POST body
 #[derive(Deserialize)]
 pub struct EventFormData {
-    pub data: String,
+    pub data: Option<String>,
     pub compression: Option<Compression>,
     #[serde(alias = "ver")]
     pub lib_version: Option<String>,
@@ -112,17 +112,29 @@ impl RawRequest {
         limit: usize,
         is_mirror_deploy: bool,
     ) -> Result<RawRequest, CaptureError> {
-        debug!(
-            len = bytes.len(),
-            is_mirror_deploy = is_mirror_deploy,
-            cmp_hint = cmp_hint.to_string(),
-            "decoding new event"
-        );
+        if is_mirror_deploy {
+            warn!(
+                len = bytes.len(),
+                is_mirror_deploy = is_mirror_deploy,
+                cmp_hint = cmp_hint.to_string(),
+                "from_bytes: decoding new event"
+            );
+        }
 
         let payload = if (is_mirror_deploy && cmp_hint == Compression::Gzip)
             || bytes.starts_with(&GZIP_MAGIC_NUMBERS)
         {
             let len = bytes.len();
+
+            if is_mirror_deploy {
+                warn!(
+                    len = len,
+                    is_mirror_deploy = is_mirror_deploy,
+                    cmp_hint = cmp_hint.to_string(),
+                    "from_bytes: matched GZIP compression"
+                );
+            }
+
             let mut zipstream = GzDecoder::new(bytes.reader());
             let chunk = &mut [0; 1024];
             let mut buf = Vec::with_capacity(len);
@@ -159,8 +171,25 @@ impl RawRequest {
                 }
             }
         } else if is_mirror_deploy && cmp_hint == Compression::LZString {
+            if is_mirror_deploy {
+                warn!(
+                    len = bytes.len(),
+                    is_mirror_deploy = is_mirror_deploy,
+                    cmp_hint = cmp_hint.to_string(),
+                    "from_bytes: matched LZ64 compression"
+                );
+            }
             decompress_lz64(&bytes, limit)?
         } else {
+            if is_mirror_deploy {
+                warn!(
+                    len = bytes.len(),
+                    is_mirror_deploy = is_mirror_deploy,
+                    cmp_hint = cmp_hint.to_string(),
+                    "from_bytes: best-effort, assuming no compression"
+                );
+            }
+
             let s = String::from_utf8(bytes.into()).map_err(|e| {
                 error!(
                     "from_bytes: failed to convert request payload to UTF8: {}",
@@ -179,6 +208,20 @@ impl RawRequest {
             s
         };
 
+        if is_mirror_deploy {
+            let truncate_at: usize = payload
+                .char_indices()
+                .nth(MAX_PAYLOAD_SNIPPET_SIZE)
+                .map(|(n, _)| n)
+                .unwrap_or(0);
+            let payload_snippet = &payload[0..truncate_at];
+            warn!(
+                json = payload_snippet,
+                is_mirror_deploy = is_mirror_deploy,
+                cmp_hint = cmp_hint.to_string(),
+                "from_bytes: event payload extracted"
+            );
+        }
         tracing::debug!(json = payload, "from_bytes: decoded event data");
         Ok(serde_json::from_str::<RawRequest>(&payload)?)
     }
@@ -226,11 +269,11 @@ fn decompress_lz64(payload: &[u8], limit: usize) -> Result<String, CaptureError>
     let decomp_utf16 = match lz_str::decompress_from_base64(b64_payload) {
         Some(v) => v,
         None => {
-            let max_chars: usize = std::cmp::min(payload.len(), MAX_CHARS_TO_CHECK);
-            let form_data_snippet = String::from_utf8(payload[..max_chars].to_vec())
+            let max_chars: usize = std::cmp::min(payload.len(), MAX_PAYLOAD_SNIPPET_SIZE);
+            let payload_snippet = String::from_utf8(payload[..max_chars].to_vec())
                 .unwrap_or(String::from("INVALID_UTF8"));
             error!(
-                form_data = form_data_snippet,
+                payload_snippet = payload_snippet,
                 "decompress_lz64: failed decompress to UTF16"
             );
             return Err(CaptureError::RequestDecodingError(String::from(

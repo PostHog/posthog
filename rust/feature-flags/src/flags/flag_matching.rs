@@ -433,14 +433,12 @@ impl FeatureFlagMatcher {
         let mut flags_needing_db_properties = Vec::new();
 
         // Check if we need to fetch group type mappings – we have flags that use group properties (have group type indices)
-        let type_indexes: HashSet<GroupTypeIndex> = feature_flags
+        let has_type_indexes = feature_flags
             .flags
             .iter()
-            .filter(|flag| flag.active && !flag.deleted)
-            .filter_map(|flag| flag.get_group_type_index())
-            .collect();
+            .any(|flag| flag.active && !flag.deleted && flag.get_group_type_index().is_some());
 
-        if !type_indexes.is_empty() {
+        if has_type_indexes {
             let group_type_mapping_timer =
                 common_metrics::timing_guard(FLAG_GROUP_DB_FETCH_TIME, &[]);
 

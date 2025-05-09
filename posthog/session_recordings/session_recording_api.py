@@ -816,7 +816,10 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         if not posthoganalytics.feature_enabled("ai-session-summary", str(user.distinct_id)):
             raise exceptions.ValidationError("session summary is not enabled for this user")
 
-        replay_summarizer = ReplaySummarizer(recording, user, self.team)
+        # If you want to test sessions locally - override `session_id` and `self.team.pk`
+        # with session/team ids of your choice, and set `local_reads_prod` to True
+        session_id = recording.session_id
+        replay_summarizer = ReplaySummarizer(user=user, team=self.team, session_id=session_id, local_reads_prod=False)
         return StreamingHttpResponse(
             replay_summarizer.stream_recording_summary(), content_type=ServerSentEventRenderer.media_type
         )
