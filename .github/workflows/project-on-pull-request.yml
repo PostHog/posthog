@@ -294,7 +294,7 @@ jobs:
                                 console.log(statusMessage);
 
                                 if (needsComment) {
-                                    await addComment(issue.id, statusMessage, project.title, currentStatus, availableStatuses, pr.number, isDraft);
+                                    await addComment(issue.id, statusMessage, project.title, currentStatus, availableStatuses, pr.number);
                                 }
                               }
                           } catch (error) {
