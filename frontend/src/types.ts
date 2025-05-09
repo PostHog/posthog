@@ -4183,6 +4183,7 @@ export type APIScopeObject =
     | 'survey'
     | 'user'
     | 'webhook'
+    | 'warehouse_saved_query'
 
 export enum AccessControlLevel {
     None = 'none',

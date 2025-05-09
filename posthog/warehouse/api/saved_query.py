@@ -220,7 +220,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
 
             # Get latest activity log for this model
 
-            if validated_data.get("query", None):
+            if validated_data.get("query", None) and not validated_data.get("name", "").startswith("dbt_"):
                 edited_history_id = self.context["request"].data.get("edited_history_id", None)
                 latest_activity_id = (
                     ActivityLog.objects.filter(item_id=locked_instance.id, scope="DataWarehouseSavedQuery")
@@ -336,7 +336,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
     Create, Read, Update and Delete Warehouse Tables.
     """
 
-    scope_object = "INTERNAL"
+    scope_object = "warehouse_saved_query"
     queryset = DataWarehouseSavedQuery.objects.all()
     serializer_class = DataWarehouseSavedQuerySerializer
     filter_backends = [filters.SearchFilter]
@@ -378,6 +378,24 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             return base_queryset.annotate(latest_activity_id=Subquery(latest_activity))
 
         return base_queryset
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        # Check for UPSERT logic
+        saved_query = DataWarehouseSavedQuery.objects.filter(
+            team_id=self.team_id, name=serializer.validated_data.get("name")
+        ).first()
+        if saved_query:
+            # Update logic
+            serializer = self.get_serializer(saved_query, data=serializer.validated_data, partial=True)
+            serializer.is_valid(raise_exception=True)
+            self.perform_update(serializer)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        else:
+            # Create logic
+            self.perform_create(serializer)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         instance: DataWarehouseSavedQuery = self.get_object()
