@@ -129,10 +129,10 @@ jobs:
 
                       const updateStatus = async (projectId, itemId, fieldId, optionId) =>
                         await github.graphql(updateMutation, {
-                          projectId: project.id,
-                          itemId: itemId,
-                          fieldId: fieldId,
-                          optionId: optionId,
+                          projectId,
+                          itemId,
+                          fieldId,
+                          optionId,
                         });
 
                       const createCommentBody = (
