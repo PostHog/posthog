@@ -28,7 +28,7 @@ export const MetricSelectorStep = ({
     return (
         <RunningTimeCalculatorModalStep
             stepNumber={2}
-            title="Select a Metric"
+            title="Select a metric"
             description="Choose a metric to analyze. We'll use historical data from this metric to estimate the experiment duration."
         >
             <div className="mb-4">
