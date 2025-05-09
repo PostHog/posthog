@@ -33,25 +33,33 @@ describe('TemplateSyncService', () => {
         }
 
         // Clean up any existing test templates before each test
-        await cleanupTestTemplate(postgres, geoipTemplate.id)
+        await cleanupTestTemplate(postgres)
     })
 
     afterAll(async () => {
-        await cleanupTestTemplate(postgres, geoipTemplate.id)
+        await cleanupTestTemplate(postgres)
         await postgres.end()
     })
 
     /**
      * Helper to clean up test templates from the database
      */
-    async function cleanupTestTemplate(postgres: PostgresRouter, templateId: string) {
+    async function cleanupTestTemplate(postgres: PostgresRouter) {
         try {
-            // Delete the specific template used for testing
+            // Delete all entries from posthog_hogfunction
             await postgres.query(
                 PostgresUse.COMMON_WRITE,
-                `DELETE FROM posthog_hogfunctiontemplate WHERE template_id = $1`,
-                [templateId],
-                'cleanup-test-template'
+                `DELETE FROM posthog_hogfunction`,
+                [],
+                'cleanup-all-hogfunctions'
+            )
+
+            // Delete all templates
+            await postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `DELETE FROM posthog_hogfunctiontemplate`,
+                [],
+                'cleanup-all-templates'
             )
         } catch (error) {
             // If table doesn't exist yet, that's fine
