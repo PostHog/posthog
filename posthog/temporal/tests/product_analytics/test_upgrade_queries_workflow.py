@@ -1,14 +1,27 @@
 import pytest
 
 from posthog.models.insight import Insight
+from posthog.schema import NodeKind
+from posthog.schema_migrations import LATEST_VERSIONS
 from posthog.temporal.product_analytics.upgrade_queries_workflow import get_insights_to_migrate
+
+
+@pytest.fixture(autouse=True)
+def setup_migrations():
+    LATEST_VERSIONS.clear()
+    # MIGRATIONS.clear()
+
+    # MIGRATIONS[NodeKind.TRENDS_QUERY] = {1: SampleMigration()}
+    # MIGRATIONS[NodeKind.EVENTS_NODE] = {1: EventsNodeMigration()}
+    LATEST_VERSIONS[NodeKind.INSIGHT_VIZ_NODE] = 3
+    LATEST_VERSIONS[NodeKind.TRENDS_QUERY] = 5
+    LATEST_VERSIONS[NodeKind.EVENTS_NODE] = 7
+
+    yield
 
 
 @pytest.mark.django_db(transaction=True)
 def test_get_insights_to_migrate(activity_environment, team):
-    # TODO: Mock InsightVizNode v3 and TrendsQuery v5, EventsNode v7
-    # TODO: Capture SQL
-
     # all versions satisfied
     Insight.objects.create(
         query={

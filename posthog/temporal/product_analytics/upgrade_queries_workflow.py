@@ -7,6 +7,7 @@ from posthog.models import Insight
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_internal_logger
+from posthog.schema_migrations import LATEST_VERSIONS
 
 
 @temporalio.activity.defn
@@ -15,11 +16,14 @@ def get_insights_to_migrate() -> list[int]:
     # TODO: Cross-join or run separately for each kind?
     # CREATE INDEX insight_query_gin_path
     # ON insight USING gin (query jsonb_path_ops);
-    sql = """
+    latest_versions = []
+    for kind, version in LATEST_VERSIONS.items():
+        latest_versions.append(f"('{kind}', {version})")
+
+    sql = f"""
         WITH latest(kind, v_latest) AS (
             VALUES
-                ('TrendsQuery', 5),
-                ('FunnelsQuery', 4)
+                {','.join(latest_versions)}
         )
         SELECT DISTINCT i.id
         FROM posthog_dashboarditem AS i
