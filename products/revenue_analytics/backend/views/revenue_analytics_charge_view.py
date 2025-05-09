@@ -115,7 +115,7 @@ def currency_aware_amount() -> ast.Alias:
 
 class RevenueAnalyticsChargeView(RevenueAnalyticsBaseView):
     @staticmethod
-    def for_events(team: "Team") -> list["RevenueAnalyticsChargeView"]:
+    def for_events(team: "Team") -> list["RevenueAnalyticsBaseView"]:
         if len(team.revenue_analytics_config.events) == 0:
             return []
 
@@ -193,7 +193,7 @@ class RevenueAnalyticsChargeView(RevenueAnalyticsBaseView):
         ]
 
     @staticmethod
-    def for_schema_source(source: ExternalDataSource) -> list["RevenueAnalyticsChargeView"]:
+    def for_schema_source(source: ExternalDataSource) -> list["RevenueAnalyticsBaseView"]:
         # Currently only works for stripe sources
         if not source.source_type == ExternalDataSource.Type.STRIPE:
             return []

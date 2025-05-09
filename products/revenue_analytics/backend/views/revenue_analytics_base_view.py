@@ -1,4 +1,4 @@
-from typing import Optional, cast
+from typing import Optional
 from posthog.models.team.team import Team
 from posthog.hogql.database.models import SavedQuery
 from posthog.warehouse.models.external_data_source import ExternalDataSource
@@ -13,8 +13,8 @@ class RevenueAnalyticsBaseView(SavedQuery):
         from .revenue_analytics_customer_view import RevenueAnalyticsCustomerView
 
         return [
-            *cast(list[RevenueAnalyticsBaseView], RevenueAnalyticsChargeView.for_events(team)),
-            *cast(list[RevenueAnalyticsBaseView], RevenueAnalyticsCustomerView.for_events(team)),
+            *RevenueAnalyticsChargeView.for_events(team),
+            *RevenueAnalyticsCustomerView.for_events(team),
         ]
 
     @staticmethod
@@ -23,8 +23,8 @@ class RevenueAnalyticsBaseView(SavedQuery):
         from .revenue_analytics_customer_view import RevenueAnalyticsCustomerView
 
         return [
-            *cast(list[RevenueAnalyticsBaseView], RevenueAnalyticsChargeView.for_schema_source(source)),
-            *cast(list[RevenueAnalyticsBaseView], RevenueAnalyticsCustomerView.for_schema_source(source)),
+            *RevenueAnalyticsChargeView.for_schema_source(source),
+            *RevenueAnalyticsCustomerView.for_schema_source(source),
         ]
 
     # Used in child classes to generate the view name
