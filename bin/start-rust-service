@@ -88,8 +88,6 @@ case "$RS_SVC" in
     export MAXMIND_DB_PATH=../share/GeoLite2-City.mmdb
     export REDIS_URL=redis://localhost:6379/
     export ADDRESS=0.0.0.0:3001
-    export SKIP_WRITES=false
-    export SKIP_READS=false
     export DEBUG=1
     export ALLOW_INTERNAL_IPS=${ALLOW_INTERNAL_IPS:-true}
     ;;
