@@ -2,9 +2,8 @@ import { actions, connect, defaults, kea, key, listeners, path, props, reducers,
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { ErrorEventProperties } from 'lib/components/Errors/types'
+import { ErrorEventProperties, ErrorEventType } from 'lib/components/Errors/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { posthog } from 'posthog-js'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -13,15 +12,15 @@ import {
     DateRange,
     ErrorTrackingIssue,
     ErrorTrackingIssueAggregations,
-    ErrorTrackingIssueAssignee,
     ErrorTrackingRelationalIssue,
 } from '~/queries/schema/schema-general'
 import { ActivityScope, Breadcrumb } from '~/types'
 
 import { errorFiltersLogic } from './components/ErrorFilters/errorFiltersLogic'
+import { issueActionsLogic } from './components/IssueActions/issueActionsLogic'
 import type { errorTrackingIssueSceneLogicType } from './errorTrackingIssueSceneLogicType'
-import { errorTrackingIssueEventsQuery, errorTrackingIssueQuery } from './queries'
-import { ERROR_TRACKING_DETAILS_RESOLUTION, resolveDateRange } from './utils'
+import { errorTrackingIssueQuery } from './queries'
+import { ERROR_TRACKING_DETAILS_RESOLUTION } from './utils'
 
 export interface ErrorTrackingIssueSceneLogicProps {
     id: ErrorTrackingIssue['id']
@@ -35,19 +34,29 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     props({} as ErrorTrackingIssueSceneLogicProps),
     key((props) => props.id),
 
-    connect(() => ({
-        values: [errorFiltersLogic, ['dateRange', 'filterTestAccounts', 'filterGroup', 'searchQuery']],
-        actions: [errorFiltersLogic, ['setDateRange', 'setFilterTestAccounts', 'setFilterGroup', 'setSearchQuery']],
-    })),
+    connect(() => {
+        const filtersLogic = errorFiltersLogic()
+        const issueActions = issueActionsLogic()
+        return {
+            values: [filtersLogic, ['dateRange', 'filterTestAccounts', 'filterGroup', 'searchQuery']],
+            actions: [
+                filtersLogic,
+                ['setDateRange', 'setFilterTestAccounts', 'setFilterGroup', 'setSearchQuery'],
+                issueActions,
+                ['updateIssueAssignee', 'updateIssueStatus'],
+            ],
+        }
+    }),
 
     actions({
         loadIssue: true,
         loadSummary: true,
-        loadProperties: (timestamp: string) => ({ timestamp }),
+        loadFirstSeenEvent: (timestamp: string) => ({ timestamp }),
         setIssue: (issue: ErrorTrackingRelationalIssue) => ({ issue }),
-        updateStatus: (status: ErrorTrackingIssueStatus) => ({ status }),
-        updateAssignee: (assignee: ErrorTrackingIssueAssignee | null) => ({ assignee }),
         setLastSeen: (lastSeen: Dayjs) => ({ lastSeen }),
+        setCustomEvent: (event: ErrorEventType | null) => ({
+            event,
+        }),
     }),
 
     defaults({
@@ -55,16 +64,24 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         summary: null as ErrorTrackingIssueSummary | null,
         properties: null as ErrorEventProperties | null,
         lastSeen: null as Dayjs | null,
+        firstSeenEvent: null as ErrorEventType | null,
+        customEvent: null as ErrorEventType | null,
     }),
 
     reducers({
         issue: {
             setIssue: (_, { issue }: { issue: ErrorTrackingRelationalIssue }) => issue,
-            updateAssignee: (state, { assignee }) => {
-                return state ? { ...state, assignee } : null
+            updateIssueAssignee: (state, { id, assignee }) => {
+                if (state && id == state.id) {
+                    return { ...state, assignee }
+                }
+                return state
             },
-            updateStatus: (state, { status }) => {
-                return state ? { ...state, status } : null
+            updateIssueStatus: (state, { id, status }) => {
+                if (state && id == state.id) {
+                    return { ...state, status }
+                }
+                return state
             },
         },
         summary: {},
@@ -77,7 +94,6 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             },
         },
     }),
-
     selectors({
         breadcrumbs: [
             (s) => [s.issue],
@@ -106,22 +122,17 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 }
             },
         ],
-
-        eventsQuery: [
-            (s) => [(_, props) => props.id, s.filterTestAccounts, s.searchQuery, s.filterGroup, s.dateRange],
-            (issueId, filterTestAccounts, searchQuery, filterGroup, dateRange) =>
-                errorTrackingIssueEventsQuery({
-                    issueId,
-                    filterTestAccounts,
-                    filterGroup,
-                    searchQuery,
-                    dateRange: resolveDateRange(dateRange).toDateRange(),
-                }),
-        ],
-
+        issueId: [(_, p) => [p.id], (id: string) => id],
         firstSeen: [
             (s) => [s.issue],
             (issue: ErrorTrackingRelationalIssue | null) => (issue ? dayjs(issue.first_seen) : null),
+        ],
+
+        displayedEvent: [
+            (s) => [s.customEvent, s.firstSeenEvent],
+            (customEvt: ErrorEventType | null, firstSeenEvt: ErrorEventType | null) => {
+                return customEvt ?? firstSeenEvt
+            },
         ],
 
         aggregations: [(s) => [s.summary], (summary: ErrorTrackingIssueSummary | null) => summary?.aggregations],
@@ -131,8 +142,8 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         issue: {
             loadIssue: async () => await api.errorTracking.getIssue(props.id, props.fingerprint),
         },
-        properties: {
-            loadProperties: async ({ timestamp }) => {
+        firstSeenEvent: {
+            loadFirstSeenEvent: async ({ timestamp }) => {
                 const response = await api.query(
                     errorTrackingIssueQuery({
                         issueId: props.id,
@@ -147,8 +158,13 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 if (!issue.earliest) {
                     return null
                 }
-                // Earliest field should be defined as we use the issueId parameter
-                return JSON.parse(issue.earliest)
+                const firstSeenEvent: ErrorEventType = {
+                    uuid: `${values.issue?.id}_first_seen`,
+                    timestamp,
+                    person: { distinct_ids: [], properties: {} },
+                    properties: JSON.parse(issue.earliest),
+                }
+                return firstSeenEvent
             },
         },
         summary: {
@@ -178,26 +194,18 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         },
     })),
 
-    listeners(({ props, actions }) => {
+    listeners(({ actions }) => {
         return {
             setDateRange: actions.loadSummary,
             setFilterGroup: actions.loadSummary,
             setFilterTestAccounts: actions.loadSummary,
             setSearchQuery: actions.loadSummary,
             loadIssue: actions.loadSummary,
-            loadIssueSuccess: [({ issue }) => actions.loadProperties(issue.first_seen)],
+            loadIssueSuccess: [({ issue }) => actions.loadFirstSeenEvent(issue.first_seen)],
             loadIssueFailure: ({ errorObject: { status, data } }) => {
                 if (status == 308 && 'issue_id' in data) {
                     router.actions.replace(urls.errorTrackingIssue(data.issue_id))
                 }
-            },
-            updateStatus: async ({ status }) => {
-                posthog.capture('error_tracking_issue_status_updated', { status, issue_id: props.id })
-                await api.errorTracking.updateIssue(props.id, { status })
-            },
-            updateAssignee: async ({ assignee }) => {
-                posthog.capture('error_tracking_issue_assigned', { issue_id: props.id })
-                await api.errorTracking.assignIssue(props.id, assignee)
             },
         }
     }),

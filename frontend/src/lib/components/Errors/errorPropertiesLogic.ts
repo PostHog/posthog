@@ -20,6 +20,7 @@ import type { errorPropertiesLogicType } from './errorPropertiesLogicType'
 
 export interface ErrorPropertiesLogicProps {
     properties?: ErrorEventProperties
+    timestamp?: string
     id: ErrorEventId
 }
 
@@ -48,9 +49,9 @@ export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
             },
         ],
         timestamp: [
-            (s) => [s.properties],
-            (properties: ErrorEventProperties) => {
-                return properties ? dayjs(properties.timestamp as string) : null
+            () => [(_, props) => props.timestamp as string | null],
+            (timestamp: string) => {
+                return timestamp ? dayjs(timestamp) : null
             },
         ],
         additionalProperties: [
