@@ -18,7 +18,7 @@ import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-gener
 import { Breadcrumb, ProjectTreeBreadcrumb, ProjectTreeRef, UserBasicType } from '~/types'
 
 import { panelLayoutLogic } from '../panelLayoutLogic'
-import { getDefaultTreeExplore, getDefaultTreeNew } from './defaultTree'
+import { getDefaultTreeNew, getDefaultTreeProducts } from './defaultTree'
 import type { projectTreeLogicType } from './projectTreeLogicType'
 import { FolderState, ProjectTreeAction } from './types'
 import {
@@ -894,19 +894,21 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     folderStates,
                     root: 'new',
                     users,
+                    foldersFirst: false,
                 }),
         ],
-        treeItemsExplore: [
-            (s) => [s.featureFlags, s.groupNodes, s.folderStates, s.users],
-            (featureFlags, groupNodes: FileSystemImport[], folderStates, users): TreeDataItem[] =>
+        treeItemsProducts: [
+            (s) => [s.featureFlags, s.folderStates, s.users],
+            (featureFlags, folderStates, users): TreeDataItem[] =>
                 convertFileSystemEntryToTreeDataItem({
-                    imports: getDefaultTreeExplore(groupNodes).filter(
+                    imports: getDefaultTreeProducts().filter(
                         (f) => !f.flag || (featureFlags as Record<string, boolean>)[f.flag]
                     ),
                     checkedItems: {},
                     folderStates,
                     root: 'explore',
                     users,
+                    foldersFirst: false,
                 }),
         ],
         recentTreeItems: [
@@ -978,7 +980,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 return results
             },
         ],
-        treeData: [
+        treeItemsProject: [
             (s) => [s.searchTerm, s.searchedTreeItems, s.projectTree, s.loadingPaths, s.recentTreeItems, s.sortMethod],
             (searchTerm, searchedTreeItems, projectTree, loadingPaths, recentTreeItems, sortMethod): TreeDataItem[] => {
                 if (searchTerm) {
@@ -999,6 +1001,29 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 }
                 return projectTree
             },
+        ],
+        treeItemsCombined: [
+            (s) => [s.treeItemsProject, s.treeItemsProducts, s.treeItemsNew],
+            (project, products, allNew): TreeDataItem[] => [
+                {
+                    id: 'project',
+                    name: 'Project',
+                    record: { type: 'folder', id: null, path: '/' },
+                    children: project,
+                },
+                {
+                    id: 'products',
+                    name: 'Products',
+                    record: { type: 'folder', id: null, path: '/' },
+                    children: products,
+                },
+                {
+                    id: 'new',
+                    name: 'New',
+                    record: { type: 'folder', id: null, path: '/' },
+                    children: allNew,
+                },
+            ],
         ],
         // TODO: use treeData + some other logic to determine the keys
         treeTableKeys: [

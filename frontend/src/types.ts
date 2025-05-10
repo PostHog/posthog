@@ -2952,6 +2952,8 @@ export enum SurveyEventProperties {
     SURVEY_ID = '$survey_id',
     SURVEY_RESPONSE = '$survey_response',
     SURVEY_ITERATION = '$survey_iteration',
+    SURVEY_PARTIALLY_COMPLETED = '$survey_partially_completed',
+    SURVEY_SUBMISSION_ID = '$survey_submission_id',
 }
 
 export interface SurveyEventStats {
@@ -5112,21 +5114,25 @@ export type HogFunctionSubTemplateIdType =
     | 'early-access-feature-enrollment'
     | 'survey-response'
     | 'activity-log'
-    | 'error-tracking'
+    | 'error-tracking-issue-created'
+    | 'error-tracking-issue-reopened'
 
 export type HogFunctionConfigurationType = Omit<
     HogFunctionType,
     'id' | 'created_at' | 'created_by' | 'updated_at' | 'status' | 'hog'
 > & {
     hog?: HogFunctionType['hog'] // In the config it can be empty if using a template
-    sub_template_id?: HogFunctionSubTemplateIdType
     _create_in_folder?: string | null
 }
 
-export type HogFunctionSubTemplateType = Pick<HogFunctionType, 'filters' | 'inputs' | 'masking' | 'mappings'> & {
-    id: HogFunctionSubTemplateIdType
-    name: string
-    description: string | null
+export type HogFunctionSubTemplateType = Pick<
+    HogFunctionType,
+    'filters' | 'inputs' | 'masking' | 'mappings' | 'type'
+> & {
+    template_id: HogFunctionTemplateType['id']
+    sub_template_id: HogFunctionSubTemplateIdType
+    name?: string
+    description?: string
 }
 
 export type HogFunctionTemplateType = Pick<
@@ -5145,8 +5151,11 @@ export type HogFunctionTemplateType = Pick<
 > & {
     status: HogFunctionTemplateStatus
     free: boolean
-    sub_templates?: HogFunctionSubTemplateType[]
     mapping_templates?: HogFunctionMappingTemplateType[]
+}
+
+export type HogFunctionTemplateWithSubTemplateType = HogFunctionTemplateType & {
+    sub_template_id?: HogFunctionSubTemplateIdType
 }
 
 export type HogFunctionIconResponse = {
@@ -5338,7 +5347,7 @@ export interface ProductManifest {
     urls?: Record<string, string | ((...args: any[]) => string)>
     fileSystemTypes?: Record<string, FileSystemType>
     treeItemsNew?: FileSystemImport[]
-    treeItemsExplore?: FileSystemImport[]
+    treeItemsProducts?: FileSystemImport[]
 }
 
 export interface ProjectTreeRef {

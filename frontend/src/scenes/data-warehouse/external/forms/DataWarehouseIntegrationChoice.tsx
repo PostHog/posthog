@@ -1,7 +1,4 @@
-import {
-    IntegrationChoice,
-    IntegrationConfigureProps,
-} from 'scenes/pipeline/hogfunctions/integrations/IntegrationChoice'
+import { IntegrationChoice, IntegrationConfigureProps } from 'scenes/hog-functions/integrations/IntegrationChoice'
 import { urls } from 'scenes/urls'
 
 import { PipelineStage, SourceConfig } from '~/types'
