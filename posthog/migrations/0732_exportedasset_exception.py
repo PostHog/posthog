@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0729_sessionrecordingplaylist_type"),
+        ("posthog", "0731_backfill_hog_function_template_fk"),
     ]
 
     operations = [
