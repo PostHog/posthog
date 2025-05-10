@@ -97,6 +97,7 @@ export enum Scene {
     StartupProgram = 'StartupProgram',
     HogFunction = 'HogFunction',
     DataPipelines = 'DataPipelines',
+    DataPipelinesNew = 'DataPipelinesNew',
 }
 
 export type SceneProps = Record<string, any>

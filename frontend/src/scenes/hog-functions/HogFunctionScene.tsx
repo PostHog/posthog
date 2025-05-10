@@ -65,7 +65,12 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                     name: configuration?.name || '(Untitled)',
                 }
 
-                if (type === 'transformation' || type === 'destination') {
+                if (
+                    type === 'transformation' ||
+                    type === 'destination' ||
+                    type === 'site_destination' ||
+                    type === 'site_app'
+                ) {
                     return [
                         {
                             key: Scene.Pipeline,
@@ -74,9 +79,13 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                         },
                         {
                             key: Scene.HogFunction,
-                            name: `${capitalizeFirstLetter(type)}s`,
+                            name: `${capitalizeFirstLetter(type).replace('_', ' ')}s`,
                             path: urls.pipeline(
-                                type === 'destination' ? PipelineTab.Destinations : PipelineTab.Transformations
+                                type === 'destination' || type === 'site_destination'
+                                    ? PipelineTab.Destinations
+                                    : type === 'site_app'
+                                    ? PipelineTab.SiteApps
+                                    : PipelineTab.Transformations
                             ),
                         },
                         finalCrumb,

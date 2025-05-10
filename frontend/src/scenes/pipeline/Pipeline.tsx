@@ -9,7 +9,7 @@ import { urls } from 'scenes/urls'
 
 import { ActivityScope, PipelineTab } from '~/types'
 
-import { DataPipelinesSources } from '../data-pipelines/sources/DataPipelinesSources'
+import { DataPipelinesSources } from '../data-pipelines/DataPipelinesSources'
 import { AppsManagement } from './AppsManagement'
 import { DESTINATION_TYPES, SITE_APP_TYPES } from './destinations/constants'
 import { Destinations } from './destinations/Destinations'

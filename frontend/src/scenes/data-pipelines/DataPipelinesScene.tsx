@@ -1,5 +1,6 @@
 import { actions, kea, listeners, path, props, reducers, selectors, useActions, useValues } from 'kea'
 import { router, urlToAction } from 'kea-router'
+import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -7,19 +8,12 @@ import { urls } from 'scenes/urls'
 
 import { ActivityScope, Breadcrumb } from '~/types'
 
+import { DataPipelinesHogFunctions } from './DataPipelinesHogFunctions'
+import { DataPipelinesOverview } from './DataPipelinesOverview'
 import type { dataPipelinesSceneLogicType } from './DataPipelinesSceneType'
-import { DataPipelinesHogFunctions } from './hog-functions/DataPipelinesHogFunctions'
-import { DataPipelinesSources } from './sources/DataPipelinesSources'
-import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { DataPipelinesSources } from './DataPipelinesSources'
 
-const DATA_PIPELINES_SCENE_TABS = [
-    'overview',
-    'sources',
-    'transformations',
-    'destinations',
-    'site_apps',
-    'history',
-] as const
+const DATA_PIPELINES_SCENE_TABS = ['overview', 'sources', 'transformations', 'destinations', 'apps', 'history'] as const
 export type DataPipelinesSceneTab = (typeof DATA_PIPELINES_SCENE_TABS)[number]
 
 export type DataPipelinesSceneProps = {
@@ -48,7 +42,7 @@ export const dataPipelinesSceneLogic = kea<dataPipelinesSceneLogicType>([
                 return [
                     {
                         key: Scene.DataPipelines,
-                        name: 'Data Pipelines',
+                        name: 'Data pipelines',
                     },
                     {
                         key: Scene.DataPipelines,
@@ -67,7 +61,7 @@ export const dataPipelinesSceneLogic = kea<dataPipelinesSceneLogicType>([
         return {
             // All possible routes for this scene need to be listed here
             [urls.dataPipelines(':kind')]: ({ kind }) => {
-                const possibleTab = kind ?? 'overview'
+                const possibleTab: DataPipelinesSceneTab = (kind as DataPipelinesSceneTab) ?? 'overview'
 
                 const tab = DATA_PIPELINES_SCENE_TABS.includes(possibleTab) ? possibleTab : 'overview'
                 if (tab !== values.currentTab) {
@@ -94,7 +88,7 @@ export function DataPipelinesScene(): JSX.Element {
         {
             label: 'Overview',
             key: 'overview',
-            content: <div>Overview</div>,
+            content: <DataPipelinesOverview />,
         },
         {
             label: 'Sources',
@@ -113,7 +107,7 @@ export function DataPipelinesScene(): JSX.Element {
         },
         {
             label: 'Apps',
-            key: 'site_apps',
+            key: 'apps',
             content: <DataPipelinesHogFunctions kind="site_app" />,
         },
         {

@@ -46,7 +46,7 @@ export const shouldShowHogFunction = (hogFunction: HogFunctionType, user?: UserT
 
 export const hogFunctionListLogic = kea<hogFunctionListLogicType>([
     props({} as HogFunctionListLogicProps),
-    key((props) => (props.syncFiltersWithUrl ? 'scene' : 'default') + (props.logicKey || props.type)),
+    key((props) => props.logicKey ?? (props.syncFiltersWithUrl ? 'scene' : 'default') + props.type),
     path((id) => ['scenes', 'pipeline', 'hogFunctionListLogic', id]),
     connect(() => ({
         values: [

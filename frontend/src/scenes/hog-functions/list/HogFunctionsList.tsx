@@ -86,8 +86,10 @@ export function HogFunctionList({
                             },
                         },
 
+                        updatedAtColumn() as LemonTableColumn<HogFunctionType, any>,
                         {
                             title: 'Last 7 days',
+                            width: 0,
                             render: (_, hogFunction) => {
                                 return (
                                     <Link
@@ -103,7 +105,6 @@ export function HogFunctionList({
                                 )
                             },
                         },
-                        updatedAtColumn() as LemonTableColumn<HogFunctionType, any>,
                         {
                             title: 'Status',
                             key: 'enabled',
@@ -166,6 +167,7 @@ export function HogFunctionList({
                     }
                 />
             </BindLogic>
+            <div className="mb-8" />
         </>
     )
 }
