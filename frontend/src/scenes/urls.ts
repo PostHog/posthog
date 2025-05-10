@@ -157,6 +157,7 @@ export const urls = {
     sessionAttributionExplorer: (): string => '/web/session-attribution-explorer',
     wizard: (): string => `/wizard`,
     startups: (ycProgram?: boolean): string => `/startups${ycProgram ? '/yc' : ''}`,
+    dataPipelines: (kind?: string): string => `/data-pipelines/${kind ?? ''}`,
     hogFunction: (id: string): string => `/functions/${id}`,
     hogFunctionNew: (templateId: string): string => `/functions/new/${templateId}`,
     errorTrackingAlert: (id: string): string => `/error_tracking/alerts/${id}`,

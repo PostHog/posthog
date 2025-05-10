@@ -6,12 +6,12 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { DataPipelinesSelfManagedSource } from 'scenes/data-pipelines/sources/DataPipelinesSelfManagedSource'
 import { Schemas } from 'scenes/data-warehouse/settings/source/Schemas'
 import { SourceConfiguration } from 'scenes/data-warehouse/settings/source/SourceConfiguration'
 import { Syncs } from 'scenes/data-warehouse/settings/source/Syncs'
 import { HogFunctionTesting } from 'scenes/hog-functions/testing/HogFunctionTesting'
 import { PipelineNodeLogs } from 'scenes/pipeline/PipelineNodeLogs'
-import { SelfManaged } from 'scenes/pipeline/sources/SelfManaged'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -97,7 +97,7 @@ export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.
     }
 
     if (node.backend === PipelineBackend.SelfManagedSource) {
-        tabToContent[PipelineNodeTab.SourceConfiguration] = <SelfManaged id={node.id.toString()} />
+        tabToContent[PipelineNodeTab.SourceConfiguration] = <DataPipelinesSelfManagedSource id={node.id.toString()} />
     }
 
     if (node.backend === PipelineBackend.Plugin) {
