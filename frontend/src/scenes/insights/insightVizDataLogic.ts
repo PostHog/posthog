@@ -198,7 +198,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
         formulaNodes: [
             (s) => [s.querySource],
-            (querySource: InsightQueryNode | null) => {
+            (querySource: InsightQueryNode | null): TrendsFormulaNode[] => {
                 const formula = getFormula(querySource)
                 const formulas = getFormulas(querySource)
 

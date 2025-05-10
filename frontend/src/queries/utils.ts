@@ -343,21 +343,27 @@ export const getDisplay = (query: InsightQueryNode): ChartDisplayType | undefine
 
 export const getFormula = (query: InsightQueryNode | null): string | undefined => {
     if (isTrendsQuery(query)) {
-        return query.trendsFilter?.formulas?.[0] || query.trendsFilter?.formula
+        return query.trendsFilter?.formulaNodes?.[0]?.formula || query.trendsFilter?.formula
     }
     return undefined
 }
 
 export const getFormulas = (query: InsightQueryNode | null): string[] | undefined => {
     if (isTrendsQuery(query)) {
-        return query.trendsFilter?.formulas || (query.trendsFilter?.formula ? [query.trendsFilter.formula] : undefined)
+        return (
+            query.trendsFilter?.formulaNodes?.map((node) => node.formula) ||
+            (query.trendsFilter?.formula ? [query.trendsFilter.formula] : undefined)
+        )
     }
     return undefined
 }
 
 export const getFormulaNodes = (query: InsightQueryNode | null): TrendsFormulaNode[] | undefined => {
     if (isTrendsQuery(query)) {
-        return query.trendsFilter?.formulaNodes
+        return (
+            query.trendsFilter?.formulaNodes ||
+            (query.trendsFilter?.formula ? [{ formula: query.trendsFilter.formula }] : undefined)
+        )
     }
     return undefined
 }
