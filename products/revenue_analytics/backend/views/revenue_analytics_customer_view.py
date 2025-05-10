@@ -37,7 +37,12 @@ class RevenueAnalyticsCustomerView(RevenueAnalyticsBaseView):
         if not source.source_type == ExternalDataSource.Type.STRIPE:
             return []
 
-        customer_schema = source.schemas.all().filter(name=STRIPE_DATA_WAREHOUSE_CUSTOMER_IDENTIFIER).first()
+        # Get all schemas for the source, avoid calling `filter` and do the filtering on Python-land
+        # to avoid n+1 queries
+        schemas = source.schemas.all()
+        customer_schema = next(
+            (schema for schema in schemas if schema.name == STRIPE_DATA_WAREHOUSE_CUSTOMER_IDENTIFIER), None
+        )
         if customer_schema is None:
             return []
 

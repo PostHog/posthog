@@ -198,7 +198,12 @@ class RevenueAnalyticsChargeView(RevenueAnalyticsBaseView):
         if not source.source_type == ExternalDataSource.Type.STRIPE:
             return []
 
-        charge_schema = source.schemas.all().filter(name=STRIPE_DATA_WAREHOUSE_CHARGE_IDENTIFIER).first()
+        # Get all schemas for the source, avoid calling `filter` and do the filtering on Python-land
+        # to avoid n+1 queries
+        schemas = source.schemas.all()
+        charge_schema = next(
+            (schema for schema in schemas if schema.name == STRIPE_DATA_WAREHOUSE_CHARGE_IDENTIFIER), None
+        )
         if charge_schema is None:
             return []
 
