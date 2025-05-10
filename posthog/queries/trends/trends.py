@@ -7,7 +7,6 @@ from collections.abc import Callable
 from zoneinfo import ZoneInfo
 
 from dateutil import parser
-from sentry_sdk import push_scope
 
 from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
 from posthog.constants import (
@@ -130,29 +129,25 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
 
     def _run_query(self, filter: Filter, team: Team, entity: Entity) -> list[dict[str, Any]]:
         adjusted_filter, cached_result = self.adjusted_filter(filter, team)
-        with push_scope() as scope:
-            query_type, sql, params, parse_function = self._get_sql_for_entity(adjusted_filter, team, entity)
-            scope.set_context("filter", filter.to_dict())
-            scope.set_tag("team", team)
-            query_params = {**params, **adjusted_filter.hogql_context.values}
-            scope.set_context("query", {"sql": sql, "params": query_params})
-            result = insight_sync_execute(
-                sql,
-                query_params,
-                settings={"timeout_before_checking_execution_speed": 60},
-                query_type=query_type,
-                filter=adjusted_filter,
-                team_id=team.pk,
-            )
-            result = parse_function(result)
-            serialized_data = self._format_serialized(entity, result)
-            merged_results, cached_result = self.merge_results(
-                serialized_data,
-                cached_result,
-                entity.order or entity.index,
-                filter,
-                team,
-            )
+        query_type, sql, params, parse_function = self._get_sql_for_entity(adjusted_filter, team, entity)
+        query_params = {**params, **adjusted_filter.hogql_context.values}
+        result = insight_sync_execute(
+            sql,
+            query_params,
+            settings={"timeout_before_checking_execution_speed": 60},
+            query_type=query_type,
+            filter=adjusted_filter,
+            team_id=team.pk,
+        )
+        result = parse_function(result)
+        serialized_data = self._format_serialized(entity, result)
+        merged_results, cached_result = self.merge_results(
+            serialized_data,
+            cached_result,
+            entity.order or entity.index,
+            filter,
+            team,
+        )
 
         if cached_result:
             for value in cached_result.values():
@@ -172,9 +167,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
         team_id: int,
     ):
         tag_queries(**query_tags)
-        with push_scope() as scope:
-            scope.set_context("query", {"sql": sql, "params": params})
-            result[index] = insight_sync_execute(sql, params, query_type=query_type, filter=filter, team_id=team_id)
+        result[index] = insight_sync_execute(sql, params, query_type=query_type, filter=filter, team_id=team_id)
 
     def _run_parallel(self, filter: Filter, team: Team) -> list[dict[str, Any]]:
         result: list[Optional[list[dict[str, Any]]]] = [None] * len(filter.entities)
@@ -213,27 +206,17 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
             j.join()
 
         # Parse results for each thread
-        with push_scope() as scope:
-            scope.set_context("filter", filter.to_dict())
-            scope.set_tag("team", team)
-            for i, entity in enumerate(filter.entities):
-                scope.set_context(
-                    "query",
-                    {
-                        "sql": sql_statements_with_params[i][0],
-                        "params": sql_statements_with_params[i][1],
-                    },
-                )
-                serialized_data = cast(list[Callable], parse_functions)[entity.index](result[entity.index])
-                serialized_data = self._format_serialized(entity, serialized_data)
-                merged_results, cached_result = self.merge_results(
-                    serialized_data,
-                    cached_result,
-                    entity.order or entity.index,
-                    filter,
-                    team,
-                )
-                result[entity.index] = merged_results
+        for entity in filter.entities:
+            serialized_data = cast(list[Callable], parse_functions)[entity.index](result[entity.index])
+            serialized_data = self._format_serialized(entity, serialized_data)
+            merged_results, cached_result = self.merge_results(
+                serialized_data,
+                cached_result,
+                entity.order or entity.index,
+                filter,
+                team,
+            )
+            result[entity.index] = merged_results
 
         # flatten results
         flat_results: list[dict[str, Any]] = []

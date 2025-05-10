@@ -937,127 +937,123 @@ def get_all_feature_flags_with_details(
         feature_flag.ensure_experience_continuity for feature_flag in all_feature_flags
     )
 
-    with start_span(op="without_experience_continuity"):
-        is_database_alive = not settings.DECIDE_SKIP_POSTGRES_FLAGS
-        if not is_database_alive or not flags_have_experience_continuity_enabled:
-            return _get_all_feature_flags(
-                all_feature_flags,
-                team.id,
-                team.project_id,
-                distinct_id,
-                groups=groups,
-                property_value_overrides=property_value_overrides,
-                group_property_value_overrides=group_property_value_overrides,
-                skip_database_flags=not is_database_alive,
-            )
+    is_database_alive = not settings.DECIDE_SKIP_POSTGRES_FLAGS
+    if not is_database_alive or not flags_have_experience_continuity_enabled:
+        return _get_all_feature_flags(
+            all_feature_flags,
+            team.id,
+            team.project_id,
+            distinct_id,
+            groups=groups,
+            property_value_overrides=property_value_overrides,
+            group_property_value_overrides=group_property_value_overrides,
+            skip_database_flags=not is_database_alive,
+        )
 
-    with start_span(op="with_experience_continuity_write_path"):
-        # For flags with experience continuity enabled, we want a consistent distinct_id that doesn't change,
-        # no matter what other distinct_ids the user has.
-        # FeatureFlagHashKeyOverride stores a distinct_id (hash_key_override) given a flag, person_id, and team_id.
-        should_write_hash_key_override = False
-        writing_hash_key_override = False
-        # This is the write-path for experience continuity flags. When a hash_key_override is sent to decide,
-        # we want to store it in the database, and then use it in the read-path to get flags with experience continuity enabled.
-        if hash_key_override is not None and not settings.DECIDE_SKIP_HASH_KEY_OVERRIDE_WRITES:
-            # First, check if the hash_key_override is already in the database.
-            # We don't have to check this in an ideal world, but read replica operations are much more resilient than write operations.
-            # So, if an extra query check helps us avoid the write path, it's worth it.
+    # For flags with experience continuity enabled, we want a consistent distinct_id that doesn't change,
+    # no matter what other distinct_ids the user has.
+    # FeatureFlagHashKeyOverride stores a distinct_id (hash_key_override) given a flag, person_id, and team_id.
+    should_write_hash_key_override = False
+    writing_hash_key_override = False
+    # This is the write-path for experience continuity flags. When a hash_key_override is sent to decide,
+    # we want to store it in the database, and then use it in the read-path to get flags with experience continuity enabled.
+    if hash_key_override is not None and not settings.DECIDE_SKIP_HASH_KEY_OVERRIDE_WRITES:
+        # First, check if the hash_key_override is already in the database.
+        # We don't have to check this in an ideal world, but read replica operations are much more resilient than write operations.
+        # So, if an extra query check helps us avoid the write path, it's worth it.
 
-            try:
-                with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS, DATABASE_FOR_FLAG_MATCHING) as cursor:
-                    distinct_ids = [distinct_id, str(hash_key_override)]
-                    query = """
-                        WITH target_person_ids AS (
-                            SELECT team_id, person_id FROM posthog_persondistinctid WHERE team_id = %(team_id)s AND
-                            distinct_id = ANY(%(distinct_ids)s)
-                        ),
-                        existing_overrides AS (
-                            SELECT team_id, person_id, feature_flag_key, hash_key FROM posthog_featureflaghashkeyoverride
-                            WHERE team_id = %(team_id)s AND person_id IN (SELECT person_id FROM target_person_ids)
-                        )
-                        SELECT key FROM posthog_featureflag flag
-                        JOIN posthog_team team ON flag.team_id = team.id
-                        WHERE team.project_id = %(project_id)s
-                            AND flag.ensure_experience_continuity = TRUE AND flag.active = TRUE AND flag.deleted = FALSE
-                            AND key NOT IN (SELECT feature_flag_key FROM existing_overrides)
-                    """
-                    cursor.execute(
-                        query,
-                        {"team_id": team.id, "project_id": team.project_id, "distinct_ids": distinct_ids},
-                    )
-                    flags_with_no_overrides = [row[0] for row in cursor.fetchall()]
-                    should_write_hash_key_override = len(flags_with_no_overrides) > 0
-            except Exception as e:
-                handle_feature_flag_exception(e, "[Feature Flags] Error figuring out hash key overrides")
-
-            if should_write_hash_key_override:
-                try:
-                    hash_key_override = str(hash_key_override)
-
-                    # :TRICKY: There are a few cases for write we need to handle:
-                    # 1. Ingestion delay causing the person to not have been created yet or the distinct_id not yet associated
-                    # 2. Merging of two different already existing persons, which results in 1 person_id being deleted and ff hash key overrides to be moved.
-                    # 3. Person being deleted via UI or API (this is rare)
-                    #
-                    # In all cases, we simply try to find all personIDs associated with the distinct_id
-                    # and the hash_key_override, and add overrides for all these personIDs.
-                    # On merge, if a person is deleted, it is fine because the below line in plugin-server will take care of it.
-                    # https://github.com/PostHog/posthog/blob/master/plugin-server/src/utils/db/db.ts (updateCohortsAndFeatureFlagsForMerge)
-
-                    writing_hash_key_override = set_feature_flag_hash_key_overrides(
-                        team, [distinct_id, hash_key_override], hash_key_override
-                    )
-                    team_id_label = label_for_team_id_to_track(team.id)
-                    FLAG_HASH_KEY_WRITES_COUNTER.labels(
-                        team_id=team_id_label,
-                        successful_write=writing_hash_key_override,
-                    ).inc()
-                except Exception as e:
-                    # If the database is in read-only mode, we can't handle experience continuity flags,
-                    # since the set_feature_flag_hash_key_overrides call will fail.
-
-                    # For this case, and for any other case, do not error out on decide, just continue assuming continuity couldn't happen.
-                    # At the same time, don't set db down, because the read-replica might still be up.
-                    handle_feature_flag_exception(
-                        e,
-                        "[Feature Flags] Error while setting feature flag hash key overrides",
-                        set_healthcheck=False,
-                    )
-
-    # This is the read-path for experience continuity. We need to get the overrides, and to do that, we get the person_id.
-    with start_span(op="with_experience_continuity_read_path"):
-        using_database = None
         try:
-            # when we're writing a hash_key_override, we query the main database, not the replica
-            # this is because we need to make sure the write is successful before we read it
-            using_database = "default" if writing_hash_key_override else DATABASE_FOR_FLAG_MATCHING
-            person_overrides = {}
-            with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS, using_database):
-                target_distinct_ids = [distinct_id]
-                if hash_key_override is not None:
-                    target_distinct_ids.append(str(hash_key_override))
-                person_overrides = get_feature_flag_hash_key_overrides(team.id, target_distinct_ids, using_database)
-
+            with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS, DATABASE_FOR_FLAG_MATCHING) as cursor:
+                distinct_ids = [distinct_id, str(hash_key_override)]
+                query = """
+                    WITH target_person_ids AS (
+                        SELECT team_id, person_id FROM posthog_persondistinctid WHERE team_id = %(team_id)s AND
+                        distinct_id = ANY(%(distinct_ids)s)
+                    ),
+                    existing_overrides AS (
+                        SELECT team_id, person_id, feature_flag_key, hash_key FROM posthog_featureflaghashkeyoverride
+                        WHERE team_id = %(team_id)s AND person_id IN (SELECT person_id FROM target_person_ids)
+                    )
+                    SELECT key FROM posthog_featureflag flag
+                    JOIN posthog_team team ON flag.team_id = team.id
+                    WHERE team.project_id = %(project_id)s
+                        AND flag.ensure_experience_continuity = TRUE AND flag.active = TRUE AND flag.deleted = FALSE
+                        AND key NOT IN (SELECT feature_flag_key FROM existing_overrides)
+                """
+                cursor.execute(
+                    query,
+                    {"team_id": team.id, "project_id": team.project_id, "distinct_ids": distinct_ids},
+                )
+                flags_with_no_overrides = [row[0] for row in cursor.fetchall()]
+                should_write_hash_key_override = len(flags_with_no_overrides) > 0
         except Exception as e:
-            handle_feature_flag_exception(
-                e,
-                f"[Feature Flags] Error fetching hash key overrides from {using_database} db",
-                set_healthcheck=not writing_hash_key_override,
-            )
-            # database is down, we can't handle experience continuity flags at all.
-            # Treat this same as if there are no experience continuity flags.
-            # This automatically sets 'errorsWhileComputingFlags' to True.
-            return _get_all_feature_flags(
-                all_feature_flags,
-                team.id,
-                team.project_id,
-                distinct_id,
-                groups=groups,
-                property_value_overrides=property_value_overrides,
-                group_property_value_overrides=group_property_value_overrides,
-                skip_database_flags=True,
-            )
+            handle_feature_flag_exception(e, "[Feature Flags] Error figuring out hash key overrides")
+
+        if should_write_hash_key_override:
+            try:
+                hash_key_override = str(hash_key_override)
+
+                # :TRICKY: There are a few cases for write we need to handle:
+                # 1. Ingestion delay causing the person to not have been created yet or the distinct_id not yet associated
+                # 2. Merging of two different already existing persons, which results in 1 person_id being deleted and ff hash key overrides to be moved.
+                # 3. Person being deleted via UI or API (this is rare)
+                #
+                # In all cases, we simply try to find all personIDs associated with the distinct_id
+                # and the hash_key_override, and add overrides for all these personIDs.
+                # On merge, if a person is deleted, it is fine because the below line in plugin-server will take care of it.
+                # https://github.com/PostHog/posthog/blob/master/plugin-server/src/utils/db/db.ts (updateCohortsAndFeatureFlagsForMerge)
+
+                writing_hash_key_override = set_feature_flag_hash_key_overrides(
+                    team, [distinct_id, hash_key_override], hash_key_override
+                )
+                team_id_label = label_for_team_id_to_track(team.id)
+                FLAG_HASH_KEY_WRITES_COUNTER.labels(
+                    team_id=team_id_label,
+                    successful_write=writing_hash_key_override,
+                ).inc()
+            except Exception as e:
+                # If the database is in read-only mode, we can't handle experience continuity flags,
+                # since the set_feature_flag_hash_key_overrides call will fail.
+
+                # For this case, and for any other case, do not error out on decide, just continue assuming continuity couldn't happen.
+                # At the same time, don't set db down, because the read-replica might still be up.
+                handle_feature_flag_exception(
+                    e,
+                    "[Feature Flags] Error while setting feature flag hash key overrides",
+                    set_healthcheck=False,
+                )
+
+    using_database = None
+    try:
+        # when we're writing a hash_key_override, we query the main database, not the replica
+        # this is because we need to make sure the write is successful before we read it
+        using_database = "default" if writing_hash_key_override else DATABASE_FOR_FLAG_MATCHING
+        person_overrides = {}
+        with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS, using_database):
+            target_distinct_ids = [distinct_id]
+            if hash_key_override is not None:
+                target_distinct_ids.append(str(hash_key_override))
+            person_overrides = get_feature_flag_hash_key_overrides(team.id, target_distinct_ids, using_database)
+
+    except Exception as e:
+        handle_feature_flag_exception(
+            e,
+            f"[Feature Flags] Error fetching hash key overrides from {using_database} db",
+            set_healthcheck=not writing_hash_key_override,
+        )
+        # database is down, we can't handle experience continuity flags at all.
+        # Treat this same as if there are no experience continuity flags.
+        # This automatically sets 'errorsWhileComputingFlags' to True.
+        return _get_all_feature_flags(
+            all_feature_flags,
+            team.id,
+            team.project_id,
+            distinct_id,
+            groups=groups,
+            property_value_overrides=property_value_overrides,
+            group_property_value_overrides=group_property_value_overrides,
+            skip_database_flags=True,
+        )
 
     return _get_all_feature_flags(
         all_feature_flags,

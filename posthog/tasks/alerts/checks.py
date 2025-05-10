@@ -9,7 +9,6 @@ from celery import shared_task
 from celery.canvas import chain
 from django.db import transaction
 import structlog
-from sentry_sdk import set_tag
 
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.exceptions_capture import capture_exception
@@ -45,7 +44,7 @@ logger = structlog.get_logger(__name__)
 
 class AlertCheckException(Exception):
     """
-    Required for custom exceptions to pass stack trace to sentry.
+    Required for custom exceptions to pass stack traces.
     Subclassing through other ways doesn't transfer the traceback.
     https://stackoverflow.com/a/69963663/5540417
     """
@@ -291,7 +290,6 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration, capture_ph_even
     TODO: Later separate notification mechanism from alert checking mechanism (when we move to CDP)
         so we can retry notification without re-computing insight.
     """
-    set_tag("alert_config_id", alert.id)
     user = cast(User, alert.created_by)
 
     # Event to count alert checks
