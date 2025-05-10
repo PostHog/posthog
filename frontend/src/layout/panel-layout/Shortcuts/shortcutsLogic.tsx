@@ -24,9 +24,14 @@ export const shortcutsLogic = kea<shortcutsLogicType>([
             {
                 addShortcutItem: (state, { item }) => [
                     ...state,
+                    // we run this through JSON.parse/JSON.stringify to make sure we don't persist any React classes
                     { ...JSON.parse(JSON.stringify(item)), shortcut: true } as FileSystemEntry,
                 ],
-                // deleteShortcut: (state, { item }) => state.filter((s) => s !== item),
+                deleteShortcut: (state, { item }) => {
+                    return state.filter(
+                        (s) => s.path !== item.path || s.type !== item.type || s.href !== item.href || s.id !== item.id
+                    )
+                },
             },
         ],
         selectedItem: [

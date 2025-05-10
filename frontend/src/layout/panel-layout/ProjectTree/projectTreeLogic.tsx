@@ -1004,26 +1004,42 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
         treeItemsCombined: [
             (s) => [s.treeItemsProject, s.treeItemsProducts, s.treeItemsNew],
-            (project, products, allNew): TreeDataItem[] => [
-                {
-                    id: 'project',
-                    name: 'Project',
-                    record: { type: 'folder', id: null, path: '/' },
-                    children: project,
-                },
-                {
-                    id: 'products',
-                    name: 'Products',
-                    record: { type: 'folder', id: null, path: '/' },
-                    children: products,
-                },
-                {
-                    id: 'new',
-                    name: 'New',
-                    record: { type: 'folder', id: null, path: '/' },
-                    children: allNew,
-                },
-            ],
+            (project, products, allNew): TreeDataItem[] => {
+                function addNewLabel(item: TreeDataItem): TreeDataItem {
+                    if (item.children) {
+                        return { ...item, children: item.children?.map(addNewLabel) }
+                    }
+                    const pathParts = splitPath(item.record?.path ?? '')
+                    const name = `New ${pathParts.pop()?.toLowerCase()}`
+                    const newPath = joinPath([...pathParts, name])
+                    return {
+                        ...item,
+                        name: name,
+                        record: { ...item.record, path: newPath },
+                    }
+                }
+
+                return [
+                    {
+                        id: 'project',
+                        name: 'Project',
+                        record: { type: 'folder', id: null, path: '/' },
+                        children: project,
+                    },
+                    {
+                        id: 'products',
+                        name: 'Products',
+                        record: { type: 'folder', id: null, path: '/' },
+                        children: products,
+                    },
+                    {
+                        id: 'new',
+                        name: 'New',
+                        record: { type: 'folder', id: null, path: '/' },
+                        children: allNew.map(addNewLabel),
+                    },
+                ]
+            },
         ],
         // TODO: use treeData + some other logic to determine the keys
         treeTableKeys: [
