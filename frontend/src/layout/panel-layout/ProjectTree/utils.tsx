@@ -45,7 +45,7 @@ export function shortcutWrapper(icon: React.ReactNode): JSX.Element {
     return (
         <div className="relative">
             {icon}
-            <IconArrowUpRight className="absolute bottom-[-0.25rem] left-[-0.25rem] scale-75 bg-white border border-black" />
+            <IconArrowUpRight className="absolute bottom-[-0.25rem] left-[-0.25rem] scale-66 bg-white border border-black" />
         </div>
     )
 }
