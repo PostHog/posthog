@@ -11,6 +11,7 @@ from parameterized import parameterized
 from ee.hogai.graph.root.nodes import RootNode, RootNodeTools
 from ee.hogai.utils.test import FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.models.assistant import CoreMemory
 from posthog.schema import AssistantMessage, AssistantToolCall, AssistantToolCallMessage, HumanMessage
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
@@ -422,6 +423,9 @@ class TestRootNodeTools(BaseTest):
             root_tool_insight_plan="Foobar",
             root_tool_insight_type="trends",
         )
+        self.assertEqual(node.router(state_2), "memory_onboarding")
+        core_memory = CoreMemory.objects.create(team=self.team)
+        core_memory.change_status_to_skipped()
         self.assertEqual(node.router(state_2), "insights")
 
         # Test case 3: No tool call message or root tool call - should return "end"

@@ -116,6 +116,9 @@ class ConversationCheckpointWrite(UUIDModel):
         ]
 
 
+MAX_ONBOARDING_QUESTIONS = 3
+
+
 class CoreMemory(UUIDModel):
     class ScrapingStatus(models.TextChoices):
         PENDING = "pending", "Pending"
@@ -140,16 +143,27 @@ class CoreMemory(UUIDModel):
     @property
     def is_scraping_pending(self) -> bool:
         return self.scraping_status == CoreMemory.ScrapingStatus.PENDING and (
-            self.scraping_started_at is None or (self.scraping_started_at + timedelta(minutes=5)) > timezone.now()
+            self.scraping_started_at is None or (self.scraping_started_at + timedelta(minutes=10)) > timezone.now()
         )
 
     @property
     def is_scraping_finished(self) -> bool:
         return self.scraping_status in [CoreMemory.ScrapingStatus.COMPLETED, CoreMemory.ScrapingStatus.SKIPPED]
 
+    def append_question_to_initial_text(self, text: str):
+        if self.initial_text != "":
+            self.initial_text += "\n"
+        self.initial_text += "Question: " + text + "\nAnswer:"
+        self.initial_text = self.initial_text.strip()
+        self.save()
+
+    def append_answer_to_initial_text(self, text: str):
+        self.initial_text += " " + text
+        self.initial_text = self.initial_text.strip()
+        self.save()
+
     def set_core_memory(self, text: str):
         self.text = text
-        self.initial_text = text
         self.scraping_status = CoreMemory.ScrapingStatus.COMPLETED
         self.save()
 
@@ -166,3 +180,11 @@ class CoreMemory(UUIDModel):
     @property
     def formatted_text(self) -> str:
         return self.text[0:5000]
+
+    @property
+    def answers_left(self) -> int:
+        answers_asked = self.initial_text.count("\nAnswer:")
+        answers_left = MAX_ONBOARDING_QUESTIONS - answers_asked
+        if self.initial_text.endswith("\nAnswer:"):
+            answers_left += 1
+        return answers_left
