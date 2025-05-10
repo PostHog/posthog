@@ -397,6 +397,13 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
                     return True
         return False
 
+    # Simple flags are ones that only have rollout_percentage
+    # That means server side libraries are able to gate these flags without calling to the server
+    @property
+    def get_is_simple_flag(self) -> bool:
+        no_properties_used = all(len(condition.get("properties", [])) == 0 for condition in self.conditions)
+        return len(self.conditions) == 1 and no_properties_used and self.aggregation_group_type_index is None
+
 
 @mutable_receiver([post_save, post_delete], sender=FeatureFlag)
 def refresh_flag_cache_on_updates(sender, instance, **kwargs):

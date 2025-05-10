@@ -186,7 +186,6 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "text_content",
     ],
     "FeatureFlag": [
-        "is_simple_flag",
         "experiment",
         "featureflagoverride",
         "usage_dashboard",
