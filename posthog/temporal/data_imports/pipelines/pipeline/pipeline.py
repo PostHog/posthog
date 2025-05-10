@@ -33,6 +33,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
 from posthog.temporal.data_imports.pipelines.pipeline_sync import (
     validate_schema_and_update_table_sync,
 )
+from posthog.temporal.data_imports.row_tracking import decrement_rows, increment_rows
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 from posthog.warehouse.models import (
     DataWarehouseTable,
@@ -107,6 +108,10 @@ class PipelineNonDLT:
             ):
                 self._job.rows_synced = 0
                 self._job.save()
+
+            # Setup row tracking
+            if self._resource.rows_to_sync:
+                increment_rows(self._job.team_id, self._schema.id, self._resource.rows_to_sync)
 
             buffer: list[Any] = []
             py_table = None
@@ -249,6 +254,7 @@ class PipelineNonDLT:
                 self._schema.update_incremental_field_last_value(self._last_incremental_field_value)
 
         _update_job_row_count(self._job.id, pa_table.num_rows, self._logger)
+        decrement_rows(self._job.team_id, self._schema.id, pa_table.num_rows)
 
     def _post_run_operations(self, row_count: int):
         delta_table = self._delta_table_helper.get_delta_table()
