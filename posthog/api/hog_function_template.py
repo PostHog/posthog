@@ -12,8 +12,6 @@ from posthog.cdp.templates.hog_function_template import (
     HogFunctionMapping,
     HogFunctionMappingTemplate,
     HogFunctionTemplate,
-    HogFunctionSubTemplate,
-    derive_sub_templates,
 )
 from posthog.plugins.plugin_server_api import get_hog_function_templates
 from rest_framework_dataclasses.serializers import DataclassSerializer
@@ -36,15 +34,9 @@ class HogFunctionMappingTemplateSerializer(DataclassSerializer):
         dataclass = HogFunctionMappingTemplate
 
 
-class HogFunctionSubTemplateSerializer(DataclassSerializer):
-    class Meta:
-        dataclass = HogFunctionSubTemplate
-
-
 class HogFunctionTemplateSerializer(DataclassSerializer):
     mapping_templates = HogFunctionMappingTemplateSerializer(many=True, required=False)
     mappings = HogFunctionMappingSerializer(many=True, required=False)
-    sub_templates = HogFunctionSubTemplateSerializer(many=True, required=False)
 
     class Meta:
         dataclass = HogFunctionTemplate
@@ -54,8 +46,6 @@ class HogFunctionTemplates:
     _cache_until: datetime | None = None
     _cached_templates: list[HogFunctionTemplate] = []
     _cached_templates_by_id: dict[str, HogFunctionTemplate] = {}
-    _cached_sub_templates: list[HogFunctionTemplate] = []
-    _cached_sub_templates_by_id: dict[str, HogFunctionTemplate] = {}
 
     @classmethod
     def templates(cls):
@@ -63,14 +53,9 @@ class HogFunctionTemplates:
         return cls._cached_templates
 
     @classmethod
-    def sub_templates(cls):
-        cls._load_templates()
-        return cls._cached_sub_templates
-
-    @classmethod
     def template(cls, template_id: str):
         cls._load_templates()
-        return cls._cached_templates_by_id.get(template_id, cls._cached_sub_templates_by_id.get(template_id))
+        return cls._cached_templates_by_id.get(template_id)
 
     @classmethod
     def templates_from_db(cls):
@@ -123,15 +108,12 @@ class HogFunctionTemplates:
             *HOG_FUNCTION_TEMPLATES,
             *nodejs_templates,
         ]
-        sub_templates = derive_sub_templates(templates=templates)
 
         # If we failed to get the templates, we cache for 30 seconds to avoid hammering the node service
         # If we got the templates, we cache for 5 minutes as these change infrequently
         cls._cache_until = datetime.now() + timedelta(seconds=30 if not nodejs_templates else 300)
         cls._cached_templates = templates
-        cls._cached_sub_templates = sub_templates
         cls._cached_templates_by_id = {template.id: template for template in templates}
-        cls._cached_sub_templates_by_id = {template.id: template for template in sub_templates}
 
 
 # NOTE: There is nothing currently private about these values
@@ -151,10 +133,7 @@ class PublicHogFunctionTemplateViewSet(viewsets.GenericViewSet):
         elif "types" in request.GET:
             types = self.request.GET.get("types", "destination").split(",")
 
-        if sub_template_id:
-            # Always use in-memory sub_templates
-            templates_list = HogFunctionTemplates.sub_templates()
-        elif use_db_templates:
+        if use_db_templates:
             templates_list = HogFunctionTemplates.templates_from_db()
         else:
             templates_list = HogFunctionTemplates.templates()
@@ -209,8 +188,6 @@ class PublicHogFunctionTemplateViewSet(viewsets.GenericViewSet):
 
         if use_db_templates:
             item = HogFunctionTemplates.template_from_db(template_id)
-            if not item and template_id in HogFunctionTemplates._cached_sub_templates_by_id:
-                item = HogFunctionTemplates._cached_sub_templates_by_id[template_id]
         else:
             item = HogFunctionTemplates.template(template_id)
 
