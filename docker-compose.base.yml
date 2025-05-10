@@ -225,7 +225,7 @@ services:
             WRITE_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             READ_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             MAXMIND_DB_PATH: '/share/GeoLite2-City.mmdb'
-            REDIS_WRITER_URL: 'redis://redis:6379/'
+            REDIS_URL: 'redis://redis:6379/'
             REDIS_READER_URL: 'redis://redis:6379/'
             ADDRESS: '0.0.0.0:3001'
             SKIP_WRITES: 'false'
