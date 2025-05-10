@@ -467,7 +467,8 @@
                     "current_amount_usd": "200.00",
                     "current_usage": 5000000,
                     "projected_usage": 5000000,
-                    "projected_amount_usd": "200.00"
+                    "projected_amount_usd": "200.00",
+                    "projected_amount_usd_with_limit": "200.00"
                 },
                 {
                     "flat_amount_usd": "0",
