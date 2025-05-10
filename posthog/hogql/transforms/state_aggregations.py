@@ -1,5 +1,3 @@
-# mypy: disable-error-code="unreachable"
-# mypy considers some of the expression copies unreachable because of the SelectSetNode not inheriting from AST/Expr.
 from posthog.hogql import ast
 from posthog.hogql.functions.mapping import HOGQL_AGGREGATIONS
 from posthog.hogql.visitor import CloningVisitor
