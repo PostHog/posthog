@@ -1,5 +1,3 @@
-# mypy: disable-error-code="unreachable"
-# mypy considers some of the expression copies unreachable because of the SelectSetNode not inheriting from AST/Expr.
 from posthog.hogql import ast
 from posthog.hogql.functions.mapping import HOGQL_AGGREGATIONS
 from posthog.hogql.visitor import CloningVisitor
@@ -20,16 +18,16 @@ This is useful for:
 - Combining preaggregated data with real-time data in a single query
 """
 
+HOGQL_AGGREGATIONS_KEYS_SET = set(HOGQL_AGGREGATIONS.keys())
+
 # Mapping of regular aggregation functions to their State/Merge equivalents.
 # These should be present in posthog/hogql/functions/mapping.py
-#
-# Clickhouse allows many suffix combinations but we are trying to keep the number of transformations to just the ones we use now.
 SUPPORTED_FUNCTIONS = ["uniq", "uniqIf", "count", "countIf", "sum", "avg", "sumIf", "avgIf"]
-HOGQL_AGGREGATIONS_KEYS_SET = set(HOGQL_AGGREGATIONS.keys())
 assert set(SUPPORTED_FUNCTIONS).issubset(
     HOGQL_AGGREGATIONS_KEYS_SET
 ), "All supported aggregation functions must be in HOGQL_AGGREGATIONS"
 
+# Clickhouse allows many suffix combinations but we are trying to keep the number of transformations to just the ones we use now.
 AGGREGATION_TO_STATE_MAPPING = {
     func: f"{func[:-2]}State{func[-2:]}" if func.endswith("If") else f"{func}State" for func in SUPPORTED_FUNCTIONS
 }
@@ -44,7 +42,6 @@ STATE_TO_MERGE_MAPPING = {
     state_func: f"{state_func.replace('State', 'Merge').replace('If', '')}"
     for state_func in AGGREGATION_TO_STATE_MAPPING.values()
 }
-
 assert set(
     STATE_TO_MERGE_MAPPING.values()
 ).issubset(
