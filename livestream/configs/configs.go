@@ -22,6 +22,10 @@ type JWTConfig struct {
 	Secret string
 }
 
+type OtelConfig struct {
+	ConsoleEnabled bool `mapstructure:"console_enabled"`
+}
+
 type Config struct {
 	Debug            bool `mapstructure:"debug"`
 	MMDB             MMDBConfig
@@ -30,6 +34,7 @@ type Config struct {
 	CORSAllowOrigins []string `mapstructure:"cors_allow_origins"`
 	Postgres         PostgresConfig
 	JWT              JWTConfig
+	Otel             OtelConfig
 }
 
 type KafkaConfig struct {
@@ -43,6 +48,7 @@ func InitConfigs(filename, configPath string) {
 	viper.AddConfigPath(configPath)
 
 	viper.SetDefault("kafka.group_id", "livestream")
+	viper.SetDefault("otel.console_enabled", false)
 
 	err := viper.ReadInConfig()
 	if err != nil {
@@ -66,7 +72,7 @@ func LoadConfig() (*Config, error) {
 	var config Config
 
 	if err := viper.Unmarshal(&config); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
 	// Set default values
@@ -92,3 +98,4 @@ func LoadConfig() (*Config, error) {
 
 	return &config, nil
 }
+
