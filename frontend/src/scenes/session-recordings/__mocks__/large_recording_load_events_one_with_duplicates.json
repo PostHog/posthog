@@ -1,0 +1,256 @@
+{
+    "cache_key": "cache_1c8fec99704fa4258dee014aae86657d",
+    "cache_target_age": "2024-11-18T15:55:20.644358Z",
+    "calculation_trigger": null,
+    "columns": [
+        "uuid",
+        "event",
+        "timestamp",
+        "elements_chain",
+        "properties.$window_id",
+        "properties.$current_url",
+        "properties.$event_type"
+    ],
+    "error": null,
+    "hasMore": false,
+    "hogql": "SELECT\n    uuid,\n    event,\n    timestamp,\n    elements_chain,\n    properties.$window_id,\n    properties.$current_url,\n    properties.$event_type\nFROM\n    events\nWHERE\n    and(equals(properties.$session_id, '01932f1e-cf6a-7e77-8837-23366207a24b'), less(timestamp, toDateTime('2024-11-15 09:26:01.000000')), greater(timestamp, toDateTime('2024-11-15 09:18:28.000000')))\nORDER BY\n    timestamp ASC\nLIMIT 50000\nOFFSET 0",
+    "is_cached": false,
+    "last_refresh": "2024-11-18T15:55:05.644358Z",
+    "limit": 50000,
+    "modifiers": {
+        "bounceRatePageViewMode": "count_pageviews",
+        "customChannelTypeRules": null,
+        "dataWarehouseEventsModifiers": null,
+        "debug": null,
+        "inCohortVia": "auto",
+        "materializationMode": "legacy_null_as_null",
+        "optimizeJoinedFilters": false,
+        "personsArgMaxVersion": "auto",
+        "personsJoinMode": null,
+        "personsOnEventsMode": "person_id_override_properties_joined",
+        "propertyGroupsMode": null,
+        "s3TableUseInvalidColumns": null,
+        "sessionTableVersion": "auto",
+        "useMaterializedViews": true
+    },
+    "next_allowed_client_refresh": "2024-11-18T15:56:05.644358Z",
+    "offset": 0,
+    "query_status": null,
+    "results": [
+        [
+            "01932f1e-e172-7829-879c-b51c9f80b7f0",
+            "$feature_flag_called",
+            "2024-11-15T09:19:33.252000Z",
+            "",
+            "01932f1e-cf6a-7e77-8837-2337cb916511",
+            "http://localhost:8000/project/1/settings/environment-replay",
+            null
+        ],
+        [
+            "01932f1e-e176-7d4d-bb3a-478d0c7f3b70",
+            "$feature_flag_called",
+            "2024-11-15T09:19:33.256000Z",
+            "",
+            "01932f1e-cf6a-7e77-8837-2337cb916511",
+            "http://localhost:8000/project/1/settings/environment-replay",
+            null
+        ],
+        [
+            "01932f1e-e17b-7d9a-a79c-51d367c77797",
+            "$feature_flag_called",
+            "2024-11-15T09:19:33.261000Z",
+            "",
+            "01932f1e-cf6a-7e77-8837-2337cb916511",
+            "http://localhost:8000/project/1/settings/environment-replay",
+            null
+        ],
+        [
+            "01932f1e-e17d-7fe9-82cd-94e267bd2a93",
+            "$feature_flag_called",
+            "2024-11-15T09:19:33.263000Z",
+            "",
+            "01932f1e-cf6a-7e77-8837-2337cb916511",
+            "http://localhost:8000/project/1/settings/environment-replay",
+            null
+        ],
+        [
+            "01932f1e-e17d-7fe9-82cd-94e1c0eb96e4",
+            "$feature_flag_called",
+            "2024-11-15T09:19:33.263000Z",
+            "",
+            "01932f1e-cf6a-7e77-8837-2337cb916511",
+            "http://localhost:8000/project/1/settings/environment-replay",
+            null
+        ],
+        [
+            "01932f1e-e17e-716e-9756-40053c7e0291",
+            "$feature_flag_called",
+            "2024-11-15T09:19:33.264000Z",
+            "",
+            "01932f1e-cf6a-7e77-8837-2337cb916511",
+            "http://localhost:8000/project/1/settings/environment-replay",
+            null
+        ],
+        [
+            "01932f1e-e17f-744c-bbe0-15e364b61c60",
+            "$feature_flag_called",
+            "2024-11-15T09:19:33.265000Z",
+            "",
+            "01932f1e-cf6a-7e77-8837-2337cb916511",
+            "http://localhost:8000/project/1/settings/environment-replay",
+            null
+        ]
+    ],
+    "timezone": "UTC",
+    "timings": [
+        {
+            "k": "./build_ast/columns/parse_expr_cpp",
+            "t": 0.0010820409952430055
+        },
+        {
+            "k": "./build_ast/columns",
+            "t": 0.0011979579940089025
+        },
+        {
+            "k": "./build_ast/aggregations",
+            "t": 0.0004660420017899014
+        },
+        {
+            "k": "./build_ast/filters/where",
+            "t": 0.0000359579935320653
+        },
+        {
+            "k": "./build_ast/filters/properties",
+            "t": 0.00018483300664229318
+        },
+        {
+            "k": "./build_ast/filters",
+            "t": 0.000295000005280599
+        },
+        {
+            "k": "./build_ast/timestamps/parse_expr_cpp/replace_placeholders",
+            "t": 0.00021462500444613397
+        },
+        {
+            "k": "./build_ast/timestamps/parse_expr_cpp",
+            "t": 0.006467084000178147
+        },
+        {
+            "k": "./build_ast/timestamps",
+            "t": 0.011939292002352886
+        },
+        {
+            "k": "./build_ast/where",
+            "t": 0.006279791996348649
+        },
+        {
+            "k": "./build_ast/order/parse_order_expr_cpp",
+            "t": 0.0009526250069029629
+        },
+        {
+            "k": "./build_ast/order",
+            "t": 0.0010012079947046004
+        },
+        {
+            "k": "./build_ast/select",
+            "t": 0.0001021249991026707
+        },
+        {
+            "k": "./build_ast",
+            "t": 0.021405540996056516
+        },
+        {
+            "k": "./query",
+            "t": 0.00019283300207462162
+        },
+        {
+            "k": "./variables",
+            "t": 0.00003975000436184928
+        },
+        {
+            "k": "./replace_placeholders",
+            "t": 0.006989917004830204
+        },
+        {
+            "k": "./max_limit",
+            "t": 0.00007029200060060248
+        },
+        {
+            "k": "./hogql/prepare_ast/clone",
+            "t": 0.000481041002785787
+        },
+        {
+            "k": "./hogql/prepare_ast/create_hogql_database",
+            "t": 0.14176429100189125
+        },
+        {
+            "k": "./hogql/prepare_ast/resolve_types",
+            "t": 0.0010933330049738288
+        },
+        {
+            "k": "./hogql/prepare_ast",
+            "t": 0.14348054199945182
+        },
+        {
+            "k": "./hogql/print_ast/printer",
+            "t": 0.0016133750032167882
+        },
+        {
+            "k": "./hogql/print_ast",
+            "t": 0.0016721670035622083
+        },
+        {
+            "k": "./hogql",
+            "t": 0.2308277080010157
+        },
+        {
+            "k": "./print_ast/create_hogql_database",
+            "t": 0.2334512080051354
+        },
+        {
+            "k": "./print_ast/resolve_types",
+            "t": 0.001193624993902631
+        },
+        {
+            "k": "./print_ast/resolve_property_types",
+            "t": 0.007970916994963773
+        },
+        {
+            "k": "./print_ast/resolve_lazy_tables",
+            "t": 0.003332209002110176
+        },
+        {
+            "k": "./print_ast/swap_properties",
+            "t": 0.0006330420001177117
+        },
+        {
+            "k": "./print_ast/printer",
+            "t": 0.002056582998193335
+        },
+        {
+            "k": "./print_ast",
+            "t": 0.24880249999841908
+        },
+        {
+            "k": "./clickhouse_execute",
+            "t": 0.24669937499857042
+        },
+        {
+            "k": "./parse_expr_cpp",
+            "t": 0.0013694569934159517
+        },
+        {
+            "k": ".",
+            "t": 0.8226239580035326
+        }
+    ],
+    "types": [
+        "UUID",
+        "String",
+        "DateTime64(6, 'UTC')",
+        "String",
+        "Nullable(String)",
+        "Nullable(String)",
+        "Nullable(String)"
+    ]
+}
