@@ -30,7 +30,7 @@ export const manifest: ProductManifest = {
             href: urls.featureFlags(),
         },
     ],
-    treeFilterTypes: {
-        feature_flag: 'Feature flags',
+    fileSystemFilterTypes: {
+        feature_flag: { name: 'Feature flags' },
     },
 }

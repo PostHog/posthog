@@ -23,7 +23,7 @@ export const manifest: ProductManifest = {
             href: urls.notebook('new'),
         },
     ],
-    treeFilterTypes: {
-        notebook: 'Notebooks',
+    fileSystemFilterTypes: {
+        notebook: { name: 'Notebooks' },
     },
 }

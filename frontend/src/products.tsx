@@ -33,7 +33,15 @@ import {
 } from '~/queries/schema/schema-general'
 
 import { isDataTableNode, isDataVisualizationNode, isHogQLQuery } from './queries/utils'
-import { ActionType, DashboardType, InsightShortId, InsightType, RecordingUniversalFilters, ReplayTabs } from './types'
+import {
+    ActionType,
+    DashboardType,
+    FileSystemFilterType,
+    InsightShortId,
+    InsightType,
+    RecordingUniversalFilters,
+    ReplayTabs,
+} from './types'
 
 /** This const is auto-generated, as is the whole file */
 export const productScenes: Record<string, () => Promise<any>> = {
@@ -347,15 +355,15 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
 ]
 
 /** This const is auto-generated, as is the whole file */
-export const getTreeFilterTypes = (): Record<string, string> => ({
-    action: 'Actions',
-    dashboard: 'Dashboards',
-    early_access_feature: 'Early access features',
-    experiment: 'Experiments',
-    feature_flag: 'Feature flags',
-    broadcast: 'Broadcasts',
-    campaign: 'Campaigns',
-    notebook: 'Notebooks',
-    insight: 'Insights',
-    session_recording_playlist: 'Replay playlists',
+export const getTreeFilterTypes = (): Record<string, FileSystemFilterType> => ({
+    action: { name: 'Actions' },
+    dashboard: { name: 'Dashboards' },
+    early_access_feature: { name: 'Early access features' },
+    experiment: { name: 'Experiments' },
+    feature_flag: { name: 'Feature flags' },
+    broadcast: { name: 'Broadcasts', flag: FEATURE_FLAGS.MESSAGING },
+    campaign: { name: 'Campaigns', flag: FEATURE_FLAGS.MESSAGING_AUTOMATION },
+    notebook: { name: 'Notebooks' },
+    insight: { name: 'Insights' },
+    session_recording_playlist: { name: 'Replay playlists' },
 })

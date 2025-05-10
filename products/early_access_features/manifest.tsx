@@ -52,7 +52,7 @@ export const manifest: ProductManifest = {
             href: urls.earlyAccessFeatures(),
         },
     ],
-    treeFilterTypes: {
-        early_access_feature: 'Early access features',
+    fileSystemFilterTypes: {
+        early_access_feature: { name: 'Early access features' },
     },
 }

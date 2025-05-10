@@ -40,7 +40,7 @@ export const manifest: ProductManifest = {
             href: urls.experiments(),
         },
     ],
-    treeFilterTypes: {
-        experiment: 'Experiments',
+    fileSystemFilterTypes: {
+        experiment: { name: 'Experiments' },
     },
 }

@@ -20,6 +20,9 @@ export const manifest: ProductManifest = {
             href: (ref: string) => urls.action(ref),
         },
     },
+    fileSystemFilterTypes: {
+        action: { name: 'Actions' },
+    },
     treeItemsNew: [
         {
             type: 'action',
@@ -27,7 +30,4 @@ export const manifest: ProductManifest = {
             href: urls.createAction(),
         },
     ],
-    treeFilterTypes: {
-        action: 'Actions',
-    },
 }

@@ -558,7 +558,7 @@ export function gatherProductManifests(__dirname) {
     const fileSystemTypes = []
     const treeItemsNew = {}
     const treeItemsProducts = {}
-    const treeFilterTypes = []
+    const fileSystemFilterTypes = []
 
     const sourceFiles = []
     for (const product of products) {
@@ -646,9 +646,9 @@ export function gatherProductManifests(__dirname) {
                     for (const property of node.initializer.properties) {
                         fileSystemTypes.push(cloneNode(property))
                     }
-                } else if (node.name.text === 'treeFilterTypes') {
+                } else if (node.name.text === 'fileSystemFilterTypes') {
                     for (const property of node.initializer.properties) {
-                        treeFilterTypes.push(cloneNode(property))
+                        fileSystemFilterTypes.push(cloneNode(property))
                     }
                 } else {
                     ts.forEachChild(node, visit)
@@ -706,7 +706,7 @@ export function gatherProductManifests(__dirname) {
     const manifestFileSystemTypes = printer.printNode(ts.EmitHint.Unspecified, ts.factory.createObjectLiteralExpression(fileSystemTypes), sourceFile)
     const manifestTreeItemsNew = printer.printNode(ts.EmitHint.Unspecified, ts.factory.createArrayLiteralExpression(Object.keys(treeItemsNew).sort().map(key => treeItemsNew[key])), sourceFile)
     const manifestTreeItemsProducts = printer.printNode(ts.EmitHint.Unspecified, ts.factory.createArrayLiteralExpression(Object.keys(treeItemsProducts).sort().map(key => treeItemsProducts[key])), sourceFile)
-    const manifestTreeFilterTypes = printer.printNode(ts.EmitHint.Unspecified, ts.factory.createObjectLiteralExpression(treeFilterTypes), sourceFile)
+    const manifestTreeFilterTypes = printer.printNode(ts.EmitHint.Unspecified, ts.factory.createObjectLiteralExpression(fileSystemFilterTypes), sourceFile)
 
     const autogenComment = "/** This const is auto-generated, as is the whole file */"
     let preservedImports = ''
@@ -743,7 +743,7 @@ export function gatherProductManifests(__dirname) {
         ${autogenComment}
         export const getTreeItemsProducts = (): FileSystemImport[] => ${manifestTreeItemsProducts}\n
         ${autogenComment}
-        export const getTreeFilterTypes = (): Record<string, string> => (${manifestTreeFilterTypes})\n
+        export const getTreeFilterTypes = (): Record<string, FileSystemFilterType> => (${manifestTreeFilterTypes})\n
     `
 
     // safe temporary path in /tmp

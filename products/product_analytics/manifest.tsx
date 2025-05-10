@@ -114,7 +114,7 @@ export const manifest: ProductManifest = {
             href: urls.insights(),
         },
     ],
-    treeFilterTypes: {
-        insight: 'Insights',
+    fileSystemFilterTypes: {
+        insight: { name: 'Insights' },
     },
 }
