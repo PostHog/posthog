@@ -314,7 +314,7 @@ class TestProperty(BaseTest):
         self.assertEqual(
             self._property_to_expr(
                 {
-                    "type": "error_tracking_issue_property",
+                    "type": "event",
                     "key": "$exception_types",
                     "value": "ReferenceError",
                     "operator": "icontains",
@@ -325,7 +325,7 @@ class TestProperty(BaseTest):
         self.assertEqual(
             self._property_to_expr(
                 {
-                    "type": "error_tracking_issue_property",
+                    "type": "event",
                     "key": "$exception_types",
                     "value": ["ReferenceError", "TypeError"],
                     "operator": "exact",
@@ -336,7 +336,7 @@ class TestProperty(BaseTest):
         self.assertEqual(
             self._property_to_expr(
                 {
-                    "type": "error_tracking_issue_property",
+                    "type": "event",
                     "key": "$exception_types",
                     "value": ["ReferenceError", "TypeError"],
                     "operator": "is_not",
@@ -350,7 +350,7 @@ class TestProperty(BaseTest):
                     "key": "$exception_types",
                     "value": "ValidationError",
                     "operator": "not_regex",
-                    "type": "error_tracking_issue_property",
+                    "type": "event",
                 }
             ),
             self._parse_expr(

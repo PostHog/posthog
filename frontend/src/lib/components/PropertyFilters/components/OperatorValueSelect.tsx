@@ -116,7 +116,13 @@ export function OperatorValueSelect({
             propertyType = PropertyType.Cohort
         } else if (propertyKey === 'assignee' && type === PropertyFilterType.ErrorTrackingIssue) {
             propertyType = PropertyType.Assignee
-        } else if (type === PropertyFilterType.ErrorTrackingIssueProperty) {
+        } else if (
+            type === PropertyFilterType.Event &&
+            propertyKey &&
+            ['$exception_types', '$exception_values', '$exception_sources', '$exception_functions'].includes(
+                propertyKey
+            )
+        ) {
             propertyType = PropertyType.StringArray
         }
 
