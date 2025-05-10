@@ -131,6 +131,7 @@ async def _run(
         team=team,
         status="running",
         source_type=source_type,
+        revenue_analytics_enabled=source_type == ExternalDataSource.Type.STRIPE,
         job_inputs=job_inputs,
     )
 
