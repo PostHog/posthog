@@ -21,5 +21,8 @@ class Migration(migrations.Migration):
             name="notified_first_sync",
             field=models.BooleanField(default=False, null=True),
         ),
-        migrations.RunPython(backfill_notified_first_sync),
+        migrations.RunPython(
+            backfill_notified_first_sync,
+            reverse_code=migrations.RunPython.noop,
+        ),
     ]
