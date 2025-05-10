@@ -32,4 +32,7 @@ export const manifest: ProductManifest = {
             href: urls.dashboards() + '#newDashboard=modal',
         },
     ],
+    treeFilterTypes: {
+        dashboard: 'Dashboards',
+    },
 }

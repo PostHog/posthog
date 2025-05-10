@@ -43,4 +43,7 @@ export const manifest: ProductManifest = {
             type: 'session_recording_playlist',
         },
     ],
+    treeFilterTypes: {
+        session_recording_playlist: 'Replay playlists',
+    },
 }

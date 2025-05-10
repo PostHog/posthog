@@ -27,4 +27,7 @@ export const manifest: ProductManifest = {
             href: urls.createAction(),
         },
     ],
+    treeFilterTypes: {
+        action: 'Actions',
+    },
 }

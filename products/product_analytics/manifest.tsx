@@ -16,7 +16,11 @@ export const manifest: ProductManifest = {
             type,
             dashboardId,
             query,
-        }: { type?: InsightType; dashboardId?: DashboardType['id'] | null; query?: Node } = {}): string => {
+        }: {
+            type?: InsightType
+            dashboardId?: DashboardType['id'] | null
+            query?: Node
+        } = {}): string => {
             // Redirect HogQL queries to SQL editor
             if (isHogQLQuery(query)) {
                 return urls.sqlEditor(query.query)
@@ -110,4 +114,7 @@ export const manifest: ProductManifest = {
             href: urls.insights(),
         },
     ],
+    treeFilterTypes: {
+        insight: 'Insights',
+    },
 }

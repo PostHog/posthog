@@ -97,4 +97,8 @@ export const manifest: ProductManifest = {
             type: 'hog_function/campaign',
         },
     ],
+    treeFilterTypes: {
+        broadcast: 'Broadcasts',
+        campaign: 'Campaigns',
+    },
 }

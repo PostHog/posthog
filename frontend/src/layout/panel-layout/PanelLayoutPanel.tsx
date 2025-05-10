@@ -17,6 +17,7 @@ import { cn } from 'lib/utils/css-classes'
 import { useRef } from 'react'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
+import { getTreeFilterTypes } from '~/products'
 
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { ProjectDropdownMenu } from './ProjectDropdownMenu'
@@ -77,17 +78,8 @@ interface FiltersDropdownProps {
 
 export function FiltersDropdown({ setSearchTerm, searchTerm }: FiltersDropdownProps): JSX.Element {
     const types = [
-        ['action', 'Actions'],
-        ['broadcast', 'Broadcasts'],
-        ['campaign', 'Campaigns'],
-        ['dashboard', 'Dashboards'],
+        ...Object.entries(getTreeFilterTypes()),
         ['destination', 'Destinations'],
-        ['early_access_feature', 'Early access features'],
-        ['experiment', 'Experiments'],
-        ['feature_flag', 'Feature flags'],
-        ['insight', 'Insights'],
-        ['notebook', 'Notebooks'],
-        ['session_recording_playlist', 'Replay playlists'],
         ['site_app', 'Site apps'],
         ['source', 'Sources'],
         ['transformation', 'Transformations'],

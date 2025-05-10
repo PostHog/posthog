@@ -345,3 +345,17 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     { path: 'Surveys', type: 'survey', href: urls.surveys() },
     { path: 'Web analytics', iconType: 'pieChart', href: urls.webAnalytics() },
 ]
+
+/** This const is auto-generated, as is the whole file */
+export const getTreeFilterTypes = (): Record<string, string> => ({
+    action: 'Actions',
+    dashboard: 'Dashboards',
+    early_access_feature: 'Early access features',
+    experiment: 'Experiments',
+    feature_flag: 'Feature flags',
+    broadcast: 'Broadcasts',
+    campaign: 'Campaigns',
+    notebook: 'Notebooks',
+    insight: 'Insights',
+    session_recording_playlist: 'Replay playlists',
+})

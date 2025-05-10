@@ -5348,6 +5348,7 @@ export interface ProductManifest {
     fileSystemTypes?: Record<string, FileSystemType>
     treeItemsNew?: FileSystemImport[]
     treeItemsProducts?: FileSystemImport[]
+    treeFilterTypes?: Record<string, string>
 }
 
 export interface ProjectTreeRef {
