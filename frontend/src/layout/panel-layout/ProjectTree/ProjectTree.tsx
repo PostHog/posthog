@@ -679,13 +679,15 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                 renderItemIcon={(item) => {
                     return (
                         <>
-                            {sortMethod === 'recent' && projectTreeMode === 'tree' && (
-                                <ProfilePicture
-                                    user={item.record?.user as UserBasicType | undefined}
-                                    size="xs"
-                                    className="ml-[4px]"
-                                />
-                            )}
+                            {sortMethod === 'recent' &&
+                                projectTreeMode === 'tree' &&
+                                item.type !== 'loading-indicator' && (
+                                    <ProfilePicture
+                                        user={item.record?.user as UserBasicType | undefined}
+                                        size="xs"
+                                        className="ml-[4px]"
+                                    />
+                                )}
                             <TreeNodeDisplayIcon
                                 item={item}
                                 expandedItemIds={expandedFolders}
@@ -704,11 +706,13 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                             >
                                 {item.displayName}
                             </span>
-                            {sortMethod === 'recent' && projectTreeMode === 'tree' && (
-                                <span className="text-tertiary text-xxs pt-[3px] ml-1">
-                                    {dayjs(item.record?.created_at).fromNow()}
-                                </span>
-                            )}
+                            {sortMethod === 'recent' &&
+                                projectTreeMode === 'tree' &&
+                                item.type !== 'loading-indicator' && (
+                                    <span className="text-tertiary text-xxs pt-[3px] ml-1">
+                                        {dayjs(item.record?.created_at).fromNow()}
+                                    </span>
+                                )}
                         </span>
                     )
                 }}
