@@ -2,8 +2,8 @@ import { IconPlus } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { LemonTree, LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { ContextMenuGroup, ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
-import { DropdownMenuGroup, DropdownMenuItem } from 'lib/ui/DropdownMenu/DropdownMenu'
+import { ContextMenuGroup, ContextMenuItem, ContextMenuSeparator } from 'lib/ui/ContextMenu/ContextMenu'
+import { DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { RefObject, useRef, useState } from 'react'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
@@ -21,8 +21,28 @@ export function Shortcuts(): JSX.Element {
 
     const renderMenuItems = (item: TreeDataItem, type: 'context' | 'dropdown'): JSX.Element => {
         const MenuItem = type === 'context' ? ContextMenuItem : DropdownMenuItem
+        const MenuSeparator = type === 'context' ? ContextMenuSeparator : DropdownMenuSeparator
         return (
             <>
+                <MenuItem
+                    asChild
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        window.open(item.record?.href, '_blank')
+                    }}
+                >
+                    <ButtonPrimitive menuItem>Open link in new tab</ButtonPrimitive>
+                </MenuItem>
+                <MenuItem
+                    asChild
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        void navigator.clipboard.writeText(document.location.origin + item.record?.href)
+                    }}
+                >
+                    <ButtonPrimitive menuItem>Copy link address</ButtonPrimitive>
+                </MenuItem>
+                <MenuSeparator />
                 <MenuItem
                     asChild
                     onClick={(e) => {

@@ -98,12 +98,6 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
     const { mainContentRef, isLayoutPanelPinned, projectTreeMode } = useValues(panelLayoutLogic)
     const treeRef = useRef<LemonTreeRef>(null)
 
-    const handleCopyPath = (path?: string): void => {
-        if (path) {
-            void navigator.clipboard.writeText(path)
-        }
-    }
-
     useEffect(() => {
         setPanelTreeRef(treeRef)
     }, [treeRef, setPanelTreeRef])
@@ -160,15 +154,6 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                             }}
                         >
                             <ButtonPrimitive menuItem>Open link in new tab</ButtonPrimitive>
-                        </MenuItem>
-                        <MenuItem
-                            asChild
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                item.record && addShortcutItem(item.record as FileSystemEntry)
-                            }}
-                        >
-                            <ButtonPrimitive menuItem>Add to shortcuts panel</ButtonPrimitive>
                         </MenuItem>
                         <MenuItem
                             asChild
@@ -310,37 +295,15 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                     </>
                 ) : null}
 
-                {item.record?.path ? (
+                {item.record?.path && item.record?.type !== 'folder' && item.record?.href ? (
                     <MenuItem
                         asChild
                         onClick={(e) => {
                             e.stopPropagation()
-                            handleCopyPath(item.record?.path)
+                            item.record && addShortcutItem(item.record as FileSystemEntry)
                         }}
                     >
-                        <ButtonPrimitive menuItem>Copy path</ButtonPrimitive>
-                    </MenuItem>
-                ) : null}
-
-                {item.record?.shortcut ? (
-                    <MenuItem
-                        asChild
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            deleteItem(item.record as unknown as FileSystemEntry)
-                        }}
-                    >
-                        <ButtonPrimitive menuItem>Delete shortcut</ButtonPrimitive>
-                    </MenuItem>
-                ) : item.record?.path && item.record?.type === 'folder' ? (
-                    <MenuItem
-                        asChild
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            deleteItem(item.record as unknown as FileSystemEntry)
-                        }}
-                    >
-                        <ButtonPrimitive menuItem>Delete folder</ButtonPrimitive>
+                        <ButtonPrimitive menuItem>Add to shortcuts panel</ButtonPrimitive>
                     </MenuItem>
                 ) : null}
 
@@ -379,6 +342,28 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                         }}
                     >
                         <ButtonPrimitive menuItem>Show original</ButtonPrimitive>
+                    </MenuItem>
+                ) : null}
+
+                {item.record?.shortcut ? (
+                    <MenuItem
+                        asChild
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            deleteItem(item.record as unknown as FileSystemEntry)
+                        }}
+                    >
+                        <ButtonPrimitive menuItem>Delete shortcut</ButtonPrimitive>
+                    </MenuItem>
+                ) : item.record?.path && item.record?.type === 'folder' ? (
+                    <MenuItem
+                        asChild
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            deleteItem(item.record as unknown as FileSystemEntry)
+                        }}
+                    >
+                        <ButtonPrimitive menuItem>Delete folder</ButtonPrimitive>
                     </MenuItem>
                 ) : null}
             </>
