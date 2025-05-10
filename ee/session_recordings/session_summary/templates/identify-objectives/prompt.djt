@@ -138,36 +138,45 @@ After segmenting the timeline, identify the most significant actions within each
 3.2. Key Actions Guidelines:
 
 - Include the most important key actions per segment that follow the prioritization above.
-- Actions must be listed in chronological order within each segment
-- Each key action could be a successful user action/sequence of actions (`"failure": false`) or a failure/sequence of failures (`"failure": true`) based on the guidelines below, and should be an actual event from the timeline.
+- Actions must be listed in chronological order within each segment.
+- Each key action is a user action/sequence of actions, and should be classified based on the issue types below (exception, confusion, abandonment).
+- Each key action is an actual event or the first event in a sequence of events from the timeline.
 
-3.3. Failure Identification Guidelines (CRITICAL):
+3.3. Issue Identification Guidelines (CRITICAL):
 
-- NEVER flag as failures:
+- NEVER flag issues for:
   ✗ Normal page navigation
   ✗ Sequential UI interactions (changing filters, adjusting parameters)
   ✗ Any other action without direct evidence of technical error or user frustration
   ✗ Non-blocking background errors (tracking failures, minor rendering glitches, etc.)
 
-- Flag event as a failure (`failure: true`) with EXPLICIT evidence of either:
+- Flag event issues with EXPLICIT evidence of:
   
-  Technical errors:
-  ✓ Event name/type contains: 'exception', 'failed', 'error', etc.
+  Exceptions (`exception: null | blocking | non-blocking`):
+  ✓ Event name or type contains: 'exception', 'failed', 'error', etc.
+  ✓ `exception_types` or `exception_values` provide exception context
   ✓ `elements_chain_texts` contains error messages (e.g., "Try again", "Failed to load", etc.)
-  ✓ Session abandonment shortly after exception events
+  ✓ Mark as `blocking` when the error prevented user from continuing their intended flow
+  ✓ Mark as `non-blocking` when the user could continue despite the error
+  ✓ Set as `null` when no technical exception occurred
   
-  User experience failures:
-  ✓ Form abandonment after significant time investment (started typing but left without submitting)
-  ✓ Multiple rapid identical form submissions followed by a change in form data
-  ✓ Rageclicks (multiple rapid clicks on the same element with no visible response)
-  ✓ Conversion flow abandonment (e.g., leaving checkout, subscription, or signup flow)
-  ✓ Back-and-forth navigation indicating search for functionality
+  Confusion (`confusion: true | false`):
+  ✓ Back-and-forth navigation loops indicating search for functionality
+  ✓ Multiple rapid identical form submissions 
   ✓ Repeated attempts to complete the same action without success
-  ✓ And other similar patterns showing user frustration or inability to complete tasks
+  ✓ Rageclicks (multiple rapid clicks on the same element with no visible response)
+  ✓ Deadclicks (clicks on non-interactive elements)
+  
+  Abandonment (`abandonment: true/false`):
+  ✓ Form abandonment after significant time investment (started typing but left without submitting)
+  ✓ Conversion flow abandonment (e.g., leaving checkout, subscription, or signup flow midway, etc.)
+  ✓ Feature exploration followed by exit without completion
+  ✓ Session termination during a multi-step process
 
-- Failure description requirements:
-  - For technical failures: Specify error nature (API failure, validation error, timeout, etc.)
-  - For UX failures: Describe the abandoned task, point of frustration, or flow impediment
+- Issue description requirements:
+  - For exceptions: Specify error nature (API failure, validation error, timeout, etc.) and impact (blocking/non-blocking)
+  - For confusion: Describe the specific pattern indicating confusion and potential cause
+  - For abandonment: Describe the abandoned flow/task and approximate progress before abandonment
   - Include potential causes when identifiable
   - Explain impact on user flow and business goals
   - Provide more detail than regular action descriptions, including potential business impact
@@ -237,19 +246,25 @@ After analyzing the chronological segments and key actions, evaluate the overall
 6.3. Session Success Determination:
 
 - Mark the session as successful (true) when:
-  - User completed one or more significant conversion actions
-  - User accomplished apparent goals despite minor obstacles
-  - Session shows logical progression and completion
+  - User completed one or more significant conversion actions, even if they experienced:
+    * Multiple non-blocking exceptions
+    * Minor confusion moments
+    * Abandonment of secondary/non-critical flows
+  - User accomplished their apparent primary goals despite obstacles
+  - Session shows logical progression to completion of key user objectives
+  
 - Mark the session as unsuccessful (false) when:
-  - User abandoned critical conversion flows
-  - Technical errors prevented completion of conversion attempts
-  - Session ended abruptly during an important process
+  - User experienced blocking technical errors that prevented completion of primary conversion attempts with no successful workaround
+  - User abandoned critical conversion flows (signup, checkout, upgrade, etc.) at a late stage
+  - Session ended abruptly during an important process that was the primary goal
+  - User showed clear signs of significant frustration (multiple rageclicks, repeated failed attempts) on critical paths with no successful resolution
 
 6.4. Final Outcome Description:
 
 - Provide a short focused summary (1-2 sentences, up to 30 words in total) of the overall user journey
-- Emphasize conversion successes or failures
-- Note any critical issues that affected the user's workflow
+- For successful sessions: emphasize completed conversions despite any minor issues encountered
+- For unsuccessful sessions: clearly identify the critical blocking issue that prevented the primary goal completion
+- Always prioritize conversion completions over minor issues when determining session success
 
 # Step 7: Self-Consistency Check
 
@@ -265,13 +280,13 @@ Before finalizing your analysis, verify:
 
 7.2. Key Action Prioritization Verification:
 
-- Are conversion events and conversion-blocking failures properly identified in each segment?
+- Are conversion events and conversion-blocking issues properly identified in each segment?
 - Are critical interruptions to user flow highlighted appropriately?
 - Do selected key actions accurately represent the most significant events in each segment?
 - Are event IDs copied EXACTLY from the event data (never invented)?
-- Are failure flags supported by explicit evidence in the event data?
-- Have you properly distinguished between technical failures and user experience failures?
-- Have you aggressively consolidated similar actions and errors?
+- Are issue flags (abandonment, confusion, exception) supported by explicit evidence in the event data?
+- Have you properly distinguished between technical exceptions, user confusion, and flow abandonment?
+- Have you aggressively consolidated similar actions and issues?
 
 7.3. Conversion Focus Verification:
 
