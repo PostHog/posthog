@@ -15,7 +15,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { ReactNode, useEffect, useState } from 'react'
+import React, { ReactNode, useEffect, useState } from 'react'
 import { Transition } from 'react-transition-group'
 import { ENTERED, ENTERING } from 'react-transition-group/Transition'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
@@ -29,6 +29,7 @@ import {
     SessionSegment,
     SessionSegmentKeyActions,
     SessionSegmentOutcome,
+    SessionSummaryContent,
 } from '../player-meta/types'
 
 function formatEventMetaInfo(event: SessionKeyAction): JSX.Element {
@@ -36,7 +37,15 @@ function formatEventMetaInfo(event: SessionKeyAction): JSX.Element {
         <pre className="m-0 p-0 font-mono text-xs whitespace-pre">
             {`Event: ${event.event}
             Event type: ${event.event_type}
-            Failure: ${event.failure ? 'Yes' : 'No'}
+            Issues: ${
+                [
+                    event.abandonment && 'Abandonment',
+                    event.confusion && 'Confusion',
+                    event.exception && `Exception (${event.exception})`,
+                ]
+                    .filter(Boolean)
+                    .join(', ') || 'None'
+            }
             Timestamp: ${event.timestamp}
             Milliseconds since start: ${event.milliseconds_since_start}
             Window ID: ${event.window_id}
@@ -157,7 +166,7 @@ function SegmentMetaTable({ meta }: SegmentMetaProps): JSX.Element | null {
             </div>
             <div className="flex items-center gap-1">
                 <IconWarning className={meta.failure_count && meta.failure_count > 0 ? 'text-danger' : ''} />
-                <span className="text-muted">Failures:</span>
+                <span className="text-muted">Issues:</span>
                 {isValidMetaNumber(meta.failure_count) && <span>{meta.failure_count}</span>}
             </div>
             <div className="flex items-center gap-1">
@@ -199,15 +208,38 @@ interface SessionSegmentViewProps {
     onSeekToTime: (time: number) => void
 }
 
+function getIssueTags(event: SessionKeyAction): JSX.Element[] {
+    const tags: JSX.Element[] = []
+    if (event.abandonment) {
+        tags.push(
+            <LemonTag key="abandonment" size="small" type="warning">
+                abandoned
+            </LemonTag>
+        )
+    }
+    if (event.confusion) {
+        tags.push(
+            <LemonTag key="confusion" size="small" type="warning">
+                confusion
+            </LemonTag>
+        )
+    }
+    if (event.exception) {
+        tags.push(
+            <LemonTag key="exception" size="small" type={event.exception === 'blocking' ? 'danger' : 'warning'}>
+                {event.exception}
+            </LemonTag>
+        )
+    }
+    return tags
+}
+
 function SessionSegmentView({
     segment,
     segmentOutcome,
     keyActions,
     onSeekToTime,
 }: SessionSegmentViewProps): JSX.Element {
-    // Scroll 4 seconds before the event to make it easier to notice when watching the replay
-    const timeToSeeekTo = (ms: number): number => Math.max(ms - 4000, 0)
-
     return (
         <div key={segment.name} className="mb-4">
             <SessionSegmentCollapse
@@ -244,66 +276,14 @@ function SessionSegmentView({
                     <>
                         {keyActions && keyActions.length > 0 ? (
                             <>
-                                {keyActions?.map((keyAction) =>
-                                    keyAction.events?.map(
-                                        (event: SessionKeyAction, eventIndex: number, events: SessionKeyAction[]) =>
-                                            isValidTimestamp(event.milliseconds_since_start) ? (
-                                                <div
-                                                    key={`${segment.name}-${eventIndex}`}
-                                                    className={clsx(
-                                                        'cursor-pointer py-2 px-2 hover:bg-primary-alt-highlight',
-                                                        // Avoid adding a border to the last event
-                                                        eventIndex !== events.length - 1 && 'border-b',
-                                                        event.failure && 'bg-danger-highlight'
-                                                    )}
-                                                    onClick={() => {
-                                                        // Excessive check, required for type safety
-                                                        if (!isValidTimestamp(event.milliseconds_since_start)) {
-                                                            return
-                                                        }
-                                                        onSeekToTime(timeToSeeekTo(event.milliseconds_since_start))
-                                                    }}
-                                                >
-                                                    <div className="flex flex-row gap-2">
-                                                        <span className="text-muted-alt shrink-0 min-w-[4rem] font-mono text-xs">
-                                                            {formatMsIntoTime(event.milliseconds_since_start)}
-                                                            <div className="flex flex-row gap-2 mt-1">
-                                                                {event.current_url ? (
-                                                                    <Link to={event.current_url} target="_blank">
-                                                                        <Tooltip
-                                                                            title={event.current_url}
-                                                                            placement="top"
-                                                                        >
-                                                                            <span className="font-mono text-xs text-muted-alt">
-                                                                                url
-                                                                            </span>
-                                                                        </Tooltip>
-                                                                    </Link>
-                                                                ) : null}
-                                                                <Tooltip
-                                                                    title={formatEventMetaInfo(event)}
-                                                                    placement="top"
-                                                                >
-                                                                    <span className="font-mono text-xs text-muted-alt">
-                                                                        meta
-                                                                    </span>
-                                                                </Tooltip>
-                                                            </div>
-                                                        </span>
-
-                                                        <span className="text-xs break-words">
-                                                            {event.description}&nbsp;{' '}
-                                                            {event.milliseconds_since_start === 0 && (
-                                                                <LemonTag size="small" type="default">
-                                                                    before start
-                                                                </LemonTag>
-                                                            )}
-                                                        </span>
-                                                    </div>
-                                                </div>
-                                            ) : null
-                                    )
-                                )}
+                                {keyActions?.map((segmentKeyActions) => (
+                                    <SessionSummaryKeyActions
+                                        key={segmentKeyActions.segment_index}
+                                        keyActions={segmentKeyActions}
+                                        segmentName={segment.name}
+                                        onSeekToTime={onSeekToTime}
+                                    />
+                                ))}
                             </>
                         ) : (
                             <div className="text-muted-alt">
@@ -314,6 +294,74 @@ function SessionSegmentView({
                 }
             />
         </div>
+    )
+}
+
+function SessionSummaryKeyActions({
+    keyActions,
+    segmentName,
+    onSeekToTime,
+}: {
+    keyActions: SessionSegmentKeyActions
+    segmentName?: string | null
+    onSeekToTime: (time: number) => void
+}): JSX.Element {
+    const timeToSeeekTo = (ms: number): number => Math.max(ms - 4000, 0)
+    return (
+        <>
+            {keyActions.events?.map((event: SessionKeyAction, eventIndex: number, events: SessionKeyAction[]) =>
+                isValidTimestamp(event.milliseconds_since_start) ? (
+                    <div
+                        key={`${segmentName}-${eventIndex}`}
+                        className={clsx(
+                            'cursor-pointer py-2 px-2 hover:bg-primary-alt-highlight',
+                            // Avoid adding a border to the last event
+                            eventIndex !== events.length - 1 && 'border-b',
+                            (event.abandonment || event.confusion || event.exception) && 'bg-danger-highlight'
+                        )}
+                        onClick={() => {
+                            // Excessive check, required for type safety
+                            if (!isValidTimestamp(event.milliseconds_since_start)) {
+                                return
+                            }
+                            onSeekToTime(timeToSeeekTo(event.milliseconds_since_start))
+                        }}
+                    >
+                        <div className="flex flex-row gap-2">
+                            <span className="text-muted-alt shrink-0 min-w-[4rem] font-mono text-xs">
+                                {formatMsIntoTime(event.milliseconds_since_start)}
+                                <div className="flex flex-row gap-2 mt-1">
+                                    {event.current_url ? (
+                                        <Link to={event.current_url} target="_blank">
+                                            <Tooltip title={event.current_url} placement="top">
+                                                <span className="font-mono text-xs text-muted-alt">url</span>
+                                            </Tooltip>
+                                        </Link>
+                                    ) : null}
+                                    <Tooltip title={formatEventMetaInfo(event)} placement="top">
+                                        <span className="font-mono text-xs text-muted-alt">meta</span>
+                                    </Tooltip>
+                                </div>
+                            </span>
+
+                            <div className="flex flex-col">
+                                <div className="text-xs break-words">{event.description}</div>
+                                <div className="flex flex-wrap gap-1 mt-2">
+                                    {event.milliseconds_since_start === 0 && (
+                                        <LemonTag size="small" type="default">
+                                            before start
+                                        </LemonTag>
+                                    )}
+                                    {getIssueTags(event).map((tag, i) => (
+                                        <React.Fragment key={i}>{tag}</React.Fragment>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                ) : null
+            )}
+        </>
     )
 }
 
@@ -350,6 +398,104 @@ function SessionSummaryLoadingState({ operation, counter, name, outOf }: Session
                 // Empty div to maintain two rows for spinner alignment
                 <div />
             )}
+        </div>
+    )
+}
+
+function SessionSummaryStats({ sessionSummary }: { sessionSummary: SessionSummaryContent }): JSX.Element {
+    // Count each issue type separately for display
+    const totalAbandonment =
+        sessionSummary.segments?.reduce(
+            (acc: number, segment: SessionSegment) => acc + (segment.meta?.abandonment_count || 0),
+            0
+        ) || 0
+    const totalConfusion =
+        sessionSummary.segments?.reduce(
+            (acc: number, segment: SessionSegment) => acc + (segment.meta?.confusion_count || 0),
+            0
+        ) || 0
+    const totalException =
+        sessionSummary.segments?.reduce(
+            (acc: number, segment: SessionSegment) => acc + (segment.meta?.exception_count || 0),
+            0
+        ) || 0
+
+    // Calculate global health score
+    const totalKeyActions =
+        sessionSummary.segments?.reduce(
+            (acc: number, segment: SessionSegment) => acc + (segment.meta?.key_action_count || 0),
+            0
+        ) || 0
+
+    // Calculate total issue weight across all segments
+    const totalIssueWeight =
+        sessionSummary.key_actions?.reduce((weight, keyAction) => {
+            return (
+                weight +
+                (keyAction.events || []).reduce((acc, event) => {
+                    // For each event, take the highest weight among its tags
+                    const eventWeight = Math.max(
+                        event.confusion ? 0.25 : 0,
+                        event.exception === 'blocking' ? 3 : event.exception === 'non-blocking' ? 0.5 : 0,
+                        event.abandonment ? 0.75 : 0
+                    )
+                    return acc + eventWeight
+                }, 0)
+            )
+        }, 0) || 0
+
+    const healthPercentage =
+        totalKeyActions > 0 ? Math.round((totalKeyActions / (totalKeyActions + totalIssueWeight)) * 100) : 100
+
+    const successHealthLimit = 65
+    const failureHealthLimit = 35
+    const medianHealthLimit = 50
+
+    // Adjust health percentage based on session outcome
+    const adjustedHealthPercentage =
+        sessionSummary.session_outcome?.success === true
+            ? Math.max(healthPercentage, medianHealthLimit)
+            : sessionSummary.session_outcome?.success === false
+            ? Math.min(healthPercentage, medianHealthLimit)
+            : healthPercentage
+
+    const healthScoreType =
+        adjustedHealthPercentage >= successHealthLimit
+            ? 'success'
+            : adjustedHealthPercentage > failureHealthLimit
+            ? 'warning'
+            : 'danger'
+
+    return (
+        <div className="mb-4">
+            <div className="flex items-start gap-4">
+                {/* Left side - Health Score */}
+                <div className="flex flex-col bg-bg-light px-3">
+                    <span className="text-sm text-muted">Health Score</span>
+                    <div className={`text-2xl font-semibold text-${healthScoreType} mt-1`}>
+                        {adjustedHealthPercentage}%
+                    </div>
+                </div>
+
+                {/* Right side - Issue Metrics */}
+                <div className="flex flex-col gap-2 flex-1">
+                    <span className="text-sm text-muted">Issues Found</span>
+                    <div className="flex flex-wrap gap-2">
+                        <LemonTag size="small" type={totalAbandonment > 0 ? 'warning' : undefined}>
+                            <IconThumbsDown className="mr-1" />
+                            {totalAbandonment || 0} abandoned
+                        </LemonTag>
+                        <LemonTag size="small" type={totalConfusion > 0 ? 'warning' : undefined}>
+                            <IconWarning className="mr-1" />
+                            {totalConfusion || 0} confusion
+                        </LemonTag>
+                        <LemonTag size="small" type={totalException > 0 ? 'danger' : undefined}>
+                            <IconWarning className="mr-1" />
+                            {totalException || 0} exceptions
+                        </LemonTag>
+                    </div>
+                </div>
+            </div>
         </div>
     )
 }
@@ -472,6 +618,9 @@ function SessionSummary(): JSX.Element {
                         )}
                         <LemonDivider />
                     </div>
+
+                    <SessionSummaryStats sessionSummary={sessionSummary} />
+
                     {sessionSummary?.segments?.map((segment) => {
                         const matchingSegmentOutcome = sessionSummary?.segment_outcomes?.find(
                             (outcome) => outcome.segment_index === segment.index
