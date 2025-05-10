@@ -123,10 +123,13 @@ envsubst > Caddyfile <<EOF
 {
 $TLS_BLOCK
 }
-$DOMAIN, http://, https:// {
-encode gzip zstd
-reverse_proxy http://web:8000
-reverse_proxy http://livestream:8666
+https://$DOMAIN {
+    encode gzip zstd
+    reverse_proxy http://web:8000
+}
+https://$DOMAIN:8666 {
+    encode gzip zstd
+    reverse_proxy http://livestream:8080
 }
 EOF
 
