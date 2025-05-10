@@ -6,6 +6,9 @@ pub mod common;
 async fn calc_some_hashes() -> anyhow::Result<()> {
     assert_eq!(0.4525525406521796, calculate_hash("12312", "", "").unwrap());
     assert_eq!(0.5467118336624435, calculate_hash("32132", "", "").unwrap());
-    assert_eq!(0.8015364780087316, calculate_hash("PostHog", "", "").unwrap());
+    assert_eq!(
+        0.8015364780087316,
+        calculate_hash("PostHog", "", "").unwrap()
+    );
     Ok(())
 }
