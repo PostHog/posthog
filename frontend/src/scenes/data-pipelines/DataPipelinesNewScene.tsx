@@ -8,11 +8,13 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
+import type { dataPipelinesNewSceneLogicType } from './DataPipelinesNewSceneType'
+
 export type DataPipelinesNewSceneProps = {
     kind: 'transformation' | 'destination' | 'source' | 'app'
 }
 
-export const dataPipelinesNewSceneLogic = kea([
+export const dataPipelinesNewSceneLogic = kea<dataPipelinesNewSceneLogicType>([
     props({} as DataPipelinesNewSceneProps),
     path(() => ['scenes', 'data-pipelines', 'dataPipelinesNewSceneLogic']),
     selectors({
