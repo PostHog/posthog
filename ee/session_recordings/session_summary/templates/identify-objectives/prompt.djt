@@ -138,8 +138,9 @@ After segmenting the timeline, identify the most significant actions within each
 3.2. Key Actions Guidelines:
 
 - Include the most important key actions per segment that follow the prioritization above.
-- Actions must be listed in chronological order within each segment
-- Each key action could be a successful user action/sequence of actions (`"failure": false`) or a failure/sequence of failures (`"failure": true`) based on the guidelines below, and should be an actual event from the timeline.
+- Actions must be listed in chronological order within each segment.
+- Each key action is a user action/sequence of actions, and should be classified based on the issue types below (exception, confusion, abandonment).
+- Each key action is an actual event or the first event in a sequence of events from the timeline.
 
 3.3. Issue Identification Guidelines (CRITICAL):
 

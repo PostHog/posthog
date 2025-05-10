@@ -14,7 +14,7 @@ key_actions:
       events:
           - event_id: 'abcd1234' # Must be copied EXACTLY from event data, never invented
             abandonment: false # true or false
-            confusion: false # true of false
+            confusion: false # true or false
             exception: null # null if no exception, `blocking` or `non-blocking` if exception
             description: 'First significant action in this segment'
           - event_id: 'defg4567'
