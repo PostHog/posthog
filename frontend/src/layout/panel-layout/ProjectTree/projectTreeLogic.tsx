@@ -594,12 +594,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 removeQueuedAction: (state, { action }) => state.filter((a) => a !== action),
             },
         ],
-        expandedFolders: [
-            [] as string[],
-            {
-                setExpandedFolders: (_, { folderIds }) => folderIds,
-            },
-        ],
+        // expandedFolders: [
+        //     [] as string[],
+        //     {
+        //         setExpandedFolders: (_, { folderIds }) => folderIds,
+        //     },
+        // ],
         expandedSearchFolders: [
             ['project-folder/Unfiled'] as string[],
             {
