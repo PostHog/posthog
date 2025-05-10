@@ -1,7 +1,8 @@
-import { IconPlus } from '@posthog/icons'
+import { IconGear, IconPlus } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, Link, SpinnerOverlay } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -11,13 +12,13 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
+import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { PipelineStage, ProductKey, SidePanelTab } from '~/types'
 
 import { RevenueAnalyticsFilters } from './RevenueAnalyticsFilters'
 import { REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID, revenueAnalyticsLogic } from './revenueAnalyticsLogic'
-import { revenueEventsSettingsLogic } from './settings/revenueEventsSettingsLogic'
 import { GrossRevenueTile } from './tiles/GrossRevenueTile'
 import { OverviewTile } from './tiles/OverviewTile'
 import { RevenueGrowthRateTile } from './tiles/RevenueGrowthRateTile'
@@ -37,6 +38,7 @@ export function RevenueAnalyticsScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { allDataWarehouseSources } = useValues(revenueAnalyticsLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
+    const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
 
     if (!featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS]) {
         return (
@@ -69,12 +71,23 @@ export function RevenueAnalyticsScene(): JSX.Element {
     }
 
     return (
-        <BindLogic logic={revenueEventsSettingsLogic} props={{}}>
-            <BindLogic logic={revenueAnalyticsLogic} props={{}}>
-                <BindLogic logic={dataNodeCollectionLogic} props={{ key: REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
-                    <RevenueAnalyticsSceneContent />
-                </BindLogic>
-            </BindLogic>
+        <BindLogic logic={dataNodeCollectionLogic} props={{ key: REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
+            <PageHeader
+                delimited
+                buttons={
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconGear />}
+                        onClick={() => {
+                            openSettingsPanel({ sectionId: 'environment-revenue-analytics' })
+                        }}
+                    >
+                        Settings
+                    </LemonButton>
+                }
+            />
+            <RevenueAnalyticsSceneContent />
         </BindLogic>
     )
 }
