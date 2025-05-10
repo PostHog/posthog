@@ -59,7 +59,6 @@ class TestTemplateLoops(BaseHogFunctionTemplateTest):
                 },
             },
         )
-
         assert self.get_mock_fetch_calls()[0] == snapshot(
             (
                 "https://app.loops.so/api/v1/contacts/update",
@@ -75,6 +74,41 @@ class TestTemplateLoops(BaseHogFunctionTemplateTest):
                         "company": "PostHog",
                         "firstName": "Max",
                         "lastName": "AI",
+                    },
+                },
+            )
+        )
+
+    def test_mailing_lists(self):
+        self.run_function(
+            inputs=self._inputs(mailingLists={
+                "list_id": true
+            }),
+            globals={
+                "person": {
+                    "id": "c44562aa-c649-426a-a9d4-093fef0c2a4a",
+                    "properties": {"company": "PostHog"},
+                },
+            },
+        )
+
+        assert self.get_mock_fetch_calls()[0] == snapshot(
+            (
+                "https://app.loops.so/api/v1/contacts/update",
+                {
+                    "method": "POST",
+                    "headers": {
+                        "Content-Type": "application/json",
+                        "Authorization": "Bearer 1cac089e00a708680bdb1ed9f082d5bf",
+                    },
+                    "body": {
+                        "email": "max@posthog.com",
+                        "userId": "c44562aa-c649-426a-a9d4-093fef0c2a4a",
+                        "firstName": "Max",
+                        "lastName": "AI",
+                        "mailingLists": {
+                            "list_id": true
+                        }
                     },
                 },
             )
@@ -170,6 +204,47 @@ class TestTemplateLoopsEvent(BaseHogFunctionTemplateTest):
                             "product": "PostHog",
                             "pathname": "/pricing",
                         },
+                    },
+                },
+            )
+        )
+
+    def test_mailing_lists(self):
+        self.run_function(
+            inputs=self._inputs(mailingLists={
+                "list_id": true
+            }),
+            globals={
+                "person": {
+                    "id": "c44562aa-c649-426a-a9d4-093fef0c2a4a",
+                    "properties": {"name": "Max", "company": "PostHog"},
+                },
+                "event": {
+                    "event": "pageview",
+                    "properties": {"pathname": "/pricing"},
+                },
+            },
+        )
+
+        assert self.get_mock_fetch_calls()[0] == snapshot(
+            (
+                "https://app.loops.so/api/v1/events/send",
+                {
+                    "method": "POST",
+                    "headers": {
+                        "Content-Type": "application/json",
+                        "Authorization": "Bearer 1cac089e00a708680bdb1ed9f082d5bf",
+                    },
+                    "body": {
+                        "email": "max@posthog.com",
+                        "userId": "c44562aa-c649-426a-a9d4-093fef0c2a4a",
+                        "eventName": "pageview",
+                        "eventProperties": {
+                            "product": "PostHog",
+                        },
+                        "mailingLists": {
+                            "list_id": true
+                        }
                     },
                 },
             )
