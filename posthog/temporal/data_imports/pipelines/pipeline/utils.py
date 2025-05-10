@@ -30,7 +30,9 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import (
     SourceResponse,
 )
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
-from products.revenue_analytics.backend.models import STRIPE_CHARGE_RESOURCE_NAME
+from posthog.temporal.data_imports.pipelines.stripe.constants import (
+    CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
+)
 
 DLT_TO_PA_TYPE_MAP = {
     "text": pa.string(),
