@@ -233,18 +233,16 @@ pub fn extract_and_verify_token(
     batch_token: Option<String>,
 ) -> Result<String, CaptureError> {
     // if the request was a batch submission and it's token is valid, give it precedence
-    if batch_token.is_some() {
-        let token = batch_token.unwrap();
-        validate_token(&token)?;
-        return Ok(token);
-    }
-
-    let token = match events.len() {
-        0 => return Err(CaptureError::NoTokenError),
-        1 => events[0]
-            .extract_token()
-            .ok_or(CaptureError::NoTokenError)?,
-        _ => extract_token(events)?,
+    let token = if let Some(token) = batch_token {
+        token
+    } else {
+        match events.len() {
+            0 => return Err(CaptureError::NoTokenError),
+            1 => events[0]
+                .extract_token()
+                .ok_or(CaptureError::NoTokenError)?,
+            _ => extract_token(events)?,
+        }
     };
 
     validate_token(&token)?;
@@ -259,12 +257,12 @@ pub fn extract_token(events: &[RawEvent]) -> Result<String, CaptureError> {
             .filter(Option::is_some),
     );
 
-    return match distinct_tokens.len() {
+    match distinct_tokens.len() {
         0 => Err(CaptureError::NoTokenError),
         1 => match distinct_tokens.iter().last() {
             Some(Some(token)) => Ok(token.clone()),
             _ => Err(CaptureError::NoTokenError),
         },
         _ => Err(CaptureError::MultipleTokensError),
-    };
+    }
 }
