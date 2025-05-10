@@ -862,6 +862,10 @@ class SelectSetNode:
         if self.set_operator not in get_args(SetOperator):
             raise ValueError("Invalid Set Operator")
 
+    # This is part of the visitor pattern from visitor.py, so we can visit and copy the SelectSetNode
+    def accept(self, visitor):
+        return visitor.visit_select_set_node(self)
+
 
 @dataclass(kw_only=True)
 class SelectSetQuery(Expr):
