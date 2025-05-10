@@ -1,12 +1,15 @@
 use axum::http::HeaderMap;
 use base64::Engine;
+use common_types::RawEvent;
 use rand::RngCore;
+use std::collections::HashSet;
 use tracing::error;
 use uuid::Uuid;
 
 use crate::{
     api::CaptureError,
     prometheus::report_dropped_events,
+    token::validate_token,
     v0_request::{Compression, EventFormData, EventQuery},
 };
 
@@ -223,4 +226,45 @@ pub fn decompress_lz64(payload: &[u8], limit: usize) -> Result<String, CaptureEr
     }
 
     Ok(decompressed)
+}
+
+pub fn extract_and_verify_token(
+    events: &[RawEvent],
+    batch_token: Option<String>,
+) -> Result<String, CaptureError> {
+    // if the request was a batch submission and it's token is valid, give it precedence
+    if batch_token.is_some() {
+        let token = batch_token.unwrap();
+        validate_token(&token)?;
+        return Ok(token);
+    }
+
+    let token = match events.len() {
+        0 => return Err(CaptureError::NoTokenError),
+        1 => events[0]
+            .extract_token()
+            .ok_or(CaptureError::NoTokenError)?,
+        _ => extract_token(events)?,
+    };
+
+    validate_token(&token)?;
+    Ok(token)
+}
+
+pub fn extract_token(events: &[RawEvent]) -> Result<String, CaptureError> {
+    let distinct_tokens: HashSet<Option<String>> = HashSet::from_iter(
+        events
+            .iter()
+            .map(RawEvent::extract_token)
+            .filter(Option::is_some),
+    );
+
+    return match distinct_tokens.len() {
+        0 => Err(CaptureError::NoTokenError),
+        1 => match distinct_tokens.iter().last() {
+            Some(Some(token)) => Ok(token.clone()),
+            _ => Err(CaptureError::NoTokenError),
+        },
+        _ => Err(CaptureError::MultipleTokensError),
+    };
 }
