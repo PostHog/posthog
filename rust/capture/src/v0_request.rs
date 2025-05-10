@@ -461,7 +461,7 @@ mod tests {
                     false,
                 )
                 .expect("failed to parse")
-                .events("/e")
+                .events("/e/?ip=192.0.0.1&ver=2.3.4")
             };
 
         // since we're not extracting events against the /engage endpoint path,
@@ -486,7 +486,7 @@ mod tests {
                     false,
                 )
                 .expect("failed to parse")
-                .events("/engage")
+                .events("/engage/?ip=10.0.0.1&ver=1.2.3")
             };
 
         let got = parse_and_extract_events(
