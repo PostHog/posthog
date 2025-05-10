@@ -131,8 +131,8 @@ export class EventPipelineRunner {
                 return this.registerLastStep('eventDisallowedStep', [event])
             }
             let result: EventPipelineResult
-            const { eventWithTeam, team } =
-                (await this.runStep(populateTeamDataStep, [this, event], event.team_id || -1)) ?? {}
+            // const { eventWithTeam, team } =
+            //     (await this.runStep(populateTeamDataStep, [this, event], event.team_id || -1)) ?? {}
             if (eventWithTeam != null && team != null) {
                 result = await this.runEventPipelineSteps(eventWithTeam, team)
             } else {
