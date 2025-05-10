@@ -75,32 +75,33 @@ export function Shortcuts(): JSX.Element {
                 <div className="pl-3 text-muted">{shortcutsLoading ? <Spinner /> : 'No shortcuts added'}</div>
             ) : null}
 
-            <LemonTree
-                ref={treeRef}
-                contentRef={mainContentRef as RefObject<HTMLElement>}
-                className="px-0 py-1"
-                data={shortcuts}
-                itemContextMenu={(item) => {
-                    return <ContextMenuGroup>{renderMenuItems(item, 'context')}</ContextMenuGroup>
-                }}
-                itemSideAction={(item) => {
-                    return <DropdownMenuGroup>{renderMenuItems(item, 'dropdown')}</DropdownMenuGroup>
-                }}
-                onFolderClick={(folder) => {
-                    if (folder?.id) {
-                        if (expandedFolders.includes(folder.id)) {
-                            setExpandedFolders(expandedFolders.filter((id) => id !== folder.id))
-                        } else {
-                            setExpandedFolders([...expandedFolders, folder.id])
+            <div className="mt-[-0.25rem]">
+                <LemonTree
+                    ref={treeRef}
+                    contentRef={mainContentRef as RefObject<HTMLElement>}
+                    data={shortcuts}
+                    itemContextMenu={(item) => {
+                        return <ContextMenuGroup>{renderMenuItems(item, 'context')}</ContextMenuGroup>
+                    }}
+                    itemSideAction={(item) => {
+                        return <DropdownMenuGroup>{renderMenuItems(item, 'dropdown')}</DropdownMenuGroup>
+                    }}
+                    onFolderClick={(folder) => {
+                        if (folder?.id) {
+                            if (expandedFolders.includes(folder.id)) {
+                                setExpandedFolders(expandedFolders.filter((id) => id !== folder.id))
+                            } else {
+                                setExpandedFolders([...expandedFolders, folder.id])
+                            }
                         }
-                    }
-                }}
-                onItemClick={(node) => {
-                    node?.onClick?.(true)
-                }}
-                expandedItemIds={expandedFolders}
-                onSetExpandedItemIds={setExpandedFolders}
-            />
+                    }}
+                    onItemClick={(node) => {
+                        node?.onClick?.(true)
+                    }}
+                    expandedItemIds={expandedFolders}
+                    onSetExpandedItemIds={setExpandedFolders}
+                />
+            </div>
             <AddShortcutModal />
         </>
     )
