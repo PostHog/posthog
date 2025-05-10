@@ -88,6 +88,9 @@ pub struct Config {
     #[envconfig(default = "redis://localhost:6379/")]
     pub redis_url: String,
 
+    #[envconfig(default = "redis://localhost:6379/")]
+    pub redis_reader_url: String,
+
     #[envconfig(default = "1")]
     pub acquire_timeout_secs: u64,
 
@@ -125,6 +128,7 @@ impl Config {
         Self {
             address: SocketAddr::from_str("127.0.0.1:0").unwrap(),
             redis_url: "redis://localhost:6379/".to_string(),
+            redis_reader_url: "redis://localhost:6379/".to_string(),
             write_database_url: "postgres://posthog:posthog@localhost:5432/test_posthog"
                 .to_string(),
             read_database_url: "postgres://posthog:posthog@localhost:5432/test_posthog".to_string(),
@@ -191,6 +195,7 @@ mod tests {
         assert_eq!(config.max_concurrency, 1000);
         assert_eq!(config.max_pg_connections, 10);
         assert_eq!(config.redis_url, "redis://localhost:6379/");
+        assert_eq!(config.redis_reader_url, "redis://localhost:6379/");
         assert_eq!(config.team_ids_to_track, TeamIdsToTrack::All);
     }
 
@@ -209,6 +214,7 @@ mod tests {
         assert_eq!(config.max_concurrency, 1000);
         assert_eq!(config.max_pg_connections, 10);
         assert_eq!(config.redis_url, "redis://localhost:6379/");
+        assert_eq!(config.redis_reader_url, "redis://localhost:6379/");
         assert_eq!(config.team_ids_to_track, TeamIdsToTrack::All);
     }
 
@@ -227,6 +233,7 @@ mod tests {
         assert_eq!(config.max_concurrency, 1000);
         assert_eq!(config.max_pg_connections, 10);
         assert_eq!(config.redis_url, "redis://localhost:6379/");
+        assert_eq!(config.redis_reader_url, "redis://localhost:6379/");
         assert_eq!(config.team_ids_to_track, TeamIdsToTrack::All);
     }
 

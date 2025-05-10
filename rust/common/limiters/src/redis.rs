@@ -80,7 +80,7 @@ impl ServiceName {
 #[derive(Clone)]
 pub struct RedisLimiter {
     limited: Arc<RwLock<HashSet<String>>>,
-    redis: Arc<dyn Client + Send + Sync>,
+    redis_reader: Arc<dyn Client + Send + Sync>,
     key: String,
     interval: Duration,
     service_name: ServiceName,
@@ -97,7 +97,7 @@ impl RedisLimiter {
     /// Pass an empty redis node list to only use this initial set.
     pub fn new(
         interval: Duration,
-        redis: Arc<dyn Client + Send + Sync>,
+        redis_reader: Arc<dyn Client + Send + Sync>,
         limiter_cache_key: String,
         redis_key_prefix: Option<String>,
         resource: QuotaResource,
@@ -108,7 +108,7 @@ impl RedisLimiter {
 
         let limiter = RedisLimiter {
             limited,
-            redis: redis.clone(),
+            redis_reader: redis_reader.clone(),
             key: format!("{key_prefix}{limiter_cache_key}{}", resource.as_str()),
             interval,
             service_name,
@@ -122,7 +122,7 @@ impl RedisLimiter {
 
     fn spawn_background_update(&self) {
         let limited = Arc::clone(&self.limited);
-        let redis = Arc::clone(&self.redis);
+        let redis = Arc::clone(&self.redis_reader);
         let interval_duration = self.interval;
         let key = self.key.clone();
         let service_name = self.service_name.as_string();

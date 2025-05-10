@@ -76,7 +76,8 @@ impl ServerHandle {
         }
 
         tokio::spawn(async move {
-            let redis_client = Arc::new(mock_client);
+            let redis_reader_client = Arc::new(mock_client.clone());
+            let redis_writer_client = Arc::new(mock_client);
             let reader = match get_pool(&config.read_database_url, config.max_pg_connections).await
             {
                 Ok(client) => Arc::new(client),
@@ -116,7 +117,7 @@ impl ServerHandle {
 
             let billing_limiter = RedisLimiter::new(
                 Duration::from_secs(5),
-                redis_client.clone(),
+                redis_reader_client.clone(),
                 QUOTA_LIMITER_CACHE_KEY.to_string(),
                 None,
                 QuotaResource::FeatureFlags,
@@ -126,11 +127,12 @@ impl ServerHandle {
 
             let cookieless_manager = Arc::new(common_cookieless::CookielessManager::new(
                 config.get_cookieless_config(),
-                redis_client.clone(),
+                redis_writer_client.clone(),
             ));
 
             let app = feature_flags::router::router(
-                redis_client,
+                redis_writer_client.clone(),
+                redis_reader_client.clone(),
                 reader,
                 writer,
                 cohort_cache,
