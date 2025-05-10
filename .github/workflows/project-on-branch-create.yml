@@ -1,0 +1,256 @@
+name: Project - Update Issue on Branch Creation
+
+on:
+    create:
+        branches:
+            - '**'
+    workflow_dispatch:
+        inputs:
+            branch_name:
+                description: 'Branch name to test with'
+                required: true
+                default: 'feature/test-123'
+jobs:
+    move-issues-on-branch-creation:
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            issues: write
+            repository-projects: read
+
+        steps:
+            - name: Move Issue to In Progress on branch creation
+              uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7
+              with:
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  script: |
+                      // Get issue's project data
+                      const issueQuery = `
+                        query($owner: String!, $repo: String!, $number: Int!) {
+                          repository(owner: $owner, name: $repo) {
+                            issue(number: $number) {
+                              id
+                              number
+                              title
+                              projectItems(first: 10) {
+                                nodes {
+                                  id
+                                  fieldValues(first: 20) {
+                                    nodes {
+                                      ... on ProjectV2ItemFieldSingleSelectValue {
+                                        name
+                                        field {
+                                          ... on ProjectV2SingleSelectField {
+                                            name
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                  project {
+                                    id
+                                    title
+                                    fields(first: 20) {
+                                      nodes {
+                                        ... on ProjectV2SingleSelectField {
+                                          id
+                                          name
+                                          options {
+                                            id
+                                            name
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      `;
+
+                      // Update status to In Progress
+                      const updateMutation = `
+                        mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
+                          updateProjectV2ItemFieldValue(
+                            input: {
+                              projectId: $projectId
+                              itemId: $itemId
+                              fieldId: $fieldId
+                              value: {
+                                singleSelectOptionId: $optionId
+                              }
+                            }
+                          ) {
+                            projectV2Item {
+                              id
+                            }
+                          }
+                        }
+                      `;
+
+                      const addCommentMutation = `
+                        mutation($input: AddCommentInput!) {
+                          addComment(input: $input) {
+                            commentEdge {
+                              node {
+                                id
+                              }
+                            }
+                          }
+                        }
+                      `;
+
+                      // Get issue number from branch name
+                      const getIssueNumber = (branchName) => branchName.match(/\d+$/)?.[0];
+
+                      const findProjectStatusField = (project) =>
+                        project.fields.nodes.find((field) =>
+                          field.name?.toLowerCase().includes("status")
+                        );
+
+                      const findProjectStatusOption = (statusField, status) =>
+                        statusField.options.find((option) =>
+                          option.name.toLowerCase().includes(status)
+                        );
+
+                      const getCurrentStatus = (item) =>
+                        item.fieldValues.nodes.find((value) =>
+                          value.field?.name.toLowerCase().includes("status")
+                        )?.name || "No status";
+
+                      const fetchIssue = async (issueNumber) =>
+                        await github.graphql(issueQuery, {
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          number: parseInt(issueNumber),
+                        });
+
+                      const updateStatus = async (projectId, itemId, fieldId, optionId) =>
+                        await github.graphql(updateMutation, {
+                          projectId,
+                          itemId,
+                          fieldId,
+                          optionId,
+                        });
+
+                      const createCommentBody = (
+                        statusMessage,
+                        projectTitle,
+                        currentStatus,
+                        availableStatuses,
+                        branchName
+                      ) => `
+                      ### Project Status Update
+                      ${statusMessage}
+
+                      **Project:** ${projectTitle}
+                      **Current Status:** ${currentStatus}
+                      **Available Statuses:** ${availableStatuses.join(", ")}
+
+                      Branch: \`${branchName}\`
+                      `;
+
+                      const addComment = async (
+                        issueId,
+                        statusMessage,
+                        projectTitle,
+                        currentStatus,
+                        availableStatuses,
+                        branchName
+                      ) => {
+                        try {
+                          await github.graphql(addCommentMutation, {
+                            input: {
+                              subjectId: issueId,
+                              body: createCommentBody(
+                                statusMessage,
+                                projectTitle,
+                                currentStatus,
+                                availableStatuses,
+                                branchName
+                              ),
+                            },
+                          });
+                          console.log("✓ Added comment to issue");
+                        } catch (error) {
+                          console.log("✗ Failed to add comment:", error.message);
+                        }
+                      };
+
+                      // Get branch name and issue number
+                      const branchName = context.ref.replace('refs/heads/', '');
+                      const issueNumber = getIssueNumber(branchName);
+
+                      console.log('Branch name:', branchName);
+                      console.log('Issue number:', issueNumber);
+
+                      if(!issueNumber) {
+                        console.log('No issue number found in branch name');
+                        return;
+                      }
+
+                      try {
+                        // Fetch issue data
+                        const issueResult = await fetchIssue(issueNumber);
+
+                        const issue = issueResult.repository.issue;
+                        console.log(`\nProcessing Issue #${issue.number}: ${issue.title}`);
+
+                        // Process each project item for this issue.
+                        // The same issue can be in multiple projects, with different status fields.
+                        for (const item of issue.projectItems.nodes) {
+                          const project = item.project;
+
+                          // Find status field and its options
+                          const statusField = findProjectStatusField(project);
+
+                          if (!statusField) {
+                            console.log(`\nProject: ${project.title}\nStatus: No status field found\n-------------------`);
+                            continue;
+                          }
+
+                          // Find "In Progress" option
+                          const inProgressOption = findProjectStatusOption(statusField, 'in progress');
+
+                          if (!inProgressOption) {
+                            console.log('No "In Progress" status found in this project\n-------------------');
+                            continue;
+                          }
+
+                          // Get current status
+                          const currentStatus = getCurrentStatus(item);
+
+                          const availableStatuses = statusField.options.map(opt => opt.name);
+                          console.log(`\nProject: ${project.title}\nCurrent Status: ${currentStatus}\nAvailable Statuses: ${availableStatuses.join(', ')}`);
+
+                          let statusMessage = '';
+                          let needsComment = false;
+
+                          // Check if issue is in a final state
+                          if(['done', 'in review'].includes(currentStatus.toLowerCase())) {
+                            statusMessage = `🚫 Oops! This issue is already ${currentStatus}! You might want to reset it to a different status.`;
+                            needsComment = true;
+                          } else if (currentStatus.toLowerCase().includes('in progress')) {
+                            statusMessage = `ℹ️ Issue is already In Progress in project "${project.title}"`;
+                          } else {
+                            try {
+                              await updateStatus(project.id, item.id, statusField.id, inProgressOption.id);
+                              statusMessage = `✅ Moved to In Progress in project "${project.title}"`;
+                            } catch (error) {
+                              statusMessage = `❌ Failed to update status in project "${project.title}": ${error.message}`;
+                              needsComment = true;
+                            }
+                          }
+
+                          console.log(statusMessage);
+
+                          // Comment on the issue
+                          if (needsComment) {
+                            await addComment(issue.id, statusMessage, project.title, currentStatus, availableStatuses, branchName);
+                          }
+                        }
+                      } catch (error) {
+                        console.log(`\n❌ Failed to fetch Issue #${issueNumber}: ${error.message}`);
+                      }
