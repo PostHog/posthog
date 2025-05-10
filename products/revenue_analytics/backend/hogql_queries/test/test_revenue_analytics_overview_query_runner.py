@@ -6,9 +6,6 @@ from posthog.models.utils import uuid7
 from products.revenue_analytics.backend.hogql_queries.revenue_analytics_overview_query_runner import (
     RevenueAnalyticsOverviewQueryRunner,
 )
-from products.revenue_analytics.backend.views.revenue_analytics_charge_view import (
-    STRIPE_DATA_WAREHOUSE_CHARGE_IDENTIFIER,
-)
 from posthog.schema import (
     CurrencyCode,
     DateRange,
@@ -28,6 +25,9 @@ from posthog.test.base import (
 from posthog.warehouse.models import ExternalDataSchema
 
 from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
+from products.revenue_analytics.backend.views.revenue_analytics_charge_view import (
+    STRIPE_CHARGE_RESOURCE_NAME,
+)
 from products.revenue_analytics.backend.hogql_queries.test.data.structure import (
     REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT,
     STRIPE_CHARGE_COLUMNS,
@@ -88,7 +88,7 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # because this is required by the `RevenueAnalyticsBaseView` to find the right tables
         self.schema = ExternalDataSchema.objects.create(
             team=self.team,
-            name=STRIPE_DATA_WAREHOUSE_CHARGE_IDENTIFIER,
+            name=STRIPE_CHARGE_RESOURCE_NAME,
             source=self.source,
             table=self.table,
             should_sync=True,

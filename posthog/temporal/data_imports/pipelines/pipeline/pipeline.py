@@ -25,6 +25,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     _handle_null_columns_with_definitions,
     _update_job_row_count,
     _update_last_synced_at_sync,
+    _notify_revenue_analytics_that_sync_has_completed,
     append_partition_key_to_table,
     normalize_table_column_names,
     should_partition_table,
@@ -267,6 +268,9 @@ class PipelineNonDLT:
 
         self._logger.debug("Updating last synced at timestamp on schema")
         _update_last_synced_at_sync(self._schema, self._job)
+
+        self._logger.debug("Notifying revenue analytics that sync has completed")
+        _notify_revenue_analytics_that_sync_has_completed(self._schema, self._logger)
 
         # As mentioned above, for sort mode 'desc' we only want to update the `incremental_field_last_value` once we
         # have processed all of the data (we could also update it here for 'asc' but it's not needed)

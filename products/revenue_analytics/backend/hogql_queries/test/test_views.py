@@ -5,6 +5,7 @@ from posthog.test.base import BaseTest
 from products.revenue_analytics.backend.views.revenue_analytics_base_view import RevenueAnalyticsBaseView
 from products.revenue_analytics.backend.views.revenue_analytics_charge_view import (
     RevenueAnalyticsChargeView,
+    STRIPE_CHARGE_RESOURCE_NAME,
     ZERO_DECIMAL_CURRENCIES_IN_STRIPE,
 )
 from products.revenue_analytics.backend.views.revenue_analytics_customer_view import RevenueAnalyticsCustomerView
@@ -36,7 +37,7 @@ class TestRevenueAnalyticsViews(BaseTest):
         )
         self.schema = ExternalDataSchema.objects.create(
             team=self.team,
-            name="Charge",
+            name=STRIPE_CHARGE_RESOURCE_NAME,
             source=self.source,
             table=self.table,
             should_sync=True,

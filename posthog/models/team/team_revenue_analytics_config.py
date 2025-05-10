@@ -22,6 +22,10 @@ assert len(CURRENCY_CODE_CHOICES) == 152
 class TeamRevenueAnalyticsConfig(models.Model):
     team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True)
     base_currency = models.CharField(max_length=3, choices=CURRENCY_CODE_CHOICES, default=CurrencyCode.USD.value)
+    notified_first_sync = models.BooleanField(default=False, null=True)
+
+    # Mangled field because we want the `events` getter/setter wrapper
+    # to be able to validate the schema of the events
     _events = models.JSONField(default=list, db_column="events")
 
     @property
