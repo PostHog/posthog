@@ -68,7 +68,6 @@ export const urls = {
     errorTracking: (params = {}): string => combineUrl('/error_tracking', params).url,
     errorTrackingConfiguration: (): string => '/error_tracking/configuration',
     /** @param id A UUID or 'new'. ':id' for routing. */
-    errorTrackingAlert: (id: string): string => `/error_tracking/alerts/${id}`,
     errorTrackingIssue: (id: string, fingerprint?: string): string =>
         combineUrl(`/error_tracking/${id}`, { fingerprint }).url,
     customCss: (): string => '/themes/custom-css',
@@ -158,4 +157,8 @@ export const urls = {
     sessionAttributionExplorer: (): string => '/web/session-attribution-explorer',
     wizard: (): string => `/wizard`,
     startups: (ycProgram?: boolean): string => `/startups${ycProgram ? '/yc' : ''}`,
+    hogFunction: (id: string): string => `/functions/${id}`,
+    hogFunctionNew: (templateId: string): string => `/functions/new/${templateId}`,
+    errorTrackingAlert: (id: string): string => `/error_tracking/alerts/${id}`,
+    errorTrackingAlertNew: (templateId: string): string => `/error_tracking/alerts/new/${templateId}`,
 }

@@ -23,23 +23,12 @@ use crate::v0_request::{
 use crate::{
     api::{CaptureError, CaptureResponse, CaptureResponseCode},
     router, sinks,
-    utils::uuid_v7,
+    utils::{
+        decode_base64, decode_form, extract_compression, extract_lib_version, is_likely_base64,
+        is_likely_urlencoded_form, uuid_v7, Base64Option, FORM_MIME_TYPE, MAX_PAYLOAD_SNIPPET_SIZE,
+    },
     v0_request::{EventFormData, EventQuery},
 };
-
-// used to limit test scans and extract loggable snippets from potentially large strings/buffers
-pub const MAX_CHARS_TO_CHECK: usize = 128;
-pub const MAX_PAYLOAD_SNIPPET_SIZE: usize = 20;
-
-pub const FORM_MIME_TYPE: &str = "application/x-www-form-urlencoded";
-
-#[derive(PartialEq, Eq)]
-pub enum Base64Option {
-    // hasn't been decoded from urlencoded payload; won't include spaces
-    Strict,
-    // input might have been urlencoded; might include spaces that need touching up
-    Loose,
-}
 
 /// handle_legacy owns the /e, /capture, /track, and /engage capture endpoints
 #[instrument(
@@ -246,120 +235,6 @@ async fn handle_legacy(
         event_count=?events.len(),
         "handle_legacy: successfully hydrated events");
     Ok((context, events))
-}
-
-fn extract_lib_version(form: &EventFormData, params: &EventQuery) -> Option<String> {
-    let form_lv = form.lib_version.as_ref();
-    let params_lv = params.lib_version.as_ref();
-    if form_lv.is_some_and(|lv| !lv.is_empty()) {
-        return Some(form_lv.unwrap().clone());
-    }
-    if params_lv.is_some_and(|lv| !lv.is_empty()) {
-        return Some(params_lv.unwrap().clone());
-    }
-
-    None
-}
-
-// the compression hint can be tucked away any number of places depending on the SDK submitting the request...
-fn extract_compression(
-    form: &EventFormData,
-    params: &EventQuery,
-    headers: &HeaderMap,
-) -> Compression {
-    if params
-        .compression
-        .is_some_and(|c| c != Compression::Unsupported)
-    {
-        params.compression.unwrap()
-    } else if form
-        .compression
-        .is_some_and(|c| c != Compression::Unsupported)
-    {
-        form.compression.unwrap()
-    } else if let Some(ct) = headers.get("content-encoding") {
-        match ct.to_str().unwrap_or("UNKNOWN") {
-            "gzip" | "gzip-js" => Compression::Gzip,
-            "lz64" | "lz-string" => Compression::LZString,
-            _ => Compression::Unsupported,
-        }
-    } else {
-        Compression::Unsupported
-    }
-}
-
-fn decode_form(payload: &[u8]) -> Result<EventFormData, CaptureError> {
-    match serde_urlencoded::from_bytes::<EventFormData>(payload) {
-        Ok(form) => Ok(form),
-
-        Err(e) => {
-            let max_chars: usize = std::cmp::min(payload.len(), MAX_PAYLOAD_SNIPPET_SIZE);
-            let form_data_snippet = String::from_utf8(payload[..max_chars].to_vec())
-                .unwrap_or(String::from("INVALID_UTF8"));
-            error!(
-                form_data = form_data_snippet,
-                "failed to decode urlencoded form body: {}", e
-            );
-            Err(CaptureError::RequestDecodingError(String::from(
-                "invalid urlencoded form data",
-            )))
-        }
-    }
-}
-
-// have we decoded sufficiently have a urlencoded data payload of the expected form yet?
-fn is_likely_urlencoded_form(payload: &[u8]) -> bool {
-    [
-        &b"data="[..],
-        &b"ver="[..],
-        &b"_="[..],
-        &b"ip="[..],
-        &b"compression="[..],
-    ]
-    .iter()
-    .any(|target: &&[u8]| payload.starts_with(target))
-}
-
-// relatively cheap check for base64 encoded payload since these can show up at
-// various decoding layers in requests from different PostHog SDKs and versions
-pub fn is_likely_base64(payload: &[u8], opt: Base64Option) -> bool {
-    if payload.is_empty() {
-        return false;
-    }
-
-    let prefix_chars_b64_compatible = payload.iter().take(MAX_CHARS_TO_CHECK).all(|b| {
-        (*b >= b'A' && *b <= b'Z')
-            || (*b >= b'a' && *b <= b'z')
-            || (*b >= b'0' && *b <= b'9')
-            || *b == b'+'
-            || *b == b'/'
-            || *b == b'='
-            || (opt == Base64Option::Loose && *b == b' ')
-    });
-
-    let is_b64_aligned = payload.len() % 4 == 0;
-
-    prefix_chars_b64_compatible && is_b64_aligned
-}
-
-pub fn decode_base64(payload: &[u8], location: &str) -> Result<Vec<u8>, CaptureError> {
-    match base64::engine::general_purpose::STANDARD.decode(payload) {
-        Ok(decoded_payload) => Ok(decoded_payload),
-        Err(e) => {
-            let max_chars = std::cmp::min(payload.len(), MAX_PAYLOAD_SNIPPET_SIZE);
-            let data_snippet = String::from_utf8(payload[..max_chars].to_vec())
-                .unwrap_or(String::from("INVALID_UTF8"));
-            error!(
-                location = location,
-                data_snippet = data_snippet,
-                "decode_base64 failure: {}",
-                e
-            );
-            Err(CaptureError::RequestDecodingError(String::from(
-                "attempting to decode base64",
-            )))
-        }
-    }
 }
 
 /// Flexible endpoint that targets wide compatibility with the wide range of requests
