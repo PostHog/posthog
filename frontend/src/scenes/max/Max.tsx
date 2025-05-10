@@ -1,5 +1,14 @@
-import { IconArrowLeft, IconExternal, IconGear, IconPlus, IconSidePanel } from '@posthog/icons'
-import { BindLogic, useActions, useValues } from 'kea'
+import {
+    IconArrowLeft,
+    IconChevronLeft,
+    IconClockRewind,
+    IconExternal,
+    IconGear,
+    IconPlus,
+    IconSidePanel,
+} from '@posthog/icons'
+import { LemonSkeleton } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -13,6 +22,9 @@ import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panel
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { SidePanelTab } from '~/types'
 
+import { AnimatedBackButton } from './components/AnimatedBackButton'
+import { ConversationHistory } from './ConversationHistory'
+import { HistoryPreview } from './HistoryPreview'
 import { Intro } from './Intro'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
@@ -52,11 +64,7 @@ export function Max(): JSX.Element {
         )
     }
 
-    return (
-        <BindLogic logic={maxLogic} props={{ conversationId: null }}>
-            <MaxInstance />
-        </BindLogic>
-    )
+    return <MaxInstance />
 }
 
 export interface MaxInstanceProps {
@@ -64,8 +72,8 @@ export interface MaxInstanceProps {
 }
 
 export function MaxInstance({ sidePanel }: MaxInstanceProps): JSX.Element {
-    const { threadGrouped } = useValues(maxLogic)
-    const { startNewConversation } = useActions(maxLogic)
+    const { threadVisible, conversationHistoryVisible, chatTitle, backButtonDisabled } = useValues(maxLogic)
+    const { startNewConversation, toggleConversationHistory, goBack } = useActions(maxLogic)
     const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
     const { closeSidePanel } = useActions(sidePanelLogic)
 
@@ -76,6 +84,13 @@ export function MaxInstance({ sidePanel }: MaxInstanceProps): JSX.Element {
                 icon={<IconPlus />}
                 onClick={() => startNewConversation()}
                 tooltip="Start a new chat"
+                tooltipPlacement="bottom"
+            />
+            <LemonButton
+                size="small"
+                sideIcon={<IconClockRewind />}
+                onClick={() => toggleConversationHistory()}
+                tooltip="Open chat history"
                 tooltipPlacement="bottom"
             />
             <LemonButton
@@ -95,36 +110,67 @@ export function MaxInstance({ sidePanel }: MaxInstanceProps): JSX.Element {
     return (
         <>
             {sidePanel && (
-                <SidePanelPaneHeader>
-                    <LemonButton
-                        size="small"
-                        sideIcon={<IconPlus />}
-                        onClick={() => startNewConversation()}
-                        tooltip="Start a new chat"
-                        tooltipPlacement="bottom"
-                    />
-                    <div className="flex-1" />
-                    <LemonButton
-                        size="small"
-                        sideIcon={<IconExternal />}
-                        to={urls.max()}
-                        onClick={() => closeSidePanel()}
-                        tooltip="Open as main focus"
-                        tooltipPlacement="bottom"
-                    />
+                <SidePanelPaneHeader className="transition-all duration-200">
+                    <div className="flex flex-1">
+                        <div className="flex items-center flex-1">
+                            <AnimatedBackButton in={!backButtonDisabled}>
+                                <LemonButton
+                                    size="small"
+                                    icon={<IconChevronLeft />}
+                                    onClick={() => goBack()}
+                                    tooltip="Go back"
+                                    tooltipPlacement="bottom-end"
+                                    disabledReason={backButtonDisabled ? 'You are already at home' : undefined}
+                                />
+                            </AnimatedBackButton>
+                            {chatTitle ? (
+                                <h3
+                                    className="font-semibold mb-0 line-clamp-1 text-sm ml-1"
+                                    title={chatTitle !== 'Max' ? chatTitle : undefined}
+                                >
+                                    {chatTitle}
+                                </h3>
+                            ) : (
+                                <LemonSkeleton className="h-5 w-48 ml-1" />
+                            )}
+                        </div>
+                        <LemonButton
+                            size="small"
+                            icon={<IconPlus />}
+                            onClick={() => startNewConversation()}
+                            tooltip="Start a new chat"
+                            tooltipPlacement="bottom"
+                        />
+                        <LemonButton
+                            size="small"
+                            sideIcon={<IconExternal />}
+                            to={urls.max()}
+                            onClick={() => closeSidePanel()}
+                            tooltip="Open as main focus"
+                            tooltipPlacement="bottom-end"
+                        />
+                    </div>
                 </SidePanelPaneHeader>
             )}
             <PageHeader delimited buttons={headerButtons} />
-            {!threadGrouped.length ? (
-                <div className="@container/max-welcome relative flex flex-col gap-3 px-4 pb-8 items-center grow justify-center">
-                    <Intro />
-                    <QuestionInput />
-                    <QuestionSuggestions />
+            {conversationHistoryVisible ? (
+                <ConversationHistory sidePanel={sidePanel} />
+            ) : !threadVisible ? (
+                // pb-7 below is intentionally specific - it's chosen so that the bottom-most chat's title
+                // is at the same viewport height as the QuestionInput text that appear after going into a thread.
+                // This makes the transition from one view into another just that bit smoother visually.
+                <div className="@container/max-welcome relative flex flex-col gap-4 px-4 pb-7 grow">
+                    <div className="flex-1 items-center justify-center flex flex-col gap-3">
+                        <Intro />
+                        <QuestionInput />
+                        <QuestionSuggestions />
+                    </div>
+                    <HistoryPreview sidePanel={sidePanel} />
                 </div>
             ) : (
                 <>
                     <Thread />
-                    <QuestionInput />
+                    <QuestionInput isFloating />
                 </>
             )}
         </>

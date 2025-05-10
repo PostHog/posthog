@@ -7,13 +7,13 @@ from langchain_core.messages import (
     merge_message_runs,
 )
 
+from ee.hogai.utils.types import AssistantMessageUnion
 from posthog.schema import (
     AssistantMessage,
+    AssistantToolCallMessage,
     HumanMessage,
     VisualizationMessage,
 )
-
-from .types import AssistantMessageUnion
 
 
 def remove_line_breaks(line: str) -> str:
@@ -84,3 +84,17 @@ def find_start_message(messages: Sequence[AssistantMessageUnion], start_id: str 
         if isinstance(msg, HumanMessage) and msg.id == start_id:
             return msg
     return None
+
+
+def should_output_assistant_message(candidate_message: AssistantMessageUnion) -> bool:
+    """
+    This is used to filter out messages that are not useful for the user.
+    Filter out tool calls without a UI payload and empty assistant messages.
+    """
+    if isinstance(candidate_message, AssistantToolCallMessage) and candidate_message.ui_payload is None:
+        return False
+
+    if isinstance(candidate_message, AssistantMessage) and not candidate_message.content:
+        return False
+
+    return True
