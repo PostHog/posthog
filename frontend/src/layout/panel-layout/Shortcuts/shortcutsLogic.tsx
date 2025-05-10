@@ -1,6 +1,7 @@
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import api from 'lib/api'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
-import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { convertFileSystemEntryToTreeDataItem, escapePath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
@@ -18,28 +19,37 @@ export const shortcutsLogic = kea<shortcutsLogicType>([
         hideModal: true,
         setSelectedItem: (item: TreeDataItem | null) => ({ item }),
         addShortcutItem: (item: FileSystemEntry) => ({ item }),
-        deleteShortcut: (item: FileSystemEntry) => ({ item }),
+        deleteShortcut: (id: FileSystemEntry['id']) => ({ id }),
+        loadShortcuts: true,
     }),
-    reducers({
-        shortcutRecords: [
+    loaders(({ values }) => ({
+        shortcutData: [
             [] as FileSystemEntry[],
-            { persist: true, prefix: `${getCurrentTeamId()}__` },
             {
-                addShortcutItem: (state, { item }) => [
-                    ...state,
-                    // we run this through JSON.parse/JSON.stringify to make sure we don't persist any React classes
-                    { ...JSON.parse(JSON.stringify(item)), shortcut: true } as FileSystemEntry,
-                ],
-                deleteShortcut: (state, { item }) => {
-                    return state.filter(
-                        (s) =>
-                            s.path !== item.path ||
-                            s.type !== item.type ||
-                            s.href !== item.href ||
-                            s.id !== item.id ||
-                            s.ref !== item.ref
-                    )
+                loadShortcuts: async () => {
+                    const response = await api.fileSystemShortcuts.list()
+                    return response.results
                 },
+                addShortcutItem: async ({ item }) => {
+                    const response = await api.fileSystemShortcuts.create({
+                        path: splitPath(item.path).pop() ?? 'Unnamed',
+                        type: item.type,
+                        ref: item.ref,
+                        href: item.href,
+                    })
+                    return [...values.shortcutData, response]
+                },
+                deleteShortcut: async ({ id }) => {
+                    await api.fileSystemShortcuts.delete(id)
+                    return values.shortcutData.filter((s) => s.id !== id)
+                },
+            },
+        ],
+    })),
+    reducers({
+        shortcutData: [
+            [] as FileSystemEntry[],
+            {
                 deleteTypeAndRef: (state, { type, ref }) => state.filter((s) => s.type !== type || s.ref !== ref),
                 updateSyncedFiles: (state, { files }) => {
                     const filesByTypeAndRef = Object.fromEntries(
@@ -72,10 +82,10 @@ export const shortcutsLogic = kea<shortcutsLogicType>([
     }),
     selectors({
         shortcuts: [
-            (s) => [s.shortcutRecords],
-            (shortcutRecords) =>
+            (s) => [s.shortcutData],
+            (shortcutData) =>
                 convertFileSystemEntryToTreeDataItem({
-                    imports: [...shortcutRecords],
+                    imports: [...shortcutData],
                     recent: true,
                     checkedItems: {},
                     folderStates: {},
@@ -83,5 +93,9 @@ export const shortcutsLogic = kea<shortcutsLogicType>([
                     searchTerm: '',
                 }).sort((a, b) => a.name.localeCompare(b.name)),
         ],
+        shortcutsLoading: [(s) => [s.shortcutDataLoading], (loading) => loading],
+    }),
+    afterMount(({ actions }) => {
+        actions.loadShortcuts()
     }),
 ])

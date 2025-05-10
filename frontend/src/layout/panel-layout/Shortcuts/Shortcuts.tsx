@@ -1,6 +1,7 @@
 import { IconPlus } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { LemonTree, LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ContextMenuGroup, ContextMenuItem, ContextMenuSeparator } from 'lib/ui/ContextMenu/ContextMenu'
 import { DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
@@ -12,7 +13,7 @@ import { shortcutsLogic } from '~/layout/panel-layout/Shortcuts/shortcutsLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 export function Shortcuts(): JSX.Element {
-    const { shortcuts } = useValues(shortcutsLogic)
+    const { shortcuts, shortcutsLoading } = useValues(shortcutsLogic)
     const { showModal, deleteShortcut } = useActions(shortcutsLogic)
     const { mainContentRef, isLayoutNavCollapsed } = useValues(panelLayoutLogic)
 
@@ -47,7 +48,7 @@ export function Shortcuts(): JSX.Element {
                     asChild
                     onClick={(e) => {
                         e.stopPropagation()
-                        item.record && deleteShortcut(item.record as FileSystemEntry)
+                        item.record && deleteShortcut((item.record as FileSystemEntry).id)
                     }}
                 >
                     <ButtonPrimitive menuItem>Delete shortcut</ButtonPrimitive>
@@ -60,13 +61,20 @@ export function Shortcuts(): JSX.Element {
         <>
             {!isLayoutNavCollapsed && (
                 <div className="flex justify-between items-center pl-3 pr-1 relative">
-                    <span className="text-xs font-semibold text-quaternary">Shortcuts</span>
+                    <div className="flex items-center gap-1">
+                        <span className="text-xs font-semibold text-quaternary">Shortcuts</span>
+                        {shortcutsLoading && shortcuts.length > 0 ? <Spinner /> : null}
+                    </div>
                     <ButtonPrimitive onClick={showModal}>
                         <IconPlus className="size-3 text-secondary" />
                     </ButtonPrimitive>
                 </div>
             )}
-            {shortcuts.length === 0 && <div className="pl-3 text-muted">No shortcuts added</div>}
+
+            {shortcuts.length === 0 ? (
+                <div className="pl-3 text-muted">{shortcutsLoading ? <Spinner /> : 'No shortcuts added'}</div>
+            ) : null}
+
             <LemonTree
                 ref={treeRef}
                 contentRef={mainContentRef as RefObject<HTMLElement>}
