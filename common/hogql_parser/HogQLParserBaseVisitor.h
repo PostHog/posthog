@@ -103,6 +103,10 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitCreate(HogQLParser::CreateContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any visitSelectStmtWithParens(HogQLParser::SelectStmtWithParensContext *ctx) override {
     return visitChildren(ctx);
   }
