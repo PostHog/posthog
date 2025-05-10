@@ -139,7 +139,6 @@ const findCostFromModel = (aiModel: string): ModelRow | undefined => {
     const lowerAiModel = aiModel.toLowerCase()
 
     // 1. Attempt exact match first
-    // Assumes keys in costsByModel are already lowercased model names.
     let cost: ModelRow | undefined = costsByModel[lowerAiModel]
     if (cost) {
         return cost
@@ -170,7 +169,6 @@ const findCostFromModel = (aiModel: string): ModelRow | undefined => {
         return cost
     }
 
-    // If no cost found after all attempts
     logger.warn(`No cost found for model: ${aiModel}`)
     return undefined
 }
