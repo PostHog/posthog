@@ -185,7 +185,7 @@ export const BillingHero = ({ product }: { product: BillingProductV2Type }): JSX
                                 data-attr="billing-page-core-upgrade-cta"
                                 disableClientSideRouting
                                 loading={!!billingProductLoading}
-                                onClick={() => showPaymentEntryModal()}
+                                onClick={() => showPaymentEntryModal(redirectPath)}
                             >
                                 Upgrade now
                             </BillingUpgradeCTA>
