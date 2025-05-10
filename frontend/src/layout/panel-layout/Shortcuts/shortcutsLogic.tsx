@@ -91,6 +91,7 @@ export const shortcutsLogic = kea<shortcutsLogicType>([
                     folderStates: {},
                     root: 'shortcuts',
                     searchTerm: '',
+                    allShortcuts: true,
                 }).sort((a, b) => a.name.localeCompare(b.name)),
         ],
         shortcutsLoading: [(s) => [s.shortcutDataLoading], (loading) => loading],
