@@ -202,9 +202,7 @@ class RevenueAnalyticsChargeView(RevenueAnalyticsBaseView):
         # Get all schemas for the source, avoid calling `filter` and do the filtering on Python-land
         # to avoid n+1 queries
         schemas = source.schemas.all()
-        charge_schema = next(
-            (schema for schema in schemas if schema.name == STRIPE_CHARGE_RESOURCE_NAME), None
-        )
+        charge_schema = next((schema for schema in schemas if schema.name == STRIPE_CHARGE_RESOURCE_NAME), None)
         if charge_schema is None:
             return []
 
