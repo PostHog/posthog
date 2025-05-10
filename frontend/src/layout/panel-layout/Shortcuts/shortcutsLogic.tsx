@@ -1,5 +1,9 @@
-import { actions, kea, path, reducers } from 'kea'
+import { actions, kea, path, reducers, selectors } from 'kea'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
+
+import { convertFileSystemEntryToTreeDataItem } from '~/layout/panel-layout/ProjectTree/utils'
+import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import type { shortcutsLogicType } from './shortcutsLogicType'
 
@@ -10,15 +14,19 @@ export const shortcutsLogic = kea<shortcutsLogicType>([
         showModal: true,
         hideModal: true,
         setSelectedItem: (item: TreeDataItem | null) => ({ item }),
-        addShortcutItem: (item: TreeDataItem) => ({ item }),
-        deleteShortcut: (item: TreeDataItem) => ({ item }),
+        addShortcutItem: (item: FileSystemEntry) => ({ item }),
+        deleteShortcut: (item: FileSystemEntry) => ({ item }),
     }),
     reducers({
-        shortcuts: [
-            [] as TreeDataItem[],
+        shortcutRecords: [
+            [] as FileSystemEntry[],
+            { persist: true, prefix: `${getCurrentTeamId()}__` },
             {
-                addShortcutItem: (state, { item }) => [...state, item],
-                deleteShortcut: (state, { item }) => state.filter((s) => s !== item),
+                addShortcutItem: (state, { item }) => [
+                    ...state,
+                    { ...JSON.parse(JSON.stringify(item)), shortcut: true } as FileSystemEntry,
+                ],
+                // deleteShortcut: (state, { item }) => state.filter((s) => s !== item),
             },
         ],
         selectedItem: [
@@ -34,6 +42,20 @@ export const shortcutsLogic = kea<shortcutsLogicType>([
                 hideModal: () => false,
                 addShortcutItem: () => false,
             },
+        ],
+    }),
+    selectors({
+        shortcuts: [
+            (s) => [s.shortcutRecords],
+            (shortcutRecords) =>
+                convertFileSystemEntryToTreeDataItem({
+                    imports: shortcutRecords,
+                    recent: true,
+                    checkedItems: {},
+                    folderStates: {},
+                    root: 'shortcuts',
+                    searchTerm: '',
+                }),
         ],
     }),
 ])

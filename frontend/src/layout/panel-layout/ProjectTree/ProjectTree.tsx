@@ -165,7 +165,7 @@ export function ProjectTree({ sortMethod }: ProjectTreeProps): JSX.Element {
                             asChild
                             onClick={(e) => {
                                 e.stopPropagation()
-                                addShortcutItem(item)
+                                item.record && addShortcutItem(item.record as FileSystemEntry)
                             }}
                         >
                             <ButtonPrimitive menuItem>Add to shortcuts panel</ButtonPrimitive>

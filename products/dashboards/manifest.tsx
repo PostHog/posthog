@@ -29,7 +29,7 @@ export const manifest: ProductManifest = {
         {
             path: `Dashboard`,
             type: 'dashboard',
-            href: () => urls.dashboards() + '#newDashboard=modal',
+            href: urls.dashboards() + '#newDashboard=modal',
         },
     ],
 }

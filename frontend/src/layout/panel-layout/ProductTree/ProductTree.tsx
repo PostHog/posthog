@@ -8,6 +8,7 @@ import { RefObject, useRef, useState } from 'react'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { shortcutsLogic } from '~/layout/panel-layout/Shortcuts/shortcutsLogic'
+import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import { PanelLayoutPanel } from '../PanelLayoutPanel'
 import { projectTreeLogic } from '../ProjectTree/projectTreeLogic'
@@ -29,7 +30,7 @@ export function ProductTree(): JSX.Element {
                     asChild
                     onClick={(e) => {
                         e.stopPropagation()
-                        addShortcutItem(item)
+                        item.record && addShortcutItem(item.record as FileSystemEntry)
                     }}
                 >
                     <ButtonPrimitive menuItem>Add to shortcuts panel</ButtonPrimitive>

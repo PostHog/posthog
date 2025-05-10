@@ -24,8 +24,7 @@ export const manifest: ProductManifest = {
         {
             type: 'action',
             path: 'Action',
-            icon: <IconRocket />,
-            href: () => urls.createAction(),
+            href: urls.createAction(),
         },
     ],
 }

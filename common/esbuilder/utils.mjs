@@ -733,9 +733,9 @@ export function gatherProductManifests(__dirname) {
         ${autogenComment}
         export const fileSystemTypes = ${manifestFileSystemTypes}\n
         ${autogenComment}
-        export const treeItemsNew = ${manifestTreeItemsNew}\n
+        export const getTreeItemsNew = (): FileSystemImport[] => ${manifestTreeItemsNew}\n
         ${autogenComment}
-        export const treeItemsProducts = ${manifestTreeItemsProducts}\n
+        export const getTreeItemsProducts = (): FileSystemImport[] => ${manifestTreeItemsProducts}\n
     `
 
     // safe temporary path in /tmp

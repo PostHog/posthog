@@ -42,14 +42,14 @@ export const manifest: ProductManifest = {
         {
             path: `Early access feature`,
             type: 'early_access_feature',
-            href: () => urls.earlyAccessFeature('new'),
+            href: urls.earlyAccessFeature('new'),
         },
     ],
     treeItemsProducts: [
         {
             path: 'Early access features',
-            icon: <IconRocket />,
-            href: () => urls.earlyAccessFeatures(),
+            type: 'early_access_feature',
+            href: urls.earlyAccessFeatures(),
         },
     ],
 }

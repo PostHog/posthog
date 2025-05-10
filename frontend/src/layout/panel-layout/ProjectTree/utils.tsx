@@ -41,14 +41,18 @@ export function sortFilesAndFolders(a: FileSystemEntry, b: FileSystemEntry): num
     return a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' })
 }
 
+export function shortcutWrapper(icon: React.ReactNode): JSX.Element {
+    return (
+        <div className="relative">
+            {icon}
+            <IconArrowUpRight className="absolute bottom-[-0.25rem] left-[-0.25rem] scale-75 bg-white border border-black" />
+        </div>
+    )
+}
+
 export function wrapWithShortcutIcon(item: FileSystemImport | FileSystemEntry, icon: JSX.Element): JSX.Element {
     if (item.shortcut) {
-        return (
-            <div className="relative">
-                {icon}
-                <IconArrowUpRight className="absolute bottom-[-0.25rem] left-[-0.25rem] scale-75 bg-white border border-black" />
-            </div>
-        )
+        return shortcutWrapper(icon)
     }
 
     return icon
@@ -80,7 +84,7 @@ export function convertFileSystemEntryToTreeDataItem({
             icon: item._loading ? (
                 <Spinner />
             ) : (
-                wrapWithShortcutIcon(item, ('icon' in item && item.icon) || iconForType(item.type))
+                wrapWithShortcutIcon(item, 'iconType' in item ? iconForType(item.iconType) : iconForType(item.type))
             ),
             record: { ...item, user },
             checked: checkedItems[nodeId],

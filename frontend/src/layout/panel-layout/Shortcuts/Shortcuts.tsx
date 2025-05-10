@@ -11,6 +11,7 @@ import { RefObject, useRef, useState } from 'react'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { shortcutsLogic } from '~/layout/panel-layout/Shortcuts/shortcutsLogic'
+import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 export function CombinedTree(): JSX.Element {
     const { treeItemsCombined } = useValues(projectTreeLogic)
@@ -33,7 +34,7 @@ export function CombinedTree(): JSX.Element {
                     asChild
                     onClick={(e) => {
                         e.stopPropagation()
-                        deleteShortcut(item)
+                        item.record && deleteShortcut(item.record as FileSystemEntry)
                     }}
                 >
                     <ButtonPrimitive menuItem>Delete shortcut</ButtonPrimitive>
@@ -94,7 +95,12 @@ export function AddShortcutModal(): JSX.Element {
                 selectedItem ? (
                     <>
                         <div className="flex-1" />
-                        <LemonButton type="primary" onClick={() => addShortcutItem(selectedItem)}>
+                        <LemonButton
+                            type="primary"
+                            onClick={() =>
+                                selectedItem?.record && addShortcutItem(selectedItem?.record as FileSystemEntry)
+                            }
+                        >
                             Add {selectedItem?.name || 'Project root'}
                         </LemonButton>
                     </>
