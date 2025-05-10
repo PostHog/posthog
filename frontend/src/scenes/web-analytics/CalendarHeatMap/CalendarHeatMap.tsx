@@ -119,7 +119,7 @@ export function CalendarHeatMap({
                             {columnLabels.map((label, i) => (
                                 <th key={i}>{label}</th>
                             ))}
-                            {rowsAggregations[0] !== undefined && showRowAggregations && (
+                            {rowsAggregations?.[0] !== undefined && showRowAggregations && (
                                 <th className="aggregation-border">{allAggregationsLabel}</th>
                             )}
                         </tr>
@@ -162,7 +162,7 @@ export function CalendarHeatMap({
                         {/* Aggregation column */}
                         {showColumnAggregations && (
                             <tr className="aggregation-border" data-attr="column-aggregations">
-                                {columnsAggregations[0] !== undefined && (
+                                {columnsAggregations?.[0] !== undefined && (
                                     <td className="CalendarHeatMap__TextTab">{allAggregationsLabel}</td>
                                 )}
                                 {renderColumnsAggregationCells(
@@ -291,12 +291,12 @@ function renderDataCells(
             <CalendarHeatMapCell
                 fontSize={fontSize}
                 values={{
-                    value: rowData[index],
+                    value: rowData?.[index] ?? 0,
                     maxValue,
                     minValue,
                 }}
                 bg={bg}
-                tooltip={getDataTooltip(rowLabel, columnLabel, rowData[index])}
+                tooltip={getDataTooltip(rowLabel, columnLabel, rowData?.[index] ?? 0)}
             />
         </td>
     ))

@@ -24,7 +24,7 @@ export function CalendarHeatMapCell({ values, bg, fontSize, tooltip }: HeatMapCe
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ fontSize, backgroundColor, color }}
             >
-                {humanFriendlyLargeNumber(values.value)}
+                {humanFriendlyLargeNumber(values.value || 0)}
             </div>
         </Tooltip>
     )
