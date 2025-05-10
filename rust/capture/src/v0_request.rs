@@ -369,6 +369,7 @@ mod tests {
     use base64::Engine as _;
     use bytes::Bytes;
     use common_types::util::empty_string_is_none;
+    use common_types::RawEvent;
     use rand::distributions::Alphanumeric;
     use rand::Rng;
     use serde::Deserialize;
@@ -446,6 +447,54 @@ mod tests {
                 .extract_distinct_id()
                 .expect("cannot find distinct_id")
         );
+    }
+
+    #[test]
+    fn extract_non_engage_event_without_name_fails() {
+        let parse_and_extract_events =
+            |input: &'static str| -> Result<Vec<RawEvent>, CaptureError> {
+                RawRequest::from_bytes(
+                    input.into(),
+                    Compression::Unsupported,
+                    "extract_distinct_id",
+                    2048,
+                    false,
+                )
+                .expect("failed to parse")
+                .events("/e")
+            };
+
+        // since we're not extracting events against the /engage endpoint path,
+        // an event with a missing "event" (name) attribute is invalid
+        assert!(matches!(
+            parse_and_extract_events(
+                r#"{"token": "token", "distinct_id": "distinct_id", "properties":{"foo": 42, "bar": true}}"#
+            ),
+            Err(CaptureError::RequestParsingError(_))
+        ));
+    }
+
+    #[test]
+    fn extract_engage_event_without_name_is_resolved() {
+        let parse_and_extract_events =
+            |input: &'static str| -> Result<Vec<RawEvent>, CaptureError> {
+                RawRequest::from_bytes(
+                    input.into(),
+                    Compression::Unsupported,
+                    "extract_distinct_id",
+                    2048,
+                    false,
+                )
+                .expect("failed to parse")
+                .events("/engage")
+            };
+
+        let got = parse_and_extract_events(
+            r#"{"token": "token", "distinct_id": "distinct_id", "$set":{"foo": 42, "bar": true}}"#,
+        )
+        .expect("engage event hydrated");
+        assert!(got.len() == 1);
+        assert!(&got[0].event == "$identify");
     }
 
     #[test]
