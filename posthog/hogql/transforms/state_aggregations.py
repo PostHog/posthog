@@ -62,10 +62,8 @@ class AggregationStateTransformer(CloningVisitor):
     intermediate aggregation states for other transformations.
     """
 
-    def __init__(self, transform_nested_aggregations=False):
+    def __init__(self):
         super().__init__(clear_types=True)
-        # Flag to control whether nested aggregations should be transformed
-        self.transform_nested_aggregations = transform_nested_aggregations
         # Tracks depth of queries to identify top-level vs nested
         self.query_depth = 0
         # Tracks whether we're in a top-level SELECT list
@@ -97,26 +95,22 @@ class AggregationStateTransformer(CloningVisitor):
         """Visit a function call and transform it to a State function if it's an aggregation function."""
         result = super().visit_call(node)
 
-        # Only transform aggregation functions in the top-level SELECT list or if explicitly requested
-        if (
-            self.in_top_level_select or self.transform_nested_aggregations
-        ) and result.name in AGGREGATION_TO_STATE_MAPPING:
+        # Only transform aggregation functions in the top-level SELECT list
+        if self.in_top_level_select and result.name in AGGREGATION_TO_STATE_MAPPING:
             result.name = AGGREGATION_TO_STATE_MAPPING[result.name]
 
         return result
 
 
-def transform_query_to_state_aggregations(query: QueryType, transform_nested_aggregations=False) -> QueryType:
+def transform_query_to_state_aggregations(query: QueryType) -> QueryType:
     """
     Transforms a regular query to use State aggregation functions.
-    This will transform only the top-level aggregation functions by default.
+    This will transform only the top-level aggregation functions.
 
     Args:
         query: The HogQL query AST to transform
-        transform_nested_aggregations: Whether to transform nested aggregations (default: False)
     """
-    # Use the transformer to recursively transform all levels of the query
-    transformer = AggregationStateTransformer(transform_nested_aggregations=transform_nested_aggregations)
+    transformer = AggregationStateTransformer()
     transformed_query = transformer.visit(query)
 
     return cast(QueryType, transformed_query)
