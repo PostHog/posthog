@@ -285,7 +285,6 @@ class FeatureFlagMatcher:
         return FeatureFlagMatch(
             match=False,
             reason=highest_priority_evaluation_reason,
-            condition_index=highest_priority_index,
             payload=None,
         )
 

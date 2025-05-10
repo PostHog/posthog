@@ -1043,7 +1043,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "variant": None,
                 "reason": {
                     "code": "out_of_rollout_bound",
-                    "condition_index": 0,
+                    "condition_index": None,
                     "description": "Out of rollout bound",
                 },
                 "metadata": {
