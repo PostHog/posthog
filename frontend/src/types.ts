@@ -37,6 +37,7 @@ import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 import { Params, Scene, SceneConfig } from 'scenes/sceneTypes'
 import { WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 
+import { AssistantMessage } from '~/queries/schema/schema-assistant-messages'
 import type {
     DashboardFilter,
     DatabaseSchemaField,
@@ -209,6 +210,7 @@ export enum ProductKey {
     WEB_ANALYTICS = 'web_analytics',
     ERROR_TRACKING = 'error_tracking',
     REVENUE_ANALYTICS = 'revenue_analytics',
+    MAX = 'max',
 }
 
 type ProductKeyUnion = `${ProductKey}`
@@ -5308,8 +5310,22 @@ export enum CookielessServerHashMode {
 /**
  * Assistant Conversation
  */
+export enum ConversationStatus {
+    Idle = 'idle',
+    InProgress = 'in_progress',
+    Canceling = 'canceling',
+}
+
 export interface Conversation {
     id: string
+    status: ConversationStatus
+    title: string | null
+    created_at: string | null
+    updated_at: string | null
+}
+
+export interface ConversationDetail extends Conversation {
+    messages: AssistantMessage[]
 }
 
 export enum UserRole {
