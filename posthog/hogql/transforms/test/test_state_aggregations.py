@@ -207,7 +207,7 @@ class TestStateTransforms(BaseTest):
 
         original_query_ast = parse_select(original_query_str)
 
-        state_query_ast = transform_query_to_state_aggregations(original_query_ast, transform_nested_aggregations=False)
+        state_query_ast = transform_query_to_state_aggregations(original_query_ast)
         wrapper_query_ast = wrap_state_query_in_merge_query(state_query_ast)
 
         printed = self._print_select(wrapper_query_ast)
@@ -319,7 +319,10 @@ class TestStateTransforms(BaseTest):
 
 
 class TestStateTransformsIntegration(ClickhouseTestMixin, APIBaseTest):
-    """Integration tests for state transformations with ClickHouse execution."""
+    """
+    Integration tests for state transformations with ClickHouse execution.
+    It is a simple way to make sure we're getting the same results from the original and transformed queries.
+    """
 
     def setUp(self):
         super().setUp()
