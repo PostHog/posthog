@@ -54,13 +54,13 @@ export const shortcutsLogic = kea<shortcutsLogicType>([
             (s) => [s.shortcutRecords],
             (shortcutRecords) =>
                 convertFileSystemEntryToTreeDataItem({
-                    imports: shortcutRecords,
+                    imports: [...shortcutRecords],
                     recent: true,
                     checkedItems: {},
                     folderStates: {},
                     root: 'shortcuts',
                     searchTerm: '',
-                }),
+                }).sort((a, b) => a.name.localeCompare(b.name)),
         ],
     }),
 ])
