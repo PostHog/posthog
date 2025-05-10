@@ -24,8 +24,9 @@ use crate::{
     api::{CaptureError, CaptureResponse, CaptureResponseCode},
     router, sinks,
     utils::{
-        decode_base64, decode_form, extract_compression, extract_lib_version, is_likely_base64,
-        is_likely_urlencoded_form, uuid_v7, Base64Option, FORM_MIME_TYPE, MAX_PAYLOAD_SNIPPET_SIZE,
+        decode_base64, decode_form, extract_and_verify_token, extract_compression,
+        extract_lib_version, is_likely_base64, is_likely_urlencoded_form, uuid_v7, Base64Option,
+        FORM_MIME_TYPE, MAX_PAYLOAD_SNIPPET_SIZE,
     },
     v0_request::{EventFormData, EventQuery},
 };
@@ -186,26 +187,36 @@ async fn handle_legacy(
     )?;
 
     let sent_at = request.sent_at().or(query_params.sent_at());
-    let token = match request.extract_and_verify_token() {
-        Ok(token) => token,
-        Err(err) => {
-            report_dropped_events("token_shape_invalid", request.events().len() as u64);
-            report_internal_error_metrics(err.to_metric_tag(), "token_validation");
-            return Err(err);
-        }
-    };
-    Span::current().record("token", &token);
-
     let historical_migration = request.historical_migration();
     Span::current().record("historical_migration", historical_migration);
 
-    let events = request.events(); // Takes ownership of request
+    // if this was a batch request, retrieve this now for later validation
+    let maybe_batch_token = request.get_batch_token();
+
+    // consumes the parent request, so it's no longer in scope to extract metadata from
+    let events = match request.events(path.as_str()) {
+        Ok(events) => events,
+        Err(e) => {
+            error!("event hydration from request failed: {}", e);
+            return Err(e);
+        }
+    };
     Span::current().record("batch_size", events.len());
 
     if events.is_empty() {
         warn!("rejected empty batch");
         return Err(CaptureError::EmptyBatch);
     }
+
+    let token = match extract_and_verify_token(&events, maybe_batch_token) {
+        Ok(token) => token,
+        Err(err) => {
+            report_dropped_events("token_shape_invalid", events.len() as u64);
+            report_internal_error_metrics(err.to_metric_tag(), "token_validation");
+            return Err(err);
+        }
+    };
+    Span::current().record("token", &token);
 
     counter!("capture_events_received_total", &[("legacy", "true")]).increment(events.len() as u64);
 
@@ -326,25 +337,36 @@ async fn handle_common(
     }?;
 
     let sent_at = request.sent_at().or(meta.sent_at());
-    let token = match request.extract_and_verify_token() {
-        Ok(token) => token,
-        Err(err) => {
-            report_dropped_events("token_shape_invalid", request.events().len() as u64);
-            report_internal_error_metrics(err.to_metric_tag(), "token_validation");
-            return Err(err);
+    let historical_migration = request.historical_migration();
+    Span::current().record("historical_migration", historical_migration);
+
+    // if this was a batch request, retrieve this now for later validation
+    let maybe_batch_token = request.get_batch_token();
+
+    // consumes the parent request, so it's no longer in scope to extract metadata from
+    let events = match request.events(path.as_str()) {
+        Ok(events) => events,
+        Err(e) => {
+            error!("event hydration from request failed: {}", e);
+            return Err(e);
         }
     };
-    let historical_migration = request.historical_migration();
-    let events = request.events(); // Takes ownership of request
-
-    Span::current().record("token", &token);
-    Span::current().record("historical_migration", historical_migration);
     Span::current().record("batch_size", events.len());
 
     if events.is_empty() {
         warn!("rejected empty batch");
         return Err(CaptureError::EmptyBatch);
     }
+
+    let token = match extract_and_verify_token(&events, maybe_batch_token) {
+        Ok(token) => token,
+        Err(err) => {
+            report_dropped_events("token_shape_invalid", events.len() as u64);
+            report_internal_error_metrics(err.to_metric_tag(), "token_validation");
+            return Err(err);
+        }
+    };
+    Span::current().record("token", &token);
 
     counter!("capture_events_received_total").increment(events.len() as u64);
 
