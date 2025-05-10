@@ -28,6 +28,7 @@ import {
     joinPath,
     sortFilesAndFolders,
     splitPath,
+    unescapePath,
 } from './utils'
 
 const PAGINATION_LIMIT = 100
@@ -1192,7 +1193,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         // No scene breadcrumbs, so create a new one with the file name
                         lastBreadcrumb = {
                             key: `project-tree/${projectTreeRefEntry.path}`,
-                            name: name,
+                            name: unescapePath(name ?? 'Unnamed'),
                             path: projectTreeRefEntry.href, // link to actual page
                         }
                     }
@@ -1211,7 +1212,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 // Convert the folders into breadcrumbs
                 const breadcrumbs: ProjectTreeBreadcrumb[] = folders.map((path, index) => ({
                     key: `project-tree/${path}`,
-                    name: path,
+                    name: unescapePath(path),
                     path: joinPath(folders.slice(0, index + 1)),
                     type: 'folder',
                 }))

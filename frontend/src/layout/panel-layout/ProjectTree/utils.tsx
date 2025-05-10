@@ -72,7 +72,7 @@ export function convertFileSystemEntryToTreeDataItem({
 }: ConvertProps): TreeDataItem[] {
     function itemToTreeDataItem(item: FileSystemImport | FileSystemEntry): TreeDataItem {
         const pathSplit = splitPath(item.path)
-        const itemName = pathSplit.pop()!
+        const itemName = unescapePath(pathSplit.pop() ?? 'Unnamed')
         const nodeId = getItemId(item)
         const displayName = <SearchHighlightMultiple string={itemName} substring={searchTerm ?? ''} />
         const user: UserBasicType | undefined = item.meta?.created_by ? users?.[item.meta.created_by] : undefined
@@ -306,6 +306,10 @@ export function joinPath(path: string[]): string {
 
 export function escapePath(path: string): string {
     return path.replace(/\\/g, '\\\\').replace(/\//g, '\\/')
+}
+
+export function unescapePath(path: string): string {
+    return path.replace(/\\\//g, '/').replace(/\\\\/g, '\\')
 }
 
 export function findInProjectTree(itemId: string, projectTree: TreeDataItem[]): TreeDataItem | undefined {
