@@ -27,7 +27,11 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import (
     PartitionMode,
     SourceResponse,
 )
-from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema
+from posthog.warehouse.models import (
+    ExternalDataJob,
+    ExternalDataSchema,
+    ExternalDataSource,
+)
 
 DLT_TO_PA_TYPE_MAP = {
     "text": pa.string(),
@@ -745,3 +749,11 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
                 arrow_schema = arrow_schema.remove(arrow_schema.get_field_index(str(column)))
 
     return pa.Table.from_pydict(columnar_table_data, schema=arrow_schema)
+
+
+def supports_partial_data_loading(schema: ExternalDataSchema) -> bool:
+    """
+    We should be able to roll this out to all source types but initially we only support it for Stripe so we can verify
+    the approach.
+    """
+    return schema.source.source_type == ExternalDataSource.Type.STRIPE
