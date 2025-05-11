@@ -1,6 +1,5 @@
 import {
     IconAI,
-    IconArrowUpRight,
     IconCursorClick,
     IconDashboard,
     IconDatabase,
@@ -20,7 +19,6 @@ import {
     IconRewindPlay,
     IconRocket,
     IconServer,
-    IconSparkles,
     IconTestTube,
     IconToggle,
     IconWarning,
@@ -463,21 +461,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                               to: urls.products(),
                           },
                       ]
-
-                if (featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG]) {
-                    sectionOne.splice(1, 0, {
-                        identifier: Scene.Max,
-                        label: 'Max',
-                        icon: <IconSparkles />,
-                        onClick: () =>
-                            lemonToast.info(
-                                'Max now lives in the top right corner of the app – he will soon disappear from the navbar',
-                                { icon: <IconArrowUpRight /> }
-                            ),
-                        to: urls.max(),
-                        tag: 'beta' as const,
-                    })
-                }
 
                 return [
                     sectionOne,
