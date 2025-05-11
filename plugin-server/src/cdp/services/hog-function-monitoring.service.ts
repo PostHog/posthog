@@ -30,21 +30,24 @@ export class HogFunctionMonitoringService {
         const messages = [...this.messagesToProduce]
         this.messagesToProduce = []
 
-        await this.hub
-            .kafkaProducer!.queueMessages(
-                messages.map((x) => ({
-                    topic: x.topic,
-                    messages: [
-                        {
-                            value: safeClickhouseString(JSON.stringify(x.value)),
+        await Promise.all(
+            messages.map((x) => {
+                const value = x.value ? Buffer.from(safeClickhouseString(JSON.stringify(x.value))) : null
+                return this.hub.kafkaProducer
+                    .produce({
+                        topic: x.topic,
+                        key: x.key ? Buffer.from(x.key) : null,
+                        value,
+                    })
+                    .catch((reason) => {
+                        logger.error('⚠️', `failed to produce message: ${reason}`, {
+                            messageLength: value?.length,
+                            topic: x.topic,
                             key: x.key,
-                        },
-                    ],
-                }))
-            )
-            .catch((reason) => {
-                logger.error('⚠️', `failed to produce message: ${reason}`)
+                        })
+                    })
             })
+        )
     }
 
     produceAppMetric(metric: HogFunctionAppMetric) {
