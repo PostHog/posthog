@@ -532,7 +532,7 @@
          AND "posthog_filesystemshortcut"."team_id" = 99999
          AND "posthog_filesystemshortcut"."type" = 'notebook'
          AND NOT ("posthog_filesystemshortcut"."path" = 'New title'
-                  AND "posthog_filesystemshortcut"."href" = '/notebooks/Cp8T6vYT'
+                  AND "posthog_filesystemshortcut"."href" = '/notebooks/t1W4gfVe'
                   AND "posthog_filesystemshortcut"."href" IS NOT NULL))
   '''
 # ---
