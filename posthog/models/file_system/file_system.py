@@ -74,7 +74,9 @@ def create_or_update_file(
     if has_existing:
         path = escape_path(name)
         shortcuts = (
-            FileSystemShortcut.objects.filter(team=team, type=file_type, ref=ref).filter(~Q(path=path, href=href)).all()
+            FileSystemShortcut.objects.filter(team=team, type=file_type, ref=ref)
+            .filter(~(Q(path=path) & Q(href=href)))
+            .all()
         )
         for shortcut in shortcuts:
             shortcut.path = path
