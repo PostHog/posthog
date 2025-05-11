@@ -124,18 +124,17 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
     def _get_date_subqueries(self) -> ast.Expr:
         plus_interval = self.query_date_range.number_interval_periods()
-
-        # :TRICKY: advancing the days beyond a DST transition can lead to dates that are not at 00:00:00
-        # when using clickhouse date additions. This is a workaround to ensure we always get the start of the day,
-        # even if it would be invalid in the given timezone. This is necessary for (a) formatting of date labels
-        # and (b) to match the datetimes we get from events, as they land on the invalid datetimes.
-        if self.query_date_range.interval_name == "day":
-            plus_interval = parse_expr("number * 86400")
+        # Correct handling of DST for daily interval with date fields
+        date_from_start_of_interval_for_addition = (
+            ast.Call(name="toDate", args=[self.query_date_range.date_from_as_hogql()])
+            if self.query_date_range.interval_name == "day"
+            else self.query_date_range.date_from_start_of_interval()
+        )
 
         return parse_expr(
             """
             arrayMap(
-                number -> {date_from_start_of_interval} + {plus_interval}, -- NOTE: flipped the order around to use start date
+                number -> {date_from_start_of_interval_for_addition} + {plus_interval}, -- NOTE: flipped the order around to use start date
                 range(
                     0,
                     coalesce(
@@ -148,7 +147,11 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 )
             ) as date
         """,
-            placeholders={**self.query_date_range.to_placeholders(), "plus_interval": plus_interval},
+            placeholders={
+                **self.query_date_range.to_placeholders(),
+                "plus_interval": plus_interval,
+                "date_from_start_of_interval_for_addition": date_from_start_of_interval_for_addition,
+            },
         )
 
     def _get_events_subquery(
@@ -181,12 +184,20 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         )
         assert default_query.group_by is not None
 
-        day_start = ast.Alias(
-            alias="day_start",
-            expr=ast.Call(
-                name=f"toStartOf{self.query_date_range.interval_name.title()}", args=[ast.Field(chain=["timestamp"])]
-            ),
-        )
+        # Correct handling of DST for daily interval with date fields
+        if self.query_date_range.interval_name == "day":
+            day_start = ast.Alias(
+                alias="day_start",
+                expr=ast.Call(name=f"toDate", args=[ast.Field(chain=["timestamp"])]),
+            )
+        else:
+            day_start = ast.Alias(
+                alias="day_start",
+                expr=ast.Call(
+                    name=f"toStartOf{self.query_date_range.interval_name.title()}",
+                    args=[ast.Field(chain=["timestamp"])],
+                ),
+            )
 
         if self._trends_display.is_total_value():
             if not breakdown.enabled:

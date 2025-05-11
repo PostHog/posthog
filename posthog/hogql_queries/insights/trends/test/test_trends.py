@@ -9526,3 +9526,61 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ],
         )
         self.assertEqual(response[0]["data"], [5, 4, 3, 2, 1, 0])
+
+    def test_us_pacific_dst_transition(self):
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+
+        # Create events before and after DST change (March 9th 2025)
+        self._create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="user1",
+            timestamp="2025-03-08T16:00:00Z",  # March 8th, 8:00 PST
+        )
+        self._create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="user2",
+            timestamp="2025-03-09T16:00:00Z",  # March 9th, 8:00 PST
+        )
+        self._create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="user3",
+            timestamp="2025-03-10T15:00:00Z",  # March 10th, 8:00 PDT (after DST)
+        )
+
+        filter = Filter(
+            team=self.team,
+            data={
+                "date_from": "2025-03-08",
+                "date_to": "2025-03-10",
+                "interval": "day",
+                "events": [{"id": "sign up", "name": "sign up"}],
+            },
+        )
+
+        response = self._run(filter, self.team)
+        days = response[0]["days"]
+
+        self.assertEqual(days, ["2025-03-08", "2025-03-09", "2025-03-10"])
+        self.assertEqual(response[0]["data"], [1, 1, 1])
+
+        # Test with hourly interval to verify hour handling around DST change
+        filter = Filter(
+            team=self.team,
+            data={
+                "date_from": "2025-03-09 00:00:00",
+                "date_to": "2025-03-10 23:59:59",
+                "interval": "hour",
+                "events": [{"id": "sign up", "name": "sign up"}],
+            },
+        )
+
+        response = self._run(filter, self.team)
+        self.assertEqual(len(response[0]["days"]), 47)  # 23 hours on DST change day + 24 hours next day
+        data = response[0]["data"]
+        # Verify event counts appear in correct hours
+        self.assertEqual(data[8], 1)  # 8 AM PST on March 9th
+        self.assertEqual(data[31], 1)  # 8 AM PDT on March 10th
