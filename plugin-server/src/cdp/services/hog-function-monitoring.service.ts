@@ -5,6 +5,7 @@ import { runInstrumentedFunction } from '../../main/utils'
 import { AppMetric2Type, Hub, TimestampFormat } from '../../types'
 import { safeClickhouseString } from '../../utils/db/utils'
 import { logger } from '../../utils/logger'
+import { captureException } from '../../utils/posthog'
 import { castTimestampOrNow } from '../../utils/utils'
 import {
     HogFunctionAppMetric,
@@ -39,12 +40,17 @@ export class HogFunctionMonitoringService {
                         key: x.key ? Buffer.from(x.key) : null,
                         value,
                     })
-                    .catch((reason) => {
-                        logger.error('⚠️', `failed to produce message: ${reason}`, {
+                    .catch((error) => {
+                        // NOTE: We don't hard fail here - this is because we don't want to disrupt the
+                        // entire processing just for metrics.
+                        logger.error('⚠️', `failed to produce message: ${error}`, {
+                            error: String(error),
                             messageLength: value?.length,
                             topic: x.topic,
                             key: x.key,
                         })
+
+                        captureException(error)
                     })
             })
         )
