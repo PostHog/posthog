@@ -103,7 +103,7 @@ from posthog.warehouse.models.table import (
     DataWarehouseTableColumns,
 )
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
-from products.revenue_analytics.backend.models import RevenueAnalyticsRevenueView
+from products.revenue_analytics.backend.views.revenue_analytics_base_view import RevenueAnalyticsBaseView
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -468,7 +468,7 @@ def create_hogql_database(
 
         with timings.measure("for_schema_source"):
             for stripe_source in stripe_sources:
-                revenue_views = RevenueAnalyticsRevenueView.for_schema_source(stripe_source)
+                revenue_views = RevenueAnalyticsBaseView.for_schema_source(stripe_source)
 
                 # View will have a name similar to stripe.prefix.table_name
                 # We want to create a nested table group where stripe is the parent,
@@ -481,7 +481,7 @@ def create_hogql_database(
 
         # No need to call `create_nested_table_group` because these arent using dot notation
         with timings.measure("for_events"):
-            revenue_views = RevenueAnalyticsRevenueView.for_events(team)
+            revenue_views = RevenueAnalyticsBaseView.for_events(team)
             for view in revenue_views:
                 views[view.name] = view
 
@@ -955,7 +955,7 @@ def serialize_database(
         fields = serialize_fields(view.fields, context, view_name.split("."), table_type="external")
         fields_dict = {field.name: field for field in fields}
 
-        if isinstance(view, RevenueAnalyticsRevenueView):
+        if isinstance(view, RevenueAnalyticsBaseView):
             tables[view_name] = DatabaseSchemaManagedViewTable(
                 fields=fields_dict,
                 id=view.name,  # We don't have a UUID for revenue views because they're not saved, just reuse the name
