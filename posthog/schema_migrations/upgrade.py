@@ -19,7 +19,7 @@ def upgrade_node(node: Any) -> Any:
             while (v := (node.get("v") or 1)) < LATEST_VERSIONS[node["kind"]]:
                 node = MIGRATIONS[node["kind"]][v](deepcopy(node))
 
-        for key, value in list(node.items()):
+        for key, value in node.items():
             node[key] = upgrade_node(value)
 
         return node

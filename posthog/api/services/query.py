@@ -48,7 +48,7 @@ def process_query_dict(
 ) -> dict | BaseModel:
     upgraded_query_json = upgrade(query_json)
     model = QuerySchemaRoot.model_validate(upgraded_query_json)
-    tag_queries(query=query_json)
+    tag_queries(query=upgraded_query_json)
 
     dashboard_filters = DashboardFilter.model_validate(dashboard_filters_json) if dashboard_filters_json else None
     variables_override = (

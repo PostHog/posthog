@@ -264,6 +264,7 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         delete queryCopy.retentionFilter?.targetEntity
         delete queryCopy.retentionFilter?.totalIntervals
         delete queryCopy.retentionFilter?.cumulative
+        delete queryCopy.retentionFilter?.meanRetentionCalculation
     } else if (isPathsQuery(queryCopy)) {
         camelCasedPathsProps.edge_limit = queryCopy.pathsFilter?.edgeLimit
         camelCasedPathsProps.paths_hogql_expression = queryCopy.pathsFilter?.pathsHogQLExpression

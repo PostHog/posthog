@@ -13,7 +13,7 @@ MIGRATIONS: dict[NodeKind, dict[int, SchemaMigration]] = {}
 
 def _discover_migrations():
     migration_dir = os.path.dirname(__file__)
-    migration_files = [f for f in os.listdir(migration_dir) if re.match(r"^\d{4}.*\.py$", f)]
+    migration_files = [f for f in os.listdir(migration_dir) if re.match(r"^\d{4}[a-zA-Z_]*\.py$", f)]
 
     for file in sorted(migration_files):
         module_name = file[:-3]  # Remove .py
