@@ -325,6 +325,12 @@ def clean_varying_query_parts(query, replace_all_numbers):
         query,
     )
 
+    # project tree and file system related replacements
+    query = re.sub(
+        r"\"href\" = '/notebooks/Qst7l8la'",
+        "\"href\" = '/notebooks/xxxxxxxx'",
+    )
+
     return query
 
 
