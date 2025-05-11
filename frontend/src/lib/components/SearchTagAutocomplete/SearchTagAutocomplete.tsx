@@ -57,16 +57,21 @@ export const SearchTagAutocomplete = forwardRef<HTMLInputElement, SearchWithTags
         const getSuggestions = (input: string) => {
             const lastToken = getLastToken(input);
             const [category, partialRaw = ""] = lastToken.split(":");
+            
             const matched = searchData.find(([cat]) => cat === category);
-
+            
             const partial = partialRaw;
             const cleanPartial =
-                partial.startsWith("!") || partial.startsWith("-")
-                    ? partial.slice(1)
-                    : partial;
+            partial.startsWith("!") || partial.startsWith("-")
+            ? partial.slice(1)
+            : partial;
 
             if (matched) {
-                setCurrentHint(matched[2]);
+                if (!lastToken.endsWith(':')) {
+                    setCurrentHint('choose an option or enter a colon ":" then a value');                            
+                } else {
+                    setCurrentHint(matched[2]);                    
+                }
             } else {
                 setCurrentHint(undefined);
             }
@@ -80,6 +85,7 @@ export const SearchTagAutocomplete = forwardRef<HTMLInputElement, SearchWithTags
                 matched[1] &&
                 matched[1].some((s) => s.value.toLowerCase() === cleanPartial.toLowerCase())
             ) {
+                setCurrentHint(undefined);
                 return [];
             }
 
@@ -110,15 +116,24 @@ export const SearchTagAutocomplete = forwardRef<HTMLInputElement, SearchWithTags
             setValue(val);
             if (val.length === 0) {
                 setOpen(false);
-                setSuggestions([]);
+                setSuggestions(baseCategories);
                 setCurrentHint(undefined);
                 return;
             }
 
-            const newSuggestions = getSuggestions(val);
-            setSuggestions(newSuggestions);
-            setOpen(newSuggestions.length > 0 || !!currentHint);
+            
+            const inputEndsWithSpace = val.endsWith(" ");
+            
+            if (inputEndsWithSpace) {
+                setSuggestions(baseCategories)
+                setOpen(true);
+            } else {
+                const newSuggestions = getSuggestions(val);
+                setSuggestions(newSuggestions);
+                setOpen(newSuggestions.length > 0 || !!currentHint);
+            }
 
+            console.log('on change', val)
             onChange?.(val);
         };
 
@@ -175,6 +190,14 @@ export const SearchTagAutocomplete = forwardRef<HTMLInputElement, SearchWithTags
             }
         };
 
+        const handleFocus = () => {
+            // if input empty, show dropdown with base categories
+            if (value.length === 0) {
+                setSuggestions(baseCategories);
+                setOpen(true);
+            }
+        }
+
         const focusInput = () => {
             const input = inputRef.current;
             if (input) {
@@ -198,6 +221,7 @@ export const SearchTagAutocomplete = forwardRef<HTMLInputElement, SearchWithTags
                         onChange={(val) => handleChange(val)}
                         value={value}
                         onKeyDown={handleKeydown}
+                        // onFocus={handleFocus}
                         aria-label="Search input"
                         inputRef={inputRef}
                         aria-expanded={open}
@@ -209,10 +233,11 @@ export const SearchTagAutocomplete = forwardRef<HTMLInputElement, SearchWithTags
                                 <IconSearch className="size-4" />
                             </div>
                         }
-                        // autoFocus={autoFocus}
+                        autoFocus={autoFocus}
                     />
                 </PopoverPrimitiveTrigger>
-                {open && (suggestions.length > 0 || currentHint) && (
+                {/* {open && (suggestions.length > 0 || currentHint) && ( */}
+                {open && (
                     <PopoverPrimitiveContent
                         onCloseAutoFocus={(e) => {
                             e.preventDefault();

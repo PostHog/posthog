@@ -272,7 +272,7 @@ export function PanelLayoutPanel({ searchPlaceholder, panelActions, children }: 
                                 }
                             }
                         }}
-                        // onChange={(value) => setSearchTerm(value)}
+                        onChange={(value) => setSearchTerm(value)}
                         // onSubmit={(value) => setSearchTerm(value)}
                     />
                     <FiltersDropdown setSearchTerm={setSearchTerm} searchTerm={searchTerm} />
