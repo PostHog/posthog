@@ -6,6 +6,9 @@ from posthog.models.team.team import Team
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.table import DataWarehouseTable
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
+from posthog.temporal.data_imports.pipelines.stripe.constants import (
+    CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
+)
 
 from posthog.hogql.database.models import (
     DateTimeDatabaseField,
@@ -13,7 +16,6 @@ from posthog.hogql.database.models import (
     FieldOrTable,
 )
 
-STRIPE_DATA_WAREHOUSE_CUSTOMER_IDENTIFIER = "Customer"
 SOURCE_VIEW_SUFFIX = "customer_revenue_view"
 
 FIELDS: dict[str, FieldOrTable] = {
@@ -40,9 +42,7 @@ class RevenueAnalyticsCustomerView(RevenueAnalyticsBaseView):
         # Get all schemas for the source, avoid calling `filter` and do the filtering on Python-land
         # to avoid n+1 queries
         schemas = source.schemas.all()
-        customer_schema = next(
-            (schema for schema in schemas if schema.name == STRIPE_DATA_WAREHOUSE_CUSTOMER_IDENTIFIER), None
-        )
+        customer_schema = next((schema for schema in schemas if schema.name == STRIPE_CUSTOMER_RESOURCE_NAME), None)
         if customer_schema is None:
             return []
 
