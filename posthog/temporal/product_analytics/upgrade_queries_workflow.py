@@ -77,7 +77,7 @@ def migrate_insights_batch(inputs: MigrateInsightsBatchInputs) -> None:
 @temporalio.workflow.defn(name="upgrade-queries")
 class UpgradeQueriesWorkflow(PostHogWorkflow):
     @staticmethod
-    def parse_inputs() -> typing.Any:
+    def parse_inputs(inputs: list[str]) -> typing.Any:
         return None
 
     @temporalio.workflow.run
@@ -97,7 +97,7 @@ class UpgradeQueriesWorkflow(PostHogWorkflow):
         for i in range(0, len(insight_ids)):
             batch = insight_ids[i : i + 100]
 
-            temporalio.workflow.execute_activity(
+            await temporalio.workflow.execute_activity(
                 migrate_insights_batch,
                 MigrateInsightsBatchInputs(insight_ids=batch),
                 start_to_close_timeout=dt.timedelta(minutes=10),
