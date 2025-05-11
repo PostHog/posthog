@@ -189,6 +189,7 @@ export const NEW_SURVEY: NewSurvey = {
     responses_limit: null,
     iteration_count: null,
     iteration_frequency_days: null,
+    enable_partial_responses: true,
 }
 
 export enum SurveyTemplateType {

@@ -3,9 +3,9 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { hogFunctionConfigurationLogic } from 'scenes/pipeline/hogfunctions/hogFunctionConfigurationLogic'
-import { HogFunctionTestPlaceholder } from 'scenes/pipeline/hogfunctions/HogFunctionTest'
-import { hogFunctionTestLogic } from 'scenes/pipeline/hogfunctions/hogFunctionTestLogic'
+import { hogFunctionConfigurationLogic } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
+import { HogFunctionTestPlaceholder } from 'scenes/hog-functions/configuration/HogFunctionTest'
+import { hogFunctionTestLogic } from 'scenes/hog-functions/configuration/hogFunctionTestLogic'
 
 export function HogFunctionMessageTesting(): JSX.Element {
     const { logicProps, configurationChanged } = useValues(hogFunctionConfigurationLogic)
