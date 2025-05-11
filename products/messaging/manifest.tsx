@@ -97,4 +97,8 @@ export const manifest: ProductManifest = {
             type: 'hog_function/campaign',
         },
     ],
+    fileSystemFilterTypes: {
+        broadcast: { name: 'Broadcasts', flag: FEATURE_FLAGS.MESSAGING },
+        campaign: { name: 'Campaigns', flag: FEATURE_FLAGS.MESSAGING_AUTOMATION },
+    },
 }

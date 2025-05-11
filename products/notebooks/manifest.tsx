@@ -23,4 +23,7 @@ export const manifest: ProductManifest = {
             href: urls.notebook('new'),
         },
     ],
+    fileSystemFilterTypes: {
+        notebook: { name: 'Notebooks' },
+    },
 }

@@ -9,7 +9,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0731_backfill_hog_function_template_fk"),
+        ("posthog", "0732_teamrevenueanalyticsconfig_notified_first_sync"),
     ]
 
     operations = [
