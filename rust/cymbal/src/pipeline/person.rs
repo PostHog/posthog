@@ -38,8 +38,14 @@ pub async fn add_person_properties(
         let m_context = context.clone();
         let m_distinct_id = distinct_id.clone();
         let team_id = event.team_id;
-        let fut =
-            async move { Person::from_distinct_id(&m_context.pool, team_id, &m_distinct_id).await };
+        let fut = async move {
+            Person::from_distinct_id(&m_context.pool, team_id, &m_distinct_id)
+                .await
+                .map_err(|e| {
+                    tracing::error!(e);
+                    e
+                })
+        };
 
         let handle = tokio::spawn(fut);
 
