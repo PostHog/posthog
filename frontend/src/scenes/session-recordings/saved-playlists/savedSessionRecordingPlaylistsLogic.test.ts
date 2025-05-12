@@ -169,5 +169,16 @@ describe('savedSessionRecordingPlaylistsLogic', () => {
                     },
                 })
         })
+
+        it('can remove search param', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setSavedPlaylistsFilters({ search: 'test', page: 1 })
+                logic.actions.setSavedPlaylistsFilters({ search: undefined })
+            }).toMatchValues({
+                filters: {
+                    page: 1,
+                },
+            })
+        })
     })
 })
