@@ -238,7 +238,7 @@ jobs:
 
             - name: Install cargo-binstall
               if: needs.changes.outputs.rust == 'true'
-              uses: cargo-bins/cargo-binstall@89e50159140fdba08fc64e36186a014c5c253d33 # main
+              uses: cargo-bins/cargo-binstall@13f9d60d5358393bf14644dba56d9f123bc5d595 # main
 
             - name: Install cargo-shear
               if: needs.changes.outputs.rust == 'true'
