@@ -20,11 +20,12 @@ from posthog.hogql.database.schema.exchange_rate import (
     convert_currency_call,
     currency_expression_for_all_events,
 )
-
 from .revenue_analytics_base_view import RevenueAnalyticsBaseView
+from posthog.temporal.data_imports.pipelines.stripe.constants import (
+    CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
+)
 
 # Keep in sync with `revenueAnalyticsLogic.ts`
-STRIPE_DATA_WAREHOUSE_CHARGE_IDENTIFIER = "Charge"
 SOURCE_VIEW_SUFFIX = "charge_revenue_view"
 EVENTS_VIEW_SUFFIX = "events_revenue_view"
 STRIPE_CHARGE_SUCCEEDED_STATUS = "succeeded"
@@ -201,9 +202,7 @@ class RevenueAnalyticsChargeView(RevenueAnalyticsBaseView):
         # Get all schemas for the source, avoid calling `filter` and do the filtering on Python-land
         # to avoid n+1 queries
         schemas = source.schemas.all()
-        charge_schema = next(
-            (schema for schema in schemas if schema.name == STRIPE_DATA_WAREHOUSE_CHARGE_IDENTIFIER), None
-        )
+        charge_schema = next((schema for schema in schemas if schema.name == STRIPE_CHARGE_RESOURCE_NAME), None)
         if charge_schema is None:
             return []
 

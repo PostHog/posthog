@@ -1076,17 +1076,6 @@ class FileSystemEntry(BaseModel):
     )
 
 
-class NamedArgs(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    ref: Optional[str] = None
-
-
-class Href(BaseModel):
-    namedArgs: Optional[NamedArgs] = None
-
-
 class FileSystemImport(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1098,8 +1087,8 @@ class FileSystemImport(BaseModel):
         default=None, description="Timestamp when file was added. Used to check persistence"
     )
     flag: Optional[str] = None
-    href: Href
-    icon: Optional[Any] = None
+    href: Optional[str] = Field(default=None, description="Object's URL")
+    iconType: Optional[str] = None
     id: Optional[str] = None
     meta: Optional[dict[str, Any]] = Field(default=None, description="Metadata")
     path: str = Field(..., description="Object's name and folder")
@@ -9564,7 +9553,7 @@ class QueryResponseAlternative(
     ]
 
 
-class NamedArgs1(BaseModel):
+class NamedArgs(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -9572,11 +9561,11 @@ class NamedArgs1(BaseModel):
 
 
 class IsExperimentFunnelMetric(BaseModel):
-    namedArgs: Optional[NamedArgs1] = None
+    namedArgs: Optional[NamedArgs] = None
 
 
 class IsExperimentMeanMetric(BaseModel):
-    namedArgs: Optional[NamedArgs1] = None
+    namedArgs: Optional[NamedArgs] = None
 
 
 class CachedExperimentFunnelsQueryResponse(BaseModel):

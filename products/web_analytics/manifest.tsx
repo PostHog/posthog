@@ -1,4 +1,3 @@
-import { IconPieChart } from '@posthog/icons'
 import { urls } from 'scenes/urls'
 
 import { ProductManifest } from '../../frontend/src/types'
@@ -14,8 +13,8 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Web analytics',
-            icon: <IconPieChart />,
-            href: () => urls.webAnalytics(),
+            iconType: 'pieChart',
+            href: urls.webAnalytics(),
         },
     ],
 }
