@@ -63,7 +63,7 @@ export const EventSelectorStep = ({
     exposureEstimateConfig,
     onSetFilter,
 }: {
-    exposureEstimateConfig: ExposureEstimateConfig | null
+    exposureEstimateConfig: ExposureEstimateConfig
     onSetFilter: (filter: Record<string, any>) => void
 }): JSX.Element => {
     // If exposureEstimateConfig is null, we use the default filter
