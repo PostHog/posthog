@@ -516,10 +516,12 @@ def delete_team_data(
         },
     )
 
-    shard_mutations = {
-        host.shard_num: mutation
-        for host, mutation in (cluster.map_one_host_per_shard(delete_mutation_runner).result().items())
-    }
+    # This mutation run on any host because it will be replicated to all shards since
+    # these are replicated, non-sharded tables.
+    mutation = cluster.any_host_by_role(delete_mutation_runner, NodeRole.DATA).result()
+
+    # Build ShardMutations so we can wait for the single mutation to complete on all shards.
+    shard_mutations = {shard: mutation for shard in cluster.shards}
 
     return (load_and_verify_deletes_dictionary, shard_mutations)
 
