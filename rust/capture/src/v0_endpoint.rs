@@ -438,7 +438,11 @@ pub async fn event_legacy(
             }
 
             Ok(Json(CaptureResponse {
-                status: CaptureResponseCode::Ok,
+                status: if params.beacon {
+                    CaptureResponseCode::NoContent
+                } else {
+                    CaptureResponseCode::Ok
+                },
                 quota_limited: None,
             }))
         }
@@ -509,7 +513,11 @@ pub async fn event(
             }
 
             Ok(Json(CaptureResponse {
-                status: CaptureResponseCode::Ok,
+                status: if meta.beacon {
+                    CaptureResponseCode::NoContent
+                } else {
+                    CaptureResponseCode::Ok
+                },
                 quota_limited: None,
             }))
         }

@@ -56,6 +56,18 @@ pub struct EventQuery {
 
     #[serde(alias = "_")]
     sent_at: Option<i64>,
+
+    // If true, return 204 No Content on success
+    #[serde(default, deserialize_with = "deserialize_beacon")]
+    pub beacon: bool,
+}
+
+fn deserialize_beacon<'de, D>(deserializer: D) -> Result<bool, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value: Option<i32> = Option::deserialize(deserializer)?;
+    Ok(value.is_some_and(|v| v == 1))
 }
 
 impl EventQuery {
