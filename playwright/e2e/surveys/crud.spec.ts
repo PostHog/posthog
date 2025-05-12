@@ -22,6 +22,20 @@ async function expectNoToastErrors(page: Page): Promise<void> {
     }
 }
 
+async function launchSurveyEvenIfDisabled(page: Page): Promise<void> {
+    // check if page.getByText('Surveys are currently disabled') is visible
+    if (await page.getByText('Surveys are currently disabled').isVisible()) {
+        await page.getByRole('button', { name: 'Configure' }).click()
+        await page.getByTestId('opt-in-surveys-switch').click()
+        await page.getByRole('button', { name: 'Done' }).click()
+    }
+
+    await page.locator('[data-attr="launch-survey"]').click()
+    await expect(page.locator('.LemonModal__layout')).toBeVisible()
+    await expect(page.getByText('Launch this survey?')).toBeVisible()
+    await page.locator('.LemonModal__footer').getByRole('button', { name: 'Launch' }).click()
+}
+
 test.describe('CRUD Survey', () => {
     let name: string
 
@@ -30,7 +44,7 @@ test.describe('CRUD Survey', () => {
         await page.goToMenuItem('surveys')
     })
 
-    test('creates, launches and deletes new survey', async ({ page }) => {
+    test('creates, launches, edits and deletes new survey', async ({ page }) => {
         await expect(page.locator('h1')).toContainText('Surveys')
         await expect(page).toHaveTitle('Surveys • PostHog')
 
@@ -81,6 +95,7 @@ test.describe('CRUD Survey', () => {
         await page.locator('span').filter({ hasText: 'Enter value...' }).click()
         await page.getByPlaceholder('Enter value...').fill('t')
         await page.getByPlaceholder('Enter value...').press('Enter')
+        await expect(page.getByTitle('t')).toBeVisible()
 
         await page.locator('div').filter({ hasText: /^%$/ }).getByRole('spinbutton').click()
         await page.locator('div').filter({ hasText: /^%$/ }).getByRole('spinbutton').fill('50')
@@ -93,10 +108,7 @@ test.describe('CRUD Survey', () => {
         await expect(page.getByText('Display conditions summary')).toBeVisible()
         await expect(page.locator('.FeatureConditionCard')).toContainText('Rolled out to 50% of users in this set.')
 
-        await page.locator('[data-attr="launch-survey"]').click()
-        await expect(page.locator('.LemonModal__layout')).toBeVisible()
-        await expect(page.getByText('Launch this survey?')).toBeVisible()
-        await page.locator('.LemonModal__footer').getByRole('button', { name: 'Launch' }).click()
+        await launchSurveyEvenIfDisabled(page)
 
         await page.getByText('Stop').click()
         await expect(page.locator('.LemonModal__layout')).toBeVisible()
@@ -119,7 +131,7 @@ test.describe('CRUD Survey', () => {
 
         await page.locator('.LemonTabs').getByText('Overview').click()
         await expect(page.getByText('Display conditions summary')).toBeVisible()
-        await expect(page.locator('.FeatureConditionCard')).not.toBeVisible()
+        await expect(page.getByText('Surveys will be displayed to everyone')).toBeVisible()
 
         await deleteSurvey(page, name)
     })
@@ -141,5 +153,7 @@ test.describe('CRUD Survey', () => {
 
         await page.reload()
         await expect(page.getByText('The survey will be stopped once 228 responses are received.')).toBeVisible()
+
+        await deleteSurvey(page, name)
     })
 })
