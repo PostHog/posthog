@@ -257,7 +257,7 @@
          AND "posthog_filesystemshortcut"."team_id" = 99999
          AND "posthog_filesystemshortcut"."type" = 'feature_flag'
          AND NOT ("posthog_filesystemshortcut"."path" = 'flag-1'
-                  AND "posthog_filesystemshortcut"."href" = '/feature_flags/9'
+                  AND "posthog_filesystemshortcut"."href" = '__skipped__'
                   AND "posthog_filesystemshortcut"."href" IS NOT NULL))
   '''
 # ---
@@ -1261,7 +1261,7 @@
          AND "posthog_filesystemshortcut"."team_id" = 99999
          AND "posthog_filesystemshortcut"."type" = 'feature_flag'
          AND NOT ("posthog_filesystemshortcut"."path" = 'flag-1'
-                  AND "posthog_filesystemshortcut"."href" = '/feature_flags/9'
+                  AND "posthog_filesystemshortcut"."href" = '__skipped__'
                   AND "posthog_filesystemshortcut"."href" IS NOT NULL))
   '''
 # ---
