@@ -112,16 +112,16 @@ def web_stats_daily(context: dagster.AssetExecutionContext) -> None:
     )
 
 
-@dagster.job(name="recreate_web_pre_aggregated_data", tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value})
-def recreate_web_pre_aggregated_data():
-    web_analytics_preaggregated_tables()
-    web_overview_daily()
-    web_stats_daily()
+recreate_web_pre_aggregated_data_job = dagster.define_asset_job(
+    name="recreate_web_pre_aggregated_data",
+    selection=dagster.AssetSelection.groups("web_analytics"),
+    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+)
 
 
 @dagster.schedule(
     cron_schedule="0 1 * * *",
-    job=recreate_web_pre_aggregated_data,
+    job=recreate_web_pre_aggregated_data_job,
     execution_timezone="UTC",
 )
 def recreate_web_analytics_preaggregated_internal_data_daily(context: dagster.ScheduleEvaluationContext):
