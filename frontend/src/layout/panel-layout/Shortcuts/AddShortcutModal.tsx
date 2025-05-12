@@ -2,10 +2,11 @@ import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonTree, LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
-import { RefObject, useRef, useState } from 'react'
+import { RefObject, useMemo, useRef } from 'react'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { getUniqueProjectTreeId, projectTreeStateLogic } from '~/layout/panel-layout/ProjectTree/projectTreeStateLogic'
 import { shortcutsLogic } from '~/layout/panel-layout/Shortcuts/shortcutsLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
@@ -16,8 +17,11 @@ export function CombinedTree(): JSX.Element {
     const { setSelectedItem } = useActions(shortcutsLogic)
     const { loadFolderIfNotLoaded } = useActions(projectTreeLogic)
 
+    const uniqueId = useMemo(() => getUniqueProjectTreeId(), [])
+    const { expandedFolders } = useValues(projectTreeStateLogic({ uniqueId, expandedFolders: [''] }))
+    const { setExpandedFolders } = useActions(projectTreeStateLogic({ uniqueId, expandedFolders: [''] }))
+
     const treeRef = useRef<LemonTreeRef>(null)
-    const [expandedFolders, setExpandedFolders] = useState<string[]>(['/'])
 
     return (
         <div className="bg-surface-primary p-2 border rounded-[var(--radius)] overflow-y-scroll h-[60vh] min-h-[200px]">

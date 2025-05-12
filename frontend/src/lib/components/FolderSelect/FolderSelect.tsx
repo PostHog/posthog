@@ -5,9 +5,10 @@ import { LemonTree, LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/Le
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ContextMenuGroup, ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
 import { DropdownMenuGroup, DropdownMenuItem } from 'lib/ui/DropdownMenu/DropdownMenu'
-import { ReactNode, useEffect, useRef, useState } from 'react'
+import { ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 
 import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { getUniqueProjectTreeId, projectTreeStateLogic } from '~/layout/panel-layout/ProjectTree/projectTreeStateLogic'
 import { joinPath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
@@ -34,8 +35,12 @@ export function FolderSelect({ value, onChange, className }: FolderSelectProps):
     const { createFolder, loadFolderIfNotLoaded, rename } = useActions(projectTreeLogic)
 
     const treeRef = useRef<LemonTreeRef>(null)
+
+    const uniqueId = useMemo(() => getUniqueProjectTreeId(), [])
+    const { expandedFolders } = useValues(projectTreeStateLogic({ uniqueId, expandedFolders: [''] }))
+    const { setExpandedFolders } = useActions(projectTreeStateLogic({ uniqueId, expandedFolders: [''] }))
+
     const [selectedFolder, setSelectedFolder] = useState<string | undefined>(value)
-    const [expandedFolders, setExpandedFolders] = useState<string[]>(['/'])
     const [touchedFolders, setTouchedFolders] = useState<string[]>([])
     const [localEditingId, setLocalEditingId] = useState<string | null>(null)
 
