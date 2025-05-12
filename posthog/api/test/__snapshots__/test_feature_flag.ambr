@@ -465,7 +465,7 @@
          AND "posthog_filesystemshortcut"."team_id" = 99999
          AND "posthog_filesystemshortcut"."type" = 'cohort'
          AND NOT ("posthog_filesystemshortcut"."path" = 'some cohort'
-                  AND "posthog_filesystemshortcut"."href" = '/cohorts/90'
+                  AND "posthog_filesystemshortcut"."href" = '__skipped__'
                   AND "posthog_filesystemshortcut"."href" IS NOT NULL))
   '''
 # ---
@@ -671,7 +671,7 @@
          AND "posthog_filesystemshortcut"."team_id" = 99999
          AND "posthog_filesystemshortcut"."type" = 'cohort'
          AND NOT ("posthog_filesystemshortcut"."path" = 'some cohort'
-                  AND "posthog_filesystemshortcut"."href" = '/cohorts/90'
+                  AND "posthog_filesystemshortcut"."href" = '__skipped__'
                   AND "posthog_filesystemshortcut"."href" IS NOT NULL))
   '''
 # ---
@@ -910,7 +910,7 @@
          AND "posthog_filesystemshortcut"."team_id" = 99999
          AND "posthog_filesystemshortcut"."type" = 'cohort'
          AND NOT ("posthog_filesystemshortcut"."path" = 'some cohort'
-                  AND "posthog_filesystemshortcut"."href" = '/cohorts/94'
+                  AND "posthog_filesystemshortcut"."href" = '__skipped__'
                   AND "posthog_filesystemshortcut"."href" IS NOT NULL))
   '''
 # ---
@@ -1396,7 +1396,7 @@
          AND "posthog_filesystemshortcut"."team_id" = 99999
          AND "posthog_filesystemshortcut"."type" = 'cohort'
          AND NOT ("posthog_filesystemshortcut"."path" = 'some cohort2'
-                  AND "posthog_filesystemshortcut"."href" = '/cohorts/96'
+                  AND "posthog_filesystemshortcut"."href" = '__skipped__'
                   AND "posthog_filesystemshortcut"."href" IS NOT NULL))
   '''
 # ---
@@ -1623,7 +1623,7 @@
          AND "posthog_filesystemshortcut"."team_id" = 99999
          AND "posthog_filesystemshortcut"."type" = 'cohort'
          AND NOT ("posthog_filesystemshortcut"."path" = 'some cohort'
-                  AND "posthog_filesystemshortcut"."href" = '/cohorts/95'
+                  AND "posthog_filesystemshortcut"."href" = '__skipped__'
                   AND "posthog_filesystemshortcut"."href" IS NOT NULL))
   '''
 # ---
@@ -1783,7 +1783,7 @@
          AND "posthog_filesystemshortcut"."team_id" = 99999
          AND "posthog_filesystemshortcut"."type" = 'cohort'
          AND NOT ("posthog_filesystemshortcut"."path" = 'some cohort'
-                  AND "posthog_filesystemshortcut"."href" = '/cohorts/98'
+                  AND "posthog_filesystemshortcut"."href" = '__skipped__'
                   AND "posthog_filesystemshortcut"."href" IS NOT NULL))
   '''
 # ---
@@ -2324,7 +2324,7 @@
          AND "posthog_filesystemshortcut"."team_id" = 99999
          AND "posthog_filesystemshortcut"."type" = 'cohort'
          AND NOT ("posthog_filesystemshortcut"."path" = 'Users with feature flag some-feature enabled at 2021-01-01 00:00:00'
-                  AND "posthog_filesystemshortcut"."href" = '/cohorts/78'
+                  AND "posthog_filesystemshortcut"."href" = '__skipped__'
                   AND "posthog_filesystemshortcut"."href" IS NOT NULL))
   '''
 # ---

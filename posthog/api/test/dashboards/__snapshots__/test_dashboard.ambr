@@ -1105,7 +1105,7 @@
          AND "posthog_filesystemshortcut"."team_id" = 99999
          AND "posthog_filesystemshortcut"."type" = 'dashboard'
          AND NOT ("posthog_filesystemshortcut"."path" = 'dashboard'
-                  AND "posthog_filesystemshortcut"."href" = '/dashboard/1'
+                  AND "posthog_filesystemshortcut"."href" = '__skipped__'
                   AND "posthog_filesystemshortcut"."href" IS NOT NULL))
   '''
 # ---
@@ -6450,7 +6450,7 @@
          AND "posthog_filesystemshortcut"."team_id" = 99999
          AND "posthog_filesystemshortcut"."type" = 'dashboard'
          AND NOT ("posthog_filesystemshortcut"."path" = 'dashboard-1'
-                  AND "posthog_filesystemshortcut"."href" = '/dashboard/64'
+                  AND "posthog_filesystemshortcut"."href" = '__skipped__'
                   AND "posthog_filesystemshortcut"."href" IS NOT NULL))
   '''
 # ---
@@ -11046,7 +11046,7 @@
          AND "posthog_filesystemshortcut"."team_id" = 99999
          AND "posthog_filesystemshortcut"."type" = 'dashboard'
          AND NOT ("posthog_filesystemshortcut"."path" = 'private dashboard'
-                  AND "posthog_filesystemshortcut"."href" = '/dashboard/71'
+                  AND "posthog_filesystemshortcut"."href" = '__skipped__'
                   AND "posthog_filesystemshortcut"."href" IS NOT NULL))
   '''
 # ---
