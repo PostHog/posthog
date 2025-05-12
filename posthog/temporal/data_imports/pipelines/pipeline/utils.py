@@ -7,6 +7,8 @@ import uuid
 from collections.abc import Iterator, Sequence
 from ipaddress import IPv4Address, IPv6Address
 from typing import Any, Optional
+from posthog.exceptions_capture import capture_exception
+import posthoganalytics
 
 import deltalake as deltalake
 import numpy as np
@@ -27,7 +29,10 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import (
     PartitionMode,
     SourceResponse,
 )
-from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema
+from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
+from posthog.temporal.data_imports.pipelines.stripe.constants import (
+    CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
+)
 
 DLT_TO_PA_TYPE_MAP = {
     "text": pa.string(),
@@ -396,6 +401,34 @@ def _get_incremental_field_last_value(schema: ExternalDataSchema | None, table: 
 def _update_last_synced_at_sync(schema: ExternalDataSchema, job: ExternalDataJob) -> None:
     schema.last_synced_at = job.created_at
     schema.save()
+
+
+def _notify_revenue_analytics_that_sync_has_completed(schema: ExternalDataSchema, logger: FilteringBoundLogger) -> None:
+    try:
+        if (
+            schema.name == STRIPE_CHARGE_RESOURCE_NAME
+            and schema.source.source_type == ExternalDataSource.Type.STRIPE
+            and schema.source.revenue_analytics_enabled
+            and not schema.team.revenue_analytics_config.notified_first_sync
+        ):
+            # For every admin in the org, send a revenue analytics ready event
+            # This will trigger a Campaign in PostHog and send an email
+            for user in schema.team.all_users_with_access():
+                if user.distinct_id is not None:
+                    posthoganalytics.capture(
+                        user.distinct_id,
+                        "revenue_analytics_ready",
+                        {"source_type": schema.source.source_type},
+                    )
+
+            # Mark the team as notified, avoiding spamming emails
+            schema.team.revenue_analytics_config.notified_first_sync = True
+            schema.team.revenue_analytics_config.save()
+    except Exception as e:
+        # Silently fail, we don't want this to crash the pipeline
+        # Sending an email is not critical to the pipeline
+        logger.exception(f"Error notifying revenue analytics that sync has completed: {e}")
+        capture_exception(e)
 
 
 def _update_job_row_count(job_id: str, count: int, logger: FilteringBoundLogger) -> None:
