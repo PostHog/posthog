@@ -48,10 +48,14 @@ export interface ExposureEstimateConfig {
      * This is the manual conversion rate that we're using.
      */
     manualConversionRate: number | null
+
+    automaticConversionRate: number | null
     /**
      * This is the number of unique users that we're estimating the exposure for.
      */
     uniqueUsers: number | null
+    averageEventsPerUser: number | null
+    averagePropertyValuePerUser: number | null
 }
 
 /** TODO: this is not a great name for this type, but we'll change it later. */
@@ -80,11 +84,10 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
         /**
          * We create this action to be able to call the loader with the correct parameters.
          */
-        loadExposureEstimate: (
-            experiment: Experiment,
-            exposureEstimateConfig: ExposureEstimateConfig,
-            metric: ExperimentMetric
-        ) => ({ experiment, exposureEstimateConfig, metric }),
+        loadExposureEstimate: (experiment: Experiment, exposureEstimateConfig: ExposureEstimateConfig) => ({
+            experiment,
+            exposureEstimateConfig,
+        }),
     }),
 
     loaders(() => ({
@@ -99,7 +102,9 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
          * - exposureEstimateLoading
          */
         exposureEstimate: {
-            loadExposureEstimate: async ({ experiment, exposureEstimateConfig, metric }) => {
+            loadExposureEstimate: async ({ experiment, exposureEstimateConfig }) => {
+                const { eventFilter, metric } = exposureEstimateConfig
+
                 if (!metric) {
                     return null
                 }
@@ -111,7 +116,7 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                         : metric.metric_type === ExperimentMetricType.MEAN &&
                           metric.source.math === ExperimentMetricMathType.Sum
                         ? getSumQuery(metric, experiment)
-                        : getFunnelQuery(metric, exposureEstimateConfig.eventFilter ?? null, experiment)
+                        : getFunnelQuery(metric, eventFilter ?? null, experiment)
 
                 const result = (await performQuery(query, undefined, 'force_blocking')) as Partial<TrendsQueryResponse>
 
