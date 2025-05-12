@@ -42,7 +42,7 @@ pub async fn add_person_properties(
             Person::from_distinct_id(&m_context.pool, team_id, &m_distinct_id)
                 .await
                 .map_err(|e| {
-                    tracing::error!(e);
+                    tracing::error!("Failed to fetch person {}, {:?}", m_distinct_id, e);
                     e
                 })
         };
