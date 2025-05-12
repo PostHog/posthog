@@ -327,8 +327,8 @@ def clean_varying_query_parts(query, replace_all_numbers):
 
     # project tree and file system related replacements
     query = re.sub(
-        r"\"href\" = '/notebooks/Qst7l8la'",
-        "\"href\" = '/notebooks/xxxxxxxx'",
+        r"\"href\" = '[^']+'",
+        "\"href\" = '__skipped__'",
         query,
     )
 
