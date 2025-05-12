@@ -67,7 +67,8 @@ where
     D: serde::Deserializer<'de>,
 {
     let value: Option<i32> = Option::deserialize(deserializer)?;
-    Ok(value.is_some_and(|v| v == 1))
+    let result = value.is_some_and(|v| v == 1);
+    Ok(result)
 }
 
 impl EventQuery {

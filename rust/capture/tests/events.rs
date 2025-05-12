@@ -1205,8 +1205,13 @@ async fn it_returns_204_when_beacon_is_1() -> Result<()> {
         .timeout(StdDuration::from_millis(3000))
         .build()
         .unwrap();
+    let timestamp = Utc::now().timestamp_millis();
+    let url = format!(
+        "http://{:?}/i/v0/e/?_={}&ver=1.240.6&compression=gzip-js&beacon=1",
+        server.addr, timestamp
+    );
     let res = client
-        .post(format!("http://{:?}/i/v0/e?beacon=1", server.addr))
+        .post(url)
         .body(event.to_string())
         .send()
         .await

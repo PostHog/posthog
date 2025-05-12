@@ -388,7 +388,7 @@ pub async fn event_legacy(
     method: Method,
     path: MatchedPath,
     body: Bytes,
-) -> Result<Json<CaptureResponse>, CaptureError> {
+) -> Result<CaptureResponse, CaptureError> {
     let mut params: EventQuery = meta.0;
 
     // TODO(eli): temporary peek at these
@@ -409,10 +409,10 @@ pub async fn event_legacy(
         Err(CaptureError::BillingLimit) => {
             // Short term: return OK here to avoid clients retrying over and over
             // Long term: v1 endpoints will return richer errors, sync w/SDK behavior
-            Ok(Json(CaptureResponse {
+            Ok(CaptureResponse {
                 status: CaptureResponseCode::Ok,
                 quota_limited: None,
-            }))
+            })
         }
 
         Err(err) => {
@@ -437,14 +437,14 @@ pub async fn event_legacy(
                 return Err(err);
             }
 
-            Ok(Json(CaptureResponse {
+            Ok(CaptureResponse {
                 status: if params.beacon {
                     CaptureResponseCode::NoContent
                 } else {
                     CaptureResponseCode::Ok
                 },
                 quota_limited: None,
-            }))
+            })
         }
     }
 }
@@ -467,13 +467,13 @@ pub async fn event_legacy(
 pub async fn event(
     state: State<router::State>,
     ip: InsecureClientIp,
-    meta: Query<EventQuery>,
+    params: Query<EventQuery>,
     headers: HeaderMap,
     method: Method,
     path: MatchedPath,
     body: Bytes,
-) -> Result<Json<CaptureResponse>, CaptureError> {
-    match handle_common(&state, &ip, &meta, &headers, &method, &path, body).await {
+) -> Result<CaptureResponse, CaptureError> {
+    match handle_common(&state, &ip, &params, &headers, &method, &path, body).await {
         Err(CaptureError::BillingLimit) => {
             // for v0 we want to just return ok 🙃
             // this is because the clients are pretty dumb and will just retry over and over and
@@ -481,10 +481,10 @@ pub async fn event(
             //
             // for v1, we'll return a meaningful error code and error, so that the clients can do
             // something meaningful with that error
-            Ok(Json(CaptureResponse {
+            Ok(CaptureResponse {
                 status: CaptureResponseCode::Ok,
                 quota_limited: None,
-            }))
+            })
         }
         Err(err) => {
             report_internal_error_metrics(err.to_metric_tag(), "parsing");
@@ -512,14 +512,14 @@ pub async fn event(
                 return Err(err);
             }
 
-            Ok(Json(CaptureResponse {
-                status: if meta.beacon {
+            Ok(CaptureResponse {
+                status: if params.beacon {
                     CaptureResponseCode::NoContent
                 } else {
                     CaptureResponseCode::Ok
                 },
                 quota_limited: None,
-            }))
+            })
         }
     }
 }
