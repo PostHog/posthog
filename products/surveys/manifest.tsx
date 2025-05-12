@@ -22,14 +22,14 @@ export const manifest: ProductManifest = {
         {
             path: `Survey`,
             type: 'survey',
-            href: () => urls.survey('new'),
+            href: urls.survey('new'),
         },
     ],
     treeItemsProducts: [
         {
             path: 'Surveys',
-            icon: <IconMessage />,
-            href: () => urls.surveys(),
+            type: 'survey',
+            href: urls.surveys(),
         },
     ],
 }
