@@ -23,7 +23,10 @@ type MetricSelectorStepProps = {
     exposureEstimateConfig: ExposureEstimateConfig
     onChangeMetric: (metric: ExperimentMetric) => void
     onChangeFunnelConversionRateType: (type: ConversionRateInputType) => void
+    onChangeManualConversionRate: (rate: number) => void
 }
+
+const DEFAULT_MANUAL_CONVERSION_RATE = 2
 
 export const MetricSelectorStep = ({
     experimentId,
@@ -31,6 +34,7 @@ export const MetricSelectorStep = ({
     exposureEstimateConfig,
     onChangeMetric,
     onChangeFunnelConversionRateType,
+    onChangeManualConversionRate,
 }: MetricSelectorStepProps): JSX.Element => {
     /**
      * We limit Kea to only load the exposure estimate for the selected metric.
@@ -42,7 +46,7 @@ export const MetricSelectorStep = ({
      * Find the index of the metric in the experiment metrics.
      */
     const defaultMetricIndex = experimentMetrics.findIndex((m) => equal(m, exposureEstimateConfig.metric))
-    const [metricIndex, setMetricIndex] = useState<number>(defaultMetricIndex)
+    const [metricIndex, setMetricIndex] = useState<number | null>(defaultMetricIndex >= 0 ? defaultMetricIndex : null)
 
     return (
         <RunningTimeCalculatorModalStep
@@ -91,18 +95,25 @@ export const MetricSelectorStep = ({
                         <MeanMetricDataPanel
                             metric={exposureEstimateConfig.metric as ExperimentMetric}
                             uniqueUsers={exposureEstimate?.uniqueUsers ?? exposureEstimateConfig.uniqueUsers}
-                            averageEventsPerUser={exposureEstimate?.averageEventsPerUser} //TODO: This needs saving on the exposure estimate config
-                            averagePropertyValuePerUser={exposureEstimate?.averagePropertyValuePerUser} //TODO: This needs saving on the exposure estimate config
+                            averageEventsPerUser={
+                                exposureEstimate?.averageEventsPerUser ?? exposureEstimateConfig.averageEventsPerUser
+                            }
+                            averagePropertyValuePerUser={
+                                exposureEstimate?.averagePropertyValuePerUser ??
+                                exposureEstimateConfig.averagePropertyValuePerUser
+                            }
                         />
                     )}
                     {exposureEstimateConfig.metric?.metric_type === ExperimentMetricType.FUNNEL && (
                         <FunnelMetricDataPanel
                             uniqueUsers={exposureEstimate?.uniqueUsers ?? exposureEstimateConfig.uniqueUsers}
                             conversionRateInputType={exposureEstimateConfig.conversionRateInputType}
+                            manualConversionRate={
+                                exposureEstimateConfig.manualConversionRate ?? DEFAULT_MANUAL_CONVERSION_RATE
+                            }
                             automaticConversionRateDecimal={exposureEstimate?.automaticConversionRateDecimal}
-                            manualConversionRate={exposureEstimate?.manualConversionRate}
                             onChangeType={onChangeFunnelConversionRateType}
-                            onChangeManualConversionRate={() => {}}
+                            onChangeManualConversionRate={onChangeManualConversionRate}
                         />
                     )}
                 </div>
