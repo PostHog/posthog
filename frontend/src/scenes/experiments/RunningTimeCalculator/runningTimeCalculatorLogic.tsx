@@ -84,7 +84,7 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
         /**
          * We create this action to be able to call the loader with the correct parameters.
          */
-        loadExposureEstimate: (experiment: Experiment, exposureEstimateConfig: ExposureEstimateConfig) => ({
+        loadExperimentBaseline: (experiment: Experiment, exposureEstimateConfig: ExposureEstimateConfig) => ({
             experiment,
             exposureEstimateConfig,
         }),
@@ -93,16 +93,19 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
     loaders(() => ({
         /**
          * This loader will create the following actions:
-         * - loadExposureEstimate
-         * - loadExposureEstimateSucess
-         * - loadExposureEstimateFailure
+         * - loadExperimentBaseline
+         * - loadExperimentBaselineSucess
+         * - loadExperimentBaselineFailure
          *
          * and these reducers:
          * - exposureEstimate
          * - exposureEstimateLoading
+         *
+         * It takes the experiment and the exposure configuration to build a query
+         * that'll be used to load the baseline data for the experiment.
          */
         exposureEstimate: {
-            loadExposureEstimate: async ({ experiment, exposureEstimateConfig }) => {
+            loadExperimentBaseline: async ({ experiment, exposureEstimateConfig }) => {
                 const { eventFilter, metric } = exposureEstimateConfig
 
                 if (!metric) {
