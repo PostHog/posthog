@@ -454,7 +454,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Exception function",
             "description": "A function contained in the exception.",
         },
-        "$exception_messages": {"label": "Exception message", "description": "The description of the exception."},
+        "$exception_values": {"label": "Exception message", "description": "The description of the exception."},
         "$exception_sources": {"label": "Exception source", "description": "A source file included in the exception."},
         "$exception_list": {
             "label": "Exception list",

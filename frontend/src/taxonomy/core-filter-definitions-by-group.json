@@ -516,10 +516,6 @@
             "description": "The message detected on the error.",
             "label": "Exception message"
         },
-        "$exception_messages": {
-            "description": "The description of the exception.",
-            "label": "Exception message"
-        },
         "$exception_personURL": {
             "description": "The PostHog person that experienced the exception.",
             "label": "Exception person URL"
@@ -550,6 +546,10 @@
             "description": "The type of the exception.",
             "examples": ["TypeError"],
             "label": "Exception type"
+        },
+        "$exception_values": {
+            "description": "The description of the exception.",
+            "label": "Exception message"
         },
         "$feature_flag": {
             "description": "The feature flag that was called.\n\nWarning! This only works in combination with the $feature_flag_called event. If you want to filter other events, try \"Active feature flags\".",
@@ -2202,10 +2202,6 @@
             "description": "The message detected on the error.",
             "label": "Exception message"
         },
-        "$exception_messages": {
-            "description": "The description of the exception.",
-            "label": "Exception message"
-        },
         "$exception_personURL": {
             "description": "The PostHog person that experienced the exception.",
             "label": "Exception person URL"
@@ -2236,6 +2232,10 @@
             "description": "The type of the exception.",
             "examples": ["TypeError"],
             "label": "Exception type"
+        },
+        "$exception_values": {
+            "description": "The description of the exception.",
+            "label": "Exception message"
         },
         "$feature_flag": {
             "description": "The feature flag that was called.\n\nWarning! This only works in combination with the $feature_flag_called event. If you want to filter other events, try \"Active feature flags\".",
