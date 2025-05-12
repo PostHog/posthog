@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use releases::ReleaseRecord;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -13,6 +14,7 @@ use crate::{
 };
 
 pub mod records;
+pub mod releases;
 pub mod resolver;
 
 // We consume a huge variety of differently shaped stack frames, which we have special-case
@@ -105,6 +107,8 @@ pub struct Frame {
     // use in the frontend
     #[serde(skip)]
     pub context: Option<Context>,
+    #[serde(skip)]
+    pub release: Option<ReleaseRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]

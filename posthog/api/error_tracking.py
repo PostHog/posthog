@@ -19,8 +19,10 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from posthog.api.utils import action
+from posthog.models.utils import UUIDT
 from posthog.models.error_tracking import (
     ErrorTrackingIssue,
+    ErrorTrackingRelease,
     ErrorTrackingSymbolSet,
     ErrorTrackingAssignmentRule,
     ErrorTrackingGroupingRule,
@@ -345,6 +347,67 @@ class ErrorTrackingStackFrameViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel,
         return Response({"results": serializer.data})
 
 
+class ErrorTrackingReleaseSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ErrorTrackingRelease
+        fields = ["id", "hash_id", "team_id", "created_at", "metadata"]
+        read_only_fields = ["team_id"]
+
+
+class ErrorTrackingReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    scope_object = "error_tracking"
+    queryset = ErrorTrackingRelease.objects.all()
+    serializer_class = ErrorTrackingReleaseSerializer
+
+    def safely_get_queryset(self, queryset):
+        queryset = queryset.filter(team_id=self.team.id)
+
+        return queryset
+
+    def validate_hash_id(self, hash_id: str, new: bool) -> str:
+        if len(hash_id) > 128:
+            # TODO: I assume there's a better way to do this?
+            raise ValueError("Hash id length cannot exceed 128 bytes")
+
+        if new and len(ErrorTrackingRelease.objects.all().filter(team=self.team, hash_id=hash_id)) > 0:
+            raise ValueError(f"Hash id {hash_id} already in use")
+
+        return hash_id
+
+    def update(self, request, *args, **kwargs) -> Response:
+        release = self.get_object()
+
+        metadata = request.data.get("metadata")
+        hash_id = str(request.data.get("hash_id"))
+
+        if metadata:
+            release.metadata = metadata
+
+        if hash_id:
+            hash_id = self.validate_hash_id(hash_id, True)
+            release.hash_id = hash_id
+
+        release.save()
+        return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
+
+    def create(self, request, *args, **kwargs) -> Response:
+        id = UUIDT()  # We use this in the hash if one isn't set, and also as the id of the model
+        # TODO: I presume there's some smart way to do data validation here
+        metadata = request.data.get("metadata")
+        hash_id = str(request.data.get("hash_id")) or str(id)
+        hash_id = self.validate_hash_id(hash_id, True)
+
+        release = ErrorTrackingRelease.objects.create(
+            id=id,
+            team=self.team,
+            hash_id=hash_id,
+            metadata=metadata,
+        )
+
+        serializer = ErrorTrackingReleaseSerializer(release)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
 class ErrorTrackingSymbolSetSerializer(serializers.ModelSerializer):
     class Meta:
         model = ErrorTrackingSymbolSet
@@ -405,11 +468,21 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         data = request.data["file"].read()
         (storage_ptr, content_hash) = upload_content(bytearray(data))
 
+        release_id = request.query_params.get("release_id", None)
+        if release_id:
+            objects = ErrorTrackingRelease.objects.all().filter(team=self.team, id=release_id)
+            if len(objects) < 1:
+                raise ValueError(f"Unknown release: {release_id}")
+            release = objects[0]
+        else:
+            release = None
+
         with transaction.atomic():
             # Use update_or_create for proper upsert behavior
             symbol_set, created = ErrorTrackingSymbolSet.objects.update_or_create(
                 team=self.team,
                 ref=chunk_id,
+                release=release,
                 defaults={
                     "storage_ptr": storage_ptr,
                     "content_hash": content_hash,

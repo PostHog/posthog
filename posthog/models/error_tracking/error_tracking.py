@@ -80,6 +80,28 @@ class ErrorTrackingIssueFingerprintV2(UUIDModel):
         constraints = [models.UniqueConstraint(fields=["team", "fingerprint"], name="unique_fingerprint_for_team")]
 
 
+class ErrorTrackingRelease(UUIDModel):
+    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    # On upload, users can provide a hash of some key identifiers, e.g. "git repo, commit, branch"
+    # or similar, which we guarentee to be unique. If a user doesn't provide a hash_id, we use the
+    # id of the model
+    hash_id = models.TextField(null=False, blank=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    # Releases can have some metadata attached to them (like id, name, version,
+    # commit, whatever), which we put onto exceptions if they're
+    metadata = models.JSONField(null=True, blank=False)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["team_id", "hash_id"]),
+        ]
+
+        constraints = [
+            models.UniqueConstraint(fields=["team_id", "hash_id"], name="unique_release_hash_id_per_team"),
+        ]
+
+
 class ErrorTrackingSymbolSet(UUIDModel):
     # Derived from the symbol set reference
     ref = models.TextField(null=False, blank=False)
@@ -95,6 +117,11 @@ class ErrorTrackingSymbolSet(UUIDModel):
     # we can return the language-relevant error in the future.
     failure_reason = models.TextField(null=True, blank=True)
     content_hash = models.TextField(null=True, blank=False)
+
+    # Symbol sets can have an associated release, if they were uploaded
+    # with one
+    # TODO - should we really on_delete: CASCADE here?
+    release = models.ForeignKey(ErrorTrackingRelease, null=True, on_delete=models.CASCADE)
 
     class Meta:
         indexes = [
