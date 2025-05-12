@@ -91,6 +91,9 @@ async function executeQuery<N extends DataNode>(
      */
     pollOnly = false
 ): Promise<NonNullable<N['response']>> {
+    const useOptimizedPolling = posthog.isFeatureEnabled('query-optimized-polling')
+    const currentTeamId = teamLogic.findMounted()?.values.currentTeamId
+
     if (!pollOnly) {
         // Determine the refresh type based on the query node type and refresh parameter
         let refreshParam: RefreshType
@@ -105,41 +108,61 @@ async function executeQuery<N extends DataNode>(
             refreshParam = refresh || 'blocking'
         }
 
-        if ((refreshParam === 'blocking' || refreshParam === 'force_blocking') && setPollResponse && queryId) {
-            const currentTeamId = teamLogic.findMounted()?.values.currentTeamId
-            const timeoutId = setTimeout(() => {
-                void api.stream(`/api/environments/${currentTeamId}/query/${queryId}/progress/`, {
-                    onMessage: (event) => {
-                        try {
-                            const progressData = JSON.parse(event.data)
-                            if (progressData.error) {
-                                console.warn('Failed to poll query progress:', progressData.error)
-                                return
+        if (useOptimizedPolling) {
+            return new Promise((resolve, reject) => {
+                const abortController = new AbortController()
+
+                void api
+                    .stream(`/api/environments/${currentTeamId}/query_awaited/`, {
+                        method: 'POST',
+                        data: {
+                            query: queryNode,
+                            client_query_id: queryId,
+                            refresh: refreshParam,
+                            filters_override: filtersOverride,
+                            variables_override: variablesOverride,
+                        },
+                        signal: abortController.signal,
+                        onMessage(ev) {
+                            try {
+                                const data = JSON.parse(ev.data)
+                                if (data.error) {
+                                    logQueryEvent('error', data, queryNode)
+                                    abortController.abort()
+                                    // Create an error object that matches the API error format
+                                    const error = {
+                                        message: data.error,
+                                        status: data.status_code || 500,
+                                        detail: data.error_message || data.error,
+                                        type: 'network_error',
+                                    }
+                                    reject(error)
+                                } else if (data.complete === false) {
+                                    // Progress event - no results yet
+                                    logQueryEvent('progress', data, queryNode)
+                                    if (setPollResponse) {
+                                        setPollResponse(data)
+                                    }
+                                } else {
+                                    // Final results
+                                    logQueryEvent('data', data, queryNode)
+                                    abortController.abort()
+                                    resolve(data)
+                                }
+                            } catch (e) {
+                                abortController.abort()
+                                reject(e)
                             }
-                            setPollResponse({
-                                id: queryId || '',
-                                team_id: 0,
-                                error: false,
-                                complete: false,
-                                query_async: true,
-                                error_message: null,
-                                query_progress: progressData,
-                            })
-                        } catch (e) {
-                            console.warn('Failed to parse progress data:', e)
-                        }
-                    },
-                    onError: (error) => {
-                        console.warn('Failed to poll query progress:', error)
-                    },
-                    signal: methodOptions?.signal,
-                })
-            }, 500) // Give the query time to start
-            methodOptions?.signal?.addEventListener('abort', () => {
-                clearTimeout(timeoutId)
+                        },
+                        onError(err) {
+                            abortController.abort()
+                            reject(err)
+                            throw err // make sure fetchEventSource doesn't attempt to retry
+                        },
+                    })
+                    .catch(reject)
             })
         }
-
         const response = await api.query(
             queryNode,
             methodOptions,
@@ -154,6 +177,7 @@ async function executeQuery<N extends DataNode>(
         }
 
         if (!isAsyncResponse(response)) {
+            // Executed query synchronously or from cache
             return response
         }
 
@@ -170,6 +194,40 @@ async function executeQuery<N extends DataNode>(
     const statusResponse = await pollForResults(queryId, methodOptions, setPollResponse)
     return statusResponse.results
 }
+
+type LogType = 'error' | 'progress' | 'data'
+
+// Logging this as chrome devtools doesn't support showing the event stream for non-native EventSource, but EventSource doesn't support POST requests
+/* eslint-disable no-console */
+function logQueryEvent(type: LogType, data: any, queryNode: any): void {
+    const logConfig = {
+        error: {
+            title: '⚠️ Query Error',
+            titleColor: '#ff0000',
+            primaryLog: (data: any) => console.error('Error Details:', data),
+            secondaryLog: (queryNode: any) => console.warn('Query Payload:', queryNode),
+        },
+        progress: {
+            title: '🔄 Query Progress',
+            titleColor: '#2196f3',
+            primaryLog: (data: any) => console.info('Progress Update:', data),
+            secondaryLog: (queryNode: any) => console.debug('Query Payload:', queryNode),
+        },
+        data: {
+            title: '✅ Query Result',
+            titleColor: '#4caf50',
+            primaryLog: (data: any) => console.info('Data:', data),
+            secondaryLog: (queryNode: any) => console.debug('Query Payload:', queryNode),
+        },
+    }
+
+    const config = logConfig[type]
+    console.group(`%c${config.title}`, `color: ${config.titleColor}; font-weight: bold; font-size: 12px;`)
+    config.primaryLog(data)
+    config.secondaryLog(queryNode)
+    console.groupEnd()
+}
+/* eslint-enable no-console */
 
 // Return data for a given query
 export async function performQuery<N extends DataNode>(
