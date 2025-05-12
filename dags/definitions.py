@@ -78,7 +78,7 @@ defs = dagster.Definitions(
         backups.incremental_sharded_backup_schedule,
         backups.full_non_sharded_backup_schedule,
         backups.incremental_non_sharded_backup_schedule,
-        web_preaggregated_internal.web_analytics_daily_schedule,
+        web_preaggregated_internal.recreate_web_analytics_preaggregated_internal_data_daily,
     ],
     sensors=[
         deletes.run_deletes_after_squash,

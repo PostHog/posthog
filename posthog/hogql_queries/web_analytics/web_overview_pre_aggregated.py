@@ -1,5 +1,4 @@
 from typing import TYPE_CHECKING
-import logging
 from datetime import datetime, UTC
 
 from posthog.hogql import ast
@@ -7,8 +6,6 @@ from posthog.hogql.parser import parse_select
 
 if TYPE_CHECKING:
     from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
-
-logger = logging.getLogger(__name__)
 
 
 class WebOverviewPreAggregatedQueryBuilder:
@@ -48,6 +45,8 @@ class WebOverviewPreAggregatedQueryBuilder:
             previous_date_from = self.runner.query_compare_to_date_range.date_from_str
             previous_date_to = self.runner.query_compare_to_date_range.date_to_str
         else:
+            # If we don't have a previous period, we can just use the same data as the values won't be used
+            # and our query stays simpler.
             previous_date_from = current_date_from
             previous_date_to = current_date_from
 
@@ -55,7 +54,7 @@ class WebOverviewPreAggregatedQueryBuilder:
         current_period_filter = f"day_bucket >= '{current_date_from}' AND day_bucket <= '{current_date_to}'"
         previous_period_filter = f"day_bucket >= '{previous_date_from}' AND day_bucket <= '{previous_date_to}'"
 
-        # Define common query patterns for averages
+        # Define common query patterns for averages over sessions
         def safe_avg_calc(metric, period_filter):
             sessions = f"uniqMergeIf(sessions_uniq_state, {period_filter})"
             return f"""

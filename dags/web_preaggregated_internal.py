@@ -36,7 +36,7 @@ def pre_aggregate_web_analytics_data(
     context: dagster.AssetExecutionContext,
     table_name: str,
     sql_generator: Callable,
-) -> dict:
+) -> None:
     config = context.op_config
     team_ids = config.get("team_ids", [1, 2])
     clickhouse_settings = config["clickhouse_settings"]
@@ -114,7 +114,6 @@ def web_stats_daily(context: dagster.AssetExecutionContext) -> None:
 
 @dagster.job(name="recreate_web_pre_aggregated_data", tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value})
 def recreate_web_pre_aggregated_data():
-    # TODO: Figure out how to make one depend on another.
     web_analytics_preaggregated_tables()
     web_overview_daily()
     web_stats_daily()
@@ -125,7 +124,7 @@ def recreate_web_pre_aggregated_data():
     job=recreate_web_pre_aggregated_data,
     execution_timezone="UTC",
 )
-def recreate_web_anlytics_preaggreaged_internal_data_daily(context: dagster.ScheduleEvaluationContext):
+def recreate_web_analytics_preaggregated_internal_data_daily(context: dagster.ScheduleEvaluationContext):
     """
     Recreates the web_analytics pre-aggregated data for our internal team only
     while we test the integration. The usage of pre-aggregated tables is controlled
