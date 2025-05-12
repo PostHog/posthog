@@ -170,9 +170,11 @@ export interface PaginatedResponse<T> {
 export interface CountedPaginatedResponse<T> extends PaginatedResponse<T> {
     count: number
 }
+
 export interface CountedPaginatedResponseWithUsers<T> extends CountedPaginatedResponse<T> {
     users: UserBasicType[]
 }
+
 export interface ActivityLogPaginatedResponse<T> extends PaginatedResponse<T> {
     count: number
 }
@@ -385,6 +387,7 @@ class ApiRequest {
     public fileSystem(projectId?: ProjectType['id']): ApiRequest {
         return this.projectsDetail(projectId).addPathComponent('file_system')
     }
+
     public fileSystemUnfiled(type?: string, projectId?: ProjectType['id']): ApiRequest {
         const path = this.fileSystem(projectId).addPathComponent('unfiled')
         if (type) {
@@ -392,20 +395,29 @@ class ApiRequest {
         }
         return path
     }
+
     public fileSystemDetail(id: NonNullable<FileSystemEntry['id']>, projectId?: ProjectType['id']): ApiRequest {
         return this.fileSystem(projectId).addPathComponent(id)
     }
+
     public fileSystemMove(id: NonNullable<FileSystemEntry['id']>, projectId?: ProjectType['id']): ApiRequest {
         return this.fileSystem(projectId).addPathComponent(id).addPathComponent('move')
     }
+
     public fileSystemLink(id: NonNullable<FileSystemEntry['id']>, projectId?: ProjectType['id']): ApiRequest {
         return this.fileSystem(projectId).addPathComponent(id).addPathComponent('link')
     }
+
     public fileSystemCount(id: NonNullable<FileSystemEntry['id']>, projectId?: ProjectType['id']): ApiRequest {
         return this.fileSystem(projectId).addPathComponent(id).addPathComponent('count')
     }
-    public fileSystemCountByPath(path: string, projectId?: ProjectType['id']): ApiRequest {
-        return this.fileSystem(projectId).addPathComponent('count_by_path').withQueryString({ path })
+
+    public fileSystemShortcut(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('file_system_shortcut')
+    }
+
+    public fileSystemShortcutDetail(id: NonNullable<FileSystemEntry['id']>, projectId?: ProjectType['id']): ApiRequest {
+        return this.fileSystemShortcut(projectId).addPathComponent(id)
     }
 
     // # Plugins
@@ -458,6 +470,7 @@ class ApiRequest {
     public comments(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('comments')
     }
+
     public comment(id: CommentType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.comments(teamId).addPathComponent(id)
     }
@@ -535,6 +548,7 @@ class ApiRequest {
     public cohortsDetail(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.cohorts(teamId).addPathComponent(cohortId)
     }
+
     public cohortsDuplicate(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.cohortsDetail(cohortId, teamId).addPathComponent('duplicate_as_static_cohort')
     }
@@ -543,17 +557,21 @@ class ApiRequest {
     public recordings(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('session_recordings')
     }
+
     public recording(recordingId: SessionRecordingType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.recordings(teamId).addPathComponent(recordingId)
     }
+
     public recordingMatchingEvents(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId)
             .addPathComponent('session_recordings')
             .addPathComponent('matching_events')
     }
+
     public recordingPlaylists(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('session_recording_playlists')
     }
+
     public recordingPlaylist(
         playlistId?: SessionRecordingPlaylistType['short_id'],
         teamId?: TeamType['id']
@@ -835,6 +853,7 @@ class ApiRequest {
     public dataWarehouseTables(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('warehouse_tables')
     }
+
     public dataWarehouseTable(id: DataWarehouseTable['id'], teamId?: TeamType['id']): ApiRequest {
         return this.dataWarehouseTables(teamId).addPathComponent(id)
     }
@@ -843,6 +862,7 @@ class ApiRequest {
     public dataWarehouseSavedQueries(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('warehouse_saved_queries')
     }
+
     public dataWarehouseSavedQuery(id: DataWarehouseSavedQuery['id'], teamId?: TeamType['id']): ApiRequest {
         return this.dataWarehouseSavedQueries(teamId).addPathComponent(id)
     }
@@ -867,6 +887,7 @@ class ApiRequest {
     public dataWarehouseViewLinks(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('warehouse_view_link')
     }
+
     public dataWarehouseViewLink(id: DataWarehouseViewLink['id'], teamId?: TeamType['id']): ApiRequest {
         return this.dataWarehouseViewLinks(teamId).addPathComponent(id)
     }
@@ -875,9 +896,11 @@ class ApiRequest {
     public queryTabState(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('query_tab_state')
     }
+
     public queryTabStateDetail(id: QueryTabState['id'], teamId?: TeamType['id']): ApiRequest {
         return this.queryTabState(teamId).addPathComponent(id)
     }
+
     public queryTabStateUser(teamId?: TeamType['id']): ApiRequest {
         return this.queryTabState(teamId).addPathComponent('user')
     }
@@ -1093,6 +1116,7 @@ class ApiRequest {
     public insightVariables(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('insight_variables')
     }
+
     public insightVariable(variableId: string, teamId?: TeamType['id']): ApiRequest {
         return this.insightVariables(teamId).addPathComponent(variableId)
     }
@@ -1357,8 +1381,17 @@ const api = {
         async count(id: NonNullable<FileSystemEntry['id']>): Promise<FileSystemCount> {
             return await new ApiRequest().fileSystemCount(id).create()
         },
-        async countByPath(path: string): Promise<FileSystemCount> {
-            return await new ApiRequest().fileSystemCountByPath(path).create()
+    },
+
+    fileSystemShortcuts: {
+        async list(): Promise<CountedPaginatedResponse<FileSystemEntry>> {
+            return await new ApiRequest().fileSystemShortcut().get()
+        },
+        async create(data: { path: string; href?: string; ref?: string; type?: string }): Promise<FileSystemEntry> {
+            return await new ApiRequest().fileSystemShortcut().create({ data })
+        },
+        async delete(id: FileSystemEntry['id']): Promise<void> {
+            return await new ApiRequest().fileSystemShortcutDetail(id).delete()
         },
     },
 

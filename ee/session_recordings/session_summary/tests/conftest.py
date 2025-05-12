@@ -24,22 +24,32 @@ key_actions:
     - segment_index: 0
       events:
           - event_id: 'abcd1234'
-            failure: false
             description: 'First significant action in this segment'
+            abandonment: false
+            confusion: false
+            exception: null
           - event_id: 'defg4567'
-            failure: false
             description: 'Second action in this segment'
+            abandonment: false
+            confusion: false
+            exception: null
     - segment_index: 1
       events:
           - event_id: 'ghij7890'
-            failure: false
             description: 'Significant action in this segment'
+            abandonment: false
+            confusion: false
+            exception: null
           - event_id: 'mnop3456'
-            failure: true
             description: 'User attempted to perform an action but encountered an error'
+            abandonment: false
+            confusion: true
+            exception: 'blocking'
           - event_id: 'stuv9012'
-            failure: false
             description: 'Final action in this chronological segment'
+            abandonment: true
+            confusion: false
+            exception: null
 
 segment_outcomes:
     - segment_index: 0
@@ -53,6 +63,78 @@ session_outcome:
     success: true
     description: 'Concise session outcome description focusing on conversion attempts, feature usage, and critical issues'
 ```"""
+
+
+@pytest.fixture
+def mock_loaded_llm_json_response() -> dict[str, Any]:
+    """
+    Exact YAML response, but converted into JSON.
+    """
+    return {
+        "segments": [
+            {"index": 0, "start_event_id": "abcd1234", "end_event_id": "vbgs1287", "name": "Example Segment"},
+            {"index": 1, "start_event_id": "gfgz6242", "end_event_id": "stuv9012", "name": "Another Example Segment"},
+        ],
+        "key_actions": [
+            {
+                "segment_index": 0,
+                "events": [
+                    {
+                        "event_id": "abcd1234",
+                        "description": "First significant action in this segment",
+                        "abandonment": False,
+                        "confusion": False,
+                        "exception": None,
+                    },
+                    {
+                        "event_id": "defg4567",
+                        "description": "Second action in this segment",
+                        "abandonment": False,
+                        "confusion": False,
+                        "exception": None,
+                    },
+                ],
+            },
+            {
+                "segment_index": 1,
+                "events": [
+                    {
+                        "event_id": "ghij7890",
+                        "description": "Significant action in this segment",
+                        "abandonment": False,
+                        "confusion": False,
+                        "exception": None,
+                    },
+                    {
+                        "event_id": "mnop3456",
+                        "description": "User attempted to perform an action but encountered an error",
+                        "abandonment": False,
+                        "confusion": True,
+                        "exception": "blocking",
+                    },
+                    {
+                        "event_id": "stuv9012",
+                        "description": "Final action in this chronological segment",
+                        "abandonment": True,
+                        "confusion": False,
+                        "exception": None,
+                    },
+                ],
+            },
+        ],
+        "segment_outcomes": [
+            {"segment_index": 0, "success": True, "summary": "Detailed description incorporating key action insights"},
+            {
+                "segment_index": 1,
+                "success": False,
+                "summary": "Description highlighting encountered failures and their impact",
+            },
+        ],
+        "session_outcome": {
+            "success": True,
+            "description": "Concise session outcome description focusing on conversion attempts, feature usage, and critical issues",
+        },
+    }
 
 
 @pytest.fixture
