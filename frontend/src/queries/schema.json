@@ -5350,13 +5350,13 @@
         "ClickhouseQueryProgress": {
             "additionalProperties": false,
             "properties": {
+                "active_cpu_time": {
+                    "$ref": "#/definitions/integer"
+                },
                 "bytes_read": {
                     "$ref": "#/definitions/integer"
                 },
                 "estimated_rows_total": {
-                    "$ref": "#/definitions/integer"
-                },
-                "memory_usage": {
                     "$ref": "#/definitions/integer"
                 },
                 "rows_read": {
@@ -5366,7 +5366,7 @@
                     "$ref": "#/definitions/integer"
                 }
             },
-            "required": ["bytes_read", "rows_read", "estimated_rows_total", "time_elapsed", "memory_usage"],
+            "required": ["bytes_read", "rows_read", "estimated_rows_total", "time_elapsed", "active_cpu_time"],
             "type": "object"
         },
         "CohortPropertyFilter": {

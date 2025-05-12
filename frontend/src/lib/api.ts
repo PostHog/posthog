@@ -1039,6 +1039,10 @@ class ApiRequest {
         return apiRequest
     }
 
+    public queryAwaited(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('query_awaited')
+    }
+
     // Conversations
     public conversations(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('conversations')
@@ -3264,6 +3268,32 @@ const api = {
             : Record<string, any>
     > {
         return await new ApiRequest().query().create({
+            ...options,
+            data: {
+                query,
+                client_query_id: queryId,
+                refresh,
+                filters_override: filtersOverride,
+                variables_override: variablesOverride,
+            },
+        })
+    },
+
+    async queryAwaited<T extends Record<string, any> = QuerySchema>(
+        query: T,
+        options?: ApiMethodOptions,
+        queryId?: string,
+        refresh?: RefreshType,
+        filtersOverride?: DashboardFilter | null,
+        variablesOverride?: Record<string, HogQLVariable> | null
+    ): Promise<
+        T extends { [response: string]: any }
+            ? T['response'] extends infer P | undefined
+                ? P
+                : T['response']
+            : Record<string, any>
+    > {
+        return await new ApiRequest().queryAwaited().create({
             ...options,
             data: {
                 query,
