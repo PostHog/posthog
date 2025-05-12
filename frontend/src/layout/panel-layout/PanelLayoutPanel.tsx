@@ -272,8 +272,8 @@ export function PanelLayoutPanel({ searchPlaceholder, panelActions, children }: 
                                 }
                             }
                         }}
+                        onClear={() => clearSearch()}
                         onChange={(value) => setSearchTerm(value)}
-                        // onSubmit={(value) => setSearchTerm(value)}
                     />
                     <FiltersDropdown setSearchTerm={setSearchTerm} searchTerm={searchTerm} />
                 </div>

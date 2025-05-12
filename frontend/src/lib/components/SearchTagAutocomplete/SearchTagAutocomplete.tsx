@@ -1,4 +1,4 @@
-import { IconSearch } from "@posthog/icons";
+import { IconSearch, IconX } from "@posthog/icons";
 import { LemonInput } from "lib/lemon-ui/LemonInput";
 import { ButtonPrimitive } from "lib/ui/Button/ButtonPrimitives";
 import { ListBox, ListBoxHandle } from "lib/ui/ListBox/ListBox";
@@ -25,7 +25,6 @@ export interface SearchWithTagsProps {
     onSelect?: (value: string) => void;
     searchData: [Category, Suggestion[] | undefined, Hint?][];
     autoFocus?: boolean;
-    onSubmit?: (value: string) => void;
 }
 
 export const SearchTagAutocomplete = forwardRef<HTMLInputElement, SearchWithTagsProps>(
@@ -36,9 +35,9 @@ export const SearchTagAutocomplete = forwardRef<HTMLInputElement, SearchWithTags
             onSelect,
             searchData,
             autoFocus,
-            onSubmit,
+            onClear,
         },
-        ref,
+        _,
     ): JSX.Element => {
         const [value, setValue] = useState('');
         const [open, setOpen] = useState(false);
@@ -185,18 +184,17 @@ export const SearchTagAutocomplete = forwardRef<HTMLInputElement, SearchWithTags
                 e.preventDefault();
                 listBoxRef.current?.focusNthElement(suggestions.length - 1);
             } else if (e.key === 'Enter') {
-                onSubmit?.(value);
                 setOpen(false);
             }
         };
 
-        const handleFocus = () => {
-            // if input empty, show dropdown with base categories
-            if (value.length === 0) {
-                setSuggestions(baseCategories);
-                setOpen(true);
-            }
-        }
+        // const handleFocus = () => {
+        //     // if input empty, show dropdown with base categories
+        //     if (value.length === 0) {
+        //         setSuggestions(baseCategories);
+        //         setOpen(true);
+        //     }
+        // }
 
         const focusInput = () => {
             const input = inputRef.current;
@@ -217,6 +215,7 @@ export const SearchTagAutocomplete = forwardRef<HTMLInputElement, SearchWithTags
                 <PopoverPrimitiveTrigger asChild>
                     <LemonInput
                         type="text"
+                        placeholder={inputPlaceholder}
                         className="w-full"
                         onChange={(val) => handleChange(val)}
                         value={value}
@@ -232,6 +231,19 @@ export const SearchTagAutocomplete = forwardRef<HTMLInputElement, SearchWithTags
                             <div className="flex items-center justify-center size-4 ml-[2px] mr-px">
                                 <IconSearch className="size-4" />
                             </div>
+                        }
+                        suffix={
+                            value && onClear ? (
+                                <ButtonPrimitive
+                                    size="sm"
+                                    iconOnly
+                                    onClick={() => onClear()}
+                                    className="bg-transparent [&_svg]:opacity-50 hover:[&_svg]:opacity-100 focus-visible:[&_svg]:opacity-100 -mr-px"
+                                    tooltip="Clear search"
+                                >
+                                    <IconX className="size-4" />
+                                </ButtonPrimitive>
+                            ) : null
                         }
                         autoFocus={autoFocus}
                     />
