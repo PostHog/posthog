@@ -1,4 +1,3 @@
-import os
 from typing import Any
 from ee.hogai.tool import MaxTool
 from posthog.hogql.database.database import create_hogql_database, serialize_database
@@ -6,6 +5,7 @@ from posthog.hogql.context import HogQLContext
 from ee.hogai.graph.sql.toolkit import SQL_SCHEMA
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
+from langchain.schema import HumanMessage
 
 from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException, parse_pydantic_structured_output
 from ee.hogai.graph.schema_generator.utils import SchemaGeneratorOutput
@@ -18,33 +18,7 @@ from posthog.hogql.printer import print_ast
 from posthog.warehouse.models import Database
 
 
-_parser_contents: str | None = None
-_lexer_contents: str | None = None
 _hogql_functions: str | None = None
-
-
-def get_parser_contents() -> str:
-    global _parser_contents
-
-    if _parser_contents is not None:
-        return _parser_contents
-
-    with open(f"{os.getcwd()}/posthog/hogql/grammar/HogQLParser.g4") as parser_file:
-        _parser_contents = parser_file.read()
-
-    return _parser_contents
-
-
-def get_lexer_contents() -> str:
-    global _lexer_contents
-
-    if _lexer_contents is not None:
-        return _lexer_contents
-
-    with open(f"{os.getcwd()}/posthog/hogql/grammar/HogQLLexer.g4") as parser_file:
-        _lexer_contents = parser_file.read()
-
-    return _lexer_contents
 
 
 def get_hogql_functions() -> str:
@@ -53,22 +27,22 @@ def get_hogql_functions() -> str:
     if _hogql_functions is not None:
         return _hogql_functions
 
-    ch_functions = {name: meta.clickhouse_name for name, meta in HOGQL_CLICKHOUSE_FUNCTIONS.items()}
-    ch_aggregations = {name: meta.clickhouse_name for name, meta in HOGQL_AGGREGATIONS.items()}
+    ch_functions = list(HOGQL_CLICKHOUSE_FUNCTIONS.keys())
+    ch_aggregations = list(HOGQL_AGGREGATIONS.keys())
     ph_functions = list(HOGQL_POSTHOG_FUNCTIONS.keys())
 
     _hogql_functions = f"""HogQL defines what functions are available with most (but not all) having a 1:1 mapping to ClickHouse functions.
-These are the non-aggregated HogQL functions and their ClickHouse function name mapping:
+These are the non-aggregated HogQL functions:
 ```
 {str(ch_functions)}
 ```
 
-These are the aggregated HogQL functions and their ClickHouse function name mapping:
+These are the aggregated HogQL functions:
 ```
 {str(ch_aggregations)}
 ```
 
-And lastly these are some HogQL specific functions that have no mapping to ClickHouse:
+And lastly these are some HogQL specific functions:
 ```
 {str(ph_functions)}
 ```"""
@@ -77,7 +51,8 @@ And lastly these are some HogQL specific functions that have no mapping to Click
 
 
 SQL_ASSISTANT_ROOT_SYSTEM_PROMPT = """
-The user has written a HogQL query which contains error. They expect your help with tweaking the HogQL to fix these errors.
+You are a senior software engineer with deep expertise in SQL, specifically in the HogQL dialect.
+Your job is to help users fix invalid or broken HogQL queries by identifying the errors and returning a corrected version of the query.
 
 IMPORTANT: This is currently your primary task. Therefore `fix_hogql_query` is currently your primary tool.
 Use `fix_hogql_query` when fixing any errors remotely related to HogQL.
@@ -87,16 +62,7 @@ NOTE: When calling the `fix_hogql_query` tool, do not provide any response other
 """
 
 SYSTEM_PROMPT = f"""
-HogQL is PostHog's variant of SQL. HogQL is a transpiler that outputs Clickhouse SQL. We use Antlr4 to define the HogQL language.
-Below is the antlr parser and lexer definitions - when writing HogQL, ensure you follow the grammar rules.
-
-<hogql_parser>
-{get_parser_contents()}
-</hogql_parser>
-
-<hogql_lexer>
-{get_lexer_contents()}
-</hogql_lexer>
+HogQL is PostHog's variant of SQL. HogQL is based on Clickhouse SQL with a few small adjustments.
 
 {get_hogql_functions()}
 
@@ -104,18 +70,41 @@ You fix HogQL errors that may come from either HogQL resolver errors or clickhou
 
 Important HogQL differences versus other SQL dialects:
 - JSON properties are accessed like `properties.foo.bar` instead of `properties->foo->bar`
+- Queries can have pre-defined variables denoted by `{{variable_name}}`
+- Only `SELECT` queries can be written in HogQL - so no `INSERT` or `UPDATE` for example
+- HogQL supports the comparison operator `IN COHORT` and `NOT IN COHORT` to check whether persons are within a cohort or not. A cohort can be defined by id or string name
+- `virtual_table` and `lazy_table` fields are connections to linked tables, e.g. the virtual table field `person` allows accessing person properties like so: `person.properties.foo`.
+- Standardized events/properties such as pageview or screen start with `$`. Custom events/properties start with any other character.
+- HogQL statements should not end with a semi-colon - this is invalid syntax
+
+HogQL examples:
+Invalid: SELECT * FROM events WHERE properties->foo = 'bar'
+Valid: SELECT * FROM events WHERE properties.foo = 'bar'
+
+Invalid: SELECT user_id FROM persons
+Valid: SELECT id FROM persons
+
+Invalid: SELECT * FROM persons;
+Valid: SELECT * FROM persons
+
+Bad Query: SELECT * FROM events WHERE properties->foo = 'bar'
+Error: Unexpected '->'
+Fixed Query: SELECT * FROM events WHERE properties.foo = 'bar'
+
+Example 2:
+Bad Query: SELECT COUNT(user_id) FROM persons
+Error: No column 'user_id'
+Fixed Query: SELECT COUNT(id) FROM persons
 
 This is a list of all the available tables in the database:
 ```
 {{{{all_table_names}}}}
 ```
 
-Person or event metadata unspecified above (emails, names, etc.) is stored in `properties` fields, accessed like: `properties.foo.bar`.
+`person` or `event` metadata unspecified above (emails, names, etc.) is stored in `properties` fields, accessed like: `properties.foo.bar`.
 Note: "persons" means "users" here - instead of a "users" table, we have a "persons" table.
 
-Standardized events/properties such as pageview or screen start with `$`. Custom events/properties start with any other character.
 
-`virtual_table` and `lazy_table` fields are connections to linked tables, e.g. the virtual table field `person` allows accessing person properties like so: `person.properties.foo`.
 """.strip()
 
 USER_PROMPT = """
@@ -203,32 +192,33 @@ class HogQLQueryFixerTool(MaxTool):
         all_tables = database.get_all_tables()
         schema_description = _get_schema_description(self.context, hogql_context, database)
 
-        base_messages = [
-            (
-                "system",
-                _get_system_prompt(all_tables),
-            ),
-            (
-                "user",
-                _get_user_prompt(schema_description),
-            ),
-        ]
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    _get_system_prompt(all_tables),
+                ),
+                (
+                    "user",
+                    _get_user_prompt(schema_description),
+                ),
+            ],
+            template_format="mustache",
+        )
+        messages = prompt.format_messages(**self.context)
 
         for _ in range(3):
             try:
-                prompt = ChatPromptTemplate.from_messages(
-                    base_messages,
-                    template_format="mustache",
-                )
-                chain = prompt | self._model
-                result = chain.invoke(self.context)
+                result = self._model.invoke(messages)
                 parsed_result = self._parse_output(result, hogql_context)
                 break
             except PydanticOutputParserException as e:
-                base_messages.append(
-                    (
-                        "user",
-                        f"""We got another error after the previous message. Here is the updated query:
+                messages.append(
+                    HumanMessage(
+                        content=f"""
+We got another error after the previous message.
+
+Here is the updated query:
 <hogql_query>
 {e.llm_output}
 </hogql_query>
@@ -236,7 +226,7 @@ class HogQLQueryFixerTool(MaxTool):
 The newly updated query gave us this error:
 <error>
 {e.validation_message}
-</error>""".strip(),
+</error>""".strip()
                     )
                 )
         else:

@@ -147,7 +147,7 @@ impl FromFeatureAndMatch for FlagDetails {
             metadata: FlagDetailsMetadata {
                 id: flag.id,
                 version: flag.version.unwrap_or(0),
-                description: flag.name.clone(),
+                description: None,
                 payload: flag_match.payload.clone(),
             },
         }
@@ -166,7 +166,7 @@ impl FromFeatureAndMatch for FlagDetails {
             metadata: FlagDetailsMetadata {
                 id: flag.id,
                 version: flag.version.unwrap_or(0),
-                description: flag.name.clone(),
+                description: None,
                 payload: None,
             },
         }

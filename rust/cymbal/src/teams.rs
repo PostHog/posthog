@@ -5,13 +5,14 @@ use moka::sync::{Cache, CacheBuilder};
 
 use crate::{
     app_context::AppContext, assignment_rules::AssignmentRule, config::Config,
-    error::UnhandledError, metric_consts::ANCILLARY_CACHE, pipeline::IncomingEvent,
-    sanitize_string, WithIndices,
+    error::UnhandledError, fingerprinting::grouping_rules::GroupingRule,
+    metric_consts::ANCILLARY_CACHE, pipeline::IncomingEvent, sanitize_string, WithIndices,
 };
 
 pub struct TeamManager {
-    token_cache: Cache<String, Option<Team>>,
-    assignment_rules: Cache<TeamId, Vec<AssignmentRule>>,
+    pub token_cache: Cache<String, Option<Team>>,
+    pub assignment_rules: Cache<TeamId, Vec<AssignmentRule>>,
+    pub grouping_rules: Cache<TeamId, Vec<GroupingRule>>,
 }
 
 impl TeamManager {
@@ -29,9 +30,19 @@ impl TeamManager {
             })
             .build();
 
+        let grouping_rules = CacheBuilder::new(config.max_grouping_rule_cache_size)
+            .time_to_live(Duration::from_secs(config.grouping_rule_cache_ttl_secs))
+            .weigher(|_, v: &Vec<GroupingRule>| {
+                v.iter()
+                    .map(|rule| rule.bytecode.as_array().map_or(0, Vec::len) as u32)
+                    .sum()
+            })
+            .build();
+
         Self {
             token_cache: cache,
             assignment_rules,
+            grouping_rules,
         }
     }
 
@@ -60,7 +71,7 @@ impl TeamManager {
         }
     }
 
-    pub async fn get_rules<'c, E>(
+    pub async fn get_assignment_rules<'c, E>(
         &self,
         e: E,
         team_id: TeamId,
@@ -78,6 +89,27 @@ impl TeamManager {
         // If we have no rules for the team, we just put an empty vector in the cache
         let rules = AssignmentRule::load_for_team(e, team_id).await?;
         self.assignment_rules.insert(team_id, rules.clone());
+        Ok(rules)
+    }
+
+    pub async fn get_grouping_rules<'c, E>(
+        &self,
+        e: E,
+        team_id: TeamId,
+    ) -> Result<Vec<GroupingRule>, UnhandledError>
+    where
+        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+    {
+        if let Some(rules) = self.grouping_rules.get(&team_id) {
+            metrics::counter!(ANCILLARY_CACHE, "type" => "grouping_rules", "outcome" => "hit")
+                .increment(1);
+            return Ok(rules.clone());
+        }
+        metrics::counter!(ANCILLARY_CACHE, "type" => "grouping_rules", "outcome" => "miss")
+            .increment(1);
+        // If we have no rules for the team, we just put an empty vector in the cache
+        let rules = GroupingRule::load_for_team(e, team_id).await?;
+        self.grouping_rules.insert(team_id, rules.clone());
         Ok(rules)
     }
 }

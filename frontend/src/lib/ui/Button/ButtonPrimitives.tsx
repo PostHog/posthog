@@ -11,7 +11,7 @@ import React, { createContext, forwardRef, ReactNode, useContext } from 'react'
 
 type ButtonVariant = 'default' | 'outline'
 
-export type ButtonSize = 'sm' | 'base' | 'lg' | 'fit'
+export type ButtonSize = 'sm' | 'base' | 'lg' | 'fit' | 'base-tall'
 
 interface ButtonGroupContextValue {
     sizeContext: ButtonSize
@@ -72,6 +72,9 @@ export const ButtonGroupPrimitive = forwardRef<HTMLDivElement, ButtonGroupProps>
         case 'sm':
             buttonHeight = 'button-primitive--height-sm'
             break
+        case 'base-tall':
+            buttonHeight = 'button-primitive--height-base-tall'
+            break
         case 'lg':
             buttonHeight = 'button-primitive--height-lg'
             break
@@ -123,6 +126,7 @@ export const buttonPrimitiveVariants = cva({
         size: {
             sm: `button-primitive--size-sm button-primitive--height-sm text-xs`,
             base: `button-primitive--size-base button-primitive--height-base text-sm`,
+            'base-tall': `button-primitive--size-base-tall button-primitive--height-base-tall text-sm`,
             lg: `button-primitive--size-lg button-primitive--height-lg text-base`,
             fit: 'px-0',
         },
@@ -131,15 +135,19 @@ export const buttonPrimitiveVariants = cva({
             false: '',
         },
         fullWidth: {
-            true: 'w-full',
+            true: 'button-primitive--full-width',
             false: '',
         },
         isGroup: {
             true: '',
             false: 'gap-1.5',
         },
+        active: {
+            true: 'button-primitive--active',
+            false: '',
+        },
         menuItem: {
-            true: 'w-full justify-start', // @TODO this isn't working
+            true: 'button-primitive--full-width justify-start',
             false: '',
         },
         truncate: {

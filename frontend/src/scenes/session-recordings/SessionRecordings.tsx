@@ -47,9 +47,9 @@ function Header(): JSX.Element {
     const newPlaylistHandler = useAsyncHandler(async () => {
         const folder = await asyncSaveToModal({ defaultFolder: 'Unfiled/Replay playlists' })
         if (typeof folder === 'string') {
-            await createPlaylist({ _create_in_folder: folder }, true)
+            await createPlaylist({ _create_in_folder: folder, type: 'collection' }, true)
         } else {
-            await createPlaylist({}, true)
+            await createPlaylist({ type: 'collection' }, true)
         }
         reportRecordingPlaylistCreated('new')
     })
@@ -87,7 +87,7 @@ function Header(): JSX.Element {
                             data-attr="save-recordings-playlist-button"
                             loading={newPlaylistHandler.loading}
                         >
-                            New playlist
+                            New collection
                         </LemonButton>
                     )}
                 </>
@@ -228,10 +228,10 @@ const ReplayPageTabs: ReplayTab[] = [
         key: ReplayTabs.Home,
     },
     {
-        label: 'Playlists',
+        label: 'Playlists → Collections',
         tooltipDocLink: 'https://posthog.com/docs/session-replay/how-to-watch-recordings',
         key: ReplayTabs.Playlists,
-        tooltip: 'View & create playlists',
+        tooltip: 'View & create collections',
     },
     {
         label: 'Figure out what to watch',

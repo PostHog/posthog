@@ -11,8 +11,8 @@ import { CdpApi } from './cdp/cdp-api'
 import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
 import { CdpCyclotronWorkerFetch } from './cdp/consumers/cdp-cyclotron-worker-fetch.consumer'
 import { CdpCyclotronWorkerPlugins } from './cdp/consumers/cdp-cyclotron-worker-plugins.consumer'
+import { CdpEventsConsumer } from './cdp/consumers/cdp-events.consumer'
 import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.consumer'
-import { CdpProcessedEventsConsumer } from './cdp/consumers/cdp-processed-events.consumer'
 import { defaultConfig } from './config/config'
 import {
     KAFKA_EVENTS_PLUGIN_INGESTION,
@@ -41,8 +41,6 @@ import { PubSub } from './utils/pubsub'
 import { delay } from './utils/utils'
 import { teardownPlugins } from './worker/plugins/teardown'
 import { initPlugins as _initPlugins } from './worker/tasks'
-
-const { version } = require('../package.json')
 
 CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
 CompressionCodecs[CompressionTypes.LZ4] = new LZ4().codec
@@ -213,7 +211,7 @@ export class PluginServer {
 
             if (capabilities.cdpProcessedEvents) {
                 serviceLoaders.push(async () => {
-                    const consumer = new CdpProcessedEventsConsumer(hub)
+                    const consumer = new CdpEventsConsumer(hub)
                     await consumer.start()
                     return consumer.service
                 })
@@ -281,10 +279,6 @@ export class PluginServer {
                 })
             }
 
-            if (capabilities.preflightSchedules) {
-                this.startPreflightSchedules(hub)
-            }
-
             pluginServerStartupTimeMs.inc(Date.now() - startupTimer.valueOf())
             logger.info('🚀', `All systems go in ${Date.now() - startupTimer.valueOf()}ms`)
         } catch (error) {
@@ -293,19 +287,6 @@ export class PluginServer {
             logger.error('💥', 'Exception while starting server, shutting down!', { error })
             await this.stop(error)
         }
-    }
-
-    private startPreflightSchedules(hub: Hub) {
-        // These are used by the preflight checks in the Django app to determine if
-        // the plugin-server is running.
-        schedule.scheduleJob('*/5 * * * * *', async () => {
-            await hub.db.redisSet('@posthog-plugin-server/ping', new Date().toISOString(), 'preflightSchedules', 60, {
-                jsonSerialize: false,
-            })
-            await hub.db.redisSet('@posthog-plugin-server/version', version, 'preflightSchedules', undefined, {
-                jsonSerialize: false,
-            })
-        })
     }
 
     private setupListeners() {
