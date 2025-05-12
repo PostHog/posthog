@@ -179,6 +179,9 @@ describe('savedSessionRecordingPlaylistsLogic', () => {
                     page: 1,
                 },
             })
+            expect(router.values.searchParams).not.toHaveProperty('search')
+            expect(router.values.searchParams).toHaveProperty('page', 1)
+        })
         })
     })
 })
