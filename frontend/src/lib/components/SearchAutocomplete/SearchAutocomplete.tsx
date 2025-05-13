@@ -24,6 +24,7 @@ export interface SearchAutocompleteProps {
     autoFocus?: boolean
 }
 
+// Handles structured autocomplete with support for category:value and negation (! or -) inputs
 export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteProps>(
     ({ inputPlaceholder, onChange, onSelect, searchData, autoFocus, onClear, onKeyDown }, ref): JSX.Element => {
         const [value, setValue] = useState('')
@@ -33,13 +34,16 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
         const inputRef = useRef<HTMLInputElement>(null)
         const listBoxRef = useRef<ListBoxHandle>(null)
 
+        // Base category suggestions (e.g. "user", "type", "name")
         const baseCategories = searchData.map(([cat]) => ({ value: cat, label: cat }))
 
+        // Extracts the last space-separated token for parsing
         const getLastToken = (input: string): string => {
             const tokens = input.trim().split(/\s+/)
             return tokens[tokens.length - 1]
         }
 
+        // Core logic for determining dropdown content based on current input value
         const getSuggestions = (input: string): [Suggestion[], string?] => {
             const lastToken = getLastToken(input).trim()
             const hasColon = lastToken.includes(':')
@@ -51,23 +55,26 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
 
             const suffixes = [':', ':!', ':-']
             const isValueEntryPoint = suffixes.some((suffix) => input.trim().endsWith(`${rawCategory}${suffix}`))
-
             const endsWithSpace = input.endsWith(' ')
 
+            // "user:me " → new token begins, show base categories again
             if (endsWithSpace) {
                 return [baseCategories, undefined]
             }
 
+            // user:! or user:- or user:!me → treated as negated value input
             const isNegated =
                 lastToken === `${rawCategory}:!` ||
                 lastToken === `${rawCategory}:-` ||
                 rawValue.startsWith('!') ||
                 rawValue.startsWith('-')
 
+            // Empty input → show categories
             if (lastToken === '') {
                 return [baseCategories, undefined]
             }
 
+            // Typing a category like "us" → suggest matching categories
             if (!hasColon) {
                 const matches = baseCategories.filter((cat) =>
                     cat.label.toLowerCase().startsWith(lastToken.toLowerCase())
@@ -75,16 +82,14 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
                 return [matches, undefined]
             }
 
+            // "user:" → suggest values (with optional "Exclude…" option)
             if (matchedCategory && isValueEntryPoint) {
                 const base = matchedCategory[1] || []
-                const excludeOption: Suggestion = {
-                    label: 'Exclude…',
-                    value: '!__placeholder__',
-                }
-
+                const excludeOption: Suggestion = { label: 'Exclude…', value: '!__placeholder__' }
                 return [isNegated ? base : [excludeOption, ...base], matchedCategory[2]]
             }
 
+            // Full match (e.g. user:me or user:!me) → no further suggestions
             if (
                 matchedCategory &&
                 matchedCategory[1]?.some((s) => s.value.toLowerCase() === cleanValue.toLowerCase())
@@ -92,18 +97,14 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
                 return [[], undefined]
             }
 
+            // Partial match → filter values
             if (matchedCategory && matchedCategory[1]) {
                 const filtered = matchedCategory[1].filter((s) =>
                     s.label.toLowerCase().startsWith(cleanValue.toLowerCase())
                 )
 
-                const excludeOption: Suggestion = {
-                    label: 'Exclude…',
-                    value: '!__placeholder__',
-                }
-
-                const results = isNegated ? filtered : [excludeOption, ...filtered]
-                return [results, matchedCategory[2]]
+                const excludeOption: Suggestion = { label: 'Exclude…', value: '!__placeholder__' }
+                return [isNegated ? filtered : [excludeOption, ...filtered], matchedCategory[2]]
             }
 
             return [[], undefined]
@@ -125,7 +126,6 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
             setSuggestions(newSuggestions)
             setCurrentHint(newHint)
             setOpen(newSuggestions.length > 0 || !!newHint)
-
             onChange?.(val)
         }
 
@@ -137,16 +137,11 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
 
             const isCategory = searchData.some(([cat]) => cat === suggestion.value)
             const inputEndsWithSpace = value.endsWith(' ')
-
             let newInput = ''
 
+            // e.g. clicking "user" turns input into "user:"
             if (isCategory) {
-                if (inputEndsWithSpace || value === '') {
-                    tokens.push(`${suggestion.value}:`)
-                } else {
-                    tokens[tokens.length - 1] = `${suggestion.value}:`
-                }
-
+                tokens[inputEndsWithSpace ? tokens.length : tokens.length - 1] = `${suggestion.value}:`
                 newInput = tokens.join(' ').trim()
                 setValue(newInput)
                 focusInput()
@@ -158,6 +153,7 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
                 return
             }
 
+            // Handle "Exclude…" placeholder → converts input to user:!
             if (matched && suggestion.value === '!__placeholder__') {
                 tokens[tokens.length - 1] = `${category}:!`
                 const newVal = tokens.join(' ').trim()
@@ -171,6 +167,7 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
                 return
             }
 
+            // Selecting value (e.g. "me") → commit and refresh
             if (matched && matched[1]) {
                 const negationPrefix = partialRaw.startsWith('!') || partialRaw.startsWith('-') ? partialRaw[0] : ''
                 tokens[tokens.length - 1] = `${category}:${negationPrefix}${suggestion.value}`
@@ -196,7 +193,7 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
 
             if (e.key === 'ArrowDown') {
                 e.preventDefault()
-                listBoxRef.current?.focusFirstElement()
+                listBoxRef.current?.focusFirstElement() // allow keyboard to enter dropdown
                 return
             } else if (e.key === 'ArrowUp') {
                 e.preventDefault()
@@ -257,17 +254,14 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
                         autoFocus={autoFocus}
                     />
                 </PopoverPrimitiveTrigger>
+
                 {open && (
                     <PopoverPrimitiveContent
                         ref={ref}
-                        onCloseAutoFocus={(e) => {
-                            e.preventDefault()
-                        }}
+                        onCloseAutoFocus={(e) => e.preventDefault()}
                         onOpenAutoFocus={(e) => {
                             e.preventDefault()
                             const [newSuggestions, newHint] = getSuggestions(value)
-
-                            // ✅ Hide dropdown if input is already fully satisfied
                             const isSatisfied = newSuggestions.length === 0 && !newHint
                             if (isSatisfied) {
                                 setOpen(false)
