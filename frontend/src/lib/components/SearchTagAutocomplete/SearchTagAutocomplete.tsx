@@ -54,56 +54,57 @@ export const SearchTagAutocomplete = forwardRef<HTMLInputElement, SearchWithTags
         }
 
         const getSuggestions = (input: string): [Suggestion[], string?] => {
-            const lastToken = getLastToken(input)
-            const [category, partialRaw = ""] = lastToken.split(":")
-            const matched = searchData.find(([cat]) => cat === category)
-
-            const partial = partialRaw
-            const cleanPartial =
-                partial.startsWith("!") || partial.startsWith("-")
-                    ? partial.slice(1)
-                    : partial
-
-            if (lastToken.endsWith(":") && matched) {
-                return [matched[1] || [], matched[2]]
+            const lastToken = getLastToken(input).trim()
+            const hasColon = lastToken.includes(":")
+            const [rawCategory, rawValue = ""] = lastToken.split(":")
+            const matchedCategory = searchData.find(([cat]) => cat === rawCategory)
+        
+            const value = rawValue.trim()
+            const cleanValue = value.startsWith("!") || value.startsWith("-") ? value.slice(1) : value
+        
+            // 1. Empty input — show base categories
+            if (lastToken === "") {
+                return [baseCategories, undefined]
             }
-
+        
+            // 2. Typing category ("use", "typ", etc.) — suggest matching base categories
+            if (!hasColon) {
+                const matches = baseCategories.filter((cat) =>
+                    cat.label.toLowerCase().startsWith(lastToken.toLowerCase())
+                )
+                return [matches, undefined]
+            }
+        
+            // 3. Category with colon but no value yet — show all suggestions in that category
+            if (matchedCategory && (lastToken.endsWith(":") || input.endsWith(`${rawCategory}:`))) {
+                return [matchedCategory[1] || [], matchedCategory[2]]
+            }
+        
+            // 4. Fully matched category:value — no suggestions needed
             if (
-                matched &&
-                matched[1] &&
-                matched[1].some((s) => s.value.toLowerCase() === cleanPartial.toLowerCase())
+                matchedCategory &&
+                matchedCategory[1]?.some((s) => s.value.toLowerCase() === cleanValue.toLowerCase())
             ) {
                 return [[], undefined]
             }
-
-            if (
-                matched &&
-                matched[1] &&
-                (cleanPartial === "" || partial.startsWith("!") || partial.startsWith("-"))
-            ) {
-                return [matched[1], matched[2]]
+        
+            // 5. Partial value typed — filter suggestions
+            if (matchedCategory && matchedCategory[1]) {
+                const filtered = matchedCategory[1].flatMap((s) => {
+                    const match = s.label.toLowerCase().startsWith(cleanValue.toLowerCase())
+                    return match
+                        ? [
+                              s, // positive
+                              { label: `!${s.label}`, value: `!${s.value}` },
+                              { label: `-${s.label}`, value: `-${s.value}` },
+                          ]
+                        : []
+                })
+                return [filtered, matchedCategory[2]]
             }
-
-            if (matched && matched[1] && cleanPartial !== "") {
-                return [
-                    matched[1].filter((s) =>
-                        s.label.toLowerCase().startsWith(cleanPartial.toLowerCase())
-                    ),
-                    matched[2],
-                ]
-            }
-
-            if (!lastToken.includes(":")) {
-                return [
-                    baseCategories.filter((cat) =>
-                        cat.label.toLowerCase().startsWith(lastToken.toLowerCase())
-                    ),
-                    undefined,
-                ]
-            }
-
+        
             return [[], undefined]
-        }
+        }        
 
         const handleChange = (val: string) => {
             setValue(val)
@@ -158,12 +159,13 @@ export const SearchTagAutocomplete = forwardRef<HTMLInputElement, SearchWithTags
                 setSuggestions(newSuggestions)
                 setCurrentHint(newHint)
             } else if (matched && matched[1]) {
-                const negationPrefix =
-                    partialRaw.startsWith("!") || partialRaw.startsWith("-")
-                        ? partialRaw[0]
-                        : ""
+                const negationPrefix = partialRaw.startsWith("!") || partialRaw.startsWith("-") ? partialRaw[0] : ""
+            
+                // Insert selected suggestion (with or without negation prefix)
                 tokens[tokens.length - 1] = `${category}:${negationPrefix}${suggestion.value}`
                 newInput = tokens.join(" ").trim() + " "
+            
+                // Also add negated suggestions to dropdown
                 setSuggestions(baseCategories)
                 setCurrentHint(undefined)
             }
