@@ -67,14 +67,18 @@ export const SearchTagAutocomplete = forwardRef<HTMLInputElement, SearchWithTags
             const isValueEntryPoint = suffixes.some((suffix) =>
                 input.trim().endsWith(`${rawCategory}${suffix}`)
             )
+
+            const endsWithSpace = input.endsWith(" ")
+
+            if (endsWithSpace) {
+                return [baseCategories, undefined]
+            }
         
             const isNegated =
                 lastToken === `${rawCategory}:!` ||
                 lastToken === `${rawCategory}:-` ||
                 rawValue.startsWith("!") ||
                 rawValue.startsWith("-")
-
-            console.log('isNegated', isNegated)
         
             if (lastToken === "") {
                 return [baseCategories, undefined]
@@ -125,20 +129,10 @@ export const SearchTagAutocomplete = forwardRef<HTMLInputElement, SearchWithTags
         const handleChange = (val: string) => {
             setValue(val)
 
-            const inputEndsWithSpace = val.endsWith(" ")
-
             if (val.length === 0) {
                 setSuggestions(baseCategories)
                 setCurrentHint(undefined)
                 setOpen(false)
-                onChange?.(val)
-                return
-            }
-
-            if (inputEndsWithSpace) {
-                setSuggestions(baseCategories)
-                setCurrentHint(undefined)
-                setOpen(true)
                 onChange?.(val)
                 return
             }
@@ -242,17 +236,6 @@ export const SearchTagAutocomplete = forwardRef<HTMLInputElement, SearchWithTags
                         value={value}
                         onKeyDown={handleKeydown}
                         aria-label="Search input"
-                        // onFocus={() => {
-                        //     if (value.trim() === "") {
-                        //         setSuggestions(baseCategories)
-                        //     }
-                        // }}
-                        onFocus={() => {
-                            const [newSuggestions, newHint] = getSuggestions(value)
-                            setSuggestions(newSuggestions)
-                            setCurrentHint(newHint)
-                            // setOpen(newSuggestions.length > 0 || !!newHint)
-                        }}
                         inputRef={inputRef}
                         aria-expanded={open}
                         aria-controls="suggestions-list"
@@ -284,7 +267,20 @@ export const SearchTagAutocomplete = forwardRef<HTMLInputElement, SearchWithTags
                         onCloseAutoFocus={(e) => {
                             e.preventDefault()
                         }}
-                        onOpenAutoFocus={(e) => e.preventDefault()}
+                        onOpenAutoFocus={(e) => {
+                            e.preventDefault()
+                            const [newSuggestions, newHint] = getSuggestions(value)
+                        
+                            // ✅ Hide dropdown if input is already fully satisfied
+                            const isSatisfied = newSuggestions.length === 0 && !newHint
+                            if (isSatisfied) {
+                                setOpen(false)
+                                return
+                            } else {
+                                setSuggestions(newSuggestions)
+                                setCurrentHint(newHint)
+                            }
+                        }}
                         className="primitive-menu-content w-[var(--radix-popover-trigger-width)] max-w-none"
                     >
                         <ListBox ref={listBoxRef} className="flex flex-col gap-px p-1">
