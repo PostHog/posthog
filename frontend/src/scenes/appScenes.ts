@@ -90,4 +90,5 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Wizard]: () => import('./wizard/Wizard'),
     [Scene.StartupProgram]: () => import('./startups/StartupProgram'),
     [Scene.HogFunction]: () => import('./hog-functions/HogFunctionScene'),
+    [Scene.Game368]: () => import('../games/368hedgehogs/Hedgehogs368'),
 }

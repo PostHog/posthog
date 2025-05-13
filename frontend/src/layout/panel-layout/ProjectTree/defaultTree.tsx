@@ -144,3 +144,12 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
             flag: FEATURE_FLAGS.HEATMAPS_UI,
         },
     ].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
+
+export const getDefaultTreeGames = (): FileSystemImport[] =>
+    [
+        {
+            path: '368 hedgehogs',
+            iconType: 'cursorClick',
+            href: urls.game368(),
+        },
+    ].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
