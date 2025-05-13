@@ -1219,6 +1219,10 @@ export const surveyLogic = kea<surveyLogicType>([
                 if (isPartialResponsesEnabled && survey.enable_partial_responses) {
                     return `AND uniqueSurveySubmissionsFilter('${survey.id}')`
                 }
+                /**
+                 * Coalescing to True as older events don't have the survey_completed property.
+                 * So they're completed by default since we didn't have partial responses before.
+                 */
                 return `AND COALESCE(JSONExtractBool(properties, '${SurveyEventProperties.SURVEY_COMPLETED}'), True) = True`
             },
         ],
