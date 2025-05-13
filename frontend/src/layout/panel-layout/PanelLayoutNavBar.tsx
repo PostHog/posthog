@@ -204,18 +204,22 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                   },
               ]
             : []),
-        {
-            identifier: 'Games',
-            id: 'Games',
-            icon: <IconCdCase />,
-            onClick: (e?: React.KeyboardEvent) => {
-                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
-                    handlePanelTriggerClick('Games')
-                }
-            },
-            showChevron: true,
-            tooltip: isLayoutPanelVisible && activePanelIdentifier === 'Games' ? 'Close games' : 'Open games',
-        },
+        ...(featureFlags[FEATURE_FLAGS.GAME_CENTER]
+            ? [
+                  {
+                      identifier: 'Games',
+                      id: 'Games',
+                      icon: <IconCdCase />,
+                      onClick: (e?: React.KeyboardEvent) => {
+                          if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
+                              handlePanelTriggerClick('Games')
+                          }
+                      },
+                      showChevron: true,
+                      tooltip: isLayoutPanelVisible && activePanelIdentifier === 'Games' ? 'Close games' : 'Open games',
+                  },
+              ]
+            : []),
         ...(featureFlags[FEATURE_FLAGS.TREE_VIEW_PRODUCTS]
             ? []
             : [
