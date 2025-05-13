@@ -2,6 +2,7 @@ import { IconCheck, IconFilter, IconPin, IconPinFilled } from '@posthog/icons'
 import { cva } from 'cva'
 import { useActions, useValues } from 'kea'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
+import { SearchAutocomplete } from 'lib/components/SearchAutocomplete/SearchAutocomplete'
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
@@ -17,7 +18,6 @@ import { useRef } from 'react'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
-import { SearchTagAutocomplete } from 'lib/components/SearchTagAutocomplete/SearchTagAutocomplete'
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { ProjectDropdownMenu } from './ProjectDropdownMenu'
 
@@ -207,60 +207,16 @@ export function PanelLayoutPanel({ searchPlaceholder, panelActions, children }: 
             <div className="border-b border-primary h-px" />
             <div className="z-main-nav flex flex-1 flex-col justify-between overflow-y-auto bg-surface-secondary">
                 <div className="flex gap-1 p-1 items-center justify-between">
-                    {/* <LemonInput
-                        placeholder={searchPlaceholder}
-                        className="w-full"
-                        prefix={
-                            <div className="flex items-center justify-center size-4 ml-[2px] mr-px">
-                                <IconSearch className="size-4" />
-                            </div>
-                        }
-                        autoFocus
-                        size="small"
-                        value={searchTerm}
-                        onChange={(value) => setSearchTerm(value)}
-                        suffix={
-                            searchTerm ? (
-                                <ButtonPrimitive
-                                    size="sm"
-                                    iconOnly
-                                    onClick={() => clearSearch()}
-                                    className="bg-transparent [&_svg]:opacity-50 hover:[&_svg]:opacity-100 focus-visible:[&_svg]:opacity-100 -mr-px"
-                                    tooltip="Clear search"
-                                >
-                                    <IconX className="size-4" />
-                                </ButtonPrimitive>
-                            ) : null
-                        }
-                        onKeyDown={(e) => {
-                            if (e.key === 'ArrowDown') {
-                                e.preventDefault() // Prevent scrolling
-                                const visibleItems = panelTreeRef?.current?.getVisibleItems()
-                                if (visibleItems && visibleItems.length > 0) {
-                                    e.currentTarget.blur() // Remove focus from input
-                                    panelTreeRef?.current?.focusItem(visibleItems[0].id)
-                                }
-                            }
-                        }}
-                    />  */}
-                    <SearchTagAutocomplete
+                    <SearchAutocomplete
                         inputPlaceholder={searchPlaceholder}
                         searchData={[
-                            [
-                                'user',
-                                [{ value: 'me', label: 'Me' }],
-                                "enter a user, quotes are supported",
-                            ],
+                            ['user', [{ value: 'me', label: 'Me' }], 'enter a user, quotes are supported'],
                             [
                                 'type',
                                 productTypes.map(([value, label]) => ({ value, label })),
                                 'enter a type, quotes are supported',
                             ],
-                            [
-                                'name',
-                                undefined,
-                                'enter a name, quotes are supported',
-                            ],
+                            ['name', undefined, 'enter a name, quotes are supported'],
                         ]}
                         onKeyDown={(e) => {
                             if (e.key === 'ArrowDown') {

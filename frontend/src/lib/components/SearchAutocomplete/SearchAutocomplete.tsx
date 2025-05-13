@@ -1,45 +1,31 @@
-import { IconSearch, IconX } from "@posthog/icons"
-import { LemonInput } from "lib/lemon-ui/LemonInput"
-import { useEffect } from 'react';
-import { ButtonPrimitive } from "lib/ui/Button/ButtonPrimitives"
-import { ListBox, ListBoxHandle } from "lib/ui/ListBox/ListBox"
+import { IconSearch, IconX } from '@posthog/icons'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { ListBox, ListBoxHandle } from 'lib/ui/ListBox/ListBox'
 import {
     PopoverPrimitive,
     PopoverPrimitiveContent,
     PopoverPrimitiveTrigger,
-} from "lib/ui/PopoverPrimitive/PopoverPrimitive"
-import { forwardRef, useState, useRef } from "react"
+} from 'lib/ui/PopoverPrimitive/PopoverPrimitive'
+import { forwardRef, useRef, useState } from 'react'
 
 type Category = string
 type Suggestion = { label: string; value: string }
 type Hint = string
 
-export interface SearchWithTagsProps {
+export interface SearchAutocompleteProps {
     inputPlaceholder?: string
     defaultSearchTerm?: string
     onChange?: (value: string) => void
     onClear?: () => void
     onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void
-    className?: string
-    defaultOpen?: boolean
-    alwaysOpen?: boolean
     onSelect?: (value: string) => void
     searchData: [Category, Suggestion[] | undefined, Hint?][]
     autoFocus?: boolean
 }
 
-export const SearchTagAutocomplete = forwardRef<HTMLInputElement, SearchWithTagsProps>(
-    (
-        {
-            inputPlaceholder,
-            onChange,
-            onSelect,
-            searchData,
-            autoFocus,
-            onClear,
-        },
-        _
-    ): JSX.Element => {
+export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteProps>(
+    ({ inputPlaceholder, onChange, onSelect, searchData, autoFocus, onClear, onKeyDown }, ref): JSX.Element => {
         const [value, setValue] = useState('')
         const [open, setOpen] = useState(false)
         const [suggestions, setSuggestions] = useState<Suggestion[]>([])
@@ -49,84 +35,81 @@ export const SearchTagAutocomplete = forwardRef<HTMLInputElement, SearchWithTags
 
         const baseCategories = searchData.map(([cat]) => ({ value: cat, label: cat }))
 
-        const getLastToken = (input: string) => {
+        const getLastToken = (input: string): string => {
             const tokens = input.trim().split(/\s+/)
             return tokens[tokens.length - 1]
         }
 
         const getSuggestions = (input: string): [Suggestion[], string?] => {
             const lastToken = getLastToken(input).trim()
-            const hasColon = lastToken.includes(":")
-            const [rawCategory, rawValue = ""] = lastToken.split(":")
+            const hasColon = lastToken.includes(':')
+            const [rawCategory, rawValue = ''] = lastToken.split(':')
             const matchedCategory = searchData.find(([cat]) => cat === rawCategory)
-        
-            const value = rawValue.trim()
-            const cleanValue = value.startsWith("!") || value.startsWith("-") ? value.slice(1) : value
-        
-            const suffixes = [":", ":!", ":-"]
-            const isValueEntryPoint = suffixes.some((suffix) =>
-                input.trim().endsWith(`${rawCategory}${suffix}`)
-            )
 
-            const endsWithSpace = input.endsWith(" ")
+            const value = rawValue.trim()
+            const cleanValue = value.startsWith('!') || value.startsWith('-') ? value.slice(1) : value
+
+            const suffixes = [':', ':!', ':-']
+            const isValueEntryPoint = suffixes.some((suffix) => input.trim().endsWith(`${rawCategory}${suffix}`))
+
+            const endsWithSpace = input.endsWith(' ')
 
             if (endsWithSpace) {
                 return [baseCategories, undefined]
             }
-        
+
             const isNegated =
                 lastToken === `${rawCategory}:!` ||
                 lastToken === `${rawCategory}:-` ||
-                rawValue.startsWith("!") ||
-                rawValue.startsWith("-")
-        
-            if (lastToken === "") {
+                rawValue.startsWith('!') ||
+                rawValue.startsWith('-')
+
+            if (lastToken === '') {
                 return [baseCategories, undefined]
             }
-        
+
             if (!hasColon) {
                 const matches = baseCategories.filter((cat) =>
                     cat.label.toLowerCase().startsWith(lastToken.toLowerCase())
                 )
                 return [matches, undefined]
             }
-        
+
             if (matchedCategory && isValueEntryPoint) {
                 const base = matchedCategory[1] || []
                 const excludeOption: Suggestion = {
-                    label: "Exclude…",
-                    value: "!__placeholder__",
+                    label: 'Exclude…',
+                    value: '!__placeholder__',
                 }
-        
+
                 return [isNegated ? base : [excludeOption, ...base], matchedCategory[2]]
             }
-        
+
             if (
                 matchedCategory &&
                 matchedCategory[1]?.some((s) => s.value.toLowerCase() === cleanValue.toLowerCase())
             ) {
-                return [[], undefined] // Fully satisfied token → no more suggestions
+                return [[], undefined]
             }
-        
+
             if (matchedCategory && matchedCategory[1]) {
                 const filtered = matchedCategory[1].filter((s) =>
                     s.label.toLowerCase().startsWith(cleanValue.toLowerCase())
                 )
-        
+
                 const excludeOption: Suggestion = {
-                    label: "Exclude…",
-                    value: "!__placeholder__",
+                    label: 'Exclude…',
+                    value: '!__placeholder__',
                 }
-        
+
                 const results = isNegated ? filtered : [excludeOption, ...filtered]
                 return [results, matchedCategory[2]]
             }
-        
+
             return [[], undefined]
         }
-        
 
-        const handleChange = (val: string) => {
+        const handleChange = (val: string): void => {
             setValue(val)
 
             if (val.length === 0) {
@@ -146,77 +129,86 @@ export const SearchTagAutocomplete = forwardRef<HTMLInputElement, SearchWithTags
             onChange?.(val)
         }
 
-        const handleSuggestionClick = (suggestion: Suggestion) => {
+        const handleSuggestionClick = (suggestion: Suggestion): void => {
             const tokens = value.trim().split(/\s+/)
             const lastToken = getLastToken(value)
-            const [category, partialRaw = ""] = lastToken.split(":")
+            const [category, partialRaw = ''] = lastToken.split(':')
             const matched = searchData.find(([cat]) => cat === category)
-        
+
             const isCategory = searchData.some(([cat]) => cat === suggestion.value)
-            const inputEndsWithSpace = value.endsWith(" ")
-        
-            let newInput = ""
-        
+            const inputEndsWithSpace = value.endsWith(' ')
+
+            let newInput = ''
+
             if (isCategory) {
-                if (inputEndsWithSpace || value === "") {
+                if (inputEndsWithSpace || value === '') {
                     tokens.push(`${suggestion.value}:`)
                 } else {
                     tokens[tokens.length - 1] = `${suggestion.value}:`
                 }
-        
-                newInput = tokens.join(" ").trim()
+
+                newInput = tokens.join(' ').trim()
                 setValue(newInput)
                 focusInput()
-        
+
                 const [newSuggestions, newHint] = getSuggestions(newInput)
                 setSuggestions(newSuggestions)
                 setCurrentHint(newHint)
                 setOpen(newSuggestions.length > 0 || !!newHint)
                 return
             }
-        
-            if (matched && suggestion.value === "!__placeholder__") {
-                const newVal = `${category}:!`
+
+            if (matched && suggestion.value === '!__placeholder__') {
+                tokens[tokens.length - 1] = `${category}:!`
+                const newVal = tokens.join(' ').trim()
                 setValue(newVal)
                 focusInput()
-        
+
                 const [newSuggestions, newHint] = getSuggestions(newVal)
                 setSuggestions(newSuggestions)
                 setCurrentHint(newHint)
                 setOpen(newSuggestions.length > 0 || !!newHint)
                 return
             }
-        
+
             if (matched && matched[1]) {
-                const negationPrefix = partialRaw.startsWith("!") || partialRaw.startsWith("-") ? partialRaw[0] : ""
+                const negationPrefix = partialRaw.startsWith('!') || partialRaw.startsWith('-') ? partialRaw[0] : ''
                 tokens[tokens.length - 1] = `${category}:${negationPrefix}${suggestion.value}`
-                newInput = tokens.join(" ").trim()
+                newInput = tokens.join(' ').trim()
                 setValue(newInput)
                 focusInput()
                 onSelect?.(suggestion.value)
-        
+
                 const [newSuggestions, newHint] = getSuggestions(newInput)
                 setSuggestions(newSuggestions)
                 setCurrentHint(newHint)
                 setOpen(newSuggestions.length > 0 || !!newHint)
             }
-        }        
 
-        const handleKeydown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-            if (!open || suggestions.length === 0) return
+            onChange?.(newInput)
+        }
+
+        const handleKeydown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
+            if (!open || suggestions.length === 0) {
+                onKeyDown?.(e)
+                return
+            }
 
             if (e.key === 'ArrowDown') {
                 e.preventDefault()
                 listBoxRef.current?.focusFirstElement()
+                return
             } else if (e.key === 'ArrowUp') {
                 e.preventDefault()
                 listBoxRef.current?.focusNthElement(suggestions.length - 1)
+                return
             } else if (e.key === 'Enter') {
                 setOpen(false)
+                return
             }
         }
 
-        const focusInput = () => {
+        const focusInput = (): void => {
             const input = inputRef.current
             if (input) {
                 input.focus()
@@ -235,8 +227,8 @@ export const SearchTagAutocomplete = forwardRef<HTMLInputElement, SearchWithTags
                         onChange={(val) => handleChange(val)}
                         value={value}
                         onKeyDown={handleKeydown}
-                        aria-label="Search input"
                         inputRef={inputRef}
+                        aria-label="Search input"
                         aria-expanded={open}
                         aria-controls="suggestions-list"
                         aria-autocomplete="list"
@@ -251,7 +243,10 @@ export const SearchTagAutocomplete = forwardRef<HTMLInputElement, SearchWithTags
                                 <ButtonPrimitive
                                     size="sm"
                                     iconOnly
-                                    onClick={() => onClear()}
+                                    onClick={() => {
+                                        setValue('')
+                                        onClear()
+                                    }}
                                     className="bg-transparent [&_svg]:opacity-50 hover:[&_svg]:opacity-100 focus-visible:[&_svg]:opacity-100 -mr-px"
                                     tooltip="Clear search"
                                 >
@@ -264,22 +259,22 @@ export const SearchTagAutocomplete = forwardRef<HTMLInputElement, SearchWithTags
                 </PopoverPrimitiveTrigger>
                 {open && (
                     <PopoverPrimitiveContent
+                        ref={ref}
                         onCloseAutoFocus={(e) => {
                             e.preventDefault()
                         }}
                         onOpenAutoFocus={(e) => {
                             e.preventDefault()
                             const [newSuggestions, newHint] = getSuggestions(value)
-                        
+
                             // ✅ Hide dropdown if input is already fully satisfied
                             const isSatisfied = newSuggestions.length === 0 && !newHint
                             if (isSatisfied) {
                                 setOpen(false)
                                 return
-                            } else {
-                                setSuggestions(newSuggestions)
-                                setCurrentHint(newHint)
                             }
+                            setSuggestions(newSuggestions)
+                            setCurrentHint(newHint)
                         }}
                         className="primitive-menu-content w-[var(--radix-popover-trigger-width)] max-w-none"
                     >
@@ -287,23 +282,16 @@ export const SearchTagAutocomplete = forwardRef<HTMLInputElement, SearchWithTags
                             {suggestions.map((item) => (
                                 <>
                                     <ListBox.Item asChild key={item.value}>
-                                        <ButtonPrimitive
-                                            onClick={() => handleSuggestionClick(item)}
-                                            menuItem
-                                    >
+                                        <ButtonPrimitive onClick={() => handleSuggestionClick(item)} menuItem>
                                             {item.label}
                                         </ButtonPrimitive>
                                     </ListBox.Item>
-                                    {item.value === "!__placeholder__" ? (
-                                        <div className="-mx-1 my-1 h-px bg-border-primary"/>
+                                    {item.value === '!__placeholder__' ? (
+                                        <div className="-mx-1 my-1 h-px bg-border-primary" />
                                     ) : null}
                                 </>
                             ))}
-                            {currentHint && (
-                                <div className="px-2 py-1 text-sm text-muted">
-                                    {currentHint}
-                                </div>
-                            )}
+                            {currentHint && <div className="px-2 py-1 text-sm text-muted">{currentHint}</div>}
                         </ListBox>
                     </PopoverPrimitiveContent>
                 )}
@@ -311,3 +299,5 @@ export const SearchTagAutocomplete = forwardRef<HTMLInputElement, SearchWithTags
         )
     }
 )
+
+SearchAutocomplete.displayName = 'SearchAutocomplete'
