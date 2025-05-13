@@ -7,6 +7,7 @@ from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
 from ee.hogai.graph.root.prompts import ROOT_INSIGHT_DESCRIPTION_PROMPT
+from ee.hogai.utils.types import AssistantState
 from posthog.schema import AssistantContextualTool
 
 MaxSupportedQueryKind = Literal["trends", "funnel", "retention", "sql"]
@@ -57,11 +58,17 @@ class MaxTool(BaseTool):
 
     _context: dict[str, Any]
     _team_id: int | None
+    _config: RunnableConfig
+    _state: AssistantState
 
     @abstractmethod
     def _run_impl(self, *args, **kwargs) -> tuple[str, Any]:
         """Tool execution, which should return a tuple of (content, artifact)"""
         pass
+
+    def __init__(self, state: AssistantState | None = None):
+        super().__init__()
+        self._state = state if state else AssistantState(messages=[])
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -80,6 +87,16 @@ class MaxTool(BaseTool):
     def _run(self, *args, config: RunnableConfig, **kwargs):
         self._context = config["configurable"].get("contextual_tools", {}).get(self.get_name(), {})
         self._team_id = config["configurable"].get("team_id", None)
+        self._config = {
+            "recursion_limit": 48,
+            "callbacks": config.get("callbacks", []),
+            "configurable": {
+                "thread_id": config["configurable"].get("thread_id"),
+                "trace_id": config["configurable"].get("trace_id"),
+                "distinct_id": config["configurable"].get("distinct_id"),
+                "team_id": self._team_id,
+            },
+        }
         return self._run_impl(*args, **kwargs)
 
     @property

@@ -43,6 +43,7 @@ import {
     BatchExportService,
     CohortType,
     CommentType,
+    ConversationDetail,
     CoreMemory,
     DashboardCollaboratorType,
     DashboardTemplateEditorType,
@@ -3320,6 +3321,14 @@ const api = {
 
         cancel(conversationId: string): Promise<void> {
             return new ApiRequest().conversation(conversationId).withAction('cancel').update()
+        },
+
+        list(): Promise<PaginatedResponse<ConversationDetail>> {
+            return new ApiRequest().conversations().get()
+        },
+
+        get(conversationId: string): Promise<ConversationDetail> {
+            return new ApiRequest().conversation(conversationId).get()
         },
     },
 
