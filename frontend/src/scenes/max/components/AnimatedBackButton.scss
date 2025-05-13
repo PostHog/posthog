@@ -1,0 +1,21 @@
+.MaxBackButton {
+    &.MaxBackButton-enter {
+        width: 0;
+        opacity: 0;
+    }
+
+    &.MaxBackButton-enter-active {
+        width: 2.25rem;
+        opacity: 1;
+    }
+
+    &.MaxBackButton-exit {
+        width: 2.25rem;
+        opacity: 1;
+    }
+
+    &.MaxBackButton-exit-active {
+        width: 0;
+        opacity: 0;
+    }
+}
