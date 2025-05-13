@@ -22,6 +22,7 @@ APIScopeObject = Literal[
     "export",
     "feature_flag",
     "file_system",
+    "file_system_shortcut",
     "group",
     "hog_function",
     "insight",

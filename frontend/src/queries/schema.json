@@ -5353,13 +5353,13 @@
         "ClickhouseQueryProgress": {
             "additionalProperties": false,
             "properties": {
+                "active_cpu_time": {
+                    "$ref": "#/definitions/integer"
+                },
                 "bytes_read": {
                     "$ref": "#/definitions/integer"
                 },
                 "estimated_rows_total": {
-                    "$ref": "#/definitions/integer"
-                },
-                "memory_usage": {
                     "$ref": "#/definitions/integer"
                 },
                 "rows_read": {
@@ -5369,7 +5369,7 @@
                     "$ref": "#/definitions/integer"
                 }
             },
-            "required": ["bytes_read", "rows_read", "estimated_rows_total", "time_elapsed", "memory_usage"],
+            "required": ["bytes_read", "rows_read", "estimated_rows_total", "time_elapsed", "active_cpu_time"],
             "type": "object"
         },
         "CohortPropertyFilter": {
@@ -9428,21 +9428,12 @@
                     "type": "string"
                 },
                 "href": {
-                    "$comment": "(ref?: string) => string",
-                    "properties": {
-                        "namedArgs": {
-                            "additionalProperties": false,
-                            "properties": {
-                                "ref": {
-                                    "type": "string"
-                                }
-                            },
-                            "type": "object"
-                        }
-                    },
-                    "type": "object"
+                    "description": "Object's URL",
+                    "type": "string"
                 },
-                "icon": {},
+                "iconType": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -9467,7 +9458,7 @@
                     "type": "string"
                 }
             },
-            "required": ["href", "path"],
+            "required": ["path"],
             "type": "object"
         },
         "FilterLogicalOperator": {

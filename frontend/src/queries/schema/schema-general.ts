@@ -1442,7 +1442,7 @@ export type ClickhouseQueryProgress = {
     rows_read: integer
     estimated_rows_total: integer
     time_elapsed: integer
-    memory_usage: integer
+    active_cpu_time: integer
 }
 
 export type QueryStatus = {
@@ -1964,11 +1964,10 @@ export interface FileSystemEntry {
     _loading?: boolean
 }
 
-export interface FileSystemImport extends Omit<FileSystemEntry, 'href' | 'id'> {
-    icon?: any // Setting as "any" to keep Python schema.py in check
+export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
+    iconType?: string
     flag?: string
-    href: (ref?: string) => string
 }
 
 export type InsightQueryNode =
