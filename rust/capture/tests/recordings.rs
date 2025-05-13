@@ -448,7 +448,6 @@ async fn it_returns_204_when_beacon_is_1_for_recordings() -> Result<()> {
     let server = ServerHandle::for_recordings(&main_topic).await;
 
     let recording_event = json!([{
-
         "token": token,
         "event": "$snapshot",
         "distinct_id": distinct_id,
@@ -456,7 +455,7 @@ async fn it_returns_204_when_beacon_is_1_for_recordings() -> Result<()> {
         "properties": {
             "$session_id": session_id.clone(),
             "$window_id": window_id.clone(),
-             "$snapshot_data": [
+            "$snapshot_data": [
                 {"type": 2, "data": {"source": 0}, "timestamp": Utc::now().timestamp_millis()}
             ]
         }
