@@ -10,7 +10,7 @@ import { maxLogic } from './maxLogic'
 export function QuestionSuggestions(): JSX.Element {
     const { visibleSuggestions, allSuggestionsLoading, dataProcessingAccepted, tools } = useValues(maxLogic)
     const { askMax, shuffleVisibleSuggestions } = useActions(maxLogic)
-    const { coreMemory, coreMemoryLoading } = useValues(maxSettingsLogic)
+    const { coreMemoryLoading, coreMemory } = useValues(maxSettingsLogic)
     const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
 
     if (tools.length > 0) {
