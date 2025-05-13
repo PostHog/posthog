@@ -36,7 +36,7 @@ export function SurveyResponsesCollection(): JSX.Element | null {
                         Enable partial responses
                     </h3>
                 }
-                info="Requires at least version 1.240.0 or higher of posthog-js. Doesn't work with the mobile SDKs for now. If you face any issues while this is on beta, please report it to us."
+                info="Requires at least version 1.240.0 or higher of posthog-js. Doesn't work with the mobile SDKs for now. If you face any issues when using partial responses, please report it to us."
                 htmlFor="enable-partial-responses"
             >
                 <LemonSwitch
