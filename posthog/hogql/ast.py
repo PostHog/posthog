@@ -854,7 +854,7 @@ SetOperator = Literal["UNION ALL", "UNION DISTINCT", "INTERSECT", "INTERSECT DIS
 
 
 @dataclass(kw_only=True)
-class SelectSetNode:
+class SelectSetNode(AST):
     select_query: Union[SelectQuery, "SelectSetQuery"]
     set_operator: SetOperator
 
