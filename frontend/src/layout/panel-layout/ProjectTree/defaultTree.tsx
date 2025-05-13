@@ -152,4 +152,39 @@ export const getDefaultTreeGames = (): FileSystemImport[] =>
             iconType: 'cursorClick',
             href: urls.game368(),
         },
+        {
+            path: 'Hedgehog Farm',
+            iconType: 'cursorClick',
+            href: urls.game368(),
+        },
+        {
+            path: '2048',
+            iconType: 'cursorClick',
+            href: urls.game368(),
+        },
+        {
+            path: 'Hogmatch',
+            iconType: 'cursorClick',
+            href: urls.game368(),
+        },
+        {
+            path: 'Hogmageddon',
+            iconType: 'cursorClick',
+            href: urls.game368(),
+        },
+        {
+            path: 'What the Hog',
+            iconType: 'cursorClick',
+            href: urls.game368(),
+        },
+        {
+            path: 'Solitaire',
+            iconType: 'cursorClick',
+            href: urls.game368(),
+        },
+        {
+            path: 'Hogs and ladders',
+            iconType: 'cursorClick',
+            href: urls.game368(),
+        },
     ].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
