@@ -1183,6 +1183,42 @@ async fn it_limits_batch_endpoints_to_20mb() -> Result<()> {
 }
 
 #[tokio::test]
+async fn it_returns_200() -> Result<()> {
+    setup_tracing();
+    let token = random_string("token", 16);
+    let distinct_id = random_string("id", 16);
+
+    let main_topic = EphemeralTopic::new().await;
+    let histo_topic = EphemeralTopic::new().await;
+    let server = ServerHandle::for_topics(&main_topic, &histo_topic).await;
+
+    let event = json!({
+        "token": token,
+        "event": "testing",
+        "distinct_id": distinct_id
+    });
+
+    let client = reqwest::Client::builder()
+        .timeout(StdDuration::from_millis(3000))
+        .build()
+        .unwrap();
+    let timestamp = Utc::now().timestamp_millis();
+    let url = format!(
+        "http://{:?}/i/v0/e/?_={}&ver=1.240.6&compression=gzip-js",
+        server.addr, timestamp
+    );
+    let res = client
+        .post(url)
+        .body(event.to_string())
+        .send()
+        .await
+        .expect("failed to send request");
+    assert_eq!(StatusCode::OK, res.status());
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn it_returns_204_when_beacon_is_1() -> Result<()> {
     setup_tracing();
     let token = random_string("token", 16);
@@ -1197,10 +1233,7 @@ async fn it_returns_204_when_beacon_is_1() -> Result<()> {
         "event": "testing",
         "distinct_id": distinct_id
     });
-    let res = server.capture_events(event.to_string()).await;
-    assert_eq!(StatusCode::OK, res.status());
 
-    // Now test with beacon=1 in the query string
     let client = reqwest::Client::builder()
         .timeout(StdDuration::from_millis(3000))
         .build()

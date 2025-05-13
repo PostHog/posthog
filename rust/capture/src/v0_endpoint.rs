@@ -542,17 +542,17 @@ pub async fn event(
 pub async fn recording(
     state: State<router::State>,
     ip: InsecureClientIp,
-    meta: Query<EventQuery>,
+    params: Query<EventQuery>,
     headers: HeaderMap,
     method: Method,
     path: MatchedPath,
     body: Bytes,
-) -> Result<Json<CaptureResponse>, CaptureError> {
-    match handle_common(&state, &ip, &meta, &headers, &method, &path, body).await {
-        Err(CaptureError::BillingLimit) => Ok(Json(CaptureResponse {
+) -> Result<CaptureResponse, CaptureError> {
+    match handle_common(&state, &ip, &params, &headers, &method, &path, body).await {
+        Err(CaptureError::BillingLimit) => Ok(CaptureResponse {
             status: CaptureResponseCode::Ok,
             quota_limited: Some(vec!["recordings".to_string()]),
-        })),
+        }),
         Err(err) => Err(err),
         Ok((context, events)) => {
             let count = events.len() as u64;
@@ -562,10 +562,14 @@ pub async fn recording(
                 warn!("rejected invalid payload: {:?}", err);
                 return Err(err);
             }
-            Ok(Json(CaptureResponse {
-                status: CaptureResponseCode::Ok,
+            Ok(CaptureResponse {
+                status: if params.beacon {
+                    CaptureResponseCode::NoContent
+                } else {
+                    CaptureResponseCode::Ok
+                },
                 quota_limited: None,
-            }))
+            })
         }
     }
 }
