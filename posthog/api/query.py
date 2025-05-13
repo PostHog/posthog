@@ -410,6 +410,21 @@ async def query_awaited(request: Request, *args, **kwargs) -> StreamingHttpRespo
         )
 
 
+async def progress(request: Request, *args, **kwargs) -> StreamingHttpResponse:
+    # TEMPORARY endpoint to avoid breaking changes
+
+    return StreamingHttpResponse(
+        [],
+        status=status.HTTP_200_OK,
+        content_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
+
+
 def is_insight_query(query):
     insight_kinds = {
         "TrendsQuery",
