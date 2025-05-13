@@ -7,7 +7,7 @@ import {
     PopoverPrimitiveContent,
     PopoverPrimitiveTrigger,
 } from "lib/ui/PopoverPrimitive/PopoverPrimitive"
-import { forwardRef, useState, useRef, useEffect } from "react"
+import { forwardRef, useState, useRef } from "react"
 
 type Category = string
 type Suggestion = { label: string; value: string }
@@ -37,7 +37,7 @@ export const SearchTagAutocomplete = forwardRef<HTMLInputElement, SearchWithTags
             autoFocus,
             onClear,
         },
-        _,
+        _
     ): JSX.Element => {
         const [value, setValue] = useState('')
         const [open, setOpen] = useState(false)
@@ -58,59 +58,66 @@ export const SearchTagAutocomplete = forwardRef<HTMLInputElement, SearchWithTags
             const hasColon = lastToken.includes(":")
             const [rawCategory, rawValue = ""] = lastToken.split(":")
             const matchedCategory = searchData.find(([cat]) => cat === rawCategory)
-        
+
             const value = rawValue.trim()
             const cleanValue = value.startsWith("!") || value.startsWith("-") ? value.slice(1) : value
-        
-            // 1. Empty input — show base categories
+            const isNegated = rawValue.startsWith("!") || rawValue.startsWith("-")
+
+            const suffixes = [":", ":!", ":-"]
+            const isValueEntryPoint = suffixes.some((suffix) =>
+                input.trim().endsWith(`${rawCategory}${suffix}`)
+            )
+
             if (lastToken === "") {
                 return [baseCategories, undefined]
             }
-        
-            // 2. Typing category ("use", "typ", etc.) — suggest matching base categories
+
             if (!hasColon) {
                 const matches = baseCategories.filter((cat) =>
                     cat.label.toLowerCase().startsWith(lastToken.toLowerCase())
                 )
                 return [matches, undefined]
             }
-        
-            // 3. Category with colon but no value yet — show all suggestions in that category
-            if (matchedCategory && (lastToken.endsWith(":") || input.endsWith(`${rawCategory}:`))) {
-                return [matchedCategory[1] || [], matchedCategory[2]]
+
+            if (matchedCategory && isValueEntryPoint) {
+                const base = matchedCategory[1] || []
+                const excludeOption: Suggestion = {
+                    label: "Exclude…",
+                    value: "!__placeholder__",
+                }
+
+                return [isNegated ? base : [excludeOption, ...base], matchedCategory[2]]
             }
-        
-            // 4. Fully matched category:value — no suggestions needed
+
             if (
                 matchedCategory &&
                 matchedCategory[1]?.some((s) => s.value.toLowerCase() === cleanValue.toLowerCase())
             ) {
                 return [[], undefined]
             }
-        
-            // 5. Partial value typed — filter suggestions
+
             if (matchedCategory && matchedCategory[1]) {
-                const filtered = matchedCategory[1].flatMap((s) => {
-                    const match = s.label.toLowerCase().startsWith(cleanValue.toLowerCase())
-                    return match
-                        ? [
-                              s, // positive
-                              { label: `!${s.label}`, value: `!${s.value}` },
-                              { label: `-${s.label}`, value: `-${s.value}` },
-                          ]
-                        : []
-                })
-                return [filtered, matchedCategory[2]]
+                const filtered = matchedCategory[1].filter((s) =>
+                    s.label.toLowerCase().startsWith(cleanValue.toLowerCase())
+                )
+
+                const excludeOption: Suggestion = {
+                    label: "Exclude…",
+                    value: "!__placeholder__",
+                }
+
+                const results = isNegated ? filtered : [excludeOption, ...filtered]
+                return [results, matchedCategory[2]]
             }
-        
+
             return [[], undefined]
-        }        
+        }
 
         const handleChange = (val: string) => {
             setValue(val)
-        
+
             const inputEndsWithSpace = val.endsWith(" ")
-        
+
             if (val.length === 0) {
                 setSuggestions(baseCategories)
                 setCurrentHint(undefined)
@@ -118,7 +125,7 @@ export const SearchTagAutocomplete = forwardRef<HTMLInputElement, SearchWithTags
                 onChange?.(val)
                 return
             }
-        
+
             if (inputEndsWithSpace) {
                 setSuggestions(baseCategories)
                 setCurrentHint(undefined)
@@ -126,16 +133,15 @@ export const SearchTagAutocomplete = forwardRef<HTMLInputElement, SearchWithTags
                 onChange?.(val)
                 return
             }
-        
-            // Cleanly evaluate suggestions + hint
+
             const [newSuggestions, newHint] = getSuggestions(val)
-        
+
             setSuggestions(newSuggestions)
             setCurrentHint(newHint)
             setOpen(newSuggestions.length > 0 || !!newHint)
-        
+
             onChange?.(val)
-        }        
+        }
 
         const handleSuggestionClick = (suggestion: Suggestion) => {
             const tokens = value.trim().split(/\s+/)
@@ -158,22 +164,34 @@ export const SearchTagAutocomplete = forwardRef<HTMLInputElement, SearchWithTags
                 const [newSuggestions, newHint] = getSuggestions(newInput)
                 setSuggestions(newSuggestions)
                 setCurrentHint(newHint)
-            } else if (matched && matched[1]) {
-                const negationPrefix = partialRaw.startsWith("!") || partialRaw.startsWith("-") ? partialRaw[0] : ""
-            
-                // Insert selected suggestion (with or without negation prefix)
-                tokens[tokens.length - 1] = `${category}:${negationPrefix}${suggestion.value}`
-                newInput = tokens.join(" ").trim() + " "
-            
-                // Also add negated suggestions to dropdown
-                setSuggestions(baseCategories)
-                setCurrentHint(undefined)
+                setValue(newInput)
+                setOpen(true)
+                return
             }
 
-            setValue(newInput)
-            setOpen(true)
-            onSelect?.(suggestion.value)
-            focusInput()
+            if (matched && suggestion.value === "!__placeholder__") {
+                tokens[tokens.length - 1] = `${category}:!`
+                const newVal = tokens.join(" ").trim()
+                const [newSuggestions, newHint] = getSuggestions(newVal)
+                setSuggestions(newSuggestions)
+                setCurrentHint(newHint)
+                setValue(newVal)
+                setOpen(true)
+                focusInput()
+                return
+            }
+
+            if (matched && matched[1]) {
+                const negationPrefix = partialRaw.startsWith("!") || partialRaw.startsWith("-") ? partialRaw[0] : ""
+                tokens[tokens.length - 1] = `${category}:${negationPrefix}${suggestion.value}`
+                newInput = tokens.join(" ").trim() + " "
+                setSuggestions(baseCategories)
+                setCurrentHint(undefined)
+                setValue(newInput)
+                setOpen(true)
+                onSelect?.(suggestion.value)
+                focusInput()
+            }
         }
 
         const handleKeydown = (e: React.KeyboardEvent<HTMLInputElement>) => {
