@@ -72,7 +72,7 @@ export function SavedFilters({
                                 )
                                 void copyToClipboard(combinedURL, 'link to ' + (playlist.name || playlist.derived_name))
                             }}
-                            title="Copy libnk to saved filter"
+                            title="Copy link to saved filter"
                             icon={<IconCopy />}
                         />
                         <LemonButton
