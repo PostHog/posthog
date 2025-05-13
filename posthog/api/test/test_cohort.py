@@ -2058,9 +2058,6 @@ email@example.org,
         self.assertEqual(response.status_code, 201, response.json())
         cohort_data = response.json()
         self.assertIsNotNone(cohort_data.get("id"))
-        # You could add more specific assertions here if needed, e.g.:
-        # self.assertEqual(cohort_data["filters"]["properties"]["values"][0]["values"][0]["event_filters"][0]["type"], "hogql")
-        # self.assertIsNone(cohort_data["filters"]["properties"]["values"][0]["values"][0]["event_filters"][0]["value"])
 
 
 def create_cohort(client: Client, team_id: int, name: str, groups: list[dict[str, Any]]):
