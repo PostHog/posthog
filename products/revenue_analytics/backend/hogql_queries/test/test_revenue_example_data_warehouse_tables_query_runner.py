@@ -18,7 +18,9 @@ from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
 from products.revenue_analytics.backend.hogql_queries.revenue_example_data_warehouse_tables_query_runner import (
     RevenueExampleDataWarehouseTablesQueryRunner,
 )
-from products.revenue_analytics.backend.models import STRIPE_DATA_WAREHOUSE_CHARGE_IDENTIFIER
+from products.revenue_analytics.backend.views.revenue_analytics_charge_view import (
+    STRIPE_CHARGE_RESOURCE_NAME,
+)
 from products.revenue_analytics.backend.hogql_queries.test.data.structure import (
     REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT,
     STRIPE_CHARGE_COLUMNS,
@@ -47,10 +49,10 @@ class TestRevenueExampleDataWarehouseTablesQueryRunner(ClickhouseTestMixin, APIB
         )
 
         # Besides the default creations above, also create the external data schema
-        # because this is required by the `RevenueAnalyticsRevenueView` to find the right tables
+        # because this is required by the `RevenueAnalyticsBaseView` to find the right tables
         self.schema = ExternalDataSchema.objects.create(
             team=self.team,
-            name=STRIPE_DATA_WAREHOUSE_CHARGE_IDENTIFIER,
+            name=STRIPE_CHARGE_RESOURCE_NAME,
             source=self.source,
             table=self.table,
             should_sync=True,

@@ -1,8 +1,8 @@
 import { LemonButton, LemonDialog, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
-import { hogFunctionConfigurationLogic } from 'scenes/pipeline/hogfunctions/hogFunctionConfigurationLogic'
-import { HogFunctionTestPlaceholder } from 'scenes/pipeline/hogfunctions/HogFunctionTest'
+import { hogFunctionConfigurationLogic } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
+import { HogFunctionTestPlaceholder } from 'scenes/hog-functions/configuration/HogFunctionTest'
 import { urls } from 'scenes/urls'
 
 import { HogFunctionMessageTesting } from './HogFunctionMessageTesting'
