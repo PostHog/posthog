@@ -249,16 +249,17 @@ export function PanelLayoutPanel({ searchPlaceholder, panelActions, children }: 
                             [
                                 'user',
                                 [{ value: 'me', label: 'Me' }],
-                                "type a user's name",
+                                "enter a user, quotes are supported",
                             ],
                             [
                                 'type',
                                 productTypes.map(([value, label]) => ({ value, label })),
+                                'enter a type, quotes are supported',
                             ],
                             [
                                 'name',
                                 undefined,
-                                'type a name',
+                                'enter a name, quotes are supported',
                             ],
                         ]}
                         autoFocus

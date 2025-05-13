@@ -166,6 +166,7 @@ export const SearchTagAutocomplete = forwardRef<HTMLInputElement, SearchWithTags
                 setCurrentHint(newHint)
                 setValue(newInput)
                 setOpen(true)
+                focusInput()
                 return
             }
 
@@ -267,14 +268,19 @@ export const SearchTagAutocomplete = forwardRef<HTMLInputElement, SearchWithTags
                     >
                         <ListBox ref={listBoxRef} className="flex flex-col gap-px p-1">
                             {suggestions.map((item) => (
-                                <ListBox.Item asChild key={item.value}>
-                                    <ButtonPrimitive
-                                        onClick={() => handleSuggestionClick(item)}
-                                        menuItem
+                                <>
+                                    <ListBox.Item asChild key={item.value}>
+                                        <ButtonPrimitive
+                                            onClick={() => handleSuggestionClick(item)}
+                                            menuItem
                                     >
-                                        {item.label}
-                                    </ButtonPrimitive>
-                                </ListBox.Item>
+                                            {item.label}
+                                        </ButtonPrimitive>
+                                    </ListBox.Item>
+                                    {item.value === "!__placeholder__" ? (
+                                        <div className="-mx-1 my-1 h-px bg-border-primary"/>
+                                    ) : null}
+                                </>
                             ))}
                             {currentHint && (
                                 <div className="px-2 py-1 text-sm text-muted">
