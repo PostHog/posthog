@@ -1,5 +1,6 @@
 import { IconSearch, IconX } from "@posthog/icons"
 import { LemonInput } from "lib/lemon-ui/LemonInput"
+import { useEffect } from 'react';
 import { ButtonPrimitive } from "lib/ui/Button/ButtonPrimitives"
 import { ListBox, ListBoxHandle } from "lib/ui/ListBox/ListBox"
 import {
@@ -58,60 +59,68 @@ export const SearchTagAutocomplete = forwardRef<HTMLInputElement, SearchWithTags
             const hasColon = lastToken.includes(":")
             const [rawCategory, rawValue = ""] = lastToken.split(":")
             const matchedCategory = searchData.find(([cat]) => cat === rawCategory)
-
+        
             const value = rawValue.trim()
             const cleanValue = value.startsWith("!") || value.startsWith("-") ? value.slice(1) : value
-            const isNegated = rawValue.startsWith("!") || rawValue.startsWith("-")
-
+        
             const suffixes = [":", ":!", ":-"]
             const isValueEntryPoint = suffixes.some((suffix) =>
                 input.trim().endsWith(`${rawCategory}${suffix}`)
             )
+        
+            const isNegated =
+                lastToken === `${rawCategory}:!` ||
+                lastToken === `${rawCategory}:-` ||
+                rawValue.startsWith("!") ||
+                rawValue.startsWith("-")
 
+            console.log('isNegated', isNegated)
+        
             if (lastToken === "") {
                 return [baseCategories, undefined]
             }
-
+        
             if (!hasColon) {
                 const matches = baseCategories.filter((cat) =>
                     cat.label.toLowerCase().startsWith(lastToken.toLowerCase())
                 )
                 return [matches, undefined]
             }
-
+        
             if (matchedCategory && isValueEntryPoint) {
                 const base = matchedCategory[1] || []
                 const excludeOption: Suggestion = {
                     label: "Exclude…",
                     value: "!__placeholder__",
                 }
-
+        
                 return [isNegated ? base : [excludeOption, ...base], matchedCategory[2]]
             }
-
+        
             if (
                 matchedCategory &&
                 matchedCategory[1]?.some((s) => s.value.toLowerCase() === cleanValue.toLowerCase())
             ) {
-                return [[], undefined]
+                return [[], undefined] // Fully satisfied token → no more suggestions
             }
-
+        
             if (matchedCategory && matchedCategory[1]) {
                 const filtered = matchedCategory[1].filter((s) =>
                     s.label.toLowerCase().startsWith(cleanValue.toLowerCase())
                 )
-
+        
                 const excludeOption: Suggestion = {
                     label: "Exclude…",
                     value: "!__placeholder__",
                 }
-
+        
                 const results = isNegated ? filtered : [excludeOption, ...filtered]
                 return [results, matchedCategory[2]]
             }
-
+        
             return [[], undefined]
         }
+        
 
         const handleChange = (val: string) => {
             setValue(val)
@@ -148,52 +157,56 @@ export const SearchTagAutocomplete = forwardRef<HTMLInputElement, SearchWithTags
             const lastToken = getLastToken(value)
             const [category, partialRaw = ""] = lastToken.split(":")
             const matched = searchData.find(([cat]) => cat === category)
-
+        
             const isCategory = searchData.some(([cat]) => cat === suggestion.value)
             const inputEndsWithSpace = value.endsWith(" ")
-
+        
             let newInput = ""
-
+        
             if (isCategory) {
                 if (inputEndsWithSpace || value === "") {
                     tokens.push(`${suggestion.value}:`)
                 } else {
                     tokens[tokens.length - 1] = `${suggestion.value}:`
                 }
+        
                 newInput = tokens.join(" ").trim()
+                setValue(newInput)
+                focusInput()
+        
                 const [newSuggestions, newHint] = getSuggestions(newInput)
                 setSuggestions(newSuggestions)
                 setCurrentHint(newHint)
-                setValue(newInput)
-                setOpen(true)
-                focusInput()
+                setOpen(newSuggestions.length > 0 || !!newHint)
                 return
             }
-
+        
             if (matched && suggestion.value === "!__placeholder__") {
-                tokens[tokens.length - 1] = `${category}:!`
-                const newVal = tokens.join(" ").trim()
+                const newVal = `${category}:!`
+                setValue(newVal)
+                focusInput()
+        
                 const [newSuggestions, newHint] = getSuggestions(newVal)
                 setSuggestions(newSuggestions)
                 setCurrentHint(newHint)
-                setValue(newVal)
-                setOpen(true)
-                focusInput()
+                setOpen(newSuggestions.length > 0 || !!newHint)
                 return
             }
-
+        
             if (matched && matched[1]) {
                 const negationPrefix = partialRaw.startsWith("!") || partialRaw.startsWith("-") ? partialRaw[0] : ""
                 tokens[tokens.length - 1] = `${category}:${negationPrefix}${suggestion.value}`
-                newInput = tokens.join(" ").trim() + " "
-                setSuggestions(baseCategories)
-                setCurrentHint(undefined)
+                newInput = tokens.join(" ").trim()
                 setValue(newInput)
-                setOpen(true)
-                onSelect?.(suggestion.value)
                 focusInput()
+                onSelect?.(suggestion.value)
+        
+                const [newSuggestions, newHint] = getSuggestions(newInput)
+                setSuggestions(newSuggestions)
+                setCurrentHint(newHint)
+                setOpen(newSuggestions.length > 0 || !!newHint)
             }
-        }
+        }        
 
         const handleKeydown = (e: React.KeyboardEvent<HTMLInputElement>) => {
             if (!open || suggestions.length === 0) return
@@ -229,6 +242,17 @@ export const SearchTagAutocomplete = forwardRef<HTMLInputElement, SearchWithTags
                         value={value}
                         onKeyDown={handleKeydown}
                         aria-label="Search input"
+                        // onFocus={() => {
+                        //     if (value.trim() === "") {
+                        //         setSuggestions(baseCategories)
+                        //     }
+                        // }}
+                        onFocus={() => {
+                            const [newSuggestions, newHint] = getSuggestions(value)
+                            setSuggestions(newSuggestions)
+                            setCurrentHint(newHint)
+                            // setOpen(newSuggestions.length > 0 || !!newHint)
+                        }}
                         inputRef={inputRef}
                         aria-expanded={open}
                         aria-controls="suggestions-list"
@@ -259,9 +283,6 @@ export const SearchTagAutocomplete = forwardRef<HTMLInputElement, SearchWithTags
                     <PopoverPrimitiveContent
                         onCloseAutoFocus={(e) => {
                             e.preventDefault()
-                            requestAnimationFrame(() => {
-                                focusInput()
-                            })
                         }}
                         onOpenAutoFocus={(e) => e.preventDefault()}
                         className="primitive-menu-content w-[var(--radix-popover-trigger-width)] max-w-none"

@@ -262,7 +262,6 @@ export function PanelLayoutPanel({ searchPlaceholder, panelActions, children }: 
                                 'enter a name, quotes are supported',
                             ],
                         ]}
-                        autoFocus
                         onKeyDown={(e) => {
                             if (e.key === 'ArrowDown') {
                                 e.preventDefault() // Prevent scrolling
