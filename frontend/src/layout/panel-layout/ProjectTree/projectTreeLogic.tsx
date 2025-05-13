@@ -28,6 +28,7 @@ import {
     joinPath,
     sortFilesAndFolders,
     splitPath,
+    unescapePath,
 } from './utils'
 
 const PAGINATION_LIMIT = 100
@@ -871,12 +872,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         ? [
                               {
                                   path: 'Groups',
-                                  href: () => urls.groups(0),
+                                  href: urls.groups(0),
                               },
                           ]
                         : Array.from(groupTypes.values()).map((groupType) => ({
                               path: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
-                              href: () => urls.groups(groupType.group_type_index),
+                              href: urls.groups(groupType.group_type_index),
                           }))),
                 ]
 
@@ -1004,26 +1005,42 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
         treeItemsCombined: [
             (s) => [s.treeItemsProject, s.treeItemsProducts, s.treeItemsNew],
-            (project, products, allNew): TreeDataItem[] => [
-                {
-                    id: 'project',
-                    name: 'Project',
-                    record: { type: 'folder', id: null, path: '/' },
-                    children: project,
-                },
-                {
-                    id: 'products',
-                    name: 'Products',
-                    record: { type: 'folder', id: null, path: '/' },
-                    children: products,
-                },
-                {
-                    id: 'new',
-                    name: 'New',
-                    record: { type: 'folder', id: null, path: '/' },
-                    children: allNew,
-                },
-            ],
+            (project, products, allNew): TreeDataItem[] => {
+                function addNewLabel(item: TreeDataItem): TreeDataItem {
+                    if (item.children) {
+                        return { ...item, children: item.children?.map(addNewLabel) }
+                    }
+                    const pathParts = splitPath(item.record?.path ?? '')
+                    const name = `New ${pathParts.pop()?.toLowerCase()}`
+                    const newPath = joinPath([...pathParts, name])
+                    return {
+                        ...item,
+                        name: name,
+                        record: { ...item.record, path: newPath },
+                    }
+                }
+
+                return [
+                    {
+                        id: 'project',
+                        name: 'Project',
+                        record: { type: 'folder', id: null, path: '/' },
+                        children: project,
+                    },
+                    {
+                        id: 'products',
+                        name: 'Products',
+                        record: { type: 'folder', id: null, path: '/' },
+                        children: products,
+                    },
+                    {
+                        id: 'new',
+                        name: 'New',
+                        record: { type: 'folder', id: null, path: '/' },
+                        children: allNew.map(addNewLabel),
+                    },
+                ]
+            },
         ],
         // TODO: use treeData + some other logic to determine the keys
         treeTableKeys: [
@@ -1176,7 +1193,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         // No scene breadcrumbs, so create a new one with the file name
                         lastBreadcrumb = {
                             key: `project-tree/${projectTreeRefEntry.path}`,
-                            name: name,
+                            name: unescapePath(name ?? 'Unnamed'),
                             path: projectTreeRefEntry.href, // link to actual page
                         }
                     }
@@ -1195,7 +1212,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 // Convert the folders into breadcrumbs
                 const breadcrumbs: ProjectTreeBreadcrumb[] = folders.map((path, index) => ({
                     key: `project-tree/${path}`,
-                    name: path,
+                    name: unescapePath(path),
                     path: joinPath(folders.slice(0, index + 1)),
                     type: 'folder',
                 }))

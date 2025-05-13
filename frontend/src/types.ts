@@ -5332,6 +5332,11 @@ export interface FileSystemType {
     href?: (ref: string) => string
 }
 
+export interface FileSystemFilterType {
+    name: string
+    flag?: string
+}
+
 export interface ProductManifest {
     name: string
     scenes?: Record<string, SceneConfig>
@@ -5341,6 +5346,7 @@ export interface ProductManifest {
     fileSystemTypes?: Record<string, FileSystemType>
     treeItemsNew?: FileSystemImport[]
     treeItemsProducts?: FileSystemImport[]
+    fileSystemFilterTypes?: Record<string, FileSystemFilterType>
 }
 
 export interface ProjectTreeRef {

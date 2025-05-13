@@ -8,6 +8,7 @@ import { RefObject, useRef, useState } from 'react'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { shortcutsLogic } from '~/layout/panel-layout/Shortcuts/shortcutsLogic'
+import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import { PanelLayoutPanel } from '../PanelLayoutPanel'
 import { projectTreeLogic } from '../ProjectTree/projectTreeLogic'
@@ -29,10 +30,28 @@ export function ProductTree(): JSX.Element {
                     asChild
                     onClick={(e) => {
                         e.stopPropagation()
-                        addShortcutItem(item)
+                        window.open(item.record?.href, '_blank')
+                    }}
+                >
+                    <ButtonPrimitive menuItem>Open link in new tab</ButtonPrimitive>
+                </MenuItem>
+                <MenuItem
+                    asChild
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        item.record && addShortcutItem(item.record as FileSystemEntry)
                     }}
                 >
                     <ButtonPrimitive menuItem>Add to shortcuts panel</ButtonPrimitive>
+                </MenuItem>
+                <MenuItem
+                    asChild
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        void navigator.clipboard.writeText(document.location.origin + item.record?.href)
+                    }}
+                >
+                    <ButtonPrimitive menuItem>Copy link address</ButtonPrimitive>
                 </MenuItem>
             </>
         )
