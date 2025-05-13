@@ -57,7 +57,7 @@ from .views import (
     security_txt,
     stats,
 )
-from posthog.api.query import query_awaited
+from posthog.api.query import progress
 
 from posthog.api.slack import slack_interactivity_callback
 
@@ -173,7 +173,7 @@ urlpatterns = [
     # ee
     *ee_urlpatterns,
     # api
-    path("api/environments/<int:team_id>/query_awaited/", query_awaited),
+    path("api/environments/<int:team_id>/progress/", progress),
     path("api/unsubscribe", unsubscribe.unsubscribe),
     path("api/", include(router.urls)),
     path("", include(tf_urls)),
