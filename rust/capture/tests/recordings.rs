@@ -2,12 +2,12 @@ use crate::common::*;
 use anyhow::Result;
 use assert_json_diff::assert_json_include;
 use capture::config::CaptureMode;
+use chrono::Utc;
 use limiters::redis::QuotaResource;
 use reqwest::StatusCode;
 use serde_json::{json, value::Value};
 use time::Duration;
 use uuid::Uuid;
-use chrono::Utc;
 
 mod common;
 
@@ -421,8 +421,7 @@ async fn it_returns_200() -> Result<()> {
     let timestamp = Utc::now().timestamp_millis();
     let beacon_url = format!(
         "http://{:?}/s/?ip=1&_={}&ver=1.240.6&compression=gzip-js",
-        server.addr,
-        timestamp
+        server.addr, timestamp
     );
 
     let res = client
@@ -436,7 +435,6 @@ async fn it_returns_200() -> Result<()> {
 
     Ok(())
 }
-
 
 #[tokio::test]
 async fn it_returns_204_when_beacon_is_1_for_recordings() -> Result<()> {
@@ -472,8 +470,7 @@ async fn it_returns_204_when_beacon_is_1_for_recordings() -> Result<()> {
     let timestamp = Utc::now().timestamp_millis();
     let beacon_url = format!(
         "http://{:?}/s/?ip=1&_={}&ver=1.240.6&compression=gzip-js&beacon=1",
-        server.addr, 
-        timestamp
+        server.addr, timestamp
     );
 
     let res_no_content = client
@@ -483,7 +480,11 @@ async fn it_returns_204_when_beacon_is_1_for_recordings() -> Result<()> {
         .await
         .expect("Failed to send beacon request to /s/");
 
-    assert_eq!(StatusCode::NO_CONTENT, res_no_content.status(), "Expected NO_CONTENT for beacon recording request");
+    assert_eq!(
+        StatusCode::NO_CONTENT,
+        res_no_content.status(),
+        "Expected NO_CONTENT for beacon recording request"
+    );
 
     Ok(())
 }
