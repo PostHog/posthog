@@ -1363,7 +1363,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 const startDate = getSurveyStartDateForQuery(survey)
                 const endDate = getSurveyEndDateForQuery(survey)
 
-                const where = [`event == '${SurveyEventName.SENT}'`, partialResponsesFilter.substring(4)]
+                const where = [`event == '${SurveyEventName.SENT}'`, partialResponsesFilter.replace(/^AND\s+/, '')]
 
                 if (answerFilterHogQLExpression !== '') {
                     // skip the 'AND ' prefix

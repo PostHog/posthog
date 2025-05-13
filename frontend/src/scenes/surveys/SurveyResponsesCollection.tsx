@@ -30,8 +30,13 @@ export function SurveyResponsesCollection(): JSX.Element | null {
         <div className="flex flex-col gap-1">
             <LemonField.Pure
                 inline
-                label={<h3 className="mb-0">Enable partial responses</h3>}
-                info="Requires at least version 1.240.0 or higher of posthog-js. Doesn't work with the mobile SDKs for now. If you face any issue while this is on beta, please report it to us."
+                label={
+                    <h3 className="mb-0 flex items-center gap-1">
+                        <LemonTag type="warning">BETA</LemonTag>
+                        Enable partial responses
+                    </h3>
+                }
+                info="Requires at least version 1.240.0 or higher of posthog-js. Doesn't work with the mobile SDKs for now. If you face any issues while this is on beta, please report it to us."
                 htmlFor="enable-partial-responses"
             >
                 <LemonSwitch
@@ -41,7 +46,6 @@ export function SurveyResponsesCollection(): JSX.Element | null {
                         setSurveyValue('enable_partial_responses', newValue)
                     }}
                 />
-                <LemonTag type="warning">Beta</LemonTag>
             </LemonField.Pure>
             <PartialResponsesShuffleQuestionsBanner />
         </div>
