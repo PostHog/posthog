@@ -66,13 +66,17 @@ export function sanitizeSurveyDisplayConditions(
     }
 }
 
-export function sanitizeSurveyAppearance(appearance: SurveyAppearance | null): SurveyAppearance | null {
+export function sanitizeSurveyAppearance(
+    appearance: SurveyAppearance | null,
+    isPartialResponsesEnabled = false
+): SurveyAppearance | null {
     if (!appearance) {
         return null
     }
 
     return {
         ...appearance,
+        shuffleQuestions: isPartialResponsesEnabled ? false : appearance.shuffleQuestions,
         backgroundColor: sanitizeColor(appearance.backgroundColor),
         borderColor: sanitizeColor(appearance.borderColor),
         ratingButtonActiveColor: sanitizeColor(appearance.ratingButtonActiveColor),

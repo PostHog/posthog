@@ -74,9 +74,8 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
             {
                 setSavedPlaylistsFilters: (state, { filters }) =>
                     objectClean({
-                        ...(state || {}),
+                        ...Object.fromEntries(Object.entries(state || {}).filter(([key]) => key in filters)),
                         ...filters,
-                        // Reset page on filter change EXCEPT if it's page that's being updated
                         ...('page' in filters ? {} : { page: 1 }),
                     }),
             },

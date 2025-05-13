@@ -254,8 +254,8 @@
     {
         "model": "deepseek-chat-v3-0324",
         "cost": {
-            "prompt_token": 2.7e-7,
-            "completion_token": 0.0000011
+            "prompt_token": 3e-7,
+            "completion_token": 8.8e-7
         }
     },
     {
@@ -420,7 +420,7 @@
         }
     },
     {
-        "model": "gemini-2.5-pro-preview-03-25",
+        "model": "gemini-2.5-pro-preview",
         "cost": {
             "prompt_token": 0.00000125,
             "completion_token": 0.00001
@@ -452,13 +452,6 @@
         "cost": {
             "prompt_token": 0.00000125,
             "completion_token": 0.000005
-        }
-    },
-    {
-        "model": "gemini-pro-vision",
-        "cost": {
-            "prompt_token": 5e-7,
-            "completion_token": 0.0000015
         }
     },
     {
@@ -849,8 +842,8 @@
     {
         "model": "llama-3.3-70b-instruct",
         "cost": {
-            "prompt_token": 1e-7,
-            "completion_token": 2.5e-7
+            "prompt_token": 9e-8,
+            "completion_token": 3.5e-7
         }
     },
     {
@@ -984,6 +977,13 @@
         "cost": {
             "prompt_token": 0.00000275,
             "completion_token": 0.0000081
+        }
+    },
+    {
+        "model": "mistral-medium-3",
+        "cost": {
+            "prompt_token": 4e-7,
+            "completion_token": 0.000002
         }
     },
     {
