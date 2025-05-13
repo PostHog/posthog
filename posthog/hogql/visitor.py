@@ -793,6 +793,8 @@ class CloningVisitor(Visitor[Any]):
 
     def visit_select_set_node(self, node: ast.SelectSetNode) -> ast.SelectSetNode:
         return ast.SelectSetNode(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
             set_operator=node.set_operator,
             select_query=self.visit(node.select_query),
         )
