@@ -80,12 +80,11 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     healthcheck_strategy: HealthStrategy::All,
 });
 
-pub static TRACING_INIT: Once = Once::new();
+static TRACING_INIT: Once = Once::new();
 pub fn setup_tracing() {
     TRACING_INIT.call_once(|| {
         tracing_subscriber::fmt()
             .with_writer(tracing_subscriber::fmt::TestWriter::new())
-            .with_env_filter("capture=debug,info") // Ensure capture crate debug logs are shown, default to info for others
             .init()
     });
 }
