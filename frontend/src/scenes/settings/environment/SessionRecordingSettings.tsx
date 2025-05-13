@@ -134,10 +134,13 @@ function LogCaptureSettings(): JSX.Element {
             <h3>Log capture</h3>
             <SupportedPlatforms
                 android={{ version: '1.0.0' }}
-                ios={false}
+                ios={{ version: '3.26.0' }}
                 flutter={false}
                 web={{ version: '1.18.0' }}
-                reactNative={{ version: '3.9.0' }}
+                reactNative={{
+                    version: '3.9.0',
+                    note: <>Android only</>,
+                }}
             />
             <p>
                 This setting controls if browser console logs will be captured as a part of recordings. The console logs
