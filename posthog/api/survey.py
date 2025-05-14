@@ -776,9 +776,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return super().destroy(request, *args, **kwargs)
 
-    def _get_partial_responses_filter(
-        self, base_conditions_sql: list[str], group_by_prefix_expressions: list[str]
-    ) -> str:
+    def _get_partial_responses_filter(self, base_conditions_sql: list[str]) -> str:
         partial_responses_enabled = self.is_partial_responses_enabled()
         if not partial_responses_enabled:
             return f"""(
@@ -788,7 +786,6 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         unique_uuids_subquery = get_unique_survey_event_uuids_sql_subquery(
             base_conditions_sql=base_conditions_sql,
-            group_by_prefix_expressions=group_by_prefix_expressions,
         )
 
         return f"uuid IN {unique_uuids_subquery}"
@@ -806,11 +803,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         partial_responses_filter = self._get_partial_responses_filter(
             base_conditions_sql=[
                 "team_id = %(team_id)s",
-                f"event = '{SurveyEventName.SENT}'",
                 "timestamp >= %(timestamp)s",
-            ],
-            group_by_prefix_expressions=[
-                f"JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID}')"  # Deduplicate per survey_id
             ],
         )
 
@@ -1018,9 +1011,6 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             base_conditions_sql=[
                 "team_id = %(team_id)s",
                 "timestamp >= %(timestamp)s",
-            ],
-            group_by_prefix_expressions=[
-                f"JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID}')"  # Deduplicate per survey_id
             ],
         )
 
