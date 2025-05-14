@@ -81,33 +81,26 @@ export const StoriesModal = (): JSX.Element | null => {
     )
 
     return (
-        <div className="StoriesModal">
-            <LemonModal
-                isOpen={openStoriesModal}
-                onClose={() => handleClose(true)}
-                simple
-                className="StoriesModal__modal"
-            >
-                <Stories
-                    stories={stories}
-                    defaultInterval={1500}
-                    width="100%"
-                    currentIndex={activeStoryIndex}
-                    onNext={() => setActiveStoryIndex(Math.min(activeStoryIndex + 1, maxStoryIndex))}
-                    onPrevious={handlePrevious}
-                    onAllStoriesEnd={() => handleClose(false)}
-                    onStoryEnd={() => {
-                        setActiveStoryIndex(Math.min(activeStoryIndex + 1, maxStoryIndex))
-                    }}
-                    onStoryStart={handleStoryStart}
-                    storyContainerStyles={{
-                        width: '100%',
-                        height: '100%',
-                        maxWidth: '400px',
-                        minWidth: '400px',
-                    }}
-                />
-            </LemonModal>
-        </div>
+        <LemonModal isOpen={openStoriesModal} onClose={() => handleClose(true)} simple className="StoriesModal__modal">
+            <Stories
+                stories={stories}
+                defaultInterval={1500}
+                width="100%"
+                currentIndex={activeStoryIndex}
+                onNext={() => setActiveStoryIndex(Math.min(activeStoryIndex + 1, maxStoryIndex))}
+                onPrevious={handlePrevious}
+                onAllStoriesEnd={() => handleClose(false)}
+                onStoryEnd={() => {
+                    setActiveStoryIndex(Math.min(activeStoryIndex + 1, maxStoryIndex))
+                }}
+                onStoryStart={handleStoryStart}
+                storyContainerStyles={{
+                    width: '100%',
+                    height: '100%',
+                    maxWidth: '400px',
+                    minWidth: '400px',
+                }}
+            />
+        </LemonModal>
     )
 }

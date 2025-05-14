@@ -1,3 +1,7 @@
 .StoriesModal__modal {
     min-width: 0;
+
+    div > div:nth-child(2) > div:nth-child(2) {
+        cursor: pointer;
+    }
 }

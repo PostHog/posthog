@@ -17,6 +17,7 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { urls } from 'scenes/urls'
 
+import { PosthogStoriesContainer } from '~/layout/navigation/PosthogStories/PosthogStoriesContainer'
 import { DashboardPlacement } from '~/types'
 
 export const scene: SceneExport = {
@@ -76,6 +77,7 @@ function HomeDashboard({ dashboardLogicProps }: { dashboardLogicProps: Dashboard
 
     return (
         <>
+            <PosthogStoriesContainer />
             <div className="ProjectHomepage__dashboardheader">
                 <div className="ProjectHomepage__dashboardheader__title">
                     {!dashboard && <LemonSkeleton className="w-20 h-4" />}

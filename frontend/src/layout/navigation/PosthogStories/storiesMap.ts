@@ -22,7 +22,7 @@ export const storiesMap: storyGroup[] = [
         title: 'Last Features',
         stories: [
             {
-                id: '1',
+                id: 'last_features_1',
                 title: 'Story 01',
                 thumbnailUrl: 'https://picsum.photos/id/1011/200/300',
                 description: 'Story 1 description',
@@ -32,7 +32,7 @@ export const storiesMap: storyGroup[] = [
                 order: 1,
             },
             {
-                id: '2',
+                id: 'last_features_2',
                 title: 'Story 02',
                 thumbnailUrl: 'https://picsum.photos/id/1012/200/300',
                 description: 'Story 2 description',
@@ -49,7 +49,7 @@ export const storiesMap: storyGroup[] = [
         title: 'Toolbar',
         stories: [
             {
-                id: '1',
+                id: 'toolbar_1',
                 title: 'Story 11',
                 thumbnailUrl: 'https://picsum.photos/id/1025/200/300',
                 description: 'Story 1 description',
@@ -59,7 +59,7 @@ export const storiesMap: storyGroup[] = [
                 order: 1,
             },
             {
-                id: '2',
+                id: 'toolbar_2',
                 title: 'Story 12',
                 thumbnailUrl: 'https://picsum.photos/id/1035/200/300',
                 description: 'Story 2 description',
@@ -69,7 +69,7 @@ export const storiesMap: storyGroup[] = [
                 order: 2,
             },
             {
-                id: '3',
+                id: 'toolbar_3',
                 title: 'Story 13',
                 thumbnailUrl: 'https://picsum.photos/id/1041/200/300',
                 description: 'Story 3 description',
