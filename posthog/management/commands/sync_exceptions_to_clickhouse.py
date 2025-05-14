@@ -98,5 +98,5 @@ class Command(BaseCommand):
             else:
                 not_found_fingerprints.append(fingerprint)
 
-        logger.info("fingerprint overridden ", found_issues_count)
-        logger.info("fingerprints not found ", not_found_fingerprints)
+        logger.info(f"fingerprint overridden {found_issues_count}")
+        logger.info(f"fingerprints not found {not_found_fingerprints}")
