@@ -77,7 +77,7 @@ class Command(BaseCommand):
         for fingerprint in fingerprint_rows:
             postgres_fingerprint: ErrorTrackingIssueFingerprintV2 = ErrorTrackingIssueFingerprintV2.objects.filter(
                 fingerprint=fingerprint["fingerprint"]
-            ).get()
+            ).first()
             if postgres_fingerprint is not None:
                 max_version = max(fingerprint["version"], postgres_fingerprint.version)
                 new_version = max_version + 1
@@ -90,7 +90,7 @@ class Command(BaseCommand):
                 if dry_run is False:
                     postgres_fingerprint.first_seen = fingerprint["timestamp"]
                     postgres_fingerprint.version = new_version
-                    logger.info("overridding postgres fingerprint ", override)
+                    logger.info("overriding postgres fingerprint ", override)
                     postgres_fingerprint.save()
                     logger.info("sending fingerprint override to clickhouse ", override)
                     override_error_tracking_issue_fingerprint(**override)
@@ -98,5 +98,5 @@ class Command(BaseCommand):
             else:
                 not_found_fingerprints.append(fingerprint["fingerprint"])
 
-        logger.info(f"fingerprint overridden {found_issues_count}")
+        logger.info(f"fingerprint overriden {found_issues_count}")
         logger.info(f"fingerprints not found {not_found_fingerprints}")
