@@ -24,9 +24,15 @@ class BetDefinition(UUIDModel, CreatedMetaFields):
 
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     type = models.CharField(max_length=50, choices=BetType.choices, default=BetType.PAGEVIEWS)
-    bet_parameters = models.JSONField(
-        default=dict
-    )  # Stores parameters that define the bet conditions, e.g., URL pattern, event criteria
+    bet_parameters = models.JSONField(default=dict)  # JSON structure for bet parameters, examples:
+    # For pageviews: {
+    #   "url": "/path/to/page",           # URL pattern to match
+    #   "filters": {                      # Additional filters (optional)
+    #     "country": ["US", "CA"],        # Filter by country
+    #     "browser": ["Chrome", "Safari"] # Filter by browser
+    #   }
+    # }
+    # Can be extended for other bet types with different parameters
     closing_date = models.DateTimeField()
     status = models.CharField(
         max_length=20,
@@ -36,9 +42,16 @@ class BetDefinition(UUIDModel, CreatedMetaFields):
     probability_distribution_interval = models.IntegerField(default=600)  # In seconds, default 10 minutes
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True)
-    final_value = models.JSONField(
-        null=True, blank=True
-    )  # The actual final value when bet is settled, can store complex values
+    final_value = models.JSONField(null=True, blank=True)  # The actual final value when bet is settled. Can be:
+    # 1. Simple value: 123 (number)
+    # 2. Complex object: {
+    #    "value": 123,                    # The primary value
+    #    "confidence": 0.95,              # Confidence level (optional)
+    #    "metadata": {                    # Additional metadata (optional)
+    #      "source": "analytics",         # Source of the data
+    #      "calculation_method": "sum"    # How the value was calculated
+    #    }
+    # }
 
     def __str__(self) -> str:
         return f"{self.title} ({self.type})"
@@ -72,7 +85,19 @@ class ProbabilityDistribution(UUIDModel, CreatedMetaFields):
     bet_definition = models.ForeignKey(
         BetDefinition, on_delete=models.CASCADE, related_name="probability_distributions"
     )
-    distribution_data = models.JSONField()  # List of {value: float, probability: float} objects
+    distribution_data = models.JSONField()  # Array of probability distribution buckets:
+    # [
+    #   {"value": 100, "probability": 0.2},  # 20% chance of value being 100
+    #   {"value": 200, "probability": 0.5},  # 50% chance of value being 200
+    #   {"value": 300, "probability": 0.3}   # 30% chance of value being 300
+    # ]
+    # Probabilities should sum to 1.0
+    # Can be extended to support ranges:
+    # [
+    #   {"range": [0, 100], "probability": 0.3},    # 30% chance of value between 0-100
+    #   {"range": [101, 200], "probability": 0.4},  # 40% chance of value between 101-200
+    #   {"range": [201, 300], "probability": 0.3}   # 30% chance of value between 201-300
+    # ]``
 
     def __str__(self) -> str:
         return f"Distribution for {self.bet_definition.title} at {self.created_at}"
@@ -112,9 +137,19 @@ class Bet(UUIDModel, CreatedMetaFields):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="bets")
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     amount = models.DecimalField(max_digits=10, decimal_places=2)  # The monetary amount the user is wagering
-    predicted_value = (
-        models.JSONField()
-    )  # The value/range/condition the user is betting on (can be a single value, range, or complex condition)
+    predicted_value = models.JSONField()  # The prediction the user is betting on. Can be one of:
+    # 1. Simple value: 123 (number)
+    # 2. Value object: {"value": 123}
+    # 3. Range: {"range": [100, 200]}  # Predicting value will be between 100-200
+    # 4. Condition: {                  # Predicting value will meet a condition
+    #    "condition": "gt",            # Condition type: "gt" (>), "lt" (<), "gte" (>=), "lte" (<=)
+    #    "threshold": 150              # Threshold value for the condition
+    # }
+    # 5. Complex prediction: {         # For future extension
+    #    "type": "compound",           # Type of prediction
+    #    "operator": "and",            # Logical operator: "and", "or"
+    #    "conditions": [...]           # Array of conditions
+    # }
     potential_payout = models.DecimalField(max_digits=10, decimal_places=2)
     status = models.CharField(
         max_length=20,
