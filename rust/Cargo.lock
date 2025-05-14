@@ -3639,6 +3639,47 @@ dependencies = [
 ]
 
 [[package]]
+name = "log_capture"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-s3",
+ "axum 0.7.5",
+ "base64 0.22.0",
+ "chrono",
+ "common-alloc",
+ "common-dns",
+ "common-geoip",
+ "common-kafka",
+ "common-metrics",
+ "common-redis",
+ "common-types",
+ "envconfig",
+ "health",
+ "hogvm",
+ "httpmock",
+ "limiters",
+ "metrics",
+ "mockall",
+ "moka",
+ "posthog-rs",
+ "posthog-symbol-data 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rdkafka",
+ "reqwest 0.12.3",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sourcemap 9.2.0",
+ "sqlx",
+ "symbolic",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "lru"
 version = "0.12.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
