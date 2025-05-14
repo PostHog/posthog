@@ -40,7 +40,7 @@ export function renderHogQLX(value: any): JSX.Element {
                     <Sparkline className="h-8" {...props} data={data ?? []} type={type} />
                 </ErrorBoundary>
             )
-        } else if (tag === 'ExplainCSPReportButton') {
+        } else if (tag === 'ExplainCSPReport') {
             const { properties } = rest
             const prompt = explainCSPReportPrompt(properties)
             return (
