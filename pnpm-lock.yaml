@@ -917,9 +917,6 @@ importers:
       react-shadow:
         specifier: ^20.3.0
         version: 20.4.0(prop-types@15.8.1)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
-      react-spreadsheet:
-        specifier: ^0.10.1
-        version: 0.10.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(scheduler@0.26.0)
       react-syntax-highlighter:
         specifier: ^15.5.0
         version: 15.5.0(react@18.2.0)
@@ -1996,9 +1993,6 @@ importers:
       react:
         specifier: '*'
         version: 18.2.0
-      react-spreadsheet:
-        specifier: '*'
-        version: 0.10.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(scheduler@0.26.0)
 
   products/surveys:
     dependencies:
@@ -7604,9 +7598,6 @@ packages:
   babel-preset-nano-react-app@0.1.0:
     resolution: {integrity: sha512-PHBHthxW7nhKS8+WshTv/3q/7vCzYPGVFCN1vKR49Dp8P5YlO3OVhErha/Xj8tNTZs0wnQAZg8Hhbi8rf8du2A==}
 
-  bahttext@1.1.0:
-    resolution: {integrity: sha512-3g7DbmCwYhLnnN5hJFB+Mtbst4q2gfXpAdqOMK6tz6FmgtlrhX1n1uhuzkIhEr+WcnFR6eRvebIE5msGuEtA7Q==}
-
   bail@1.0.5:
     resolution: {integrity: sha512-xFbRxM1tahm08yHBP16MMjVUAvDaBMD38zsM9EMAUN61omwLmKlOpB/Zku5QkjZ8TZ4vn53pj+t518cH0S03RQ==}
 
@@ -8012,9 +8003,6 @@ packages:
 
   chevrotain@6.5.0:
     resolution: {integrity: sha512-BwqQ/AgmKJ8jcMEjaSnfMybnKMgGTrtDKowfTP3pX4jwVy0kNjRsT/AP6h+wC3+3NC+X8X15VWBnTCQlX+wQFg==}
-
-  chevrotain@7.1.2:
-    resolution: {integrity: sha512-9bQsXVQ7UAvzMs7iUBBJ9Yv//exOy7bIR3PByOEk4M64vIE/LsiOiX7VIkMF/vEMlrSStwsaE884Bp9CpjtC5g==}
 
   chokidar@3.6.0:
     resolution: {integrity: sha512-7VT13fmjotKpGipCW9JEQAusEPE+Ei8nl6/g4FBAmIm0GOOLMua9NDDo/DWp0ZAxCr3cPq5ZpBqmPAQgDda2Pw==}
@@ -9635,9 +9623,6 @@ packages:
 
   fast-deep-equal@3.1.3:
     resolution: {integrity: sha512-f3qQ9oQy9j2AhBe/H9VC91wLmKBCCU/gDOnKNAYG5hswO7BLKj09Hc5HYNz9cGI++xlpDCIgDaitVs03ATR84Q==}
-
-  fast-formula-parser@1.0.19:
-    resolution: {integrity: sha512-8Roq7V1XjuYj3cWZ9tILyqBHGjS7NkejRaHxSWePu0qjIcvimZwe6WfeA9che03dgWrykZqrw691qg3lwiIkMg==}
 
   fast-glob@3.3.1:
     resolution: {integrity: sha512-kNFPyjhh5cKjrUltxs+wFx+ZkbRaxxmZ+X0ZU31SOsxCEtP9VPgtq2teZw1DebupL5GmDaNQ6yKMMVcM41iqDg==}
@@ -13942,13 +13927,6 @@ packages:
       react: ^16.8.0 || ^17.0.0 || ^18.0.0
       react-dom: ^16.0.0 || ^17.0.0 || ^18.0.0
 
-  react-spreadsheet@0.10.1:
-    resolution: {integrity: sha512-w+KqCCA5H81FQ7dEBMOz1cZm9I8PSx9yNs+XwjYMjBfCDsOBBljiau93US8GQTtMbXtsExX8k3qD7hZLTp3UHw==}
-    peerDependencies:
-      react: '>=16.8.0'
-      react-dom: '>=16.8.0'
-      scheduler: '>=0.19.0'
-
   react-style-singleton@2.2.1:
     resolution: {integrity: sha512-ZWj0fHEMyWkHzKYUr2Bs/4zU6XLmq9HsgBURm7g5pAVfyn49DgUiNgY2d4lXRlYSiCif9YBGpQleewkcqddc7g==}
     engines: {node: '>=10'}
@@ -14107,9 +14085,6 @@ packages:
 
   regexp-to-ast@0.4.0:
     resolution: {integrity: sha512-4qf/7IsIKfSNHQXSwial1IFmfM1Cc/whNBQqRwe0V2stPe7KmN1U0tWQiIx6JiirgSrisjE0eECdNf7Tav1Ntw==}
-
-  regexp-to-ast@0.5.0:
-    resolution: {integrity: sha512-tlbJqcMHnPKI9zSrystikWKwHkBqu2a/Sgw01h3zFjvYrMxEDYHzzoMZnUrbIfpTFEsoRnnviOXNCzFiSc54Qw==}
 
   regexp.prototype.flags@1.4.3:
     resolution: {integrity: sha512-fjggEOO3slI6Wvgjwflkc4NFRCTZAu5CnNfBd5qOMYhWdn67nJBBu34/TkD++eeFmd8C9r9jfXJ27+nSiRkSUA==}
@@ -14468,9 +14443,6 @@ packages:
 
   scheduler@0.23.0:
     resolution: {integrity: sha512-CtuThmgHNg7zIZWAXi3AsyIzA3n4xx7aNyjwC2VJldO2LMVDhFK+63xGqq6CsJH4rTAt6/M+N4GhZiDYPx9eUw==}
-
-  scheduler@0.26.0:
-    resolution: {integrity: sha512-NlHwttCI/l5gCPR3D1nNXtWABUmBwvZpEQiD4IXSbIDq8BzLIK/7Ir5gTFSGZDUu37K5cMNp0hFtzO38sC7gWA==}
 
   schema-utils@2.7.1:
     resolution: {integrity: sha512-SHiNtMOUGWBQJwzISiVYKu82GiV4QYGePp3odlY1tuKO7gPtphAT5R/py0fA6xtbgLL/RvtJZnU9b8s0F1q0Xg==}
@@ -15725,12 +15697,6 @@ packages:
     resolution: {integrity: sha512-GLMG0Jc/jiKov/3Ulid1wbv3r54K9HlMW29IWcDFPEqFkSO2nS0MuefWgMJpeHQ9YJeXDL3ZUF+P3jdXlZX/cQ==}
     peerDependencies:
       react: ^16.8.0 || ^17.0.0 || ^18.0.0
-
-  use-context-selector@2.0.0:
-    resolution: {integrity: sha512-owfuSmUNd3eNp3J9CdDl0kMgfidV+MkDvHPpvthN5ThqM+ibMccNE0k+Iq7TWC6JPFvGZqanqiGCuQx6DyV24g==}
-    peerDependencies:
-      react: '>=18.0.0'
-      scheduler: '>=0.19.0'
 
   use-debounce@9.0.3:
     resolution: {integrity: sha512-FhtlbDtDXILJV7Lix5OZj5yX/fW1tzq+VrvK1fnT2bUrPOGruU9Rw8NCEn+UI9wopfERBEZAOQ8lfeCJPllgnw==}
@@ -23581,8 +23547,6 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  bahttext@1.1.0: {}
-
   bail@1.0.5: {}
 
   balanced-match@1.0.2: {}
@@ -24121,10 +24085,6 @@ snapshots:
   chevrotain@6.5.0:
     dependencies:
       regexp-to-ast: 0.4.0
-
-  chevrotain@7.1.2:
-    dependencies:
-      regexp-to-ast: 0.5.0
 
   chokidar@3.6.0:
     dependencies:
@@ -25854,7 +25814,7 @@ snapshots:
 
   eslint-import-resolver-node@0.3.9:
     dependencies:
-      debug: 3.2.7(supports-color@8.1.1)
+      debug: 3.2.7(supports-color@5.5.0)
       is-core-module: 2.13.1
       resolve: 1.22.8
     transitivePeerDependencies:
@@ -25862,7 +25822,7 @@ snapshots:
 
   eslint-module-utils@2.8.0(@typescript-eslint/parser@7.1.1(eslint@8.57.0)(typescript@4.9.5))(eslint-import-resolver-node@0.3.9)(eslint@8.57.0):
     dependencies:
-      debug: 3.2.7(supports-color@8.1.1)
+      debug: 3.2.7(supports-color@5.5.0)
     optionalDependencies:
       '@typescript-eslint/parser': 7.1.1(eslint@8.57.0)(typescript@4.9.5)
       eslint: 8.57.0
@@ -25904,7 +25864,7 @@ snapshots:
       array.prototype.findlastindex: 1.2.3
       array.prototype.flat: 1.3.2
       array.prototype.flatmap: 1.3.2
-      debug: 3.2.7(supports-color@8.1.1)
+      debug: 3.2.7(supports-color@5.5.0)
       doctrine: 2.1.0
       eslint: 8.57.0
       eslint-import-resolver-node: 0.3.9
@@ -26262,13 +26222,6 @@ snapshots:
   fast-copy@3.0.1: {}
 
   fast-deep-equal@3.1.3: {}
-
-  fast-formula-parser@1.0.19:
-    dependencies:
-      bahttext: 1.1.0
-      bessel: 1.0.2
-      chevrotain: 7.1.2
-      jstat: 1.9.6
 
   fast-glob@3.3.1:
     dependencies:
@@ -31650,16 +31603,6 @@ snapshots:
       react: 18.2.0
       react-dom: 18.2.0(react@18.2.0)
 
-  react-spreadsheet@0.10.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(scheduler@0.26.0):
-    dependencies:
-      array.prototype.flatmap: 1.3.2
-      classnames: 2.5.1
-      fast-formula-parser: 1.0.19
-      react: 18.2.0
-      react-dom: 18.2.0(react@18.2.0)
-      scheduler: 0.26.0
-      use-context-selector: 2.0.0(react@18.2.0)(scheduler@0.26.0)
-
   react-style-singleton@2.2.1(@types/react@17.0.52)(react@18.2.0):
     dependencies:
       get-nonce: 1.0.1
@@ -31877,8 +31820,6 @@ snapshots:
       '@babel/runtime': 7.24.0
 
   regexp-to-ast@0.4.0: {}
-
-  regexp-to-ast@0.5.0: {}
 
   regexp.prototype.flags@1.4.3:
     dependencies:
@@ -32230,8 +32171,6 @@ snapshots:
   scheduler@0.23.0:
     dependencies:
       loose-envify: 1.4.0
-
-  scheduler@0.26.0: {}
 
   schema-utils@2.7.1:
     dependencies:
@@ -33733,11 +33672,6 @@ snapshots:
   use-composed-ref@1.3.0(react@18.2.0):
     dependencies:
       react: 18.2.0
-
-  use-context-selector@2.0.0(react@18.2.0)(scheduler@0.26.0):
-    dependencies:
-      react: 18.2.0
-      scheduler: 0.26.0
 
   use-debounce@9.0.3(react@18.2.0):
     dependencies:

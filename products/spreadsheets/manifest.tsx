@@ -7,6 +7,8 @@ export const manifest: ProductManifest = {
             name: 'Spreadsheets',
             import: () => import('./frontend/scene'),
             projectBased: true,
+            layout: 'app-raw-no-header',
+            hideProjectNotice: true,
         },
     },
     routes: {

@@ -9,8 +9,7 @@
         "kea-forms": "*",
         "kea-loaders": "*",
         "kea-router": "*",
-        "react": "*",
-        "react-spreadsheet": "*"
+        "react": "*"
     },
     "dependencies": {
         "@fortune-sheet/react": "^1.0.2",

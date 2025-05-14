@@ -136,7 +136,7 @@ export const productConfiguration: Record<string, any> = {
         defaultDocsPath: '/docs/web-analytics/revenue-analytics',
         activityScope: 'RevenueAnalytics',
     },
-    Spreadsheets: { name: 'Spreadsheets', projectBased: true },
+    Spreadsheets: { name: 'Spreadsheets', projectBased: true, layout: 'app-raw-no-header', hideProjectNotice: true },
 }
 
 /** This const is auto-generated, as is the whole file */
