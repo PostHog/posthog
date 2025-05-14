@@ -135,6 +135,7 @@ export type SettingId =
     | 'core-memory'
     | 'customization-irl'
     | 'web-analytics-pre-aggregated-tables'
+    | 'csp-reporting'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 

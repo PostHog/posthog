@@ -29,6 +29,7 @@ import {
     WebVitalsAutocaptureSettings,
 } from './environment/AutocaptureSettings'
 import { CorrelationConfig } from './environment/CorrelationConfig'
+import { CSPReportingSettings } from './environment/CSPReportingSettings'
 import { DataAttributes } from './environment/DataAttributes'
 import { DataColorThemes } from './environment/DataColorThemes'
 import { ErrorTrackingIntegrations } from './environment/ErrorTrackingIntegrations'
@@ -152,6 +153,12 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'dead-clicks-autocapture',
                 title: 'Dead clicks autocapture',
                 component: <DeadClicksAutocaptureSettings />,
+            },
+            {
+                id: 'csp-reporting-uri',
+                title: 'CSP Reporting',
+                component: <CSPReportingSettings />,
+                flag: 'CSP_REPORTING',
             },
         ],
     },
