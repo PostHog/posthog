@@ -523,9 +523,6 @@
                 },
                 {
                     "$ref": "#/definitions/ErrorTrackingIssueFilter"
-                },
-                {
-                    "$ref": "#/definitions/ErrorTrackingIssuePropertyFilter"
                 }
             ]
         },
@@ -7809,29 +7806,6 @@
             "required": ["key", "operator", "type"],
             "type": "object"
         },
-        "ErrorTrackingIssuePropertyFilter": {
-            "additionalProperties": false,
-            "properties": {
-                "key": {
-                    "type": "string"
-                },
-                "label": {
-                    "type": "string"
-                },
-                "operator": {
-                    "$ref": "#/definitions/PropertyOperator"
-                },
-                "type": {
-                    "const": "error_tracking_issue_property",
-                    "type": "string"
-                },
-                "value": {
-                    "$ref": "#/definitions/PropertyFilterValue"
-                }
-            },
-            "required": ["key", "operator", "type"],
-            "type": "object"
-        },
         "ErrorTrackingQuery": {
             "additionalProperties": false,
             "properties": {
@@ -12562,8 +12536,7 @@
                 "hogql",
                 "data_warehouse",
                 "data_warehouse_person_property",
-                "error_tracking_issue",
-                "error_tracking_issue_property"
+                "error_tracking_issue"
             ],
             "type": "string"
         },
@@ -17702,7 +17675,6 @@
                 "notebooks",
                 "log_entries",
                 "error_tracking_issues",
-                "error_tracking_issue_properties",
                 "replay",
                 "resources"
             ],
