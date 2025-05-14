@@ -1,8 +1,6 @@
 import { actions, connect, kea, listeners, path, props, reducers } from 'kea'
 import api from 'lib/api'
 
-import { StreamConfig } from '~/types'
-
 import type { visionHogConfigLogicType } from './visionHogConfiglogicType'
 import { visionHogSceneLogic } from './visionHogSceneLogic'
 
@@ -24,7 +22,6 @@ export const visionHogConfigLogic = kea<visionHogConfigLogicType>([
         removeSuggestion: (index: number) => ({ index }),
         updateSuggestion: (index: number, value: string) => ({ index, value }),
         setSuggestionsLoading: (loading: boolean) => ({ loading }),
-        setStreamConfig: (streamConfig: Partial<StreamConfig>) => ({ streamConfig }),
     }),
 
     reducers({

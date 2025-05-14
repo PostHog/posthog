@@ -5,6 +5,7 @@ import { Label } from 'lib/ui/Label/Label'
 import { useRef, useState } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
+import { VideoStreamPlayer } from './VideoStreamPlayer'
 // import { useActions, useValues } from 'kea' // Uncomment if you use actions/values from logic
 import { visionHogConfigLogic } from './visionHogConfiglogic'
 
@@ -20,6 +21,7 @@ export function VisionHogConfigScene(): JSX.Element {
     const [editingIndex, setEditingIndex] = useState<number | null>(null)
     const [editValue, setEditValue] = useState<string>('')
     const inputRef = useRef<HTMLInputElement>(null)
+    const [videoUrl, setVideoUrl] = useState('')
 
     const handleEdit = (index: number, value: string): void => {
         setEditingIndex(index)
@@ -49,7 +51,8 @@ export function VisionHogConfigScene(): JSX.Element {
         <div className="flex flex-row gap-6">
             <div className="flex-1 flex flex-col gap-2">
                 <Label>Stream link</Label>
-                <LemonInput placeholder="https://stream.com/events" />
+                <LemonInput placeholder="https://stream.com/events" value={videoUrl} onChange={setVideoUrl} />
+                <VideoStreamPlayer videoUrl={videoUrl} className="my-2" />
 
                 <Label>Stream events</Label>
                 <LemonTextArea
