@@ -3,12 +3,12 @@ import './368Hedgehogs.scss'
 import { IconInfo } from '@posthog/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 // ==========================================================================
-export type Emoji = '🦔' | '🦊' | '🐍' | '🦆'
+export type Hog = 'hog1' | 'hog2' | 'hog3' | 'hog4'
 export type Orientation = 'horizontal' | 'vertical'
 
 interface Piece {
     orientation: Orientation
-    cells: [Emoji, Emoji]
+    cells: [Hog, Hog]
 }
 
 interface DragPayload {
@@ -17,17 +17,24 @@ interface DragPayload {
 }
 
 const BOARD_SIZE = 6
-const EMOJIS: Emoji[] = ['🦔', '🦊', '🐍', '🦆']
+const EMOJIS: Hog[] = ['hog1', 'hog2', 'hog3', 'hog4']
 
-type Board = (Emoji | null)[][] // 6×6 matrix of emoji / empty
+const IMAGE_MAP: Record<Hog, string> = {
+    hog1: '/static/hedgehog/burning-money-hog.png',
+    hog2: '/static/hedgehog/police-hog.png',
+    hog3: '/static/hedgehog/sleeping-hog.png',
+    hog4: '/static/hedgehog/warning-hog.png',
+}
+
+type Board = (Hog | null)[][] // 6×6 matrix of emoji / empty
 
 // ==========================================================================
 // Helpers
-const makeEmptyBoard = (): Board => Array.from({ length: BOARD_SIZE }, () => Array<Emoji | null>(BOARD_SIZE).fill(null))
+const makeEmptyBoard = (): Board => Array.from({ length: BOARD_SIZE }, () => Array<Hog | null>(BOARD_SIZE).fill(null))
 
 const genPiece = (): Piece => {
     const orientation: Orientation = Math.random() < 0.5 ? 'horizontal' : 'vertical'
-    const cells: [Emoji, Emoji] = [
+    const cells: [Hog, Hog] = [
         EMOJIS[Math.floor(Math.random() * EMOJIS.length)],
         EMOJIS[Math.floor(Math.random() * EMOJIS.length)],
     ]
@@ -239,7 +246,7 @@ const CritterMatchGame: React.FC = () => {
                                 onDragOver={allowDrop}
                                 onDrop={(e) => handleDrop(e, r, c)}
                             >
-                                {cell}
+                                {cell && <img src={IMAGE_MAP[cell]} alt={cell} />}
                             </div>
                         ))
                     )}
@@ -260,7 +267,7 @@ const CritterMatchGame: React.FC = () => {
                     >
                         {piece.cells.map((emoji, idx) => (
                             <div key={idx} className="cmg-cell piece-cell">
-                                {emoji}
+                                <img src={IMAGE_MAP[emoji]} alt={emoji} />
                             </div>
                         ))}
                     </div>
