@@ -29,6 +29,7 @@ export interface BillingLineGraphProps {
     showLegend?: boolean
     interval?: 'day' | 'week' | 'month'
     containerClassName?: string
+    max?: number | null
 }
 
 const defaultFormatter = (value: number): string => value.toLocaleString()
@@ -86,6 +87,7 @@ export function BillingLineGraph({
     valueFormatter = defaultFormatter,
     showLegend = true,
     interval = 'day',
+    max = null,
     containerClassName = '',
 }: BillingLineGraphProps): JSX.Element {
     const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -143,6 +145,7 @@ export function BillingLineGraph({
                 },
                 y: {
                     beginAtZero: true,
+                    max: max,
                     grid: {
                         color: graphColors.axisLine || 'rgba(0, 0, 0, 0.1)',
                     },
