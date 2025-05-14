@@ -15,6 +15,7 @@ class SurveyEventProperties(StrEnum):
     SURVEY_SUBMISSION_ID = "$survey_submission_id"
     SURVEY_RESPONDED = "$survey_responded"
     SURVEY_DISMISSED = "$survey_dismissed"
+    SURVEY_COMPLETED = "$survey_completed"
 
 
 class SurveyFeatureFlags(StrEnum):
@@ -75,7 +76,7 @@ def _build_multiple_choice_query(id_based_key: str, index_based_key: str) -> str
 def filter_survey_sent_events_by_unique_submission(survey_id: str) -> str:
     """
     Generates a SQL condition string to filter 'survey sent' events, ensuring uniqueness based on submission ID,
-    using an optimized approach with argMax().
+    using an optimized approach with argMax(). Usage with uniqueSurveySubmissionsFilter(survey_id).
 
     This handles two scenarios for identifying relevant 'survey sent' events:
     1. Events recorded before the introduction of `$survey_submission_id` (submission_id is empty/null):
@@ -139,6 +140,10 @@ def get_unique_survey_event_uuids_sql_subquery(
     """
     if not base_conditions_sql:
         raise ValueError("base_conditions_sql cannot be empty. Provide at least one condition.")
+
+    # Ensure the event filter is present in the base conditions
+    if base_conditions_sql.count(f"event = '{SurveyEventName.SENT}'") == 0:
+        base_conditions_sql.append(f"event = '{SurveyEventName.SENT}'")
 
     where_clause = " AND ".join(base_conditions_sql)
 
