@@ -4,7 +4,9 @@ import api from 'lib/api'
 
 import { forms } from 'kea-forms'
 
-export const linksLogic = kea([
+import type { linksLogicType } from './linksLogicType'
+
+export const linksLogic = kea<linksLogicType>([
     path(['scenes', 'links', 'linksLogic']),
 
     loaders(() => ({

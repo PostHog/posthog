@@ -154,10 +154,10 @@ export const urls = {
     moveToPostHogCloud: (): string => '/move-to-cloud',
     heatmaps: (params?: string): string =>
         `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
-    shortLinks: (params?: string): string =>
-        `/short-links${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
-    shortLink: (id: string): string => `/short-link/${id}`,
-    shortLinkNew: (): string => '/short-link/new',
+    links: (params?: string): string =>
+        `/links${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
+    link: (id: string): string => `/link/${id}`,
+    linkNew: (): string => '/link/new',
     sessionAttributionExplorer: (): string => '/web/session-attribution-explorer',
     wizard: (): string => `/wizard`,
     startups: (ycProgram?: boolean): string => `/startups${ycProgram ? '/yc' : ''}`,

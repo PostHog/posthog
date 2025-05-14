@@ -8,19 +8,19 @@ import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import { shortLinksLogic } from './shortLinksLogic'
+import { linksLogic } from './linksLogic'
 import { QRCodeSVG } from 'qrcode.react'
 import { Form } from 'kea-forms'
 
-export function ShortLinkNewScene(): JSX.Element {
-    const { link } = useValues(shortLinksLogic)
-    const { submitLink } = useActions(shortLinksLogic)
+export function LinkScene(): JSX.Element {
+    const { link } = useValues(linksLogic)
+    const { submitLink } = useActions(linksLogic)
 
     return (
         <Form
             id="link"
             formKey="link"
-            logic={shortLinksLogic}
+            logic={linksLogic}
             props={{ link }}
             className="deprecated-space-y-4"
             enableFormOnSubmit
@@ -139,6 +139,6 @@ export function ShortLinkNewScene(): JSX.Element {
 }
 
 export const scene: SceneExport = {
-    component: ShortLinkNewScene,
-    logic: shortLinksLogic,
+    component: LinkScene,
+    logic: linksLogic,
 }

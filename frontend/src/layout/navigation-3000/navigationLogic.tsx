@@ -670,10 +670,10 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             : null,
                         featureFlags[FEATURE_FLAGS.LINK_TRACKING]
                             ? {
-                                  identifier: Scene.ShortLinks,
+                                  identifier: Scene.Links,
                                   label: 'Links',
                                   icon: <IconCursorClick />,
-                                  to: isUsingSidebar ? undefined : urls.shortLinks(),
+                                  to: isUsingSidebar ? undefined : urls.links(),
                                   tag: 'alpha' as const,
                                   tooltipDocLink: 'https://posthog.com/docs/short-links',
                               }
