@@ -33,6 +33,13 @@ class BetDefinition(UUIDModel, CreatedMetaFields):
     #   }
     # }
     # Can be extended for other bet types with different parameters
+    bucket_definitions = models.JSONField(default=list)  # Array of bucket definitions:
+    # For pageviews: [
+    #   {"min": 100, "max": 200},  # Bucket for 100-200 pageviews
+    #   {"min": 201, "max": 300},  # Bucket for 201-300 pageviews
+    #   {"min": 301, "max": 400}   # Bucket for 301-400 pageviews
+    # ]
+    # Used to ensure consistent buckets across probability distribution refreshes
     closing_date = models.DateTimeField()
     status = models.CharField(
         max_length=20,
