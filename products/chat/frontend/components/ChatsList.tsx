@@ -21,8 +21,8 @@ export function ChatsList(): JSX.Element {
                     isActive={selectedChatId === chat.id}
                     onClick={() => setSelectedChatId(chat.id)}
                     date={chat.messages[chat.messages.length - 1].dateCreated}
-                    isUnread={chat.messages[chat.messages.length - 1].sender === 'assistant'}
-                    isReply={chat.messages[chat.messages.length - 1].sender === 'user'}
+                    isUnread={!chat.messages[chat.messages.length - 1].isRead}
+                    isReply={chat.messages[chat.messages.length - 1].sender === 'assistant'}
                 />
             ))}
         </aside>
