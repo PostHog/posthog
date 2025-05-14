@@ -422,7 +422,14 @@ def lib_version_from_query_params(request) -> str:
 
 @csrf_exempt
 @timed("posthog_cloud_event_endpoint")
-def get_event(request):
+def get_csp_event(request):
+    # Explicit mark for get_event pipeline to handle CSP reports on this flow
+    return get_event(request, is_csp_report_ingestion=True)
+
+
+@csrf_exempt
+@timed("posthog_cloud_event_endpoint")
+def get_event(request, is_csp_report_ingestion: bool = False):
     structlog.contextvars.unbind_contextvars("team_id")
 
     # handle cors request
@@ -430,13 +437,16 @@ def get_event(request):
         return cors_response(request, JsonResponse({"status": 1}))
 
     # Process CSP reports first so we can keep the ingestion pipeline working as it was
-    csp_report, error_response = process_csp_report(request)
-    if error_response:
-        return error_response
+    csp_report = None
+    if is_csp_report_ingestion:
+        csp_report, error_response = process_csp_report(request)
+
+        if error_response:
+            return error_response
 
     now = timezone.now()
 
-    data, error_response = get_data(request, csp_report)
+    data, error_response = get_data(request, csp_report, is_csp_report_ingestion)
 
     if error_response:
         return error_response
@@ -740,7 +750,10 @@ def get_event(request):
         EVENTS_REJECTED_OVER_QUOTA_COUNTER.labels(resource_type="recordings").inc()
         response_body["quota_limited"] = ["recordings"]
 
-    if csp_report:
+    # If we have a csp_report parsed and we explicit told the pipeline we want to handle
+    # those (is_csp_report_ingestion=True) then we can return a 204 since that's the standard
+    # https://github.com/PostHog/posthog/pull/32174
+    if csp_report and is_csp_report_ingestion:
         return cors_response(request, HttpResponse(status=status.HTTP_204_NO_CONTENT))
 
     return cors_response(request, JsonResponse(response_body))

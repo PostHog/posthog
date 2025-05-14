@@ -194,9 +194,10 @@ def get_project_id(data, request) -> Optional[int]:
     return None
 
 
-def get_data(request, csp_report=None):
+def get_data(request, csp_report=None, is_csp_report_ingestion=False):
     data = None
-    if csp_report:
+    # Making the checks here stricter to avoid affecting any existing pipeline flow
+    if is_csp_report_ingestion and csp_report:
         return csp_report, None
 
     try:
