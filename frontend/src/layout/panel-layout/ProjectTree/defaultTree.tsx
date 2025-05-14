@@ -16,7 +16,7 @@ import {
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { fileSystemTypes, getTreeItemsNew, getTreeItemsProducts } from '~/products'
+import { fileSystemTypes, getTreeItemsGames, getTreeItemsNew, getTreeItemsProducts } from '~/products'
 import { FileSystemImport } from '~/queries/schema/schema-general'
 import { ActivityTab, PipelineStage } from '~/types'
 
@@ -146,45 +146,4 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
     ].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
 
 export const getDefaultTreeGames = (): FileSystemImport[] =>
-    [
-        {
-            path: '368 hedgehogs',
-            iconType: 'cursorClick',
-            href: urls.game368(),
-        },
-        {
-            path: 'Hedgehog Farm',
-            iconType: 'cursorClick',
-            href: urls.game368(),
-        },
-        {
-            path: '2048',
-            iconType: 'cursorClick',
-            href: urls.game368(),
-        },
-        {
-            path: 'Hogmatch',
-            iconType: 'cursorClick',
-            href: urls.game368(),
-        },
-        {
-            path: 'Hogmageddon',
-            iconType: 'cursorClick',
-            href: urls.game368(),
-        },
-        {
-            path: 'What the Hog',
-            iconType: 'cursorClick',
-            href: urls.game368(),
-        },
-        {
-            path: 'Solitaire',
-            iconType: 'cursorClick',
-            href: urls.game368(),
-        },
-        {
-            path: 'Hogs and ladders',
-            iconType: 'cursorClick',
-            href: urls.game368(),
-        },
-    ].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
+    [...getTreeItemsGames()].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))

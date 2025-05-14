@@ -9,6 +9,7 @@ import {
     IconHome,
     IconNotebook,
     IconPeople,
+    IconPineapple,
     IconSearch,
     IconToolbar,
 } from '@posthog/icons'
@@ -209,7 +210,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                   {
                       identifier: 'Games',
                       id: 'Games',
-                      icon: <IconCdCase />,
+                      icon: <IconPineapple />,
                       onClick: (e?: React.KeyboardEvent) => {
                           if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
                               handlePanelTriggerClick('Games')
