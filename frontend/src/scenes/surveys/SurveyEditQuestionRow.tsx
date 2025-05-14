@@ -8,7 +8,7 @@ import { useActions, useValues } from 'kea'
 import { Group } from 'kea-forms'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import { Survey, SurveyQuestionType, SurveyType } from '~/types'
+import { Survey, SurveyQuestion, SurveyQuestionType, SurveyType } from '~/types'
 
 import { defaultSurveyFieldValues, NewSurvey, SurveyQuestionLabel } from './constants'
 import { QuestionBranchingInput } from './QuestionBranchingInput'
@@ -102,7 +102,7 @@ export function SurveyEditQuestionHeader({
     )
 }
 
-export function SurveyEditQuestionGroup({ index, question }: { index: number; question: any }): JSX.Element {
+export function SurveyEditQuestionGroup({ index, question }: { index: number; question: SurveyQuestion }): JSX.Element {
     const { survey, descriptionContentType } = useValues(surveyLogic)
     const { setDefaultForQuestionType, setSurveyValue, resetBranchingForQuestion } = useActions(surveyLogic)
 
@@ -124,6 +124,15 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
     const handleTabChange = (key: string): void => {
         handleQuestionValueChange('descriptionContentType', key)
     }
+
+    const canHaveBranchingInput =
+        question.type === SurveyQuestionType.Rating ||
+        question.type === SurveyQuestionType.SingleChoice ||
+        question.type === SurveyQuestionType.MultipleChoice
+
+    const canSkipSubmitButton =
+        question.type === SurveyQuestionType.Rating ||
+        (question.type === SurveyQuestionType.SingleChoice && !question.hasOpenChoice)
 
     return (
         <Group name={`questions.${index}`} key={index}>
@@ -369,16 +378,45 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                         </LemonField>
                     </div>
                 )}
-                <LemonField name="buttonText" label="Button text">
-                    <LemonInput
-                        value={
-                            question.buttonText === undefined
-                                ? survey.appearance?.submitButtonText ?? 'Submit'
-                                : question.buttonText
-                        }
-                    />
-                </LemonField>
-                <QuestionBranchingInput questionIndex={index} question={question} />
+                <div className="flex gap-2">
+                    <LemonField
+                        name="buttonText"
+                        label="Submit button text"
+                        className="flex-1"
+                        info="If the survey is configured to automatically submit on selection, the submit button will be hidden/text ignored, and the response will be submitted immediately after the user makes a selection. Requires at least version XXX of posthog-js. Not available for the mobile SDKs at the moment."
+                    >
+                        <LemonInput
+                            value={
+                                question.buttonText === undefined
+                                    ? survey.appearance?.submitButtonText ?? 'Submit'
+                                    : question.buttonText
+                            }
+                            disabled={canSkipSubmitButton && !!question.skipSubmitButton}
+                        />
+                    </LemonField>
+                    {canSkipSubmitButton && (
+                        <LemonField
+                            name="skipSubmitButton"
+                            className="self-end my-2"
+                            info={
+                                <>
+                                    If enabled, the survey will submit immediately after the user makes a selection (for
+                                    single-choice without open-ended, or rating questions), and the submit button will
+                                    be hidden/text ignored.
+                                </>
+                            }
+                        >
+                            {({ value: skipSubmitButtonValue, onChange: onSkipSubmitButtonChange }) => (
+                                <LemonCheckbox
+                                    label="Automatically submit on selection"
+                                    checked={!!skipSubmitButtonValue}
+                                    onChange={onSkipSubmitButtonChange}
+                                />
+                            )}
+                        </LemonField>
+                    )}
+                </div>
+                {canHaveBranchingInput && <QuestionBranchingInput questionIndex={index} question={question} />}
             </div>
         </Group>
     )
