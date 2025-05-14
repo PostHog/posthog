@@ -141,7 +141,7 @@ class Backup:
             f"""
             SELECT hostname(), argMax(status, event_time_microseconds), argMax(left(error, 400), event_time_microseconds), max(event_time_microseconds)
             FROM system.backup_log
-            WHERE (start_time >= (now() - toIntervalDay(7))) AND name LIKE '%{self.path}%'
+            WHERE (start_time >= (now() - toIntervalDay(7))) AND name LIKE '%{self.path}%' AND status NOT IN ('RESTORING', 'RESTORED', 'RESTORE_FAILED')
             GROUP BY hostname()
             """
         )
@@ -274,7 +274,7 @@ def check_latest_backup_status(
         map_hosts(latest_backup.wait).result()
     else:
         most_recent_status = get_most_recent_status(map_hosts(latest_backup.status).result().values())
-        if most_recent_status and most_recent_status.status in ["CREATING_BACKUP", "BACKUP_FAILED"]:
+        if most_recent_status and most_recent_status.status != "BACKUP_CREATED":
             raise ValueError(
                 f"Latest backup {latest_backup.path} finished with an unexpected status: {most_recent_status.status} on the host {most_recent_status.hostname}. Please clean it from S3 before running a new backup."
             )
@@ -350,7 +350,7 @@ def wait_for_backup(
     if backup:
         map_hosts(backup.wait).result().values()
         most_recent_status = get_most_recent_status(map_hosts(backup.status).result().values())
-        if most_recent_status and most_recent_status.status in ["CREATING_BACKUP", "BACKUP_FAILED"]:
+        if most_recent_status and most_recent_status.status != "BACKUP_CREATED":
             raise ValueError(
                 f"Latest backup {backup.path} finished with an unexpected status: {most_recent_status.status} on the host {most_recent_status.hostname}. Please clean it from S3 before running a new backup."
             )
