@@ -25,7 +25,7 @@ export const shortLinksLogic = kea<shortLinksLogicType>([
                 origin_key: '',
                 destination: '',
                 description: '',
-                tags: [],
+                tags: '',
                 comments: '',
             },
 

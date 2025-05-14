@@ -6,19 +6,20 @@ from posthog.models import ShortLink
 
 
 class ShortLinkAdmin(admin.ModelAdmin):
-    list_display = ("key", "destination_url_display", "team_link", "created_at", "updated_at", "expiration_date")
-    list_filter = ("team", "created_at", "updated_at", "expiration_date")
-    search_fields = ("key", "destination_url", "team__name")
-    readonly_fields = ("key", "hashed_key", "created_at", "updated_at")
+    list_display = ("id", "destination_display", "team_link", "created_at", "updated_at")
+    list_filter = ("team", "created_at", "updated_at")
+    search_fields = ("id", "destination", "team__name")
+    readonly_fields = ("id", "created_at", "updated_at")
     fieldsets = (
-        (None, {"fields": ("key", "hashed_key", "destination_url", "team")}),
-        ("Dates", {"fields": ("created_at", "updated_at", "expiration_date")}),
+        (None, {"fields": ("id", "destination", "origin_domain", "origin_key", "team")}),
+        ("Dates", {"fields": ("created_at", "updated_at")}),
+        ("Additional Info", {"fields": ("description", "tags", "comments")}),
     )
 
-    def destination_url_display(self, obj: ShortLink):
-        return format_html('<a href="{}" target="_blank">{}</a>', obj.destination_url, obj.destination_url)
+    def destination_display(self, obj: ShortLink):
+        return format_html('<a href="{}" target="_blank">{}</a>', obj.destination, obj.destination)
 
-    destination_url_display.short_description = "Destination URL"
+    destination_display.short_description = "Destination"
 
     def team_link(self, obj: ShortLink):
         return format_html(

@@ -1,1 +1,1 @@
-0734_shortlink_shortlink_unique_short_link_key_per_team
+0734_shortlink_shortlink_unique_short_link_id_per_team

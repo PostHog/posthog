@@ -30,12 +30,12 @@ export function ShortLinksScene(): JSX.Element {
     const columns = [
         {
             title: 'Short URL',
-            dataIndex: 'key',
-            render: function RenderKey(key: string | any) {
-                if (!key) {
+            dataIndex: 'id',
+            render: function RenderKey(id: string | any) {
+                if (!id) {
                     return null
                 }
-                const shortUrl = `${baseUrl}/${key}`
+                const shortUrl = `${baseUrl}/${id}`
                 return (
                     <div className="flex items-center gap-2">
                         <Link to={shortUrl} target="_blank">
@@ -55,7 +55,7 @@ export function ShortLinksScene(): JSX.Element {
         },
         {
             title: 'Destination',
-            dataIndex: 'destination_url' as keyof ShortLink,
+            dataIndex: 'destination' as keyof ShortLink,
             render: function RenderDestination(destination: string | any) {
                 if (!destination) {
                     return null
@@ -78,20 +78,20 @@ export function ShortLinksScene(): JSX.Element {
             },
         },
         {
-            title: 'Expires',
-            dataIndex: 'expiration_date' as keyof ShortLink,
-            render: function RenderExpiry(date: string | any) {
-                if (!date) {
-                    return <span className="text-muted">Never</span>
+            title: 'Origin',
+            dataIndex: 'origin_domain' as keyof ShortLink,
+            render: function RenderOrigin(domain: string | any) {
+                if (!domain) {
+                    return <span className="text-muted">None</span>
                 }
-                return dayjs(date).format('MMM D, YYYY')
+                return domain
             },
         },
         {
             title: 'Actions',
-            dataIndex: 'key' as keyof ShortLink,
-            render: function RenderActions(key: string | any, record: ShortLink) {
-                if (!key) {
+            dataIndex: 'id' as keyof ShortLink,
+            render: function RenderActions(id: string | any, record: ShortLink) {
+                if (!id) {
                     return null
                 }
                 return (
@@ -113,7 +113,7 @@ export function ShortLinksScene(): JSX.Element {
                                         <>
                                             Are you sure you want to delete the short link{' '}
                                             <code>
-                                                {baseUrl}/{key}
+                                                {baseUrl}/{id}
                                             </code>
                                             ?
                                         </>
@@ -121,7 +121,7 @@ export function ShortLinksScene(): JSX.Element {
                                     primaryButton: {
                                         status: 'danger',
                                         children: 'Delete',
-                                        onClick: () => deleteShortLink(key),
+                                        onClick: () => deleteShortLink(id),
                                     },
                                     secondaryButton: {
                                         children: 'Cancel',
@@ -182,7 +182,7 @@ export function ShortLinksScene(): JSX.Element {
                     dataSource={activeShortLinks}
                     columns={columns}
                     loading={shortLinksLoading}
-                    rowKey="key"
+                    rowKey="id"
                     pagination={{ pageSize: 10 }}
                     defaultSorting={{
                         columnKey: 'created_at',
@@ -201,7 +201,7 @@ export function ShortLinksScene(): JSX.Element {
                     <LemonTable
                         dataSource={expiredShortLinks}
                         columns={columns}
-                        rowKey="key"
+                        rowKey="id"
                         pagination={{ pageSize: 10 }}
                         nouns={['expired link', 'expired links']}
                     />
@@ -256,7 +256,7 @@ export function ShortLinksScene(): JSX.Element {
                                     setIsCreateModalOpen(false)
                                 }}
                                 type="primary"
-                                disabled={!newLink.destination_url}
+                                disabled={!newLink.destination}
                             >
                                 Create link
                             </LemonButton>
@@ -272,8 +272,8 @@ export function ShortLinksScene(): JSX.Element {
                             <div className="flex items-center">
                                 <LemonInput
                                     placeholder="https://example.com"
-                                    value={newLink.destination_url}
-                                    onChange={(e) => setNewLinkDestinationUrl(e)}
+                                    value={newLink.destination}
+                                    onChange={(e) => setNewLinkDestination(e)}
                                     fullWidth
                                     autoWidth={false}
                                 />
@@ -456,8 +456,8 @@ export function ShortLinksScene(): JSX.Element {
                                 type="primary"
                                 onClick={() => {
                                     if (editingLink) {
-                                        updateShortLink(editingLink.key, {
-                                            destination_url: editingLink.destination_url,
+                                        updateShortLink(editingLink.id, {
+                                            destination: editingLink.destination,
                                             expiration_date: editingLink.expiration_date,
                                             custom_key: editingLink.custom_key,
                                             tags: editingLink.tags,
@@ -484,13 +484,13 @@ export function ShortLinksScene(): JSX.Element {
                             <div>
                                 <LemonLabel>Short URL</LemonLabel>
                                 <div className="flex items-center border rounded px-2 py-1 bg-bg-light font-mono">
-                                    {baseUrl}/{editingLink.key}
+                                    {baseUrl}/{editingLink.id}
                                     <LemonButton
                                         icon={<IconCopy />}
                                         size="small"
                                         className="ml-2"
                                         onClick={() => {
-                                            void navigator.clipboard.writeText(`${baseUrl}/${editingLink.key}`)
+                                            void navigator.clipboard.writeText(`${baseUrl}/${editingLink.id}`)
                                         }}
                                     />
                                 </div>
@@ -501,11 +501,11 @@ export function ShortLinksScene(): JSX.Element {
                                 <div className="flex items-center">
                                     <LemonInput
                                         placeholder="https://example.com"
-                                        value={editingLink.destination_url}
+                                        value={editingLink.destination}
                                         onChange={(e) =>
                                             setEditingLink({
                                                 ...editingLink,
-                                                destination_url: e,
+                                                destination: e,
                                             })
                                         }
                                         fullWidth
