@@ -8,14 +8,14 @@ export const manifest: ProductManifest = {
     scenes: {
         ChatList: {
             name: 'Chat List',
-            import: () => import('./frontend/ChatList'),
+            import: () => import('./frontend/scenes/ChatList'),
             projectBased: true,
             defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
             activityScope: 'ChatList',
         },
         Chat: {
             name: 'Chat',
-            import: () => import('./frontend/Chat'),
+            import: () => import('./frontend/scenes/Chat'),
             projectBased: true,
             defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
             activityScope: 'Chat',
