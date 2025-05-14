@@ -13,11 +13,6 @@ health = { path = "../common/health" }
 axum = { workspace = true }
 common-metrics = { path = "../common/metrics" }
 common-alloc = { path = "../common/alloc" }
-limiters = { path = "../common/limiters" }
-posthog-symbol-data = "0.1.0"
-serde_json = { workspace = true }
-sourcemap = "9.0.0"
-rdkafka = { workspace = true }
 posthog-rs = { workspace = true }
 
 [dev-dependencies]
