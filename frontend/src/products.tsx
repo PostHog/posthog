@@ -349,7 +349,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.llmObservabilityDashboard(),
         flag: FEATURE_FLAGS.LLM_OBSERVABILITY,
     },
-    { path: 'Logs', iconType: 'ai', href: urls.logs(), flag: FEATURE_FLAGS.LOGS },
+    { path: 'Logs', iconType: 'live', href: urls.logs(), flag: FEATURE_FLAGS.LOGS },
     { path: 'Persons', iconType: 'cohort', href: urls.persons() },
     { path: 'Product analytics', type: 'insight', href: urls.insights() },
     { path: 'Revenue analytics', iconType: 'piggyBank', href: urls.revenueAnalytics() },
