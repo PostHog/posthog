@@ -1,23 +1,26 @@
-import { IconCopy, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTableColumn, Link } from '@posthog/lemon-ui'
+import { IconPlus } from '@posthog/icons'
+import { LemonButton, LemonTable, LemonTableColumn } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { urls } from 'scenes/urls'
 
-import { ProductKey } from '~/types'
+import { ProductKey, UserBasicType } from '~/types'
 
 import { shortLinksLogic } from './shortLinksLogic'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { SceneExport } from 'scenes/sceneTypes'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import stringWithWBR from 'lib/utils/stringWithWBR'
 
 interface ShortLink {
     id: string
     destination: string
     created_at?: string
+    created_by?: UserBasicType
     origin_domain?: string
     origin_key?: string
     custom_key?: string
@@ -37,27 +40,44 @@ interface ShortLink {
 export function ShortLinksScene(): JSX.Element {
     const { links, linksLoading } = useValues(shortLinksLogic)
 
-    const baseUrl = `${window.location.origin}/e`
-
     const columns = [
         {
-            title: 'Link',
-            dataIndex: 'link' as keyof ShortLink,
-            render: function RenderDestination(destination: any, record: ShortLink) {
-                if (!destination) {
-                    return null
-                }
+            title: 'Key',
+            dataIndex: 'key',
+            sticky: true,
+            width: '40%',
+            render: function Render(_: any, record: ShortLink) {
                 return (
-                    <div className="max-w-100 overflow-hidden">
-                        <Link to={destination} target="_blank" className="truncate">
-                            {destination}
-                        </Link>
-                    </div>
+                    <LemonTableLink
+                        to={record.id ? urls.shortLink(record.id) : undefined}
+                        title={
+                            <>
+                                <span>{stringWithWBR(record?.origin_domain + '/' + record?.origin_key || '', 17)}</span>
+                            </>
+                        }
+                        description={record?.destination}
+                    />
                 )
             },
         },
+        // {
+        //     title: 'Link',
+        //     dataIndex: 'link' as keyof ShortLink,
+        //     render: function RenderDestination(destination: any, record: ShortLink) {
+        //         if (!destination) {
+        //             return null
+        //         }
+        //         return (
+        //             <div className="max-w-100 overflow-hidden">
+        //                 <Link to={destination} target="_blank" className="truncate">
+        //                     {destination}
+        //                 </Link>
+        //             </div>
+        //         )
+        //     },
+        // },
         createdByColumn<ShortLink>() as LemonTableColumn<ShortLink, keyof ShortLink | undefined>,
-        createdAtColumn<ShortLink>() as LemonTableColumn<ShortLink, keyof ShortLink>,
+        createdAtColumn<ShortLink>() as LemonTableColumn<ShortLink, keyof ShortLink | undefined>,
         {
             title: 'Last 7 days',
             render: function RenderSuccessRate(date: any, record: ShortLink) {

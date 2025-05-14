@@ -156,6 +156,7 @@ export const urls = {
         `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
     shortLinks: (params?: string): string =>
         `/short-links${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
+    shortLink: (id: string): string => `/short-link/${id}`,
     shortLinkNew: (): string => '/short-link/new',
     sessionAttributionExplorer: (): string => '/web/session-attribution-explorer',
     wizard: (): string => `/wizard`,
