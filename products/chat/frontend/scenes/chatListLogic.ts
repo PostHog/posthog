@@ -3,25 +3,30 @@ import { actions, kea, listeners, path, reducers } from 'kea'
 import type { chatListLogicType } from './chatListLogicType'
 
 export type Chat = {
-    id: number
-    name: string
+    id: string
+    person: string // email or user id, for dummy data
+    team: string // team id, for dummy data
+    title?: string | null
+    created_at: string
+    updated_at: string
+    source_url?: string | null
+    unread_count: number
     messages: ChatMessage[]
-    dateCreated: string
-    dateUpdated: string
 }
 
 export type ChatMessage = {
-    id: number
+    id: string
+    conversation: string // chat id (UUID)
     content: string
-    sender: 'user' | 'assistant'
-    dateCreated: string
-    dateUpdated: string
+    created_at: string
+    read: boolean
+    is_assistant: boolean
 }
 
 export const chatListLogic = kea<chatListLogicType>([
     path(['products', 'chat', 'frontend', 'chatListLogic']),
     actions({
-        setSelectedChatId: (selectedChatId: number | null) => ({ selectedChatId }),
+        setSelectedChatId: (selectedChatId: string | null) => ({ selectedChatId }),
         setChats: (chats: Chat[]) => ({ chats }),
         sendMessage: (message: string) => ({ message }),
         setMessage: (message: string) => ({ message }),
@@ -30,68 +35,86 @@ export const chatListLogic = kea<chatListLogicType>([
         chats: [
             [
                 {
-                    id: 1,
-                    name: 'Chat 1',
-                    dateCreated: '2021-01-01',
-                    dateUpdated: '2021-01-01',
+                    id: '1',
+                    person: 'aleks@posthog.com',
+                    team: 'team1',
+                    title: 'Chat with Aleks',
+                    created_at: '2021-01-01T00:00:00Z',
+                    updated_at: '2021-01-01T00:00:00Z',
+                    source_url: null,
+                    unread_count: 0,
                     messages: [
                         {
-                            id: 1,
+                            id: 'm1',
+                            conversation: '1',
                             content: 'Hello',
-                            sender: 'user',
-                            dateCreated: '2021-01-01',
-                            dateUpdated: '2021-01-01',
+                            created_at: '2021-01-01T00:00:00Z',
+                            read: true,
+                            is_assistant: false,
                         },
                         {
-                            id: 2,
+                            id: 'm2',
+                            conversation: '1',
                             content: 'Hi',
-                            sender: 'assistant',
-                            dateCreated: '2021-01-01',
-                            dateUpdated: '2021-01-01',
+                            created_at: '2021-01-01T00:01:00Z',
+                            read: true,
+                            is_assistant: true,
                         },
                     ],
                 },
                 {
-                    id: 2,
-                    name: 'Chat 2',
-                    dateCreated: '2021-01-01',
-                    dateUpdated: '2021-01-01',
+                    id: '2',
+                    person: 'jane@posthog.com',
+                    team: 'team1',
+                    title: 'Chat with Jane',
+                    created_at: '2021-01-01T00:00:00Z',
+                    updated_at: '2021-01-01T00:00:00Z',
+                    source_url: null,
+                    unread_count: 1,
                     messages: [
                         {
-                            id: 1,
+                            id: 'm3',
+                            conversation: '2',
                             content: 'Hi',
-                            sender: 'user',
-                            dateCreated: '2021-01-01',
-                            dateUpdated: '2021-01-01',
+                            created_at: '2021-01-01T00:00:00Z',
+                            read: true,
+                            is_assistant: true,
                         },
                         {
-                            id: 2,
+                            id: 'm4',
+                            conversation: '2',
                             content: "What's up?",
-                            sender: 'assistant',
-                            dateCreated: '2021-01-01',
-                            dateUpdated: '2021-01-01',
+                            created_at: '2021-01-01T00:01:00Z',
+                            read: true,
+                            is_assistant: true,
                         },
                         {
-                            id: 3,
+                            id: 'm5',
+                            conversation: '2',
                             content: 'Not much',
-                            sender: 'user',
-                            dateCreated: '2021-01-01',
-                            dateUpdated: '2021-01-01',
+                            created_at: '2021-01-01T00:02:00Z',
+                            read: false,
+                            is_assistant: false,
                         },
                     ],
                 },
                 {
-                    id: 3,
-                    name: 'Chat 3',
-                    dateCreated: '2021-01-01',
-                    dateUpdated: '2021-01-01',
+                    id: '3',
+                    person: 'john@posthog.com',
+                    team: 'team1',
+                    title: 'Chat with John',
+                    created_at: '2021-01-01T00:00:00Z',
+                    updated_at: '2021-01-01T00:00:00Z',
+                    source_url: null,
+                    unread_count: 1,
                     messages: [
                         {
-                            id: 1,
+                            id: 'm6',
+                            conversation: '3',
                             content: 'Hello',
-                            sender: 'user',
-                            dateCreated: '2021-01-01',
-                            dateUpdated: '2021-01-01',
+                            created_at: '2021-01-01T00:00:00Z',
+                            read: false,
+                            is_assistant: false,
                         },
                     ],
                 },
@@ -101,7 +124,7 @@ export const chatListLogic = kea<chatListLogicType>([
             },
         ],
         selectedChatId: [
-            null as number | null,
+            null as string | null,
             {
                 setSelectedChatId: (_, { selectedChatId }) => selectedChatId,
             },
@@ -119,11 +142,12 @@ export const chatListLogic = kea<chatListLogicType>([
                 const chat = values.chats.find((chat) => chat.id === values.selectedChatId)
                 if (chat) {
                     const newMessage: ChatMessage = {
-                        id: Date.now(),
+                        id: Date.now().toString(),
+                        conversation: chat.id,
                         content: message,
-                        sender: 'assistant' as const,
-                        dateCreated: new Date().toISOString(),
-                        dateUpdated: new Date().toISOString(),
+                        created_at: new Date().toISOString(),
+                        read: true,
+                        is_assistant: true,
                     }
                     actions.setChats(
                         values.chats.map((chat) => {
@@ -135,6 +159,18 @@ export const chatListLogic = kea<chatListLogicType>([
                     )
                     actions.setMessage('')
                 }
+            }
+        },
+        setSelectedChatId: ({ selectedChatId }) => {
+            if (values.chats.find((chat) => chat.id === selectedChatId)?.messages.some((message) => !message.read)) {
+                actions.setChats(
+                    values.chats.map((chat) => {
+                        if (chat.id === selectedChatId) {
+                            return { ...chat, messages: chat.messages.map((message) => ({ ...message, read: true })) }
+                        }
+                        return chat
+                    })
+                )
             }
         },
     })),

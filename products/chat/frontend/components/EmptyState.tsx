@@ -1,7 +1,8 @@
 export function EmptyState(): JSX.Element {
     return (
-        <div className="text-gray-500 flex flex-col items-center justify-center h-full">
-            <span>Select a chat to start messaging</span>
+        <div className="text-primary flex flex-col items-center justify-center h-full text-center px-4 mt-16">
+            <span className="font-semibold text-lg mb-2">Welcome to Chat with your customers</span>
+            <span>When your customers text you via the widget or other sources, their chats will appear here.</span>
         </div>
     )
 }

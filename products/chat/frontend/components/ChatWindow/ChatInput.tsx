@@ -17,6 +17,7 @@ export function ChatInput(): JSX.Element {
                     placeholder="Type a message…"
                     value={message}
                     onChange={(e) => setMessage(e)}
+                    onPressEnter={() => sendMessage(message)}
                 />
                 <LemonButton onClick={() => sendMessage(message)}>Send</LemonButton>
             </div>
