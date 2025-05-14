@@ -75,9 +75,9 @@ class Command(BaseCommand):
         not_found_fingerprints = []
 
         for fingerprint in fingerprint_rows:
-            postgres_fingerprint: ErrorTrackingIssueFingerprintV2 = ErrorTrackingIssueFingerprintV2.objects.filter(
-                fingerprint=fingerprint["fingerprint"]
-            ).first()
+            postgres_fingerprint: ErrorTrackingIssueFingerprintV2 | None = (
+                ErrorTrackingIssueFingerprintV2.objects.filter(fingerprint=fingerprint["fingerprint"]).first()
+            )
             if postgres_fingerprint is not None:
                 max_version = max(fingerprint["version"], postgres_fingerprint.version)
                 new_version = max_version + 1
