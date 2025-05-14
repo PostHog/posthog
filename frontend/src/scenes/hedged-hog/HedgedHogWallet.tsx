@@ -1,36 +1,108 @@
-import { IconCreditCard } from '@posthog/icons'
 import { useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
 import { IconArrowDown, IconArrowUp, IconChevronRight } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { userLogic } from 'scenes/userLogic'
 
 import { hedgedHogLogic } from './hedgedHogLogic'
 
 export const WalletContent = (): JSX.Element => {
     const { transactions, transactionsLoading, walletBalance, walletBalanceLoading, isOnboarded } =
         useValues(hedgedHogLogic)
+    const { user } = useValues(userLogic)
 
     return (
         <div className="mt-4">
             {isOnboarded && (
                 <div className="mb-8">
-                    <LemonCard className="bg-gradient-to-br from-primary to-primary-3000 text-white p-6">
-                        <div className="flex items-center mb-4">
-                            <IconCreditCard className="text-2xl mr-2" />
-                            <h3 className="text-white m-0">Wallet Balance</h3>
+                    <div className="flex items-start justify-between gap-6">
+                        {/* eslint-disable-next-line react/forbid-dom-props */}
+                        <div style={{ width: '400px' }}>
+                            <LemonCard className="p-0 overflow-hidden shadow-xl rounded-xl border-0">
+                                <div
+                                    className="p-6 text-white relative"
+                                    // eslint-disable-next-line react/forbid-dom-props
+                                    style={{
+                                        background: 'linear-gradient(135deg, #5042BC 0%, #8E5AE8 100%)',
+                                        borderRadius: '12px',
+                                    }}
+                                >
+                                    {/* Card logo */}
+                                    <div className="flex justify-end items-center mb-6">
+                                        <img
+                                            src="/static/posthog-logo.svg"
+                                            alt="PostHog"
+                                            className="h-8 w-auto"
+                                            // eslint-disable-next-line react/forbid-dom-props
+                                            style={{ filter: 'brightness(0) invert(1)' }}
+                                        />
+                                    </div>
+
+                                    {/* Balance display */}
+                                    <div className="mb-6">
+                                        <div className="text-sm font-medium opacity-80 mb-1">Available Balance</div>
+                                        {walletBalanceLoading ? (
+                                            <LemonSkeleton className="h-12 w-32" />
+                                        ) : (
+                                            <div className="text-4xl font-bold">
+                                                {walletBalance.toLocaleString()} Hogecoins
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Card holder name */}
+                                    <div className="flex justify-between items-end">
+                                        <div>
+                                            <div className="text-xs uppercase opacity-70 mb-1">CARD HOLDER</div>
+                                            <div className="font-medium">
+                                                {user?.first_name} {user?.last_name}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Decorative elements */}
+                                    <div
+                                        className="absolute top-0 right-0 w-64 h-64 rounded-full"
+                                        // eslint-disable-next-line react/forbid-dom-props
+                                        style={{
+                                            background:
+                                                'radial-gradient(circle, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0) 70%)',
+                                            transform: 'translate(30%, -30%)',
+                                        }}
+                                    />
+                                    <div
+                                        className="absolute bottom-0 left-0 w-40 h-40 rounded-full"
+                                        // eslint-disable-next-line react/forbid-dom-props
+                                        style={{
+                                            background:
+                                                'radial-gradient(circle, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0) 70%)',
+                                            transform: 'translate(-30%, 30%)',
+                                        }}
+                                    />
+                                </div>
+                            </LemonCard>
                         </div>
-                        <div className="mb-6">
-                            {walletBalanceLoading ? (
-                                <LemonSkeleton className="h-12 w-32" />
-                            ) : (
-                                <div className="text-4xl font-bold">{walletBalance} Hedgies</div>
-                            )}
+
+                        {/* Action button - positioned beside the card */}
+                        <div className="flex justify-end items-start">
+                            <LemonButton
+                                size="large"
+                                type="primary"
+                                className="rounded-md font-medium"
+                                onClick={() => {
+                                    if (user) {
+                                        window.location.href = '/hedged-hog?tab=bet-definitions'
+                                    }
+                                }}
+                            >
+                                Place a Bet
+                            </LemonButton>
                         </div>
-                        <div className="text-sm opacity-80">Use your Hedgies to place bets on metrics</div>
-                    </LemonCard>
+                    </div>
                 </div>
             )}
 
@@ -128,7 +200,7 @@ export const WalletContent = (): JSX.Element => {
                                             }`}
                                         >
                                             {isIncoming ? '+' : isOutgoing ? '-' : ''}
-                                            {parseFloat(amount?.toString() || '0').toLocaleString()} Hedgies
+                                            {parseFloat(amount?.toString() || '0').toLocaleString()} Hogecoins
                                         </span>
                                     )
                                 },

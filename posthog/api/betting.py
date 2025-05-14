@@ -341,6 +341,15 @@ class BetViewSet(
         )
 
 
+class LeaderboardEntrySerializer(serializers.Serializer):
+    user_email = serializers.CharField()
+    balance = serializers.FloatField()
+    win_rate = serializers.FloatField(required=False)
+    total_bets = serializers.IntegerField(required=False)
+    total_wins = serializers.IntegerField(required=False)
+    total_volume = serializers.FloatField(required=False)
+
+
 class TransactionViewSet(
     mixins.RetrieveModelMixin,
     mixins.ListModelMixin,
@@ -369,6 +378,92 @@ class TransactionViewSet(
         """
         balance = Wallet.get_balance(request.user, str(self.team_id))
         return Response({"balance": balance})
+
+    @action(detail=False, methods=["get"])
+    def leaderboard(self, request, **kwargs):
+        """
+        Get the leaderboard for the current team.
+        Supports different leaderboard types: 'balance', 'win_rate', 'volume'
+        """
+        leaderboard_type = request.query_params.get("type", "balance")
+        limit = int(request.query_params.get("limit", 10))
+
+        # Get all users in the current team
+        from posthog.models.user import User
+
+        team_id = str(self.team_id)
+
+        if leaderboard_type == "balance":
+            # Get users with their wallet balances
+            users_with_balances = []
+            team_users = User.objects.filter(
+                organization_membership__organization=self.request.user.current_organization
+            )
+
+            for user in team_users:
+                balance = Wallet.get_balance(user, team_id)
+                if balance > 0:  # Only include users with positive balances
+                    users_with_balances.append({"user_email": user.email, "balance": balance})
+
+            # Sort by balance descending
+            leaderboard = sorted(users_with_balances, key=lambda x: x["balance"], reverse=True)[:limit]
+
+        elif leaderboard_type == "win_rate":
+            # Calculate win rate for each user
+            users_with_stats = []
+            team_users = User.objects.filter(
+                organization_membership__organization=self.request.user.current_organization
+            )
+
+            for user in team_users:
+                # Get all bets for this user
+                bets = Bet.objects.filter(user=user, team_id=team_id)
+                total_bets = bets.count()
+
+                if total_bets > 0:
+                    total_wins = bets.filter(status=Bet.Status.WON).count()
+                    win_rate = (total_wins / total_bets) * 100 if total_bets > 0 else 0
+
+                    users_with_stats.append(
+                        {
+                            "user_email": user.email,
+                            "win_rate": win_rate,
+                            "total_bets": total_bets,
+                            "total_wins": total_wins,
+                        }
+                    )
+
+            # Sort by win rate descending
+            leaderboard = sorted(users_with_stats, key=lambda x: x["win_rate"], reverse=True)[:limit]
+
+        elif leaderboard_type == "volume":
+            # Calculate trading volume for each user
+            users_with_volume = []
+            team_users = User.objects.filter(
+                organization_membership__organization=self.request.user.current_organization
+            )
+
+            for user in team_users:
+                # Sum the amount of all bet_place transactions
+                transactions = TransactionLedger.objects.filter(
+                    user=user, team_id=team_id, transaction_type="bet_place", source="wallet"
+                )
+
+                total_volume = sum(t.amount for t in transactions)
+
+                if total_volume > 0:
+                    users_with_volume.append({"user_email": user.email, "total_volume": total_volume})
+
+            # Sort by volume descending
+            leaderboard = sorted(users_with_volume, key=lambda x: x["total_volume"], reverse=True)[:limit]
+
+        else:
+            return Response(
+                {"error": f"Invalid leaderboard type: {leaderboard_type}"}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        serializer = LeaderboardEntrySerializer(leaderboard, many=True)
+        return Response(serializer.data)
 
 
 class OnboardingViewSet(viewsets.ViewSet):
