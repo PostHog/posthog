@@ -442,6 +442,10 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: true,
         name: 'Heatmaps',
     },
+    [Scene.ShortLinks]: {
+        projectBased: true,
+        name: 'Short Links',
+    },
     [Scene.SessionAttributionExplorer]: {
         projectBased: true,
         name: 'Session attribution explorer (beta)',
@@ -667,6 +671,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.settings(':section' as any)]: [Scene.Settings, 'settings'],
     [urls.moveToPostHogCloud()]: [Scene.MoveToPostHogCloud, 'moveToPostHogCloud'],
     [urls.heatmaps()]: [Scene.Heatmaps, 'heatmaps'],
+    [urls.shortLinks()]: [Scene.ShortLinks, 'shortLinks'],
     [urls.sessionAttributionExplorer()]: [Scene.SessionAttributionExplorer, 'sessionAttributionExplorer'],
     [urls.wizard()]: [Scene.Wizard, 'wizard'],
     [urls.startups()]: [Scene.StartupProgram, 'startupProgram'],

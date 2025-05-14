@@ -668,6 +668,16 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   tooltipDocLink: 'https://posthog.com/docs/toolbar/heatmaps',
                               }
                             : null,
+                        featureFlags[FEATURE_FLAGS.LINK_TRACKING]
+                            ? {
+                                  identifier: Scene.ShortLinks,
+                                  label: 'Short links',
+                                  icon: <IconCursorClick />,
+                                  to: isUsingSidebar ? undefined : urls.shortLinks(),
+                                  tag: 'alpha' as const,
+                                  tooltipDocLink: 'https://posthog.com/docs/short-links',
+                              }
+                            : null,
                         featureFlags[FEATURE_FLAGS.MESSAGING] && hasOnboardedAnyProduct
                             ? {
                                   identifier: Scene.MessagingBroadcasts,
