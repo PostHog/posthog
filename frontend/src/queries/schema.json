@@ -523,9 +523,6 @@
                 },
                 {
                     "$ref": "#/definitions/ErrorTrackingIssueFilter"
-                },
-                {
-                    "$ref": "#/definitions/ErrorTrackingIssuePropertyFilter"
                 }
             ]
         },
@@ -5350,13 +5347,13 @@
         "ClickhouseQueryProgress": {
             "additionalProperties": false,
             "properties": {
+                "active_cpu_time": {
+                    "$ref": "#/definitions/integer"
+                },
                 "bytes_read": {
                     "$ref": "#/definitions/integer"
                 },
                 "estimated_rows_total": {
-                    "$ref": "#/definitions/integer"
-                },
-                "memory_usage": {
                     "$ref": "#/definitions/integer"
                 },
                 "rows_read": {
@@ -5366,7 +5363,7 @@
                     "$ref": "#/definitions/integer"
                 }
             },
-            "required": ["bytes_read", "rows_read", "estimated_rows_total", "time_elapsed", "memory_usage"],
+            "required": ["bytes_read", "rows_read", "estimated_rows_total", "time_elapsed", "active_cpu_time"],
             "type": "object"
         },
         "CohortPropertyFilter": {
@@ -7809,29 +7806,6 @@
             "required": ["key", "operator", "type"],
             "type": "object"
         },
-        "ErrorTrackingIssuePropertyFilter": {
-            "additionalProperties": false,
-            "properties": {
-                "key": {
-                    "type": "string"
-                },
-                "label": {
-                    "type": "string"
-                },
-                "operator": {
-                    "$ref": "#/definitions/PropertyOperator"
-                },
-                "type": {
-                    "const": "error_tracking_issue_property",
-                    "type": "string"
-                },
-                "value": {
-                    "$ref": "#/definitions/PropertyFilterValue"
-                }
-            },
-            "required": ["key", "operator", "type"],
-            "type": "object"
-        },
         "ErrorTrackingQuery": {
             "additionalProperties": false,
             "properties": {
@@ -9422,21 +9396,12 @@
                     "type": "string"
                 },
                 "href": {
-                    "$comment": "(ref?: string) => string",
-                    "properties": {
-                        "namedArgs": {
-                            "additionalProperties": false,
-                            "properties": {
-                                "ref": {
-                                    "type": "string"
-                                }
-                            },
-                            "type": "object"
-                        }
-                    },
-                    "type": "object"
+                    "description": "Object's URL",
+                    "type": "string"
                 },
-                "icon": {},
+                "iconType": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -9461,7 +9426,7 @@
                     "type": "string"
                 }
             },
-            "required": ["href", "path"],
+            "required": ["path"],
             "type": "object"
         },
         "FilterLogicalOperator": {
@@ -12571,8 +12536,7 @@
                 "hogql",
                 "data_warehouse",
                 "data_warehouse_person_property",
-                "error_tracking_issue",
-                "error_tracking_issue_property"
+                "error_tracking_issue"
             ],
             "type": "string"
         },
@@ -17711,7 +17675,6 @@
                 "notebooks",
                 "log_entries",
                 "error_tracking_issues",
-                "error_tracking_issue_properties",
                 "replay",
                 "resources"
             ],
