@@ -82,10 +82,10 @@ export type WorkflowNode = {
 }
 export type WorkflowNodeType = 'trigger' | 'message' | 'decision' | 'delay' | 'exit'
 
-export interface WorkflowNodeData {
+export interface WorkflowNodeData extends Record<string, unknown> {
     label: string
     description: string
-    config: WorkflowNodeConfig
+    config: WorkflowNodeConfig | null
 }
 export interface WorkflowNodeConfig {
     input_schema: WorkflowNodeInputSchemaType[]
@@ -147,7 +147,7 @@ export type WorkflowEdge = {
     targetHandle?: string | null
     data?: WorkflowEdgeData
 }
-export interface WorkflowEdgeData {
+export interface WorkflowEdgeData extends Record<string, unknown> {
     label?: string
 }
 

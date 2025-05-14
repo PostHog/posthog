@@ -1,3 +1,5 @@
+import { WorkflowNodeData } from '@posthog/workflows'
+import { Node } from '@xyflow/react'
 import { kea, key, path, props, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { Scene } from 'scenes/sceneTypes'
@@ -6,18 +8,20 @@ import { urls } from 'scenes/urls'
 import { Breadcrumb } from '~/types'
 
 import type { nodeDetailsLogicType } from './nodeDetailsLogicType'
-import { WorkflowNode } from './types'
 
 export interface NodeDetailsLogicProps {
     workflowId: string
-    node: WorkflowNode
-    onNodeChange: (node: WorkflowNode) => void
+    node: Node<WorkflowNodeData> | null
+    onNodeChange: (node: Node<WorkflowNodeData>) => void
 }
 
 export const nodeDetailsLogic = kea<nodeDetailsLogicType>([
     path(['products', 'messaging', 'frontend', 'Campaigns', 'Workflows', 'nodeDetailsLogic']),
-    key(({ workflowId, node }) => `${workflowId}-${node.id}`),
-    props({} as NodeDetailsLogicProps),
+    props({
+        workflowId: 'new',
+        node: null,
+    } as NodeDetailsLogicProps),
+    key(({ workflowId, node }) => `${workflowId}-${node?.id}`),
     selectors({
         breadcrumbs: [
             () => [(_, props) => props],
@@ -59,11 +63,11 @@ export const nodeDetailsLogic = kea<nodeDetailsLogicType>([
         ],
     }),
     forms(({ props }) => ({
-        node: {
+        nodeDetails: {
             defaults: {
                 ...props.node,
             },
-            submit: async (node) => {
+            submit: async (node: Node<WorkflowNodeData>) => {
                 props.onNodeChange(node)
             },
         },

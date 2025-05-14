@@ -1,5 +1,8 @@
 {
     "name": "@posthog/products-messaging",
+    "dependencies": {
+        "@posthog/workflows": "workspace:*"
+    },
     "peerDependencies": {
         "@posthog/icons": "*",
         "@types/react": "*",

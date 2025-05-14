@@ -1,7 +1,6 @@
 import { IconBolt, IconDecisionTree, IconHourglass, IconLeave, IconPlus, IconSend } from '@posthog/icons'
+import { WorkflowNode } from '@posthog/workflows'
 import { Handle, Position } from '@xyflow/react'
-
-import { WorkflowNode } from './types'
 
 export const REACT_FLOW_NODE_TYPES = {
     addIcon: AddIconNode,
