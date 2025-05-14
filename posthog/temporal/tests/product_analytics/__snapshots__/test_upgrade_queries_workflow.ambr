@@ -1,5 +1,5 @@
 # serializer version: 1
-# name: TestUpgradeQueriesWorkflow.test_get_insights_to_migrate
+# name: TestUpgradeQueriesWorkflow.test_get_insights_to_migrate_activity
   '''
   WITH latest(kind, v_latest) AS (
                                   VALUES ('InsightVizNode',
@@ -11,9 +11,14 @@
   CROSS JOIN latest AS l
   WHERE jsonb_path_exists(i.query, format($$
                   $.** ? (
-                      @.kind == "%s" &&
-                      ( @.v < %s || @.v == null )
+                      @.kind == "%s" &&    /* kind matches */
+                      (
+                          !exists(@.v)     /* no v property */
+                          || @.v == null   /* or v:null */
+                          || @.v <= %s     /* or version ≤ latest */
+                      )
                   )
-                  $$, l.kind, l.v_latest)::jsonpath);
+                  $$, l.kind, l.v_latest)::jsonpath)
+  LIMIT 100;
   '''
 # ---

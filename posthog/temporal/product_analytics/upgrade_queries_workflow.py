@@ -1,5 +1,6 @@
 import dataclasses
 import datetime as dt
+import json
 import typing
 
 from django.db import connection
@@ -9,6 +10,13 @@ from posthog.schema_migrations.upgrade import upgrade
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_internal_logger
 from posthog.schema_migrations import LATEST_VERSIONS
+
+
+@dataclasses.dataclass(frozen=True)
+class GetInsightsToMigrateActivityInputs:
+    """Inputs for the get insights to migrate activity."""
+
+    batch_size: int = dataclasses.field(default=100)
 
 
 @temporalio.activity.defn
@@ -42,7 +50,8 @@ def get_insights_to_migrate(inputs: typing.Any) -> list[int]:
                 l.kind,
                 l.v_latest
             )::jsonpath
-        );
+        )
+        LIMIT {inputs.batch_size};
     """
 
     with connection.cursor() as cur:
@@ -53,14 +62,14 @@ def get_insights_to_migrate(inputs: typing.Any) -> list[int]:
 
 
 @dataclasses.dataclass(frozen=True)
-class MigrateInsightsBatchInputs:
+class MigrateInsightsBatchActivityInputs:
     """Inputs for the migrate insights batch activity."""
 
     insight_ids: list[int] = dataclasses.field()
 
 
 @temporalio.activity.defn
-def migrate_insights_batch(inputs: MigrateInsightsBatchInputs) -> None:
+def migrate_insights_batch(inputs: MigrateInsightsBatchActivityInputs) -> None:
     """Migrate a batch of insights to the latest version."""
     logger = get_internal_logger()
 
@@ -74,18 +83,33 @@ def migrate_insights_batch(inputs: MigrateInsightsBatchInputs) -> None:
             logger.exception(f"Error migrating insight {insight.id}: {str(e)}")
 
 
+@dataclasses.dataclass(frozen=True)
+class UpgradeQueriesWorkflowInputs:
+    """Inputs for the upgrade queries workflow."""
+
+    batch_size: int = dataclasses.field(default=100)
+
+
 @temporalio.workflow.defn(name="upgrade-queries")
 class UpgradeQueriesWorkflow(PostHogWorkflow):
     @staticmethod
-    def parse_inputs(inputs: list[str]) -> typing.Any:
-        return None
+    def parse_inputs(inputs: list[str]) -> UpgradeQueriesWorkflowInputs:
+        """Parse inputs from the management command CLI."""
+        loaded = json.loads(inputs[0])
+
+        batch_size = loaded.get("batch_size", 100)
+        if not isinstance(batch_size, int) or batch_size <= 0:
+            raise ValueError("batch_size must be a positive integer")
+
+        return UpgradeQueriesWorkflowInputs(
+            batch_size=batch_size,
+        )
 
     @temporalio.workflow.run
-    async def run(self, inputs: typing.Any) -> None:
-        # TODO: use a while-loop to process insights in batches
+    async def run(self, inputs: UpgradeQueriesWorkflowInputs) -> None:
         insight_ids = await temporalio.workflow.execute_activity(
             get_insights_to_migrate,
-            None,
+            GetInsightsToMigrateActivityInputs(batch_size=inputs.batch_size),
             start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=temporalio.common.RetryPolicy(
                 initial_interval=dt.timedelta(minutes=5),
@@ -94,15 +118,23 @@ class UpgradeQueriesWorkflow(PostHogWorkflow):
             ),
         )
 
-        for i in range(0, len(insight_ids)):
-            batch = insight_ids[i : i + 100]
-
+        while len(insight_ids) > 0:
             await temporalio.workflow.execute_activity(
                 migrate_insights_batch,
-                MigrateInsightsBatchInputs(insight_ids=batch),
+                MigrateInsightsBatchActivityInputs(insight_ids=insight_ids),
                 start_to_close_timeout=dt.timedelta(minutes=10),
                 retry_policy=temporalio.common.RetryPolicy(
                     initial_interval=dt.timedelta(minutes=10),
+                    maximum_interval=dt.timedelta(minutes=60),
+                    maximum_attempts=3,
+                ),
+            )
+            insight_ids = await temporalio.workflow.execute_activity(
+                get_insights_to_migrate,
+                GetInsightsToMigrateActivityInputs(batch_size=inputs.batch_size),
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=temporalio.common.RetryPolicy(
+                    initial_interval=dt.timedelta(minutes=5),
                     maximum_interval=dt.timedelta(minutes=60),
                     maximum_attempts=3,
                 ),
