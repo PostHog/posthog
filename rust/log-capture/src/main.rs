@@ -6,8 +6,8 @@ use opentelemetry_proto::tonic::collector::logs::v1::{
 use std::net::SocketAddr;
 use tonic::{transport::Server, Request, Response, Status};
 
-use axum::{http::StatusCode, response::IntoResponse, routing::get, routing::post, Router};
-use axum_extra::protobuf::Protobuf; // For easy request body deserialization
+use axum::{routing::get, Router};
+ // For easy request body deserialization
 use common_metrics::{serve, setup_metrics_routes};
 use log_capture::config::Config;
 use std::future::ready;
@@ -65,9 +65,9 @@ impl LogsService for MyLogsService {
                 return Err(status);
             }
         };
-        
+
         info!("Authenticated request for team_id: {}", team_id);
-        
+
         let export_request = request.into_inner();
         println!(
             "Received OTLP gRPC logs request with {} resource logs for team_id: {}",
@@ -84,7 +84,10 @@ impl LogsService for MyLogsService {
             }
             for scope_logs in resource_logs.scope_logs {
                 if let Some(scope) = &scope_logs.scope {
-                    println!("    Scope: {} ({}) for team_id {}", scope.name, scope.version, team_id);
+                    println!(
+                        "    Scope: {} ({}) for team_id {}",
+                        scope.name, scope.version, team_id
+                    );
                 }
                 println!(
                     "    Found {} log records in this scope for team_id {}.",
@@ -94,7 +97,10 @@ impl LogsService for MyLogsService {
                 for log_record in scope_logs.log_records {
                     println!(
                         "      Log Record for team_id {}: Time: {:?}, Severity: {:?}, Body: {:?}",
-                        team_id, log_record.time_unix_nano, log_record.severity_number, log_record.body
+                        team_id,
+                        log_record.time_unix_nano,
+                        log_record.severity_number,
+                        log_record.body
                     );
                     // Access more fields: log_record.attributes, log_record.trace_id, etc.
                 }
