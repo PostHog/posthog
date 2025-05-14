@@ -16,7 +16,7 @@ export const scene: SceneExport = {
 export function VisionHogConfigScene(): JSX.Element {
     const [configSuggestion, setConfigSuggestion] = useState<string | undefined>(undefined)
     const { getConfigSuggestion, removeSuggestion, updateSuggestion } = useActions(visionHogConfigLogic)
-    const { suggestions } = useValues(visionHogConfigLogic)
+    const { suggestions, suggestionsLoading } = useValues(visionHogConfigLogic)
     const [editingIndex, setEditingIndex] = useState<number | null>(null)
     const [editValue, setEditValue] = useState<string>('')
     const inputRef = useRef<HTMLInputElement>(null)
@@ -61,6 +61,7 @@ export function VisionHogConfigScene(): JSX.Element {
                     <LemonButton
                         disabledReason={!configSuggestion ? 'Please enter a prompt' : undefined}
                         type="primary"
+                        loading={suggestionsLoading}
                         onClick={() => configSuggestion && getConfigSuggestion(configSuggestion)}
                     >
                         Get config suggestion
