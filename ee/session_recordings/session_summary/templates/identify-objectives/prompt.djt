@@ -279,7 +279,7 @@ After analyzing the chronological segments and key actions, evaluate the overall
 - Note any user experience issues that may have contributed to abandoned conversions
 - Assess whether errors led to session abandonment
 {% if FOCUS_AREA %}
-- Particularly highlight any issues that directly relate to the focus insturctions (Step #0).
+- Particularly highlight any issues that directly relate to the focus area (Step #0).
 {% endif %}
 
 6.3. Session Success Determination:
