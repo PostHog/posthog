@@ -148,7 +148,7 @@ def format_paginated_url(request: request.Request, offset: int, page_size: int, 
 
 
 def is_csp_report(request) -> bool:
-    return request.path and "csp" in request.path
+    return request.path == "/csp" or request.path == "/csp/"
 
 
 def get_token(data, request) -> Optional[str]:

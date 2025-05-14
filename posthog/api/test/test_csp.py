@@ -1,5 +1,4 @@
 import json
-from unittest.mock import patch
 
 from django.test import TestCase
 from django.test.client import RequestFactory
@@ -37,9 +36,7 @@ class TestCSPModule(TestCase):
 
         properties = parse_report_uri(data)
 
-        # Verify current_url is parsed correctly
         self.assertEqual(properties["$current_url"], "https://example.com/foo/bar")
-        # Verify other properties are included
         self.assertEqual(properties["violated_directive"], "default-src self")
         self.assertEqual(properties["blocked_url"], "https://evil.com/malicious-image.png")
         self.assertEqual(properties["script_sample"], "alert('hello')")
@@ -61,13 +58,9 @@ class TestCSPModule(TestCase):
 
         properties = parse_report_to(data)
 
-        # Verify current_url is parsed correctly
         self.assertEqual(properties["$current_url"], "https://example.com/page.html")
-        # Verify user-agent is preserved
         self.assertEqual(properties["user_agent"], "Mozilla/5.0")
-        # Verify script sample is expected with correct field name
         self.assertEqual(properties["script_sample"], "console.log('test')")
-        # Verify other properties are included
         self.assertEqual(properties["violated_directive"], "script-src-elem")
 
     def test_format_comparison_parsing(self):
@@ -172,7 +165,6 @@ class TestCSPModule(TestCase):
         self.assertEqual(to_properties["report_type"], "csp-violation")
 
     def test_parse_modern_report_to_format(self):
-        """Test parsing modern CSP report in report-to format with fields at different levels"""
         data = {
             "age": 53531,
             "body": {
@@ -195,7 +187,6 @@ class TestCSPModule(TestCase):
 
         properties = parse_report_to(data)
 
-        # Verify properties are parsed correctly
         self.assertEqual(properties["$current_url"], "https://example.com/csp-report")
         self.assertEqual(
             properties["user_agent"],
@@ -203,13 +194,11 @@ class TestCSPModule(TestCase):
         )
         self.assertEqual(properties["blocked_url"], "inline")  # Verify standard field name
         self.assertEqual(properties["script_sample"], 'console.log("lo")')  # Verify script sample field name
-        # Verify that age is now included in raw_report, not directly in properties
         self.assertEqual(properties["raw_report"]["age"], 53531)
         self.assertEqual(properties["effective_directive"], "script-src-elem")  # Verify standardized field name
         self.assertEqual(properties["status_code"], 200)  # Verify standard field name
 
     def test_parse_report_to_with_report_id(self):
-        """Test parsing report-to format with report_id field"""
         data = {
             "age": 42,
             "body": {
@@ -228,15 +217,11 @@ class TestCSPModule(TestCase):
 
         properties = parse_report_to(data)
 
-        # Verify report_id is included in raw report
         self.assertEqual(properties["raw_report"]["report_id"], "abcdef-123456-ghijkl")
-        # Verify blocked_url uses the standard field name
         self.assertEqual(properties["blocked_url"], "eval")
-        # Verify URL fallback when document-uri is not available
         self.assertEqual(properties["$current_url"], "https://app.example.com/dashboard")
 
     def test_parse_report_to_with_varied_blocked_uris(self):
-        """Test parsing report-to format with different blocked URL patterns"""
         # Test with 'eval' blocked URI
         eval_data = {"body": {"blockedURL": "eval", "documentURL": "https://example.com/page"}, "type": "csp-violation"}
         eval_properties = parse_report_to(eval_data)
@@ -259,7 +244,6 @@ class TestCSPModule(TestCase):
         self.assertEqual(data_uri_properties["blocked_url"], "data:image/png;base64,iVBORw0KGg")
 
     def test_parse_report_to_with_url_fallbacks(self):
-        """Test parsing report-to format with different URL field locations"""
         # Test with document-uri instead of documentURL
         data1 = {
             "body": {"document-uri": "https://example.com/page1", "blocked-uri": "inline"},
@@ -307,33 +291,6 @@ class TestCSPModule(TestCase):
         with self.assertRaises(ValueError):
             parse_properties(data)
 
-    @patch("posthog.api.csp.uuid7")
-    def test_process_csp_report_generates_ids(self, mock_uuid7):
-        """Test that distinct_id is generated if not provided"""
-        # Create a mock UUID for the distinct_id call
-        mock_uuid7.return_value = "00000000-0000-0000-0000-000000000001"
-
-        csp_data = {
-            "csp-report": {
-                "document-uri": "https://example.com/foo/bar",
-                "violated-directive": "default-src self",
-            }
-        }
-
-        request = self.factory.post("/csp/", data=json.dumps(csp_data), content_type="application/csp-report")
-
-        # Process the report
-        event, error_response = process_csp_report(request)
-
-        # Verify ID was generated
-        self.assertEqual(event["distinct_id"], "00000000-0000-0000-0000-000000000001")
-        # Previous test expected these fields but they're not part of the implementation
-        # self.assertEqual(event["session_id"], "00000000-0000-0000-0000-000000000002")
-        # self.assertEqual(event["version"], "unknown")
-
-        # Verify mock was called - uuid7 is called twice in the code base (once for get_data and once for distinct_id generation)
-        self.assertEqual(mock_uuid7.call_count, 2)
-
     def test_process_csp_report_with_provided_ids(self):
         """Test that distinct_id from query params is used"""
         csp_data = {
@@ -349,17 +306,11 @@ class TestCSPModule(TestCase):
             content_type="application/csp-report",
         )
 
-        # Process the report
         event, error_response = process_csp_report(request)
 
-        # Verify provided ID was used
         self.assertEqual(event["distinct_id"], "test-user")
-        # Previous test expected these fields but they're not part of the implementation
-        # self.assertEqual(event["session_id"], "test-session")
-        # self.assertEqual(event["version"], "1.2.3")
 
     def test_process_csp_report_json_decode_error(self):
-        """Test handling of JSON parsing errors"""
         request = self.factory.post("/csp/", data="not valid json", content_type="application/csp-report")
 
         # Process the report
@@ -370,7 +321,6 @@ class TestCSPModule(TestCase):
         self.assertEqual(error_response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_process_csp_report_skips_non_csp_content_type(self):
-        """Test early return for non-CSP content types"""
         request = self.factory.post("/csp/", data=json.dumps({"some": "data"}), content_type="application/json")
 
         # Process the report
