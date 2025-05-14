@@ -101,8 +101,9 @@ def process_csp_report(request):
             - error_response: An error response to return to the client if processing failed, or None if successful
     """
     try:
-        # If this is not looking like like a CSP report, keep the ingestion pipeline working as it was
+        # If by any chance we got this far and this is not looking like a CSP report, keep the ingestion pipeline working as it was
         if request.content_type != "application/csp-report" and request.content_type != "application/reports+json":
+            # we don't want to return a 400 here to avoid breaking the ingestion pipeline
             return None, None
 
         csp_data = json.loads(request.body)
@@ -119,16 +120,21 @@ def process_csp_report(request):
             "properties": {**properties, "$session_id": session_id, "csp_version": version},
         }, None
 
-    # In order to be safe, we wan't to keep the ingestion pipeline working as it was
+    # In order to be safe, we want to keep the ingestion pipeline working as it was
     # so if anything tricky happens, we return None, None to pretend we were never here
     except json.JSONDecodeError:
         return None, cors_response(
             request,
-            generate_exception_response("capture", "Invalid CSP report format", code="invalid_payload"),
+            generate_exception_response("capture", "Invalid CSP report format", code="invalid_csp_payload"),
         )
     except ValueError as e:
         logger.exception("Invalid CSP report properties are being parsed", error=e)
-        return None, None
+        return None, cors_response(
+            request,
+            generate_exception_response(
+                "capture", "Invalid CSP report properties provided", code="invalid_csp_payload"
+            ),
+        )
     except Exception as e:
         logger.exception("Error processing CSP report", error=e)
         return None, None
