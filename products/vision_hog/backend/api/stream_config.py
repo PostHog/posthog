@@ -79,7 +79,9 @@ If no specific events are identifiable, return an empty array []."""
 
     def _save_prompt(self, prompt: str):
         try:
-            response = requests.post("http://192.168.168.86:8000/prompt", json={"prompt": prompt}, timeout=5)
+            response = requests.post(
+                "http://192.168.168.86:8000/prompt", json={"prompt": prompt, "emit_events": True}, timeout=5
+            )
             response.raise_for_status()
         except requests.RequestException:
             logger.exception("Failed to save prompt")
