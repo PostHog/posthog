@@ -19,7 +19,7 @@ class TestSessionRecordingV2Service(TestCase):
     @patch("posthog.session_recordings.session_recording_v2_service.SessionReplayEvents")
     def test_list_blocks_returns_empty_list_when_no_metadata(self, mock_replay_events):
         mock_replay_events.return_value.get_metadata.return_value = None
-        blocks = list_blocks(self.recording)
+        blocks = list_blocks(self.recording.session_id, self.recording.team)
         self.assertEqual(blocks, [])
 
     @freeze_time("2024-01-01T12:00:00Z")
@@ -31,7 +31,7 @@ class TestSessionRecordingV2Service(TestCase):
             "block_urls": [],  # Different length
             "start_time": datetime(2024, 1, 1, 12, 0),
         }
-        blocks = list_blocks(self.recording)
+        blocks = list_blocks(self.recording.session_id, self.recording.team)
         self.assertEqual(blocks, [])
 
     @freeze_time("2024-01-01T12:00:00Z")
@@ -56,7 +56,7 @@ class TestSessionRecordingV2Service(TestCase):
             ],
             "start_time": datetime(2024, 1, 1, 12, 0),
         }
-        blocks = list_blocks(self.recording)
+        blocks = list_blocks(self.recording.session_id, self.recording.team)
         self.assertEqual(blocks, [])
 
     @freeze_time("2024-01-01T12:00:00Z")
@@ -68,7 +68,7 @@ class TestSessionRecordingV2Service(TestCase):
             "block_urls": ["s3://bucket/key1"],
             "start_time": datetime(2024, 1, 1, 12, 0),
         }
-        blocks = list_blocks(self.recording)
+        blocks = list_blocks(self.recording.session_id, self.recording.team)
         self.assertEqual(blocks, [])
 
     @freeze_time("2024-01-01T12:00:00Z")
@@ -93,7 +93,7 @@ class TestSessionRecordingV2Service(TestCase):
             "start_time": datetime(2024, 1, 1, 12, 0),
         }
 
-        blocks = list_blocks(self.recording)
+        blocks = list_blocks(self.recording.session_id, self.recording.team)
 
         self.assertEqual(len(blocks), 3)
         self.assertEqual(blocks[0]["start_time"], datetime(2024, 1, 1, 12, 0))

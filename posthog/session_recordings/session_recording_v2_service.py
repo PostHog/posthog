@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import TypedDict
 import structlog
 
-from posthog.session_recordings.models.session_recording import SessionRecording
+from posthog.models.team.team import Team
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
 logger = structlog.get_logger(__name__)
@@ -14,13 +14,13 @@ class RecordingBlock(TypedDict):
     url: str
 
 
-def list_blocks(recording: SessionRecording) -> list[RecordingBlock]:
+def list_blocks(session_id: str, team: Team) -> list[RecordingBlock]:
     """
     Returns a list of recording blocks with their timestamps and URLs.
     The blocks are sorted by start time and guaranteed to start from the beginning of the recording.
     Returns empty list if the recording is invalid or incomplete.
     """
-    metadata = SessionReplayEvents().get_metadata(recording.session_id, recording.team)
+    metadata = SessionReplayEvents().get_metadata(session_id, team)
     if not metadata:
         return []
 
@@ -34,8 +34,8 @@ def list_blocks(recording: SessionRecording) -> list[RecordingBlock]:
     ):
         logger.error(
             "session recording metadata arrays length mismatch",
-            session_id=recording.session_id,
-            team_id=recording.team.id,
+            session_id=session_id,
+            team_id=team.id,
             first_timestamps_length=len(first_timestamps) if first_timestamps else 0,
             last_timestamps_length=len(last_timestamps) if last_timestamps else 0,
             urls_length=len(urls) if urls else 0,

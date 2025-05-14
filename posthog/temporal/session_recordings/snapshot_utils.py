@@ -108,7 +108,7 @@ def fetch_v1_snapshots(recording: SessionRecording) -> list[dict[str, Any]]:
 def fetch_v2_snapshots(recording: SessionRecording) -> list[dict[str, Any]]:
     """Fetch and transform v2 snapshots for a recording."""
     v2_snapshots: list[dict[str, Any]] = []
-    blocks = list_blocks(recording)
+    blocks = list_blocks(recording.session_id, recording.team)
     if blocks:
         for block in blocks:
             try:

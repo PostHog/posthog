@@ -175,7 +175,7 @@ def _persist_recording_v2_impl(recording_id: str, team_id: int) -> None:
         recording.save()
         return
 
-    blocks = list_blocks(recording)
+    blocks = list_blocks(recording.session_id, recording.team)
     if not blocks:
         logger.info(
             "No v2 metadata found for recording or recording is incomplete, skipping v2 persistence",
