@@ -1,9 +1,9 @@
-import { actions, kea, path, props, reducers, selectors } from 'kea'
+import { actions, events, kea, path, props, reducers, selectors } from 'kea'
 import api from 'lib/api'
 // import api from 'lib/api' // Your project's API utility if you have one
 import { loaders } from 'node_modules/kea-loaders/lib'
 
-import { StreamConfig } from '~/types'
+import { StreamConfigType } from '~/types'
 
 import type { visionHogSceneLogicType } from './visionHogSceneLogicType'
 
@@ -17,12 +17,12 @@ export const visionHogSceneLogic = kea<visionHogSceneLogicType>([
     props({} as VisionHogSceneLogicProps), // Pass empty props object for now
 
     actions({
-        setVideoUrl: (url: string) => ({ url }),
+        setActiveTab: (tab: string) => ({ tab }),
     }),
 
     loaders({
         streamConfigs: [
-            [] as StreamConfig[],
+            [] as StreamConfigType[],
             {
                 loadStreamConfigs: async () => {
                     const response = await api.streamConfig.list()
@@ -33,17 +33,21 @@ export const visionHogSceneLogic = kea<visionHogSceneLogicType>([
     }),
 
     reducers({
-        videoUrl: [
-            '',
-            {
-                setVideoUrl: (_, { url }) => url,
-            },
-        ],
+        activeTab: ['video', { setActiveTab: (_, { tab }) => tab }],
     }),
     selectors({
         targetStreamConfig: [
             (s) => [s.streamConfigs],
             (streamConfigs) => (streamConfigs.length > 0 ? streamConfigs[0] : null),
         ],
+        videoUrl: [
+            (s) => [s.streamConfigs],
+            (streamConfigs) => (streamConfigs.length > 0 ? streamConfigs[0].stream_url : ''),
+        ],
     }),
+    events(({ actions }) => ({
+        afterMount() {
+            actions.loadStreamConfigs()
+        },
+    })),
 ])

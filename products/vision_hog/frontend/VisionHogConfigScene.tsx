@@ -7,7 +7,16 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { VideoStreamPlayer } from './VideoStreamPlayer'
 // import { useActions, useValues } from 'kea' // Uncomment if you use actions/values from logic
-import { visionHogConfigLogic } from './visionHogConfiglogic'
+import { ConfigState, visionHogConfigLogic } from './visionHogConfiglogic'
+
+// Add keyframes for the pop-up animation
+const buttonAnimationStyles = `
+
+
+.pop-up-animation {
+    animation: 0.4s ease-out forwards;
+}
+`
 
 export const scene: SceneExport = {
     component: VisionHogConfigScene,
@@ -15,12 +24,12 @@ export const scene: SceneExport = {
 }
 
 export function VisionHogConfigScene(): JSX.Element {
-    const { getConfigSuggestion, removeSuggestion, updateSuggestion, setSuggestions } = useActions(visionHogConfigLogic)
-    const { suggestions, suggestionsLoading } = useValues(visionHogConfigLogic)
+    const { getConfigSuggestion, removeSuggestion, updateSuggestion, setSuggestions, setUrl, saveStreamConfig } =
+        useActions(visionHogConfigLogic)
+    const { suggestions, suggestionsLoading, url, configState } = useValues(visionHogConfigLogic)
     const [editingIndex, setEditingIndex] = useState<number | null>(null)
     const [editValue, setEditValue] = useState<string>('')
     const inputRef = useRef<HTMLInputElement>(null)
-    const [videoUrl, setVideoUrl] = useState('')
     const [showDescriptionInput, setShowDescriptionInput] = useState(false)
     const [descriptionValue, setDescriptionValue] = useState('')
     const [waitingForSuggestions, setWaitingForSuggestions] = useState(false)
@@ -92,102 +101,24 @@ export function VisionHogConfigScene(): JSX.Element {
         }
     }
 
-    return (
-        <div className="flex flex-row gap-6">
-            <div className="flex-1 flex flex-col gap-2">
-                <Label>Stream link</Label>
-                <LemonInput placeholder="https://stream.com/events" value={videoUrl} onChange={setVideoUrl} />
-                <VideoStreamPlayer videoUrl={videoUrl} className="my-2" />
-            </div>
-            <div className="flex-1 flex flex-col gap-2">
-                <Label>Events to track</Label>
+    // Determine if save button should be shown
+    const shouldShowSaveButton = url.trim() !== '' && suggestions.length > 0
 
-                {suggestions.length === 0 ? (
-                    <div className="flex flex-col gap-2">
-                        {showDescriptionInput && (
-                            <div className="flex flex-col gap-2 p-3 border rounded bg-bg-light">
-                                <LemonTextArea
-                                    placeholder="Describe the events you want to track (e.g. 'Track when people pick up coffee, use their phone, or look away from screen')"
-                                    value={descriptionValue}
-                                    onChange={setDescriptionValue}
-                                    className="min-h-[100px]"
-                                    disabled={waitingForSuggestions}
-                                />
-                                <div className="flex justify-end">
-                                    <LemonButton
-                                        type="primary"
-                                        onClick={handleSubmitDescription}
-                                        disabledReason={
-                                            !descriptionValue.trim() ? 'Please enter a description' : undefined
-                                        }
-                                        loading={suggestionsLoading}
-                                    >
-                                        Generate events
-                                    </LemonButton>
-                                </div>
-                            </div>
-                        )}
-                        <div className="flex flex-row items-center gap-2">
-                            <LemonButton type="secondary" icon={<IconPlus />} size="small" onClick={handleAddEvent}>
-                                Add event
-                            </LemonButton>
-                            <LemonButton
-                                type="secondary"
-                                icon={<IconAI />}
-                                size="small"
-                                onClick={handleDescribeEventsClick}
-                            >
-                                Describe events
-                            </LemonButton>
-                        </div>
-                    </div>
-                ) : (
-                    <div className="flex flex-col gap-2">
-                        {suggestions.map((suggestion, index) => (
-                            <div
-                                key={index}
-                                className="flex items-center justify-between p-3 border rounded bg-bg-light"
-                            >
-                                {editingIndex === index ? (
-                                    <div className="flex-1 flex items-center gap-2">
-                                        <LemonInput
-                                            ref={inputRef}
-                                            fullWidth
-                                            value={editValue}
-                                            onChange={setEditValue}
-                                            onKeyDown={handleKeyDown}
-                                        />
-                                        <LemonButton
-                                            icon={<IconCheck />}
-                                            size="small"
-                                            onClick={handleSave}
-                                            type="primary"
-                                            className="flex-shrink-0"
-                                            tooltip="Save changes"
-                                        />
-                                    </div>
-                                ) : (
-                                    <div className="flex-1 break-words">{suggestion}</div>
-                                )}
-                                <div className="flex items-center gap-1 ml-2 flex-shrink-0">
-                                    {editingIndex !== index && (
-                                        <LemonButton
-                                            icon={<IconPencil />}
-                                            size="small"
-                                            onClick={() => handleEdit(index, suggestion)}
-                                            tooltip="Edit suggestion"
-                                        />
-                                    )}
-                                    <LemonButton
-                                        icon={<IconX />}
-                                        size="small"
-                                        onClick={() => removeSuggestion(index)}
-                                        className="flex-shrink-0"
-                                        tooltip="Remove suggestion"
-                                    />
-                                </div>
-                            </div>
-                        ))}
+    return (
+        <div className="relative pb-16">
+            {/* Inject the animation styles */}
+            <style>{buttonAnimationStyles}</style>
+
+            <div className="flex flex-row gap-6">
+                <div className="flex-1 flex flex-col gap-2">
+                    <Label>Stream link</Label>
+                    <LemonInput placeholder="https://stream.com/events" value={url} onChange={setUrl} />
+                    <VideoStreamPlayer videoUrl={url} className="my-2" />
+                </div>
+                <div className="flex-1 flex flex-col gap-2">
+                    <Label>Events to track</Label>
+
+                    {suggestions.length === 0 ? (
                         <div className="flex flex-col gap-2">
                             {showDescriptionInput && (
                                 <div className="flex flex-col gap-2 p-3 border rounded bg-bg-light">
@@ -226,9 +157,109 @@ export function VisionHogConfigScene(): JSX.Element {
                                 </LemonButton>
                             </div>
                         </div>
-                    </div>
-                )}
+                    ) : (
+                        <div className="flex flex-col gap-2">
+                            {suggestions.map((suggestion, index) => (
+                                <div
+                                    key={index}
+                                    className="flex items-center justify-between p-3 border rounded bg-bg-light"
+                                >
+                                    {editingIndex === index ? (
+                                        <div className="flex-1 flex items-center gap-2">
+                                            <LemonInput
+                                                ref={inputRef}
+                                                fullWidth
+                                                value={editValue}
+                                                onChange={setEditValue}
+                                                onKeyDown={handleKeyDown}
+                                            />
+                                            <LemonButton
+                                                icon={<IconCheck />}
+                                                size="small"
+                                                onClick={handleSave}
+                                                type="primary"
+                                                className="flex-shrink-0"
+                                                tooltip="Save changes"
+                                            />
+                                        </div>
+                                    ) : (
+                                        <div className="flex-1 break-words">{suggestion}</div>
+                                    )}
+                                    <div className="flex items-center gap-1 ml-2 flex-shrink-0">
+                                        {editingIndex !== index && (
+                                            <LemonButton
+                                                icon={<IconPencil />}
+                                                size="small"
+                                                onClick={() => handleEdit(index, suggestion)}
+                                                tooltip="Edit suggestion"
+                                            />
+                                        )}
+                                        <LemonButton
+                                            icon={<IconX />}
+                                            size="small"
+                                            onClick={() => removeSuggestion(index)}
+                                            className="flex-shrink-0"
+                                            tooltip="Remove suggestion"
+                                        />
+                                    </div>
+                                </div>
+                            ))}
+                            <div className="flex flex-col gap-2">
+                                {showDescriptionInput && (
+                                    <div className="flex flex-col gap-2 p-3 border rounded bg-bg-light">
+                                        <LemonTextArea
+                                            placeholder="Describe the events you want to track (e.g. 'Track when people pick up coffee, use their phone, or look away from screen')"
+                                            value={descriptionValue}
+                                            onChange={setDescriptionValue}
+                                            className="min-h-[100px]"
+                                            disabled={waitingForSuggestions}
+                                        />
+                                        <div className="flex justify-end">
+                                            <LemonButton
+                                                type="primary"
+                                                onClick={handleSubmitDescription}
+                                                disabledReason={
+                                                    !descriptionValue.trim() ? 'Please enter a description' : undefined
+                                                }
+                                                loading={suggestionsLoading}
+                                            >
+                                                Generate events
+                                            </LemonButton>
+                                        </div>
+                                    </div>
+                                )}
+                                <div className="flex flex-row items-center gap-2">
+                                    <LemonButton
+                                        type="secondary"
+                                        icon={<IconPlus />}
+                                        size="small"
+                                        onClick={handleAddEvent}
+                                    >
+                                        Add event
+                                    </LemonButton>
+                                    <LemonButton
+                                        type="secondary"
+                                        icon={<IconAI />}
+                                        size="small"
+                                        onClick={handleDescribeEventsClick}
+                                    >
+                                        Describe events
+                                    </LemonButton>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
             </div>
+
+            {/* Sticky button at the bottom */}
+            {shouldShowSaveButton && (
+                <div className="fixed bottom-6 left-1/2 transform pop-up-animation z-10">
+                    <LemonButton type="primary" size="large" className="shadow-lg" onClick={saveStreamConfig}>
+                        {configState === ConfigState.CREATE ? 'Save stream' : 'Update stream'}
+                    </LemonButton>
+                </div>
+            )}
         </div>
     )
 }

@@ -1,7 +1,6 @@
 import { LemonTabs } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { EventStream } from 'products/vision_hog/frontend/EventStream'
-import React from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { VideoStreamPlayer } from './VideoStreamPlayer'
@@ -15,8 +14,8 @@ export const scene: SceneExport = {
 }
 
 export function VisionHogScene(): JSX.Element {
-    const { videoUrl } = useValues(visionHogSceneLogic)
-    const [activeTab, setActiveTab] = React.useState('video')
+    const { videoUrl, activeTab } = useValues(visionHogSceneLogic)
+    const { setActiveTab } = useActions(visionHogSceneLogic)
 
     return (
         <div className="w-full max-w-6xl mx-auto">

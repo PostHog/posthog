@@ -1201,6 +1201,10 @@ class ApiRequest {
         return this.environments().current().addPathComponent('stream_config')
     }
 
+    public streamConfigDetail(id: StreamConfigType['id']): ApiRequest {
+        return this.streamConfig().addPathComponent(id)
+    }
+
     public streamConfigConfigSuggestion(): ApiRequest {
         return this.streamConfig().addPathComponent('config_suggestion')
     }
@@ -2189,6 +2193,9 @@ const api = {
         },
         async create(streamConfig: Partial<StreamConfigType>): Promise<StreamConfigType> {
             return await new ApiRequest().streamConfig().create({ data: streamConfig })
+        },
+        async update(id: StreamConfigType['id'], streamConfig: Partial<StreamConfigType>): Promise<StreamConfigType> {
+            return await new ApiRequest().streamConfigDetail(id).update({ data: streamConfig })
         },
     },
 

@@ -2261,10 +2261,10 @@ export interface StreamConfigEventSuggestions {
     suggestions: string[]
 }
 
-export interface StreamConfig {
+export interface StreamConfigType {
     id: string
-    video_url: string
-    event_suggestions: string[]
+    stream_url: string
+    events: string[]
 }
 
 export enum AnnotationScope {

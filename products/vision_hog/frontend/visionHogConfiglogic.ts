@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, props, reducers } from 'kea'
+import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
 import api from 'lib/api'
 
 import type { visionHogConfigLogicType } from './visionHogConfiglogicType'
@@ -9,12 +9,18 @@ export interface VisionHogConfigLogicProps {
     // exampleProp?: string
 }
 
+export enum ConfigState {
+    CREATE = 'create',
+    EDIT = 'edit',
+}
+
 export const visionHogConfigLogic = kea<visionHogConfigLogicType>([
     path(['products', 'visionHog', 'frontend', 'visionHogConfigLogic']),
     props({} as VisionHogConfigLogicProps), // Pass empty props object for now
 
     connect(() => ({
-        actions: [visionHogSceneLogic, ['loadStreamConfigs']],
+        values: [visionHogSceneLogic, ['targetStreamConfig']],
+        actions: [visionHogSceneLogic, ['loadStreamConfigs', 'setActiveTab']],
     })),
     actions({
         getConfigSuggestion: (prompt: string) => ({ prompt }),
@@ -23,9 +29,12 @@ export const visionHogConfigLogic = kea<visionHogConfigLogicType>([
         updateSuggestion: (index: number, value: string) => ({ index, value }),
         setSuggestionsLoading: (loading: boolean) => ({ loading }),
         addEmptySuggestion: () => ({}),
+        setUrl: (url: string) => ({ url }),
+        saveStreamConfig: true,
     }),
 
     reducers({
+        url: ['', { setUrl: (_, { url }) => url }],
         suggestions: [
             [] as string[],
             {
@@ -46,9 +55,35 @@ export const visionHogConfigLogic = kea<visionHogConfigLogicType>([
             actions.setSuggestions([...values.suggestions, ...response.suggestions])
             actions.setSuggestionsLoading(false)
         },
-        saveStreamConfig: async ({ streamConfig }) => {
-            await api.streamConfig.create(streamConfig)
+        saveStreamConfig: async () => {
+            if (values.configState === ConfigState.CREATE) {
+                await api.streamConfig.create({
+                    stream_url: values.url,
+                    events: values.suggestions,
+                })
+            } else {
+                await api.streamConfig.update(values.targetStreamConfig.id, {
+                    stream_url: values.url,
+                    events: values.suggestions,
+                })
+            }
+            actions.setActiveTab('video')
             actions.loadStreamConfigs()
+        },
+    })),
+    selectors({
+        configState: [
+            (s) => [s.targetStreamConfig],
+            (targetStreamConfig) =>
+                targetStreamConfig && targetStreamConfig.id ? ConfigState.EDIT : ConfigState.CREATE,
+        ],
+    }),
+    events(({ values, actions }) => ({
+        afterMount() {
+            if (values.targetStreamConfig) {
+                actions.setUrl(values.targetStreamConfig.stream_url)
+                actions.setSuggestions(values.targetStreamConfig.events)
+            }
         },
     })),
 ])

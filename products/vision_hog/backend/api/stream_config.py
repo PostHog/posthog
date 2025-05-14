@@ -36,6 +36,11 @@ class StreamConfigSerializer(serializers.ModelSerializer):
         model = StreamConfig
         fields = ["id", "team_id", "stream_url", "events"]
 
+    def create(self, validated_data):
+        team_id = self.context["team_id"]
+        validated_data["team_id"] = team_id
+        return super().create(validated_data)
+
 
 class StreamConfigViewSet(
     TeamAndOrgViewSetMixin,
