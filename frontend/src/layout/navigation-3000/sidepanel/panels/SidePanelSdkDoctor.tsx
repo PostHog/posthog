@@ -64,11 +64,55 @@ export function SidePanelSdkDoctor(): JSX.Element {
                         Using outdated SDKs may result in missing features, compatibility issues, 
                         or reduced performance. We recommend upgrading to the latest versions.
                     </p>
+                    <ul className="list-disc pl-5 mt-3 text-sm">
+                        <li>
+                            <a 
+                                href="https://github.com/PostHog/posthog-js/releases" 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="text-primary hover:text-primary-dark"
+                            >
+                                Releases page on GitHub
+                            </a>
+                        </li>
+                        <li>
+                            <a 
+                                href="https://posthog.com/docs/libraries/js" 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="text-primary hover:text-primary-dark"
+                            >
+                                Web SDK docs
+                            </a>
+                        </li>
+                    </ul>
                 </div>
             ) : (
                 <div className="mb-4 p-3 bg-success/10 rounded border border-success/20">
                     <LemonBadge status="success" className="mb-2">Healthy</LemonBadge>
                     <p>All SDKs are up to date. No action needed.</p>
+                    <ul className="list-disc pl-5 mt-3 text-sm">
+                        <li>
+                            <a 
+                                href="https://github.com/PostHog/posthog-js/releases" 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="text-primary hover:text-primary-dark"
+                            >
+                                Releases page on GitHub
+                            </a>
+                        </li>
+                        <li>
+                            <a 
+                                href="https://posthog.com/docs/libraries/js" 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="text-primary hover:text-primary-dark"
+                            >
+                                Web SDK docs
+                            </a>
+                        </li>
+                    </ul>
                 </div>
             )}
             
