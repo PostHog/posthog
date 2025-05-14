@@ -25,6 +25,7 @@ export type SettingSectionId =
     | 'environment-surveys'
     | 'environment-feature-flags'
     | 'environment-error-tracking'
+    | 'environment-csp-reporting'
     | 'environment-integrations'
     | 'environment-access-control'
     | 'environment-role-based-access-control'

@@ -154,12 +154,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Dead clicks autocapture',
                 component: <DeadClicksAutocaptureSettings />,
             },
-            {
-                id: 'csp-reporting-uri',
-                title: 'CSP Reporting',
-                component: <CSPReportingSettings />,
-                flag: 'CSP_REPORTING',
-            },
         ],
     },
     {
@@ -408,6 +402,19 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'error-tracking-alerting',
                 title: 'Alerting',
                 component: <ErrorTrackingAlerting />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-csp-reporting',
+        title: 'CSP reporting',
+        settings: [
+            {
+                id: 'csp-reporting-uri',
+                title: 'CSP Reporting',
+                component: <CSPReportingSettings />,
+                flag: 'CSP_REPORTING',
             },
         ],
     },

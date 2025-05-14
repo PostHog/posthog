@@ -3,11 +3,14 @@ import { useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { useState } from 'react'
+import { domainFor, proxyLogic } from 'scenes/settings/environment/proxyLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
 export function CSPReportingSettings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
+
+    const { proxyRecords } = useValues(proxyLogic)
+    const proxyRecord = domainFor(proxyRecords[0])
 
     const [includeSessionId, setIncludeSessionId] = useState(false)
     const [includeDistinctId, setIncludeDistinctId] = useState(false)
@@ -74,15 +77,15 @@ export function CSPReportingSettings(): JSX.Element {
             <div className="gap-y-2">
                 <p>Set this URL for both the report-to and report-uri endpoints</p>
                 <CodeSnippet language={Language.Text} wrap={true}>
-                    {urls.absolute(
-                        combineUrl('/api/cspr', {
+                    {
+                        combineUrl(`${proxyRecord}/api/cspr`, {
                             token: currentTeam?.api_token,
                             v: includeVersion ? 1 : undefined,
                             session_id: includeSessionId ? 'ADD_THE_SESSION_ID' : undefined,
                             distinct_id: includeDistinctId ? 'ADD_THE_DISTINCT_ID' : undefined,
                             sample_rate: includeSampleRate ? '0.5' : undefined,
                         }).url
-                    )}
+                    }
                 </CodeSnippet>
             </div>
         </>
