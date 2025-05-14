@@ -122,6 +122,15 @@ export function VisionHogConfigScene(): JSX.Element {
                         <div className="flex flex-col gap-2">
                             {showDescriptionInput && (
                                 <div className="flex flex-col gap-2 p-3 border rounded bg-bg-light">
+                                    <div className="flex justify-between mb-2">
+                                        <div className="font-medium">Describe events to generate</div>
+                                        <LemonButton
+                                            size="small"
+                                            icon={<IconX />}
+                                            onClick={() => setShowDescriptionInput(false)}
+                                            tooltip="Close"
+                                        />
+                                    </div>
                                     <LemonTextArea
                                         placeholder="Describe the events you want to track (e.g. 'Track when people pick up coffee, use their phone, or look away from screen')"
                                         value={descriptionValue}
@@ -207,6 +216,15 @@ export function VisionHogConfigScene(): JSX.Element {
                             <div className="flex flex-col gap-2">
                                 {showDescriptionInput && (
                                     <div className="flex flex-col gap-2 p-3 border rounded bg-bg-light">
+                                        <div className="flex justify-between mb-2">
+                                            <div className="font-medium">Describe events to generate</div>
+                                            <LemonButton
+                                                size="small"
+                                                icon={<IconX />}
+                                                onClick={() => setShowDescriptionInput(false)}
+                                                tooltip="Close"
+                                            />
+                                        </div>
                                         <LemonTextArea
                                             placeholder="Describe the events you want to track (e.g. 'Track when people pick up coffee, use their phone, or look away from screen')"
                                             value={descriptionValue}
