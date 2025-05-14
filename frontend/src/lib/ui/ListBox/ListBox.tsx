@@ -25,6 +25,8 @@ interface ListBoxProps extends React.HTMLAttributes<HTMLDivElement> {
     // If true, the listbox will use virtual focus instead of the default browser focus
     // Useful for when you need to keep focus, but allow keyboard navigation in lists
     virtualFocus?: boolean
+    // Skip focus on the index-th element
+    ignoreFocusIndex?: number
     onFinishedKeyDown?: ({
         e,
         activeElement,

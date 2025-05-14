@@ -192,12 +192,12 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
             }
 
             if (e.key === 'ArrowDown') {
-                e.preventDefault()
-                listBoxRef.current?.focusFirstElement() // allow keyboard to enter dropdown
+                // e.preventDefault()
+                // listBoxRef.current?.focusFirstElement() // allow keyboard to enter dropdown
                 return
             } else if (e.key === 'ArrowUp') {
-                e.preventDefault()
-                listBoxRef.current?.focusNthElement(suggestions.length - 1)
+                // e.preventDefault()
+                // listBoxRef.current?.focusNthElement(suggestions.length - 1)
                 return
             } else if (e.key === 'Enter') {
                 setOpen(false)
@@ -215,81 +215,86 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
         }
 
         return (
-            <PopoverPrimitive open={open} onOpenChange={setOpen}>
-                <PopoverPrimitiveTrigger asChild>
-                    <LemonInput
-                        type="text"
-                        placeholder={inputPlaceholder}
-                        className="w-full"
-                        onChange={(val) => handleChange(val)}
-                        value={value}
-                        onKeyDown={handleKeydown}
-                        inputRef={inputRef}
-                        aria-label="Search input"
-                        aria-expanded={open}
-                        aria-controls="suggestions-list"
-                        aria-autocomplete="list"
-                        size="small"
-                        prefix={
-                            <div className="flex items-center justify-center size-4 ml-[2px] mr-px">
-                                <IconSearch className="size-4" />
-                            </div>
-                        }
-                        suffix={
-                            value && onClear ? (
-                                <ButtonPrimitive
-                                    size="sm"
-                                    iconOnly
-                                    onClick={() => {
-                                        setValue('')
-                                        onClear()
-                                    }}
-                                    className="bg-transparent [&_svg]:opacity-50 hover:[&_svg]:opacity-100 focus-visible:[&_svg]:opacity-100 -mr-px"
-                                    tooltip="Clear search"
-                                >
-                                    <IconX className="size-4" />
-                                </ButtonPrimitive>
-                            ) : null
-                        }
-                        autoFocus={autoFocus}
-                    />
-                </PopoverPrimitiveTrigger>
+            <ListBox ref={listBoxRef} className="w-full" virtualFocus ignoreFocusIndex={0}>
 
-                {open && (
-                    <PopoverPrimitiveContent
-                        ref={ref}
-                        onCloseAutoFocus={(e) => e.preventDefault()}
-                        onOpenAutoFocus={(e) => {
-                            e.preventDefault()
-                            const [newSuggestions, newHint] = getSuggestions(value)
-                            const isSatisfied = newSuggestions.length === 0 && !newHint
-                            if (isSatisfied) {
-                                setOpen(false)
-                                return
-                            }
-                            setSuggestions(newSuggestions)
-                            setCurrentHint(newHint)
-                        }}
-                        className="primitive-menu-content w-[var(--radix-popover-trigger-width)] max-w-none"
-                    >
-                        <ListBox ref={listBoxRef} className="flex flex-col gap-px p-1">
-                            {suggestions.map((item) => (
-                                <>
-                                    <ListBox.Item asChild key={item.value}>
-                                        <ButtonPrimitive onClick={() => handleSuggestionClick(item)} menuItem>
-                                            {item.label}
+                <PopoverPrimitive open={open} onOpenChange={setOpen}>
+                    <ListBox.Item asChild>
+                        <PopoverPrimitiveTrigger asChild>
+                            <LemonInput
+                                type="text"
+                                placeholder={inputPlaceholder}
+                                className="w-full"
+                                onChange={(val) => handleChange(val)}
+                                value={value}
+                                onKeyDown={handleKeydown}
+                                inputRef={inputRef}
+                                aria-label="Search input"
+                                aria-expanded={open}
+                                aria-controls="suggestions-list"
+                                aria-autocomplete="list"
+                                size="small"
+                                prefix={
+                                    <div className="flex items-center justify-center size-4 ml-[2px] mr-px">
+                                        <IconSearch className="size-4" />
+                                    </div>
+                                }
+                                suffix={
+                                    value && onClear ? (
+                                        <ButtonPrimitive
+                                            size="sm"
+                                            iconOnly
+                                            onClick={() => {
+                                                setValue('')
+                                                onClear()
+                                            }}
+                                            className="bg-transparent [&_svg]:opacity-50 hover:[&_svg]:opacity-100 focus-visible:[&_svg]:opacity-100 -mr-px"
+                                            tooltip="Clear search"
+                                        >
+                                            <IconX className="size-4" />
                                         </ButtonPrimitive>
-                                    </ListBox.Item>
-                                    {item.value === '!__placeholder__' ? (
-                                        <div className="-mx-1 my-1 h-px bg-border-primary" />
-                                    ) : null}
-                                </>
-                            ))}
-                            {currentHint && <div className="px-2 py-1 text-sm text-muted">{currentHint}</div>}
-                        </ListBox>
-                    </PopoverPrimitiveContent>
-                )}
-            </PopoverPrimitive>
+                                    ) : null
+                                }
+                                autoFocus={autoFocus}
+                            />
+                        </PopoverPrimitiveTrigger>
+                    </ListBox.Item>
+
+                    {open && (
+                        <PopoverPrimitiveContent
+                            ref={ref}
+                            onCloseAutoFocus={(e) => e.preventDefault()}
+                            onOpenAutoFocus={(e) => {
+                                e.preventDefault()
+                                const [newSuggestions, newHint] = getSuggestions(value)
+                                const isSatisfied = newSuggestions.length === 0 && !newHint
+                                if (isSatisfied) {
+                                    setOpen(false)
+                                    return
+                                }
+                                setSuggestions(newSuggestions)
+                                setCurrentHint(newHint)
+                            }}
+                            className="primitive-menu-content w-[var(--radix-popover-trigger-width)] max-w-none"
+                        >
+                            <ul className="flex flex-col gap-px p-1">
+                                {suggestions.map((item) => (
+                                    <>
+                                        <ListBox.Item asChild key={item.value}>
+                                            <ButtonPrimitive onClick={() => handleSuggestionClick(item)} menuItem>
+                                                {item.label}
+                                            </ButtonPrimitive>
+                                        </ListBox.Item>
+                                        {item.value === '!__placeholder__' ? (
+                                            <div className="-mx-1 my-1 h-px bg-border-primary" />
+                                        ) : null}
+                                    </>
+                                ))}
+                                {currentHint && <div className="px-2 py-1 text-sm text-muted">{currentHint}</div>}
+                            </ul>
+                        </PopoverPrimitiveContent>
+                    )}
+                </PopoverPrimitive>
+            </ListBox>
         )
     }
 )
