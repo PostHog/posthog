@@ -56,6 +56,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     MessagingLibraryTemplate: () => import('../../products/messaging/frontend/library/MessageTemplate'),
     RevenueAnalytics: () => import('../../products/revenue_analytics/frontend/RevenueAnalyticsScene'),
     VisionHogScene: () => import('../../products/vision_hog/frontend/VisionHogScene'),
+    VisionHogConfigScene: () => import('../../products/vision_hog/frontend/VisionHogConfigScene'),
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -83,6 +84,7 @@ export const productRoutes: Record<string, [string, string]> = {
     ],
     '/revenue_analytics': ['RevenueAnalytics', 'revenueAnalytics'],
     '/visionhog': ['VisionHogScene', 'visionHog'],
+    '/visionhog/config': ['VisionHogConfigScene', 'visionHogConfig'],
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -137,6 +139,12 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'RevenueAnalytics',
     },
     VisionHogScene: { name: 'VisionHog', projectBased: true, layout: 'app-container', activityScope: 'VisionHog' },
+    VisionHogConfigScene: {
+        name: 'VisionHog Config',
+        projectBased: true,
+        layout: 'app-container',
+        activityScope: 'VisionHog',
+    },
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -282,6 +290,7 @@ export const productUrls = {
     survey: (id: string): string => `/surveys/${id}`,
     surveyTemplates: (): string => '/survey_templates',
     visionHog: (): string => '/visionhog',
+    visionHogConfig: (): string => '/visionhog/config',
     webAnalytics: (): string => `/web`,
     webAnalyticsWebVitals: (): string => `/web/web-vitals`,
     webAnalyticsPageReports: (): string => `/web/page-reports`,

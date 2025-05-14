@@ -1,4 +1,7 @@
+import { LemonButton } from '@posthog/lemon-ui'
+import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 // import { useActions, useValues } from 'kea' // Uncomment if you use actions/values from logic
 import { someLogic } from './someLogic'
@@ -14,6 +17,13 @@ export function VisionHogScene(): JSX.Element {
 
     return (
         <div>
+            <PageHeader
+                buttons={
+                    <LemonButton type="primary" to={urls.visionHogConfig()}>
+                        New stream
+                    </LemonButton>
+                }
+            />
             <h1>Welcome to VisionHog!</h1>
             <p>This is a placeholder scene for the VisionHog product.</p>
             <p>

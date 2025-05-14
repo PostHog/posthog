@@ -128,6 +128,7 @@ import {
     SessionRecordingUpdateType,
     SharingConfigurationType,
     SlackChannelType,
+    StreamConfigType,
     SubscriptionType,
     Survey,
     SurveyStatsResponse,
@@ -1194,6 +1195,14 @@ class ApiRequest {
     public messagingTemplate(templateId: MessageTemplate['id']): ApiRequest {
         return this.messagingTemplates().addPathComponent(templateId)
     }
+
+    public streamConfig(): ApiRequest {
+        return this.environments().current().addPathComponent('stream_config')
+    }
+
+    public streamConfigConfigSuggestion(): ApiRequest {
+        return this.streamConfig().addPathComponent('config_suggestion')
+    }
 }
 
 const normalizeUrl = (url: string): string => {
@@ -2169,6 +2178,13 @@ const api = {
             return results
         },
     },
+
+    streamConfig: {
+        async getConfigSuggestion(): Promise<StreamConfigType> {
+            return await new ApiRequest().streamConfigConfigSuggestion().get()
+        },
+    },
+
     hog: {
         async create(hog: string, locals?: any[], inRepl?: boolean): Promise<HogCompileResponse> {
             return await new ApiRequest().hog().create({ data: { hog, locals, in_repl: inRepl || false } })

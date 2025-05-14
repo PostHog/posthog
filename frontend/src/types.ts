@@ -2257,6 +2257,8 @@ export interface PluginLogEntry {
     instance_id: string
 }
 
+export interface StreamConfigType {}
+
 export enum AnnotationScope {
     Insight = 'dashboard_item',
     Dashboard = 'dashboard',
