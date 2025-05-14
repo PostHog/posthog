@@ -96,7 +96,7 @@ class Command(BaseCommand):
                     override_error_tracking_issue_fingerprint(**override)
                 found_issues_count += 1
             else:
-                not_found_fingerprints.append(fingerprint)
+                not_found_fingerprints.append(fingerprint["fingerprint"])
 
         logger.info(f"fingerprint overridden {found_issues_count}")
         logger.info(f"fingerprints not found {not_found_fingerprints}")
