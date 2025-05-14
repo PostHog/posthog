@@ -22,6 +22,7 @@ export const visionHogConfigLogic = kea<visionHogConfigLogicType>([
         removeSuggestion: (index: number) => ({ index }),
         updateSuggestion: (index: number, value: string) => ({ index, value }),
         setSuggestionsLoading: (loading: boolean) => ({ loading }),
+        addEmptySuggestion: () => ({}),
     }),
 
     reducers({
@@ -32,6 +33,7 @@ export const visionHogConfigLogic = kea<visionHogConfigLogicType>([
                 removeSuggestion: (state, { index }) => state.filter((_, i) => i !== index),
                 updateSuggestion: (state, { index, value }) =>
                     state.map((suggestion, i) => (i === index ? value : suggestion)),
+                addEmptySuggestion: (state) => [...state, ''],
             },
         ],
         suggestionsLoading: [false, { setSuggestionsLoading: (_, { loading }) => loading }],
