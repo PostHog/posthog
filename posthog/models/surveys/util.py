@@ -141,16 +141,20 @@ def get_unique_survey_event_uuids_sql_subquery(
     if not base_conditions_sql:
         raise ValueError("base_conditions_sql cannot be empty. Provide at least one condition.")
 
-    group_by_prefix_expressions = group_by_prefix_expressions or []
+    if group_by_prefix_expressions is None:
+        group_by_prefix_expressions = []
+
     # Ensure the event filter is present in the base conditions
     if base_conditions_sql.count(f"event = '{SurveyEventName.SENT}'") == 0:
-        base_conditions_sql.append(f"event = '{SurveyEventName.SENT}'")
+        sql_conditions = [*base_conditions_sql, f"event = '{SurveyEventName.SENT}'"]
+    else:
+        sql_conditions = base_conditions_sql
 
     # Always include the survey_id in the group by
     if group_by_prefix_expressions.count(f"JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID}')") == 0:
         group_by_prefix_expressions.append(f"JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID}')")
 
-    where_clause = " AND ".join(base_conditions_sql)
+    where_clause = " AND ".join(sql_conditions)
 
     submission_id_col = f"JSONExtractString(properties, '{SurveyEventProperties.SURVEY_SUBMISSION_ID}')"
     deduplication_group_by_key = (
