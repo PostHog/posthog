@@ -9,11 +9,6 @@ pub struct Config {
     pub port: u16,
 
     #[envconfig()]
-    pub posthog_api_key: Option<String>,
-    #[envconfig(default = "https://us.i.posthog.com/capture")]
-    pub posthog_endpoint: String,
-
-    #[envconfig()]
     pub clickhouse_host: String,
     #[envconfig(default = "default")]
     pub clickhouse_user: String,

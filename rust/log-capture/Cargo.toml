@@ -13,7 +13,6 @@ health = { path = "../common/health" }
 axum = { workspace = true }
 common-metrics = { path = "../common/metrics" }
 common-alloc = { path = "../common/alloc" }
-posthog-rs = { workspace = true }
 
 [dev-dependencies]
 

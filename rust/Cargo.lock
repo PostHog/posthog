@@ -3647,7 +3647,6 @@ dependencies = [
  "common-metrics",
  "envconfig",
  "health",
- "posthog-rs",
  "tokio",
  "tracing",
  "tracing-subscriber",
