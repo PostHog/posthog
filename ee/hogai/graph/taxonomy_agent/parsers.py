@@ -4,6 +4,8 @@ import re
 from langchain_core.agents import AgentAction
 from langchain_core.messages import AIMessage as LangchainAIMessage
 
+from posthog.schema import AssistantMessage, AssistantToolCall
+
 
 class ReActParserException(ValueError):
     llm_output: str
@@ -71,3 +73,14 @@ class PydanticOutputParserException(ValueError):
         super().__init__(llm_output)
         self.llm_output = llm_output
         self.validation_message = validation_message
+
+
+def parse_langchain_message(message: LangchainAIMessage) -> AssistantMessage:
+    return AssistantMessage(
+        content=message.content,
+        id=message.id,
+        tool_calls=[
+            AssistantToolCall(id=tool_call["id"], name=tool_call["name"], args=tool_call["args"])
+            for tool_call in message.tool_calls
+        ],
+    )

@@ -49,7 +49,7 @@ export interface AssistantToolCall {
 
 export interface AssistantMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Assistant
-    content: string
+    content: string | Record<string, unknown>[]
     meta?: AssistantMessageMetadata
     tool_calls?: AssistantToolCall[]
 }

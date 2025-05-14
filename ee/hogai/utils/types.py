@@ -3,7 +3,6 @@ from collections.abc import Sequence
 from enum import StrEnum
 from typing import Annotated, Literal, Optional, Union
 
-from langchain_core.agents import AgentAction
 from langchain_core.messages import BaseMessage as LangchainBaseMessage
 from langgraph.graph import END, START
 from pydantic import BaseModel, Field
@@ -79,7 +78,7 @@ class _SharedAssistantState(BaseModel):
     Whether the graph was interrupted or resumed.
     """
 
-    intermediate_steps: Optional[list[tuple[AgentAction, Optional[str]]]] = Field(default=None)
+    intermediate_steps: Optional[list[LangchainBaseMessage]] = Field(default=None)
     """
     Actions taken by the ReAct agent.
     """

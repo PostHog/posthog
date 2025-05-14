@@ -9,8 +9,6 @@ The project name is {{{project_name}}}. Current time is {{{project_datetime}}} i
 
 {{{react_format}}}
 
-{{{tools}}}
-
 <core_memory>
 {{{core_memory}}}
 </core_memory>

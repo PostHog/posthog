@@ -1,58 +1,52 @@
+import json
 import xml.etree.ElementTree as ET
 from abc import ABC
 from functools import cached_property
 from typing import cast
 
 from git import Optional
-from langchain.agents.format_scratchpad import format_log_to_str
-from langchain_core.agents import AgentAction
+from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import (
     AIMessage as LangchainAssistantMessage,
     BaseMessage,
+    ToolMessage as LangchainToolMessage,
     merge_message_runs,
 )
+from langchain_core.output_parsers import PydanticToolsParser
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
 from langchain_core.runnables import RunnableConfig
-from langchain_openai import ChatOpenAI
 from pydantic import ValidationError
 
-from .parsers import (
-    ReActParserException,
-    ReActParserMissingActionException,
-    parse_react_agent_output,
-)
-from .prompts import (
-    CORE_MEMORY_INSTRUCTIONS,
-    REACT_ACTIONS_PROMPT,
-    REACT_DEFINITIONS_PROMPT,
-    REACT_FOLLOW_UP_PROMPT,
-    REACT_FORMAT_PROMPT,
-    REACT_FORMAT_REMINDER_PROMPT,
-    REACT_HELP_REQUEST_PROMPT,
-    REACT_HUMAN_IN_THE_LOOP_PROMPT,
-    REACT_MALFORMED_JSON_PROMPT,
-    REACT_MISSING_ACTION_CORRECTION_PROMPT,
-    REACT_MISSING_ACTION_PROMPT,
-    REACT_PROPERTY_FILTERS_PROMPT,
-    REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT,
-    REACT_REACHED_LIMIT_PROMPT,
-    REACT_SCRATCHPAD_PROMPT,
-    REACT_USER_PROMPT,
-)
-from .toolkit import TaxonomyAgentTool, TaxonomyAgentToolkit, TaxonomyAgentToolUnion
+from ee.hogai.graph.taxonomy_agent.parsers import parse_langchain_message
 from ee.hogai.utils.helpers import remove_line_breaks
-from ..base import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.schema import (
+    AssistantToolCall,
     AssistantToolCallMessage,
     CachedTeamTaxonomyQueryResponse,
     TeamTaxonomyQuery,
     VisualizationMessage,
 )
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
+
+from ..base import AssistantNode
+from .prompts import (
+    CORE_MEMORY_INSTRUCTIONS,
+    REACT_ACTIONS_PROMPT,
+    REACT_DEFINITIONS_PROMPT,
+    REACT_FOLLOW_UP_PROMPT,
+    REACT_FORMAT_PROMPT,
+    REACT_HELP_REQUEST_PROMPT,
+    REACT_HUMAN_IN_THE_LOOP_PROMPT,
+    REACT_PROPERTY_FILTERS_PROMPT,
+    REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT,
+    REACT_REACHED_LIMIT_PROMPT,
+    REACT_USER_PROMPT,
+)
+from .toolkit import TaxonomyAgentToolkit
 
 
 class TaxonomyAgentPlannerNode(AssistantNode):
@@ -73,77 +67,42 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                 template_format="mustache",
             )
             + self._construct_messages(state)
-            + ChatPromptTemplate.from_messages(
-                [
-                    ("user", REACT_SCRATCHPAD_PROMPT),
-                ],
-                template_format="mustache",
-            )
         )
 
-        agent = conversation | merge_message_runs() | self._model | parse_react_agent_output
+        agent = conversation | merge_message_runs() | self._get_model(toolkit)
 
-        try:
-            result = cast(
-                AgentAction,
-                agent.invoke(
-                    {
-                        "react_format": self._get_react_format_prompt(toolkit),
-                        "core_memory": self.core_memory.text if self.core_memory else "",
-                        "tools": toolkit.render_text_description(),
-                        "react_property_filters": self._get_react_property_filters_prompt(),
-                        "react_human_in_the_loop": REACT_HUMAN_IN_THE_LOOP_PROMPT,
-                        "groups": self._team_group_types,
-                        "events": self._events_prompt,
-                        "agent_scratchpad": self._get_agent_scratchpad(intermediate_steps),
-                        "core_memory_instructions": CORE_MEMORY_INSTRUCTIONS,
-                        "project_datetime": self.project_now,
-                        "project_timezone": self.project_timezone,
-                        "project_name": self._team.name,
-                        "actions": state.rag_context,
-                        "actions_prompt": REACT_ACTIONS_PROMPT,
-                    },
-                    config,
-                ),
-            )
-        except ReActParserException as e:
-            if isinstance(e, ReActParserMissingActionException):
-                # When the agent doesn't output the "Action:" block, we need to correct the log and append the action block,
-                # so that it has a higher chance to recover.
-                corrected_log = str(
-                    ChatPromptTemplate.from_template(REACT_MISSING_ACTION_CORRECTION_PROMPT, template_format="mustache")
-                    .format_messages(output=e.llm_output)[0]
-                    .content
-                )
-                result = AgentAction(
-                    "handle_incorrect_response",
-                    REACT_MISSING_ACTION_PROMPT,
-                    corrected_log,
-                )
-            else:
-                result = AgentAction(
-                    "handle_incorrect_response",
-                    REACT_MALFORMED_JSON_PROMPT,
-                    e.llm_output,
-                )
+        result = agent.invoke(
+            {
+                "react_format": REACT_FORMAT_PROMPT,
+                "core_memory": self.core_memory.text if self.core_memory else "",
+                "react_property_filters": self._get_react_property_filters_prompt(),
+                "react_human_in_the_loop": REACT_HUMAN_IN_THE_LOOP_PROMPT,
+                "groups": self._team_group_types,
+                "events": self._events_prompt,
+                "core_memory_instructions": CORE_MEMORY_INSTRUCTIONS,
+                "project_datetime": self.project_now,
+                "project_timezone": self.project_timezone,
+                "project_name": self._team.name,
+                "actions": state.rag_context,
+                "actions_prompt": REACT_ACTIONS_PROMPT,
+            },
+            config,
+        )
 
         return PartialAssistantState(
-            intermediate_steps=[*intermediate_steps, (result, None)],
+            intermediate_steps=[*intermediate_steps, result],
         )
 
-    @property
-    def _model(self) -> ChatOpenAI:
-        return ChatOpenAI(model="gpt-4o", temperature=0, streaming=True, stream_usage=True)
-
-    def _get_react_format_prompt(self, toolkit: TaxonomyAgentToolkit) -> str:
-        return cast(
-            str,
-            ChatPromptTemplate.from_template(REACT_FORMAT_PROMPT, template_format="mustache")
-            .format_messages(
-                tool_names=", ".join([t["name"] for t in toolkit.tools]),
-            )[0]
-            .content,
+    def _get_model(self, toolkit: TaxonomyAgentToolkit):
+        model = ChatAnthropic(
+            model="claude-3-7-sonnet-latest",
+            temperature=1,
+            streaming=True,
+            stream_usage=True,
+            thinking={"type": "enabled", "budget_tokens": 2000},
+            max_tokens=4000,
         )
+        return model.bind_tools(toolkit.tools, parallel_tool_calls=False)
 
     def _get_react_property_filters_prompt(self) -> str:
         return cast(
@@ -218,20 +177,14 @@ class TaxonomyAgentPlannerNode(AssistantNode):
         new_insight_prompt = REACT_USER_PROMPT if not conversation else REACT_FOLLOW_UP_PROMPT
         conversation.append(
             HumanMessagePromptTemplate.from_template(new_insight_prompt, template_format="mustache").format(
-                question=state.root_tool_insight_plan,
-                react_format_reminder=REACT_FORMAT_REMINDER_PROMPT,
+                question=state.root_tool_insight_plan
             )
         )
 
-        return conversation
+        if not state.intermediate_steps:
+            return conversation
 
-    def _get_agent_scratchpad(self, scratchpad: list[tuple[AgentAction, str | None]]) -> str:
-        actions = []
-        for action, observation in scratchpad:
-            if observation is None:
-                continue
-            actions.append((action, observation))
-        return format_log_to_str(actions)
+        return [*conversation, *state.intermediate_steps]
 
 
 class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
@@ -246,13 +199,16 @@ class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
         self, state: AssistantState, toolkit: TaxonomyAgentToolkit, config: Optional[RunnableConfig] = None
     ) -> PartialAssistantState:
         intermediate_steps = state.intermediate_steps or []
-        action, observation = intermediate_steps[-1]
+        action = intermediate_steps[-1]
+        tool_call = parse_langchain_message(action).tool_calls[0]
+        assert tool_call is not None
 
         input = None
         output = ""
 
         try:
-            input = TaxonomyAgentTool.model_validate({"name": action.tool, "arguments": action.tool_input}).root
+            parser = PydanticToolsParser(tools=toolkit.tools)
+            input = parser.invoke(action)
         except ValidationError as e:
             output = str(
                 ChatPromptTemplate.from_template(REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT, template_format="mustache")
@@ -262,14 +218,14 @@ class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
         else:
             # First check if we've reached the terminal stage.
             # The plan has been found. Move to the generation.
-            if input.name == "final_answer":
+            if tool_call.name == "final_answer":
                 return PartialAssistantState(
-                    plan=input.arguments,
+                    plan=tool_call.args["final_response"],
                     intermediate_steps=[],
                 )
 
             # The agent has requested help, so we return a message to the root node.
-            if input.name == "ask_user_for_help":
+            if tool_call.name == "ask_user_for_help":
                 return self._get_reset_state(state, REACT_HELP_REQUEST_PROMPT.format(request=input.arguments))
 
         # If we're still here, the final prompt hasn't helped.
@@ -277,10 +233,13 @@ class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
             return self._get_reset_state(state, REACT_REACHED_LIMIT_PROMPT)
 
         if input and not output:
-            output = self._handle_tool(input, toolkit)
+            output = self._handle_tool(tool_call, toolkit)
 
         return PartialAssistantState(
-            intermediate_steps=[*intermediate_steps[:-1], (action, output)],
+            intermediate_steps=[
+                *intermediate_steps,
+                LangchainToolMessage(tool_call_id=tool_call.id, content=output),
+            ],
         )
 
     def router(self, state: AssistantState):
@@ -292,23 +251,25 @@ class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
             return "plan_found"
         return "continue"
 
-    def _handle_tool(self, input: TaxonomyAgentToolUnion, toolkit: TaxonomyAgentToolkit) -> str:
-        if input.name == "retrieve_event_properties" or input.name == "retrieve_action_properties":
-            output = toolkit.retrieve_event_or_action_properties(input.arguments)
-        elif input.name == "retrieve_event_property_values":
-            output = toolkit.retrieve_event_or_action_property_values(
-                input.arguments.event_name, input.arguments.property_name
+    def _handle_tool(self, action: AssistantToolCall, toolkit: TaxonomyAgentToolkit) -> str:
+        if action.name == "retrieve_event_properties" or action.name == "retrieve_action_properties":
+            output = toolkit.retrieve_event_or_action_properties(
+                action.args.get("event_name", action.args.get("action_id"))
             )
-        elif input.name == "retrieve_action_property_values":
+        elif action.name == "retrieve_event_property_values":
             output = toolkit.retrieve_event_or_action_property_values(
-                input.arguments.action_id, input.arguments.property_name
+                action.args["event_name"], action.args["property_name"]
             )
-        elif input.name == "retrieve_entity_properties":
-            output = toolkit.retrieve_entity_properties(input.arguments)
-        elif input.name == "retrieve_entity_property_values":
-            output = toolkit.retrieve_entity_property_values(input.arguments.entity, input.arguments.property_name)
+        elif action.name == "retrieve_action_property_values":
+            output = toolkit.retrieve_event_or_action_property_values(
+                action.args["action_id"], action.args["property_name"]
+            )
+        elif action.name == "retrieve_entity_properties":
+            output = toolkit.retrieve_entity_properties(action.args["entity"])
+        elif action.name == "retrieve_entity_property_values":
+            output = toolkit.retrieve_entity_property_values(action.args["entity"], action.args["property_name"])
         else:
-            output = toolkit.handle_incorrect_response(input.arguments)
+            output = toolkit.handle_incorrect_response(json.dumps(action.args))
         return output
 
     def _get_reset_state(self, state: AssistantState, output: str):

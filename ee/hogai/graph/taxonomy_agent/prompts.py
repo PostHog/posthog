@@ -1,40 +1,8 @@
 REACT_FORMAT_PROMPT = """
 <agent_instructions>
 You have access to the tools that are listed in the <tools> tag.
-
-Use a JSON blob to specify a tool by providing an action key (tool name) and an action_input key (tool input).
-
-Valid "action" values: {{{tool_names}}}
-
-Provide only ONE action per $JSON_BLOB, as shown:
-
-```
-{
-  "action": $TOOL_NAME,
-  "action_input": $INPUT
-}
-```
-
-Follow this format:
-
-Question: input question to answer
-Thought: consider previous and subsequent steps
-Action:
-```
-$JSON_BLOB
-```
-Observation: action result
-... (repeat Thought/Action/Observation N times)
-Thought: I know what to respond
-Action:
-```
-{
-  "action": "final_answer",
-  "action_input": "Final response to human"
-}
-```
-
-Generating the observation is strictly prohibited.
+Use the tools to explore the data and find the best concise plan to answer the user's question.
+Finish only when you have found the plan.
 </agent_instructions>
 """.strip()
 
@@ -99,10 +67,6 @@ Use the tool `ask_user_for_help` to ask the user.
 </human_in_the_loop>
 """.strip()
 
-REACT_FORMAT_REMINDER_PROMPT = """
-Reminder that you must ALWAYS respond with a valid JSON blob of a single action with a valid tool. Format is Thought: "Your thoughts here", Action:```$JSON_BLOB```, then Observation: "The user-provided observation".
-""".strip()
-
 REACT_DEFINITIONS_PROMPT = """
 Here are the event names.
 {{{events}}}
@@ -112,38 +76,18 @@ Here are the actions relevant to the user's question.
 {{/actions}}
 """.strip()
 
-REACT_SCRATCHPAD_PROMPT = """
-Thought: {{{agent_scratchpad}}}
-""".strip()
 
 REACT_USER_PROMPT = """
 Answer the following question as best you can.
-Question: What events, properties and/or property values should I use to answer this question "{{{question}}}"?{{#react_format_reminder}}
-{{{react_format_reminder}}}
-{{/react_format_reminder}}
+Question: What events, properties and/or property values should I use to answer this question "{{{question}}}"?
 """.strip()
 
 REACT_FOLLOW_UP_PROMPT = """
-Improve the previously generated plan based on the feedback: "{{{question}}}".{{#react_format_reminder}}
-{{{react_format_reminder}}}
-{{/react_format_reminder}}
-""".strip()
-
-REACT_MISSING_ACTION_PROMPT = """
-Your previous answer didn't output the `Action:` block. You must always follow the format described in the system prompt.
-""".strip()
-
-REACT_MISSING_ACTION_CORRECTION_PROMPT = """
-{{{output}}}
-Action: I didn't output the `Action:` block.
-""".strip()
-
-REACT_MALFORMED_JSON_PROMPT = """
-Your previous answer had a malformed JSON. You must return a correct JSON response containing the `action` and `action_input` fields.
+Improve the previously generated plan based on the feedback: "{{{question}}}".
 """.strip()
 
 REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT = """
-The action input you previously provided didn't pass the validation and raised a Pydantic validation exception.
+The tool input you previously provided didn't pass the validation and raised a Pydantic validation exception.
 
 <pydantic_exception>
 {{{exception}}}

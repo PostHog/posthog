@@ -1344,7 +1344,18 @@
             "additionalProperties": false,
             "properties": {
                 "content": {
-                    "type": "string"
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "items": {
+                                "additionalProperties": {},
+                                "type": "object"
+                            },
+                            "type": "array"
+                        }
+                    ]
                 },
                 "id": {
                     "type": "string"

@@ -279,9 +279,9 @@ class Assistant:
                 | AssistantNodeName.SQL_PLANNER_TOOLS
             ):
                 substeps: list[str] = []
-                if input:
+                if input == 1:
                     if intermediate_steps := input.intermediate_steps:
-                        for action, _ in intermediate_steps:
+                        for action in intermediate_steps:
                             match action.tool:
                                 case "retrieve_event_properties":
                                     substeps.append(f"Exploring `{action.tool_input}` event's properties")
