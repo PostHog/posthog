@@ -2366,3 +2366,40 @@ class TestCapture(BaseTest):
 
             with pytest.raises(ObjectStorageError):
                 object_storage.read("token-another-team-token-session_id-abcdefgh.json", bucket=TEST_SAMPLES_BUCKET)
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_capture_csp_violation(self, kafka_produce):
+        csp_report = {
+            "csp-report": {
+                "document-uri": "https://example.com/foo/bar",
+                "referrer": "https://www.google.com/",
+                "violated-directive": "default-src self",
+                "effective-directive": "img-src",
+                "original-policy": "default-src 'self'; img-src 'self' https://img.example.com",
+                "disposition": "enforce",
+                "blocked-uri": "https://evil.com/malicious-image.png",
+                "line-number": 10,
+                "source-file": "https://example.com/foo/bar.html",
+                "status-code": 0,
+                "script-sample": "",
+            }
+        }
+
+        response = self.client.post(
+            f"/csp/?token={self.team.api_token}",
+            data=json.dumps(csp_report),
+            content_type="application/csp-report",
+        )
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        self.assertEqual(kafka_produce.call_count, 1)
+
+        kafka_produce_call = kafka_produce.call_args_list[0].kwargs
+
+        # Verify data
+        event_data = json.loads(kafka_produce_call["data"]["data"])
+
+        self.assertEqual(event_data["event"], "$csp_violation")
+        self.assertEqual(event_data["properties"]["document-uri"], "https://example.com/foo/bar")
+        self.assertEqual(event_data["properties"]["violated-directive"], "default-src self")
+        self.assertEqual(event_data["properties"]["blocked-uri"], "https://evil.com/malicious-image.png")

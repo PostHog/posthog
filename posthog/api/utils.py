@@ -147,9 +147,17 @@ def format_paginated_url(request: request.Request, offset: int, page_size: int, 
     return result
 
 
+def is_csp_report(request, data) -> bool:
+    # TODO: make the checks more strict
+    return (request.path and "csp" in request.path) or (isinstance(data, dict) and data.get("csp-report"))
+
+
 def get_token(data, request) -> Optional[str]:
     token = None
-    if request.method == "GET":
+
+    if request.method == "GET" or is_csp_report(
+        request, data
+    ):  # CSPs are actually POST, but the token must be available at the report-uri/to URL
         if request.GET.get("token"):
             token = request.GET.get("token")  # token passed as query param
         elif request.GET.get("api_key"):
