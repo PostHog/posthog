@@ -74,7 +74,7 @@ class BetSerializer(serializers.ModelSerializer):
             "status",
             "created_at",
         ]
-        read_only_fields = ["id", "created_at", "potential_payout", "status", "bet_definition_title", "user"]
+        read_only_fields = ["id", "created_at", "potential_payout", "status", "bet_definition_title", "user", "team"]
     
     def validate(self, data):
         # Validate bet definition is active
@@ -91,7 +91,8 @@ class BetSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         if request and request.user:
             user = request.user
-            team_id = str(data.get("team").id)
+            team = request.user.current_team
+            team_id = str(team.id)
             amount = data.get("amount")
             
             if amount and not Wallet.has_sufficient_funds(user, team_id, amount):
@@ -129,7 +130,8 @@ class BetSerializer(serializers.ModelSerializer):
         
         # Deduct the amount from the user's wallet
         if user:
-            team_id = str(bet.team.id)
+            team = user.current_team
+            team_id = str(team.id)
             Wallet.place_bet(user, team_id, bet)
         
         return bet
@@ -168,11 +170,11 @@ class BetDefinitionViewSet(
     queryset = BetDefinition.objects.all()
     serializer_class = BetDefinitionSerializer
     
-    def get_queryset(self):
+    def get_queryset(self, **kwargs):
         queryset = super().get_queryset()
         return queryset.filter(team_id=self.team_id).order_by("-created_at")
     
-    def perform_create(self, serializer):
+    def perform_create(self, serializer, **kwargs):
         # Set the team to the current team
         team = self.request.user.current_team
         serializer.save(team=team)
@@ -182,7 +184,7 @@ class BetDefinitionViewSet(
         if bet_definition.probability_distribution_interval > 0:
             self._create_demo_distribution(bet_definition)
     
-    def _create_demo_distribution(self, bet_definition):
+    def _create_demo_distribution(self, bet_definition, **kwargs):
         """
         Create a demo probability distribution for the bet definition.
         In a real implementation, this would be replaced with actual data.
@@ -200,7 +202,7 @@ class BetDefinitionViewSet(
         )
     
     @action(detail=True, methods=["post"])
-    def settle(self, request, pk=None):
+    def settle(self, request, pk=None, **kwargs):
         """
         Settle a bet definition with the final value.
         """
@@ -254,7 +256,7 @@ class ProbabilityDistributionViewSet(
     queryset = ProbabilityDistribution.objects.all()
     serializer_class = ProbabilityDistributionSerializer
     
-    def get_queryset(self):
+    def get_queryset(self, **kwargs):
         queryset = super().get_queryset()
         
         # Filter by bet definition if provided
@@ -278,18 +280,20 @@ class BetViewSet(
     queryset = Bet.objects.all()
     serializer_class = BetSerializer
     
-    def get_queryset(self):
+    def get_queryset(self, **kwargs):
         queryset = super().get_queryset()
         return queryset.filter(team_id=self.team_id, user=self.request.user).order_by("-created_at")
     
     def perform_create(self, serializer):
-        serializer.save(user=self.request.user, team_id=self.team_id)
+        team = self.request.user.current_team
+        serializer.save(user=self.request.user, team=team)
     
     @action(detail=False, methods=["post"])
-    def estimate(self, request):
+    def estimate(self, request, **kwargs):
         """
         Estimate potential payout for a bet without creating it.
         """
+    
         bet_definition_id = request.data.get("bet_definition")
         predicted_value = request.data.get("predicted_value")
         amount = request.data.get("amount")
@@ -336,7 +340,7 @@ class BetViewSet(
             "predicted_value": predicted_value,
             "payout_multiplier": payout_multiplier,
             "potential_payout": potential_payout,
-        })
+        })        
 
 
 class TransactionViewSet(
@@ -351,12 +355,12 @@ class TransactionViewSet(
     queryset = TransactionLedger.objects.all()
     serializer_class = TransactionLedgerSerializer
     
-    def get_queryset(self):
+    def get_queryset(self, **kwargs):
         queryset = super().get_queryset()
         return queryset.filter(team_id=self.team_id, user=self.request.user).order_by("-created_at")
     
     @action(detail=False, methods=["get"])
-    def wallet_balance(self, request):
+    def wallet_balance(self, request, **kwargs):
         """
         Get the current wallet balance for the user in this team.
         """
@@ -371,7 +375,7 @@ class OnboardingViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
     
     @action(detail=False, methods=["post"])
-    def initialize(self, request):
+    def initialize(self, request, **kwargs):
         """
         Initialize a user's wallet with the onboarding bonus.
         """

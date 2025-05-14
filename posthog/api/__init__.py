@@ -687,6 +687,13 @@ register_grandfathered_environment_nested_viewset(
 )
 
 register_grandfathered_environment_nested_viewset(
+    r"probability_distributions",
+    betting.ProbabilityDistributionViewSet,
+    "environment_probability_distributions",
+    ["team_id"],
+)
+
+register_grandfathered_environment_nested_viewset(
     r"bets",
     betting.BetViewSet,
     "environment_bets",
