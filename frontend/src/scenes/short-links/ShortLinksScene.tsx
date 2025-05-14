@@ -1,19 +1,22 @@
+import { IconCopy, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTable, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
+import { PageHeader } from 'lib/components/PageHeader'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { dayjs } from 'lib/dayjs'
-import { IconCopy, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
+import { ProductKey } from '~/types'
 
 import { ShortLink, shortLinksLogic } from './shortLinksLogic'
-import { PageHeader } from 'lib/components/PageHeader'
 
 export function ShortLinksScene(): JSX.Element {
-    const { activeShortLinks, expiredShortLinks, newLink, shortLinksLoading, editingLink } =
-        useValues(shortLinksLogic)
+    const { activeShortLinks, expiredShortLinks, newLink, shortLinksLoading, editingLink } = useValues(shortLinksLogic)
     const {
         setNewLinkDestinationUrl,
         setNewLinkExpirationDate,
@@ -30,7 +33,9 @@ export function ShortLinksScene(): JSX.Element {
             title: 'Short URL',
             dataIndex: 'key' as keyof ShortLink,
             render: function RenderKey(key: string | undefined) {
-                if (!key) return null
+                if (!key) {
+                    return null
+                }
                 const shortUrl = `${baseUrl}/${key}`
                 return (
                     <div className="flex items-center gap-2">
@@ -41,7 +46,7 @@ export function ShortLinksScene(): JSX.Element {
                             icon={<IconCopy />}
                             size="small"
                             onClick={() => {
-                                navigator.clipboard.writeText(shortUrl)
+                                void navigator.clipboard.writeText(shortUrl)
                             }}
                             tooltip="Copy to clipboard"
                         />
@@ -53,7 +58,9 @@ export function ShortLinksScene(): JSX.Element {
             title: 'Destination',
             dataIndex: 'destination_url' as keyof ShortLink,
             render: function RenderDestination(destination: string | undefined) {
-                if (!destination) return null
+                if (!destination) {
+                    return null
+                }
                 return (
                     <Link to={destination} target="_blank" className="truncate max-w-100">
                         {destination}
@@ -65,7 +72,9 @@ export function ShortLinksScene(): JSX.Element {
             title: 'Created',
             dataIndex: 'created_at' as keyof ShortLink,
             render: function RenderDate(date: string | undefined) {
-                if (!date) return null
+                if (!date) {
+                    return null
+                }
                 return dayjs(date).format('MMM D, YYYY')
             },
         },
@@ -83,7 +92,9 @@ export function ShortLinksScene(): JSX.Element {
             title: 'Actions',
             dataIndex: 'key' as keyof ShortLink,
             render: function RenderActions(key: string | undefined, record: ShortLink) {
-                if (!key) return null
+                if (!key) {
+                    return null
+                }
                 return (
                     <div className="flex gap-2">
                         <LemonButton
@@ -102,7 +113,10 @@ export function ShortLinksScene(): JSX.Element {
                                     description: (
                                         <>
                                             Are you sure you want to delete the short link{' '}
-                                            <code>{baseUrl}/{key}</code>?
+                                            <code>
+                                                {baseUrl}/{key}
+                                            </code>
+                                            ?
                                         </>
                                     ),
                                     primaryButton: {
@@ -151,9 +165,7 @@ export function ShortLinksScene(): JSX.Element {
                                                 type="text"
                                                 placeholder="YYYY-MM-DD"
                                                 value={newLink.expiration_date || ''}
-                                                onChange={(e: string) =>
-                                                    setNewLinkExpirationDate(e ? e : null)
-                                                }
+                                                onChange={(e: string) => setNewLinkExpirationDate(e ? e : null)}
                                                 fullWidth
                                             />
                                         </div>
@@ -186,7 +198,7 @@ export function ShortLinksScene(): JSX.Element {
                                     </>
                                 ),
                                 placement: 'bottom-end',
-                            }
+                            },
                         }}
                     >
                         Create short link
@@ -195,9 +207,14 @@ export function ShortLinksScene(): JSX.Element {
             />
 
             {activeShortLinks.length === 0 && !shortLinksLoading ? (
-                <LemonBanner type="info">
-                    No short links yet. Create your first short link to get started.
-                </LemonBanner>
+                <ProductIntroduction
+                    productName="ShortLinks"
+                    thingName="short link"
+                    description="Start creating short links for your marketing campaigns, referral programs, and more."
+                    action={() => router.actions.push(urls.shortLinks())}
+                    isEmpty={activeShortLinks.length === 0}
+                    productKey={ProductKey.SHORT_LINKS}
+                />
             ) : (
                 <LemonTable
                     dataSource={activeShortLinks}
@@ -217,9 +234,7 @@ export function ShortLinksScene(): JSX.Element {
                 <>
                     <div className="mt-8 mb-4">
                         <h2>Expired Links</h2>
-                        <p className="text-muted mb-0">
-                            These links have expired and are no longer active
-                        </p>
+                        <p className="text-muted mb-0">These links have expired and are no longer active</p>
                     </div>
                     <LemonTable
                         dataSource={expiredShortLinks}
@@ -304,4 +319,4 @@ export function ShortLinksScene(): JSX.Element {
 export const scene: SceneExport = {
     component: ShortLinksScene,
     logic: shortLinksLogic,
-} 
+}

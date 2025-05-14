@@ -82,6 +82,7 @@ from .proxy_record import ProxyRecord
 from .remote_config import RemoteConfig
 from .scheduled_change import ScheduledChange
 from .sharing_configuration import SharingConfiguration
+from .short_link import ShortLink
 from .subscription import Subscription
 from .tag import Tag
 from .tagged_item import TaggedItem

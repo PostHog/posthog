@@ -62,6 +62,7 @@ from . import (
     scheduled_change,
     search,
     sharing,
+    short_link,
     survey,
     tagged_item,
     team,
@@ -420,6 +421,7 @@ router.register(r"dead_letter_queue", dead_letter_queue.DeadLetterQueueViewSet, 
 router.register(r"async_migrations", async_migration.AsyncMigrationsViewset, "async_migrations")
 router.register(r"instance_settings", instance_settings.InstanceSettingsViewset, "instance_settings")
 router.register("debug_ch_queries/", debug_ch_queries.DebugCHQueries, "debug_ch_queries")
+router.register(r"short_links", short_link.ShortLinkViewSet, "short_links")
 
 from posthog.api.action import ActionViewSet  # noqa: E402
 from posthog.api.cohort import CohortViewSet, LegacyCohortViewSet  # noqa: E402
