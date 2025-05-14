@@ -11,5 +11,8 @@
         "kea-router": "*",
         "react": "*",
         "react-spreadsheet": "*"
+    },
+    "dependencies": {
+        "@fortune-sheet/react": "^1.0.2"
     }
 }

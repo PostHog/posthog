@@ -1,9 +1,19 @@
-import Spreadsheet from 'react-spreadsheet'
+import '@fortune-sheet/react/dist/index.css'
+
+import { Workbook } from '@fortune-sheet/react'
 
 export const SpreadsheetsScene = (): JSX.Element => {
     const data = [
-        [{ value: 'Vanilla' }, { value: 'Chocolate' }],
-        [{ value: 'Strawberry' }, { value: 'Cookies' }],
+        {
+            name: 'Sheet1',
+            row: 100,
+            column: 26,
+        },
     ]
-    return <Spreadsheet data={data} />
+
+    return (
+        <div className="h-100 w-full">
+            <Workbook data={data} />
+        </div>
+    )
 }
