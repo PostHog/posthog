@@ -1,4 +1,4 @@
-import { LiveEventsTable } from 'scenes/activity/live/LiveEventsTable'
+import { LiveEventsTable } from 'products/vision_hog/frontend/LiveEventsTable'
 
 export function EventStream(): JSX.Element {
     return (
