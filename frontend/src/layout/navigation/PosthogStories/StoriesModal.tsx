@@ -2,7 +2,7 @@ import './StoriesModal.scss'
 
 import { useActions, useValues } from 'kea'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { useCallback, useMemo } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 import Stories from 'react-insta-stories'
 import { Story } from 'react-insta-stories/dist/interfaces'
 
@@ -16,8 +16,25 @@ export const StoriesModal = (): JSX.Element | null => {
         activeGroupIndex,
         activeGroup,
         activeStoryIndex,
+        activeStory,
+        isStoryViewed,
     } = useValues(storiesLogic)
-    const { setOpenStoriesModal, setActiveStoryIndex, setActiveGroupIndex } = useActions(storiesLogic)
+    const { setOpenStoriesModal, setActiveStoryIndex, setActiveGroupIndex, markStoryAsViewed, markGroupAsViewed } =
+        useActions(storiesLogic)
+
+    // Mark story as viewed when it becomes active
+    useEffect(() => {
+        if (activeStory && openStoriesModal) {
+            markStoryAsViewed(activeStory.id)
+        }
+    }, [activeStory, markStoryAsViewed, openStoriesModal])
+
+    // Mark group as viewed when all stories are viewed
+    useEffect(() => {
+        if (activeGroup && activeGroup.stories.every((story) => isStoryViewed(story.id))) {
+            markGroupAsViewed(activeGroup.id)
+        }
+    }, [activeGroup, markGroupAsViewed, isStoryViewed])
 
     const maxStoryIndex = useMemo(() => {
         return activeGroup?.stories.length || 0
