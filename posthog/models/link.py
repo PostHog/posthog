@@ -4,13 +4,17 @@ from posthog.models.team import Team
 import uuid
 
 
+def generate_uuid():
+    return str(uuid.uuid4())
+
+
 class Link(models.Model):
     """
     Links that redirect to a specified destination URL.
     These are used for sharing URLs across the application.
     """
 
-    id = models.CharField(max_length=36, primary_key=True, default=lambda: str(uuid.uuid4()))
+    id = models.CharField(max_length=36, primary_key=True, default=generate_uuid)
     destination = models.URLField(max_length=2048)
     origin_domain = models.CharField(max_length=255)
     origin_key = models.CharField(max_length=255)
