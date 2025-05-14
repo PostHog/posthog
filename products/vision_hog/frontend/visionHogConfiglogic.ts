@@ -1,7 +1,7 @@
 import { actions, kea, listeners, path, props, reducers } from 'kea'
 import api from 'lib/api'
 
-import { visionHogConfigLogicType } from './visionHogConfiglogicType'
+import type { visionHogConfigLogicType } from './visionHogConfiglogicType'
 
 export interface VisionHogConfigLogicProps {
     // Define any props your logic might need here

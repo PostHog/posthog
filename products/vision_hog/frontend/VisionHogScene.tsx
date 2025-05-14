@@ -1,3 +1,4 @@
+import { LemonTabs } from '@posthog/lemon-ui'
 import flvjs from 'flv.js'
 import Hls from 'hls.js'
 import { useActions, useValues } from 'kea'
@@ -6,6 +7,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 // import { useActions, useValues } from 'kea' // Uncomment if you use actions/values from logic
 import { someLogic } from './someLogic'
+import { VisionHogConfigScene } from './VisionHogConfigScene'
 
 const VIDEO_BUFFER_SECONDS = 0
 
@@ -54,6 +56,7 @@ export function VisionHogScene(): JSX.Element {
     const [currentTime, setCurrentTime] = React.useState(0)
     const [expanded, setExpanded] = React.useState<{ [idx: number]: boolean }>({})
     const toggleExpand = (idx: number): void => setExpanded((e) => ({ ...e, [idx]: !e[idx] }))
+    const [activeTab, setActiveTab] = React.useState('video')
 
     React.useEffect(() => {
         setVideoError(null)
@@ -113,62 +116,87 @@ export function VisionHogScene(): JSX.Element {
     const visibleEvents = MOCK_EVENTS.filter((e) => e.time <= currentTime)
 
     return (
-        <div className="flex flex-row w-full max-w-5xl mx-auto mt-8 gap-8">
-            {/* Left: Video */}
-            <div className="flex-1 w-[640px]">
-                <div className="w-full flex flex-col items-center border rounded bg-gray-50 p-4 min-h-[640px]">
-                    <input
-                        type="text"
-                        value={videoUrl}
-                        onChange={(e) => setVideoUrl(e.target.value)}
-                        placeholder="Enter video feed URL"
-                        className="border p-2 rounded w-full mb-4"
-                    />
-                    {!videoUrl ? (
-                        <div className="text-gray-500 text-center my-16">No video stream. Enter a valid URL above.</div>
-                    ) : videoError ? (
-                        <div className="text-red-500 text-center my-16">{videoError}</div>
-                    ) : (
-                        <video
-                            ref={videoRef}
-                            controls
-                            onError={handleVideoError}
-                            className="rounded shadow w-full max-w-[600px] max-h-[340px]"
-                        />
-                    )}
-                </div>
-            </div>
-            {/* Right: Events */}
-            <div className="flex-1 border rounded bg-white p-4 min-h-[640px] overflow-y-auto">
-                <h2 className="text-lg font-semibold mb-4">Events</h2>
-                {visibleEvents.length === 0 ? (
-                    <div className="text-gray-400">No events yet.</div>
-                ) : (
-                    <ul>
-                        {visibleEvents.map((event, idx) => (
-                            <li
-                                key={idx}
-                                className="mb-2 p-2 bg-blue-50 rounded shadow-sm cursor-pointer animate-fade-in"
-                                onClick={() => toggleExpand(idx)}
-                            >
-                                <div className="flex items-center justify-between">
-                                    <span className="font-mono text-xs text-gray-500 mr-2">{event.timestamp}</span>
-                                    <span className="font-semibold">{event.event_name}</span>
-                                    <span className="ml-auto text-xs text-blue-700">{expanded[idx] ? '▲' : '▼'}</span>
-                                </div>
-                                {expanded[idx] && (
-                                    <div className="mt-2 text-sm text-gray-700">
-                                        <div className="mb-1">{event.description}</div>
-                                        <pre className="bg-blue-100 rounded p-2 text-xs overflow-x-auto">
-                                            {JSON.stringify(event.details, null, 2)}
-                                        </pre>
+        <div className="w-full max-w-6xl mx-auto">
+            <LemonTabs
+                activeKey={activeTab}
+                onChange={setActiveTab}
+                tabs={[
+                    {
+                        key: 'video',
+                        label: 'Video',
+                        content: (
+                            <div className="flex flex-row w-full max-w-5xl mx-auto gap-8">
+                                {/* Left: Video */}
+                                <div className="flex-1 w-[640px]">
+                                    <div className="w-full flex flex-col items-center border rounded bg-gray-50 p-4 min-h-[640px]">
+                                        <input
+                                            type="text"
+                                            value={videoUrl}
+                                            onChange={(e) => setVideoUrl(e.target.value)}
+                                            placeholder="Enter video feed URL"
+                                            className="border p-2 rounded w-full mb-4"
+                                        />
+                                        {!videoUrl ? (
+                                            <div className="text-gray-500 text-center my-16">
+                                                No video stream. Enter a valid URL above.
+                                            </div>
+                                        ) : videoError ? (
+                                            <div className="text-red-500 text-center my-16">{videoError}</div>
+                                        ) : (
+                                            <video
+                                                ref={videoRef}
+                                                controls
+                                                onError={handleVideoError}
+                                                className="rounded shadow w-full max-w-[600px] max-h-[340px]"
+                                            />
+                                        )}
                                     </div>
-                                )}
-                            </li>
-                        ))}
-                    </ul>
-                )}
-            </div>
+                                </div>
+                                {/* Right: Events */}
+                                <div className="flex-1 border rounded bg-white p-4 min-h-[640px] overflow-y-auto">
+                                    <h2 className="text-lg font-semibold mb-4">Events</h2>
+                                    {visibleEvents.length === 0 ? (
+                                        <div className="text-gray-400">No events yet.</div>
+                                    ) : (
+                                        <ul>
+                                            {visibleEvents.map((event, idx) => (
+                                                <li
+                                                    key={idx}
+                                                    className="mb-2 p-2 bg-blue-50 rounded shadow-sm cursor-pointer animate-fade-in"
+                                                    onClick={() => toggleExpand(idx)}
+                                                >
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="font-mono text-xs text-gray-500 mr-2">
+                                                            {event.timestamp}
+                                                        </span>
+                                                        <span className="font-semibold">{event.event_name}</span>
+                                                        <span className="ml-auto text-xs text-blue-700">
+                                                            {expanded[idx] ? '▲' : '▼'}
+                                                        </span>
+                                                    </div>
+                                                    {expanded[idx] && (
+                                                        <div className="mt-2 text-sm text-gray-700">
+                                                            <div className="mb-1">{event.description}</div>
+                                                            <pre className="bg-blue-100 rounded p-2 text-xs overflow-x-auto">
+                                                                {JSON.stringify(event.details, null, 2)}
+                                                            </pre>
+                                                        </div>
+                                                    )}
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    )}
+                                </div>
+                            </div>
+                        ),
+                    },
+                    {
+                        key: 'config',
+                        label: 'Config',
+                        content: <VisionHogConfigScene />,
+                    },
+                ]}
+            />
         </div>
     )
 }
