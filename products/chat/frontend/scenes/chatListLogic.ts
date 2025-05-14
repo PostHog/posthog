@@ -143,7 +143,7 @@ export const chatListLogic = kea<chatListLogicType>([
                 if (chat) {
                     const newMessage: ChatMessage = {
                         id: Date.now().toString(),
-                        conversation: chat.id,
+                        conversation: chat.id.toString(),
                         content: message,
                         created_at: new Date().toISOString(),
                         read: true,

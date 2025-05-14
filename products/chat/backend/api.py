@@ -34,6 +34,7 @@ class ChatMessageSerializer(serializers.ModelSerializer):
             "content",
             "created_at",
             "read",
+            "is_assistant",
         ]
         read_only_fields = ["id", "created_at"]
 
