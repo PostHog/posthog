@@ -12,50 +12,91 @@ logger.setLevel(logging.INFO)
 
 
 class Command(BaseCommand):
-    help = "Make sure exceptions in events table have the right associated fingerprint"
+    help = "Simulate a merge for issues that don't have "
 
     def add_arguments(self, parser):
         parser.add_argument(
-            "--since_ts",
+            "--fingerprint-start-date",
             required=True,
             type=str,
-            help="Sync exceptions since this timestap",
+            help="Minimum timestamp used to look up for fingerprints",
+        )
+        parser.add_argument(
+            "--exception-start-date",
+            required=True,
+            type=str,
+            help="Minimum timestamp used to look up for events (first_seen field)",
+        )
+        parser.add_argument(
+            "--dry-run",
+            action="store_true",
+            help="Run the command in dry run mode",
         )
 
     def handle(self, *args, **options):
-        since_ts = options["since_ts"]
+        fingerprint_start_date = options["fingerprint_start_date"]
+        exception_start_date = options["exception_start_date"]
+        dry_run = options["dry_run"]
+
+        if dry_run:
+            logger.info("dry run mode enabled. No changes will be made")
+
         query = """
         SELECT
-            issue_id,
-            team_id,
-            version,
-            fingerprint,
-            _timestamp,
-        FROM error_tracking_issue_fingerprint_overrides
-        WHERE _timestamp > %(since_ts)s
+            fo.fingerprint, fo.team_id, fo.max_version, min(e.timestamp)
+        FROM
+            (
+            SELECT
+                fingerprint,
+                team_id,
+                max(version) as max_version
+            FROM
+                error_tracking_issue_fingerprint_overrides fo
+            WHERE
+                fo._timestamp > %(fingerprint_start_date)s
+            GROUP BY 1, 2
+            ) fo
+        INNER JOIN
+            (SELECT mat_$exception_fingerprint, team_id, uuid, e.timestamp
+            FROM events as e
+            WHERE e.event = '$exception'
+            AND e.timestamp > %(exception_start_date)s) e ON e.mat_$exception_fingerprint = fo.fingerprint AND e.team_id = fo.team_id
+        GROUP BY
+            fo.fingerprint, fo.team_id, fo.max_version
         """
-        exceptions = sync_execute(
+        fingerprints = sync_execute(
             query,
-            {
-                "since_ts": since_ts,
-            },
+            {"exception_start_date": exception_start_date, "fingerprint_start_date": fingerprint_start_date},
         )
-        exception_rows = [
-            {"issue_id": row[0], "team_id": row[1], "version": row[2], "fingerprint": row[3], "timestamp": row[4]}
-            for row in exceptions
+        fingerprint_rows = [
+            {"fingerprint": row[0], "team_id": row[1], "version": row[2], "timestamp": row[3]} for row in fingerprints
         ]
+        found_issues_count = 0
+        not_found_fingerprints = []
 
-        for exception in exception_rows:
-            postgres_exception: ErrorTrackingIssueFingerprintV2 = ErrorTrackingIssueFingerprintV2.objects.filter(
-                fingerprint=exception["fingerprint"]
+        for fingerprint in fingerprint_rows:
+            postgres_fingerprint: ErrorTrackingIssueFingerprintV2 = ErrorTrackingIssueFingerprintV2.objects.filter(
+                fingerprint=fingerprint["fingerprint"]
             ).get()
-            if postgres_exception is not None:
-                ## Send event to clickhouse with issue id and incremented version to simulate an issue merge
+            if postgres_fingerprint is not None:
+                max_version = max(fingerprint["version"], postgres_fingerprint.version)
+                new_version = max_version + 1
                 override = {
-                    "team_id": exception["team_id"],
-                    "issue_id": postgres_exception.issue.id,
-                    "fingerprint": postgres_exception.fingerprint,
-                    "version": exception["version"] + 1,
+                    "team_id": fingerprint["team_id"],
+                    "issue_id": postgres_fingerprint.issue.id,
+                    "fingerprint": postgres_fingerprint.fingerprint,
+                    "version": new_version,
                 }
-                logger.info("sending fingerprint override ", override)
-                override_error_tracking_issue_fingerprint(**override)
+                if dry_run is False:
+                    postgres_fingerprint.first_seen = fingerprint["timestamp"]
+                    postgres_fingerprint.version = new_version
+                    logger.info("overridding postgres fingerprint ", override)
+                    postgres_fingerprint.save()
+                    logger.info("sending fingerprint override to clickhouse ", override)
+                    override_error_tracking_issue_fingerprint(**override)
+                found_issues_count += 1
+            else:
+                not_found_fingerprints.append(fingerprint)
+
+        logger.info("fingerprint overridden ", found_issues_count)
+        logger.info("fingerprints not found ", not_found_fingerprints)
