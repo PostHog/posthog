@@ -852,11 +852,15 @@ async def cancel_jobs_activity(inputs: CancelJobsActivityInputs) -> None:
 @temporalio.activity.defn
 async def fail_jobs_activity(inputs: FailJobsActivityInputs) -> None:
     """Activity to fail data modeling jobs."""
-    job = await database_sync_to_async(DataModelingJob.objects.get)(
-        workflow_id=inputs.workflow_id, workflow_run_id=inputs.workflow_run_id
-    )
-
-    await mark_job_as_failed(job, inputs.error)
+    try:
+        job = await database_sync_to_async(DataModelingJob.objects.get)(
+            workflow_id=inputs.workflow_id, workflow_run_id=inputs.workflow_run_id
+        )
+        await mark_job_as_failed(job, inputs.error)
+    except DataModelingJob.DoesNotExist:
+        await logger.ainfo(
+            "No data modeling job found to fail", workflow_id=inputs.workflow_id, workflow_run_id=inputs.workflow_run_id
+        )
 
 
 @dataclasses.dataclass
