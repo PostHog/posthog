@@ -32,7 +32,7 @@ export const chatListLogic = kea<chatListLogicType>([
             [
                 {
                     id: 1,
-                    name: 'Chat 1',
+                    name: 'aleks@posthog.com',
                     dateCreated: '2021-01-01',
                     dateUpdated: '2021-01-01',
                     messages: [
@@ -56,7 +56,7 @@ export const chatListLogic = kea<chatListLogicType>([
                 },
                 {
                     id: 2,
-                    name: 'Chat 2',
+                    name: 'jane@posthog.com',
                     dateCreated: '2021-01-01',
                     dateUpdated: '2021-01-01',
                     messages: [
@@ -88,7 +88,7 @@ export const chatListLogic = kea<chatListLogicType>([
                 },
                 {
                     id: 3,
-                    name: 'Chat 3',
+                    name: 'john@posthog.com',
                     dateCreated: '2021-01-01',
                     dateUpdated: '2021-01-01',
                     messages: [
@@ -146,12 +146,7 @@ export const chatListLogic = kea<chatListLogicType>([
             }
         },
         setSelectedChatId: ({ selectedChatId }) => {
-            // If the selected chat has undread messages, mark them as read
-            if (
-                values.chats
-                    .find((chat) => chat.id === selectedChatId)
-                    ?.messages.some((message) => message.sender === 'assistant')
-            ) {
+            if (values.chats.find((chat) => chat.id === selectedChatId)?.messages.some((message) => !message.isRead)) {
                 actions.setChats(
                     values.chats.map((chat) => {
                         if (chat.id === selectedChatId) {
