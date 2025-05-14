@@ -5,7 +5,6 @@ use common_metrics::{serve, setup_metrics_routes};
 use log_capture::config::Config;
 
 use health::HealthRegistry;
-use tokio::task::JoinHandle;
 use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
@@ -24,31 +23,10 @@ pub async fn index() -> &'static str {
     "log hog hogs logs
 
 .|||||||||.
-|||||||||||||  gimme your logs (to /logs)
-|||||||||||' .\
-`||||||||||_,__o
+|||||||||||||  gimme your logs
+|||||||||||' .\\
+`||||||||||_,__o                     (to /logs)
 "
-}
-
-fn start_health_liveness_server(
-    config: &Config,
-    health_registry: HealthRegistry,
-) -> JoinHandle<()> {
-    let config = config.clone();
-    let router = Router::new()
-        .route("/", get(index))
-        .route("/_readiness", get(index))
-        .route(
-            "/_liveness",
-            get(move || ready(health_registry.get_status())),
-        );
-    let router = setup_metrics_routes(router);
-    let bind = format!("{}:{}", config.host, config.port);
-    tokio::task::spawn(async move {
-        serve(router, &bind)
-            .await
-            .expect("failed to start serving metrics");
-    })
 }
 
 #[tokio::main]
@@ -75,5 +53,19 @@ async fn main() {
     }
 
     let health_registry = HealthRegistry::new("liveness");
-    start_health_liveness_server(&config, health_registry);
+
+    let config = config.clone();
+    let router = Router::new()
+        .route("/", get(index))
+        .route("/_readiness", get(index))
+        .route(
+            "/_liveness",
+            get(move || ready(health_registry.get_status())),
+        );
+    let router = setup_metrics_routes(router);
+    let bind = format!("{}:{}", config.host, config.port);
+    println!("Listening on {}", bind);
+    serve(router, &bind)
+        .await
+        .expect("failed to start serving metrics");
 }
