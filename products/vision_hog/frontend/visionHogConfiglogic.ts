@@ -22,6 +22,7 @@ export const visionHogConfigLogic = kea<visionHogConfigLogicType>([
         removeSuggestion: (index: number) => ({ index }),
         updateSuggestion: (index: number, value: string) => ({ index, value }),
         setSuggestionsLoading: (loading: boolean) => ({ loading }),
+        // setVideoUrl: (videoUrl: string) => ({ videoUrl }), // TODO: Uncomment after running kea typegen
     }),
 
     reducers({
@@ -49,6 +50,12 @@ export const visionHogConfigLogic = kea<visionHogConfigLogicType>([
         //     loadTempBackendData: () => null,
         //     setTempBackendError: (_, { error }) => error
         // }]
+        // videoUrl: [
+        //     '',
+        //     {
+        //         setVideoUrl: (_, { videoUrl }) => videoUrl,
+        //     },
+        // ], // TODO: Uncomment after running kea typegen
     }),
 
     listeners(({ values, actions }) => ({
