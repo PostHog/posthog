@@ -2,6 +2,7 @@ import gzip
 import json
 from typing import Any, cast
 
+from posthog.models.team.team import Team
 from posthog.storage import object_storage
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.session_recording_v2_service import list_blocks
@@ -105,10 +106,10 @@ def fetch_v1_snapshots(recording: SessionRecording) -> list[dict[str, Any]]:
     return v1_snapshots
 
 
-def fetch_v2_snapshots(recording: SessionRecording) -> list[dict[str, Any]]:
+def fetch_v2_snapshots(session_id: str, team: Team) -> list[dict[str, Any]]:
     """Fetch and transform v2 snapshots for a recording."""
     v2_snapshots: list[dict[str, Any]] = []
-    blocks = list_blocks(recording.session_id, recording.team)
+    blocks = list_blocks(session_id, team)
     if blocks:
         for block in blocks:
             try:
