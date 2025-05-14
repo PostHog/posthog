@@ -15,9 +15,9 @@ use std::future::ready;
 use std::sync::Arc;
 
 use health::HealthRegistry;
+use serde_json::json;
 use tracing::{error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
-
 mod auth;
 
 common_alloc::used!();
@@ -94,16 +94,7 @@ impl LogsService for MyLogsService {
 
         for resource_logs in export_request.resource_logs {
             // Convert resource to string for storing in ClickHouse
-            let resource_str = match &resource_logs.resource {
-                Some(resource) => {
-                    let mut attributes = Vec::new();
-                    for attr in &resource.attributes {
-                        attributes.push(format!("{}={:?}", attr.key, attr.value));
-                    }
-                    attributes.join(", ")
-                }
-                None => "".to_string(),
-            };
+            let resource_str = json!(&resource_logs.resource).to_string();
 
             for scope_logs in resource_logs.scope_logs {
                 let scope_ref = scope_logs.scope.as_ref();
