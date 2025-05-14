@@ -84,7 +84,7 @@ export function CSPReportingSettings(): JSX.Element {
                 <p>Set this URL for both the report-to and report-uri endpoints</p>
                 <CodeSnippet language={Language.Text} wrap={true}>
                     {
-                        combineUrl(`${proxyRecord}/api/cspr`, {
+                        combineUrl(`${proxyRecord}/csp`, {
                             token: currentTeam?.api_token,
                             v: includeVersion ? 1 : undefined,
                             session_id: includeSessionId ? 'ADD_THE_SESSION_ID' : undefined,
