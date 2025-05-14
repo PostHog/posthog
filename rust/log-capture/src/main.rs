@@ -7,14 +7,15 @@ use std::net::SocketAddr;
 use tonic::{transport::Server, Request, Response, Status};
 
 use axum::{routing::get, Router};
- // For easy request body deserialization
+// For easy request body deserialization
 use common_metrics::{serve, setup_metrics_routes};
+use log_capture::clickhouse::ClickHouseWriter;
 use log_capture::config::Config;
 use std::future::ready;
 use std::sync::Arc;
 
 use health::HealthRegistry;
-use tracing::info;
+use tracing::{error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
 mod auth;
@@ -41,14 +42,18 @@ pub async fn index() -> &'static str {
 }
 
 // Define our service implementation
-#[derive(Debug)]
 pub struct MyLogsService {
     config: Arc<Config>,
+    clickhouse_writer: Arc<ClickHouseWriter>,
 }
 
 impl MyLogsService {
-    pub fn new(config: Arc<Config>) -> Self {
-        Self { config }
+    pub async fn new(config: Arc<Config>) -> Result<Self, anyhow::Error> {
+        let clickhouse_writer = ClickHouseWriter::new(config.clone()).await?;
+        Ok(Self {
+            config,
+            clickhouse_writer: Arc::new(clickhouse_writer),
+        })
     }
 }
 
@@ -66,43 +71,66 @@ impl LogsService for MyLogsService {
             }
         };
 
+        // Convert team_id string to i64 for ClickHouse
+        let team_id_i64 = match team_id.parse::<i64>() {
+            Ok(id) => id,
+            Err(e) => {
+                error!("Failed to parse team_id '{}' as i64: {}", team_id, e);
+                return Err(Status::invalid_argument(format!(
+                    "Invalid team_id format: {}",
+                    team_id
+                )));
+            }
+        };
+
         info!("Authenticated request for team_id: {}", team_id);
 
         let export_request = request.into_inner();
-        println!(
+        info!(
             "Received OTLP gRPC logs request with {} resource logs for team_id: {}",
             export_request.resource_logs.len(),
             team_id
         );
 
         for resource_logs in export_request.resource_logs {
-            if let Some(resource) = resource_logs.resource {
-                println!("  Resource Attributes for team_id {}:", team_id);
-                for attr in resource.attributes {
-                    println!("    {}: {:?}", attr.key, attr.value);
+            // Convert resource to string for storing in ClickHouse
+            let resource_str = match &resource_logs.resource {
+                Some(resource) => {
+                    let mut attributes = Vec::new();
+                    for attr in &resource.attributes {
+                        attributes.push(format!("{}={:?}", attr.key, attr.value));
+                    }
+                    attributes.join(", ")
                 }
-            }
+                None => "".to_string(),
+            };
+
             for scope_logs in resource_logs.scope_logs {
-                if let Some(scope) = &scope_logs.scope {
-                    println!(
-                        "    Scope: {} ({}) for team_id {}",
+                let scope_ref = scope_logs.scope.as_ref();
+
+                if let Some(scope) = scope_ref {
+                    info!(
+                        "Processing scope: {} ({}) for team_id {}",
                         scope.name, scope.version, team_id
                     );
                 }
-                println!(
-                    "    Found {} log records in this scope for team_id {}.",
+
+                info!(
+                    "Processing {} log records in this scope for team_id {}.",
                     scope_logs.log_records.len(),
                     team_id
                 );
+
                 for log_record in scope_logs.log_records {
-                    println!(
-                        "      Log Record for team_id {}: Time: {:?}, Severity: {:?}, Body: {:?}",
-                        team_id,
-                        log_record.time_unix_nano,
-                        log_record.severity_number,
-                        log_record.body
-                    );
-                    // Access more fields: log_record.attributes, log_record.trace_id, etc.
+                    // Store log in ClickHouse
+                    if let Err(e) = self
+                        .clickhouse_writer
+                        .insert_log(team_id_i64, &log_record, &resource_str, scope_ref)
+                        .await
+                    {
+                        error!("Failed to insert log into ClickHouse: {}", e);
+                        // Continue processing other logs even if one fails
+                    }
                 }
             }
         }
@@ -138,14 +166,24 @@ async fn main() {
     let server = serve(router, &bind);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 4317)); // Standard OTLP gRPC port
-    let logs_service = MyLogsService::new(config_arc);
+
+    // Initialize ClickHouse writer and logs service
+    let logs_service = match MyLogsService::new(config_arc).await {
+        Ok(service) => service,
+        Err(e) => {
+            error!("Failed to initialize log service: {}", e);
+            panic!("Could not start log capture service: {}", e);
+        }
+    };
 
     println!("OTLP gRPC server listening on {}", addr);
     println!("JWT Authentication enabled - team_id will be extracted from Authorization header");
+    println!("Logs will be stored in ClickHouse");
 
     Server::builder()
         .add_service(LogsServiceServer::new(logs_service))
         .serve(addr)
-        .await;
+        .await
+        .unwrap();
     server.await;
 }

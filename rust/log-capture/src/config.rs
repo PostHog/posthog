@@ -11,11 +11,16 @@ pub struct Config {
     #[envconfig(from = "JWT_SECRET")]
     pub jwt_secret: String,
 
-    #[envconfig()]
-    pub clickhouse_host: String,
-    #[envconfig(default = "default")]
+    #[envconfig(default = "http://localhost:8000")]
+    pub clickhouse_url: String,
+
+    #[envconfig(from = "CLICKHOUSE_DATABASE", default = "default")]
+    pub clickhouse_database: String,
+
+    #[envconfig(from = "CLICKHOUSE_USER", default = "default")]
     pub clickhouse_user: String,
-    #[envconfig()]
+
+    #[envconfig(from = "CLICKHOUSE_PASSWORD", default = "")]
     pub clickhouse_password: String,
 }
 
