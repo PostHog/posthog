@@ -2956,6 +2956,7 @@ export enum SurveyEventProperties {
     SURVEY_ITERATION = '$survey_iteration',
     SURVEY_PARTIALLY_COMPLETED = '$survey_partially_completed',
     SURVEY_SUBMISSION_ID = '$survey_submission_id',
+    SURVEY_COMPLETED = '$survey_completed',
 }
 
 export interface SurveyEventStats {
