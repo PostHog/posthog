@@ -9,7 +9,7 @@ export function ChatInput(): JSX.Element {
     const { sendMessage, setMessage } = useActions(chatListLogic)
 
     return (
-        <div className="border-t border-gray-200 p-4 absolute bottom-0 left-0 right-0 bg-white">
+        <div className="border-t rounded border-gray-200 p-4 absolute bottom-0 left-0 right-0 bg-white">
             <div className="flex gap-2">
                 <LemonInput
                     type="text"
