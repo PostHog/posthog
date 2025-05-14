@@ -12,13 +12,22 @@ export const manifest: ProductManifest = {
             layout: 'app-container',
             activityScope: 'VisionHog',
         },
+        VisionHogConfigScene: {
+            import: () => import('./frontend/VisionHogConfigScene'),
+            name: 'VisionHog Config',
+            projectBased: true,
+            layout: 'app-container',
+            activityScope: 'VisionHog',
+        },
     },
     routes: {
         '/visionhog': ['VisionHogScene', 'visionHog'],
+        '/visionhog/config': ['VisionHogConfigScene', 'visionHogConfig'],
     },
     redirects: {},
     urls: {
         visionHog: (): string => '/visionhog',
+        visionHogConfig: (): string => '/visionhog/config',
     },
     fileSystemTypes: {},
     treeItemsNew: [],
