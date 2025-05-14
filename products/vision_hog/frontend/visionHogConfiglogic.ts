@@ -17,10 +17,22 @@ export const visionHogConfigLogic = kea<visionHogConfigLogicType>([
         // loadTempBackendData: true,
         // setTempBackendData: (data: any) => ({ data }),
         // setTempBackendError: (error: string) => ({ error }),
-        getConfigSuggestion: true,
+        getConfigSuggestion: (prompt: string) => ({ prompt }),
+        setSuggestions: (suggestions: string[]) => ({ suggestions }),
+        removeSuggestion: (index: number) => ({ index }),
+        updateSuggestion: (index: number, value: string) => ({ index, value }),
     }),
 
     reducers({
+        suggestions: [
+            [] as string[],
+            {
+                setSuggestions: (_, { suggestions }) => suggestions,
+                removeSuggestion: (state, { index }) => state.filter((_, i) => i !== index),
+                updateSuggestion: (state, { index, value }) =>
+                    state.map((suggestion, i) => (i === index ? value : suggestion)),
+            },
+        ],
         // Example: store data or loading/error states
         // tempBackendData: [null as any | null, { setTempBackendData: (_, { data }) => data }],
         // isLoadingTempBackend: [
@@ -37,9 +49,10 @@ export const visionHogConfigLogic = kea<visionHogConfigLogicType>([
         // }]
     }),
 
-    listeners(() => ({
-        getConfigSuggestion: async () => {
-            await api.streamConfig.getConfigSuggestion()
+    listeners(({ values, actions }) => ({
+        getConfigSuggestion: async ({ prompt }) => {
+            const response = await api.streamConfig.getConfigSuggestion(prompt)
+            actions.setSuggestions([...values.suggestions, ...response.suggestions])
         },
     })),
 

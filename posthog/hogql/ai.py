@@ -184,3 +184,17 @@ def hit_openai(messages, user) -> tuple[str, int, int]:
     if result.usage:
         prompt_tokens, completion_tokens = result.usage.prompt_tokens, result.usage.completion_tokens
     return content, prompt_tokens, completion_tokens
+
+
+def hit_open_ai_structured_output(messages, user, response_type) -> str:
+    if not openai_client:
+        raise ValueError("OPENAI_API_KEY environment variable not set")
+
+    result = openai_client.responses.parse(
+        model="gpt-4o-mini",
+        input=messages,
+        user=user,
+        text_format=response_type,
+    )
+
+    return result.output_parsed
