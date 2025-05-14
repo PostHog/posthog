@@ -3,6 +3,7 @@
 // The imports are preserved between builds, so please update if any are missing or extra.
 
 import {
+    IconChat,
     IconDashboard,
     IconGraph,
     IconMegaphone,
@@ -282,6 +283,8 @@ export const productUrls = {
     surveys: (tab?: SurveysTabs): string => `/surveys${tab ? `?tab=${tab}` : ''}`,
     survey: (id: string): string => `/surveys/${id}`,
     surveyTemplates: (): string => '/survey_templates',
+    userInterviews: (): string => '/user_interviews',
+    userInterview: (id: string): string => `/user_interviews/${id}`,
     webAnalytics: (): string => `/web`,
     webAnalyticsWebVitals: (): string => `/web/web-vitals`,
     webAnalyticsPageReports: (): string => `/web/page-reports`,
@@ -301,6 +304,7 @@ export const fileSystemTypes = {
     notebook: { icon: <IconNotebook />, href: (ref: string) => urls.notebook(ref) },
     session_recording_playlist: { icon: <IconRewindPlay />, href: (ref: string) => urls.replayPlaylist(ref) },
     survey: { icon: <IconMessage />, href: (ref: string) => urls.survey(ref) },
+    user_interview: { icon: <IconChat />, href: (ref: string) => urls.userInterview(ref) },
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -356,6 +360,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     { path: 'Revenue settings', iconType: 'handMoney', href: urls.revenueSettings() },
     { path: 'Session replay', href: urls.replay(ReplayTabs.Home), type: 'session_recording_playlist' },
     { path: 'Surveys', type: 'survey', href: urls.surveys() },
+    { path: 'User interviews', href: urls.userInterviews(), type: 'user_interview' },
     { path: 'Web analytics', iconType: 'pieChart', href: urls.webAnalytics() },
 ]
 
@@ -371,4 +376,5 @@ export const getTreeFilterTypes = (): Record<string, FileSystemFilterType> => ({
     notebook: { name: 'Notebooks' },
     insight: { name: 'Insights' },
     session_recording_playlist: { name: 'Replay playlists' },
+    user_interview: { name: 'User interviews' },
 })

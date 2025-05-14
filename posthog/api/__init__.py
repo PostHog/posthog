@@ -3,6 +3,7 @@ from rest_framework_extensions.routers import NestedRegistryItem
 
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 import products.early_access_features.backend.api as early_access_feature
+from products.user_interviews.backend.api import UserInterviewViewSet
 from products.editor.backend.api import LLMProxyViewSet, MaxToolsViewSet
 from products.messaging.backend.api import MessageTemplatesViewSet
 from posthog.api import data_color_theme, metalytics, project, wizard
@@ -674,5 +675,12 @@ environments_router.register(
     r"messaging_templates",
     MessageTemplatesViewSet,
     "environment_messaging_templates",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"user_interviews",
+    UserInterviewViewSet,
+    "environment_user_interviews",
     ["team_id"],
 )

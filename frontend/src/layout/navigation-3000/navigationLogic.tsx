@@ -1,6 +1,7 @@
 import {
     IconAI,
     IconArrowUpRight,
+    IconChat,
     IconCursorClick,
     IconDashboard,
     IconDatabase,
@@ -623,6 +624,12 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             icon: <IconRocket />,
                             to: urls.earlyAccessFeatures(),
                             tooltipDocLink: 'https://posthog.com/docs/feature-flags/early-access-feature-management',
+                        },
+                        {
+                            identifier: Scene.UserInterviews,
+                            label: 'User interviews',
+                            icon: <IconChat />,
+                            to: urls.userInterviews(),
                         },
                         featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY]
                             ? {
