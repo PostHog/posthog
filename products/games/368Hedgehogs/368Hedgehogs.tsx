@@ -1,5 +1,7 @@
 import { useState, useCallback, useRef } from 'react'
 import './368Hedgehogs.scss'
+import { IconInfo } from '@posthog/icons'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 // ==========================================================================
 export type Emoji = '🦔' | '🦊' | '🐍' | '🦆'
 export type Orientation = 'horizontal' | 'vertical'
@@ -97,7 +99,7 @@ function findMatches(board: Board): string[] {
 const CritterMatchGame: React.FC = () => {
     const [board, setBoard] = useState<Board>(makeEmptyBoard())
     const [piece, setPiece] = useState<Piece>(genPiece())
-    const [pointsLeft, setPointsLeft] = useState<number>(5)
+    const [pointsLeft, setPointsLeft] = useState<number>(368)
     const [clearing, setClearing] = useState<Set<string>>(new Set())
     const [gameOver, setGameOver] = useState<boolean>(false)
 
@@ -215,7 +217,17 @@ const CritterMatchGame: React.FC = () => {
     return (
         <div className="Game368Hedgehogs">
             <div className="cmg-container">
-                <h2>{gameOver ? '🎉 All animals safe!' : `${pointsLeft} animals remaining`}</h2>
+                <h2>
+                    {gameOver ? '🎉 All the hogs are safe! Well done you! 🎉' : `${pointsLeft} hogs remaining`}
+                    {!gameOver ? (
+                        <Tooltip
+                            title={`Drag the hogs onto the board. Get 3 in a row to save them. Heavily inspired by 368chickens.com`}
+                            delayMs={0}
+                        >
+                            <IconInfo className="ml-2" />
+                        </Tooltip>
+                    ) : null}
+                </h2>
 
                 {/* Board */}
                 <div className="cmg-board">
