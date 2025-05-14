@@ -60,22 +60,6 @@ export function ShortLinksScene(): JSX.Element {
                 )
             },
         },
-        // {
-        //     title: 'Link',
-        //     dataIndex: 'link' as keyof ShortLink,
-        //     render: function RenderDestination(destination: any, record: ShortLink) {
-        //         if (!destination) {
-        //             return null
-        //         }
-        //         return (
-        //             <div className="max-w-100 overflow-hidden">
-        //                 <Link to={destination} target="_blank" className="truncate">
-        //                     {destination}
-        //                 </Link>
-        //             </div>
-        //         )
-        //     },
-        // },
         createdByColumn<ShortLink>() as LemonTableColumn<ShortLink, keyof ShortLink | undefined>,
         createdAtColumn<ShortLink>() as LemonTableColumn<ShortLink, keyof ShortLink | undefined>,
         {
