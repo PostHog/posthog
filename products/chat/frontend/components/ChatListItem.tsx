@@ -19,7 +19,9 @@ export function ChatListItem({
 }): JSX.Element {
     return (
         <div
-            className={`py-2 px-3 cursor-pointer ${isActive ? 'bg-blue-100 font-semibold' : 'hover:bg-gray-200'}`}
+            className={`py-2 px-3 cursor-pointer ${
+                isActive ? 'bg-blue-100 font-semibold border-l-2 border-l-red-500' : 'hover:bg-gray-200'
+            }`}
             onClick={onClick}
         >
             <div className="font-bold text-sm mb-0.5">{user}</div>
