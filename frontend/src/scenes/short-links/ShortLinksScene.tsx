@@ -14,24 +14,76 @@ import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { useState } from 'react'
+import { Form } from 'kea-forms'
+import { LemonField } from 'lib/lemon-ui/LemonField'
+import { QRCodeSVG } from 'qrcode.react'
 
 import { ProductKey } from '~/types'
 
 import { shortLinksLogic } from './shortLinksLogic'
 
+interface ShortLink {
+    id: string
+    destination: string
+    created_at?: string
+    origin_domain?: string
+    origin_key?: string
+    custom_key?: string
+    tags?: string[] | string
+    description?: string
+    comments?: string
+    folder?: string
+    expiration_date?: string
+    password?: string
+    og_title?: string
+    og_description?: string
+    og_image?: string | File
+    utm_params?: Record<string, string>
+    targeting?: Record<string, any>
+}
+
 export function ShortLinksScene(): JSX.Element {
-    const { shortLinksLoading } = useValues(shortLinksLogic)
-    const {} = useActions(shortLinksLogic)
+    const { shortLinks, shortLinksLoading, link } = useValues(shortLinksLogic)
+    const { loadShortLinks, submitLink, setLinkValue, resetLink } = useActions(shortLinksLogic)
     
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
+    const [editingLinkId, setEditingLinkId] = useState<string | null>(null)
 
     const baseUrl = `${window.location.origin}/e`
+    
+    // Filter active and expired links
+    const activeShortLinks = shortLinks?.filter((link: ShortLink) => !link.expiration_date || new Date(link.expiration_date) > new Date()) || []
+    const expiredShortLinks = shortLinks?.filter((link: ShortLink) => link.expiration_date && new Date(link.expiration_date) <= new Date()) || []
+
+    const openCreateModal = (): void => {
+        resetLink()
+        setIsCreateModalOpen(true)
+    }
+
+    const closeCreateModal = (): void => {
+        setIsCreateModalOpen(false)
+    }
+
+    const openEditModal = (shortLink: ShortLink): void => {
+        resetLink(shortLink)
+        setEditingLinkId(shortLink.id)
+    }
+
+    const closeEditModal = (): void => {
+        setEditingLinkId(null)
+    }
+
+    const deleteShortLink = async (id: string): Promise<void> => {
+        // Implementation would go here
+        // After deletion, reload the links
+        await loadShortLinks()
+    }
 
     const columns = [
         {
             title: 'Short URL',
             dataIndex: 'id',
-            render: function RenderKey(id: string | any) {
+            render: function RenderKey(id: string) {
                 if (!id) {
                     return null
                 }
@@ -56,7 +108,7 @@ export function ShortLinksScene(): JSX.Element {
         {
             title: 'Destination',
             dataIndex: 'destination' as keyof ShortLink,
-            render: function RenderDestination(destination: string | any) {
+            render: function RenderDestination(destination: string) {
                 if (!destination) {
                     return null
                 }
@@ -70,7 +122,7 @@ export function ShortLinksScene(): JSX.Element {
         {
             title: 'Created',
             dataIndex: 'created_at' as keyof ShortLink,
-            render: function RenderDate(date: string | any) {
+            render: function RenderDate(date: string) {
                 if (!date) {
                     return null
                 }
@@ -80,7 +132,7 @@ export function ShortLinksScene(): JSX.Element {
         {
             title: 'Origin',
             dataIndex: 'origin_domain' as keyof ShortLink,
-            render: function RenderOrigin(domain: string | any) {
+            render: function RenderOrigin(domain: string) {
                 if (!domain) {
                     return <span className="text-muted">None</span>
                 }
@@ -90,7 +142,7 @@ export function ShortLinksScene(): JSX.Element {
         {
             title: 'Actions',
             dataIndex: 'id' as keyof ShortLink,
-            render: function RenderActions(id: string | any, record: ShortLink) {
+            render: function RenderActions(id: string, record: ShortLink) {
                 if (!id) {
                     return null
                 }
@@ -99,7 +151,7 @@ export function ShortLinksScene(): JSX.Element {
                         <LemonButton
                             icon={<IconPencil />}
                             size="small"
-                            onClick={() => setEditingLink(record)}
+                            onClick={() => openEditModal(record)}
                             tooltip="Edit"
                         />
                         <LemonButton
@@ -211,7 +263,7 @@ export function ShortLinksScene(): JSX.Element {
             {/* Create short link modal */}
             <LemonModal
                 isOpen={isCreateModalOpen}
-                onClose={() => setIsCreateModalOpen(false)}
+                onClose={closeCreateModal}
                 width={900}
                 closable={true}
                 footer={
@@ -252,11 +304,11 @@ export function ShortLinksScene(): JSX.Element {
                         <div>
                             <LemonButton
                                 onClick={() => {
-                                    createShortLink()
-                                    setIsCreateModalOpen(false)
+                                    submitLink()
+                                    closeCreateModal()
                                 }}
                                 type="primary"
-                                disabled={!newLink.destination}
+                                disabled={!link.destination}
                             >
                                 Create link
                             </LemonButton>
@@ -264,219 +316,155 @@ export function ShortLinksScene(): JSX.Element {
                     </div>
                 }
             >
-                <div className="flex gap-8">
-                    {/* Left side */}
-                    <div className="flex-1 space-y-6">
-                        <div>
-                            <LemonLabel>Destination URL</LemonLabel>
-                            <div className="flex items-center">
+                <Form
+                    id="link"
+                    formKey="link"
+                    logic={shortLinksLogic}
+                    className="space-y-4"
+                    enableFormOnSubmit
+                >
+                    <div className="flex gap-8">
+                        {/* Left side */}
+                        <div className="flex-1 space-y-6">
+                            <LemonField name="destination" label="Destination URL">
                                 <LemonInput
                                     placeholder="https://example.com"
-                                    value={newLink.destination}
-                                    onChange={(e) => setNewLinkDestination(e)}
                                     fullWidth
                                     autoWidth={false}
                                 />
-                                <LemonButton
-                                    icon={<IconLink />}
-                                    size="small"
-                                    className="ml-2"
-                                />
-                            </div>
-                        </div>
-                        
-                        <div>
-                            <LemonLabel>Short Link</LemonLabel>
-                            <div className="flex items-center">
-                                <div className="flex items-center border rounded px-2 py-1 mr-2 bg-bg-light">
-                                    <span className="text-muted">posthog.com/e/</span>
-                                    <LemonButton
-                                        icon={<IconChevronDown />}
-                                        size="small"
-                                        status="alt"
-                                    />
+                            </LemonField>
+                            
+                            <div className="flex flex-col gap-2">
+                                <LemonLabel>Short Link</LemonLabel>
+                                <div className="flex gap-2">
+                                    <LemonField name="origin_domain">
+                                        <LemonSelect
+                                            options={[
+                                                { label: 'postho.gg', value: 'postho.gg/' },
+                                                { label: 'phog.gg', value: 'phog.gg/' },
+                                                { label: 'hog.gg', value: 'hog.gg/' }
+                                            ]}
+                                            className="text-muted"
+                                        />
+                                    </LemonField>
+                                    <LemonField name="origin_key" className="w-full">
+                                        <LemonInput
+                                            fullWidth
+                                            placeholder="(optional)"
+                                            className="flex-1"
+                                            autoWidth={false}
+                                        />
+                                    </LemonField>
                                 </div>
-                                <LemonInput
-                                    placeholder="posthog-cdp"
-                                    value={newLink.custom_key || ''}
-                                    onChange={(e) => setNewLinkCustomKey(e)}
-                                    className="flex-1"
+                            </div>
+                            
+                            <LemonField name="tags" label="Tags">
+                                <LemonInputSelect
+                                    placeholder="Select tags..."
+                                    mode="multiple"
+                                    allowCustomValues
+                                    fullWidth
                                     autoWidth={false}
                                 />
-                                <LemonButton
-                                    icon={<IconRefresh />}
-                                    size="small"
-                                    className="ml-2"
-                                />
-                            </div>
-                        </div>
-                        
-                        <div>
-                            <div className="flex justify-between">
-                                <LemonLabel>Tags</LemonLabel>
-                                <LemonButton status="alt" size="small">Manage</LemonButton>
-                            </div>
-                            <LemonInputSelect
-                                placeholder="Select tags..."
-                                mode="multiple"
-                                allowCustomValues
-                                value={newLink.tags || []}
-                                onChange={(tags) => setNewLinkTags(tags)}
-                                fullWidth
-                                autoWidth={false}
-                            />
-                        </div>
-                        
-                        <div>
-                            <LemonLabel>Comments</LemonLabel>
-                            <LemonTextArea
-                                placeholder="Add comments"
-                                value={newLink.comments || ''}
-                                onChange={(e) => setNewLinkComments(e)}
-                                minRows={2}
-                            />
-                        </div>
-                    </div>
+                            </LemonField>
 
-                    <LemonDivider vertical />
-                    
-                    <div className="flex-1 space-y-6">
-                        <div>
-                            <div className="flex justify-between items-center">
-                                <LemonLabel>
-                                    <span className="flex items-center gap-1">
-                                        QR Code
-                                        <LemonButton status="alt" size="small" icon={<IconQrCode />} />
-                                    </span>
-                                </LemonLabel>
-                                <LemonButton
-                                    icon={<IconDownload />}
-                                    type="secondary"
-                                    size="small"
-                                >
-                                    Download
-                                </LemonButton>
-                            </div>
-                            
-                            <div className="border rounded-md p-4 mt-2 bg-bg-light flex items-center justify-center">
-                                <div className="text-center">
-                                    <div className="text-2xl mb-1">📱</div>
-                                    <div className="text-sm text-muted">QR Code will appear here</div>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div>
-                            <div className="flex justify-between items-center mb-2">
-                                <LemonLabel>Custom Link Preview</LemonLabel>
-                                <LemonSwitch
-                                    onChange={() => {}}
-                                    checked={false}
-                                    label="Enabled"
+                            <LemonField name="comments" label="Comments">
+                                <LemonTextArea
+                                    placeholder="Add comments"
+                                    minRows={2}
                                 />
-                            </div>
-                            
-                            <div className="flex gap-1 mt-2">
-                                <LemonButton type="secondary" size="small" active={true}>Global</LemonButton>
-                                <LemonButton type="secondary" size="small">Twitter</LemonButton>
-                                <LemonButton type="secondary" size="small">LinkedIn</LemonButton>
-                                <LemonButton type="secondary" size="small">Facebook</LemonButton>
-                            </div>
-                            
-                            <div className="border rounded-md p-4 mt-2 bg-bg-light flex items-center justify-center">
-                                <div className="text-center">
-                                    <div className="text-2xl mb-1">🖼️</div>
-                                    <div className="text-sm text-muted">
-                                        Upload an image or fill in the fields below
+                            </LemonField>
+                        </div>
+
+                        <LemonDivider vertical />
+                        
+                        <div className="flex-1 space-y-6 max-w-80">
+                            <div>
+                                <div className="flex justify-between items-center">
+                                    <LemonLabel>
+                                        <span className="flex items-center gap-1">
+                                            QR Code
+                                        </span>
+                                    </LemonLabel>
+                                    <div className="flex flex-row">
+                                        <LemonButton
+                                            icon={<IconDownload />}
+                                            size="xsmall"
+                                            onClick={() => {}}
+                                            tooltip="Download QR code"
+                                        />
+                                        <LemonButton
+                                            icon={<IconCopy />}
+                                            size="xsmall"
+                                            onClick={() => {}}
+                                            tooltip="Copy to clipboard"
+                                        />
+                                    </div>
+                                </div>
+                                
+                                <div className="border rounded-md p-4 mt-2 bg-bg-light flex items-center justify-center">
+                                    <div className="text-center">
+                                        <QRCodeSVG 
+                                            size={128} 
+                                            value={link.destination || "https://posthog.com"}
+                                            imageSettings={{
+                                                src: '/static/posthog-icon.svg',
+                                                height: 40,
+                                                width: 40,
+                                                excavate: true
+                                            }}
+                                        />
                                     </div>
                                 </div>
                             </div>
-
-                            <div className="mt-2">
-                                <LemonFileInput
-                                    accept="image/*"
-                                    onChange={(files) => setNewLinkOgImage(files?.[0])}
-                                    showUploadedFiles={true}
-                                    multiple={false}
-                                />
-                            </div>
-                            
-                            <div className="mt-2">
-                                <LemonLabel>OG Title</LemonLabel>
-                                <LemonInput
-                                    placeholder="Add a title..."
-                                    value={newLink.og_title || ''}
-                                    onChange={(e) => setNewLinkOgTitle(e)}
-                                    fullWidth
-                                    autoWidth={false}
-                                />
-                            </div>
-                            
-                            <div className="mt-2">
-                                <LemonLabel>OG Description</LemonLabel>
-                                <LemonTextArea
-                                    placeholder="Add a description..."
-                                    value={newLink.og_description || ''}
-                                    onChange={(e) => setNewLinkOgDescription(e)}
-                                    minRows={2}
-                                />
-                            </div>
                         </div>
                     </div>
-                </div>
+                </Form>
             </LemonModal>
 
             {/* Edit short link modal */}
-            {editingLink && (
-                <LemonModal
-                    isOpen={!!editingLink}
-                    title={
-                        <div className="flex items-center gap-2">
-                            <span>Links</span>
-                            <span className="text-muted">›</span>
-                            <div className="flex items-center gap-1">
-                                <LemonTag type="primary">E</LemonTag>
-                                <span>Edit link</span>
-                            </div>
+            <LemonModal
+                isOpen={!!editingLinkId}
+                title={
+                    <div className="flex items-center gap-2">
+                        <span>Links</span>
+                        <span className="text-muted">›</span>
+                        <div className="flex items-center gap-1">
+                            <LemonTag type="primary">E</LemonTag>
+                            <span>Edit link</span>
                         </div>
-                    }
-                    onClose={() => setEditingLink(null)}
-                    width={900}
-                    closable={true}
-                    footer={
-                        <div className="flex justify-end">
-                            <LemonButton
-                                onClick={() => setEditingLink(null)} 
-                                type="secondary"
-                                className="mr-2"
-                            >
-                                Cancel
-                            </LemonButton>
-                            <LemonButton
-                                type="primary"
-                                onClick={() => {
-                                    if (editingLink) {
-                                        updateShortLink(editingLink.id, {
-                                            destination: editingLink.destination,
-                                            expiration_date: editingLink.expiration_date,
-                                            custom_key: editingLink.custom_key,
-                                            tags: editingLink.tags,
-                                            comments: editingLink.comments,
-                                            folder: editingLink.folder,
-                                            password: editingLink.password,
-                                            og_title: editingLink.og_title,
-                                            og_description: editingLink.og_description,
-                                            og_image: editingLink.og_image,
-                                            utm_params: editingLink.utm_params,
-                                            targeting: editingLink.targeting,
-                                        })
-                                    }
-                                }}
-                            >
-                                Save
-                            </LemonButton>
-                        </div>
-                    }
+                    </div>
+                }
+                onClose={closeEditModal}
+                width={900}
+                closable={true}
+                footer={
+                    <div className="flex justify-end">
+                        <LemonButton
+                            onClick={closeEditModal} 
+                            type="secondary"
+                            className="mr-2"
+                        >
+                            Cancel
+                        </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            onClick={() => {
+                                submitLink()
+                                closeEditModal()
+                            }}
+                        >
+                            Save
+                        </LemonButton>
+                    </div>
+                }
+            >
+                <Form
+                    id="link"
+                    formKey="link"
+                    logic={shortLinksLogic}
+                    className="space-y-4"
+                    enableFormOnSubmit
                 >
                     <div className="flex gap-8">
                         {/* Left side */}
@@ -484,141 +472,89 @@ export function ShortLinksScene(): JSX.Element {
                             <div>
                                 <LemonLabel>Short URL</LemonLabel>
                                 <div className="flex items-center border rounded px-2 py-1 bg-bg-light font-mono">
-                                    {baseUrl}/{editingLink.id}
+                                    {baseUrl}/{link.id}
                                     <LemonButton
                                         icon={<IconCopy />}
                                         size="small"
                                         className="ml-2"
                                         onClick={() => {
-                                            void navigator.clipboard.writeText(`${baseUrl}/${editingLink.id}`)
+                                            void navigator.clipboard.writeText(`${baseUrl}/${link.id}`)
                                         }}
                                     />
                                 </div>
                             </div>
                             
-                            <div>
-                                <LemonLabel>Destination URL</LemonLabel>
-                                <div className="flex items-center">
-                                    <LemonInput
-                                        placeholder="https://example.com"
-                                        value={editingLink.destination}
-                                        onChange={(e) =>
-                                            setEditingLink({
-                                                ...editingLink,
-                                                destination: e,
-                                            })
-                                        }
-                                        fullWidth
-                                        autoWidth={false}
-                                    />
-                                    <LemonButton
-                                        icon={<IconLink />}
-                                        size="small"
-                                        className="ml-2"
-                                    />
-                                </div>
-                            </div>
+                            <LemonField name="destination" label="Destination URL">
+                                <LemonInput
+                                    placeholder="https://example.com"
+                                    fullWidth
+                                    autoWidth={false}
+                                />
+                            </LemonField>
                             
-                            <div>
+                            <div className="flex flex-col gap-2">
                                 <LemonLabel>Short Link</LemonLabel>
-                                <div className="flex items-center">
-                                    <div className="flex items-center border rounded px-2 py-1 mr-2 bg-bg-light">
-                                        <span className="text-muted">posthog.com/e/</span>
-                                        <LemonButton
-                                            icon={<IconChevronDown />}
-                                            size="small"
-                                            status="alt"
+                                <div className="flex gap-2">
+                                    <LemonField name="origin_domain">
+                                        <LemonSelect
+                                            options={[
+                                                { label: 'postho.gg', value: 'postho.gg/' },
+                                                { label: 'phog.gg', value: 'phog.gg/' },
+                                                { label: 'hog.gg', value: 'hog.gg/' }
+                                            ]}
+                                            className="text-muted"
                                         />
-                                    </div>
-                                    <LemonInput
-                                        placeholder="custom-key"
-                                        value={editingLink.custom_key || ''}
-                                        onChange={(e) =>
-                                            setEditingLink({
-                                                ...editingLink,
-                                                custom_key: e,
-                                            })
-                                        }
-                                        className="flex-1"
-                                        autoWidth={false}
-                                    />
+                                    </LemonField>
+                                    <LemonField name="origin_key" className="w-full">
+                                        <LemonInput
+                                            fullWidth
+                                            placeholder="(optional)"
+                                            className="flex-1"
+                                            autoWidth={false}
+                                        />
+                                    </LemonField>
                                 </div>
                             </div>
                             
-                            <div>
-                                <div className="flex justify-between">
-                                    <LemonLabel>Tags</LemonLabel>
-                                    <LemonButton status="alt" size="small">Manage</LemonButton>
-                                </div>
+                            <LemonField name="tags" label="Tags">
                                 <LemonInputSelect
                                     placeholder="Select tags..."
                                     mode="multiple"
                                     allowCustomValues
-                                    value={editingLink.tags || []}
-                                    onChange={(tags) =>
-                                        setEditingLink({
-                                            ...editingLink,
-                                            tags,
-                                        })
-                                    }
                                     fullWidth
                                     autoWidth={false}
                                 />
-                            </div>
-                            
-                            <div>
-                                <LemonLabel>Comments</LemonLabel>
+                            </LemonField>
+
+                            <LemonField name="comments" label="Comments">
                                 <LemonTextArea
                                     placeholder="Add comments"
-                                    value={editingLink.comments || ''}
-                                    onChange={(e) =>
-                                        setEditingLink({
-                                            ...editingLink,
-                                            comments: e,
-                                        })
-                                    }
                                     minRows={2}
                                 />
-                            </div>
+                            </LemonField>
                             
-                            <div>
-                                <LemonLabel>Folder</LemonLabel>
+                            <LemonField name="folder" label="Folder">
                                 <LemonSelect
                                     options={[
                                         { value: 'Links', label: 'Links' },
                                         { value: 'Marketing', label: 'Marketing' },
                                         { value: 'Social', label: 'Social' },
                                     ]}
-                                    value={editingLink.folder || 'Links'}
-                                    onChange={(val) => 
-                                        val && setEditingLink({
-                                            ...editingLink,
-                                            folder: val,
-                                        })
-                                    }
                                     fullWidth
                                 />
-                            </div>
+                            </LemonField>
                             
-                            <div>
-                                <LemonLabel>Expiration Date (optional)</LemonLabel>
+                            <LemonField name="expiration_date" label="Expiration Date (optional)">
                                 <LemonInput
                                     type="text"
                                     placeholder="YYYY-MM-DD"
-                                    value={editingLink.expiration_date || ''}
-                                    onChange={(e) =>
-                                        setEditingLink({
-                                            ...editingLink,
-                                            expiration_date: e || undefined,
-                                        })
-                                    }
                                     fullWidth
                                     autoWidth={false}
                                 />
                                 <div className="text-muted text-xs mt-1">
                                     The link will stop working after this date
                                 </div>
-                            </div>
+                            </LemonField>
                         </div>
                         
                         {/* Right side */}
@@ -642,8 +578,16 @@ export function ShortLinksScene(): JSX.Element {
                                 
                                 <div className="border rounded-md p-4 mt-2 bg-bg-light flex items-center justify-center">
                                     <div className="text-center">
-                                        <div className="text-2xl mb-1">📱</div>
-                                        <div className="text-sm text-muted">QR Code will appear here</div>
+                                        <QRCodeSVG 
+                                            size={128} 
+                                            value={link.destination || "https://posthog.com"}
+                                            imageSettings={{
+                                                src: '/static/posthog-icon.svg',
+                                                height: 40,
+                                                width: 40,
+                                                excavate: true
+                                            }}
+                                        />
                                     </div>
                                 </div>
                             </div>
@@ -665,78 +609,45 @@ export function ShortLinksScene(): JSX.Element {
                                     <LemonButton type="secondary" size="small">Facebook</LemonButton>
                                 </div>
                                 
-                                {editingLink.og_image ? (
-                                    <div className="border rounded-md p-2 mt-2">
-                                        <img 
-                                            src={typeof editingLink.og_image === 'string' ? editingLink.og_image : URL.createObjectURL(editingLink.og_image)} 
-                                            alt="Preview" 
-                                            className="w-full h-32 object-cover rounded"
-                                        />
-                                        <div className="mt-2">
-                                            <div className="font-medium">{editingLink.og_title || 'Title'}</div>
-                                            <div className="text-sm text-gray-500">{editingLink.og_description || 'Description'}</div>
+                                <div className="border rounded-md p-4 mt-2 bg-bg-light flex items-center justify-center">
+                                    <div className="text-center">
+                                        <div className="text-2xl mb-1">🖼️</div>
+                                        <div className="text-sm text-muted">
+                                            Upload an image or fill in the fields below
                                         </div>
                                     </div>
-                                ) : (
-                                    <div className="border rounded-md p-4 mt-2 bg-bg-light flex items-center justify-center">
-                                        <div className="text-center">
-                                            <div className="text-2xl mb-1">🖼️</div>
-                                            <div className="text-sm text-muted">
-                                                Upload an image or fill in the fields below
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
+                                </div>
 
                                 <div className="mt-2">
                                     <LemonFileInput
                                         accept="image/*"
                                         onChange={(files) => 
-                                            setEditingLink({
-                                                ...editingLink,
-                                                og_image: files?.[0],
-                                            })
+                                            setLinkValue('og_image', files?.[0])
                                         }
                                         showUploadedFiles={true}
                                         multiple={false}
                                     />
                                 </div>
                                 
-                                <div className="mt-2">
-                                    <LemonLabel>OG Title</LemonLabel>
+                                <LemonField name="og_title" label="OG Title">
                                     <LemonInput
                                         placeholder="Add a title..."
-                                        value={editingLink.og_title || ''}
-                                        onChange={(e) =>
-                                            setEditingLink({
-                                                ...editingLink,
-                                                og_title: e,
-                                            })
-                                        }
                                         fullWidth
                                         autoWidth={false}
                                     />
-                                </div>
+                                </LemonField>
                                 
-                                <div className="mt-2">
-                                    <LemonLabel>OG Description</LemonLabel>
+                                <LemonField name="og_description" label="OG Description">
                                     <LemonTextArea
                                         placeholder="Add a description..."
-                                        value={editingLink.og_description || ''}
-                                        onChange={(e) =>
-                                            setEditingLink({
-                                                ...editingLink,
-                                                og_description: e,
-                                            })
-                                        }
                                         minRows={2}
                                     />
-                                </div>
+                                </LemonField>
                             </div>
                         </div>
                     </div>
-                </LemonModal>
-            )}
+                </Form>
+            </LemonModal>
         </div>
     )
 }
