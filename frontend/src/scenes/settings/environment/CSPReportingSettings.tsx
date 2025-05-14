@@ -1,3 +1,4 @@
+import { IconInfo } from '@posthog/icons'
 import { LemonBanner, LemonCheckbox, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { combineUrl } from 'kea-router'
@@ -46,34 +47,39 @@ export function CSPReportingSettings(): JSX.Element {
                 directives, converting violations into an event. Letting you track and alert on them just like any other
                 event.
             </p>
-            <p>
-                <LemonBanner type="info">
-                    We accept some additional parameters on the report URL. Some of these require that you add
-                    information when generating the headers for your pages. <Link>See our docs for some examples.</Link>
+            <div className="flex flex-col gap-2">
+                <LemonBanner type="info" hideIcon={true}>
+                    <div className="flex flex-row items-center gap-x-2">
+                        <IconInfo />
+                        <div>
+                            We accept some additional parameters on the report URL. These require that you add
+                            information when adding the URL to your pages. <Link>See our docs for some examples.</Link>
+                        </div>
+                    </div>
                 </LemonBanner>
                 <div>
                     <LemonCheckbox
-                        label="session_id: the PostHog UUIDv7 session id"
-                        checked={includeSessionId}
-                        onChange={setIncludeSessionId}
-                    />
-                    <LemonCheckbox
-                        label="distinct_id: the distinct id for the current user"
-                        checked={includeDistinctId}
-                        onChange={setIncludeDistinctId}
-                    />
-                    <LemonCheckbox
-                        label="version: the version for the current CSP"
+                        label="version: the version for the current CSP. This helps you track impact of changes to your CSP."
                         checked={includeVersion}
                         onChange={setIncludeVersion}
                     />
                     <LemonCheckbox
-                        label="sample_rate: the sample rate for the current CSP"
+                        label="session_id: the PostHog UUIDv7 session id. Helps you link CSP violations to session replay."
+                        checked={includeSessionId}
+                        onChange={setIncludeSessionId}
+                    />
+                    <LemonCheckbox
+                        label="distinct_id: the distinct id for the current user. So you can track which users are being affected"
+                        checked={includeDistinctId}
+                        onChange={setIncludeDistinctId}
+                    />
+                    <LemonCheckbox
+                        label="sample_rate: the sample rate for the current CSP. Lets you control the volume of reports you ingest."
                         checked={includeSampleRate}
                         onChange={setIncludeSampleRate}
                     />
                 </div>
-            </p>
+            </div>
             <div className="gap-y-2">
                 <p>Set this URL for both the report-to and report-uri endpoints</p>
                 <CodeSnippet language={Language.Text} wrap={true}>
