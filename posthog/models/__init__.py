@@ -92,6 +92,7 @@ from .user import User, UserManager
 from .user_group import UserGroup, UserGroupMembership
 from .user_scene_personalisation import UserScenePersonalisation
 from .web_experiment import WebExperiment
+from .betting import BetDefinition, ProbabilityDistribution, Bet, TransactionLedger
 from products.early_access_features.backend.models import EarlyAccessFeature
 
 __all__ = [
@@ -196,6 +197,11 @@ __all__ = [
     "ScheduledChange",
     "WebExperiment",
     "Comment",
+    # Betting models
+    "BetDefinition",
+    "ProbabilityDistribution",
+    "Bet",
+    "TransactionLedger",
     # Deprecated models here for backwards compatibility
     "Prompt",
     "PromptSequence",
