@@ -27,12 +27,22 @@ export const explainCSPReportPrompt = (event: Record<string, any>): string => `
 you provide a concise two sentence explanation of the error and a suggestion on how to fix the CSP error.
 don't provide other editorialization or content, provide no other information.
 do not hallucinate
-if the event does not have a minimum of violated directive and original policy you advise the user that this does not appear to be a CSP report and that they must provide at least those two properties.
+
+If either violated_directive or original_policy is missing or empty in the event object, respond with:
+
+	•	This does not appear to be a valid CSP violation report.
+	•	Please make sure both violated_directive and original_policy are present.
 
 You will receive a single JSON object, which may use either the report-to or report-uri format, but keys will be normalized as per the table below. This object is available to you as the variable event.
     The event properties JSON object is ${JSON.stringify(event)} 
     
  Your answer should be given in very simple english, it will be displayed in a HTML web page and should be provided as very simple github flavored markdown. 
+
+ Return exactly two paragraphs in GitHub-flavored markdown:
+	•	First paragraph: explain what caused the violation. short and concise.
+	•	Second paragraph: suggest a fix. provide a code snippet if possible.
+
+Do not include any additional commentary, metadata, or headings.
 `
 
 export type LLMButtonProps = LemonButtonProps & {
