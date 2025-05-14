@@ -1,4 +1,4 @@
-import { LemonCheckbox, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCheckbox, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
@@ -44,7 +44,10 @@ export function CSPReportingSettings(): JSX.Element {
                 event.
             </p>
             <p>
-                We accept some additional parameters which you can add from your backend.
+                <LemonBanner type="info">
+                    We accept some additional parameters on the report URL. Some of these require that you add
+                    information when generating the headers for your pages. <Link>See our docs for some examples.</Link>
+                </LemonBanner>
                 <div>
                     <LemonCheckbox
                         label="session_id: the PostHog UUIDv7 session id"
