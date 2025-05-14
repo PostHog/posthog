@@ -3639,6 +3639,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "log_capture"
+version = "0.1.0"
+dependencies = [
+ "axum 0.7.5",
+ "common-alloc",
+ "common-metrics",
+ "envconfig",
+ "health",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "lru"
 version = "0.12.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
