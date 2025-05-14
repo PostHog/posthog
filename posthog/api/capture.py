@@ -25,6 +25,7 @@ from typing import Any, Optional, Literal
 
 from ee.billing.quota_limiting import QuotaLimitingCaches
 from posthog.api.utils import get_data, get_token, safe_clickhouse_string
+from posthog.api.csp import process_csp_report
 from posthog.cache_utils import cache_for
 from posthog.exceptions import generate_exception_response
 from posthog.exceptions_capture import capture_exception
@@ -38,7 +39,7 @@ from posthog.kafka_client.topics import (
 )
 from posthog.logging.timing import timed
 from posthog.metrics import KLUDGES_COUNTER, LABEL_RESOURCE_TYPE
-from posthog.models.utils import UUIDT, uuid7
+from posthog.models.utils import UUIDT
 from posthog.redis import get_client
 from posthog.session_recordings.session_recording_helpers import (
     preprocess_replay_events_for_blob_ingestion,
@@ -428,25 +429,10 @@ def get_event(request):
     if request.method == "OPTIONS":
         return cors_response(request, JsonResponse({"status": 1}))
 
-    # This is the dumbest possible way to do it, but it will keep everything else working as far as I understand it.
-    csp_report = None
-    if request.content_type == "application/csp-report":
-        try:
-            csp_data = json.loads(request.body)
-            # TODO: Could we get it from the cookie? People may very well want to use posthog just for this but we should support our current users.
-            distinct_id = request.GET.get("distinct_id") or str(uuid7())
-            if "csp-report" in csp_data:
-                csp_report = csp_data[
-                    "csp-report"
-                ]
-
-                # TODO: Sanitize input, specially script-related stuff.
-                csp_report = {"event": "$csp_violation", "distinct_id": distinct_id, "properties": {**csp_report}}
-        except json.JSONDecodeError:
-            return cors_response(
-                request,
-                generate_exception_response("capture", "Invalid CSP report format", code="invalid_payload"),
-            )
+    # Process CSP reports first so we can keep the ingestion pipeline working as it was
+    csp_report, error_response = process_csp_report(request)
+    if error_response:
+        return error_response
 
     now = timezone.now()
 
