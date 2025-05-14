@@ -51,10 +51,7 @@ export function CreateEnvironmentModal({
                     Use environments to keep your data completely separate, while sharing the setup (such as dashboards
                     or taxonomy). A common pattern is having separate production, staging, and development environments.
                     <br />
-                    <Link
-                        to="https://posthog.com/docs/settings/projects-and-environments#what-are-environments"
-                        target="_blank"
-                    >
+                    <Link to="https://posthog.com/docs/settings/projects" target="_blank" disableDocsPanel>
                         Learn more in PostHog docs.
                     </Link>
                 </p>
