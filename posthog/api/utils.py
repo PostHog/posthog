@@ -195,7 +195,7 @@ def get_project_id(data, request) -> Optional[int]:
     return None
 
 
-def get_data(request, csp_report = None):
+def get_data(request, csp_report=None):
     data = None
     if csp_report:
         return csp_report, None
