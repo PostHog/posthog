@@ -57,6 +57,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     RevenueAnalytics: () => import('../../products/revenue_analytics/frontend/RevenueAnalyticsScene'),
     VisionHogScene: () => import('../../products/vision_hog/frontend/VisionHogScene'),
     VisionHogConfigScene: () => import('../../products/vision_hog/frontend/VisionHogConfigScene'),
+    VisionHogVideoPlayerScene: () => import('../../products/vision_hog/frontend/VisionHogVideoPlayerScene'),
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -85,6 +86,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/revenue_analytics': ['RevenueAnalytics', 'revenueAnalytics'],
     '/visionhog': ['VisionHogScene', 'visionHog'],
     '/visionhog/config': ['VisionHogConfigScene', 'visionHogConfig'],
+    '/visionhog/camera/:id': ['VisionHogVideoPlayerScene', 'visionHogVideoPlayer'],
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -141,6 +143,12 @@ export const productConfiguration: Record<string, any> = {
     VisionHogScene: { name: 'VisionHog', projectBased: true, layout: 'app-container', activityScope: 'VisionHog' },
     VisionHogConfigScene: {
         name: 'VisionHog Config',
+        projectBased: true,
+        layout: 'app-container',
+        activityScope: 'VisionHog',
+    },
+    VisionHogVideoPlayerScene: {
+        name: 'VisionHog Video Player',
         projectBased: true,
         layout: 'app-container',
         activityScope: 'VisionHog',
@@ -291,6 +299,7 @@ export const productUrls = {
     surveyTemplates: (): string => '/survey_templates',
     visionHog: (): string => '/visionhog',
     visionHogConfig: (): string => '/visionhog/config',
+    visionHogVideoPlayer: (id: string): string => `/visionhog/camera/${id}`,
     webAnalytics: (): string => `/web`,
     webAnalyticsWebVitals: (): string => `/web/web-vitals`,
     webAnalyticsPageReports: (): string => `/web/page-reports`,

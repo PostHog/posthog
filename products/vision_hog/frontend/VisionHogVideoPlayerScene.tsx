@@ -2,7 +2,6 @@ import { LemonTabs } from '@posthog/lemon-ui'
 import flvjs from 'flv.js'
 import Hls from 'hls.js'
 import { useActions, useValues } from 'kea'
-import { VisionHogVideoPlayerScene } from 'products/vision_hog/frontend/VisionHogVideoPlayerScene'
 import React from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -45,11 +44,11 @@ const MOCK_EVENTS = [
 ]
 
 export const scene: SceneExport = {
-    component: VisionHogScene,
+    component: VisionHogVideoPlayerScene,
     logic: someLogic,
 }
 
-export function VisionHogScene(): JSX.Element {
+export function VisionHogVideoPlayerScene(): JSX.Element {
     const { videoUrl } = useValues(someLogic)
     const { setVideoUrl } = useActions(someLogic)
     const videoRef = React.useRef<HTMLVideoElement>(null)
@@ -195,11 +194,6 @@ export function VisionHogScene(): JSX.Element {
                         key: 'config',
                         label: 'Config',
                         content: <VisionHogConfigScene />,
-                    },
-                    {
-                        key: 'player',
-                        label: 'Player',
-                        content: <VisionHogVideoPlayerScene />,
                     },
                 ]}
             />
