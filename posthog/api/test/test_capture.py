@@ -2403,3 +2403,47 @@ class TestCapture(BaseTest):
         self.assertEqual(event_data["properties"]["document-uri"], "https://example.com/foo/bar")
         self.assertEqual(event_data["properties"]["violated-directive"], "default-src self")
         self.assertEqual(event_data["properties"]["blocked-uri"], "https://evil.com/malicious-image.png")
+
+    def test_capture_csp_invalid_json_does_not_crash(self):
+        response = self.client.post(
+            f"/csp/?token={self.team.api_token}",
+            data="this is not valid json",
+            content_type="application/csp-report",
+        )
+
+        # Should return 400 Bad Request
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
+        self.assertIn("Invalid CSP report format", response.json()["detail"])
+        self.assertEqual(response.json()["code"], "invalid_payload")
+
+    def test_capture_csp_invalid_report_format_does_not_crash(self):
+        """Test handling of valid JSON but invalid CSP report format"""
+        invalid_csp_report = {"not-a-csp-report": "invalid format"}
+
+        # The endpoint returns 400 for invalid report format
+        response = self.client.post(
+            f"/csp/?token={self.team.api_token}",
+            data=json.dumps(invalid_csp_report),
+            content_type="application/csp-report",
+        )
+
+        # Should return 400 Bad Request
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
+
+    @patch("posthog.api.csp.parse_properties")
+    def test_capture_csp_unexpected_error_does_not_crash(self, mock_parse_properties):
+        # Mock parse_properties to raise an unexpected exception
+        mock_parse_properties.side_effect = Exception("Unexpected processing error")
+
+        csp_report = {"csp-report": {"document-uri": "https://example.com/foo/bar"}}
+
+        # The endpoint returns 400 for unexpected errors during CSP processing
+        response = self.client.post(
+            f"/csp/?token={self.team.api_token}",
+            data=json.dumps(csp_report),
+            content_type="application/csp-report",
+        )
+
+        # Should return 400 Bad Request
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
+        mock_parse_properties.assert_called_once()

@@ -7,20 +7,75 @@ from posthog.models.utils import uuid7
 
 logger = structlog.get_logger(__name__)
 
+"""
+| Normalized Key        | report-to format                     | report-uri format                  |
+| --------------------- | ------------------------------------ | ---------------------------------- |
+| `document_url`        | `body.documentURL`                   | `csp-report.document-uri`          |
+| `referrer`            | `body.referrer`                      | `csp-report.referrer`              |
+| `violated_directive`  | *inferred from* `effectiveDirective` | `csp-report.violated-directive`    |
+| `effective_directive` | `body.effectiveDirective`            | `csp-report.effective-directive`   |
+| `original_policy`     | `body.originalPolicy`                | `csp-report.original-policy`       |
+| `disposition`         | `body.disposition`                   | `csp-report.disposition`           |
+| `blocked_url`         | `body.blockedURL`                    | `csp-report.blocked-uri`           |
+| `line_number`         | `body.lineNumber`                    | `csp-report.line-number`           |
+| `column_number`       | `body.columnNumber`                  | *not available*                    |
+| `source_file`         | `body.sourceFile`                    | `csp-report.source-file`           |
+| `status_code`         | `body.statusCode`                    | `csp-report.status-code`           |
+| `script_sample`       | `body.sample`                        | `csp-report.script-sample`         |
+| `user_agent`          | top-level `user_agent`               | *custom extract from headers*      |
+| `report_type`         | top-level `type`                     | `"csp-violation"` (static/assumed) |
+"""
+
 
 # https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/report-uri
 def parse_report_uri(data: dict) -> dict:
     report_uri_data = data["csp-report"]
-    current_url = report_uri_data.get("document-uri")
-    properties = {"$current_url": current_url, **report_uri_data}
+    # Map report-uri format to normalized keys
+    properties = {
+        "report_type": "csp-violation",
+        "$current_url": report_uri_data.get("document-uri"),
+        "document_url": report_uri_data.get("document-uri"),
+        "referrer": report_uri_data.get("referrer"),
+        "violated_directive": report_uri_data.get("violated-directive"),
+        "effective_directive": report_uri_data.get("effective-directive"),
+        "original_policy": report_uri_data.get("original-policy"),
+        "disposition": report_uri_data.get("disposition"),
+        "blocked_url": report_uri_data.get("blocked-uri"),
+        "line_number": report_uri_data.get("line-number"),
+        "source_file": report_uri_data.get("source-file"),
+        "status_code": report_uri_data.get("status-code"),
+        "script_sample": report_uri_data.get("script-sample"),
+        "raw_report": data,  # While we're testing, keep the raw report for debugging
+    }
     return properties
 
 
 # https://developer.mozilla.org/en-US/docs/Web/API/CSPViolationReportBody#obtaining_a_cspviolationreportbody_object
 def parse_report_to(data: dict) -> dict:
     report_to_data = data.get("body", {})
-    current_url = report_to_data.get("documentURL") or report_to_data.get("document-uri") or data.get("url")
-    properties = {"$current_url": current_url, **report_to_data}
+    user_agent = data.get("user_agent") or report_to_data.get("user-agent")
+    report_type = data.get("type")
+
+    # Map report-to format to normalized keys
+    properties = {
+        "report_type": report_type,
+        "$current_url": report_to_data.get("documentURL") or report_to_data.get("document-uri") or data.get("url"),
+        "document_url": report_to_data.get("documentURL") or report_to_data.get("document-uri"),
+        "referrer": report_to_data.get("referrer"),
+        "violated_directive": report_to_data.get("effectiveDirective")
+        or report_to_data.get("violated-directive"),  # Inferring from effectiveDirective
+        "effective_directive": report_to_data.get("effectiveDirective"),
+        "original_policy": report_to_data.get("originalPolicy"),
+        "disposition": report_to_data.get("disposition"),
+        "blocked_url": report_to_data.get("blockedURL") or report_to_data.get("blocked-uri"),
+        "line_number": report_to_data.get("lineNumber"),
+        "column_number": report_to_data.get("columnNumber"),
+        "source_file": report_to_data.get("sourceFile"),
+        "status_code": report_to_data.get("statusCode"),
+        "script_sample": report_to_data.get("sample"),
+        "user_agent": user_agent,
+        "raw_report": data,  # Keep the raw report for debugging
+    }
     return properties
 
 
@@ -45,29 +100,35 @@ def process_csp_report(request):
             - csp_report: The formatted CSP report as a PostHog event, or None if processing failed
             - error_response: An error response to return to the client if processing failed, or None if successful
     """
-    # Early return if the request is not a CSP report and keep the ingestion pipeline working as it was
-    if request.content_type != "application/csp-report" and request.content_type != "application/reports+json":
-        return None, None
-
     try:
-        csp_data = json.loads(request.body)
-        # Try to get distinct_id from query params or generate a new one
-        distinct_id = request.GET.get("distinct_id") or request.GET.get("id") or str(uuid7())
-
-        try:
-            properties = parse_properties(csp_data)
-
-            return {
-                "event": "$csp_violation",
-                "distinct_id": distinct_id,
-                "properties": properties,
-            }, None
-        except ValueError as e:
-            logger.exception("Invalid CSP report parsing", error=e)
+        # If this is not looking like like a CSP report, keep the ingestion pipeline working as it was
+        if request.content_type != "application/csp-report" and request.content_type != "application/reports+json":
             return None, None
 
+        csp_data = json.loads(request.body)
+
+        distinct_id = request.GET.get("distinct_id") or request.GET.get("id") or str(uuid7())
+        session_id = request.GET.get("session_id") or request.GET.get("id") or str(uuid7())
+        version = request.GET.get("v") or "unknown"
+
+        properties = parse_properties(csp_data)
+
+        return {
+            "event": "$csp_violation",
+            "distinct_id": distinct_id,
+            "properties": {**properties, "$session_id": session_id, "csp_version": version},
+        }, None
+
+    # In order to be safe, we wan't to keep the ingestion pipeline working as it was
+    # so if anything tricky happens, we return None, None to pretend we were never here
     except json.JSONDecodeError:
         return None, cors_response(
             request,
             generate_exception_response("capture", "Invalid CSP report format", code="invalid_payload"),
         )
+    except ValueError as e:
+        logger.exception("Invalid CSP report properties are being parsed", error=e)
+        return None, None
+    except Exception as e:
+        logger.exception("Error processing CSP report", error=e)
+        return None, None
