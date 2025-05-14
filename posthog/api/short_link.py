@@ -20,7 +20,7 @@ logger = structlog.get_logger(__name__)
 
 class ShortLinkSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
-    
+
     class Meta:
         model = ShortLink
         fields = [
@@ -48,7 +48,7 @@ class ShortLinkSerializer(serializers.ModelSerializer):
             description=validated_data.get("description"),
             tags=validated_data.get("tags"),
             comments=validated_data.get("comments"),
-            created_by=self.context["request"].user
+            created_by=self.context["request"].user,
         )
 
         logger.info("short_link_created", id=short_link.id, team_id=team.id)
