@@ -5,6 +5,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { VideoStreamPlayer } from './VideoStreamPlayer'
 import { VisionHogConfigScene } from './VisionHogConfigScene'
+import { VisionHogHistory } from './VisionHogHistory'
 // import { useActions, useValues } from 'kea' // Uncomment if you use actions/values from logic
 import { visionHogSceneLogic } from './visionHogSceneLogic'
 
@@ -46,6 +47,11 @@ export function VisionHogScene(): JSX.Element {
                                 </div>
                             </div>
                         ),
+                    },
+                    {
+                        key: 'history',
+                        label: 'History',
+                        content: <VisionHogHistory />,
                     },
                     {
                         key: 'config',

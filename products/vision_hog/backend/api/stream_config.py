@@ -11,6 +11,10 @@ from posthog.hogql.ai import hit_open_ai_structured_output
 from pydantic import BaseModel
 from rest_framework import serializers
 from posthog.models import StreamConfig
+import requests
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class EventSuggestions(BaseModel):
@@ -36,23 +40,6 @@ class StreamConfigSerializer(serializers.ModelSerializer):
         model = StreamConfig
         fields = ["id", "team_id", "stream_url", "events"]
 
-    def create(self, validated_data):
-        team_id = self.context["team_id"]
-        validated_data["team_id"] = team_id
-        return super().create(validated_data)
-
-
-class StreamConfigViewSet(
-    TeamAndOrgViewSetMixin,
-    ForbidDestroyModel,
-    viewsets.ModelViewSet,
-):
-    scope_object = "INTERNAL"
-    permission_classes = [IsAuthenticated]
-
-    serializer_class = StreamConfigSerializer
-    queryset = StreamConfig.objects.all()
-
     def _generate_analysis_prompt(self, events: list[str]) -> str:
         base_prompt = f"""Analyze this video of a retail environment and identify key customer events and interactions.
 For each event, provide a description and its approximate timestamp in the video.
@@ -69,17 +56,17 @@ Return the output as a valid JSON array of objects that follows PostHog's event 
 
 Example of expected JSON output:
 [
-  {
-    "event": "{events[0]}",
-    "properties": {
+  {{
+    "event": "{events[0] if events else 'example_event'}",
+    "properties": {{
       "timestamp": "00:00:15",
       "distinct_id": "camera_customer_1",
       "description": "Customer enters through the main entrance",
       "location": "entrance",
       "duration_seconds": 5,
       "interaction_type": "entry_exit"
-    }
-  }
+    }}
+  }}
 ]
 
 Ensure the output is only the JSON array and nothing else.
@@ -89,6 +76,32 @@ If no specific events are identifiable, return an empty array []."""
         events_prompt = f"\n\nTrack these specific events: {', '.join(events)}" if events else ""
 
         return base_prompt + events_prompt
+
+    def _save_prompt(self, prompt: str):
+        try:
+            response = requests.post("http://192.168.168.86:8000/prompt", json={"prompt": prompt}, timeout=5)
+            response.raise_for_status()
+        except requests.RequestException:
+            logger.exception("Failed to save prompt")
+
+    def create(self, validated_data):
+        team_id = self.context["team_id"]
+        validated_data["team_id"] = team_id
+        prompt = self._generate_analysis_prompt(validated_data["events"])
+        self._save_prompt(prompt)
+        return super().create(validated_data)
+
+
+class StreamConfigViewSet(
+    TeamAndOrgViewSetMixin,
+    ForbidDestroyModel,
+    viewsets.ModelViewSet,
+):
+    scope_object = "INTERNAL"
+    permission_classes = [IsAuthenticated]
+
+    serializer_class = StreamConfigSerializer
+    queryset = StreamConfig.objects.all()
 
     @action(detail=False, methods=["POST"])
     def config_suggestion(self, request: Request, *args, **kwargs) -> Response:
