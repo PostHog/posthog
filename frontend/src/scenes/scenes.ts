@@ -472,6 +472,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: true,
         name: 'Hog function',
     },
+    [Scene.HedgedHog]: {
+        projectBased: true,
+        name: 'HedgedHog',
+        defaultDocsPath: '/docs/hedged-hog',
+    },
     ...productConfiguration,
 }
 
@@ -675,5 +680,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.hogFunctionNew(':templateId')]: [Scene.HogFunction, 'hogFunctionNew'],
     [urls.errorTrackingAlert(':id')]: [Scene.HogFunction, 'errorTrackingAlert'],
     [urls.errorTrackingAlertNew(':templateId')]: [Scene.HogFunction, 'errorTrackingAlertNew'],
+    [urls.hedgedHog()]: [Scene.HedgedHog, 'hedgedHog'],
     ...productRoutes,
 }

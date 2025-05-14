@@ -686,6 +686,13 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   tag: 'alpha' as const,
                               }
                             : null,
+                        {
+                            identifier: Scene.HedgedHog,
+                            label: 'HedgedHog',
+                            icon: <IconPiggyBank />,
+                            to: urls.hedgedHog(),
+                            tag: 'beta' as const,
+                        },
                     ].filter(isNotNil) as NavbarItem[],
                 ]
             },
