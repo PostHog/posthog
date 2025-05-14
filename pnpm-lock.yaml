@@ -1569,6 +1569,36 @@ importers:
         specifier: '*'
         version: 18.2.0
 
+  products/chat:
+    dependencies:
+      '@posthog/icons':
+        specifier: 0.13.1
+        version: 0.13.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@storybook/react':
+        specifier: '*'
+        version: 7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@4.9.5)
+      '@types/react':
+        specifier: '*'
+        version: 17.0.52
+      clsx:
+        specifier: '*'
+        version: 1.2.1
+      kea:
+        specifier: '*'
+        version: 3.1.5(react@18.2.0)
+      kea-forms:
+        specifier: '*'
+        version: 3.2.0(kea@3.1.5(react@18.2.0))
+      kea-loaders:
+        specifier: '*'
+        version: 3.0.0(kea@3.1.5(react@18.2.0))
+      kea-router:
+        specifier: '*'
+        version: 3.2.1(kea@3.1.5(react@18.2.0))
+      react:
+        specifier: '*'
+        version: 18.2.0
+
   products/cohorts:
     dependencies:
       '@posthog/icons':

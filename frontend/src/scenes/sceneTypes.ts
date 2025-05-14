@@ -96,6 +96,7 @@ export enum Scene {
     Wizard = 'Wizard',
     StartupProgram = 'StartupProgram',
     HogFunction = 'HogFunction',
+    Chat = 'Chat',
 }
 
 export type SceneProps = Record<string, any>
