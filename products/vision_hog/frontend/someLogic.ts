@@ -17,6 +17,7 @@ export const someLogic = kea<someLogicType>([
         // loadTempBackendData: true,
         // setTempBackendData: (data: any) => ({ data }),
         // setTempBackendError: (error: string) => ({ error }),
+        setVideoUrl: (url: string) => ({ url }),
     }),
 
     reducers({
@@ -34,6 +35,12 @@ export const someLogic = kea<someLogicType>([
         //     loadTempBackendData: () => null,
         //     setTempBackendError: (_, { error }) => error
         // }]
+        videoUrl: [
+            '',
+            {
+                setVideoUrl: (_, { url }) => url,
+            },
+        ],
     }),
 
     // listeners(({ actions }) => ({

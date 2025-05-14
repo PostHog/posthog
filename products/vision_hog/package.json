@@ -2,7 +2,9 @@
     "name": "@posthog/products-vision-hog",
     "scripts": {},
     "dependencies": {
-        "eslint-plugin-posthog": "workspace:*"
+        "eslint-plugin-posthog": "workspace:*",
+        "flv.js": "^1.6.2",
+        "hls.js": "^1.5.15"
     },
     "peerDependencies": {
         "@posthog/icons": "*",
