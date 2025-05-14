@@ -5,7 +5,7 @@ use common_metrics::{serve, setup_metrics_routes};
 use log_capture::config::Config;
 
 use health::HealthRegistry;
-use tracing::{info, warn};
+use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
 common_alloc::used!();
