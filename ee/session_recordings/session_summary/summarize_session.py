@@ -22,7 +22,7 @@ logger = structlog.get_logger(__name__)
 
 @dataclass(frozen=True)
 class ExtraSummaryContext:
-    focus_instructions: str | None = None
+    focus_area: str | None = None
 
 
 class ReplaySummarizer:
@@ -47,7 +47,7 @@ class ReplaySummarizer:
             template_dir,
             f"system-prompt.djt",
             {
-                "FOCUS_INSTRUCTIONS": extra_summary_context.focus_instructions,
+                "FOCUS_AREA": extra_summary_context.focus_area,
             },
         )
         summary_example = load_custom_template(template_dir, f"example.yml")
@@ -60,7 +60,7 @@ class ReplaySummarizer:
                 "URL_MAPPING": json.dumps(short_url_mapping_reversed),
                 "WINDOW_ID_MAPPING": json.dumps(window_mapping_reversed),
                 "SUMMARY_EXAMPLE": summary_example,
-                "FOCUS_INSTRUCTIONS": extra_summary_context.focus_instructions,
+                "FOCUS_AREA": extra_summary_context.focus_area,
             },
         )
         return summary_prompt, system_prompt
@@ -148,7 +148,10 @@ class ReplaySummarizer:
 
     def stream_recording_summary(self, extra_summary_context: ExtraSummaryContext | None = None):
         if extra_summary_context is None:
-            extra_summary_context = ExtraSummaryContext()
+            extra_summary_context = ExtraSummaryContext(
+                # TODO: Remove after test
+                focus_area="new error tracking product?"
+            )
         if SERVER_GATEWAY_INTERFACE == "ASGI":
             return self._astream(extra_summary_context)
         return self.summarize_recording(extra_summary_context)

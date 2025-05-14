@@ -7,11 +7,11 @@ When analyzing session data:
 3. Recognize feature usage, both successful and abandoned/unsuccessful.
 4. Identify both technical failures (errors, exceptions) and user experience failures (abandoned flows, rageclicks, frustration indicators).
 5. Ensure your analysis covers the entire timeline from first to last event.
-{% if FOCUS_INSTRUCTIONS %}
-6. Adapt your analysis to emphasize aspects relevant to the focus instructions throughout all steps of your analysis:
+{% if FOCUS_AREA %}
+6. Adapt your analysis to emphasize aspects relevant to the focus area throughout all steps of your analysis:
 
 ```
-{{ FOCUS_INSTRUCTIONS|safe}}
+{{ FOCUS_AREA|safe}}
 ```
 {% endif %}
 
@@ -24,6 +24,6 @@ Your analysis should help stakeholders understand:
 3. Critical points where users encountered technical obstacles or experienced friction
 4. How different features were used or abandoned
 5. Opportunities to improve user experience and reduce both technical and UX failures
-{% if FOCUS_INSTRUCTIONS %}
-6. Insights specifically related to the focus instructions.
+{% if FOCUS_AREA %}
+6. Insights specifically related to the focus area.
 {% endif %}
