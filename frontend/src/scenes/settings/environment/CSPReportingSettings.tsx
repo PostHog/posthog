@@ -80,7 +80,7 @@ export function CSPReportingSettings(): JSX.Element {
                     />
                 </div>
             </div>
-            <div className="gap-y-2">
+            <div className="flex flex-col gap-y-2">
                 <p>Set this URL for both the report-to and report-uri endpoints</p>
                 <CodeSnippet language={Language.Text} wrap={true}>
                     {
