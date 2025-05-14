@@ -4895,6 +4895,7 @@ export enum SidePanelTab {
     Status = 'status',
     Exports = 'exports',
     AccessControl = 'access-control',
+    SdkDoctor = 'sdk-doctor',
 }
 
 export interface SourceFieldOauthConfig {

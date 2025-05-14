@@ -11,6 +11,7 @@ import { AvailableFeature, SidePanelTab } from '~/types'
 
 import { sidePanelActivityLogic } from './panels/activity/sidePanelActivityLogic'
 import { sidePanelContextLogic } from './panels/sidePanelContextLogic'
+import { sidePanelSdkDoctorLogic } from './panels/sidePanelSdkDoctorLogic'
 import { sidePanelStatusLogic } from './panels/sidePanelStatusLogic'
 import type { sidePanelLogicType } from './sidePanelLogicType'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
@@ -21,6 +22,7 @@ const ALWAYS_EXTRA_TABS = [
     SidePanelTab.Activity,
     SidePanelTab.Status,
     SidePanelTab.Exports,
+    SidePanelTab.SdkDoctor,
 ]
 
 export const sidePanelLogic = kea<sidePanelLogicType>([
@@ -40,6 +42,8 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             ['unreadCount'],
             sidePanelStatusLogic,
             ['status'],
+            sidePanelSdkDoctorLogic,
+            ['needsAttention'],
             userLogic,
             ['hasAvailableFeature'],
             sidePanelContextLogic,
@@ -88,6 +92,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 tabs.push(SidePanelTab.Exports)
                 tabs.push(SidePanelTab.FeaturePreviews)
                 tabs.push(SidePanelTab.Settings)
+                tabs.push(SidePanelTab.SdkDoctor)
 
                 if (isCloudOrDev) {
                     tabs.push(SidePanelTab.Status)
@@ -104,6 +109,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 s.sidePanelOpen,
                 s.unreadCount,
                 s.status,
+                s.needsAttention,
                 s.hasAvailableFeature,
                 s.shouldShowActivationTab,
             ],
@@ -113,6 +119,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 sidePanelOpen,
                 unreadCount,
                 status,
+                needsAttention,
                 hasAvailableFeature,
                 shouldShowActivationTab
             ): SidePanelTab[] => {
@@ -130,6 +137,10 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     }
 
                     if (tab === SidePanelTab.Status && status !== 'operational') {
+                        return true
+                    }
+
+                    if (tab === SidePanelTab.SdkDoctor && needsAttention) {
                         return true
                     }
 
