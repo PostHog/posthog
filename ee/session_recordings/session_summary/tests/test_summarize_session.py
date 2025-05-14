@@ -82,7 +82,7 @@ class TestReplaySummarizer:
             ) as mock_stream_summary,
         ):
             # Get the generator (stream simulation)
-            result_generator = summarizer.summarize_recording()
+            result_generator = summarizer.summarize_recording(extra_summary_context=None)
             # Get all results from generator (consume the stream fully)
             results = list(result_generator)
             # Verify all mocks were called correctly
@@ -113,7 +113,7 @@ class TestReplaySummarizer:
             return_value=None,
         ) as mock_get_db_metadata:
             with pytest.raises(ValueError, match=f"No session metadata found for session_id {summarizer.session_id}"):
-                list(summarizer.summarize_recording())
+                list(summarizer.summarize_recording(extra_summary_context=None))
             mock_get_db_metadata.assert_called_once_with(
                 session_id="test_session_id",
                 team=summarizer.team,
@@ -132,7 +132,7 @@ class TestReplaySummarizer:
             mock_replay_events.return_value = mock_instance
             mock_instance.get_events.side_effect = [(None, None), (None, None)]
             with pytest.raises(ValueError, match=f"No columns found for session_id {summarizer.session_id}"):
-                list(summarizer.summarize_recording())
+                list(summarizer.summarize_recording(extra_summary_context=None))
                 mock_instance.get_events.assert_called_once_with(
                     session_id="test_session_id",
                     team=summarizer.team,
@@ -188,7 +188,7 @@ class TestReplaySummarizer:
                 return_value=(mock_raw_events_columns, []),  # Return columns but no events
             ) as mock_get_db_events,
         ):
-            result = list(summarizer.summarize_recording())
+            result = list(summarizer.summarize_recording(extra_summary_context=None))
             assert len(result) == 1
             assert (
                 result[0]
