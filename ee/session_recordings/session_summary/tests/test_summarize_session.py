@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from ee.session_recordings.session_summary.input_data import EXTRA_SUMMARY_EVENT_FIELDS
-from ee.session_recordings.session_summary.summarize_session import ReplaySummarizer
+from ee.session_recordings.session_summary.summarize_session import ExtraSummaryContext, ReplaySummarizer
 from posthog.models import Team, User
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
@@ -82,7 +82,8 @@ class TestReplaySummarizer:
             ) as mock_stream_summary,
         ):
             # Get the generator (stream simulation)
-            result_generator = summarizer.summarize_recording(extra_summary_context=None)
+            empty_context = ExtraSummaryContext()
+            result_generator = summarizer.summarize_recording(extra_summary_context=empty_context)
             # Get all results from generator (consume the stream fully)
             results = list(result_generator)
             # Verify all mocks were called correctly
@@ -107,13 +108,14 @@ class TestReplaySummarizer:
             assert results[0] == mock_valid_llm_yaml_response
 
     def test_summarize_recording_no_metadata(self, summarizer: ReplaySummarizer):
+        empty_context = ExtraSummaryContext()
         with patch.object(
             SessionReplayEvents,
             "get_metadata",
             return_value=None,
         ) as mock_get_db_metadata:
             with pytest.raises(ValueError, match=f"No session metadata found for session_id {summarizer.session_id}"):
-                list(summarizer.summarize_recording(extra_summary_context=None))
+                list(summarizer.summarize_recording(extra_summary_context=empty_context))
             mock_get_db_metadata.assert_called_once_with(
                 session_id="test_session_id",
                 team=summarizer.team,
@@ -131,8 +133,9 @@ class TestReplaySummarizer:
             mock_instance = MagicMock()
             mock_replay_events.return_value = mock_instance
             mock_instance.get_events.side_effect = [(None, None), (None, None)]
+            empty_context = ExtraSummaryContext()
             with pytest.raises(ValueError, match=f"No columns found for session_id {summarizer.session_id}"):
-                list(summarizer.summarize_recording(extra_summary_context=None))
+                list(summarizer.summarize_recording(extra_summary_context=empty_context))
                 mock_instance.get_events.assert_called_once_with(
                     session_id="test_session_id",
                     team=summarizer.team,
@@ -177,6 +180,7 @@ class TestReplaySummarizer:
         self, summarizer: ReplaySummarizer, mock_raw_metadata: dict[str, Any], mock_raw_events_columns: list[str]
     ):
         """Test that we yield a proper SSE error when no events are found (for example, for fresh real-time replays)."""
+        empty_context = ExtraSummaryContext()
         with (
             patch(
                 "ee.session_recordings.session_summary.summarize_session.get_session_metadata",
@@ -188,7 +192,7 @@ class TestReplaySummarizer:
                 return_value=(mock_raw_events_columns, []),  # Return columns but no events
             ) as mock_get_db_events,
         ):
-            result = list(summarizer.summarize_recording(extra_summary_context=None))
+            result = list(summarizer.summarize_recording(extra_summary_context=empty_context))
             assert len(result) == 1
             assert (
                 result[0]
