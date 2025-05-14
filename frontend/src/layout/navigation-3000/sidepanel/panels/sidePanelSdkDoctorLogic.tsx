@@ -60,6 +60,8 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
             {} as Record<SdkType, { latestVersion: string, versions: string[] }>,
             {
                 loadLatestSdkVersions: async () => {
+                    console.log('[SDK Doctor] Loading latest SDK versions')
+                    
                     // Map SDK types to their GitHub repositories
                     const sdkRepoMap: Record<SdkType, { repo: string, versionPrefix?: string }> = {
                         'web': { repo: 'posthog-js' },
@@ -143,6 +145,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
             {
                 loadRecentEvents: () => ({}), // Clear the map when loading starts to ensure fresh data
                 loadRecentEventsSuccess: (state, { recentEvents }) => {
+                    console.log('[SDK Doctor] Processing recent events:', recentEvents.length)
                     const sdkVersionsMap: Record<string, SdkVersionInfo> = {}
                     
                     for (const event of recentEvents) {
@@ -151,6 +154,11 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                         
                         if (!lib || !libVersion) {
                             continue
+                        }
+                        
+                        // Log PHP SDK events specifically
+                        if (lib === 'posthog-php') {
+                            console.log(`[SDK Doctor] Found PHP SDK event: version=${libVersion}`)
                         }
                         
                         const key = `${lib}-${libVersion}`
@@ -193,7 +201,9 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                     // Only process if we have data
                     if (Object.keys(latestSdkVersions).length > 0) {
                         Object.entries(updatedMap).forEach(([key, info]) => {
-                            const [lib, version] = key.split('-')
+                            // Use the version directly from the info object instead of trying to parse from key
+                            // This fixes the issue with libraries that have hyphens in their names
+                            const version = info.version
                             
                             // Map lib name to SDK type
                             let sdkType: SdkType = info.type
@@ -211,7 +221,8 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                     } else {
                         // If we couldn't get latest versions, fall back to the hardcoded check
                         Object.entries(updatedMap).forEach(([key, info]) => {
-                            const [lib, version] = key.split('-')
+                            // Get the version directly from info object
+                            const version = info.version
                             
                             // Convert type to lib name for the hardcoded check
                             let libName = 'web'
@@ -224,6 +235,8 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                             if (info.type === 'go') libName = 'posthog-go'
                             if (info.type === 'flutter') libName = 'posthog-flutter'
                             if (info.type === 'react-native') libName = 'posthog-react-native'
+                            
+                            console.log(`[SDK Doctor] Fallback check for ${libName} version ${version}`)
                             
                             updatedMap[key] = {
                                 ...info,
@@ -291,14 +304,23 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
 
 // Helper function to check if a version is outdated
 function checkIfVersionOutdated(lib: string, version: string): boolean {
+    // Add debug logs to trace execution
+    console.log(`[SDK Doctor] Checking if outdated: ${lib} version ${version}`)
+    
     // Parse the version string into components
     const components = version.split('.')
     if (components.length < 2) {
+        console.log(`[SDK Doctor] Cannot determine version: ${version}`)
         return false // Can't determine
     }
     
     const major = parseInt(components[0])
     const minor = parseInt(components[1])
+    
+    // Debug log for PHP SDK specifically
+    if (lib === 'posthog-php') {
+        console.log(`[SDK Doctor] PHP SDK check: version ${version}, major=${major}, minor=${minor}, isOutdated=${major < 3}`)
+    }
     
     // Mock implementation for now - to be replaced with actual minimum version requirements
     // Similar to how Session Recording checks for versions < 1.75
@@ -309,6 +331,8 @@ function checkIfVersionOutdated(lib: string, version: string): boolean {
     } else if (lib === 'posthog-android' && (major === 1 && minor < 4)) {
         return true
     } else if (lib === 'posthog-node' && (major === 1 && minor < 5)) {
+        return true
+    } else if (lib === 'posthog-php' && major < 3) {
         return true
     }
     
@@ -322,6 +346,9 @@ function checkVersionAgainstLatest(
     version: string,
     latestVersionsData: Record<SdkType, { latestVersion: string, versions: string[] }>
 ): { isOutdated: boolean, releasesAhead?: number, latestVersion?: string } {
+    console.log(`[SDK Doctor] checkVersionAgainstLatest for ${type} version ${version}`)
+    console.log(`[SDK Doctor] Available data:`, Object.keys(latestVersionsData))
+    
     // If we don't have data for this SDK type or the SDK type is "other", fall back to hardcoded check
     if (!latestVersionsData[type] || type === 'other') {
         // Convert type to lib name for the hardcoded check
@@ -336,7 +363,10 @@ function checkVersionAgainstLatest(
         if (type === 'flutter') lib = 'posthog-flutter'
         if (type === 'react-native') lib = 'posthog-react-native'
         
-        return { isOutdated: checkIfVersionOutdated(lib, version) }
+        console.log(`[SDK Doctor] Falling back to hardcoded check for ${type} (lib=${lib})`)
+        const isOutdated = checkIfVersionOutdated(lib, version)
+        console.log(`[SDK Doctor] Hardcoded check result for ${lib} ${version}: isOutdated=${isOutdated}`)
+        return { isOutdated }
     }
     
     const latestVersion = latestVersionsData[type].latestVersion

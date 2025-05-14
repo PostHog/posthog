@@ -208,6 +208,30 @@ export function SidePanelSdkDoctor(): JSX.Element {
                                     Web SDK docs
                                 </a>
                             </li>
+                            {outdatedSdkCount > 0 && sdkVersions.some(sdk => sdk.type === 'php' && sdk.isOutdated) && (
+                                <>
+                                    <li>
+                                        <a 
+                                            href="https://github.com/PostHog/posthog-php/blob/master/History.md" 
+                                            target="_blank" 
+                                            rel="noopener noreferrer"
+                                            className="text-primary hover:text-primary-dark"
+                                        >
+                                            PHP SDK Releases
+                                        </a>
+                                    </li>
+                                    <li>
+                                        <a 
+                                            href="https://posthog.com/docs/libraries/php" 
+                                            target="_blank" 
+                                            rel="noopener noreferrer"
+                                            className="text-primary hover:text-primary-dark"
+                                        >
+                                            PHP SDK docs
+                                        </a>
+                                    </li>
+                                </>
+                            )}
                         </ul>
                     </div>
                 ) : (
