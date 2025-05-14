@@ -11,8 +11,16 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 health = { path = "../common/health" }
 axum = { workspace = true }
+axum-extra = { workspace = true }
 common-metrics = { path = "../common/metrics" }
 common-alloc = { path = "../common/alloc" }
+opentelemetry-proto = { workspace = true }
+tonic = { workspace = true }
+jsonwebtoken = "8.3"
+serde = { workspace = true }
+serde_derive = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
 
 [dev-dependencies]
 

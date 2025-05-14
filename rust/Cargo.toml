@@ -47,6 +47,7 @@ anyhow = "1.0"
 assert-json-diff = "2.0.2"
 async-trait = "0.1.74"
 axum = { version = "0.7.5", features = ["http2", "macros", "matched-path"] }
+axum-extra = { version = "0.7.5", features = ["protobuf"] }
 axum-client-ip = "0.6.0"
 base64 = "0.22.0"
 bytes = "1"
@@ -110,6 +111,8 @@ moka = { version = "0.12.8", features = ["sync", "future"] }
 posthog-rs = { version = "0.3.5", features = ["async-client"] }
 regex = "1.11.1"
 lz-str = "0.2.1"
+opentelemetry-proto = "0.29.0"
+tonic = "0.12.3"
 
 # Used for decrypting django encrypted fields
 fernet = "0.2"

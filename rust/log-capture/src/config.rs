@@ -1,12 +1,15 @@
 use envconfig::Envconfig;
 
-#[derive(Envconfig, Clone)]
+#[derive(Envconfig, Clone, Debug)]
 pub struct Config {
     #[envconfig(from = "BIND_HOST", default = "::")]
     pub host: String,
 
     #[envconfig(from = "BIND_PORT", default = "3305")]
     pub port: u16,
+
+    #[envconfig(from = "JWT_SECRET")]
+    pub jwt_secret: String,
 
     #[envconfig()]
     pub clickhouse_host: String,
