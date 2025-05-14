@@ -13,6 +13,7 @@ import { Navbar } from '~/layout/navigation-3000/components/Navbar'
 import { PanelLayout } from '~/layout/panel-layout/PanelLayout'
 
 import { navigationLogic } from '../navigation/navigationLogic'
+import { PosthogStoriesContainer } from '../navigation/PosthogStories/PosthogStoriesContainer'
 import { ProjectNotice } from '../navigation/ProjectNotice'
 import { MinimalNavigation } from './components/MinimalNavigation'
 import { Sidebar } from './components/Sidebar'
@@ -76,6 +77,7 @@ export function Navigation({
                         <div className={sceneConfig?.layout === 'app-raw-no-header' ? 'px-4' : ''}>
                             {!sceneConfig?.hideBillingNotice && <BillingAlertsV2 />}
                             {!sceneConfig?.hideProjectNotice && <ProjectNotice />}
+                            <PosthogStoriesContainer />
                         </div>
                     )}
 
