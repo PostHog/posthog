@@ -31,11 +31,25 @@ export interface OnboardingResponse {
     balance: number
 }
 
+export interface LeaderboardEntry {
+    user_email: string
+    balance?: number
+    win_rate?: number
+    total_bets?: number
+    total_wins?: number
+    total_volume?: number
+}
+
+export type LeaderboardType = 'balance' | 'win_rate' | 'volume'
+
 export const hedgedHogLogic = kea<hedgedHogLogicType>([
     path(['scenes', 'hedged-hog', 'hedgedHogLogic']),
 
     actions({
         setData: (data: HedgedHogData) => ({ data }),
+        loadTransactions: () => ({}),
+        setActiveTab: (tab: string) => ({ tab }),
+        loadLeaderboard: (leaderboardType: LeaderboardType = 'balance') => ({ leaderboardType }),
     }),
 
     reducers({
@@ -73,6 +87,32 @@ export const hedgedHogLogic = kea<hedgedHogLogicType>([
                 },
             },
         ],
+        activeTab: [
+            '',
+            {
+                setActiveTab: (_, { tab }) => tab,
+            },
+        ],
+        leaderboard: [
+            [] as LeaderboardEntry[],
+            {
+                loadLeaderboardSuccess: (_, { leaderboard }) => leaderboard,
+            },
+        ],
+        currentLeaderboardType: [
+            'balance' as LeaderboardType,
+            {
+                loadLeaderboard: (_, { leaderboardType }) => leaderboardType,
+            },
+        ],
+        leaderboardLoading: [
+            false,
+            {
+                loadLeaderboard: () => true,
+                loadLeaderboardSuccess: () => false,
+                loadLeaderboardFailure: () => false,
+            },
+        ],
     }),
 
     loaders(() => ({
@@ -103,6 +143,14 @@ export const hedgedHogLogic = kea<hedgedHogLogicType>([
                 return response as OnboardingResponse
             },
         },
+        leaderboard: {
+            loadLeaderboard: async ({ leaderboardType }) => {
+                const response = await api.get(
+                    `api/projects/@current/transactions/leaderboard/?type=${leaderboardType}&limit=10`
+                )
+                return response as LeaderboardEntry[]
+            },
+        },
     })),
 
     selectors({
@@ -121,8 +169,9 @@ export const hedgedHogLogic = kea<hedgedHogLogicType>([
 
     events(({ actions }) => ({
         afterMount: () => {
-            // Load transactions on mount to check if user is onboarded
+            // Load transactions and wallet balance on mount
             actions.loadTransactions()
+            actions.loadWalletBalance()
         },
     })),
 ])

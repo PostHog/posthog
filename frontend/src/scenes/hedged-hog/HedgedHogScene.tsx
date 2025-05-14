@@ -47,7 +47,7 @@ export function HedgedHogScene(): JSX.Element {
 
     return (
         <div className="px-4">
-            <h1 className="mb-2">HedgedHog Betting</h1>
+            <h1 className="mb-2">Hedged Hog</h1>
             <PageHeader
                 caption="Place bets on key metrics and win rewards"
                 buttons={

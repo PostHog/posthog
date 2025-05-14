@@ -1,6 +1,6 @@
 from django.db import models
 from django.utils import timezone
-from django.db.models import Sum
+from django.db.models import Sum, Q
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import UUIDModel, CreatedMetaFields, sane_repr
@@ -245,6 +245,8 @@ class TransactionLedgerManager(models.Manager):
         amount: float,
         reference_id: str | None = None,
         description: str = "",
+        source: str | None = None,
+        destination: str | None = None,
     ) -> tuple["TransactionLedger", "TransactionLedger"]:
         """
         Create a double-entry bookkeeping transaction.
@@ -252,24 +254,65 @@ class TransactionLedgerManager(models.Manager):
         """
         reference_id = reference_id or str(uuid.uuid4())
 
-        # Create debit entry (user's wallet)
+        # Set default source and destination based on transaction type
+        if source is None or destination is None:
+            if transaction_type == "onboarding":
+                # For onboarding bonus: Money comes from equity, goes to user's wallet
+                source = "equity" if source is None else source
+                destination = "wallet" if destination is None else destination
+            elif transaction_type == "bet_place":
+                # For bet placement: Money comes from user's wallet, goes to pool
+                source = "wallet" if source is None else source
+                destination = "pool" if destination is None else destination
+            elif transaction_type == "bet_win":
+                # For bet win: Money comes from pool, goes to user's wallet
+                source = "pool" if source is None else source
+                destination = "wallet" if destination is None else destination
+            elif transaction_type == "deposit":
+                # For deposit: Money comes from stripe, goes to user's wallet
+                source = "stripe" if source is None else source
+                destination = "wallet" if destination is None else destination
+            else:
+                # Default fallback
+                source = "wallet" if source is None else source
+                destination = "bank" if destination is None else destination
+
+        # Determine the user for each entry based on source and destination
+        debit_user = None
+        credit_user = None
+
+        # For user wallet transactions, associate the entry with the user
+        if source == "wallet":
+            debit_user = user
+        if destination == "wallet":
+            credit_user = user
+
+        # For onboarding transactions, associate the credit entry with the user
+        if transaction_type == "onboarding" and credit_user is None:
+            credit_user = user  # Associate the receiving end with the user
+
+        # Create debit entry (money leaving the source)
         debit_entry = self.create(
-            user=user,
+            user=debit_user,  # Will be None for system accounts
             team_id=team_id,
             entry_type="debit",
             transaction_type=transaction_type,
             amount=amount,
+            source=source,
+            destination=destination,
             reference_id=reference_id,
             description=description,
         )
 
-        # Create credit entry (system account)
+        # Create credit entry (money entering the destination)
         credit_entry = self.create(
-            user=user,
+            user=credit_user,  # Will be None for system accounts
             team_id=team_id,
             entry_type="credit",
             transaction_type=transaction_type,
             amount=amount,
+            source=source,
+            destination=destination,
             reference_id=reference_id,
             description=description,
         )
@@ -279,36 +322,39 @@ class TransactionLedgerManager(models.Manager):
     def get_wallet_balance(self, user: User, team_id: Optional[str] = None) -> float:
         """
         Calculate the wallet balance for a user, optionally filtered by team_id.
+
+        In double-entry bookkeeping:
+        - Credits increase the wallet balance (money coming in)
+        - Debits decrease the wallet balance (money going out)
+
+        We also need to consider the destination/source to ensure we're only counting
+        transactions that affect the user's wallet.
         """
         query = self.filter(user=user)
         if team_id:
             query = query.filter(team_id=team_id)
 
-        # For wallet balance, we need to consider transaction types:
-        # - Deposits (onboarding, bet_win) increase balance
-        # - Withdrawals (bet_place) decrease balance
+        # Only consider transactions involving the user's wallet
+        wallet_query = query.filter(Q(source="wallet") | Q(destination="wallet"))
 
-        # Calculate deposits (money coming in)
-        deposits = (
-            query.filter(transaction_type__in=["onboarding", "bet_win"], entry_type="debit").aggregate(
-                total=Sum("amount")
-            )["total"]
-            or 0
+        # Credits to wallet (money coming in)
+        credits = (
+            wallet_query.filter(destination="wallet", entry_type="credit").aggregate(total=Sum("amount"))["total"] or 0
         )
 
-        # Calculate withdrawals (money going out)
-        withdrawals = (
-            query.filter(transaction_type="bet_place", entry_type="debit").aggregate(total=Sum("amount"))["total"] or 0
-        )
+        # Debits from wallet (money going out)
+        debits = wallet_query.filter(source="wallet", entry_type="debit").aggregate(total=Sum("amount"))["total"] or 0
 
-        # Balance is deposits minus withdrawals
-        balance = deposits - withdrawals
+        # Balance is credits minus debits
+        balance = credits - debits
+
         return balance
 
 
 class TransactionLedger(UUIDModel, CreatedMetaFields):
     """
     Double-entry bookkeeping ledger for tracking all financial transactions.
+    Each transaction records the movement of funds between a source and destination.
     """
 
     class EntryType(models.TextChoices):
@@ -317,16 +363,24 @@ class TransactionLedger(UUIDModel, CreatedMetaFields):
 
     class TransactionType(models.TextChoices):
         DEPOSIT = "deposit", "Deposit"
-        WITHDRAWAL = "withdrawal", "Withdrawal"
         BET_PLACE = "bet_place", "Bet Placement"
         BET_WIN = "bet_win", "Bet Win"
         ONBOARDING = "onboarding", "Onboarding Bonus"
 
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="transactions")
+    class SourceType(models.TextChoices):
+        WALLET = "wallet", "User Wallet"
+        BANK = "bank", "Hoggy Bank"
+        STRIPE = "stripe", "Stripe"
+        POOL = "pool", "Pool"
+        EQUITY = "equity", "Capital Account"  # For money creation
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="transactions", null=True, blank=True)
     team_id = models.CharField(max_length=100)  # Store team ID as string to avoid cascade deletion
     entry_type = models.CharField(max_length=10, choices=EntryType.choices)
     transaction_type = models.CharField(max_length=20, choices=TransactionType.choices)
     amount = models.DecimalField(max_digits=10, decimal_places=2)
+    source = models.CharField(max_length=20, choices=SourceType.choices, default=SourceType.WALLET)
+    destination = models.CharField(max_length=20, choices=SourceType.choices, default=SourceType.BANK)
     reference_id = models.CharField(
         max_length=100, blank=True, null=True
     )  # Optional field used to link related transactions

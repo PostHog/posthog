@@ -22,7 +22,7 @@ export function HomeContent(): JSX.Element {
             <PageHeader />
 
             <div className="mt-4">
-                <div className="border border-rounded p-4">
+                <div className="border rounded-lg p-4">
                     <div className="grid grid-cols-5 gap-4">
                         {/* Left info column - 1/5 of the grid */}
                         <div className="col-span-1 pr-2">
