@@ -19,7 +19,7 @@ export function SavedFilters({
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
 }): JSX.Element {
     const savedFiltersLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists })
-    const { savedFilters, savedFiltersLoading, pagination } = useValues(savedFiltersLogic)
+    const { savedFilters, savedFiltersLoading, paginationSavedFilters } = useValues(savedFiltersLogic)
     const { deletePlaylist } = useActions(savedFiltersLogic)
     const { setActiveFilterTab } = useActions(playlistLogic)
 
@@ -97,7 +97,7 @@ export function SavedFilters({
             loading={savedFiltersLoading}
             dataSource={savedFilters.results}
             columns={columns}
-            pagination={pagination}
+            pagination={paginationSavedFilters}
             noSortingCancellation
         />
     )
