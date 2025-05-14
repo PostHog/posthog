@@ -46,10 +46,13 @@ import { defaultSurveyAppearance, defaultSurveyFieldValues, NEW_SURVEY, NewSurve
 import type { surveyLogicType } from './surveyLogicType'
 import { surveysLogic } from './surveysLogic'
 import {
+    buildPartialResponsesFilter,
     calculateNpsBreakdown,
     calculateNpsScore,
     createAnswerFilterHogQLExpression,
     getResponseFieldWithId,
+    getSurveyEndDateForQuery,
+    getSurveyStartDateForQuery,
     isSurveyRunning,
     sanitizeHTML,
     sanitizeSurveyAppearance,
@@ -171,20 +174,6 @@ function duplicateExistingSurvey(survey: Survey | NewSurvey): Partial<Survey> {
         targeting_flag_filters: survey.targeting_flag?.filters ?? NEW_SURVEY.targeting_flag_filters,
         linked_flag_id: survey.linked_flag?.id ?? NEW_SURVEY.linked_flag_id,
     }
-}
-
-const DATE_FORMAT = 'YYYY-MM-DDTHH:mm:ss'
-
-function getSurveyStartDateForQuery(survey: Survey): string {
-    return survey.start_date
-        ? dayjs(survey.start_date).utc().startOf('day').format(DATE_FORMAT)
-        : dayjs(survey.created_at).utc().startOf('day').format(DATE_FORMAT)
-}
-
-function getSurveyEndDateForQuery(survey: Survey): string {
-    return survey.end_date
-        ? dayjs(survey.end_date).utc().endOf('day').format(DATE_FORMAT)
-        : dayjs().utc().endOf('day').format(DATE_FORMAT)
 }
 
 export const surveyLogic = kea<surveyLogicType>([
@@ -1217,13 +1206,17 @@ export const surveyLogic = kea<surveyLogicType>([
             (s) => [s.isPartialResponsesEnabled, s.survey],
             (isPartialResponsesEnabled: boolean, survey: Survey): string => {
                 if (isPartialResponsesEnabled && survey.enable_partial_responses) {
-                    return `AND uniqueSurveySubmissionsFilter('${survey.id}')`
+                    return buildPartialResponsesFilter(survey)
                 }
                 /**
-                 * Coalescing to True as older events don't have the survey_completed property.
-                 * So they're completed by default since we didn't have partial responses before.
+                 * Return only complete responses. For pre-partial responses, we didn't have the survey_completed property.
+                 * So we return all responses that don't have it.
+                 * For posthog-js > 1.240, we use the $survey_completed property.
                  */
-                return `AND COALESCE(JSONExtractBool(properties, '${SurveyEventProperties.SURVEY_COMPLETED}'), True) = True`
+                return `AND (
+                            NOT JSONHas(properties, '${SurveyEventProperties.SURVEY_COMPLETED}')
+                            OR JSONExtractBool(properties, '${SurveyEventProperties.SURVEY_COMPLETED}') = true
+                        )`
             },
         ],
         isAdaptiveLimitFFEnabled: [
