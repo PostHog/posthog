@@ -12,6 +12,8 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import ShortLink
 import structlog
 
+from posthog.models.team.team import Team
+
 logger = structlog.get_logger(__name__)
 
 
@@ -32,7 +34,7 @@ class ShortLinkSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_at", "updated_at"]
 
     def create(self, validated_data: dict[str, Any]) -> ShortLink:
-        team = self.context["team"]
+        team = Team.objects.get(id=self.context["team_id"])
 
         short_link = ShortLink.objects.create(
             team=team,

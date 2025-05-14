@@ -9,12 +9,15 @@ export const shortLinksLogic = kea<shortLinksLogicType>([
     path(['scenes', 'short-links', 'shortLinksLogic']),
 
     loaders(() => ({
-        shortLinks: {
-            loadShortLinks: async () => {
-                const response = await api.get('api/short_links/')
-                return response.results
+        links: [
+            [],
+            {
+                loadLinks: async () => {
+                    const response = await api.get('api/short_links/')
+                    return response.results
+                },
             },
-        },
+        ],
     })),
 
     forms(({ actions }) => ({
@@ -52,6 +55,6 @@ export const shortLinksLogic = kea<shortLinksLogicType>([
     })),
 
     afterMount(({ actions }) => {
-        actions.loadShortLinks()
+        actions.loadLinks()
     }),
 ])
