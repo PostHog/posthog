@@ -49,7 +49,7 @@ export function LinkScene(): JSX.Element {
                         </LemonField>
 
                         <div className="flex flex-col gap-2">
-                            <LemonLabel>Short Link</LemonLabel>
+                            <LemonLabel>Link</LemonLabel>
                             <div className="flex gap-2">
                                 <LemonField name="origin_domain">
                                     <LemonSelect

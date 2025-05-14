@@ -7,7 +7,7 @@ from posthog.hogql.database.models import (
 )
 
 
-class ShortLinksTable(Table):
+class LinksTable(Table):
     fields: dict[str, FieldOrTable] = {
         "id": StringDatabaseField(name="id", nullable=False),
         "destination": StringDatabaseField(name="destination", nullable=False),
@@ -22,7 +22,7 @@ class ShortLinksTable(Table):
     }
 
     def to_printed_clickhouse(self, context):
-        return "short_links"
+        return "links"
 
     def to_printed_hogql(self):
-        return "short_links"
+        return "links"

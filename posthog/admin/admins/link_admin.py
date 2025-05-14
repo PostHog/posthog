@@ -2,10 +2,10 @@ from django.contrib import admin
 from django.utils.html import format_html
 from django.urls import reverse
 
-from posthog.models import ShortLink
+from posthog.models import Link
 
 
-class ShortLinkAdmin(admin.ModelAdmin):
+class LinkAdmin(admin.ModelAdmin):
     list_display = ("id", "destination_display", "team_link", "created_at", "updated_at")
     list_filter = ("team", "created_at", "updated_at")
     search_fields = ("id", "destination", "team__name")
@@ -16,12 +16,12 @@ class ShortLinkAdmin(admin.ModelAdmin):
         ("Additional Info", {"fields": ("description", "tags", "comments")}),
     )
 
-    def destination_display(self, obj: ShortLink):
+    def destination_display(self, obj: Link):
         return format_html('<a href="{}" target="_blank">{}</a>', obj.destination, obj.destination)
 
     destination_display.short_description = "Destination"
 
-    def team_link(self, obj: ShortLink):
+    def team_link(self, obj: Link):
         return format_html(
             '<a href="{}">{}</a>',
             reverse("admin:posthog_team_change", args=[obj.team.pk]),
@@ -32,4 +32,4 @@ class ShortLinkAdmin(admin.ModelAdmin):
 
 
 # Register with admin site
-admin.site.register(ShortLink, ShortLinkAdmin)
+admin.site.register(Link, LinkAdmin)

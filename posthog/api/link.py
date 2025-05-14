@@ -10,7 +10,7 @@ from django.db.models import QuerySet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.models import ShortLink
+from posthog.models import Link
 import structlog
 
 from posthog.models.team.team import Team
@@ -18,11 +18,11 @@ from posthog.models.team.team import Team
 logger = structlog.get_logger(__name__)
 
 
-class ShortLinkSerializer(serializers.ModelSerializer):
+class LinkSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
 
     class Meta:
-        model = ShortLink
+        model = Link
         fields = [
             "id",
             "destination",
@@ -37,10 +37,10 @@ class ShortLinkSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
 
-    def create(self, validated_data: dict[str, Any]) -> ShortLink:
+    def create(self, validated_data: dict[str, Any]) -> Link:
         team = Team.objects.get(id=self.context["team_id"])
 
-        short_link = ShortLink.objects.create(
+        link = Link.objects.create(
             team=team,
             destination=validated_data["destination"],
             origin_domain=validated_data["origin_domain"],
@@ -51,18 +51,18 @@ class ShortLinkSerializer(serializers.ModelSerializer):
             created_by=self.context["request"].user,
         )
 
-        logger.info("short_link_created", id=short_link.id, team_id=team.id)
-        return short_link
+        logger.info("link_created", id=link.id, team_id=team.id)
+        return link
 
 
-class ShortLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class LinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
-    Create, read, update, and delete short links.
+    Create, read, update, and delete links.
     """
 
-    scope_object = "short_link"
-    queryset = ShortLink.objects.all()
-    serializer_class = ShortLinkSerializer
+    scope_object = "link"
+    queryset = Link.objects.all()
+    serializer_class = LinkSerializer
     lookup_field = "id"
     permission_classes = [IsAuthenticated]
     # Use the team from the user's current context when not in a team-specific route
@@ -73,22 +73,5 @@ class ShortLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
-        logger.info("short_link_deleted", id=instance.id, team_id=self.team_id)
+        logger.info("link_deleted", id=instance.id, team_id=self.team_id)
         return super().destroy(request, *args, **kwargs)
-
-
-# Non-authenticated endpoint for redirecting short links
-@cache_page(60 * 60 * 24)  # Cache for 24 hours
-def short_link_redirect(request, id):
-    """
-    Public endpoint that redirects to the destination URL of a short link.
-    """
-    try:
-        short_link = ShortLink.objects.get(id=id)
-
-        logger.info("short_link_accessed", id=id, team_id=short_link.team_id)
-        return HttpResponse(status=302, headers={"Location": short_link.destination})
-
-    except ShortLink.DoesNotExist:
-        logger.info("short_link_not_found", id=id)
-        return HttpResponseNotFound("Short link not found")

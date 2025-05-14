@@ -675,7 +675,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   icon: <IconCursorClick />,
                                   to: isUsingSidebar ? undefined : urls.links(),
                                   tag: 'alpha' as const,
-                                  tooltipDocLink: 'https://posthog.com/docs/short-links',
+                                  tooltipDocLink: 'https://posthog.com/docs/links',
                               }
                             : null,
                         featureFlags[FEATURE_FLAGS.MESSAGING] && hasOnboardedAnyProduct

@@ -4,7 +4,7 @@ from posthog.models.team import Team
 import uuid
 
 
-class ShortLink(models.Model):
+class Link(models.Model):
     """
     Links that redirect to a specified destination URL.
     These are used for sharing URLs across the application.
@@ -23,7 +23,7 @@ class ShortLink(models.Model):
     comments = models.TextField(null=True, blank=True)
 
     class Meta:
-        constraints = [models.UniqueConstraint(fields=["id", "team_id"], name="unique_short_link_id_per_team")]
+        constraints = [models.UniqueConstraint(fields=["id", "team_id"], name="unique_link_id_per_team")]
         indexes = [
             models.Index(fields=["team_id", "id"]),
             models.Index(fields=["team_id", "created_at"]),

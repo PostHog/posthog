@@ -14,7 +14,7 @@ export const linksLogic = kea<linksLogicType>([
             [],
             {
                 loadLinks: async () => {
-                    const response = await api.get('api/short_links/')
+                    const response = await api.get('api/links')
                     return response.results
                 },
             },
@@ -39,8 +39,8 @@ export const linksLogic = kea<linksLogicType>([
 
             submit: async ({ id, ...link }, breakpoint) => {
                 const updatedLink = id
-                    ? await api.update(`api/short_links/${id}`, link)
-                    : await api.create(`api/short_links`, link)
+                    ? await api.update(`api/links/${id}`, link)
+                    : await api.create(`api/links`, link)
                 breakpoint()
 
                 actions.resetLink(updatedLink)
