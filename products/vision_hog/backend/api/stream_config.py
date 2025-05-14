@@ -41,7 +41,7 @@ class StreamConfigSerializer(serializers.ModelSerializer):
         fields = ["id", "team_id", "stream_url", "events"]
 
     def _generate_analysis_prompt(self, events: list[str]) -> str:
-        base_prompt = f"""Analyze this video of a retail environment and identify key customer events and interactions.
+        base_prompt = f"""Analyze this video of environment and identify key customer events and interactions.
 For each event, provide a description and its approximate timestamp in the video.
 Return the output as a valid JSON array of objects that follows PostHog's event schema. Each object must have the following fields:
 
@@ -50,9 +50,10 @@ Return the output as a valid JSON array of objects that follows PostHog's event 
   - "timestamp": "HH:MM:SS" (String format for hours, minutes, seconds)
   - "distinct_id": String - A unique identifier for the customer, prefixed with "camera_" (e.g., "camera_customer_1", "camera_customer_2")
   - "description": String - A concise description of what the customer did
-  - "location": String - Area within the retail space
   - "duration_seconds": Number - Approximate duration of the activity in seconds
-  - "interaction_type": String - Type of activity (e.g., "entry_exit", "product_engagement", "service_usage", "staff_interaction")
+  - "interaction_type": String - Type of activity (e.g., "person_in_frame", "person_out_of_frame" ect)
+
+  You can add additional properties to the event if you think they are relevant.
 
 Example of expected JSON output:
 [
@@ -62,9 +63,9 @@ Example of expected JSON output:
       "timestamp": "00:00:15",
       "distinct_id": "camera_customer_1",
       "description": "Customer enters through the main entrance",
-      "location": "entrance",
       "duration_seconds": 5,
-      "interaction_type": "entry_exit"
+      "interaction_type": "entry_exit",
+      "additional_property": "additional_value"
     }}
   }}
 ]
@@ -73,7 +74,7 @@ Ensure the output is only the JSON array and nothing else.
 If no specific events are identifiable, return an empty array []."""
 
         # Add events from config to prompt
-        events_prompt = f"\n\nTrack these specific events: {', '.join(events)}" if events else ""
+        events_prompt = f"\n\nTrack these specific events (and nothing else): {', '.join(events)}" if events else ""
 
         return base_prompt + events_prompt
 
