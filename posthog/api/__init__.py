@@ -701,15 +701,15 @@ register_grandfathered_environment_nested_viewset(
 )
 
 register_grandfathered_environment_nested_viewset(
-    r"betting_transactions",
+    r"transactions",
     betting.TransactionViewSet,
-    "environment_betting_transactions",
+    "environment_transactions",
     ["team_id"],
 )
 
 register_grandfathered_environment_nested_viewset(
-    r"betting_onboarding",
+    r"onboarding",
     betting.OnboardingViewSet,
-    "environment_betting_onboarding",
+    "environment_onboarding",
     ["team_id"],
 )
