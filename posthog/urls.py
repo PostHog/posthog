@@ -174,7 +174,8 @@ urlpatterns = [
     *ee_urlpatterns,
     # api
     path("api/environments/<int:team_id>/progress/", progress),
-    opt_slash_path("api/environments/<int:team_id>/query/<str:query_uuid>/progress", progress),
+    path("api/environments/<int:team_id>/query/<str:query_uuid>/progress/", progress),
+    path("api/environments/<int:team_id>/query/<str:query_uuid>/progress", progress),
     path("api/unsubscribe", unsubscribe.unsubscribe),
     path("api/", include(router.urls)),
     path("", include(tf_urls)),
