@@ -7,7 +7,30 @@ from posthog.models.utils import uuid7
 
 logger = structlog.get_logger(__name__)
 
+"""
+This is the suggested strucutre we could standarize on for CSP reports.
 
+| Normalized Key        | report-to format                     | report-uri format                  |
+| --------------------- | ------------------------------------ | ---------------------------------- |
+| `document_url`        | `body.documentURL`                   | `csp-report.document-uri`          |
+| `referrer`            | `body.referrer`                      | `csp-report.referrer`              |
+| `violated_directive`  | *inferred from* `effectiveDirective` | `csp-report.violated-directive`    |
+| `effective_directive` | `body.effectiveDirective`            | `csp-report.effective-directive`   |
+| `original_policy`     | `body.originalPolicy`                | `csp-report.original-policy`       |
+| `disposition`         | `body.disposition`                   | `csp-report.disposition`           |
+| `blocked_url`         | `body.blockedURL`                    | `csp-report.blocked-uri`           |
+| `line_number`         | `body.lineNumber`                    | `csp-report.line-number`           |
+| `column_number`       | `body.columnNumber`                  | *not available*                    |
+| `source_file`         | `body.sourceFile`                    | `csp-report.source-file`           |
+| `status_code`         | `body.statusCode`                    | `csp-report.status-code`           |
+| `script_sample`       | `body.sample`                        | `csp-report.script-sample`         |
+| `user_agent`          | top-level `user_agent`               | *custom extract from headers*      |
+| `report_type`         | top-level `type`                     | `"csp-violation"` (static/assumed) |
+
+"""
+
+
+# https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/report-uri
 def parse_report_uri(data: dict) -> dict:
     report_uri_data = data["csp-report"]
     current_url = report_uri_data.get("document-uri")
@@ -15,21 +38,47 @@ def parse_report_uri(data: dict) -> dict:
     return properties
 
 
+# https://developer.mozilla.org/en-US/docs/Web/API/CSPViolationReportBody#obtaining_a_cspviolationreportbody_object
 def parse_report_to(data: dict) -> dict:
-    report_to_data = data["body"]
-    user_agent = report_to_data.get("user-agent")
-    current_url = report_to_data.get("documentURL")
+    report_to_data = data.get("body", {})
 
-    # TODO: Sanitize scripts samples for CSP reports, for now just redact them
-    if "sample" in report_to_data:
-        report_to_data["sample"] = "REDACTED"
+    user_agent = report_to_data.get("user-agent") or data.get("user_agent")
+    current_url = report_to_data.get("documentURL") or report_to_data.get("document-uri") or data.get("url")
 
     properties = {
-        "$report_to": data["report-to"],
-        "$user_agent": user_agent,
         "$current_url": current_url,
-        **report_to_data,
+        "$user_agent": user_agent,
+        "$report_to": data.get("report-to"),
     }
+
+    field_mapping = {
+        "blockedURL": "blocked-uri",
+        "sourceFile": "source-file",
+        "originalPolicy": "original-policy",
+    }
+
+    # Add body fields with appropriate mapping
+    for key, value in report_to_data.items():
+        if key in ["sample", "script-sample", "sourceCodeExample"]:
+            # Redact all script samples for security
+            properties[key] = "REDACTED"
+        elif key in field_mapping:
+            # Map certain fields to kebab-case for consistency
+            properties[field_mapping[key]] = value
+        else:
+            properties[key] = value
+
+    # Check for blockedURL at the top level if not in body
+    if "blockedURL" in data and "blocked-uri" not in properties:
+        properties["blocked-uri"] = data["blockedURL"]
+    elif "blockedURI" in report_to_data and "blocked-uri" not in properties:
+        properties["blocked-uri"] = report_to_data["blockedURI"]
+
+    # Add remaining top-level fields (except body and type)
+    for key, value in data.items():
+        if key not in ["body", "type"] and key not in properties:
+            properties[key] = value
+
     return properties
 
 
@@ -55,13 +104,13 @@ def process_csp_report(request):
             - error_response: An error response to return to the client if processing failed, or None if successful
     """
     # Early return if the request is not a CSP report and keep the ingestion pipeline working as it was
-    if request.content_type != "application/csp-report":
+    if request.content_type != "application/csp-report" and request.content_type != "application/reports+json":
         return None, None
 
     try:
         csp_data = json.loads(request.body)
         # Try to get distinct_id from query params or generate a new one
-        distinct_id = request.GET.get("distinct_id") or str(uuid7())
+        distinct_id = request.GET.get("distinct_id") or request.GET.get("id") or str(uuid7())
         session_id = request.GET.get("session_id") or str(uuid7())
         version = request.GET.get("v") or "unknown"
 
