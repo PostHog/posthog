@@ -19,44 +19,8 @@ def parse_report_uri(data: dict) -> dict:
 # https://developer.mozilla.org/en-US/docs/Web/API/CSPViolationReportBody#obtaining_a_cspviolationreportbody_object
 def parse_report_to(data: dict) -> dict:
     report_to_data = data.get("body", {})
-
-    user_agent = report_to_data.get("user-agent") or data.get("user_agent")
     current_url = report_to_data.get("documentURL") or report_to_data.get("document-uri") or data.get("url")
-
-    properties = {
-        "$current_url": current_url,
-        "$user_agent": user_agent,
-        "$report_to": data.get("report-to"),
-    }
-
-    field_mapping = {
-        "blockedURL": "blocked-uri",
-        "sourceFile": "source-file",
-        "originalPolicy": "original-policy",
-    }
-
-    # Add body fields with appropriate mapping
-    for key, value in report_to_data.items():
-        if key in ["sample", "script-sample", "sourceCodeExample"]:
-            # Redact all script samples for security
-            properties[key] = "REDACTED"
-        elif key in field_mapping:
-            # Map certain fields to kebab-case for consistency
-            properties[field_mapping[key]] = value
-        else:
-            properties[key] = value
-
-    # Check for blockedURL at the top level if not in body
-    if "blockedURL" in data and "blocked-uri" not in properties:
-        properties["blocked-uri"] = data["blockedURL"]
-    elif "blockedURI" in report_to_data and "blocked-uri" not in properties:
-        properties["blocked-uri"] = report_to_data["blockedURI"]
-
-    # Add remaining top-level fields (except body and type)
-    for key, value in data.items():
-        if key not in ["body", "type"] and key not in properties:
-            properties[key] = value
-
+    properties = {"$current_url": current_url, **report_to_data}
     return properties
 
 
@@ -89,19 +53,18 @@ def process_csp_report(request):
         csp_data = json.loads(request.body)
         # Try to get distinct_id from query params or generate a new one
         distinct_id = request.GET.get("distinct_id") or request.GET.get("id") or str(uuid7())
-        session_id = request.GET.get("session_id") or str(uuid7())
-        version = request.GET.get("v") or "unknown"
 
-        # Parse the properties from the CSP report
-        properties = parse_properties(csp_data)
+        try:
+            properties = parse_properties(csp_data)
 
-        return {
-            "event": "$csp_violation",
-            "distinct_id": distinct_id,
-            "session_id": session_id,
-            "version": version,
-            "properties": properties,
-        }, None
+            return {
+                "event": "$csp_violation",
+                "distinct_id": distinct_id,
+                "properties": properties,
+            }, None
+        except ValueError as e:
+            logger.exception("Invalid CSP report parsing", error=e)
+            return None, None
 
     except json.JSONDecodeError:
         return None, cors_response(
