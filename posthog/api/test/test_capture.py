@@ -2400,9 +2400,9 @@ class TestCapture(BaseTest):
         event_data = json.loads(kafka_produce_call["data"]["data"])
 
         self.assertEqual(event_data["event"], "$csp_violation")
-        self.assertEqual(event_data["properties"]["document-uri"], "https://example.com/foo/bar")
-        self.assertEqual(event_data["properties"]["violated-directive"], "default-src self")
-        self.assertEqual(event_data["properties"]["blocked-uri"], "https://evil.com/malicious-image.png")
+        self.assertEqual(event_data["properties"]["document_url"], "https://example.com/foo/bar")
+        self.assertEqual(event_data["properties"]["violated_directive"], "default-src self")
+        self.assertEqual(event_data["properties"]["blocked_url"], "https://evil.com/malicious-image.png")
 
     def test_capture_csp_invalid_json_does_not_crash(self):
         response = self.client.post(
