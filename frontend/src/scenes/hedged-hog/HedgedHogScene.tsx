@@ -1,11 +1,13 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { IconRefresh } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { SceneExport } from 'scenes/sceneTypes'
+
+import { ProductKey } from '~/types'
 
 import { BetDefinitionsContent } from './HedgedHogBetDefinitions'
 import { HomeContent } from './HedgedHogHome'
@@ -24,7 +26,7 @@ export function HedgedHogScene(): JSX.Element {
     const { location, searchParams } = useValues(router)
     const { replace } = useActions(router)
 
-    const { isOnboarded, balanceLoading, transactionsLoading, walletBalanceLoading } = useValues(hedgedHogLogic)
+    const { isOnboarded, transactionsLoading, walletBalanceLoading } = useValues(hedgedHogLogic)
     const { loadTransactions, loadWalletBalance, initializeWallet } = useActions(hedgedHogLogic)
 
     // Get the active tab from URL query parameters or default to 'home'
@@ -66,18 +68,14 @@ export function HedgedHogScene(): JSX.Element {
             />
 
             {!isOnboarded ? (
-                <div className="max-w-2xl mx-auto mt-8">
-                    <LemonCard className="p-6">
-                        <LemonButton
-                            type="primary"
-                            onClick={() => initializeWallet()}
-                            loading={balanceLoading}
-                            size="large"
-                        >
-                            Initialize Wallet with 1000 HH
-                        </LemonButton>
-                    </LemonCard>
-                </div>
+                <ProductIntroduction
+                    productName="Hedged Hog"
+                    productKey={ProductKey.HEDGED_HOG}
+                    thingName="hedged hog"
+                    description="Welcome to the bright new future of betting on your own growth"
+                    isEmpty={true}
+                    action={() => initializeWallet()}
+                />
             ) : (
                 <div className="max-w-5xl mx-auto">
                     <LemonTabs
