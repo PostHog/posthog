@@ -9,6 +9,8 @@ from rest_framework.decorators import action
 
 from posthog.hogql.ai import hit_open_ai_structured_output
 from pydantic import BaseModel
+from rest_framework import serializers
+from posthog.models import StreamConfig
 
 
 class EventSuggestions(BaseModel):
@@ -29,6 +31,12 @@ Example events:
 """
 
 
+class StreamConfigSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StreamConfig
+        fields = ["id", "team_id", "stream_url", "events"]
+
+
 class StreamConfigViewSet(
     TeamAndOrgViewSetMixin,
     ForbidDestroyModel,
@@ -36,6 +44,9 @@ class StreamConfigViewSet(
 ):
     scope_object = "INTERNAL"
     permission_classes = [IsAuthenticated]
+
+    serializer_class = StreamConfigSerializer
+    queryset = StreamConfig.objects.all()
 
     @action(detail=False, methods=["POST"])
     def config_suggestion(self, request: Request, *args, **kwargs) -> Response:
