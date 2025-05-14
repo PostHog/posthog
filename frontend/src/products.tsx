@@ -55,6 +55,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     MessagingLibrary: () => import('../../products/messaging/frontend/library/MessageLibrary'),
     MessagingLibraryTemplate: () => import('../../products/messaging/frontend/library/MessageTemplate'),
     RevenueAnalytics: () => import('../../products/revenue_analytics/frontend/RevenueAnalyticsScene'),
+    VisionHogScene: () => import('../../products/vision_hog/frontend/VisionHogScene'),
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -81,6 +82,7 @@ export const productRoutes: Record<string, [string, string]> = {
         'messagingLibraryTemplateFromMessage',
     ],
     '/revenue_analytics': ['RevenueAnalytics', 'revenueAnalytics'],
+    '/visionhog': ['VisionHogScene', 'visionHog'],
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -134,6 +136,7 @@ export const productConfiguration: Record<string, any> = {
         defaultDocsPath: '/docs/web-analytics/revenue-analytics',
         activityScope: 'RevenueAnalytics',
     },
+    VisionHogScene: { name: 'VisionHog', projectBased: true, layout: 'app-container', activityScope: 'VisionHog' },
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -278,6 +281,7 @@ export const productUrls = {
     surveys: (tab?: SurveysTabs): string => `/surveys${tab ? `?tab=${tab}` : ''}`,
     survey: (id: string): string => `/surveys/${id}`,
     surveyTemplates: (): string => '/survey_templates',
+    visionHog: (): string => '/visionhog',
     webAnalytics: (): string => `/web`,
     webAnalyticsWebVitals: (): string => `/web/web-vitals`,
     webAnalyticsPageReports: (): string => `/web/page-reports`,
@@ -351,6 +355,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     { path: 'Revenue settings', iconType: 'handMoney', href: urls.revenueSettings() },
     { path: 'Session replay', href: urls.replay(ReplayTabs.Home), type: 'session_recording_playlist' },
     { path: 'Surveys', type: 'survey', href: urls.surveys() },
+    { path: 'VisionHog', iconType: 'ai', href: urls.visionHog() },
     { path: 'Web analytics', iconType: 'pieChart', href: urls.webAnalytics() },
 ]
 

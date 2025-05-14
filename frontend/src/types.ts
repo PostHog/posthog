@@ -211,6 +211,7 @@ export enum ProductKey {
     ERROR_TRACKING = 'error_tracking',
     REVENUE_ANALYTICS = 'revenue_analytics',
     MAX = 'max',
+    VISION_HOG = 'vision_hog', // Added VisionHog
 }
 
 type ProductKeyUnion = `${ProductKey}`
