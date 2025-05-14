@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from datetime import datetime, UTC
 
 from posthog.hogql import ast
@@ -86,7 +86,7 @@ class WebOverviewPreAggregatedQueryBuilder:
         FROM web_overview_daily
         """
 
-        query = parse_select(query_str)
+        query = cast(ast.SelectQuery, parse_select(query_str))
 
         filters = self._get_filters()
         if filters:
@@ -111,12 +111,12 @@ class WebOverviewPreAggregatedQueryBuilder:
                     value = prop.value
 
                     # Extract ID if present
-                    if hasattr(value, "id"):
+                    if value is not None and hasattr(value, "id"):
                         value = value.id
 
                     # The device_type input differs between "Desktop" | ["Mobile", "Tablet"]
                     if isinstance(value, list):
-                        values = [v.id if hasattr(v, "id") else v for v in value]
+                        values = [v.id if v is not None and hasattr(v, "id") else v for v in value]
                         filter_expr = ast.CompareOperation(
                             op=ast.CompareOperationOp.In,
                             left=ast.Field(chain=["web_overview_daily", table_field]),
@@ -135,7 +135,7 @@ class WebOverviewPreAggregatedQueryBuilder:
 
         # If we have multiple filters, combine with AND
         if len(filter_parts) > 1:
-            return ast.Call(name="and", args=filter_parts)
+            return ast.Call(name="and", args=cast(list[ast.Expr], filter_parts))
         elif len(filter_parts) == 1:
             return filter_parts[0]
 
