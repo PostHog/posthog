@@ -13,6 +13,9 @@
         "react-spreadsheet": "*"
     },
     "dependencies": {
-        "@fortune-sheet/react": "^1.0.2"
+        "@fortune-sheet/react": "^1.0.2",
+        "@handsontable/react-wrapper": "^15.3.0",
+        "handsontable": "^15.3.0",
+        "hyperformula": "^3.0.0"
     }
 }

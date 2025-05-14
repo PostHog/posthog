@@ -1960,6 +1960,9 @@ importers:
       '@fortune-sheet/react':
         specifier: ^1.0.2
         version: 1.0.2(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@handsontable/react-wrapper':
+        specifier: ^15.3.0
+        version: 15.3.0(handsontable@15.3.0)
       '@posthog/icons':
         specifier: 0.13.1
         version: 0.13.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
@@ -1972,6 +1975,12 @@ importers:
       clsx:
         specifier: '*'
         version: 1.2.1
+      handsontable:
+        specifier: ^15.3.0
+        version: 15.3.0
+      hyperformula:
+        specifier: ^3.0.0
+        version: 3.0.0
       kea:
         specifier: '*'
         version: 3.1.5(react@18.2.0)
@@ -3720,6 +3729,14 @@ packages:
     resolution: {integrity: sha512-QyAXR8Hyh7uMDmveWxDSUcJr9NAWaZ2I6IXgAYvQmfflwouTM+rArE2eEaCtLlRqO81j7pRLCt81IefUei6Zbw==}
     engines: {node: '>=6'}
     hasBin: true
+
+  '@handsontable/pikaday@1.0.0':
+    resolution: {integrity: sha512-1VN6N38t5/DcjJ7y7XUYrDx1LuzvvzlrFdBdMG90Qo1xc8+LXHqbWbsTEm5Ec5gXTEbDEO53vUT35R+2COmOyg==}
+
+  '@handsontable/react-wrapper@15.3.0':
+    resolution: {integrity: sha512-WCnk9sCA8FXW/xTeTjpqbJCUqA9q/A8bHYd2WFf5iZFXu574GD+1uDx5lpd9Cog3K/VIp/oX978Luaze9UJEvg==}
+    peerDependencies:
+      handsontable: '>=15.0.0'
 
   '@hapi/hoek@9.3.0':
     resolution: {integrity: sha512-/c6rf4UJlmHlC9b5BaNvzAcFv7HZ2QHaV0D4/HNlBdvFnvQq8RI4kYdhyPCl7Xj+oWvTWQ8ujhqS53LIgAe6KQ==}
@@ -6897,6 +6914,9 @@ packages:
   '@types/trusted-types@2.0.4':
     resolution: {integrity: sha512-IDaobHimLQhjwsQ/NMwRVfa/yL7L/wriQPMhw1ZJall0KX6E1oxk29XMDeilW5qTIg5aoiqf5Udy8U/51aNoQQ==}
 
+  '@types/trusted-types@2.0.7':
+    resolution: {integrity: sha512-ScaPdn1dQczgbl0QFTeTOmVHFULt394XJgOQNoyVhZ6r2vLnMLJfBPd53SB52T/3G36VI1/g2MZaX0cwDuXsfw==}
+
   '@types/unist@2.0.6':
     resolution: {integrity: sha512-PBjIUxZHOuj0R15/xuwJYjFi+KZdNFrehocChv4g5hu6aFroHue8m0lBP0POdK2nKzbw0cgV1mws8+V/JAcEkQ==}
 
@@ -7990,6 +8010,9 @@ packages:
     resolution: {integrity: sha512-Pj779qHxV2tuapviy1bSZNEL1maXr13bPYpsvSDB68HlYcYuhlDrmGd63i0JHMCLKzc7rUSNIrpdJlhVlNwrxA==}
     engines: {node: '>= 0.8.0'}
 
+  chevrotain@6.5.0:
+    resolution: {integrity: sha512-BwqQ/AgmKJ8jcMEjaSnfMybnKMgGTrtDKowfTP3pX4jwVy0kNjRsT/AP6h+wC3+3NC+X8X15VWBnTCQlX+wQFg==}
+
   chevrotain@7.1.2:
     resolution: {integrity: sha512-9bQsXVQ7UAvzMs7iUBBJ9Yv//exOy7bIR3PByOEk4M64vIE/LsiOiX7VIkMF/vEMlrSStwsaE884Bp9CpjtC5g==}
 
@@ -8998,6 +9021,9 @@ packages:
 
   dompurify@3.0.6:
     resolution: {integrity: sha512-ilkD8YEnnGh1zJ240uJsW7AzE+2qpbOUYjacomn3AvJ6J4JhKGSZ2nh4wUIXPZrEPppaCLx5jFe8T89Rk8tQ7w==}
+
+  dompurify@3.2.5:
+    resolution: {integrity: sha512-mLPd29uoRe9HpvwP2TxClGQBzGXeEC/we/q+bFlmPPmj2p2Ugl3r6ATu/UU1v77DXNcehiBg9zsr1dREyA/dJQ==}
 
   domutils@1.7.0:
     resolution: {integrity: sha512-Lgd2XcJ/NjEw+7tFvfKxOzCYKZsdct5lczQ2ZaQY8Djz7pfAD3Gbp8ySJWtreII/vDlMVmxwa6pHmdxIYgttDg==}
@@ -10191,6 +10217,9 @@ packages:
     engines: {node: '>=0.4.7'}
     hasBin: true
 
+  handsontable@15.3.0:
+    resolution: {integrity: sha512-3ZnrLv53Aw7LPdJz9gBJEspnrE7LyjXeYV55hN1+5M8XmNJcROaYaMAwPYztH6MGCV2OQ/njDxWs5LDb+fSOAg==}
+
   hard-rejection@2.1.0:
     resolution: {integrity: sha512-VIZB+ibDhx7ObhAe7OVtoEbuP4h/MuOTHJ+J8h/eBXotJYl0fBgR72xDFCKgIh22OJZIOVNxBMWuhAr10r8HdA==}
     engines: {node: '>=6'}
@@ -10479,6 +10508,9 @@ packages:
     resolution: {integrity: sha512-vbaCKN2QLtP/vD4yvs6iz6hBEo6wkSzs8HpRah1Z6aGmF2KW5PdYuAd7uX5a+OyBZHBhd+TFLqgjUgytQr4RvQ==}
     engines: {node: '>=12'}
     hasBin: true
+
+  hyperformula@3.0.0:
+    resolution: {integrity: sha512-fAmwxQnbo405llUZiLcnrQTWA26kmbWZk+Cn58PJrANJ/xHBk7ls0ilcNJRIJdti5Z6AqPVi0hZSKvHLbTYtyQ==}
 
   hyperscript-attribute-to-property@1.0.2:
     resolution: {integrity: sha512-oerMul16jZCmrbNsUw8QgrtDzF8lKgFri1bKQjReLw1IhiiNkI59CWuzZjJDGT79UQ1YiWqXhJMv/tRMVqgtkA==}
@@ -12151,6 +12183,9 @@ packages:
   moment@2.29.4:
     resolution: {integrity: sha512-5LC9SOxjSc2HF6vO2CyuTDNivEdoz2IvyJJGj6X8DJ0eFyfszE0QiEd+iXmBvUP3WHxSjFH/vIsA0EN00cgr8w==}
 
+  moment@2.30.1:
+    resolution: {integrity: sha512-uEmtNhbDOrWPFS+hdjFCBfy9f2YoyzRpwcl+DqpC6taX21FzsTLQVbMV/W7PzNSX6x/bhC1zA3c2UQ5NzH6how==}
+
   monaco-editor@0.49.0:
     resolution: {integrity: sha512-2I8/T3X/hLxB2oPHgqcNYUVdA/ZEFShT7IAujifIPMfKkNbLOqY8XCoyHCXrsdjb36dW9MwoTwBCFpXKMwNwaQ==}
 
@@ -12419,6 +12454,9 @@ packages:
   number-is-nan@1.0.1:
     resolution: {integrity: sha512-4jbtZXNAsfZbAHiiqjLPBiCl16dES1zI4Hpzzxw61Tk+loF+sBDBKx1ICKKKwIqQ7M0mFn1TmkN7euSncWgHiQ==}
     engines: {node: '>=0.10.0'}
+
+  numbro@2.5.0:
+    resolution: {integrity: sha512-xDcctDimhzko/e+y+Q2/8i3qNC9Svw1QgOkSkQoO0kIPI473tR9QRbo2KP88Ty9p8WbPy+3OpTaAIzehtuHq+A==}
 
   numeral@2.0.6:
     resolution: {integrity: sha512-qaKRmtYPZ5qdw4jWJD6bxEf1FJEqllJrwxCLIm0sQU/A7v2/czigzOb+C2uSiFsa9lBUzeH7M1oK+Q+OLxL3kA==}
@@ -14066,6 +14104,9 @@ packages:
 
   regenerator-transform@0.15.2:
     resolution: {integrity: sha512-hfMp2BoF0qOk3uc5V20ALGDS2ddjQaLrdl7xrGXvAIow7qeWRM2VA2HuCHkUKk9slq3VwEwLNK3DFBqDfPGYtg==}
+
+  regexp-to-ast@0.4.0:
+    resolution: {integrity: sha512-4qf/7IsIKfSNHQXSwial1IFmfM1Cc/whNBQqRwe0V2stPe7KmN1U0tWQiIx6JiirgSrisjE0eECdNf7Tav1Ntw==}
 
   regexp-to-ast@0.5.0:
     resolution: {integrity: sha512-tlbJqcMHnPKI9zSrystikWKwHkBqu2a/Sgw01h3zFjvYrMxEDYHzzoMZnUrbIfpTFEsoRnnviOXNCzFiSc54Qw==}
@@ -18396,6 +18437,12 @@ snapshots:
       protobufjs: 7.2.3
       yargs: 16.2.0
 
+  '@handsontable/pikaday@1.0.0': {}
+
+  '@handsontable/react-wrapper@15.3.0(handsontable@15.3.0)':
+    dependencies:
+      handsontable: 15.3.0
+
   '@hapi/hoek@9.3.0': {}
 
   '@hapi/topo@5.1.0':
@@ -22684,6 +22731,9 @@ snapshots:
 
   '@types/trusted-types@2.0.4': {}
 
+  '@types/trusted-types@2.0.7':
+    optional: true
+
   '@types/unist@2.0.6': {}
 
   '@types/uuid@10.0.0': {}
@@ -24068,6 +24118,10 @@ snapshots:
 
   check-more-types@2.24.0: {}
 
+  chevrotain@6.5.0:
+    dependencies:
+      regexp-to-ast: 0.4.0
+
   chevrotain@7.1.2:
     dependencies:
       regexp-to-ast: 0.5.0
@@ -25304,6 +25358,10 @@ snapshots:
       domelementtype: 2.3.0
 
   dompurify@3.0.6: {}
+
+  dompurify@3.2.5:
+    optionalDependencies:
+      '@types/trusted-types': 2.0.7
 
   domutils@1.7.0:
     dependencies:
@@ -26953,6 +27011,16 @@ snapshots:
     optionalDependencies:
       uglify-js: 3.19.3
 
+  handsontable@15.3.0:
+    dependencies:
+      '@handsontable/pikaday': 1.0.0
+      core-js: 3.40.0
+      dompurify: 3.2.5
+      moment: 2.30.1
+      numbro: 2.5.0
+    optionalDependencies:
+      hyperformula: 3.0.0
+
   hard-rejection@2.1.0: {}
 
   has-ansi@2.0.0:
@@ -27254,6 +27322,11 @@ snapshots:
   humps@2.0.1: {}
 
   husky@7.0.4: {}
+
+  hyperformula@3.0.0:
+    dependencies:
+      chevrotain: 6.5.0
+      tiny-emitter: 2.1.0
 
   hyperscript-attribute-to-property@1.0.2: {}
 
@@ -29331,6 +29404,8 @@ snapshots:
 
   moment@2.29.4: {}
 
+  moment@2.30.1: {}
+
   monaco-editor@0.49.0: {}
 
   moo-color@1.0.3:
@@ -29656,6 +29731,10 @@ snapshots:
   nullthrows@1.1.1: {}
 
   number-is-nan@1.0.1: {}
+
+  numbro@2.5.0:
+    dependencies:
+      bignumber.js: 9.1.1
 
   numeral@2.0.6: {}
 
@@ -31796,6 +31875,8 @@ snapshots:
   regenerator-transform@0.15.2:
     dependencies:
       '@babel/runtime': 7.24.0
+
+  regexp-to-ast@0.4.0: {}
 
   regexp-to-ast@0.5.0: {}
 
