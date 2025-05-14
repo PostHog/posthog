@@ -71,6 +71,7 @@
         "@posthog/products-llm-observability": "workspace:*",
         "@posthog/products-messaging": "workspace:*",
         "@posthog/products-notebooks": "workspace:*",
+        "@posthog/products-logs": "workspace:*",
         "@posthog/products-persons": "workspace:*",
         "@posthog/products-product-analytics": "workspace:*",
         "@posthog/products-replay": "workspace:*",
