@@ -530,6 +530,18 @@ class UserAccessControl:
 
         return queryset
 
+    def get_user_access_level(self, obj: Model) -> Optional[str]:
+        resource = model_to_resource(obj)
+        access_level_for_resource = None
+        if resource and self.has_access_levels_for_resource(resource):
+            access_level_for_resource = self.access_level_for_resource(resource)
+
+        if access_level_for_resource:
+            return access_level_for_resource
+
+        access_level_for_object = self.access_level_for_object(obj)
+        return access_level_for_object
+
 
 class UserAccessControlSerializerMixin(serializers.Serializer):
     """
@@ -577,13 +589,4 @@ class UserAccessControlSerializerMixin(serializers.Serializer):
             self.user_access_control.preload_object_access_controls(self.instance)
             self._preloaded_access_controls = True
 
-        resource = model_to_resource(obj)
-        access_level_for_resource = None
-        if resource and self.user_access_control.has_access_levels_for_resource(resource):
-            access_level_for_resource = self.user_access_control.access_level_for_resource(resource)
-
-        if access_level_for_resource:
-            return access_level_for_resource
-
-        access_level_for_object = self.user_access_control.access_level_for_object(obj)
-        return access_level_for_object
+        return self.user_access_control.get_user_access_level(obj)

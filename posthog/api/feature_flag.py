@@ -74,6 +74,7 @@ from posthog.rate_limit import BurstRateThrottle
 from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
 from django.dispatch import receiver
 from posthog.models.signals import model_activity_signal
+from posthog.rbac.user_access_control import UserAccessControl
 
 DATABASE_FOR_LOCAL_EVALUATION = (
     "default"
@@ -101,8 +102,28 @@ class CanEditFeatureFlag(BasePermission):
         if request.method in SAFE_METHODS:
             return True
         else:
-            # TODO(@zach): Add new access control support
-            return can_user_edit_feature_flag(request, feature_flag)
+            user_access_control = UserAccessControl(
+                request.user, organization_id=str(request.user.current_organization_id)
+            )
+            return (
+                # Old access control
+                can_user_edit_feature_flag(request, feature_flag)
+                or
+                # New access control
+                (
+                    user_access_control.get_user_access_level(feature_flag) == "editor"
+                    and
+                    # This is an added check for mid-migration to the new access control. We want to check
+                    # if the user has permissions from either system but in the case they are still using
+                    # the old system, since the new system defaults to editor we need to check what that
+                    # organization is defaulting to for access (view or edit)
+                    not OrganizationResourceAccess.objects.filter(
+                        organization=user_access_control.organization,
+                        resource="feature flags",
+                        access_level=OrganizationResourceAccess.AccessLevel.CAN_ONLY_VIEW,
+                    ).exists()
+                )
+            )
 
 
 class FeatureFlagSerializer(
