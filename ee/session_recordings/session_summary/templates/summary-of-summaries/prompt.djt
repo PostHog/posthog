@@ -19,145 +19,37 @@ Each session represents a single user journey. Use the summaries to identify pat
 <identify_patterns_and_trends_instructions>
 CRITICAL WARNING: DO NOT hallucinate errors. Only summarize errors when there is EXPLICIT evidence that errors occurred.
 
-You will analyze multiple user session summaries to identify patterns, trends, pain points, and user behaviors across all sessions. Your goal is to create a comprehensive meta-summary that provides actionable insights about how users interact with the application.
+You will analyze multiple user session summaries to identify patterns, trends, pain points, and user behaviors across all sessions. Your goal is to create a concise meta-summary with actionable insights about user interactions.
 
-# Step 1: Review and Categorize Sessions
+# Step 1: Identify Common User Journeys
+- Group sessions by similar goals and paths
+- Note common entry points and exit points
+- Identify typical sequences in successful journeys
+- Observe differences between completed vs abandoned journeys
 
-First, analyze all session summaries to understand the range of user behaviors and outcomes.
+# Step 2: Detect Pain Points and Friction
+- Identify features where users frequently encounter errors
+- Note areas where confusion indicators appear (dead clicks, repeated actions)
+- Identify where users commonly abandon tasks
+- Observe signs of workflow disruption (timeout messages, exceptions)
 
-1.1. Identify Session Types:
-- Categorize sessions by primary user goal (e.g., error investigation, feature exploration, dashboard analysis)
-- Group sessions with similar journey patterns and outcomes
-- Note the distribution of successful vs. unsuccessful sessions
+# Step 3: Recognize Success Patterns
+- Identify common paths leading to successful outcomes
+- Note user strategies for overcoming obstacles
+- Observe unexpected or creative user behaviors
+- Identify key differences between successful and unsuccessful journeys
 
-1.2. Extract Common Segments:
-- Identify segments that appear frequently across multiple sessions
-- Note the typical sequence of segments in successful journeys
-- Identify segments where users commonly encounter issues
+# Step 4: Suggest Improvements
+- Recommend solutions for common errors and friction points
+- Suggest workflow optimizations for frequently used paths
+- Propose improvements to enhance user success rates
+- Identify opportunities to streamline navigation
 
-1.3. Entry and Exit Analysis:
-- Note common entry points (first segments) across sessions
-- Identify typical exit points for both successful and abandoned sessions
-- Analyze whether users achieve their apparent goals before exiting
-
-# Step 2: Analyze Feature Engagement and Usage Patterns
-
-Examine how users interact with different features of the application.
-
-2.1. Feature Popularity:
-- Identify which features appear most frequently across sessions
-- Note which features users spend the most time engaging with
-- Determine which features are central to successful outcomes
-
-2.2. Feature Interaction Patterns:
-- Analyze how users typically navigate between related features
-- Identify feature combinations that frequently occur together
-- Note features that users explore but rarely engage with deeply
-
-2.3. Feature Problem Areas:
-- Identify features with high abandonment or confusion rates
-- Note features where users encounter technical errors
-- Determine which features have unclear workflows or navigation paths
-
-# Step 3: Identify Common Issues and Pain Points
-
-Synthesize error and issue patterns across sessions.
-
-3.1. Technical Issues:
-- Categorize types of exceptions and errors that appear across sessions
-- Identify which errors are most disruptive to user workflows
-- Note how users typically respond to technical errors (retry, abandon, workaround)
-
-3.2. UX Friction Points:
-- Identify common points of user confusion across sessions
-- Note interface elements that cause repeated navigation issues
-- Analyze patterns of search or filter usage that suggest information architecture problems
-
-3.3. Conversion Blockers:
-- Identify where users commonly abandon important workflows
-- Analyze patterns in form completion or multi-step processes
-- Note paywall or permission issues that interrupt user progress
-
-# Step 4: Determine Success Patterns and Factors
-
-Analyze what characterizes successful sessions.
-
-4.1. Successful Journey Mapping:
-- Outline the most common paths that lead to successful outcomes
-- Identify key actions that are present in most successful sessions
-- Note the typical progression and time investment in successful workflows
-
-4.2. Recovery Strategies:
-- Analyze how users successfully overcome errors or obstacles
-- Identify effective workarounds that users discover
-- Note patterns in retry behavior that eventually lead to success
-
-4.3. Engagement Depth:
-- Determine the relationship between feature exploration depth and success
-- Analyze how thoroughness of investigation relates to outcome quality
-- Identify optimal paths that balance efficiency with thoroughness
-
-# Step 5: Extract Behavioral Insights
-
-Look for interesting or unexpected patterns in user behavior.
-
-5.1. Emergent Behaviors:
-- Identify unexpected ways users are utilizing features
-- Note creative workarounds or usage patterns not in the intended flow
-- Identify points where users appear to deviate from expected processes
-
-5.2. Efficiency Patterns:
-- Analyze sessions with notably quick or efficient task completion
-- Identify shortcuts or patterns that expert users employ
-- Note differences between novice and experienced user behavior
-
-5.3. Edge Cases:
-- Identify unusual but informative outlier sessions
-- Note behaviors that reveal potential feature improvements
-- Analyze sessions with extreme values (very long, many errors, etc.)
-
-# Step 6: Formulate Recommendations
-
-Based on your analysis, develop actionable recommendations.
-
-6.1. Issue Remediation:
-- Suggest solutions for the most common technical errors
-- Recommend UX improvements for areas with high confusion
-- Propose workflow optimizations for frequently abandoned processes
-
-6.2. Feature Enhancement:
-- Suggest improvements to heavily used features
-- Recommend better integration between commonly connected features
-- Propose new capabilities based on observed user needs or workarounds
-
-6.3. Navigation and Flow:
-- Recommend improvements to feature discovery and navigation
-- Suggest optimizations for multi-step workflows
-- Propose ways to reduce friction in critical paths
-
-# Step 7: Self-Consistency Check
-
-Before finalizing your meta-summary, verify:
-
-7.1. Comprehensive Coverage:
-- Have you accounted for all major session types in your analysis?
-- Are your insights balanced across different user goals and behaviors?
-- Have you considered both common patterns and notable exceptions?
-
-7.2. Evidence-Based Conclusions:
-- Is each insight directly supported by session data?
-- Have you avoided overemphasizing outliers or anecdotal observations?
-- Are your recommendations directly tied to observed patterns?
-
-7.3. Actionability Check:
-- Are your insights specific enough to inform product decisions?
-- Have you prioritized issues based on their impact on user success?
-- Do your recommendations address root causes rather than symptoms?
-
-7.4. Clarity and Structure:
-- Is your meta-summary organized in a logical, readable format?
-- Have you avoided jargon that might confuse non-technical readers?
-- Does your summary provide both high-level overview and specific details?
+# Step 5: Before Finalizing
+- Ensure insights are directly supported by specific events in the data
+- Focus on quality over quantity - prioritize impactful observations
+- Include both common patterns and notable exceptions
+- Avoid making numerical claims unless explicitly evident in the data
 </identify_patterns_and_trends_instructions>
 
 <output_format>
