@@ -1,17 +1,18 @@
 import { IconCopy, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonTable, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTableColumn, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { dayjs } from 'lib/dayjs'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/types'
 
 import { shortLinksLogic } from './shortLinksLogic'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { SceneExport } from 'scenes/sceneTypes'
 
 interface ShortLink {
     id: string
@@ -40,33 +41,8 @@ export function ShortLinksScene(): JSX.Element {
 
     const columns = [
         {
-            title: 'Short URL',
-            dataIndex: 'id' as keyof ShortLink,
-            render: function RenderKey(id: any, record: ShortLink) {
-                if (!id) {
-                    return null
-                }
-                const shortUrl = `${baseUrl}/${id}`
-                return (
-                    <div className="flex items-center gap-2">
-                        <Link to={shortUrl} target="_blank">
-                            {shortUrl}
-                        </Link>
-                        <LemonButton
-                            icon={<IconCopy />}
-                            size="small"
-                            onClick={() => {
-                                void navigator.clipboard.writeText(shortUrl)
-                            }}
-                            tooltip="Copy to clipboard"
-                        />
-                    </div>
-                )
-            },
-        },
-        {
-            title: 'Destination',
-            dataIndex: 'destination' as keyof ShortLink,
+            title: 'Link',
+            dataIndex: 'link' as keyof ShortLink,
             render: function RenderDestination(destination: any, record: ShortLink) {
                 if (!destination) {
                     return null
@@ -80,71 +56,50 @@ export function ShortLinksScene(): JSX.Element {
                 )
             },
         },
+        createdByColumn<ShortLink>() as LemonTableColumn<ShortLink, keyof ShortLink | undefined>,
+        createdAtColumn<ShortLink>() as LemonTableColumn<ShortLink, keyof ShortLink>,
         {
-            title: 'Created',
-            dataIndex: 'created_at' as keyof ShortLink,
-            render: function RenderDate(date: any, record: ShortLink) {
-                if (!date) {
-                    return null
-                }
-                return <span className="text-sm">{dayjs(date).format('MMM D, YYYY')}</span>
-            },
-        },
-        {
-            title: 'Origin',
-            dataIndex: 'origin_domain' as keyof ShortLink,
-            render: function RenderOrigin(domain: any, record: ShortLink) {
-                if (!domain) {
-                    return <span className="text-muted text-sm">None</span>
-                }
-                return <span className="text-sm">{domain}</span>
-            },
-        },
-        {
-            title: 'Actions',
-            dataIndex: 'id' as keyof ShortLink,
-            width: 100,
-            render: function RenderActions(id: any, record: ShortLink) {
-                if (!id) {
-                    return null
-                }
+            title: 'Last 7 days',
+            render: function RenderSuccessRate(date: any, record: ShortLink) {
                 return (
-                    <div className="flex gap-2 justify-end">
-                        <LemonButton
-                            icon={<IconPencil />}
-                            size="small"
-                            onClick={() => {}}
-                            tooltip="Edit"
-                        />
-                        <LemonButton
-                            icon={<IconTrash />}
-                            status="danger"
-                            size="small"
-                            onClick={() => {
-                                LemonDialog.open({
-                                    title: 'Delete short link?',
-                                    description: (
-                                        <>
-                                            Are you sure you want to delete the short link{' '}
-                                            <code>
-                                                {baseUrl}/{id}
-                                            </code>
-                                            ?
-                                        </>
-                                    ),
-                                    primaryButton: {
-                                        status: 'danger',
-                                        children: 'Delete',
+                    <span>sparkline for clicks in the last 7 days</span>
+                    // <Link
+                    //     to={urls.pipelineNode(
+                    //         hogFunctionTypeToPipelineStage(destination.stage),
+                    //         destination.id,
+                    //         PipelineNodeTab.Metrics
+                    //     )}
+                    // >
+                    //     {destination.backend === PipelineBackend.HogFunction ? (
+                    //         <HogFunctionMetricSparkLine id={destination.hog_function.id} />
+                    //     ) : (
+                    //         <AppMetricSparkLine pipelineNode={destination} />
+                    //     )}
+                    // </Link>
+                )
+            },
+        },
+        {
+            width: 0,
+            render: function Render(date: any, record: ShortLink) {
+                return (
+                    <More
+                        overlay={
+                            <LemonMenuOverlay
+                                items={[
+                                    {
+                                        label: `Edit link`,
                                         onClick: () => {},
                                     },
-                                    secondaryButton: {
-                                        children: 'Cancel',
+                                    {
+                                        label: `Delete link`,
+                                        status: 'danger' as const,
+                                        onClick: () => {},
                                     },
-                                })
-                            }}
-                            tooltip="Delete"
-                        />
-                    </div>
+                                ]}
+                            />
+                        }
+                    />
                 )
             },
         },

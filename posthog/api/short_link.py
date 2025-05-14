@@ -9,6 +9,7 @@ from rest_framework.response import Response
 from django.db.models import QuerySet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.shared import UserBasicSerializer
 from posthog.models import ShortLink
 import structlog
 
@@ -18,6 +19,8 @@ logger = structlog.get_logger(__name__)
 
 
 class ShortLinkSerializer(serializers.ModelSerializer):
+    created_by = UserBasicSerializer(read_only=True)
+    
     class Meta:
         model = ShortLink
         fields = [
@@ -30,6 +33,7 @@ class ShortLinkSerializer(serializers.ModelSerializer):
             "comments",
             "created_at",
             "updated_at",
+            "created_by",
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
 
@@ -44,6 +48,7 @@ class ShortLinkSerializer(serializers.ModelSerializer):
             description=validated_data.get("description"),
             tags=validated_data.get("tags"),
             comments=validated_data.get("comments"),
+            created_by=self.context["request"].user
         )
 
         logger.info("short_link_created", id=short_link.id, team_id=team.id)

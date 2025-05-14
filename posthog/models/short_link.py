@@ -1,6 +1,7 @@
 from django.db import models
 from django.utils import timezone
 from posthog.models.team import Team
+import uuid
 
 
 class ShortLink(models.Model):
@@ -9,12 +10,13 @@ class ShortLink(models.Model):
     These are used for sharing URLs across the application.
     """
 
-    id = models.CharField(max_length=36, primary_key=True)
+    id = models.CharField(max_length=36, primary_key=True, default=lambda: str(uuid.uuid4()))
     destination = models.URLField(max_length=2048)
     origin_domain = models.CharField(max_length=255)
     origin_key = models.CharField(max_length=255)
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     created_at = models.DateTimeField(default=timezone.now)
+    created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True)
     updated_at = models.DateTimeField(auto_now=True)
     description = models.TextField(null=True, blank=True)
     tags = models.TextField(null=True, blank=True)
