@@ -1,6 +1,8 @@
 import { actions, kea, path, reducers, selectors, listeners, afterMount, connect } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { parseVersion, diffVersions, versionToString, tryParseVersion, isEqualVersion } from 'lib/utils/semver'
+import { isNotNil } from 'lib/utils'
 
 import type { sidePanelSdkDoctorLogicType } from './sidePanelSdkDoctorLogicType'
 import { teamLogic } from 'scenes/teamLogic'
@@ -12,6 +14,8 @@ export type SdkVersionInfo = {
     version: string
     isOutdated: boolean
     count: number
+    releasesAhead?: number
+    latestVersion?: string
 }
 export type SdkHealthStatus = 'healthy' | 'warning' | 'critical'
 
@@ -24,6 +28,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
 
     actions({
         loadRecentEvents: true,
+        loadLatestSdkVersions: true,
     }),
 
     loaders(({ values }) => ({
@@ -49,6 +54,87 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                 },
             },
         ],
+        
+        // Fetch latest SDK versions from GitHub API
+        latestSdkVersions: [
+            {} as Record<SdkType, { latestVersion: string, versions: string[] }>,
+            {
+                loadLatestSdkVersions: async () => {
+                    // Map SDK types to their GitHub repositories
+                    const sdkRepoMap: Record<SdkType, { repo: string, versionPrefix?: string }> = {
+                        'web': { repo: 'posthog-js' },
+                        'ios': { repo: 'posthog-ios' },
+                        'android': { repo: 'posthog-android' },
+                        'node': { repo: 'posthog-node' },
+                        'python': { repo: 'posthog-python' },
+                        'php': { repo: 'posthog-php' },
+                        'ruby': { repo: 'posthog-ruby' },
+                        'go': { repo: 'posthog-go' },
+                        'flutter': { repo: 'posthog-flutter' },
+                        'react-native': { repo: 'posthog-react-native' },
+                        'other': { repo: '' } // Skip for "other"
+                    }
+                    
+                    const result: Record<SdkType, { latestVersion: string, versions: string[] }> = {} as Record<SdkType, { latestVersion: string, versions: string[] }>
+                    
+                    // Create an array of promises for each SDK type
+                    const promises = Object.entries(sdkRepoMap)
+                        .filter(([_, { repo }]) => !!repo) // Skip entries with empty repos
+                        .map(async ([sdkType, { repo }]) => {
+                            try {
+                                // Using the same approach as versionCheckerLogic
+                                const tagsPromise = fetch(`https://api.github.com/repos/PostHog/${repo}/tags`)
+                                    .then((r) => r.json())
+                                    .then((tags) => {
+                                        if (tags && Array.isArray(tags) && tags.length > 0) {
+                                            // Extract versions from tags
+                                            const versions = tags
+                                                .map((tag: any) => {
+                                                    const name = tag.name.replace(/^v/, '')
+                                                    return tryParseVersion(name) ? name : null
+                                                })
+                                                .filter(isNotNil)
+                                            
+                                            if (versions.length > 0) {
+                                                return {
+                                                    sdkType,
+                                                    versions: versions,
+                                                    latestVersion: versions[0]
+                                                }
+                                            }
+                                        }
+                                        return null
+                                    })
+                                    .catch((error) => {
+                                        console.error(`Error fetching latest version for ${sdkType}:`, error)
+                                        return null
+                                    })
+                                
+                                return tagsPromise
+                            } catch (error) {
+                                console.error(`Error setting up fetch for ${sdkType}:`, error)
+                                return null
+                            }
+                        })
+                    
+                    // Wait for all promises to settle and process results
+                    const settled = await Promise.allSettled(promises)
+                    
+                    // Process successful results
+                    settled.forEach((settlement) => {
+                        if (settlement.status === 'fulfilled' && settlement.value) {
+                            const { sdkType, versions, latestVersion } = settlement.value
+                            result[sdkType as SdkType] = {
+                                versions,
+                                latestVersion
+                            }
+                        }
+                    })
+                    
+                    return result
+                },
+            },
+        ],
     })),
 
     reducers({
@@ -56,7 +142,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
             {} as Record<string, SdkVersionInfo>,
             {
                 loadRecentEvents: () => ({}), // Clear the map when loading starts to ensure fresh data
-                loadRecentEventsSuccess: (_, { recentEvents }) => {
+                loadRecentEventsSuccess: (state, { recentEvents }) => {
                     const sdkVersionsMap: Record<string, SdkVersionInfo> = {}
                     
                     for (const event of recentEvents) {
@@ -83,9 +169,8 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                             else if (lib === 'posthog-flutter') type = 'flutter'
                             else if (lib === 'posthog-react-native') type = 'react-native'
                             
-                            // Check if version is outdated
-                            // For now, we'll use a simplified check - in reality, this would compare against
-                            // known minimum versions for each SDK type
+                            // We'll update the isOutdated value after checking with latest versions
+                            // For now, use the existing function as a fallback
                             const isOutdated = checkIfVersionOutdated(lib, libVersion)
                             
                             sdkVersionsMap[key] = {
@@ -101,6 +186,54 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                     
                     return sdkVersionsMap
                 },
+                loadLatestSdkVersionsSuccess: (state, { latestSdkVersions }) => {
+                    // Re-evaluate all versions with the new data
+                    const updatedMap = { ...state }
+                    
+                    // Only process if we have data
+                    if (Object.keys(latestSdkVersions).length > 0) {
+                        Object.entries(updatedMap).forEach(([key, info]) => {
+                            const [lib, version] = key.split('-')
+                            
+                            // Map lib name to SDK type
+                            let sdkType: SdkType = info.type
+                            
+                            const { isOutdated, releasesAhead, latestVersion } = 
+                                checkVersionAgainstLatest(sdkType, version, latestSdkVersions)
+                            
+                            updatedMap[key] = {
+                                ...info,
+                                isOutdated,
+                                releasesAhead,
+                                latestVersion
+                            }
+                        })
+                    } else {
+                        // If we couldn't get latest versions, fall back to the hardcoded check
+                        Object.entries(updatedMap).forEach(([key, info]) => {
+                            const [lib, version] = key.split('-')
+                            
+                            // Convert type to lib name for the hardcoded check
+                            let libName = 'web'
+                            if (info.type === 'ios') libName = 'posthog-ios'
+                            if (info.type === 'android') libName = 'posthog-android'
+                            if (info.type === 'node') libName = 'posthog-node'
+                            if (info.type === 'python') libName = 'posthog-python'
+                            if (info.type === 'php') libName = 'posthog-php'
+                            if (info.type === 'ruby') libName = 'posthog-ruby'
+                            if (info.type === 'go') libName = 'posthog-go'
+                            if (info.type === 'flutter') libName = 'posthog-flutter'
+                            if (info.type === 'react-native') libName = 'posthog-react-native'
+                            
+                            updatedMap[key] = {
+                                ...info,
+                                isOutdated: checkIfVersionOutdated(libName, version)
+                            }
+                        })
+                    }
+                    
+                    return updatedMap
+                }
             },
         ],
     }),
@@ -144,8 +277,10 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
     }),
     
     listeners(({ actions }) => ({
-        // When the logic is mounted or when loadRecentEvents is called,
-        // load the recent events
+        loadRecentEventsSuccess: () => {
+            // Once we have loaded events, fetch the latest versions to compare against
+            actions.loadLatestSdkVersions()
+        }
     })),
     
     afterMount(({ actions }) => {
@@ -179,4 +314,79 @@ function checkIfVersionOutdated(lib: string, version: string): boolean {
     
     // For all other SDKs, consider them up to date for now
     return false
+}
+
+// Enhanced version comparison function using semver utilities
+function checkVersionAgainstLatest(
+    type: SdkType,
+    version: string,
+    latestVersionsData: Record<SdkType, { latestVersion: string, versions: string[] }>
+): { isOutdated: boolean, releasesAhead?: number, latestVersion?: string } {
+    // If we don't have data for this SDK type or the SDK type is "other", fall back to hardcoded check
+    if (!latestVersionsData[type] || type === 'other') {
+        // Convert type to lib name for the hardcoded check
+        let lib = 'web'
+        if (type === 'ios') lib = 'posthog-ios'
+        if (type === 'android') lib = 'posthog-android'
+        if (type === 'node') lib = 'posthog-node'
+        if (type === 'python') lib = 'posthog-python'
+        if (type === 'php') lib = 'posthog-php'
+        if (type === 'ruby') lib = 'posthog-ruby'
+        if (type === 'go') lib = 'posthog-go'
+        if (type === 'flutter') lib = 'posthog-flutter'
+        if (type === 'react-native') lib = 'posthog-react-native'
+        
+        return { isOutdated: checkIfVersionOutdated(lib, version) }
+    }
+    
+    const latestVersion = latestVersionsData[type].latestVersion
+    const allVersions = latestVersionsData[type].versions
+    
+    try {
+        // Parse versions for comparison
+        const currentVersionParsed = parseVersion(version)
+        const latestVersionParsed = parseVersion(latestVersion)
+        
+        // Check if versions differ
+        const diff = diffVersions(latestVersionParsed, currentVersionParsed)
+        
+        // Count number of versions behind
+        const versionIndex = allVersions.indexOf(version)
+        let releasesBehind = versionIndex === -1 ? -1 : versionIndex
+        
+        // Or estimate based on semantic version difference if we don't have the exact version
+        if (releasesBehind === -1 && diff) {
+            if (diff.kind === 'major') {
+                releasesBehind = diff.diff * 10 // Major version differences are significant
+            } else if (diff.kind === 'minor') {
+                releasesBehind = diff.diff // Minor versions represent normal releases
+            } else {
+                releasesBehind = Math.floor(diff.diff / 3) // Patch versions might be less significant
+            }
+        }
+        
+        // Consider outdated if 2+ versions behind
+        return { 
+            isOutdated: releasesBehind >= 2, 
+            releasesAhead: Math.max(0, releasesBehind),
+            latestVersion
+        }
+    } catch (e) {
+        // If we can't parse the versions, fall back to the hardcoded check
+        let lib = 'web'
+        if (type === 'ios') lib = 'posthog-ios'
+        if (type === 'android') lib = 'posthog-android'
+        if (type === 'node') lib = 'posthog-node'
+        if (type === 'python') lib = 'posthog-python'
+        if (type === 'php') lib = 'posthog-php'
+        if (type === 'ruby') lib = 'posthog-ruby'
+        if (type === 'go') lib = 'posthog-go'
+        if (type === 'flutter') lib = 'posthog-flutter'
+        if (type === 'react-native') lib = 'posthog-react-native'
+        
+        return { 
+            isOutdated: checkIfVersionOutdated(lib, version),
+            latestVersion 
+        }
+    }
 }

@@ -49,7 +49,7 @@ export function SidePanelSdkDoctor(): JSX.Element {
             </div>
             
             {sdkHealth !== 'healthy' ? (
-                <div className="mb-4">
+                <div className="mb-4 p-3 bg-warning/10 rounded border border-warning/20">
                     <LemonBadge 
                         status={sdkHealth === 'critical' ? 'danger' : 'warning'}
                         className="mb-2"
@@ -60,9 +60,14 @@ export function SidePanelSdkDoctor(): JSX.Element {
                         {outdatedSdkCount} {outdatedSdkCount === 1 ? 'SDK is' : 'SDKs are'} outdated and should be upgraded 
                         to ensure proper functionality and performance.
                     </p>
+                    <p className="text-sm mt-2">
+                        Using outdated SDKs may result in missing features, compatibility issues, 
+                        or reduced performance. We recommend upgrading to the latest versions.
+                    </p>
                 </div>
             ) : (
-                <div className="mb-4">
+                <div className="mb-4 p-3 bg-success/10 rounded border border-success/20">
+                    <LemonBadge status="success" className="mb-2">Healthy</LemonBadge>
                     <p>All SDKs are up to date. No action needed.</p>
                 </div>
             )}
@@ -87,9 +92,15 @@ export function SidePanelSdkDoctor(): JSX.Element {
                                 <div className="flex items-center gap-2">
                                     {version}
                                     {record.isOutdated && (
-                                        <LemonBadge status="warning" className="text-xs">
-                                            Outdated
-                                        </LemonBadge>
+                                        <Tooltip 
+                                            placement="right"
+                                            title={record.latestVersion ? `Latest version: ${record.latestVersion}` : 'Upgrade recommended'}
+                                        >
+                                            <LemonBadge status="warning" className="text-xs">
+                                                {record.releasesAhead && record.releasesAhead > 0 ? 
+                                                    `${record.releasesAhead} versions behind` : 'Outdated'}
+                                            </LemonBadge>
+                                        </Tooltip>
                                     )}
                                 </div>
                             )
@@ -99,7 +110,7 @@ export function SidePanelSdkDoctor(): JSX.Element {
                         title: 'Events',
                         dataIndex: 'count',
                         render: function RenderCount(count) {
-                            return <div>{count}</div>
+                            return <div className="text-right">{count}</div>
                         },
                     },
                 ]}
