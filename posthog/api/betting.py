@@ -1,11 +1,9 @@
-from rest_framework import viewsets, mixins, status
+from rest_framework import viewsets, mixins, status, serializers
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.request import Request
 from django.db import transaction
 from django.utils import timezone
-from django.shortcuts import get_object_or_404
 from posthog.models.betting import (
     BetDefinition,
     ProbabilityDistribution,
@@ -13,165 +11,151 @@ from posthog.models.betting import (
     TransactionLedger,
     Wallet,
 )
-from posthog.api.routing import StructuredViewSetMixin
-from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from typing import Any, Dict, List, Optional, Type
-import json
-from datetime import datetime, timedelta
-import random  # For demo probability distributions
+
+class BetDefinitionSerializer(serializers.ModelSerializer):
+    latest_distribution = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = BetDefinition
+        fields = [
+            "id",
+            "team",
+            "type",
+            "bet_parameters",
+            "closing_date",
+            "status",
+            "probability_distribution_interval",
+            "title",
+            "description",
+            "created_at",
+            "latest_distribution",
+            "final_value",
+        ]
+        read_only_fields = ["id", "created_at", "latest_distribution", "team"]
+    
+    def get_latest_distribution(self, obj):
+        latest = obj.latest_probability_distribution
+        if latest:
+            return {
+                "id": str(latest.id),
+                "created_at": latest.created_at,
+                "buckets": latest.buckets,
+            }
+        return None
+    
+    def validate(self, data):
+        if data.get("closing_date") and data["closing_date"] < timezone.now():
+            raise serializers.ValidationError("Closing date must be in the future")
+        return data
 
 
-class BettingSerializer:
-    """
-    Container class for all betting-related serializers.
-    """
+class ProbabilityDistributionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ProbabilityDistribution
+        fields = ["id", "bet_definition", "distribution_data", "created_at"]
+        read_only_fields = ["id", "created_at"]
+
+
+class BetSerializer(serializers.ModelSerializer):
+    bet_definition_title = serializers.CharField(source="bet_definition.title", read_only=True)
     
-    class BetDefinitionSerializer(StructuredViewSetMixin):
-        def get_serializer_class(self):
-            from rest_framework import serializers
-            
-            class Serializer(serializers.ModelSerializer):
-                latest_distribution = serializers.SerializerMethodField()
-                
-                class Meta:
-                    model = BetDefinition
-                    fields = [
-                        "id",
-                        "team",
-                        "type",
-                        "query_params",
-                        "closing_date",
-                        "status",
-                        "probability_distribution_interval",
-                        "title",
-                        "description",
-                        "created_at",
-                        "latest_distribution",
-                    ]
-                    read_only_fields = ["id", "created_at", "latest_distribution"]
-                
-                def get_latest_distribution(self, obj):
-                    latest = obj.latest_probability_distribution
-                    if latest:
-                        return {
-                            "id": str(latest.id),
-                            "created_at": latest.created_at,
-                            "buckets": latest.buckets,
-                        }
-                    return None
-                
-                def validate(self, data):
-                    if data.get("closing_date") and data["closing_date"] < timezone.now():
-                        raise serializers.ValidationError("Closing date must be in the future")
-                    return data
-            
-            return Serializer
+    class Meta:
+        model = Bet
+        fields = [
+            "id",
+            "bet_definition",
+            "bet_definition_title",
+            "probability_distribution",
+            "user",
+            "team",
+            "amount",
+            "predicted_value",
+            "potential_payout",
+            "status",
+            "created_at",
+        ]
+        read_only_fields = ["id", "created_at", "potential_payout", "status", "bet_definition_title", "user"]
     
-    class ProbabilityDistributionSerializer(StructuredViewSetMixin):
-        def get_serializer_class(self):
-            from rest_framework import serializers
+    def validate(self, data):
+        # Validate bet definition is active
+        bet_definition = data.get("bet_definition")
+        if not bet_definition.is_active:
+            raise serializers.ValidationError("Cannot place bet on inactive bet definition")
+        
+        # Validate probability distribution belongs to bet definition
+        prob_dist = data.get("probability_distribution")
+        if prob_dist and prob_dist.bet_definition.id != bet_definition.id:
+            raise serializers.ValidationError("Probability distribution does not belong to this bet definition")
+        
+        # Validate user has sufficient funds
+        request = self.context.get("request")
+        if request and request.user:
+            user = request.user
+            team_id = str(data.get("team").id)
+            amount = data.get("amount")
             
-            class Serializer(serializers.ModelSerializer):
-                class Meta:
-                    model = ProbabilityDistribution
-                    fields = ["id", "bet_definition", "distribution_data", "created_at"]
-                    read_only_fields = ["id", "created_at"]
-            
-            return Serializer
+            if amount and not Wallet.has_sufficient_funds(user, team_id, amount):
+                raise serializers.ValidationError("Insufficient funds")
+        
+        return data
     
-    class BetSerializer(StructuredViewSetMixin):
-        def get_serializer_class(self):
-            from rest_framework import serializers
-            
-            class Serializer(serializers.ModelSerializer):
-                bet_definition_title = serializers.CharField(source="bet_definition.title", read_only=True)
+    def create(self, validated_data):
+        request = self.context.get("request")
+        user = request.user if request else None
+        
+        # Set the user from the request
+        if user and "user" not in validated_data:
+            validated_data["user"] = user
+        
+        # Calculate potential payout
+        bet_definition = validated_data.get("bet_definition")
+        prob_dist = validated_data.get("probability_distribution")
+        amount = validated_data.get("amount")
+        predicted_value = validated_data.get("predicted_value")
+        
+        if bet_definition and prob_dist and amount and predicted_value is not None:
+            # Get payout multiplier
+            if isinstance(predicted_value, dict) and "value" in predicted_value:
+                value_to_check = predicted_value["value"]
+            else:
+                value_to_check = predicted_value
                 
-                class Meta:
-                    model = Bet
-                    fields = [
-                        "id",
-                        "bet_definition",
-                        "bet_definition_title",
-                        "probability_distribution",
-                        "amount",
-                        "predicted_value",
-                        "potential_payout",
-                        "status",
-                        "created_at",
-                    ]
-                    read_only_fields = ["id", "created_at", "potential_payout", "status", "bet_definition_title"]
-                
-                def validate(self, data):
-                    # Ensure bet definition is active
-                    bet_definition = data.get("bet_definition")
-                    if bet_definition and not bet_definition.is_active:
-                        raise serializers.ValidationError("Cannot place bet on inactive bet definition")
-                    
-                    # Ensure probability distribution belongs to bet definition
-                    prob_dist = data.get("probability_distribution")
-                    if prob_dist and prob_dist.bet_definition.id != bet_definition.id:
-                        raise serializers.ValidationError("Probability distribution must belong to the bet definition")
-                    
-                    # Validate user has enough balance
-                    request = self.context.get("request")
-                    if request and hasattr(request, "user") and hasattr(request.user, "team"):
-                        team = request.user.team
-                        amount = data.get("amount", 0)
-                        balance = Wallet.get_balance(team)
-                        if amount > balance:
-                            raise serializers.ValidationError(f"Insufficient balance. Current balance: {balance}")
-                    
-                    return data
-                
-                def create(self, validated_data):
-                    # Calculate potential payout
-                    prob_dist = validated_data.get("probability_distribution")
-                    predicted_value = validated_data.get("predicted_value")
-                    amount = validated_data.get("amount")
-                    
-                    payout_multiplier = prob_dist.get_payout_for_value(predicted_value)
-                    potential_payout = float(amount) * payout_multiplier
-                    
-                    # Add team to validated data
-                    request = self.context.get("request")
-                    if request and hasattr(request, "user") and hasattr(request.user, "team"):
-                        validated_data["team"] = request.user.team
-                    
-                    # Create bet with calculated potential payout
-                    validated_data["potential_payout"] = potential_payout
-                    bet = super().create(validated_data)
-                    
-                    # Create transaction for bet placement
-                    Wallet.place_bet(bet.team, bet)
-                    
-                    return bet
-            
-            return Serializer
+            payout_multiplier = prob_dist.get_payout_for_value(float(value_to_check))
+            potential_payout = float(amount) * payout_multiplier
+            validated_data["potential_payout"] = potential_payout
+        
+        # Create the bet
+        bet = super().create(validated_data)
+        
+        # Deduct the amount from the user's wallet
+        if user:
+            team_id = str(bet.team.id)
+            Wallet.place_bet(user, team_id, bet)
+        
+        return bet
+
+
+class TransactionLedgerSerializer(serializers.ModelSerializer):
+    user_email = serializers.CharField(source="user.email", read_only=True)
     
-    class TransactionLedgerSerializer(StructuredViewSetMixin):
-        def get_serializer_class(self):
-            from rest_framework import serializers
-            
-            class Serializer(serializers.ModelSerializer):
-                class Meta:
-                    model = TransactionLedger
-                    fields = [
-                        "id",
-                        "team",
-                        "entry_type",
-                        "transaction_type",
-                        "amount",
-                        "reference_id",
-                        "description",
-                        "created_at",
-                    ]
-                    read_only_fields = ["id", "created_at"]
-            
-            return Serializer
+    class Meta:
+        model = TransactionLedger
+        fields = [
+            "id",
+            "user",
+            "user_email",
+            "team_id",
+            "entry_type",
+            "transaction_type",
+            "amount",
+            "reference_id",
+            "description",
+            "created_at",
+        ]
+        read_only_fields = ["id", "created_at", "user", "user_email"]
 
 
 class BetDefinitionViewSet(
-    BettingSerializer.BetDefinitionSerializer,
     mixins.CreateModelMixin,
     mixins.RetrieveModelMixin,
     mixins.ListModelMixin,
@@ -180,82 +164,108 @@ class BetDefinitionViewSet(
     """
     ViewSet for bet definitions.
     """
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    permission_classes = [IsAuthenticated]
     queryset = BetDefinition.objects.all()
+    serializer_class = BetDefinitionSerializer
     
     def get_queryset(self):
         queryset = super().get_queryset()
         return queryset.filter(team_id=self.team_id).order_by("-created_at")
     
     def perform_create(self, serializer):
-        bet_definition = serializer.save(team_id=self.team_id)
+        # Set the team to the current team
+        team = self.request.user.current_team
+        serializer.save(team=team)
         
-        # Create initial probability distribution
-        self._create_probability_distribution(bet_definition)
-        
-        return bet_definition
+        # Create an initial probability distribution if interval is specified
+        bet_definition = serializer.instance
+        if bet_definition.probability_distribution_interval > 0:
+            self._create_demo_distribution(bet_definition)
     
-    def _create_probability_distribution(self, bet_definition):
-        """Create a probability distribution for the bet definition."""
-        # In a real implementation, this would calculate probabilities based on historical data
-        # For now, we'll create a simple mock distribution
+    def _create_demo_distribution(self, bet_definition):
+        """
+        Create a demo probability distribution for the bet definition.
+        In a real implementation, this would be replaced with actual data.
+        """
+        # Create a simple distribution with 3 buckets
+        distribution_data = [
+            {"value": 100, "probability": 0.2},
+            {"value": 200, "probability": 0.5},
+            {"value": 300, "probability": 0.3},
+        ]
         
-        if bet_definition.type == "pageviews":
-            # Create buckets for pageview counts
-            buckets = []
-            
-            # Example: Create 10 buckets with random probabilities
-            base_value = 100  # Base pageview count
-            total_prob = 0
-            
-            for i in range(10):
-                value = base_value + (i * 10)  # 100, 110, 120, etc.
-                
-                # Assign probabilities - higher in the middle, lower at extremes
-                if i < 5:
-                    prob = 0.05 + (i * 0.03)
-                else:
-                    prob = 0.05 + ((9 - i) * 0.03)
-                
-                total_prob += prob
-                buckets.append({"value": value, "probability": prob})
-            
-            # Normalize probabilities to sum to 1
-            for bucket in buckets:
-                bucket["probability"] = bucket["probability"] / total_prob
-            
-            # Create the probability distribution
-            ProbabilityDistribution.objects.create(
-                bet_definition=bet_definition,
-                distribution_data=buckets
-            )
+        ProbabilityDistribution.objects.create(
+            bet_definition=bet_definition,
+            distribution_data=distribution_data,
+        )
     
     @action(detail=True, methods=["post"])
-    def settle(self, request, **kwargs):
-        """Settle a bet definition with the final value."""
+    def settle(self, request, pk=None):
+        """
+        Settle a bet definition with the final value.
+        """
         bet_definition = self.get_object()
         
-        if bet_definition.status != "active":
+        # Check if bet definition can be settled
+        if bet_definition.status != BetDefinition.Status.ACTIVE:
             return Response(
-                {"error": "Only active bet definitions can be settled"},
+                {"error": "Cannot settle a bet definition that is not active"},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
         final_value = request.data.get("final_value")
         if final_value is None:
             return Response(
-                {"error": "Final value is required"},
+                {"error": "final_value is required"},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
+        # Settle the bet definition and all related bets
         with transaction.atomic():
-            bet_definition.settle(float(final_value))
+            bet_definition.settle(final_value)
+            
+            # Get all active bets for this definition
+            bets = Bet.objects.filter(
+                bet_definition=bet_definition,
+                status=Bet.Status.ACTIVE
+            )
+            
+            # Settle each bet
+            for bet in bets:
+                bet.settle(final_value)
         
-        return Response({"status": "Bet definition settled successfully"})
+        return Response({
+            "status": "success",
+            "message": "Bet definition settled",
+            "final_value": final_value
+        })
+
+
+class ProbabilityDistributionViewSet(
+    mixins.CreateModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.ListModelMixin,
+    viewsets.GenericViewSet,
+):
+    """
+    ViewSet for probability distributions.
+    """
+    permission_classes = [IsAuthenticated]
+    queryset = ProbabilityDistribution.objects.all()
+    serializer_class = ProbabilityDistributionSerializer
+    
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        
+        # Filter by bet definition if provided
+        bet_definition_id = self.request.query_params.get("bet_definition")
+        if bet_definition_id:
+            queryset = queryset.filter(bet_definition_id=bet_definition_id)
+        
+        return queryset.filter(bet_definition__team_id=self.team_id).order_by("-created_at")
 
 
 class BetViewSet(
-    BettingSerializer.BetSerializer,
     mixins.CreateModelMixin,
     mixins.RetrieveModelMixin,
     mixins.ListModelMixin,
@@ -264,12 +274,16 @@ class BetViewSet(
     """
     ViewSet for bets.
     """
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    permission_classes = [IsAuthenticated]
     queryset = Bet.objects.all()
+    serializer_class = BetSerializer
     
     def get_queryset(self):
         queryset = super().get_queryset()
-        return queryset.filter(team_id=self.team_id).order_by("-created_at")
+        return queryset.filter(team_id=self.team_id, user=self.request.user).order_by("-created_at")
+    
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user, team_id=self.team_id)
     
     @action(detail=False, methods=["post"])
     def estimate(self, request):
@@ -309,7 +323,12 @@ class BetViewSet(
             )
         
         # Calculate potential payout
-        payout_multiplier = prob_dist.get_payout_for_value(float(predicted_value))
+        if isinstance(predicted_value, dict) and "value" in predicted_value:
+            value_to_check = predicted_value["value"]
+        else:
+            value_to_check = predicted_value
+            
+        payout_multiplier = prob_dist.get_payout_for_value(float(value_to_check))
         potential_payout = float(amount) * payout_multiplier
         
         return Response({
@@ -321,7 +340,6 @@ class BetViewSet(
 
 
 class TransactionViewSet(
-    BettingSerializer.TransactionLedgerSerializer,
     mixins.RetrieveModelMixin,
     mixins.ListModelMixin,
     viewsets.GenericViewSet,
@@ -329,19 +347,20 @@ class TransactionViewSet(
     """
     ViewSet for transaction ledger entries.
     """
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    permission_classes = [IsAuthenticated]
     queryset = TransactionLedger.objects.all()
+    serializer_class = TransactionLedgerSerializer
     
     def get_queryset(self):
         queryset = super().get_queryset()
-        return queryset.filter(team_id=self.team_id).order_by("-created_at")
+        return queryset.filter(team_id=self.team_id, user=self.request.user).order_by("-created_at")
     
     @action(detail=False, methods=["get"])
     def wallet_balance(self, request):
         """
-        Get the current wallet balance for the team.
+        Get the current wallet balance for the user in this team.
         """
-        balance = Wallet.get_balance(request.user.team)
+        balance = Wallet.get_balance(request.user, str(self.team_id))
         return Response({"balance": balance})
 
 
@@ -349,27 +368,28 @@ class OnboardingViewSet(viewsets.ViewSet):
     """
     ViewSet for onboarding users to the betting feature.
     """
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    permission_classes = [IsAuthenticated]
     
     @action(detail=False, methods=["post"])
     def initialize(self, request):
         """
         Initialize a user's wallet with the onboarding bonus.
         """
-        team = request.user.team
+        user = request.user
+        team_id = str(self.team_id)
         
         # Check if user already has transactions
-        if TransactionLedger.objects.filter(team=team).exists():
+        if TransactionLedger.objects.filter(user=user, team_id=team_id).exists():
             return Response(
                 {"error": "User already onboarded"},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
         # Add onboarding bonus
-        Wallet.add_onboarding_bonus(team)
+        Wallet.add_onboarding_bonus(user, team_id)
         
         return Response({
             "status": "success",
             "message": "Onboarding complete",
-            "balance": Wallet.get_balance(team)
+            "balance": Wallet.get_balance(user, team_id)
         })
