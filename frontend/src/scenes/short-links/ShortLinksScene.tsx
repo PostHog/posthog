@@ -9,6 +9,7 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { ShortLink, shortLinksLogic } from './shortLinksLogic'
+import { PageHeader } from 'lib/components/PageHeader'
 
 export function ShortLinksScene(): JSX.Element {
     const { activeShortLinks, expiredShortLinks, newLink, shortLinksLoading, editingLink } =
@@ -123,59 +124,75 @@ export function ShortLinksScene(): JSX.Element {
     ]
 
     return (
-        <div className="shortlinks-scene">
-            <div className="flex justify-between items-center mb-4">
-                <div>
-                    <h1 className="mb-0">Short Links</h1>
-                    <p className="text-muted mb-0">Create and manage shortened URLs for easy sharing</p>
-                </div>
-                <LemonButton
-                    type="primary"
-                    icon={<IconPlus />}
-                    onClick={() => {
-                        LemonDialog.open({
-                            title: 'Create Short Link',
-                            width: 600,
-                            content: (
-                                <div className="space-y-4">
-                                    <div>
-                                        <LemonLabel>Destination URL</LemonLabel>
-                                        <LemonInput
-                                            placeholder="https://example.com"
-                                            value={newLink.destination_url}
-                                            onChange={(e) => setNewLinkDestinationUrl(e)}
-                                            fullWidth
-                                        />
+        <div>
+            <PageHeader
+                buttons={
+                    <LemonButton
+                        type="primary"
+                        icon={<IconPlus />}
+                        onClick={() => {
+                            LemonDialog.open({
+                                title: 'Create Short Link',
+                                width: 600,
+                                content: (
+                                    <div className="space-y-4">
+                                        <div>
+                                            <LemonLabel>Destination URL</LemonLabel>
+                                            <LemonInput
+                                                placeholder="https://example.com"
+                                                value={newLink.destination_url}
+                                                onChange={(e) => setNewLinkDestinationUrl(e)}
+                                                fullWidth
+                                            />
+                                        </div>
+                                        <div>
+                                            <LemonLabel>Expiration date (optional)</LemonLabel>
+                                            <LemonInput
+                                                type="text"
+                                                placeholder="YYYY-MM-DD"
+                                                value={newLink.expiration_date || ''}
+                                                onChange={(e: string) =>
+                                                    setNewLinkExpirationDate(e ? e : null)
+                                                }
+                                                fullWidth
+                                            />
+                                        </div>
                                     </div>
-                                    <div>
-                                        <LemonLabel>Expiration date (optional)</LemonLabel>
-                                        <LemonInput
-                                            type="text"
-                                            placeholder="YYYY-MM-DD"
-                                            value={newLink.expiration_date || ''}
-                                            onChange={(e: string) =>
-                                                setNewLinkExpirationDate(e ? e : null)
-                                            }
-                                            fullWidth
-                                        />
-                                    </div>
-                                </div>
-                            ),
-                            primaryButton: {
-                                children: 'Create',
-                                type: 'primary',
-                                onClick: () => createShortLink(),
-                                disabled: !newLink.destination_url,
-                            },
-                            secondaryButton: {
-                                children: 'Cancel',
-                            },
-                        })
-                    }}
-                >
-                    Create short link
-                </LemonButton>
-            </div>
+                                ),
+                                primaryButton: {
+                                    children: 'Create',
+                                    type: 'primary',
+                                    onClick: () => createShortLink(),
+                                    disabled: !newLink.destination_url,
+                                },
+                                secondaryButton: {
+                                    children: 'Cancel',
+                                },
+                            })
+                        }}
+                        sideAction={{
+                            dropdown: {
+                                overlay: (
+                                    <>
+                                        <LemonButton fullWidth onClick={() => {}}>
+                                            Import from Bit.ly
+                                        </LemonButton>
+                                        <LemonButton fullWidth onClick={() => {}}>
+                                            Import from Dub.co
+                                        </LemonButton>
+                                        <LemonButton fullWidth onClick={() => {}}>
+                                            Import from CSV
+                                        </LemonButton>
+                                    </>
+                                ),
+                                placement: 'bottom-end',
+                            }
+                        }}
+                    >
+                        Create short link
+                    </LemonButton>
+                }
+            />
 
             {activeShortLinks.length === 0 && !shortLinksLoading ? (
                 <LemonBanner type="info">
