@@ -139,7 +139,7 @@ First, analyze the entire session and divide it into sequential chronological se
 # Step 2: Consolidate Segments
 
 AGGRESSIVELY consolidate similar segments.
-{% if FOCUS INSTRUCTIONS %}
+{% if FOCUS_INSTRUCTIONS %}
 
 However, be careful not to over-consolidate segments that relate directly to the focus instructions (Step #0). Preserve more granular distinctions for segments specifically relevant to this focus area.
 {% endif %}
