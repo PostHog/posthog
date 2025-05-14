@@ -649,6 +649,13 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             logic: editorSceneLogic,
                             tooltipDocLink: 'https://posthog.com/docs/data-warehouse/query#querying-sources-with-sql',
                         },
+                        {
+                            identifier: Scene.VisionHog,
+                            label: 'VisionHog',
+                            icon: <IconAI />,
+                            to: urls.visionHog(),
+                            tooltipDocLink: 'https://posthog.com/docs/visionhog',
+                        },
                         hasOnboardedAnyProduct
                             ? {
                                   identifier: Scene.Pipeline,
