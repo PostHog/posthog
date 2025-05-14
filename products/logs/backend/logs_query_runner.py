@@ -6,11 +6,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner
-from posthog.schema import (
-    CachedLogsQueryResponse,
-    LogsQuery,
-    LogsQueryResponse,
-)
+from posthog.schema import CachedLogsQueryResponse, LogsQuery, LogsQueryResponse
 
 
 class LogsQueryRunner(QueryRunner):
