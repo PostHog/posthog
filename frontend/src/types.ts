@@ -2257,8 +2257,14 @@ export interface PluginLogEntry {
     instance_id: string
 }
 
-export interface StreamConfigType {
+export interface StreamConfigEventSuggestions {
     suggestions: string[]
+}
+
+export interface StreamConfig {
+    id: string
+    video_url: string
+    event_suggestions: string[]
 }
 
 export enum AnnotationScope {

@@ -5,9 +5,9 @@ import { useActions, useValues } from 'kea'
 import React from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
-// import { useActions, useValues } from 'kea' // Uncomment if you use actions/values from logic
-import { someLogic } from './someLogic'
 import { VisionHogConfigScene } from './VisionHogConfigScene'
+// import { useActions, useValues } from 'kea' // Uncomment if you use actions/values from logic
+import { visionHogSceneLogic } from './visionHogSceneLogic'
 
 const VIDEO_BUFFER_SECONDS = 0
 
@@ -45,12 +45,12 @@ const MOCK_EVENTS = [
 
 export const scene: SceneExport = {
     component: VisionHogScene,
-    logic: someLogic,
+    logic: visionHogSceneLogic,
 }
 
 export function VisionHogScene(): JSX.Element {
-    const { videoUrl } = useValues(someLogic)
-    const { setVideoUrl } = useActions(someLogic)
+    const { videoUrl } = useValues(visionHogSceneLogic)
+    const { setVideoUrl } = useActions(visionHogSceneLogic)
     const videoRef = React.useRef<HTMLVideoElement>(null)
     const [videoError, setVideoError] = React.useState<string | null>(null)
     const [currentTime, setCurrentTime] = React.useState(0)

@@ -128,6 +128,7 @@ import {
     SessionRecordingUpdateType,
     SharingConfigurationType,
     SlackChannelType,
+    StreamConfigEventSuggestions,
     StreamConfigType,
     SubscriptionType,
     Survey,
@@ -2180,8 +2181,14 @@ const api = {
     },
 
     streamConfig: {
-        async getConfigSuggestion(prompt: string): Promise<StreamConfigType> {
+        async getConfigSuggestion(prompt: string): Promise<StreamConfigEventSuggestions> {
             return await new ApiRequest().streamConfigConfigSuggestion().create({ data: { prompt } })
+        },
+        async list(): Promise<PaginatedResponse<StreamConfigType>> {
+            return await new ApiRequest().streamConfig().get()
+        },
+        async create(streamConfig: Partial<StreamConfigType>): Promise<StreamConfigType> {
+            return await new ApiRequest().streamConfig().create({ data: streamConfig })
         },
     },
 

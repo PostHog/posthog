@@ -1,7 +1,10 @@
-import { actions, kea, listeners, path, props, reducers } from 'kea'
+import { actions, connect, kea, listeners, path, props, reducers } from 'kea'
 import api from 'lib/api'
 
+import { StreamConfig } from '~/types'
+
 import type { visionHogConfigLogicType } from './visionHogConfiglogicType'
+import { visionHogSceneLogic } from './visionHogSceneLogic'
 
 export interface VisionHogConfigLogicProps {
     // Define any props your logic might need here
@@ -12,16 +15,16 @@ export const visionHogConfigLogic = kea<visionHogConfigLogicType>([
     path(['products', 'visionHog', 'frontend', 'visionHogConfigLogic']),
     props({} as VisionHogConfigLogicProps), // Pass empty props object for now
 
+    connect(() => ({
+        actions: [visionHogSceneLogic, ['loadStreamConfigs']],
+    })),
     actions({
-        // Example: define an action to load data from your temp backend
-        // loadTempBackendData: true,
-        // setTempBackendData: (data: any) => ({ data }),
-        // setTempBackendError: (error: string) => ({ error }),
         getConfigSuggestion: (prompt: string) => ({ prompt }),
         setSuggestions: (suggestions: string[]) => ({ suggestions }),
         removeSuggestion: (index: number) => ({ index }),
         updateSuggestion: (index: number, value: string) => ({ index, value }),
         setSuggestionsLoading: (loading: boolean) => ({ loading }),
+        setStreamConfig: (streamConfig: Partial<StreamConfig>) => ({ streamConfig }),
     }),
 
     reducers({
@@ -35,20 +38,6 @@ export const visionHogConfigLogic = kea<visionHogConfigLogicType>([
             },
         ],
         suggestionsLoading: [false, { setSuggestionsLoading: (_, { loading }) => loading }],
-        // Example: store data or loading/error states
-        // tempBackendData: [null as any | null, { setTempBackendData: (_, { data }) => data }],
-        // isLoadingTempBackend: [
-        //     false,
-        //     {
-        //         loadTempBackendData: () => true,
-        //         setTempBackendData: () => false,
-        //         setTempBackendError: () => false,
-        //     },
-        // ],
-        // tempBackendError: [null as string | null, {
-        //     loadTempBackendData: () => null,
-        //     setTempBackendError: (_, { error }) => error
-        // }]
     }),
 
     listeners(({ values, actions }) => ({
@@ -58,10 +47,9 @@ export const visionHogConfigLogic = kea<visionHogConfigLogicType>([
             actions.setSuggestions([...values.suggestions, ...response.suggestions])
             actions.setSuggestionsLoading(false)
         },
+        saveStreamConfig: async ({ streamConfig }) => {
+            await api.streamConfig.create(streamConfig)
+            actions.loadStreamConfigs()
+        },
     })),
-
-    // // If you want to load data when the logic is mounted:
-    // // afterMount(({ actions }) => {
-    // //     actions.loadTempBackendData()
-    // // }),
 ])
