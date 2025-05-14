@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 
 class ChatConversation(FileSystemSyncMixin, UUIDModel):
     class Meta:
+        db_table = "posthog_chat_conversation"
         # No need for the unique constraint since we removed conversation_id
         pass
 
@@ -79,5 +80,8 @@ class ChatMessage(UUIDModel):
     # Message has been read by the other party
     read = models.BooleanField(default=False)
 
+    is_assistant = models.BooleanField(default=False, db_column="is_assistant")
+
     class Meta:
         ordering = ["created_at"]
+        db_table = "posthog_chat_message"

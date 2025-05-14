@@ -16,7 +16,6 @@ export type ChatMessage = {
     sender: 'user' | 'assistant'
     dateCreated: string
     dateUpdated: string
-    isRead: boolean
 }
 
 export const chatListLogic = kea<chatListLogicType>([
@@ -32,7 +31,7 @@ export const chatListLogic = kea<chatListLogicType>([
             [
                 {
                     id: 1,
-                    name: 'aleks@posthog.com',
+                    name: 'Chat 1',
                     dateCreated: '2021-01-01',
                     dateUpdated: '2021-01-01',
                     messages: [
@@ -42,7 +41,6 @@ export const chatListLogic = kea<chatListLogicType>([
                             sender: 'user',
                             dateCreated: '2021-01-01',
                             dateUpdated: '2021-01-01',
-                            isRead: true,
                         },
                         {
                             id: 2,
@@ -50,13 +48,12 @@ export const chatListLogic = kea<chatListLogicType>([
                             sender: 'assistant',
                             dateCreated: '2021-01-01',
                             dateUpdated: '2021-01-01',
-                            isRead: true,
                         },
                     ],
                 },
                 {
                     id: 2,
-                    name: 'jane@posthog.com',
+                    name: 'Chat 2',
                     dateCreated: '2021-01-01',
                     dateUpdated: '2021-01-01',
                     messages: [
@@ -66,7 +63,6 @@ export const chatListLogic = kea<chatListLogicType>([
                             sender: 'user',
                             dateCreated: '2021-01-01',
                             dateUpdated: '2021-01-01',
-                            isRead: true,
                         },
                         {
                             id: 2,
@@ -74,7 +70,6 @@ export const chatListLogic = kea<chatListLogicType>([
                             sender: 'assistant',
                             dateCreated: '2021-01-01',
                             dateUpdated: '2021-01-01',
-                            isRead: true,
                         },
                         {
                             id: 3,
@@ -82,13 +77,12 @@ export const chatListLogic = kea<chatListLogicType>([
                             sender: 'user',
                             dateCreated: '2021-01-01',
                             dateUpdated: '2021-01-01',
-                            isRead: false,
                         },
                     ],
                 },
                 {
                     id: 3,
-                    name: 'john@posthog.com',
+                    name: 'Chat 3',
                     dateCreated: '2021-01-01',
                     dateUpdated: '2021-01-01',
                     messages: [
@@ -98,7 +92,6 @@ export const chatListLogic = kea<chatListLogicType>([
                             sender: 'user',
                             dateCreated: '2021-01-01',
                             dateUpdated: '2021-01-01',
-                            isRead: false,
                         },
                     ],
                 },
@@ -131,7 +124,6 @@ export const chatListLogic = kea<chatListLogicType>([
                         sender: 'assistant' as const,
                         dateCreated: new Date().toISOString(),
                         dateUpdated: new Date().toISOString(),
-                        isRead: true,
                     }
                     actions.setChats(
                         values.chats.map((chat) => {
@@ -143,18 +135,6 @@ export const chatListLogic = kea<chatListLogicType>([
                     )
                     actions.setMessage('')
                 }
-            }
-        },
-        setSelectedChatId: ({ selectedChatId }) => {
-            if (values.chats.find((chat) => chat.id === selectedChatId)?.messages.some((message) => !message.isRead)) {
-                actions.setChats(
-                    values.chats.map((chat) => {
-                        if (chat.id === selectedChatId) {
-                            return { ...chat, messages: chat.messages.map((message) => ({ ...message, isRead: true })) }
-                        }
-                        return chat
-                    })
-                )
             }
         },
     })),
