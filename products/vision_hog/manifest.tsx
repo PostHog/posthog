@@ -2,7 +2,7 @@ import { urls } from 'scenes/urls'
 
 import { ProductManifest } from '../../frontend/src/types'
 
-export const visionHogProduct: ProductManifest = {
+export const manifest: ProductManifest = {
     name: 'VisionHog',
     scenes: {
         VisionHogScene: {
@@ -30,5 +30,3 @@ export const visionHogProduct: ProductManifest = {
         },
     ],
 }
-
-export default visionHogProduct
