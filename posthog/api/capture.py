@@ -10,7 +10,7 @@ from collections.abc import Iterator
 from datetime import datetime, timedelta, UTC
 from dateutil import parser
 from django.conf import settings
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from enum import Enum
@@ -739,6 +739,9 @@ def get_event(request):
     if recordings_were_quota_limited and random() < settings.RECORDINGS_QUOTA_LIMITING_RESPONSES_SAMPLE_RATE:
         EVENTS_REJECTED_OVER_QUOTA_COUNTER.labels(resource_type="recordings").inc()
         response_body["quota_limited"] = ["recordings"]
+
+    if csp_report:
+        return cors_response(request, HttpResponse(status=status.HTTP_204_NO_CONTENT))
 
     return cors_response(request, JsonResponse(response_body))
 

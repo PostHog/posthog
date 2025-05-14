@@ -2391,7 +2391,7 @@ class TestCapture(BaseTest):
             content_type="application/csp-report",
         )
 
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        self.assertEqual(status.HTTP_204_NO_CONTENT, response.status_code)
         self.assertEqual(kafka_produce.call_count, 1)
 
         kafka_produce_call = kafka_produce.call_args_list[0].kwargs
