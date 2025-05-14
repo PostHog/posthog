@@ -2180,8 +2180,8 @@ const api = {
     },
 
     streamConfig: {
-        async getConfigSuggestion(): Promise<StreamConfigType> {
-            return await new ApiRequest().streamConfigConfigSuggestion().get()
+        async getConfigSuggestion(prompt: string): Promise<StreamConfigType> {
+            return await new ApiRequest().streamConfigConfigSuggestion().create({ data: { prompt } })
         },
     },
 
