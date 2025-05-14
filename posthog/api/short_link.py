@@ -1,7 +1,5 @@
-import hashlib
 from typing import Any
 
-from django.utils import timezone
 from django.http import HttpResponse, HttpResponseNotFound
 from django.views.decorators.cache import cache_page
 from rest_framework import serializers, viewsets
@@ -20,7 +18,17 @@ logger = structlog.get_logger(__name__)
 class ShortLinkSerializer(serializers.ModelSerializer):
     class Meta:
         model = ShortLink
-        fields = ["id", "destination", "origin_domain", "origin_key", "description", "tags", "comments", "created_at", "updated_at"]
+        fields = [
+            "id",
+            "destination",
+            "origin_domain",
+            "origin_key",
+            "description",
+            "tags",
+            "comments",
+            "created_at",
+            "updated_at",
+        ]
         read_only_fields = ["id", "created_at", "updated_at"]
 
     def create(self, validated_data: dict[str, Any]) -> ShortLink:
