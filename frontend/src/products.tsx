@@ -55,6 +55,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     MessagingLibrary: () => import('../../products/messaging/frontend/library/MessageLibrary'),
     MessagingLibraryTemplate: () => import('../../products/messaging/frontend/library/MessageTemplate'),
     RevenueAnalytics: () => import('../../products/revenue_analytics/frontend/RevenueAnalyticsScene'),
+    Spreadsheets: () => import('../../products/spreadsheets/frontend/scene'),
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -81,6 +82,7 @@ export const productRoutes: Record<string, [string, string]> = {
         'messagingLibraryTemplateFromMessage',
     ],
     '/revenue_analytics': ['RevenueAnalytics', 'revenueAnalytics'],
+    '/spreadsheets': ['Spreadsheets', 'spreadsheets'],
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -134,6 +136,7 @@ export const productConfiguration: Record<string, any> = {
         defaultDocsPath: '/docs/web-analytics/revenue-analytics',
         activityScope: 'RevenueAnalytics',
     },
+    Spreadsheets: { name: 'Spreadsheets', projectBased: true },
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -275,6 +278,7 @@ export const productUrls = {
     replayFilePlayback: (): string => '/replay/file-playback',
     replaySettings: (sectionId?: string): string => `/replay/settings${sectionId ? `?sectionId=${sectionId}` : ''}`,
     revenueAnalytics: (): string => '/revenue_analytics',
+    spreadsheets: (): string => '/spreadsheets',
     surveys: (tab?: SurveysTabs): string => `/surveys${tab ? `?tab=${tab}` : ''}`,
     survey: (id: string): string => `/surveys/${id}`,
     surveyTemplates: (): string => '/survey_templates',

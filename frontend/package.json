@@ -75,6 +75,7 @@
         "@posthog/products-product-analytics": "workspace:*",
         "@posthog/products-replay": "workspace:*",
         "@posthog/products-revenue-analytics": "workspace:*",
+        "@posthog/products-spreadsheets": "workspace:*",
         "@posthog/products-surveys": "workspace:*",
         "@posthog/products-web-analytics": "workspace:*",
         "@posthog/rrweb": "0.0.13",

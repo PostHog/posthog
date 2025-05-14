@@ -36,6 +36,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, isNotNil } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
 import posthog from 'posthog-js'
+import { spreadsheetsSceneLogic } from 'products/spreadsheets/frontend/spreadsheetsSceneLogic'
 import React from 'react'
 import { editorSceneLogic } from 'scenes/data-warehouse/editor/editorSceneLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -649,6 +650,16 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             logic: editorSceneLogic,
                             tooltipDocLink: 'https://posthog.com/docs/data-warehouse/query#querying-sources-with-sql',
                         },
+                        featureFlags[FEATURE_FLAGS.SPREADSHEETS]
+                            ? {
+                                  identifier: Scene.Spreadsheets,
+                                  label: 'Spreadsheets',
+                                  icon: <IconServer />,
+                                  to: urls.spreadsheets(),
+                                  logic: spreadsheetsSceneLogic,
+                                  tag: 'beta' as const,
+                              }
+                            : null,
                         hasOnboardedAnyProduct
                             ? {
                                   identifier: Scene.Pipeline,
