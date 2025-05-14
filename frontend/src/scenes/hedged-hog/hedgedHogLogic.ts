@@ -36,6 +36,8 @@ export const hedgedHogLogic = kea<hedgedHogLogicType>([
 
     actions({
         setData: (data: HedgedHogData) => ({ data }),
+        loadTransactions: () => ({}),
+        setActiveTab: (tab: string) => ({ tab }),
     }),
 
     reducers({
@@ -71,6 +73,12 @@ export const hedgedHogLogic = kea<hedgedHogLogicType>([
                     }
                     return state
                 },
+            },
+        ],
+        activeTab: [
+            '',
+            {
+                setActiveTab: (_, { tab }) => tab,
             },
         ],
     }),
@@ -121,8 +129,9 @@ export const hedgedHogLogic = kea<hedgedHogLogicType>([
 
     events(({ actions }) => ({
         afterMount: () => {
-            // Load transactions on mount to check if user is onboarded
+            // Load transactions and wallet balance on mount
             actions.loadTransactions()
+            actions.loadWalletBalance()
         },
     })),
 ])

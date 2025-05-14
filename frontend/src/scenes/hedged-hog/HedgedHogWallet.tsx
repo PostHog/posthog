@@ -1,7 +1,7 @@
 import { IconCreditCard } from '@posthog/icons'
 import { useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
-import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
+import { IconArrowDown, IconArrowUp, IconChevronRight } from 'lib/lemon-ui/icons'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
@@ -26,10 +26,10 @@ export const WalletContent = (): JSX.Element => {
                             {walletBalanceLoading ? (
                                 <LemonSkeleton className="h-12 w-32" />
                             ) : (
-                                <div className="text-4xl font-bold">{walletBalance} HH</div>
+                                <div className="text-4xl font-bold">{walletBalance} Hedgies</div>
                             )}
                         </div>
-                        <div className="text-sm opacity-80">Use your HedgedHog coins to place bets on metrics</div>
+                        <div className="text-sm opacity-80">Use your Hedgies to place bets on metrics</div>
                     </LemonCard>
                 </div>
             )}
@@ -80,6 +80,36 @@ export const WalletContent = (): JSX.Element => {
                                 },
                             },
                             {
+                                title: 'Source -> Destination',
+                                render: function RenderSourceDest(_, transaction) {
+                                    const transaction_type = transaction.transaction_type
+                                    let source = ''
+                                    let destination = ''
+
+                                    if (transaction_type === 'onboarding') {
+                                        source = 'Hoggy Bank'
+                                        destination = 'Your Wallet'
+                                    } else if (transaction_type === 'bet_place') {
+                                        source = 'Your Wallet'
+                                        destination = 'Pool'
+                                    } else if (transaction_type === 'bet_win') {
+                                        source = 'Pool'
+                                        destination = 'Your Wallet'
+                                    } else if (transaction_type === 'deposit') {
+                                        source = 'Stripe'
+                                        destination = 'Your Wallet'
+                                    }
+
+                                    return (
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-muted">{source}</span>
+                                            <IconChevronRight className="text-muted" />
+                                            <span className="text-muted">{destination}</span>
+                                        </div>
+                                    )
+                                },
+                            },
+                            {
                                 title: 'Amount',
                                 dataIndex: 'amount',
                                 render: function RenderAmount(_, transaction) {
@@ -98,7 +128,7 @@ export const WalletContent = (): JSX.Element => {
                                             }`}
                                         >
                                             {isIncoming ? '+' : isOutgoing ? '-' : ''}
-                                            {parseFloat(amount?.toString() || '0').toLocaleString()} HH
+                                            {parseFloat(amount?.toString() || '0').toLocaleString()} Hedgies
                                         </span>
                                     )
                                 },
