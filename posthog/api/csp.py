@@ -7,28 +7,6 @@ from posthog.models.utils import uuid7
 
 logger = structlog.get_logger(__name__)
 
-"""
-This is the suggested strucutre we could standarize on for CSP reports.
-
-| Normalized Key        | report-to format                     | report-uri format                  |
-| --------------------- | ------------------------------------ | ---------------------------------- |
-| `document_url`        | `body.documentURL`                   | `csp-report.document-uri`          |
-| `referrer`            | `body.referrer`                      | `csp-report.referrer`              |
-| `violated_directive`  | *inferred from* `effectiveDirective` | `csp-report.violated-directive`    |
-| `effective_directive` | `body.effectiveDirective`            | `csp-report.effective-directive`   |
-| `original_policy`     | `body.originalPolicy`                | `csp-report.original-policy`       |
-| `disposition`         | `body.disposition`                   | `csp-report.disposition`           |
-| `blocked_url`         | `body.blockedURL`                    | `csp-report.blocked-uri`           |
-| `line_number`         | `body.lineNumber`                    | `csp-report.line-number`           |
-| `column_number`       | `body.columnNumber`                  | *not available*                    |
-| `source_file`         | `body.sourceFile`                    | `csp-report.source-file`           |
-| `status_code`         | `body.statusCode`                    | `csp-report.status-code`           |
-| `script_sample`       | `body.sample`                        | `csp-report.script-sample`         |
-| `user_agent`          | top-level `user_agent`               | *custom extract from headers*      |
-| `report_type`         | top-level `type`                     | `"csp-violation"` (static/assumed) |
-
-"""
-
 
 # https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/report-uri
 def parse_report_uri(data: dict) -> dict:
