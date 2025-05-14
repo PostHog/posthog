@@ -77,38 +77,36 @@ export function HedgedHogScene(): JSX.Element {
                     action={() => initializeWallet()}
                 />
             ) : (
-                <div className="max-w-5xl mx-auto">
-                    <LemonTabs
-                        activeKey={activeTab}
-                        onChange={(key) => setActiveTab(key as Tab)}
-                        tabs={[
-                            {
-                                key: 'home',
-                                label: 'Home',
-                                // icon: <IconHome />,
-                                content: <HomeContent />,
-                            },
-                            {
-                                key: 'wallet',
-                                label: 'Wallet',
-                                // icon: <IconWallet />,
-                                content: <WalletContent />,
-                            },
-                            {
-                                key: 'bet-definitions',
-                                label: 'Bet Definitions',
-                                // icon: <IconTarget />,
-                                content: <BetDefinitionsContent />,
-                            },
-                            {
-                                key: 'leaderboard',
-                                label: 'Leaderboard',
-                                // icon: <IconTrophy />,
-                                content: <LeaderboardContent />,
-                            },
-                        ]}
-                    />
-                </div>
+                <LemonTabs
+                    activeKey={activeTab}
+                    onChange={(key) => setActiveTab(key as Tab)}
+                    tabs={[
+                        {
+                            key: 'home',
+                            label: 'Home',
+                            // icon: <IconHome />,
+                            content: <HomeContent />,
+                        },
+                        {
+                            key: 'wallet',
+                            label: 'Wallet',
+                            // icon: <IconWallet />,
+                            content: <WalletContent />,
+                        },
+                        {
+                            key: 'bet-definitions',
+                            label: 'Bet Definitions',
+                            // icon: <IconTarget />,
+                            content: <BetDefinitionsContent />,
+                        },
+                        {
+                            key: 'leaderboard',
+                            label: 'Leaderboard',
+                            // icon: <IconTrophy />,
+                            content: <LeaderboardContent />,
+                        },
+                    ]}
+                />
             )}
         </div>
     )

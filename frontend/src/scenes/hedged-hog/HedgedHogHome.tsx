@@ -171,7 +171,7 @@ export function HomeContent(): JSX.Element {
                                 title: 'Bet Type',
                                 dataIndex: 'betType',
                                 key: 'betType',
-                                render: function RenderType(betType: string) {
+                                render: function RenderType(betType: string | number | undefined) {
                                     return (
                                         <span className={betType === 'Yes' ? 'text-success' : 'text-danger'}>
                                             {betType}
@@ -183,7 +183,7 @@ export function HomeContent(): JSX.Element {
                                 title: 'Price',
                                 dataIndex: 'price',
                                 key: 'price',
-                                render: function RenderPrice(price: number) {
+                                render: function RenderPrice(price: string | number | undefined) {
                                     return `${(Number(price) * 100).toFixed(0)}¢`
                                 },
                             },
