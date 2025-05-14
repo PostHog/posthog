@@ -50,7 +50,7 @@ export function renderHogQLX(value: any): JSX.Element {
                         label="Explain this CSP violation"
                         type="primary"
                         size="xsmall"
-                        data-attr="hog-ql-llm-button"
+                        data-attr="hog-ql-explaincsp-button"
                         className="inline-block"
                         disabledReason={prompt ? undefined : 'A prompt must be provided when creating an LLM button'}
                     />
