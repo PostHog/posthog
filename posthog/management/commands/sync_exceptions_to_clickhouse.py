@@ -79,7 +79,9 @@ class Command(BaseCommand):
         for fingerprint in fingerprint_rows:
             logger.info("getting postgres fingerprint")
             postgres_fingerprint: ErrorTrackingIssueFingerprintV2 | None = (
-                ErrorTrackingIssueFingerprintV2.objects.filter(fingerprint=fingerprint["fingerprint"]).first()
+                ErrorTrackingIssueFingerprintV2.objects.filter(
+                    fingerprint=fingerprint["fingerprint"], team_id=fingerprint["team_id"]
+                ).first()
             )
             if postgres_fingerprint is not None:
                 logger.info("fingerprint found")
