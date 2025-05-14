@@ -557,7 +557,8 @@ export function gatherProductManifests(__dirname) {
     const redirects = []
     const fileSystemTypes = []
     const treeItemsNew = {}
-    const treeItemsExplore = {}
+    const treeItemsProducts = {}
+    const fileSystemFilterTypes = []
 
     const sourceFiles = []
     for (const product of products) {
@@ -645,6 +646,10 @@ export function gatherProductManifests(__dirname) {
                     for (const property of node.initializer.properties) {
                         fileSystemTypes.push(cloneNode(property))
                     }
+                } else if (node.name.text === 'fileSystemFilterTypes') {
+                    for (const property of node.initializer.properties) {
+                        fileSystemFilterTypes.push(cloneNode(property))
+                    }
                 } else {
                     ts.forEachChild(node, visit)
                 }
@@ -667,14 +672,14 @@ export function gatherProductManifests(__dirname) {
             } else if (
                 ts.isPropertyAssignment(node) &&
                 ts.isArrayLiteralExpression(node.initializer) &&
-                node.name.text === 'treeItemsExplore'
+                node.name.text === 'treeItemsProducts'
             ) {
                 for (const element of node.initializer.elements) {
                     if (ts.isObjectLiteralExpression(element)) {
                         const pathNode = element.properties.find((p) => p.name.text === 'path')
                         const path = pathNode ? pathNode.initializer.text : null
                         if (path) {
-                            treeItemsExplore[path] = cloneNode(element)
+                            treeItemsProducts[path] = cloneNode(element)
                         } else {
                             console.error('Tree item without path:', element)
                         }
@@ -699,8 +704,9 @@ export function gatherProductManifests(__dirname) {
     const manifestRedirects = printer.printNode(ts.EmitHint.Unspecified, ts.factory.createObjectLiteralExpression(redirects), sourceFile)
     const manifestRoutes = printer.printNode(ts.EmitHint.Unspecified, ts.factory.createObjectLiteralExpression(routes), sourceFile)
     const manifestFileSystemTypes = printer.printNode(ts.EmitHint.Unspecified, ts.factory.createObjectLiteralExpression(fileSystemTypes), sourceFile)
-    const manifesttreeItemsNew = printer.printNode(ts.EmitHint.Unspecified, ts.factory.createArrayLiteralExpression(Object.keys(treeItemsNew).sort().map(key => treeItemsNew[key])), sourceFile)
-    const manifesttreeItemsExplore = printer.printNode(ts.EmitHint.Unspecified, ts.factory.createArrayLiteralExpression(Object.keys(treeItemsExplore).sort().map(key => treeItemsExplore[key])), sourceFile)
+    const manifestTreeItemsNew = printer.printNode(ts.EmitHint.Unspecified, ts.factory.createArrayLiteralExpression(Object.keys(treeItemsNew).sort().map(key => treeItemsNew[key])), sourceFile)
+    const manifestTreeItemsProducts = printer.printNode(ts.EmitHint.Unspecified, ts.factory.createArrayLiteralExpression(Object.keys(treeItemsProducts).sort().map(key => treeItemsProducts[key])), sourceFile)
+    const manifestTreeFilterTypes = printer.printNode(ts.EmitHint.Unspecified, ts.factory.createObjectLiteralExpression(fileSystemFilterTypes), sourceFile)
 
     const autogenComment = "/** This const is auto-generated, as is the whole file */"
     let preservedImports = ''
@@ -733,9 +739,11 @@ export function gatherProductManifests(__dirname) {
         ${autogenComment}
         export const fileSystemTypes = ${manifestFileSystemTypes}\n
         ${autogenComment}
-        export const treeItemsNew = ${manifesttreeItemsNew}\n
+        export const getTreeItemsNew = (): FileSystemImport[] => ${manifestTreeItemsNew}\n
         ${autogenComment}
-        export const treeItemsExplore = ${manifesttreeItemsExplore}\n
+        export const getTreeItemsProducts = (): FileSystemImport[] => ${manifestTreeItemsProducts}\n
+        ${autogenComment}
+        export const getTreeFilterTypes = (): Record<string, FileSystemFilterType> => (${manifestTreeFilterTypes})\n
     `
 
     // safe temporary path in /tmp

@@ -9422,21 +9422,12 @@
                     "type": "string"
                 },
                 "href": {
-                    "$comment": "(ref?: string) => string",
-                    "properties": {
-                        "namedArgs": {
-                            "additionalProperties": false,
-                            "properties": {
-                                "ref": {
-                                    "type": "string"
-                                }
-                            },
-                            "type": "object"
-                        }
-                    },
-                    "type": "object"
+                    "description": "Object's URL",
+                    "type": "string"
                 },
-                "icon": {},
+                "iconType": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -9461,7 +9452,7 @@
                     "type": "string"
                 }
             },
-            "required": ["href", "path"],
+            "required": ["path"],
             "type": "object"
         },
         "FilterLogicalOperator": {

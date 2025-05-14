@@ -9,6 +9,7 @@ import React, {
     useEffect,
     useImperativeHandle,
     useRef,
+    useState,
 } from 'react'
 
 interface ListBoxContextType {
@@ -21,6 +22,9 @@ interface ListBoxProps extends React.HTMLAttributes<HTMLDivElement> {
     children: ReactNode
     className?: string
     focusedElement?: HTMLElement | null
+    // If true, the listbox will use virtual focus instead of the default browser focus
+    // Useful for when you need to keep focus, but allow keyboard navigation in lists
+    virtualFocus?: boolean
     onFinishedKeyDown?: ({
         e,
         activeElement,
@@ -41,9 +45,10 @@ export interface ListBoxHandle {
 }
 
 const ListBoxInner = forwardRef<ListBoxHandle, ListBoxProps>(
-    ({ children, className, onFinishedKeyDown, focusedElement, ...props }, ref) => {
+    ({ children, className, onFinishedKeyDown, focusedElement, virtualFocus = false, ...props }, ref) => {
         const containerRef = useRef<HTMLDivElement>(null)
         const focusableElements = useRef<HTMLElement[]>([])
+        const [virtualFocusedElement, setVirtualFocusedElement] = useState<HTMLElement | null>(null)
 
         function recalculateFocusableElements(): void {
             focusableElements.current = Array.from(
@@ -54,10 +59,20 @@ const ListBoxInner = forwardRef<ListBoxHandle, ListBoxProps>(
         useImperativeHandle(ref, () => ({
             getFocusableElements: () => focusableElements.current,
             focusFirstElement: () => {
-                focusableElements.current[0]?.focus()
+                if (virtualFocus) {
+                    setVirtualFocusedElement(focusableElements.current[0])
+                    focusableElements.current[0]?.setAttribute('data-focused', 'true')
+                } else {
+                    focusableElements.current[0]?.focus()
+                }
             },
             focusNthElement: (index: number) => {
-                focusableElements.current[index]?.focus()
+                if (virtualFocus) {
+                    setVirtualFocusedElement(focusableElements.current[index])
+                    focusableElements.current[index]?.setAttribute('data-focused', 'true')
+                } else {
+                    focusableElements.current[index]?.focus()
+                }
             },
         }))
 
@@ -78,18 +93,35 @@ const ListBoxInner = forwardRef<ListBoxHandle, ListBoxProps>(
                 return
             }
 
-            const activeElement = document.activeElement as HTMLElement
+            const activeElement = virtualFocus
+                ? (virtualFocusedElement as HTMLElement)
+                : (document.activeElement as HTMLElement)
             const currentIndex = elements.indexOf(activeElement)
             let nextIndex = currentIndex
+
+            // If virtual focus is enabled, remove the data-focused attribute from all elements
+            if (virtualFocus) {
+                elements.forEach((el) => el.removeAttribute('data-focused'))
+            }
 
             if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
                 e.preventDefault()
                 nextIndex = (currentIndex + (e.key === 'ArrowDown' ? 1 : -1) + elements.length) % elements.length
-                elements[nextIndex]?.focus()
+                if (virtualFocus) {
+                    setVirtualFocusedElement(elements[nextIndex])
+                    elements[nextIndex]?.setAttribute('data-focused', 'true')
+                } else {
+                    elements[nextIndex]?.focus()
+                }
             } else if (e.key === 'Home' || e.key === 'End') {
                 e.preventDefault()
                 nextIndex = e.key === 'Home' ? 0 : elements.length - 1
-                elements[nextIndex]?.focus()
+                if (virtualFocus) {
+                    setVirtualFocusedElement(elements[nextIndex])
+                    elements[nextIndex]?.setAttribute('data-focused', 'true')
+                } else {
+                    elements[nextIndex]?.focus()
+                }
             }
 
             if (e.key === 'Enter') {
@@ -106,6 +138,17 @@ const ListBoxInner = forwardRef<ListBoxHandle, ListBoxProps>(
                 })
             }
         }
+
+        /** Recalculate focusable elements whenever the DOM updates */
+        useEffect(() => {
+            recalculateFocusableElements()
+        }, [children])
+
+        useEffect(() => {
+            if (focusedElement) {
+                focusedElement.focus()
+            }
+        }, [focusedElement])
 
         return (
             <ListBoxContext.Provider value={{ containerRef }}>
@@ -196,8 +239,7 @@ const ListBoxItem = forwardRef<HTMLLIElement, ListBoxItemProps>(
 
 ListBoxItem.displayName = 'ListBox.Item'
 
-interface ListBoxComponent
-    extends React.ForwardRefExoticComponent<ListBoxProps & React.RefAttributes<ListBoxHandle>> {
+interface ListBoxComponent extends React.ForwardRefExoticComponent<ListBoxProps & React.RefAttributes<ListBoxHandle>> {
     Item: typeof ListBoxItem
 }
 

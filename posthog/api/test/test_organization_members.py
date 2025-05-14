@@ -77,6 +77,8 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
                 "organization_id": self.organization.id,
                 "organization_name": self.organization.name,
                 "removal_type": "removed_by_other",
+                "removed_email": user.email,
+                "removed_user_id": user.id,
             },
             groups={"instance": "http://localhost:8010", "organization": str(self.organization.id)},
         )
@@ -230,6 +232,8 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
                 "organization_id": self.organization.id,
                 "organization_name": self.organization.name,
                 "removal_type": "self_removal",
+                "removed_email": self.user.email,
+                "removed_user_id": self.user.id,
             },
             groups={"instance": ANY, "organization": str(self.organization.id)},
         )

@@ -572,6 +572,9 @@ importers:
       '@posthog/products-actions':
         specifier: workspace:*
         version: link:../products/actions
+      '@posthog/products-cohorts':
+        specifier: workspace:*
+        version: link:../products/cohorts
       '@posthog/products-dashboards':
         specifier: workspace:*
         version: link:../products/dashboards
@@ -608,6 +611,9 @@ importers:
       '@posthog/products-revenue-analytics':
         specifier: workspace:*
         version: link:../products/revenue_analytics
+      '@posthog/products-surveys':
+        specifier: workspace:*
+        version: link:../products/surveys
       '@posthog/products-web-analytics':
         specifier: workspace:*
         version: link:../products/web_analytics
@@ -855,8 +861,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.240.3
-        version: 1.240.3(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.242.1
+        version: 1.242.1(@rrweb/types@2.0.0-alpha.17)
       posthog-js-lite:
         specifier: 3.0.0
         version: 3.0.0
@@ -1566,6 +1572,33 @@ importers:
         specifier: '*'
         version: 18.2.0
 
+  products/cohorts:
+    dependencies:
+      '@posthog/icons':
+        specifier: 0.13.1
+        version: 0.13.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@types/react':
+        specifier: '*'
+        version: 17.0.52
+      clsx:
+        specifier: '*'
+        version: 1.2.1
+      fuse.js:
+        specifier: '*'
+        version: 6.6.2
+      kea:
+        specifier: '*'
+        version: 3.1.5(react@18.2.0)
+      kea-loaders:
+        specifier: '*'
+        version: 3.0.0(kea@3.1.5(react@18.2.0))
+      kea-router:
+        specifier: '*'
+        version: 3.2.1(kea@3.1.5(react@18.2.0))
+      react:
+        specifier: '*'
+        version: 18.2.0
+
   products/dashboards:
     dependencies:
       '@posthog/icons':
@@ -1912,6 +1945,33 @@ importers:
       kea-forms:
         specifier: '*'
         version: 3.2.0(kea@3.1.5(react@18.2.0))
+      kea-loaders:
+        specifier: '*'
+        version: 3.0.0(kea@3.1.5(react@18.2.0))
+      kea-router:
+        specifier: '*'
+        version: 3.2.1(kea@3.1.5(react@18.2.0))
+      react:
+        specifier: '*'
+        version: 18.2.0
+
+  products/surveys:
+    dependencies:
+      '@posthog/icons':
+        specifier: 0.13.1
+        version: 0.13.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@types/react':
+        specifier: '*'
+        version: 17.0.52
+      clsx:
+        specifier: '*'
+        version: 1.2.1
+      fuse.js:
+        specifier: '*'
+        version: 6.6.2
+      kea:
+        specifier: '*'
+        version: 3.1.5(react@18.2.0)
       kea-loaders:
         specifier: '*'
         version: 3.0.0(kea@3.1.5(react@18.2.0))
@@ -13452,8 +13512,8 @@ packages:
       rrweb-snapshot:
         optional: true
 
-  posthog-js@1.240.3:
-    resolution: {integrity: sha512-8SLOatYvxbuG4HWbRTvIvIQ0iVGwZSuj8drmSDjvD2gunT4F/2o5glYxOEpaHHWp06kRnAWP1Kwi494a38AwEA==}
+  posthog-js@1.242.1:
+    resolution: {integrity: sha512-j2mzw0eukyuw/Qm3tNZ6pfaXmc7eglWj6ftmvR1Lz9GtMr85ndGNXJvIGO+6PBrQW2o0D1G0k/KV93ehta0hFA==}
     peerDependencies:
       '@rrweb/types': 2.0.0-alpha.17
       rrweb-snapshot: 2.0.0-alpha.17
@@ -31196,7 +31256,7 @@ snapshots:
     optionalDependencies:
       '@rrweb/types': 2.0.0-alpha.17
 
-  posthog-js@1.240.3(@rrweb/types@2.0.0-alpha.17):
+  posthog-js@1.242.1(@rrweb/types@2.0.0-alpha.17):
     dependencies:
       core-js: 3.40.0
       fflate: 0.4.8

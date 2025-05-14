@@ -116,7 +116,7 @@ export const RecordingsUniversalFilters = ({
     const { reportRecordingPlaylistCreated } = useActions(sessionRecordingEventUsageLogic)
 
     const newPlaylistHandler = async (): Promise<void> => {
-        await createPlaylist({ name: savedFilterName, filters }, false)
+        await createPlaylist({ name: savedFilterName, filters, type: 'filters' }, false)
         reportRecordingPlaylistCreated('new')
         loadSavedFilters()
         setSavedFilterName('')

@@ -37,6 +37,7 @@ import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 import { Params, Scene, SceneConfig } from 'scenes/sceneTypes'
 import { WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 
+import { AssistantMessage } from '~/queries/schema/schema-assistant-messages'
 import type {
     DashboardFilter,
     DatabaseSchemaField,
@@ -209,6 +210,7 @@ export enum ProductKey {
     WEB_ANALYTICS = 'web_analytics',
     ERROR_TRACKING = 'error_tracking',
     REVENUE_ANALYTICS = 'revenue_analytics',
+    MAX = 'max',
 }
 
 type ProductKeyUnion = `${ProductKey}`
@@ -1548,6 +1550,7 @@ export interface SessionRecordingPlaylistType {
      * marked as has more if the filters count onoy matched one page and there are more available
      */
     recordings_counts?: PlaylistRecordingsCounts
+    type: 'filters' | 'collection'
     _create_in_folder?: string | null
 }
 
@@ -2951,6 +2954,9 @@ export enum SurveyEventProperties {
     SURVEY_ID = '$survey_id',
     SURVEY_RESPONSE = '$survey_response',
     SURVEY_ITERATION = '$survey_iteration',
+    SURVEY_PARTIALLY_COMPLETED = '$survey_partially_completed',
+    SURVEY_SUBMISSION_ID = '$survey_submission_id',
+    SURVEY_COMPLETED = '$survey_completed',
 }
 
 export interface SurveyEventStats {
@@ -5111,21 +5117,25 @@ export type HogFunctionSubTemplateIdType =
     | 'early-access-feature-enrollment'
     | 'survey-response'
     | 'activity-log'
-    | 'error-tracking'
+    | 'error-tracking-issue-created'
+    | 'error-tracking-issue-reopened'
 
 export type HogFunctionConfigurationType = Omit<
     HogFunctionType,
     'id' | 'created_at' | 'created_by' | 'updated_at' | 'status' | 'hog'
 > & {
     hog?: HogFunctionType['hog'] // In the config it can be empty if using a template
-    sub_template_id?: HogFunctionSubTemplateIdType
     _create_in_folder?: string | null
 }
 
-export type HogFunctionSubTemplateType = Pick<HogFunctionType, 'filters' | 'inputs' | 'masking' | 'mappings'> & {
-    id: HogFunctionSubTemplateIdType
-    name: string
-    description: string | null
+export type HogFunctionSubTemplateType = Pick<
+    HogFunctionType,
+    'filters' | 'inputs' | 'masking' | 'mappings' | 'type'
+> & {
+    template_id: HogFunctionTemplateType['id']
+    sub_template_id: HogFunctionSubTemplateIdType
+    name?: string
+    description?: string
 }
 
 export type HogFunctionTemplateType = Pick<
@@ -5144,8 +5154,11 @@ export type HogFunctionTemplateType = Pick<
 > & {
     status: HogFunctionTemplateStatus
     free: boolean
-    sub_templates?: HogFunctionSubTemplateType[]
     mapping_templates?: HogFunctionMappingTemplateType[]
+}
+
+export type HogFunctionTemplateWithSubTemplateType = HogFunctionTemplateType & {
+    sub_template_id?: HogFunctionSubTemplateIdType
 }
 
 export type HogFunctionIconResponse = {
@@ -5298,8 +5311,22 @@ export enum CookielessServerHashMode {
 /**
  * Assistant Conversation
  */
+export enum ConversationStatus {
+    Idle = 'idle',
+    InProgress = 'in_progress',
+    Canceling = 'canceling',
+}
+
 export interface Conversation {
     id: string
+    status: ConversationStatus
+    title: string | null
+    created_at: string | null
+    updated_at: string | null
+}
+
+export interface ConversationDetail extends Conversation {
+    messages: AssistantMessage[]
 }
 
 export enum UserRole {
@@ -5329,6 +5356,11 @@ export interface FileSystemType {
     href?: (ref: string) => string
 }
 
+export interface FileSystemFilterType {
+    name: string
+    flag?: string
+}
+
 export interface ProductManifest {
     name: string
     scenes?: Record<string, SceneConfig>
@@ -5337,7 +5369,8 @@ export interface ProductManifest {
     urls?: Record<string, string | ((...args: any[]) => string)>
     fileSystemTypes?: Record<string, FileSystemType>
     treeItemsNew?: FileSystemImport[]
-    treeItemsExplore?: FileSystemImport[]
+    treeItemsProducts?: FileSystemImport[]
+    fileSystemFilterTypes?: Record<string, FileSystemFilterType>
 }
 
 export interface ProjectTreeRef {

@@ -3,7 +3,7 @@ from unittest.mock import Mock, patch
 from langchain_core.messages import AIMessage as LangchainAIMessage
 
 from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
-from ee.hogai.utils.test import FakeChatOpenAI
+from ee.hogai.utils.tests import FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState
 from ee.models.assistant import Conversation
 from posthog.schema import HumanMessage

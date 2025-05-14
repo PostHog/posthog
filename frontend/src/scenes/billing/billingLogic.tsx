@@ -1,6 +1,6 @@
 import { LemonDialog, lemonToast, Link } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { FieldNamePath, forms } from 'kea-forms'
+import { capitalizeFirstLetter, FieldNamePath, forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api, { getJSONOrNull } from 'lib/api'
@@ -637,20 +637,27 @@ export const billingLogic = kea<billingLogicType>([
                 return
             }
 
-            if (values.billing.free_trial_until && values.billing.free_trial_until.isAfter(dayjs())) {
-                const remainingDays = values.billing.free_trial_until.diff(dayjs(), 'days')
-                const remainingHours = values.billing.free_trial_until.diff(dayjs(), 'hours')
+            const trial = values.billing.trial
+            if (trial && trial.expires_at && dayjs(trial.expires_at).isAfter(dayjs())) {
+                if (trial.type === 'autosubscribe' || trial.status !== 'active') {
+                    // Only show for standard ones (managed by sales)
+                    return
+                }
 
+                const remainingDays = dayjs(trial.expires_at).diff(dayjs(), 'days')
+                const remainingHours = dayjs(trial.expires_at).diff(dayjs(), 'hours')
                 if (remainingHours > 72) {
                     return
                 }
 
+                const contactEmail = values.billing.account_owner?.email || 'sales@posthog.com'
+                const contactName = values.billing.account_owner?.name || 'sales'
                 actions.setBillingAlert({
                     status: 'info',
-                    title: `Your free trial will end in ${
+                    title: `Your free trial for the ${capitalizeFirstLetter(trial.target)} plan will end in ${
                         remainingHours < 24 ? pluralize(remainingHours, 'hour') : pluralize(remainingDays, 'day')
                     }.`,
-                    message: `Setup billing now to ensure you don't lose access to premium features.`,
+                    message: `If you have any questions, please reach out to ${contactName} at ${contactEmail}.`,
                 })
                 return
             }

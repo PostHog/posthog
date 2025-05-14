@@ -4,6 +4,7 @@ import { useActions, useValues } from 'kea'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
 import { SearchAutocomplete } from 'lib/components/SearchAutocomplete/SearchAutocomplete'
 import { IconBlank } from 'lib/lemon-ui/icons'
+import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
@@ -17,6 +18,8 @@ import { cn } from 'lib/utils/css-classes'
 import { useRef } from 'react'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
+import { getTreeFilterTypes } from '~/products'
+import { FileSystemFilterType } from '~/types'
 
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { ProjectDropdownMenu } from './ProjectDropdownMenu'
@@ -94,6 +97,14 @@ interface FiltersDropdownProps {
 }
 
 export function FiltersDropdown({ setSearchTerm, searchTerm }: FiltersDropdownProps): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const types: [string, FileSystemFilterType][] = [
+        ...Object.entries(getTreeFilterTypes()),
+        ['destination', { name: 'Destinations' }],
+        ['site_app', { name: 'Site apps' }],
+        ['source', { name: 'Sources' }],
+        ['transformation', { name: 'Transformations' }],
+    ]
     const removeTagsStarting = (str: string, tag: string): string =>
         str
             .split(' ')
@@ -136,24 +147,26 @@ export function FiltersDropdown({ setSearchTerm, searchTerm }: FiltersDropdownPr
                         </ButtonPrimitive>
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
-                    {productTypes.map(([obj, label]) => (
-                        <DropdownMenuItem
-                            key={obj}
-                            onClick={(e) => {
-                                e.preventDefault()
-                                setSearchTerm(
-                                    searchTerm.includes(`type:${obj}`)
-                                        ? removeTagsStarting(searchTerm, 'type:')
-                                        : addTag(removeTagsStarting(searchTerm, 'type:'), `type:${obj}`)
-                                )
-                            }}
-                        >
-                            <ButtonPrimitive menuItem>
-                                {searchTerm.includes(`type:${obj}`) ? <IconCheck /> : <IconBlank />}
-                                {label}
-                            </ButtonPrimitive>
-                        </DropdownMenuItem>
-                    ))}
+                    {types
+                        .filter(([_, { flag }]) => !flag || featureFlags[flag as keyof FeatureFlagsSet])
+                        .map(([obj, { name }]) => (
+                            <DropdownMenuItem
+                                key={obj}
+                                onClick={(e) => {
+                                    e.preventDefault()
+                                    setSearchTerm(
+                                        searchTerm.includes(`type:${obj}`)
+                                            ? removeTagsStarting(searchTerm, 'type:')
+                                            : addTag(removeTagsStarting(searchTerm, 'type:'), `type:${obj}`)
+                                    )
+                                }}
+                            >
+                                <ButtonPrimitive menuItem>
+                                    {searchTerm.includes(`type:${obj}`) ? <IconCheck /> : <IconBlank />}
+                                    {name}
+                                </ButtonPrimitive>
+                            </DropdownMenuItem>
+                        ))}
                 </DropdownMenuGroup>
             </DropdownMenuContent>
         </DropdownMenu>
