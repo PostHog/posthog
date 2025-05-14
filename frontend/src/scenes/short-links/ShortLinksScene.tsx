@@ -17,23 +17,11 @@ import { useState } from 'react'
 
 import { ProductKey } from '~/types'
 
-import { ShortLink, shortLinksLogic } from './shortLinksLogic'
+import { shortLinksLogic } from './shortLinksLogic'
 
 export function ShortLinksScene(): JSX.Element {
-    const { activeShortLinks, expiredShortLinks, newLink, shortLinksLoading, editingLink } = useValues(shortLinksLogic)
-    const {
-        setNewLinkDestinationUrl,
-        setNewLinkCustomKey,
-        setNewLinkTags,
-        setNewLinkComments,
-        setNewLinkOgTitle,
-        setNewLinkOgDescription,
-        setNewLinkOgImage,
-        createShortLink,
-        deleteShortLink,
-        setEditingLink,
-        updateShortLink,
-    } = useActions(shortLinksLogic)
+    const { shortLinksLoading } = useValues(shortLinksLogic)
+    const {} = useActions(shortLinksLogic)
     
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
 
@@ -42,7 +30,7 @@ export function ShortLinksScene(): JSX.Element {
     const columns = [
         {
             title: 'Short URL',
-            dataIndex: 'key' as keyof ShortLink,
+            dataIndex: 'key',
             render: function RenderKey(key: string | any) {
                 if (!key) {
                     return null

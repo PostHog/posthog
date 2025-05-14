@@ -9,12 +9,16 @@ from posthog.hogql.database.models import (
 
 class ShortLinksTable(Table):
     fields: dict[str, FieldOrTable] = {
-        "key": StringDatabaseField(name="key", nullable=False),
-        "hashed_key": StringDatabaseField(name="hashed_key", nullable=False),
-        "destination_url": StringDatabaseField(name="destination_url", nullable=False),
+        "id": StringDatabaseField(name="id", nullable=False),
+        "destination": StringDatabaseField(name="destination", nullable=False),
+        "origin_domain": StringDatabaseField(name="origin_domain", nullable=False),
+        "origin_key": StringDatabaseField(name="origin_key", nullable=True),
         "team_id": IntegerDatabaseField(name="team_id", nullable=False),
         "created_at": DateTimeDatabaseField(name="created_at", nullable=False),
         "updated_at": DateTimeDatabaseField(name="updated_at", nullable=False),
+        "description": StringDatabaseField(name="description", nullable=True),
+        "tags": StringDatabaseField(name="tags", nullable=True),
+        "comments": StringDatabaseField(name="comments", nullable=True),
     }
 
     def to_printed_clickhouse(self, context):

@@ -1,5 +1,5 @@
-import { IconPin as IconLink, IconRefresh, IconChevronDown, IconDownload, IconCopy } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonDivider, LemonDropdown, LemonSwitch, LemonSelect } from '@posthog/lemon-ui'
+import { IconDownload, IconCopy } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonDivider, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -13,28 +13,17 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { shortLinksLogic } from './shortLinksLogic'
 import { QRCodeSVG } from 'qrcode.react'
 import { Form } from 'kea-forms'
-import { useState } from 'react'
 
 export function ShortLinkNewScene(): JSX.Element {
-    const { newLink } = useValues(shortLinksLogic)
-    const {
-        setNewLinkDestinationUrl,
-        setNewLinkExpirationDate,
-        setNewLinkCustomKey,
-        setNewLinkTags,
-        setNewLinkComments,
-        setNewLinkPassword,
-        createShortLink,
-    } = useActions(shortLinksLogic)
-    
-    const [domain, setDomain] = useState('posthog.com/e/')
+    const { link } = useValues(shortLinksLogic)
+    const { submitLink } = useActions(shortLinksLogic)
 
     return (
         <Form
             id="link"
             formKey="link"
             logic={shortLinksLogic}
-            props={{ newLink }}
+            props={{ link }}
             className="deprecated-space-y-4"
             enableFormOnSubmit
         >
@@ -43,11 +32,7 @@ export function ShortLinkNewScene(): JSX.Element {
                 buttons={
                     <LemonButton
                         type="primary"
-                        onClick={() => {
-                            createShortLink()
-                            router.actions.push(urls.shortLinks())
-                        }}
-                        disabled={!newLink.destination_url}
+                        onClick={submitLink}
                     >
                         Create link
                     </LemonButton>
@@ -57,95 +42,53 @@ export function ShortLinkNewScene(): JSX.Element {
             <div className="space-y-4">
                 <div className="flex gap-8">
                     <div className="flex-1 space-y-6">
-                        <LemonField name="destination_url" label="Destination URL">
+                        <LemonField name="destination" label="Destination URL">
                             <LemonInput
-                                placeholder="https://example.com"
-                                value={newLink.destination_url}
-                                onChange={(e) => setNewLinkDestinationUrl(e)}
+                                placeholder="https://posthog.com/links"
                                 fullWidth
                                 autoWidth={false}
                             />
                         </LemonField>
-                        
-                        <LemonField name="custom_key" label="Short Link">
-                            <div className="flex items-center">
-                                <div className="flex items-center border rounded px-2 py-1 mr-2 bg-bg-light">
+
+                        <div className="flex flex-col gap-2">
+                            <LemonLabel>Short Link</LemonLabel>
+                            <div className="flex gap-2">
+                                <LemonField name="origin_domain">
                                     <LemonSelect
-                                        fullWidth
                                         options={[
-                                            { label: 'posthog.com/e/', value: 'posthog.com/e/' },
-                                            { label: 'postho.gg/', value: 'postho.gg/' },
-                                            { label: 'hog.gg/', value: 'hog.gg/' }
+                                            { label: 'postho.gg', value: 'postho.gg/' },
+                                            { label: 'phog.gg', value: 'phog.gg/' },
+                                            { label: 'hog.gg', value: 'hog.gg/' }
                                         ]}
-                                        value={domain}
-                                        onChange={(value) => setDomain(value)}
                                         className="text-muted"
                                     />
-                                    <LemonButton
-                                        icon={<IconChevronDown />}
-                                        size="small"
-                                        status="alt"
+                                </LemonField>
+                                <LemonField name="origin_key" className="w-full">
+                                    <LemonInput
+                                        fullWidth
+                                        placeholder="(optional)"
+                                        className="flex-1"
+                                        autoWidth={false}
                                     />
-                                </div>
-                                <LemonInput
-                                    placeholder="posthog-cdp"
-                                    value={newLink.custom_key || ''}
-                                    onChange={(e) => setNewLinkCustomKey(e)}
-                                    className="flex-1"
-                                    autoWidth={false}
-                                />
-                                <LemonButton
-                                    icon={<IconRefresh />}
-                                    size="small"
-                                    className="ml-2"
-                                />
+                                </LemonField>
                             </div>
-                        </LemonField>
+                        </div>
                         
                         <LemonField name="tags" label="Tags">
                                 <LemonInputSelect
                                     placeholder="Select tags..."
                                     mode="multiple"
                                     allowCustomValues
-                                    value={newLink.tags || []}
-                                    onChange={(tags) => setNewLinkTags(tags)}
                                     fullWidth
                                     autoWidth={false}
                                 />
                         </LemonField>
 
-                        <LemonField name="comments" label="Comments">
+                        <LemonField name="description" label="Comments">
                             <LemonTextArea
                                 placeholder="Add comments"
-                                value={newLink.comments || ''}
-                                onChange={(e) => setNewLinkComments(e)}
                                 minRows={2}
                             />
-                        </LemonField>
-
-                        <LemonField name="password" label="Password protection">
-                            <LemonInput
-                                placeholder="Add a password (optional)"
-                                value={newLink.password || ''}
-                                onChange={(e) => setNewLinkPassword(e)}
-                                type="password"
-                                fullWidth
-                                autoWidth={false}
-                            />
-                        </LemonField>
-
-                        <LemonField name="expiration_date" label="Expiration date">
-                            <div>
-                                <LemonInput
-                                    placeholder="Add expiration date (optional)"
-                                    value={newLink.expiration_date || ''}
-                                    onChange={(e: string) => setNewLinkExpirationDate(e)}
-                                    type="text"
-                                    fullWidth
-                                    autoWidth={false}
-                                />
-                                <div className="text-muted text-xs mt-1">Format: YYYY-MM-DD</div>
-                            </div>
                         </LemonField>
                     </div>
 
