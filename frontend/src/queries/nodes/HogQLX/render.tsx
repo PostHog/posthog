@@ -1,5 +1,6 @@
 import { Link } from '@posthog/lemon-ui'
 import { JSONViewer } from 'lib/components/JSONViewer'
+import { explainCSPReportPrompt, LLMButton } from 'lib/components/LLMButton/LLMButton'
 import { Sparkline } from 'lib/components/Sparkline'
 import ViewRecordingButton, { mightHaveRecording } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 
@@ -37,6 +38,22 @@ export function renderHogQLX(value: any): JSX.Element {
             return (
                 <ErrorBoundary>
                     <Sparkline className="h-8" {...props} data={data ?? []} type={type} />
+                </ErrorBoundary>
+            )
+        } else if (tag === 'ExplainCSPReportButton') {
+            const { properties } = rest
+            const prompt = explainCSPReportPrompt(properties)
+            return (
+                <ErrorBoundary>
+                    <LLMButton
+                        prompt={prompt}
+                        label="Explain this CSP violation"
+                        type="primary"
+                        size="xsmall"
+                        data-attr="hog-ql-llm-button"
+                        className="inline-block"
+                        disabledReason={prompt ? undefined : 'A prompt must be provided when creating an LLM button'}
+                    />
                 </ErrorBoundary>
             )
         } else if (tag === 'RecordingButton') {

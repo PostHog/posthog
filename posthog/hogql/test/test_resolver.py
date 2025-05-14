@@ -494,6 +494,36 @@ class TestResolver(BaseTest):
         )
         assert clone_expr(node, clear_types=True) == expected
 
+    def test_visit_hogqlx_explain_csp_report(self):
+        node = self._select(
+            "select <ExplainCSPReport properties={'violated_directive': 'script-src', 'original_policy': 'script-src https://example.com'} />"
+        )
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        expected = ast.SelectQuery(
+            select=[
+                ast.Tuple(
+                    exprs=[
+                        ast.Constant(value="__hx_tag"),
+                        ast.Constant(value="ExplainCSPReport"),
+                        ast.Constant(value="properties"),
+                        ast.Tuple(
+                            exprs=[
+                                ast.Constant(value="violated_directive"),
+                                ast.Constant(value="script-src"),
+                            ]
+                        ),
+                        ast.Tuple(
+                            exprs=[
+                                ast.Constant(value="original_policy"),
+                                ast.Constant(value="script-src https://example.com"),
+                            ]
+                        ),
+                    ]
+                ),
+            ]
+        )
+        assert clone_expr(node, clear_types=True) == expected
+
     def test_visit_hogqlx_sparkline(self):
         node = self._select("select <Sparkline data={[1,2,3]} />")
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
@@ -650,6 +680,12 @@ class TestResolver(BaseTest):
         node2 = self._select("select recording_button('12345', 'active')")
         node2 = cast(ast.SelectQuery, resolve_types(node2, self.context, dialect="clickhouse"))
         assert node == node2
+
+    def test_explain_csp_report_tag(self):
+        node: ast.SelectQuery = self._select(
+            "select <ExplainCSPReport properties={'violated_directive': 'script-src', 'original_policy': 'script-src https://example.com'} />"
+        )
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
 
     def test_sparkline_tag(self):
         node: ast.SelectQuery = self._select("select <Sparkline data={[1,2,3]} />")
