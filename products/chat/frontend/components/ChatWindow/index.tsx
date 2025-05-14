@@ -1,16 +1,14 @@
-import { useActions, useValues } from 'kea'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { useValues } from 'kea'
 
 import { chatListLogic, ChatMessage } from '../../scenes/chatListLogic'
+import { ChatInput } from './ChatInput'
 
 export function ChatWindow(): JSX.Element {
-    const { selectedChatId, chats, message } = useValues(chatListLogic)
-    const { sendMessage, setMessage } = useActions(chatListLogic)
+    const { selectedChatId, chats } = useValues(chatListLogic)
 
     return (
-        <>
-            <div className="flex flex-col gap-2">
+        <div className="bg-white h-full flex flex-col border border-gray-200 rounded relative pb-16">
+            <div className="flex flex-col gap-2 h-full">
                 {(chats.find((c) => c.id === selectedChatId)?.messages as ChatMessage[]).map((msg) => (
                     <div key={msg.id} className={`flex ${msg.sender === 'user' ? 'justify-start' : 'justify-end'}`}>
                         <div
@@ -23,18 +21,7 @@ export function ChatWindow(): JSX.Element {
                     </div>
                 ))}
             </div>
-            <div className="border-t border-gray-200 p-4">
-                <div className="flex gap-2">
-                    <LemonInput
-                        type="text"
-                        className="flex-1"
-                        placeholder="Type a message…"
-                        value={message}
-                        onChange={(e) => setMessage(e)}
-                    />
-                    <LemonButton onClick={() => sendMessage(message)}>Send</LemonButton>
-                </div>
-            </div>
-        </>
+            <ChatInput />
+        </div>
     )
 }

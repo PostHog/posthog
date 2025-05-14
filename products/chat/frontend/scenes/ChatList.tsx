@@ -19,14 +19,14 @@ export function ChatList(): JSX.Element {
     }
 
     return (
-        <div className="flex h-full">
+        <div className="flex h-full gap-2">
             {/* Left: Chat list */}
             <div className="w-80 overflow-y-auto h-full">
                 <ChatsList />
             </div>
             {/* Right: Chat view */}
             <main className="flex-1 flex flex-col h-full">
-                <div className="flex-1 p-6 overflow-y-auto">{!selectedChatId ? <EmptyState /> : <ChatWindow />}</div>
+                <div className="flex-1 overflow-y-auto">{!selectedChatId ? <EmptyState /> : <ChatWindow />}</div>
             </main>
         </div>
     )
