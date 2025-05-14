@@ -119,3 +119,4 @@ export type AssistantContextualTool =
     | 'analyze_user_interviews'
     | 'create_and_query_insight'
     | 'create_hog_transformation_function'
+    | 'navigate'

@@ -1,14 +1,15 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { organizationLogic } from 'scenes/organizationLogic'
-
-import { AssistantContextualTool } from '~/queries/schema/schema-assistant-messages'
+import { urls } from 'scenes/urls'
 
 import type { maxGlobalLogicType } from './maxGlobalLogicType'
 
 export interface ToolDefinition {
     /** A unique identifier for the tool */
-    name: AssistantContextualTool
+    name: string
     /** A user-friendly display name for the tool */
     displayName: string
     /** Contextual data to be included for use by the LLM */
@@ -43,7 +44,18 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
     }),
     reducers({
         toolMap: [
-            {} as Record<string, ToolDefinition>,
+            {
+                navigate: {
+                    name: 'navigate' as const,
+                    displayName: 'Navigate',
+                    context: { current_page: location.pathname },
+                    callback: (toolOutput) => {
+                        const { page_key: pageKey } = toolOutput
+                        const url = urls[pageKey]()
+                        router.actions.push(url)
+                    },
+                },
+            } as Record<string, ToolDefinition>,
             {
                 registerTool: (state, { tool }) => ({
                     ...state,
@@ -57,6 +69,14 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             },
         ],
     }),
+    subscriptions(({ values, actions }) => ({
+        [router.actionTypes.locationChanged]: ({ pathname }) => {
+            actions.registerTool({
+                ...values.toolMap.navigate,
+                context: { current_page: pathname },
+            })
+        },
+    })),
     listeners(({ actions }) => ({
         acceptDataProcessing: ({ testOnlyOverride }) => {
             actions.updateOrganization({ is_ai_data_processing_approved: testOnlyOverride ?? true })

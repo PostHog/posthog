@@ -55,7 +55,7 @@ class MaxTool(BaseTool):
     """
     root_system_prompt_template: str = "No context provided for this tool."
     """The template for context associated with this tool, that will be injected into the root node's system prompt.
-    This helps the root node decide _when_ and _whether_ to use the tool.
+    Use this if you need to strongly steer the root node in decideing _when_ and _whether_ to use the tool.
     It will be formatted like an f-string, with the tool context as the variables.
     For example, "The current filters the user is seeing are: {current_filters}."
     """
@@ -117,3 +117,87 @@ class MaxTool(BaseTool):
             key: (json.dumps(value) if isinstance(value, dict | list) else value) for key, value in context.items()
         }
         return self.root_system_prompt_template.format(**formatted_context)
+
+
+# Define the exact possible page keys for navigation. Extracted using the following Cursor prompt:
+# "
+# List every key of the `frontend/src/products.tsx::productUrls` object,
+# whose function takes either zero arguments, or only one optional argument named `tab` (exactly `tab`).
+# Your only output should be a list of those string keysin Python `Literal[..., ..., ...]` syntax.
+# Once done, verify whether indeed each item of the output satisfies the argument criterion.
+# "
+PageKeyLiterals = Literal[
+    "createAction",
+    "actions",
+    "cohorts",
+    "dashboards",
+    "earlyAccessFeatures",
+    "errorTracking",
+    "errorTrackingConfiguration",
+    "experiments",
+    "experimentsSharedMetrics",
+    "featureFlags",
+    "game368hedgehogs",
+    "links",
+    "llmObservabilityDashboard",
+    "llmObservabilityGenerations",
+    "llmObservabilityTraces",
+    "llmObservabilityUsers",
+    "llmObservabilityPlayground",
+    "logs",
+    "managedMigration",
+    "managedMigrationNew",
+    "messaging",
+    "messagingCampaignNew",
+    "messagingLibraryTemplateNew",
+    "notebooks",
+    "canvas",
+    "persons",
+    "insights",
+    "savedInsights",
+    "alerts",
+    "replayFilePlayback",
+    "revenueAnalytics",
+    "surveys",
+    "surveyTemplates",
+    "userInterviews",
+    "webAnalytics",
+    "webAnalyticsWebVitals",
+    "webAnalyticsPageReports",
+    "webAnalyticsMarketing",
+]
+
+
+class NavigateToolArgs(BaseModel):
+    page_key: PageKeyLiterals = Field(
+        description="The specific key identifying the page to navigate to. Must be one of the predefined literal values."
+    )
+
+
+PAGE_TOOL_MAP: dict[PageKeyLiterals, list[str]] = {
+    "insightNew": ["create_and_query_insight"],
+    "sqlEditor": ["generate_hogql_query"],
+    "replay": ["search_session_recordings"],
+}
+
+
+class NavigateTool(MaxTool):
+    name: str = "navigate"
+    description: str = (
+        "Navigates to a specified, predefined page or section within the PostHog application using a specific page key. "
+        "Use this for known destinations like 'insights', 'replay', 'feature flags', 'project settings', 'organization settings', 'dashboards list', 'actions', 'notebooks', etc. "
+        "This tool uses a fixed list of page keys and cannot navigate to arbitrary URLs or pages requiring dynamic IDs not already encoded in the page key. "
+        "After navigating, you'll be able to use that page's tools."
+    )
+    root_system_prompt_template: str = (
+        "You're currently on the {current_page} page. "
+        "You can navigate to one of the available pages using the 'navigate' tool. "
+        "Some of these pages have tools that you can use to get more information or perform actions. "
+        f"Here's a mapping of pages to tools available:\n"
+        "\n".join([f"- {page}: {', '.join(PAGE_TOOL_MAP[page])}" for page in PAGE_TOOL_MAP])
+    )
+    thinking_message: str = "Navigating"
+    args_schema: type[BaseModel] = NavigateToolArgs
+
+    def _run_impl(self, page_key: PageKeyLiterals) -> tuple[str, Any]:
+        return f"Navigated to `{page_key}`.", {"page_key": page_key}

@@ -76,6 +76,7 @@ class AssistantContextualTool(StrEnum):
     ANALYZE_USER_INTERVIEWS = "analyze_user_interviews"
     CREATE_AND_QUERY_INSIGHT = "create_and_query_insight"
     CREATE_HOG_TRANSFORMATION_FUNCTION = "create_hog_transformation_function"
+    NAVIGATE = "navigate"
 
 
 class AssistantDateRange(BaseModel):
