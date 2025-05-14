@@ -25,6 +25,7 @@ members = [
     "cymbal",
     "common/geoip",
     "common/hogvm",
+    "links",
 ]
 
 [workspace.lints.rust]
