@@ -433,13 +433,12 @@ def get_event(request):
     if request.content_type == "application/csp-report":
         try:
             csp_data = json.loads(request.body)
-            # We will probably want posthog-js to set this one for us or think of an heuristic to attach it to the session.
             # TODO: Could we get it from the cookie? People may very well want to use posthog just for this but we should support our current users.
             distinct_id = request.GET.get("distinct_id") or str(uuid7())
             if "csp-report" in csp_data:
                 csp_report = csp_data[
                     "csp-report"
-                ]  # This is just the deprecated report-uri version, we need to check the report-to version as well.
+                ]
 
                 # TODO: Sanitize input, specially script-related stuff.
                 csp_report = {"event": "$csp_violation", "distinct_id": distinct_id, "properties": {**csp_report}}
@@ -451,12 +450,9 @@ def get_event(request):
 
     now = timezone.now()
 
-    data, error_response = get_data(request)
+    data, error_response = get_data(request, csp_report)
 
-    if csp_report:
-        data = csp_report
-
-    if error_response and not csp_report:
+    if error_response:
         return error_response
 
     sent_at, error_response = _get_sent_at(data, request)

@@ -195,8 +195,11 @@ def get_project_id(data, request) -> Optional[int]:
     return None
 
 
-def get_data(request):
+def get_data(request, csp_report = None):
     data = None
+    if csp_report:
+        return csp_report, None
+
     try:
         data = load_data_from_request(request)
     except (RequestParsingError, UnspecifiedCompressionFallbackParsingError) as error:
