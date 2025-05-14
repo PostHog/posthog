@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import TypedDict
 import structlog
 
+from ee.session_recordings.session_summary.local.input_data import get_production_session_metadata_locally
 from posthog.models.team.team import Team
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
@@ -14,13 +15,17 @@ class RecordingBlock(TypedDict):
     url: str
 
 
-def list_blocks(session_id: str, team: Team) -> list[RecordingBlock]:
+def list_blocks(session_id: str, team: Team, local_reads_prod: bool = False) -> list[RecordingBlock]:
     """
     Returns a list of recording blocks with their timestamps and URLs.
     The blocks are sorted by start time and guaranteed to start from the beginning of the recording.
     Returns empty list if the recording is invalid or incomplete.
     """
-    metadata = SessionReplayEvents().get_metadata(session_id, team)
+    events_obj = SessionReplayEvents()
+    if not local_reads_prod:
+        metadata = events_obj.get_metadata(session_id, team)
+    else:
+        metadata = get_production_session_metadata_locally(events_obj, session_id, team)
     if not metadata:
         return []
 

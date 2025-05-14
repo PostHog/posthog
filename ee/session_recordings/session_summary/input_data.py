@@ -5,7 +5,7 @@ from typing import cast
 
 from ee.session_recordings.session_summary.local.input_data import (
     _get_production_session_events_locally,
-    _get_production_session_metadata_locally,
+    get_production_session_metadata_locally,
 )
 from ee.session_recordings.session_summary.utils import (
     get_column_index,
@@ -37,7 +37,7 @@ def get_session_metadata(session_id: str, team: Team, local_reads_prod: bool = F
     if not local_reads_prod:
         session_metadata = events_obj.get_metadata(session_id=str(session_id), team=team)
     else:
-        session_metadata = _get_production_session_metadata_locally(events_obj, session_id, team)
+        session_metadata = get_production_session_metadata_locally(events_obj, session_id, team)
     if not session_metadata:
         raise ValueError(f"No session metadata found for session_id {session_id}")
     return session_metadata
