@@ -50,6 +50,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     LLMObservability: () => import('../../products/llm_observability/frontend/LLMObservabilityScene'),
     LLMObservabilityTrace: () => import('../../products/llm_observability/frontend/LLMObservabilityTraceScene'),
     LLMObservabilityUsers: () => import('../../products/llm_observability/frontend/LLMObservabilityUsers'),
+    LLMObservabilityPlayground: () =>
+        import('../../products/llm_observability/frontend/LLMObservabilityPlaygroundScene'),
     MessagingCampaigns: () => import('../../products/messaging/frontend/Campaigns'),
     MessagingBroadcasts: () => import('../../products/messaging/frontend/Broadcasts'),
     MessagingLibrary: () => import('../../products/messaging/frontend/library/MessageLibrary'),
@@ -67,6 +69,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/llm-observability/traces': ['LLMObservability', 'llmObservabilityTraces'],
     '/llm-observability/traces/:id': ['LLMObservabilityTrace', 'llmObservability'],
     '/llm-observability/users': ['LLMObservability', 'llmObservabilityUsers'],
+    '/llm-observability/playground': ['LLMObservability', 'llmObservabilityPlayground'],
     '/messaging/campaigns': ['MessagingCampaigns', 'messagingCampaigns'],
     '/messaging/campaigns/:id': ['MessagingCampaigns', 'messagingCampaign'],
     '/messaging/campaigns/new': ['MessagingCampaigns', 'messagingCampaignNew'],
@@ -120,6 +123,13 @@ export const productConfiguration: Record<string, any> = {
     LLMObservabilityUsers: {
         projectBased: true,
         name: 'LLM observability users',
+        activityScope: 'LLMObservability',
+        layout: 'app-container',
+        defaultDocsPath: '/docs/ai-engineering/observability',
+    },
+    LLMObservabilityPlayground: {
+        projectBased: true,
+        name: 'LLM playground',
         activityScope: 'LLMObservability',
         layout: 'app-container',
         defaultDocsPath: '/docs/ai-engineering/observability',
@@ -190,6 +200,7 @@ export const productUrls = {
         return `/llm-observability/traces/${id}${stringifiedParams ? `?${stringifiedParams}` : ''}`
     },
     llmObservabilityUsers: (): string => '/llm-observability/users',
+    llmObservabilityPlayground: (): string => '/llm-observability/playground',
     messagingCampaigns: (): string => '/messaging/campaigns',
     messagingCampaign: (id?: string): string => `/messaging/campaigns/${id}`,
     messagingCampaignNew: (): string => '/messaging/campaigns/new',
