@@ -37,19 +37,35 @@ pub async fn fetch_redirect_url(
 
 #[cfg(test)]
 mod tests {
-    use crate::utils::test_utils::setup_pg_client;
+    use crate::utils::test_utils::{insert_new_link_in_pg, insert_new_team_in_pg, setup_pg_client};
 
     use super::*;
 
+    use anyhow::Result;
+
     #[tokio::test]
-    async fn test_should_fetch_destination_from_database() {
-        // let db_client = setup_pg_client(None).await;
-        // let origin_domain = "phog.gg";
-        // let origin_key = "test_key";
-        // let expected_destination = "https://example.com";
+    async fn test_should_fetch_destination_from_database() -> Result<()> {
+        let db_client = setup_pg_client(None).await;
+        let origin_domain = "phog.gg";
+        let origin_key = "test_key";
+        let destination = "https://example.com";
+        let team_id = 1;
 
-        // let result = fetch_redirect_url(db_client, origin_domain, origin_key).await;
+        insert_new_team_in_pg(db_client.clone(), Some(team_id)).await?;
+        let row = insert_new_link_in_pg(
+            db_client.clone(),
+            origin_domain,
+            origin_key,
+            destination,
+            team_id,
+        )
+        .await?;
 
-        // assert_eq!(result.unwrap(), expected_destination);
+        println!("Inserted link with ID: {:?}", row);
+
+        let result = fetch_redirect_url(db_client, origin_domain, origin_key).await;
+
+        assert_eq!(result.unwrap(), destination);
+        Ok(())
     }
 }

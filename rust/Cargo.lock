@@ -3599,6 +3599,7 @@ dependencies = [
 name = "links"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "async-trait",
  "axum 0.7.5",
  "chrono",
@@ -3607,10 +3608,15 @@ dependencies = [
  "common-database",
  "common-metrics",
  "common-redis",
+ "common-types",
  "envconfig",
  "health",
  "moka",
  "once_cell",
+ "rand",
+ "rust_decimal",
+ "serde",
+ "serde_json",
  "sqlx",
  "thiserror 1.0.69",
  "tokio",
@@ -3618,6 +3624,7 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
