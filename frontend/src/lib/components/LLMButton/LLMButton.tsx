@@ -33,7 +33,7 @@ If either violated_directive or original_policy is missing or empty in the event
 	•	This does not appear to be a valid CSP violation report.
 	•	Please make sure both violated_directive and original_policy are present.
 
-You will receive a single JSON object, which may use either the report-to or report-uri format, but keys will be normalized as per the table below. This object is available to you as the variable event.
+You will receive a single JSON object, which may use either the report-to or report-uri format, but keys will be normalized as per the table above. This object is available to you as the variable event.
     The event properties JSON object is ${JSON.stringify(event)} 
     
  Your answer should be given in very simple english, it will be displayed in a HTML web page and should be provided as very simple github flavored markdown. 
