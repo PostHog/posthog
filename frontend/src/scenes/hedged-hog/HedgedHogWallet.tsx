@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import { router } from 'kea-router'
 import { dayjs } from 'lib/dayjs'
 import { IconArrowDown, IconArrowUp, IconChevronRight } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -90,16 +91,14 @@ export const WalletContent = (): JSX.Element => {
                         {/* Action button - positioned beside the card */}
                         <div className="flex justify-end items-start">
                             <LemonButton
-                                size="large"
                                 type="primary"
-                                className="rounded-md font-medium"
                                 onClick={() => {
                                     if (user) {
-                                        window.location.href = '/hedged-hog?tab=bet-definitions'
+                                        router.actions.push('/hedged-hog', { tab: 'bet-definitions' })
                                     }
                                 }}
                             >
-                                Place a Bet
+                                Place a bet
                             </LemonButton>
                         </div>
                     </div>
