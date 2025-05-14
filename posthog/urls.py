@@ -179,7 +179,7 @@ urlpatterns = [
     path("api/unsubscribe", unsubscribe.unsubscribe),
     path("api/", include(router.urls)),
     path("", include(tf_urls)),
-    # Short link redirect endpoint (no auth required)
+    # link redirect endpoint (no auth required)
     path("e/<str:key>", short_link.short_link_redirect, name="short_link_redirect"),
     opt_slash_path("api/user/redirect_to_site", user.redirect_to_site),
     opt_slash_path("api/user/redirect_to_website", user.redirect_to_website),

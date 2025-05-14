@@ -1,4 +1,4 @@
-import { IconCopy, IconPencil, IconPlus, IconTrash, IconRefresh, IconPin as IconLink, IconCode as IconQrCode, IconDownload, IconGear as IconSettings, IconCalendar, IconLock, IconSort as IconExport, IconChevronDown, IconPlus as IconPlusLemon } from '@posthog/icons'
+import { IconCopy, IconPencil, IconPlus, IconTrash, IconRefresh, IconPin as IconLink, IconCode as IconQrCode, IconDownload, IconGear as IconSettings, IconCalendar, IconLock, IconSort as IconExport, IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTable, Link, LemonSelect, LemonTag, LemonDivider, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -11,7 +11,6 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { useState } from 'react'
@@ -21,25 +20,19 @@ import { ProductKey } from '~/types'
 import { ShortLink, shortLinksLogic } from './shortLinksLogic'
 
 export function ShortLinksScene(): JSX.Element {
-    const { activeShortLinks, expiredShortLinks, newLink, shortLinksLoading, editingLink, activeTab } = useValues(shortLinksLogic)
+    const { activeShortLinks, expiredShortLinks, newLink, shortLinksLoading, editingLink } = useValues(shortLinksLogic)
     const {
         setNewLinkDestinationUrl,
-        setNewLinkExpirationDate,
         setNewLinkCustomKey,
         setNewLinkTags,
         setNewLinkComments,
-        setNewLinkFolder,
-        setNewLinkPassword,
         setNewLinkOgTitle,
         setNewLinkOgDescription,
         setNewLinkOgImage,
-        setNewLinkUtmParams,
-        setNewLinkTargeting,
         createShortLink,
         deleteShortLink,
         setEditingLink,
         updateShortLink,
-        setActiveTab,
     } = useActions(shortLinksLogic)
     
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
@@ -50,7 +43,7 @@ export function ShortLinksScene(): JSX.Element {
         {
             title: 'Short URL',
             dataIndex: 'key' as keyof ShortLink,
-            render: function RenderKey(key: string | any, record: ShortLink) {
+            render: function RenderKey(key: string | any) {
                 if (!key) {
                     return null
                 }
@@ -162,7 +155,7 @@ export function ShortLinksScene(): JSX.Element {
                     <LemonButton
                         type="primary"
                         icon={<IconPlus />}
-                        onClick={() => setIsCreateModalOpen(true)}
+                        onClick={() => router.actions.push(urls.shortLinkNew())}
                         sideAction={{
                             dropdown: {
                                 overlay: (
@@ -192,7 +185,7 @@ export function ShortLinksScene(): JSX.Element {
                     productName="ShortLinks"
                     thingName="short link"
                     description="Start creating short links for your marketing campaigns, referral programs, and more."
-                    action={() => setIsCreateModalOpen(true)}
+                    action={() => router.actions.push(urls.shortLinkNew())}
                     isEmpty={activeShortLinks.length === 0}
                     productKey={ProductKey.SHORT_LINKS}
                 />
@@ -230,16 +223,6 @@ export function ShortLinksScene(): JSX.Element {
             {/* Create short link modal */}
             <LemonModal
                 isOpen={isCreateModalOpen}
-                title={
-                    <div className="flex items-center gap-2">
-                        <span>Links</span>
-                        <span className="text-muted">›</span>
-                        <div className="flex items-center gap-1">
-                            <LemonTag type="primary">N</LemonTag>
-                            <span>New link</span>
-                        </div>
-                    </div>
-                }
                 onClose={() => setIsCreateModalOpen(false)}
                 width={900}
                 closable={true}
@@ -366,8 +349,9 @@ export function ShortLinksScene(): JSX.Element {
                             />
                         </div>
                     </div>
+
+                    <LemonDivider vertical />
                     
-                    {/* Right side */}
                     <div className="flex-1 space-y-6">
                         <div>
                             <div className="flex justify-between items-center">

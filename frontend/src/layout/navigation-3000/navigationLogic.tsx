@@ -671,7 +671,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                         featureFlags[FEATURE_FLAGS.LINK_TRACKING]
                             ? {
                                   identifier: Scene.ShortLinks,
-                                  label: 'Short links',
+                                  label: 'Links',
                                   icon: <IconCursorClick />,
                                   to: isUsingSidebar ? undefined : urls.shortLinks(),
                                   tag: 'alpha' as const,

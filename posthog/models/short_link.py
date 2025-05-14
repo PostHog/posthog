@@ -6,7 +6,7 @@ from posthog.utils import generate_short_id
 
 class ShortLink(models.Model):
     """
-    Short links that redirect to a specified destination URL.
+    Links that redirect to a specified destination URL.
     These are used for sharing URLs across the application.
     """
 

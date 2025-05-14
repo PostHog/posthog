@@ -91,4 +91,5 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.StartupProgram]: () => import('./startups/StartupProgram'),
     [Scene.HogFunction]: () => import('./hog-functions/HogFunctionScene'),
     [Scene.ShortLinks]: () => import('./short-links/ShortLinksScene'),
+    [Scene.ShortLinkNew]: () => import('./short-links/ShortLinkNewScene'),
 }
