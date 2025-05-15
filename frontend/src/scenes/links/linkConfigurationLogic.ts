@@ -4,6 +4,8 @@ import api from 'lib/api'
 import { forms } from 'kea-forms'
 
 import { UserBasicType } from '~/types'
+import { router } from 'kea-router'
+import { urls } from 'scenes/urls'
 
 export interface LinkType {
     id: string
@@ -66,7 +68,7 @@ export const linkConfigurationLogic = kea([
 
                 actions.resetLink(updatedLink)
 
-                console.log('link saved')
+                router.actions.replace(urls.link(updatedLink.id))
             },
 
             options: {

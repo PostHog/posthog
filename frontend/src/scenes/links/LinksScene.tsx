@@ -65,7 +65,7 @@ export function LinksScene(): JSX.Element {
         },
         {
             width: 0,
-            render: function Render(date: any, record: LinkType) {
+            render: function Render(_: any, record: LinkType) {
                 return (
                     <More
                         overlay={
@@ -73,7 +73,7 @@ export function LinksScene(): JSX.Element {
                                 items={[
                                     {
                                         label: `Edit link`,
-                                        onClick: () => {},
+                                        onClick: () => router.actions.push(urls.link(record.id)),
                                     },
                                     {
                                         label: `Delete link`,
