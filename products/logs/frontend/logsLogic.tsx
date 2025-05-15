@@ -76,7 +76,7 @@ export const logsLogic = kea<logsLogicType>([
                             severityLevels: values.severityLevels,
                         },
                     })
-                    return response
+                    return response.results
                 },
             },
         ],

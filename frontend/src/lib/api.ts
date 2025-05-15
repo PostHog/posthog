@@ -8,9 +8,10 @@ import { objectClean, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
 import { MessageTemplate } from 'products/messaging/frontend/library/messageTemplatesLogic'
 import { ErrorTrackingAssignmentRule } from 'scenes/error-tracking/configuration/auto-assignment/errorTrackingAutoAssignmentLogic'
+import { LinkType } from 'scenes/links/linkConfigurationLogic'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
-import { SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
+import { LINK_PAGE_SIZE, SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
@@ -467,6 +468,15 @@ class ApiRequest {
         return this.hogFunctionTemplates(teamId).addPathComponent(id)
     }
 
+    // # Links
+    public links(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('links')
+    }
+
+    public link(id: LinkType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.links(teamId).addPathComponent(id)
+    }
+
     // # Actions
     public actions(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('actions')
@@ -509,7 +519,7 @@ class ApiRequest {
 
     // # Logs
     public logsQuery(projectId?: ProjectType['id']): ApiRequest {
-        return this.projectsDetail(projectId).addPathComponent('logs').addPathComponent('query')
+        return this.environmentsDetail(projectId).addPathComponent('logs').addPathComponent('query')
     }
 
     // # Data management
@@ -1617,11 +1627,8 @@ const api = {
     },
 
     logs: {
-        async query({ query }: { query: Omit<LogsQuery, 'kind'> }): Promise<LogMessage[]> {
-            return new ApiRequest()
-                .logsQuery()
-                .withQueryString(toParams({ data: { query } }))
-                .get()
+        async query({ query }: { query: Omit<LogsQuery, 'kind'> }): Promise<{ results: LogMessage[] }> {
+            return new ApiRequest().logsQuery().create({ data: { query } })
         },
     },
 
@@ -2298,6 +2305,29 @@ const api = {
 
         async getStatus(id: HogFunctionType['id']): Promise<HogFunctionStatus> {
             return await new ApiRequest().hogFunction(id).withAction('status').get()
+        },
+    },
+
+    links: {
+        async list(
+            args: {
+                limit?: number
+                offset?: number
+                search?: string
+            } = {
+                limit: LINK_PAGE_SIZE,
+            }
+        ): Promise<CountedPaginatedResponse<LinkType>> {
+            return await new ApiRequest().links().withQueryString(args).get()
+        },
+        async get(id: LinkType['id']): Promise<LinkType> {
+            return await new ApiRequest().link(id).get()
+        },
+        async create(data: Partial<LinkType>): Promise<LinkType> {
+            return await new ApiRequest().links().create({ data })
+        },
+        async update(id: LinkType['id'], data: Partial<LinkType>): Promise<LinkType> {
+            return await new ApiRequest().link(id).update({ data })
         },
     },
 
