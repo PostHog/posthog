@@ -125,7 +125,12 @@ def process_csp_report(request):
         return {
             "event": "$csp_violation",
             "distinct_id": distinct_id,
-            "properties": {"$session_id": session_id, "csp_version": version, "$process_person_profile": False, **properties},
+            "properties": {
+                "$session_id": session_id,
+                "csp_version": version,
+                "$process_person_profile": False,
+                **properties,
+            },
         }, None
 
     except json.JSONDecodeError:
