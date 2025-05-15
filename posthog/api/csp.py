@@ -12,18 +12,18 @@ logger = structlog.get_logger(__name__)
 | --------------------- | ------------------------------------ | ---------------------------------- |
 | `document_url`        | `body.documentURL`                   | `csp-report.document-uri`          |
 | `referrer`            | `body.referrer`                      | `csp-report.referrer`              |
-| `violated_directive`  | *inferred from* `effectiveDirective` | `csp-report.violated-directive`    |
+| `violated_directive`  | same as `effectiveDirective`         | `csp-report.violated-directive`    |
 | `effective_directive` | `body.effectiveDirective`            | `csp-report.effective-directive`   |
 | `original_policy`     | `body.originalPolicy`                | `csp-report.original-policy`       |
 | `disposition`         | `body.disposition`                   | `csp-report.disposition`           |
 | `blocked_url`         | `body.blockedURL`                    | `csp-report.blocked-uri`           |
 | `line_number`         | `body.lineNumber`                    | `csp-report.line-number`           |
-| `column_number`       | `body.columnNumber`                  | *not available*                    |
+| `column_number`       | `body.columnNumber`                  | `csp-report.column-number`         |
 | `source_file`         | `body.sourceFile`                    | `csp-report.source-file`           |
 | `status_code`         | `body.statusCode`                    | `csp-report.status-code`           |
 | `script_sample`       | `body.sample`                        | `csp-report.script-sample`         |
-| `user_agent`          | top-level `user_agent`               | *custom extract from headers*      |
-| `report_type`         | top-level `type`                     | `"csp-violation"` (static/assumed) |
+| `user_agent`          | top-level `user_agent`               | not available                      |
+| `report_type`         | top-level `type`                     | `"csp-violation"` constant         |
 """
 
 
@@ -42,21 +42,22 @@ def parse_report_uri(data: dict) -> dict:
         "disposition": report_uri_data.get("disposition"),
         "blocked_url": report_uri_data.get("blocked-uri"),
         "line_number": report_uri_data.get("line-number"),
+        "column_number": report_uri_data.get("column-number"),
         "source_file": report_uri_data.get("source-file"),
         "status_code": report_uri_data.get("status-code"),
         "script_sample": report_uri_data.get("script-sample"),
-        "raw_report": data,  # While we're testing, keep the raw report for debugging
+        # Keep the raw report for debugging
+        "raw_report": data,
     }
     return properties
 
 
-# https://developer.mozilla.org/en-US/docs/Web/API/CSPViolationReportBody#obtaining_a_cspviolationreportbody_object
+# https://developer.mozilla.org/en-US/docs/Web/API/CSPViolationReportBody
 def parse_report_to(data: dict) -> dict:
     report_to_data = data.get("body", {})
     user_agent = data.get("user_agent") or report_to_data.get("user-agent")
     report_type = data.get("type")
 
-    # Map report-to format to normalized keys
     properties = {
         "report_type": report_type,
         "$current_url": report_to_data.get("documentURL") or report_to_data.get("document-uri") or data.get("url"),
@@ -74,7 +75,8 @@ def parse_report_to(data: dict) -> dict:
         "status_code": report_to_data.get("statusCode"),
         "script_sample": report_to_data.get("sample"),
         "user_agent": user_agent,
-        "raw_report": data,  # Keep the raw report for debugging
+        # Keep the raw report for debugging
+        "raw_report": data,
     }
     return properties
 
