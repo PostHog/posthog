@@ -7,7 +7,11 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.schema import LogsQuery
-from products.logs.backend.logs_query_runner import LogsQueryResponse, LogsQueryRunner
+from products.logs.backend.logs_query_runner import (
+    CachedLogsQueryResponse,
+    LogsQueryResponse,
+    LogsQueryRunner,
+)
 
 
 # TODO - add serializer/validation
@@ -21,7 +25,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         try:
             response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
-            assert isinstance(response, LogsQueryResponse)
+            assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
         except Exception as e:
             capture_exception(e)
             return Response({"error": "Something went wrong"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
