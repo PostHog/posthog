@@ -16,13 +16,13 @@ use crate::{
 pub async fn internal_redirect_url(
     state: State<AppState>,
     Host(hostname): Host,
-    Path(origin_key): Path<String>,
+    Path(short_code): Path<String>,
 ) -> impl IntoResponse {
     let redirect_service = InternalRedirectService::new(
         state.db_reader_client.clone(),
         state.internal_redis_client.clone(),
     );
-    match redirect_service.redirect_url(&origin_key, &hostname).await {
+    match redirect_service.redirect_url(&short_code, &hostname).await {
         Ok(redirect_url) => {
             let redirect_url = format!("https://{redirect_url}");
             (
@@ -40,7 +40,7 @@ pub async fn internal_redirect_url(
 
 pub async fn external_redirect_url(
     state: State<AppState>,
-    Path(origin_key): Path<String>,
+    Path(short_code): Path<String>,
     Host(host): Host,
 ) -> impl IntoResponse {
     // Convert the host to lowercase and remove the "www." prefix
@@ -52,7 +52,7 @@ pub async fn external_redirect_url(
         state.default_domain_for_public_store.clone(),
     );
 
-    match redirect_service.redirect_url(&origin_key, host).await {
+    match redirect_service.redirect_url(&short_code, host).await {
         Ok(redirect_url) => {
             let redirect_url = format!("https://{redirect_url}");
             (
@@ -76,7 +76,7 @@ pub async fn external_redirect_url(
 
 #[derive(serde::Deserialize)]
 pub struct ExternalStoreUrlRequest {
-    destination: String,
+    redirect_url: String,
 }
 
 #[derive(serde::Serialize)]
@@ -100,7 +100,7 @@ pub async fn external_store_url(
     );
 
     match redirect_service
-        .store_url(&payload.destination, &short_string)
+        .store_url(&payload.redirect_url, &short_string)
         .await
     {
         Ok(_) => {
@@ -109,7 +109,7 @@ pub async fn external_store_url(
                 state.default_domain_for_public_store, short_string
             );
             let response = ExternalStoreUrlResponse {
-                long_url: payload.destination,
+                long_url: payload.redirect_url,
                 short_url,
                 created_at: chrono::Utc::now().timestamp(),
             };

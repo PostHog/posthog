@@ -26,36 +26,34 @@ pub async fn setup_pg_client(config: Option<&Config>) -> Arc<dyn Client + Send +
 
 pub async fn insert_new_link_in_pg(
     db_client: Arc<dyn Client + Send + Sync>,
-    origin_domain: &str,
-    origin_key: &str,
-    destination: &str,
+    short_link_domain: &str,
+    short_code: &str,
+    redirect_url: &str,
     team_id: i32,
 ) -> Result<LinkRow, Error> {
     let link_row = LinkRow {
         id: uuid::Uuid::new_v4().into(),
-        destination: destination.into(),
-        origin_key: origin_key.into(),
-        origin_domain: origin_domain.into(),
+        redirect_url: redirect_url.into(),
+        short_code: short_code.into(),
+        short_link_domain: short_link_domain.into(),
         created_at: Utc::now(),
-        updated_at: Utc::now(),
         description: "".into(),
-        team_id,
+        team: team_id,
     };
     let mut conn = db_client.get_connection().await.unwrap();
-    let row: (String,) = sqlx::query_as(
-        r#"INSERT INTO posthog_shortlink 
-        (id, destination, origin_key, origin_domain, created_at, updated_at, description, team_id)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    let row: (Uuid,) = sqlx::query_as(
+        r#"INSERT INTO posthog_link 
+        (id, redirect_url, short_code, short_link_domain, created_at, description, team_id)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         RETURNING id"#,
     )
     .bind(&link_row.id)
-    .bind(&link_row.destination)
-    .bind(&link_row.origin_key)
-    .bind(&link_row.origin_domain)
+    .bind(&link_row.redirect_url)
+    .bind(&link_row.short_code)
+    .bind(&link_row.short_link_domain)
     .bind(link_row.created_at)
-    .bind(link_row.updated_at)
     .bind(&link_row.description)
-    .bind(link_row.team_id)
+    .bind(link_row.team)
     .fetch_one(&mut *conn)
     .await?;
 

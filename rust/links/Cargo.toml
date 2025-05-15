@@ -2,6 +2,7 @@
 name = "links"
 version = "0.1.0"
 edition = "2021"
+publish = false
 
 [dependencies]
 anyhow = { workspace = true }
@@ -30,3 +31,6 @@ uuid = { workspace = true, features = ["v4"] }
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+reqwest = { workspace = true }

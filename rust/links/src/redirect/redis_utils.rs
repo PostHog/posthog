@@ -11,8 +11,8 @@ impl RedisRedirectKeyPrefix {
         }
     }
 
-    pub fn get_redis_key_for_url(self, origin_domain: &str, origin_key: &str) -> String {
-        let key = format!("{}{}/{}", self.get_prefix(), origin_domain, origin_key);
+    pub fn get_redis_key_for_url(self, short_link_domain: &str, short_code: &str) -> String {
+        let key = format!("{}{}/{}", self.get_prefix(), short_link_domain, short_code);
         key
     }
 }
@@ -23,17 +23,19 @@ mod tests {
 
     #[test]
     fn test_get_redis_key_for_url_internal() {
-        let origin_domain = "example.com";
-        let origin_key = "abc123";
-        let key = RedisRedirectKeyPrefix::Internal.get_redis_key_for_url(origin_domain, origin_key);
+        let short_link_domain = "example.com";
+        let short_code = "abc123";
+        let key =
+            RedisRedirectKeyPrefix::Internal.get_redis_key_for_url(short_link_domain, short_code);
         assert_eq!(key, "internal_example.com/abc123");
     }
 
     #[test]
     fn test_get_redis_key_for_url_external() {
-        let origin_domain = "example.com";
-        let origin_key = "xyz789";
-        let key = RedisRedirectKeyPrefix::External.get_redis_key_for_url(origin_domain, origin_key);
+        let short_link_domain = "example.com";
+        let short_code = "xyz789";
+        let key =
+            RedisRedirectKeyPrefix::External.get_redis_key_for_url(short_link_domain, short_code);
         assert_eq!(key, "external_example.com/xyz789");
     }
 }
