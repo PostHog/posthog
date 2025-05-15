@@ -15,6 +15,7 @@ import { BillingLineGraph } from 'scenes/billing/BillingLineGraph'
 
 import { hedgedHogBetDefinitionsLogic } from './hedgedHogBetDefinitionsLogic'
 import { BetDefinition } from './hedgedHogBetDefinitionsLogic'
+import { Bet, hedgedHogLogic } from './hedgedHogLogic'
 
 const BetDefinitionForm = ({ setShowNewForm }: { setShowNewForm: (show: boolean) => void }): JSX.Element => {
     return (
@@ -81,14 +82,9 @@ const BetDefinitionForm = ({ setShowNewForm }: { setShowNewForm: (show: boolean)
 
 export function BettingContent(): JSX.Element {
     const logic = hedgedHogBetDefinitionsLogic()
+    const { bets } = useValues(hedgedHogLogic)
     const { betDefinitions, betDefinitionsLoading, showNewForm } = useValues(logic)
     const { setShowNewForm } = useActions(logic)
-
-    const mockData = {
-        dates: ['Jan 8', 'Jan 19', 'Jan 31', 'Feb 11', 'Feb 28', 'Mar 11', 'Mar 31', 'Apr 11', 'Apr 30', 'May 11'],
-        values: [85, 75, 80, 70, 60, 70, 55, 45, 35, 40],
-    }
-    const secondLineData = [15, 25, 20, 35, 40, 30, 45, 55, 65, 60]
 
     return (
         <div className="space-y-4">
@@ -105,71 +101,87 @@ export function BettingContent(): JSX.Element {
 
             {betDefinitionsLoading ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    <LemonSkeleton className="h-[440px]" />
-                    <LemonSkeleton className="h-[440px]" />
-                    <LemonSkeleton className="h-[440px]" />
+                    <LemonSkeleton className="h-[330px]" />
+                    <LemonSkeleton className="h-[330px]" />
+                    <LemonSkeleton className="h-[330px]" />
                 </div>
             ) : betDefinitions.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {betDefinitions.map((bet: BetDefinition) => (
-                        <Link key={bet.id} to={`/betting/${bet.id}`} className="no-underline">
-                            <div className="border rounded p-6 relative border-primary h-full hover:bg-surface-primary transition-colors duration-200">
-                                <div className="flex flex-col h-full">
-                                    <div className="flex-grow">
-                                        <h4 className="text-lg font-semibold mb-2">{bet.title}</h4>
-                                        <p className="text-muted mb-4">{bet.description}</p>
+                    {betDefinitions.map((bet: BetDefinition) => {
+                        const chartData = bet.probability_distributions.map((dist) => ({
+                            date: new Date(dist.created_at).toLocaleDateString(),
+                            ranges: dist.buckets.map((bucket, index) => ({
+                                range:
+                                    index === 0
+                                        ? `≤${Math.round(bucket.max)}`
+                                        : index === dist.buckets.length - 1
+                                        ? `≥${Math.round(bucket.min)}`
+                                        : `${Math.round(bucket.min)}-${Math.round(bucket.max)}`,
+                                probability: bucket.probability * 100,
+                            })),
+                        }))
 
-                                        <div className="mb-4">
-                                            <span className="text-2xl font-bold">39%</span>
-                                            <span className="text-sm text-success ml-2">↑ 20%</span>
-                                        </div>
+                        const bucketCount = bet.latest_distribution?.buckets?.length || 0
+                        const rangeLabels =
+                            (bet.latest_distribution &&
+                                bet.latest_distribution.buckets.map((bucket, index) =>
+                                    index === 0
+                                        ? `≤${Math.round(bucket.max)}`
+                                        : index === bucketCount - 1
+                                        ? `≥${Math.round(bucket.min)}`
+                                        : `${Math.round(bucket.min)}-${Math.round(bucket.max)}`
+                                )) ||
+                            []
 
-                                        <div className="h-40 mb-4">
-                                            <BillingLineGraph
-                                                containerClassName="h-full"
-                                                series={[
-                                                    {
-                                                        id: 1,
-                                                        label: 'Yes',
-                                                        data: mockData.values,
-                                                        dates: mockData.dates,
-                                                    },
-                                                    {
-                                                        id: 2,
-                                                        label: 'No',
-                                                        data: secondLineData,
-                                                        dates: mockData.dates,
-                                                    },
-                                                ]}
-                                                dates={mockData.dates}
-                                                hiddenSeries={[]}
-                                                valueFormatter={(value) => `${value}%`}
-                                                interval="day"
-                                                max={100}
-                                                showLegend={false}
-                                            />
-                                        </div>
-                                    </div>
+                        const volume = bets.reduce((sum: number, b: Bet) => sum + Number(b.amount), 0)
 
-                                    <div className="mt-auto">
-                                        <LemonDivider className="my-3" />
-                                        <div className="flex justify-between items-center">
-                                            <div className="text-sm">
-                                                <div>Type: {bet.type}</div>
-                                                <div className="text-muted">
-                                                    Closes: {dayjs(bet.closing_date).format('MMM D, YYYY')}
-                                                </div>
+                        return (
+                            <Link key={bet.id} to={`/betting/${bet.id}`} className="no-underline">
+                                <div className="border rounded p-6 relative border-primary h-full hover:bg-surface-primary transition-colors duration-200">
+                                    <div className="flex flex-col h-full">
+                                        <div className="flex-grow">
+                                            <h4 className="text-lg font-semibold mb-2">{bet.title}</h4>
+                                            <p className="text-muted mb-4">{bet.description}</p>
+
+                                            <div className="h-40 mb-4">
+                                                <BillingLineGraph
+                                                    containerClassName="h-full"
+                                                    series={rangeLabels.map((range, index) => ({
+                                                        id: index + 1,
+                                                        label: range,
+                                                        data: chartData.map((d) => d.ranges[index]?.probability ?? 0),
+                                                        dates: chartData.map((d) => d.date),
+                                                    }))}
+                                                    dates={chartData.map((d) => d.date)}
+                                                    hiddenSeries={[]}
+                                                    valueFormatter={(value) => `${value}%`}
+                                                    interval="day"
+                                                    max={100}
+                                                    showLegend={false}
+                                                />
                                             </div>
-                                            <div className="text-right">
-                                                <div className="font-bold">{bet.status}</div>
-                                                <div className="text-muted">Volume: $5,343,183</div>
+                                        </div>
+
+                                        <div className="mt-auto">
+                                            <LemonDivider className="my-3" />
+                                            <div className="flex justify-between items-center">
+                                                <div className="text-sm">
+                                                    <div>Type: {bet.type}</div>
+                                                    <div className="text-muted">
+                                                        Closes: {dayjs(bet.closing_date).format('MMM D, YYYY')}
+                                                    </div>
+                                                </div>
+                                                <div className="text-right">
+                                                    <div className="font-bold">{bet.status}</div>
+                                                    <div className="text-muted">Volume: ${volume.toLocaleString()}</div>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
-                            </div>
-                        </Link>
-                    ))}
+                            </Link>
+                        )
+                    })}
                 </div>
             ) : (
                 !showNewForm && (
