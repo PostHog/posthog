@@ -79,7 +79,7 @@ export function LiveEventsTable(): JSX.Element {
                 useURLForSorting={false}
                 expandable={{
                     expandedRowRender: (record) => (
-                        <div className="p-4">
+                        <div className="p-2">
                             <EventDetails event={record} />
                         </div>
                     ),

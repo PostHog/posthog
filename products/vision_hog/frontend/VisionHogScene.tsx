@@ -42,7 +42,7 @@ export function VisionHogScene(): JSX.Element {
                                     </div>
                                 </div>
                                 {/* Right: Events */}
-                                <div className="border rounded bg-white p-4 min-w-[400px] min-h-[640px] overflow-y-auto">
+                                <div className="border rounded bg-white p-4 min-w-[400px] min-h-[640px] max-w-[800px] overflow-y-auto">
                                     <EventStream />
                                 </div>
                             </div>
