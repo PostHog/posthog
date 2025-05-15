@@ -1850,13 +1850,13 @@ importers:
         specifier: '*'
         version: 3.1.5(react@18.2.0)
       kea-forms:
-        specifier: '*'
+        specifier: ^3.2.0
         version: 3.2.0(kea@3.1.5(react@18.2.0))
       kea-loaders:
-        specifier: '*'
+        specifier: ^3.0.0
         version: 3.0.0(kea@3.1.5(react@18.2.0))
       kea-router:
-        specifier: '*'
+        specifier: ^3.2.1
         version: 3.2.1(kea@3.1.5(react@18.2.0))
       react:
         specifier: '*'

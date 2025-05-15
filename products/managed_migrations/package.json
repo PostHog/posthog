@@ -1,5 +1,11 @@
 {
     "name": "@posthog/products-data-import",
+    "dependencies": {
+        "@posthog/icons": "0.13.1",
+        "kea-forms": "^3.2.0",
+        "kea-loaders": "^3.0.0",
+        "kea-router": "^3.2.1"
+    },
     "peerDependencies": {
         "@posthog/icons": "*",
         "@types/react": "*",
