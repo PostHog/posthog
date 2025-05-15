@@ -8,7 +8,7 @@ import { Breadcrumb, UserInterviewType } from '~/types'
 import type { userInterviewLogicType } from './userInterviewLogicType'
 import { userInterviewsLogic } from './userInterviewsLogic'
 
-interface UserInterviewLogicProps {
+export interface UserInterviewLogicProps {
     id: string
 }
 
@@ -28,7 +28,7 @@ export const userInterviewLogic = kea<userInterviewLogicType>([
                         return null
                     }
                 },
-                updateUserInterview: async (data: Pick<UserInterviewType, 'summary'>): Promise<UserInterviewType> => {
+                updateUserInterview: async (data: { summary: string }): Promise<UserInterviewType> => {
                     return await api.userInterviews.update(props.id, data)
                 },
             },
