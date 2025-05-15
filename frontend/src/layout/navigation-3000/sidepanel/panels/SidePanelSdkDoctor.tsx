@@ -1,5 +1,5 @@
-import { IconStethoscope, IconEllipsis } from '@posthog/icons'
-import { Tooltip, LemonTable, LemonBadge, LemonButton, LemonMenu, LemonTag, LemonTableColumns, LemonTagProps } from '@posthog/lemon-ui'
+import { IconStethoscope, IconEllipsis, IconWarning, IconBolt } from '@posthog/icons'
+import { Tooltip, LemonTable, LemonBadge, LemonButton, LemonMenu, LemonTag, LemonTableColumns, LemonTagProps, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IconWithBadge } from 'lib/lemon-ui/icons'
 import React from 'react'
@@ -7,15 +7,30 @@ import React from 'react'
 import { sidePanelSdkDoctorLogic, SdkVersionInfo, SdkType } from './sidePanelSdkDoctorLogic'
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
 
+const Section = ({ title, children }: { title: string; children: React.ReactNode }): React.ReactElement => {
+    return (
+        <section className="mb-6">
+            <>
+                <h3>{title}</h3>
+                {children}
+            </>
+        </section>
+    )
+}
+
+// Helper function to convert numbers to words (for 1-10)
+const numberToWord = (num: number): string => {
+    const words = ['Zero', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten']
+    return num >= 0 && num <= 10 ? words[num] : num.toString()
+}
+
 export const SidePanelSdkDoctorIcon = (props: { className?: string }): JSX.Element => {
     const { sdkHealth } = useValues(sidePanelSdkDoctorLogic)
     
     const title =
-        sdkHealth === 'warning'
-            ? 'SDK issues detected'
-            : sdkHealth === 'critical'
-                ? 'Critical SDK issues detected'
-                : 'SDK health is good'
+        sdkHealth !== 'healthy'
+            ? 'Outdated SDKs Found'
+            : 'SDK health is good'
 
     return (
         <Tooltip title={title} placement="left">
@@ -54,57 +69,93 @@ const sdkCategories: Record<string, SdkType[]> = {
     'Other': ['other']
 }
 
+// SDK documentation links mapping
+const sdkDocsLinks: Record<SdkType, { releases: string; docs: string }> = {
+    web: { 
+        releases: 'https://github.com/PostHog/posthog-js/releases',
+        docs: 'https://posthog.com/docs/libraries/js'
+    },
+    ios: { 
+        releases: 'https://github.com/PostHog/posthog-ios/releases',
+        docs: 'https://posthog.com/docs/libraries/ios'
+    },
+    android: { 
+        releases: 'https://github.com/PostHog/posthog-android/releases',
+        docs: 'https://posthog.com/docs/libraries/android'
+    },
+    node: { 
+        releases: 'https://github.com/PostHog/posthog-node/releases',
+        docs: 'https://posthog.com/docs/libraries/node'
+    },
+    python: { 
+        releases: 'https://github.com/PostHog/posthog-python/releases',
+        docs: 'https://posthog.com/docs/libraries/python'
+    },
+    php: { 
+        releases: 'https://github.com/PostHog/posthog-php/blob/master/History.md',
+        docs: 'https://posthog.com/docs/libraries/php'
+    },
+    ruby: { 
+        releases: 'https://github.com/PostHog/posthog-ruby/releases',
+        docs: 'https://posthog.com/docs/libraries/ruby'
+    },
+    go: { 
+        releases: 'https://github.com/PostHog/posthog-go/releases',
+        docs: 'https://posthog.com/docs/libraries/go'
+    },
+    flutter: { 
+        releases: 'https://github.com/PostHog/posthog-flutter/releases',
+        docs: 'https://posthog.com/docs/libraries/flutter'
+    },
+    'react-native': { 
+        releases: 'https://github.com/PostHog/posthog-react-native/releases',
+        docs: 'https://posthog.com/docs/libraries/react-native'
+    },
+    other: { 
+        releases: 'https://github.com/PostHog',
+        docs: 'https://posthog.com/docs/libraries'
+    }
+}
+
+// Component to render SDK links
+const SdkLinks = ({ sdkType }: { sdkType: SdkType }): JSX.Element => {
+    const links = sdkDocsLinks[sdkType]
+    const sdkName = sdkTypeMapping[sdkType].name
+    
+    return (
+        <div className="flex justify-between items-center py-2 text-sm border-t border-border mt-2">
+            <Link to={links.releases} target="_blank" targetBlankIcon>
+                {sdkName} SDK Releases
+            </Link>
+            <Link to={links.docs} target="_blank" targetBlankIcon>
+                {sdkName} SDK docs
+            </Link>
+        </div>
+    )
+}
+
 export function SidePanelSdkDoctor(): JSX.Element {
     const { sdkVersions, sdkHealth, recentEventsLoading, outdatedSdkCount } = useValues(sidePanelSdkDoctorLogic)
     const { loadRecentEvents } = useActions(sidePanelSdkDoctorLogic)
 
-    // Group the versions by SDK category
+    // Group the versions by SDK type (each SDK type gets its own table)
     const groupedVersions = sdkVersions.reduce((acc, sdk) => {
-        // Find which category this SDK belongs to
-        let category = 'Other'
-        for (const [cat, types] of Object.entries(sdkCategories)) {
-            if (types.includes(sdk.type)) {
-                category = cat
-                break
-            }
-        }
+        const sdkType = sdk.type
+        const sdkName = sdkTypeMapping[sdkType]?.name || 'Other'
         
-        if (!acc[category]) {
-            acc[category] = []
+        if (!acc[sdkName]) {
+            acc[sdkName] = []
         }
-        acc[category].push(sdk)
+        acc[sdkName].push(sdk)
         return acc
     }, {} as Record<string, SdkVersionInfo[]>)
 
-    // Create a flattened array with category headings
-    const tableData: (SdkVersionInfo & { isCategoryHeader?: boolean; category?: string })[] = []
-    
-    Object.entries(groupedVersions).forEach(([category, sdks]) => {
-        if (sdks.length > 0) {
-            // Add category header
-            tableData.push({ 
-                type: 'other',
-                version: '',
-                isOutdated: false,
-                count: 0,
-                isCategoryHeader: true,
-                category
-            })
-            
-            // Add SDK versions in this category, sorted by count
-            tableData.push(...sdks.sort((a, b) => b.count - a.count))
-        }
-    })
-
-    const columns: LemonTableColumns<typeof tableData[0]> = [
+    // Create table columns - used for all tables
+    const createColumns = (): LemonTableColumns<SdkVersionInfo> => [
         {
             title: 'SDK',
             dataIndex: 'type',
             render: function RenderType(_, record) {
-                if (record.isCategoryHeader) {
-                    return <div className="font-semibold text-sm text-muted-0 p-1">{record.category}</div>
-                }
-                
                 const sdkInfo = sdkTypeMapping[record.type] || { name: record.type, color: 'default' }
                 return (
                     <div className="flex items-center">
@@ -119,16 +170,12 @@ export function SidePanelSdkDoctor(): JSX.Element {
             title: 'Version',
             dataIndex: 'version',
             render: function RenderVersion(_, record) {
-                if (record.isCategoryHeader) {
-                    return null
-                }
-                
                 return (
                     <div className="flex items-center gap-2">
                         <code className="text-xs font-mono bg-muted-highlight rounded-sm px-1 py-0.5">
                             {record.version}
                         </code>
-                        {record.isOutdated && (
+                        {record.isOutdated ? (
                             <Tooltip 
                                 placement="right"
                                 title={record.latestVersion ? `Latest version: ${record.latestVersion}` : 'Upgrade recommended'}
@@ -137,6 +184,10 @@ export function SidePanelSdkDoctor(): JSX.Element {
                                     Outdated
                                 </LemonTag>
                             </Tooltip>
+                        ) : (
+                            <LemonTag type="success" className="shrink-0">
+                                Current
+                            </LemonTag>
                         )}
                     </div>
                 )
@@ -146,17 +197,13 @@ export function SidePanelSdkDoctor(): JSX.Element {
             title: 'Events',
             dataIndex: 'count',
             render: function RenderCount(_, record) {
-                if (record.isCategoryHeader) {
-                    return null
-                }
-                
                 return <div className="text-right font-medium">{record.count}</div>
             },
         },
     ]
 
     return (
-        <div className="flex flex-col h-full overflow-hidden">
+        <div className="SidePanelSdkDoctor flex flex-col h-full overflow-hidden">
             <SidePanelPaneHeader title="SDK Doctor">
                 <LemonMenu
                     items={[
@@ -170,133 +217,78 @@ export function SidePanelSdkDoctor(): JSX.Element {
                     <LemonButton size="small" icon={<IconEllipsis />} />
                 </LemonMenu>
             </SidePanelPaneHeader>
-            <div className="p-4 overflow-y-auto flex-1">
+            <div className="p-3 overflow-y-auto flex-1">
                 {sdkHealth !== 'healthy' ? (
-                    <div className="mb-4 p-3 bg-warning/10 rounded border border-warning/20">
-                        <LemonBadge 
-                            status={sdkHealth === 'critical' ? 'danger' : 'warning'}
-                            className="mb-2"
-                        >
-                            {sdkHealth === 'critical' ? 'Critical' : 'Warning'}
-                        </LemonBadge>
-                        <p>
-                            {outdatedSdkCount} {outdatedSdkCount === 1 ? 'SDK is' : 'SDKs are'} outdated and should be upgraded 
-                            to ensure proper functionality and performance.
-                        </p>
-                        <p className="text-sm mt-2">
-                            Using outdated SDKs may result in missing features, compatibility issues, 
-                            or reduced performance. We recommend upgrading to the latest versions.
-                        </p>
-                        <ul className="list-disc pl-5 mt-3 text-sm">
-                            <li>
-                                <a 
-                                    href="https://github.com/PostHog/posthog-js/releases" 
-                                    target="_blank" 
-                                    rel="noopener noreferrer"
-                                    className="text-primary hover:text-primary-dark"
-                                >
-                                    Web SDK Releases
-                                </a>
-                            </li>
-                            <li>
-                                <a 
-                                    href="https://posthog.com/docs/libraries/js" 
-                                    target="_blank" 
-                                    rel="noopener noreferrer"
-                                    className="text-primary hover:text-primary-dark"
-                                >
-                                    Web SDK docs
-                                </a>
-                            </li>
-                            {outdatedSdkCount > 0 && sdkVersions.some(sdk => sdk.type === 'php' && sdk.isOutdated) && (
-                                <>
-                                    <li>
-                                        <a 
-                                            href="https://github.com/PostHog/posthog-php/blob/master/History.md" 
-                                            target="_blank" 
-                                            rel="noopener noreferrer"
-                                            className="text-primary hover:text-primary-dark"
-                                        >
-                                            PHP SDK Releases
-                                        </a>
-                                    </li>
-                                    <li>
-                                        <a 
-                                            href="https://posthog.com/docs/libraries/php" 
-                                            target="_blank" 
-                                            rel="noopener noreferrer"
-                                            className="text-primary hover:text-primary-dark"
-                                        >
-                                            PHP SDK docs
-                                        </a>
-                                    </li>
-                                </>
-                            )}
-                            {outdatedSdkCount > 0 && sdkVersions.some(sdk => sdk.type === 'python' && sdk.isOutdated) && (
-                                <>
-                                    <li>
-                                        <a 
-                                            href="https://github.com/PostHog/posthog-python/releases" 
-                                            target="_blank" 
-                                            rel="noopener noreferrer"
-                                            className="text-primary hover:text-primary-dark"
-                                        >
-                                            Python SDK Releases
-                                        </a>()
-                                    </li>
-                                    <li>
-                                        <a 
-                                            href="https://posthog.com/docs/libraries/python" 
-                                            target="_blank" 
-                                            rel="noopener noreferrer"
-                                            className="text-primary hover:text-primary-dark"
-                                        >
-                                            Python SDK docs
-                                        </a>
-                                    </li>
-                                </>
-                            )}
-                        </ul>
-                    </div>
+                    <Section title="Outdated SDKs Found">
+                        <div className="p-3 bg-warning/10 rounded border border-warning/20">
+                            <div className="flex items-start">
+                                <IconWarning className="text-warning text-xl mt-0.5 mr-2 flex-shrink-0" />
+                                <div>
+                                    <p className="font-semibold">
+                                        {outdatedSdkCount === 1 ? 'Your SDK is' : 'Your SDKs are'} falling behind! Time for an upgrade.
+                                    </p>
+                                    <p className="text-sm mt-1">
+                                        {outdatedSdkCount === 1 
+                                            ? `${numberToWord(outdatedSdkCount)} outdated SDK means you're missing out on the latest features and performance boosts.` 
+                                            : `${numberToWord(outdatedSdkCount)} outdated SDKs mean you're missing out on the latest features and performance boosts.`
+                                        } Check the links below to catch up.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </Section>
                 ) : (
-                    <div className="mb-4 p-3 bg-success/10 rounded border border-success/20">
-                        <LemonBadge status="success" className="mb-2">Healthy</LemonBadge>
-                        <p>All SDKs are up to date. No action needed.</p>
-                        <ul className="list-disc pl-5 mt-3 text-sm">
-                            <li>
-                                <a 
-                                    href="https://github.com/PostHog/posthog-js/releases" 
-                                    target="_blank" 
-                                    rel="noopener noreferrer"
-                                    className="text-primary hover:text-primary-dark"
-                                >
-                                    Releases page on GitHub
-                                </a>
-                            </li>
-                            <li>
-                                <a 
-                                    href="https://posthog.com/docs/libraries/js" 
-                                    target="_blank" 
-                                    rel="noopener noreferrer"
-                                    className="text-primary hover:text-primary-dark"
-                                >
-                                    Web SDK docs
-                                </a>
-                            </li>
-                        </ul>
-                    </div>
+                    <Section title="SDK health is good">
+                        <div className="p-3 bg-success/10 rounded border border-success/20">
+                            <div className="flex items-start">
+                                <IconBolt className="text-success text-xl mt-0.5 mr-2 flex-shrink-0" />
+                                <div>
+                                    <p className="font-semibold">All caught up! Your SDKs are up to date.</p>
+                                    <p className="text-sm mt-1">You've got the latest. Nice work keeping everything current.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </Section>
                 )}
                 
-                <h4 className="font-semibold mb-2">SDK Versions</h4>
-                <LemonTable
-                    dataSource={tableData}
-                    loading={recentEventsLoading}
-                    columns={columns}
-                    className="ph-no-capture"
-                    size="small"
-                    rowClassName={(record) => record.isCategoryHeader ? 'bg-side category-row' : ''}
-                    emptyState="No SDK information found. Try scanning recent events."
-                />
+                {/* Render a section for each SDK category with SDKs */}
+                {Object.entries(groupedVersions).map(([category, categorySDKs]) => {
+                    if (categorySDKs.length === 0) {
+                        return null
+                    }
+                    
+                    // Check if any SDKs in this category are outdated
+                    const outdatedSDKs = categorySDKs.filter(sdk => sdk.isOutdated)
+                    const hasOutdatedSDKs = outdatedSDKs.length > 0
+                    
+                    return (
+                        <div key={category} className="mb-6">
+                            <LemonTable
+                                dataSource={categorySDKs.sort((a, b) => b.count - a.count)}
+                                loading={recentEventsLoading}
+                                columns={createColumns()}
+                                className="ph-no-capture"
+                                size="small"
+                                emptyState="No SDK information found. Try scanning recent events."
+                            />
+                            
+                            {/* Show documentation links for outdated SDKs in this category */}
+                            {hasOutdatedSDKs && (
+                                <div className="mt-2">
+                                    {outdatedSDKs.map(sdk => (
+                                        <SdkLinks key={sdk.type} sdkType={sdk.type} />
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    )
+                })}
+                
+                {Object.keys(groupedVersions).length === 0 && (
+                    <div className="text-center text-muted p-4">
+                        No SDK information found. Try scanning recent events.
+                    </div>
+                )}
             </div>
         </div>
     )
