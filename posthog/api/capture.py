@@ -756,8 +756,7 @@ def get_event(request, csp_report: dict[str, Any] | None = None):
         EVENTS_REJECTED_OVER_QUOTA_COUNTER.labels(resource_type="recordings").inc()
         response_body["quota_limited"] = ["recordings"]
 
-    # If we have a csp_report parsed and we explicit told the pipeline we want to handle
-    # then we can return a 204 since that's the standard
+    # If we have a csp_report parsed, we should return a 204 since that's the standard
     # https://github.com/PostHog/posthog/pull/32174
     if csp_report:
         return cors_response(request, HttpResponse(status=status.HTTP_204_NO_CONTENT))
