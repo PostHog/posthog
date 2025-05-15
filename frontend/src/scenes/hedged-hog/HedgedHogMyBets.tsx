@@ -45,8 +45,9 @@ export function MyBetsContent(): JSX.Element {
                         dataIndex: 'predicted_value',
                         key: 'predicted_value',
                         render: function RenderPrediction(value: any) {
-                            const prediction = typeof value === 'object' ? value.value : value
-                            return prediction === 1 ? 'Yes' : 'No'
+                            return value && typeof value === 'object' && 'min' in value && 'max' in value
+                                ? `${Math.round(value.min)}-${Math.round(value.max)}`
+                                : ''
                         },
                     },
                     {
@@ -73,7 +74,7 @@ export function MyBetsContent(): JSX.Element {
                         },
                     },
                     {
-                        title: 'Created',
+                        title: 'Timestamp',
                         dataIndex: 'created_at',
                         key: 'created_at',
                         render: function RenderDate(date: string) {

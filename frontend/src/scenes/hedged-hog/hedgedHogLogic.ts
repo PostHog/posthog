@@ -49,7 +49,7 @@ export interface Bet {
     bet_definition: string
     bet_definition_title: string
     amount: number
-    predicted_value: number
+    predicted_value: { min: number; max: number }
     potential_payout: number
     created_at: string
     user: {
@@ -69,7 +69,7 @@ export const hedgedHogLogic = kea<hedgedHogLogicType>([
         setBetId: (betId: string | null) => ({ betId }),
         initializeWallet: true,
         goBackToBets: true,
-        placeBet: (betDefinitionId: string, amount: number, predictedValue: number) => ({
+        placeBet: (betDefinitionId: string, amount: number, predictedValue: { min: number; max: number }) => ({
             betDefinitionId,
             amount,
             predictedValue,

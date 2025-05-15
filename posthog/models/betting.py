@@ -157,19 +157,7 @@ class Bet(UUIDModel, CreatedMetaFields):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="bets")
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     amount = models.DecimalField(max_digits=10, decimal_places=2)  # The monetary amount the user is wagering
-    predicted_value = models.JSONField()  # The prediction the user is betting on. Can be one of:
-    # 1. Simple value: 123 (number)
-    # 2. Value object: {"value": 123}
-    # 3. Range: {"range": [100, 200]}  # Predicting value will be between 100-200
-    # 4. Condition: {                  # Predicting value will meet a condition
-    #    "condition": "gt",            # Condition type: "gt" (>), "lt" (<), "gte" (>=), "lte" (<=)
-    #    "threshold": 150              # Threshold value for the condition
-    # }
-    # 5. Complex prediction: {         # For future extension
-    #    "type": "compound",           # Type of prediction
-    #    "operator": "and",            # Logical operator: "and", "or"
-    #    "conditions": [...]           # Array of conditions
-    # }
+    predicted_value = models.JSONField()  # Always store {"min": float, "max": float}
     potential_payout = models.DecimalField(max_digits=10, decimal_places=2)
     status = models.CharField(
         max_length=20,
@@ -193,14 +181,14 @@ class Bet(UUIDModel, CreatedMetaFields):
             bet_definition: The bet definition
             probability_distribution: The probability distribution to use for calculating the payout
             amount: The amount being wagered
-            predicted_value: The value being predicted (can be a number or a dict with prediction details)
+            predicted_value: The range being predicted (can be a dict with prediction details)
 
         Returns:
             The potential payout amount (original bet amount + winnings)
         """
-        # Get the payout multiplier from the probability distribution based on the predicted value
+        # Get the payout multiplier from the probability distribution based on the predicted range
         payout_multiplier = probability_distribution.get_payout_for_value(
-            predicted_value if isinstance(predicted_value, int | float) else predicted_value["value"]
+            predicted_value["min"] if isinstance(predicted_value, dict) else predicted_value["min"]
         )
 
         # Calculate the potential payout (original amount + winnings)
@@ -218,49 +206,12 @@ class Bet(UUIDModel, CreatedMetaFields):
         prediction_matched = False
 
         # Handle different prediction types
-        if isinstance(self.predicted_value, int | float) or (
-            isinstance(self.predicted_value, dict) and "value" in self.predicted_value
-        ):
-            # Simple value prediction
-            predicted = (
-                self.predicted_value if isinstance(self.predicted_value, int | float) else self.predicted_value["value"]
-            )
-            if isinstance(final_value, int | float):
-                prediction_matched = predicted == final_value
-            elif isinstance(final_value, dict) and "value" in final_value:
-                prediction_matched = predicted == final_value["value"]
-
-        elif isinstance(self.predicted_value, dict) and "range" in self.predicted_value:
-            # Range prediction
-            min_val = self.predicted_value["range"][0]
-            max_val = self.predicted_value["range"][1]
+        if isinstance(self.predicted_value, dict) and "min" in self.predicted_value and "max" in self.predicted_value:
+            min_val = self.predicted_value["min"]
+            max_val = self.predicted_value["max"]
 
             if isinstance(final_value, int | float):
                 prediction_matched = min_val <= final_value <= max_val
-            elif isinstance(final_value, dict) and "value" in final_value:
-                prediction_matched = min_val <= final_value["value"] <= max_val
-
-        elif isinstance(self.predicted_value, dict) and "condition" in self.predicted_value:
-            # Complex condition (e.g., greater than, less than)
-            condition = self.predicted_value["condition"]
-            threshold = self.predicted_value["threshold"]
-
-            if isinstance(final_value, int | float):
-                actual_value = final_value
-            elif isinstance(final_value, dict) and "value" in final_value:
-                actual_value = final_value["value"]
-            else:
-                actual_value = None
-
-            if actual_value is not None:
-                if condition == "gt":
-                    prediction_matched = actual_value > threshold
-                elif condition == "lt":
-                    prediction_matched = actual_value < threshold
-                elif condition == "gte":
-                    prediction_matched = actual_value >= threshold
-                elif condition == "lte":
-                    prediction_matched = actual_value <= threshold
 
         if prediction_matched:
             self.status = Bet.Status.WON

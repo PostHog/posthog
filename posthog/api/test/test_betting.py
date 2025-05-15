@@ -101,7 +101,7 @@ class TestBettingAPI(APIBaseTest):
             bet_definition=bet_definition,
             probability_distribution=prob_dist,
             amount=100,
-            predicted_value=200,
+            predicted_value={"min": 150, "max": 250},
             potential_payout=190,  # (1/0.5) * 0.95 * 100
         )
 
@@ -188,14 +188,14 @@ class TestBettingAPI(APIBaseTest):
                 "bet_definition": str(bet_definition.id),
                 "probability_distribution": str(prob_dist.id),
                 "amount": 100,
-                "predicted_value": 200,
+                "predicted_value": {"min": 150, "max": 250},
             },
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["bet_definition"], str(bet_definition.id))
         self.assertEqual(response.json()["amount"], "100.00")
-        self.assertEqual(response.json()["predicted_value"], 200.0)
+        self.assertEqual(response.json()["predicted_value"], {"min": 150, "max": 250})
         self.assertEqual(response.json()["status"], Bet.Status.ACTIVE)
 
         # Verify potential payout is calculated correctly
@@ -240,13 +240,13 @@ class TestBettingAPI(APIBaseTest):
             data={
                 "bet_definition": str(bet_definition.id),
                 "amount": 100,
-                "predicted_value": 200,
+                "predicted_value": {"min": 150, "max": 250},
             },
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["amount"], 100)
-        self.assertEqual(response.json()["predicted_value"], 200)
+        self.assertEqual(response.json()["predicted_value"], {"min": 150, "max": 250})
         # Payout multiplier = (1/probability) * (1-house_edge) = (1/0.5) * 0.95 = 1.9
         self.assertEqual(response.json()["payout_multiplier"], 1.9)
         self.assertEqual(response.json()["potential_payout"], 190.0)
@@ -350,7 +350,7 @@ class TestBettingAPI(APIBaseTest):
                 "bet_definition": str(bet_definition.id),
                 "probability_distribution": str(prob_dist.id),
                 "amount": 100,
-                "predicted_value": 200,
+                "predicted_value": {"min": 150, "max": 250},
             },
         )
 
@@ -388,7 +388,7 @@ class TestBettingAPI(APIBaseTest):
                 "bet_definition": str(bet_definition.id),
                 "probability_distribution": str(prob_dist.id),
                 "amount": 100,
-                "predicted_value": 200,
+                "predicted_value": {"min": 150, "max": 250},
             },
         )
 
@@ -402,7 +402,7 @@ class TestBettingAPI(APIBaseTest):
             data={
                 "bet_definition": "00000000-0000-0000-0000-000000000000",
                 "amount": 100,
-                "predicted_value": 200,
+                "predicted_value": {"min": 150, "max": 250},
             },
         )
 
@@ -425,7 +425,7 @@ class TestBettingAPI(APIBaseTest):
             data={
                 "bet_definition": str(bet_definition.id),
                 "amount": 100,
-                "predicted_value": 200,
+                "predicted_value": {"min": 150, "max": 250},
             },
         )
 
