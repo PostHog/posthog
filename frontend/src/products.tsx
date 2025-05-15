@@ -82,7 +82,7 @@ export const productRoutes: Record<string, [string, string]> = {
         'messagingLibraryTemplateFromMessage',
     ],
     '/revenue_analytics': ['RevenueAnalytics', 'revenueAnalytics'],
-    '/spreadsheets': ['Spreadsheets', 'spreadsheets'],
+    '/spreadsheets/:id': ['Spreadsheets', 'spreadsheets'],
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -278,7 +278,12 @@ export const productUrls = {
     replayFilePlayback: (): string => '/replay/file-playback',
     replaySettings: (sectionId?: string): string => `/replay/settings${sectionId ? `?sectionId=${sectionId}` : ''}`,
     revenueAnalytics: (): string => '/revenue_analytics',
-    spreadsheets: (): string => '/spreadsheets',
+    spreadsheets: (shortId?: string): string => {
+        if (shortId) {
+            return `/spreadsheets/${shortId}`
+        }
+        return '/spreadsheets/new'
+    },
     surveys: (tab?: SurveysTabs): string => `/surveys${tab ? `?tab=${tab}` : ''}`,
     survey: (id: string): string => `/surveys/${id}`,
     surveyTemplates: (): string => '/survey_templates',

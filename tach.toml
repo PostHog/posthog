@@ -30,6 +30,7 @@ depends_on = [
     "products.early_access_features",
     "products.editor",
     "products.revenue_analytics",
+    "products.spreadsheets",
 ]
 
 [[modules]]
@@ -42,4 +43,8 @@ depends_on = ["posthog"]
 
 [[modules]]
 path = "products.revenue_analytics"
+depends_on = ["posthog"]
+
+[[modules]]
+path = "products.spreadsheets"
 depends_on = ["posthog"]

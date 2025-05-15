@@ -4417,6 +4417,16 @@ export interface DataWarehouseViewLink {
     }
 }
 
+export interface Spreadsheet {
+    id?: string
+    data?: Record<string, any>
+    data_updated_at?: string
+    created_at?: string | null
+    updated_at?: UserBasicType | null
+    short_id: string
+    created_by?: UserBasicType | null
+}
+
 export interface QueryTabState {
     id: string
     state: Record<string, any>

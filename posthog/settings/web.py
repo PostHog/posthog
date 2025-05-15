@@ -31,6 +31,7 @@ PRODUCTS_APPS = [
     "products.early_access_features",
     "products.editor",
     "products.revenue_analytics",
+    "products.spreadsheets",
 ]
 
 INSTALLED_APPS = [

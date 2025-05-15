@@ -12,9 +12,15 @@ export const manifest: ProductManifest = {
         },
     },
     routes: {
-        '/spreadsheets': ['Spreadsheets', 'spreadsheets'],
+        '/spreadsheets/:id': ['Spreadsheets', 'spreadsheets'],
     },
     urls: {
-        spreadsheets: (): string => '/spreadsheets',
+        spreadsheets: (shortId?: string): string => {
+            if (shortId) {
+                return `/spreadsheets/${shortId}`
+            }
+
+            return '/spreadsheets/new'
+        },
     },
 }

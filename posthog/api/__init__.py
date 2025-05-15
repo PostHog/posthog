@@ -5,6 +5,7 @@ import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 import products.early_access_features.backend.api as early_access_feature
 from products.editor.backend.api import LLMProxyViewSet, MaxToolsViewSet
 from products.messaging.backend.api import MessageTemplatesViewSet
+from products.spreadsheets.backend.api.spreadsheets import SpreadsheetsViewSet
 from posthog.api import data_color_theme, metalytics, project, wizard
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.batch_exports import http as batch_exports
@@ -674,5 +675,12 @@ environments_router.register(
     r"messaging_templates",
     MessageTemplatesViewSet,
     "environment_messaging_templates",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"spreadsheets",
+    SpreadsheetsViewSet,
+    "environment_spreadsheets",
     ["team_id"],
 )

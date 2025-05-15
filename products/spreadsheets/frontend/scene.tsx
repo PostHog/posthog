@@ -238,7 +238,8 @@ export const SpreadsheetsScene = (): JSX.Element => {
     // Generate an empty 100 rows x (26 * 2) columns dataset
     const hotRef = useRef<HotTableRef>(null)
     const { data } = useValues(spreadsheetsSceneLogic)
-    const { setCurrentCellValue, setCurrentCellMeta, setData, setHotRef } = useActions(spreadsheetsSceneLogic)
+    const { setCurrentCellValue, setCurrentCellMeta, setData, setHotRef, saveDataToServer } =
+        useActions(spreadsheetsSceneLogic)
 
     useEffect(() => {
         const currentHotRef = hotRef.current
@@ -267,6 +268,10 @@ export const SpreadsheetsScene = (): JSX.Element => {
             })
 
             setData(newData)
+
+            if (hotRef.current?.hotInstance) {
+                saveDataToServer(hotRef.current.hotInstance.getData())
+            }
         }
     }
 

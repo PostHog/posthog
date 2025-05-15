@@ -128,6 +128,7 @@ import {
     SessionRecordingUpdateType,
     SharingConfigurationType,
     SlackChannelType,
+    Spreadsheet,
     SubscriptionType,
     Survey,
     SurveyStatsResponse,
@@ -1111,6 +1112,15 @@ class ApiRequest {
     // Fix HogQL errors
     public fixHogQLErrors(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('fix_hogql')
+    }
+
+    // Spreadsheets
+    public spreadsheets(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('spreadsheets')
+    }
+
+    public spreadsheet(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.spreadsheets(teamId).addPathComponent(id)
     }
 
     // Insight Variables
@@ -2977,6 +2987,23 @@ const api = {
                 .withAction('logs')
                 .withQueryString(params)
                 .get()
+        },
+    },
+    spreadsheets: {
+        async get(shortId: string): Promise<Spreadsheet> {
+            return await new ApiRequest().spreadsheet(shortId).get()
+        },
+        async create(data: Partial<Spreadsheet>): Promise<Spreadsheet> {
+            return await new ApiRequest().spreadsheets().create({ data })
+        },
+        async list(): Promise<PaginatedResponse<Spreadsheet>> {
+            return await new ApiRequest().spreadsheets().get()
+        },
+        async update(
+            shortId: string,
+            data: Pick<Spreadsheet, 'data' | 'data_updated_at'>
+        ): Promise<DataWarehouseViewLink> {
+            return await new ApiRequest().spreadsheet(shortId).update({ data })
         },
     },
     fixHogQLErrors: {

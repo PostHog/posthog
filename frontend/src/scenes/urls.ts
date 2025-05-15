@@ -71,7 +71,13 @@ export const urls = {
     errorTrackingIssue: (id: string, fingerprint?: string): string =>
         combineUrl(`/error_tracking/${id}`, { fingerprint }).url,
     customCss: (): string => '/themes/custom-css',
-    spreadsheets: (): string => '/spreadsheets',
+    spreadsheets: (shortId?: string): string => {
+        if (shortId) {
+            return `/spreadsheets/${shortId}`
+        }
+
+        return '/spreadsheets/new'
+    },
     sqlEditor: (query?: string, view_id?: string, insightShortId?: string): string => {
         if (query) {
             return `/sql?open_query=${encodeURIComponent(query)}`
