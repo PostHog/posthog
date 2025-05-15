@@ -191,6 +191,7 @@ def process_csp_report(request):
                     distinct_id,
                     session_id,
                     version,
+                    user_agent,
                 ),
                 None,
             )
