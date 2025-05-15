@@ -1940,11 +1940,17 @@ export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<E
 }
 export type CachedErrorTrackingQueryResponse = CachedQueryResponse<ErrorTrackingQueryResponse>
 
-export interface LogsQuery extends DataNode<LogsQueryResponse> {
-    kind: NodeKind.LogsQuery
+export type LogSeverityLevel = 'debug' | 'info' | 'warn' | 'error'
+
+export interface LogsQuery {
+    response?: LogsQueryResponse
     dateRange: DateRange
     limit?: integer
     offset?: integer
+    orderBy: 'latest' | 'earliest'
+    searchTerm?: string
+    resource?: string
+    severityLevels: LogSeverityLevel[]
 }
 
 export interface LogsQueryResponse extends AnalyticsQueryResponseBase<LogMessage[]> {
@@ -1957,7 +1963,15 @@ export type CachedLogsQueryResponse = CachedQueryResponse<LogsQueryResponse>
 
 export interface LogMessage {
     uuid: string
+    team_id: integer
+    trace_id: string
+    span_id: string
     body: string
+    attributes: Record<string, string>
+    timestamp: string
+    observed_timestamp: string
+    severity_text: LogSeverityLevel
+    resource: string
 }
 
 export interface FileSystemCount {

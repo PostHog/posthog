@@ -1,168 +1,98 @@
-import datetime as dt
-from typing import cast
-
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.schema import (
     CachedLogsQueryResponse,
     LogsQuery,
     LogsQueryResponse,
-    LogsQueryResult,
 )
+from posthog.hogql.constants import LimitContext
 
 
 class LogsQueryRunner(QueryRunner):
     query: LogsQuery
     response: LogsQueryResponse
     cached_response: CachedLogsQueryResponse
+    paginator: HogQLHasMorePaginator
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
         self.paginator = HogQLHasMorePaginator.from_limit_context(
-            limit_context=self.limit_context, limit=self.query.limit, offset=self.query.offset
+            limit_context=LimitContext.QUERY,
+            limit=self.query.limit if self.query.limit else None,
+            offset=self.query.offset,
         )
-
-    def to_query(self) -> ast.SelectQuery:
-        return cast(
-            ast.SelectQuery,
-            parse_select(
-                """
-                    SELECT uuid, distinct_id, event, timestamp, properties.$level, properties.$msg, properties.$namespace, $session_id, properties
-                    FROM events
-                    WHERE {where_clause}
-                    ORDER BY timestamp DESC
-                """,
-                {"where_clause": self._where_clause()},
-            ),
-        )
-
-    def to_actors_query(self) -> ast.SelectQuery:
-        return self.to_query()
 
     def calculate(self) -> LogsQueryResponse:
-        query = self.to_query()
-
         response = self.paginator.execute_hogql_query(
             query_type="LogsQuery",
-            query=query,
-            modifiers=self.query.modifiers or self.modifiers,
+            query=self.to_query(),
+            modifiers=self.modifiers,
             team=self.team,
             workload=Workload.ONLINE,
             timings=self.timings,
             limit_context=self.limit_context,
         )
 
-        results: list[LogsQueryResult] = [
-            # TODO - fix
-            LogsQueryResult(
-                # uuid=str(log[0]),
-                # distinct_id=log[1],
-                # event=log[2],
-                timestamp=str(log[3]),
-                level=log[4] or "info",
-                msg=log[2] or "testing testing",
-                # namespace=log[6],
-                # session_id=log[7],
-                # properties=log[8],
-            )
-            for log in response.results
+        return LogsQueryResponse(results=response.results, **self.paginator.response_params())
+
+    def to_query(self) -> ast.SelectQuery:
+        return ast.SelectQuery(
+            select=self.select(),
+            select_from=ast.JoinExpr(table=ast.Field(chain=["logs"])),
+            where=self.where(),
+            order_by=self.query.orderBy,
+        )
+
+    def select(self) -> list[ast.Expr]:
+        return [
+            ast.Field(chain=["uuid"]),
+            ast.Field(chain=["trace_id"]),
+            ast.Field(chain=["span_id"]),
+            ast.Field(chain=["body"]),
+            ast.Field(chain=["attributes"]),
+            ast.Field(chain=["timestamp"]),
+            ast.Field(chain=["observed_timestamp"]),
+            ast.Field(chain=["severity_text"]),
+            ast.Field(chain=["resource"]),
         ]
 
-        return LogsQueryResponse(results=results, **self.paginator.response_params())
+    def where(self):
+        exprs: list[ast.Expr] = []
 
-    def _where_clause(self):
-        filters: list[ast.Expr] = []
-        # TODO remove this and implement properly
-        if len(filters) == 0:
-            return ast.Constant(value=True)
+        if self.query.searchTerm is not None:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Gt,
+                    left=ast.Call(
+                        name="position",
+                        args=[
+                            ast.Call(name="lower", args=[ast.Field(chain=["body"])]),
+                            ast.Call(name="lower", args=[ast.Constant(value=self.query.searchTerm)]),
+                        ],
+                    ),
+                    right=ast.Constant(value=0),
+                )
+            )
 
-        # # Dates
-        # date_range_placeholders = self._query_date_range.to_placeholders()
-        # filters.extend(
-        #     [
-        #         parse_expr(
-        #             "timestamp >= {date_from_with_adjusted_start_of_interval}", placeholders=date_range_placeholders
-        #         ),
-        #         parse_expr("timestamp <= {date_to}", placeholders=date_range_placeholders),
-        #     ]
-        # )
+        if self.query.resource is not None:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["resource"]),
+                    right=ast.Constant(value=self.query.resource),
+                )
+            )
 
-        # # Before
-        # if self.query.before is not None:
-        #     before = self.query.before
-        #     try:
-        #         parsed_date = isoparse(before)
-        #     except ValueError:
-        #         parsed_date = relative_date_parse(before, self.team.timezone_info)
-        #     filters.append(
-        #         parse_expr(
-        #             "timestamp < {timestamp}",
-        #             {"timestamp": ast.Constant(value=parsed_date)},
-        #             timings=self.timings,
-        #         )
-        #     )
+        if (self.query.severityLevels) > 0:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=ast.Field(chain=["severity_level"]),
+                    right=ast.Constant(value=self.query.severityLevels),
+                )
+            )
 
-        # # After
-        # if self.query.after is not None:
-        #     after = self.query.after
-        #     if after != "all":
-        #         try:
-        #             parsed_date = isoparse(after)
-        #         except ValueError:
-        #             parsed_date = relative_date_parse(after, self.team.timezone_info)
-        #         filters.append(
-        #             parse_expr(
-        #                 "timestamp > {timestamp}",
-        #                 {"timestamp": ast.Constant(value=parsed_date)},
-        #                 timings=self.timings,
-        #             )
-        #         )
-
-        # # Event name
-        # filters.append(parse_expr("event = '$log'"))
-
-        # # Search term
-        # if self.query.searchTerm is not None:
-        #     filters.append(
-        #         parse_expr(
-        #             """
-        #                 or(
-        #                     multiSearchAnyCaseInsensitive(properties.$msg, [{term}]) = 1,
-        #                     multiSearchAnyCaseInsensitive(properties.$namespace, [{term}]) = 1
-        #                 )
-        #             """,
-        #             {"term": ast.Constant(value=self.query.searchTerm)},
-        #         )
-        #     )
-
-        # # Properties
-        # if self.query.properties is not None and self.query.properties != []:
-        #     filters.append(property_to_expr(self.query.properties, self.team))
-
-        # if len(filters) == 0:
-        #     return ast.Constant(value=True)
-        # elif len(filters) == 1:
-        #     return filters[0]
-
-        # return ast.And(exprs=filters)
-
-    # @cached_property
-    # def _query_date_range(self):
-    #     return QueryDateRange(
-    #         date_range=self.query.dateRange,
-    #         team=self.team,
-    #         interval=IntervalType.minute,
-    #         now=datetime.now(),
-    #     )
-
-    # TODO
-    def _is_stale(self, last_refresh: dt.datetime):
-        if not last_refresh:
-            return True
-        return (dt.datetime.now(dt.UTC) - last_refresh) > dt.timedelta(hours=24)
-
-    def _refresh_frequency(self):
-        return dt.timedelta(minutes=1)
+        return ast.Or(exprs=exprs)

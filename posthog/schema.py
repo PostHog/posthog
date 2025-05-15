@@ -1350,12 +1350,16 @@ class LifecycleToggle(StrEnum):
     DORMANT = "dormant"
 
 
-class LogMessage(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    body: str
-    uuid: str
+class LogSeverityLevel(StrEnum):
+    DEBUG = "debug"
+    INFO = "info"
+    WARN = "warn"
+    ERROR = "error"
+
+
+class OrderBy1(StrEnum):
+    LATEST = "latest"
+    EARLIEST = "earliest"
 
 
 class MatchedRecordingEvent(BaseModel):
@@ -2851,6 +2855,22 @@ class LifecycleFilterLegacy(BaseModel):
     show_legend: Optional[bool] = None
     show_values_on_series: Optional[bool] = None
     toggledLifecycles: Optional[list[LifecycleToggle]] = None
+
+
+class LogMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    attributes: dict[str, str]
+    body: str
+    observed_timestamp: str
+    resource: str
+    severity_text: LogSeverityLevel
+    span_id: str
+    team_id: int
+    timestamp: str
+    trace_id: str
+    uuid: str
 
 
 class MatchedRecording(BaseModel):
@@ -8135,13 +8155,13 @@ class LogsQuery(BaseModel):
         extra="forbid",
     )
     dateRange: DateRange
-    kind: Literal["LogsQuery"] = "LogsQuery"
     limit: Optional[int] = None
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
     offset: Optional[int] = None
+    orderBy: OrderBy1
+    resource: Optional[str] = None
     response: Optional[LogsQueryResponse] = None
+    searchTerm: Optional[str] = None
+    severityLevels: list[LogSeverityLevel]
 
 
 class PersonsNode(BaseModel):
