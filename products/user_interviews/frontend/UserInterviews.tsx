@@ -5,6 +5,7 @@ import { PhonePairHogs } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { MaxTool } from 'scenes/max/MaxTool'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -43,22 +44,34 @@ export function UserInterviews(): JSX.Element {
                     </LemonButton>
                 }
             />
-            <LemonTable
-                loading={userInterviewsLoading}
-                columns={[
-                    {
-                        title: 'Interviewees',
-                        key: 'interviewees',
-                        render: (_, row) => (
-                            <LemonTableLink title={row.interviewee_emails.join(', ')} to={urls.userInterview(row.id)} />
-                        ),
-                    },
-                    createdAtColumn() as LemonTableColumn<UserInterviewType, keyof UserInterviewType | undefined>,
-                    createdByColumn() as LemonTableColumn<UserInterviewType, keyof UserInterviewType | undefined>,
-                ]}
-                dataSource={userInterviews}
-                loadingSkeletonRows={5}
-            />
+            <MaxTool
+                name="analyze_user_interviews"
+                displayName="Analyze user interviews"
+                context={{}}
+                callback={() => {
+                    // No need to handle structured output for this tool
+                }}
+            >
+                <LemonTable
+                    loading={userInterviewsLoading}
+                    columns={[
+                        {
+                            title: 'Interviewees',
+                            key: 'interviewees',
+                            render: (_, row) => (
+                                <LemonTableLink
+                                    title={row.interviewee_emails.join(', ')}
+                                    to={urls.userInterview(row.id)}
+                                />
+                            ),
+                        },
+                        createdAtColumn() as LemonTableColumn<UserInterviewType, keyof UserInterviewType | undefined>,
+                        createdByColumn() as LemonTableColumn<UserInterviewType, keyof UserInterviewType | undefined>,
+                    ]}
+                    dataSource={userInterviews}
+                    loadingSkeletonRows={5}
+                />
+            </MaxTool>
         </>
     )
 }
