@@ -148,6 +148,7 @@ export function LinkScene({ id }: { id?: string } = {}): JSX.Element {
                                     <QRCodeSVG
                                         size={128}
                                         value={fullLink}
+                                        level="H"
                                         imageSettings={{
                                             src: '/static/posthog-icon.svg',
                                             height: 40,
