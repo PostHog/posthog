@@ -257,16 +257,12 @@ export function SidePanelSdkDoctor(): JSX.Element {
                             <LemonTable
                                 dataSource={
                                     // Use the actual URLs from the events, or fallback to a default if none found
-                                    sdkVersions.find(sdk => sdk.multipleInitializations)?.initUrls?.map((item, index) => ({
-                                        url: item.url,
-                                        count: item.count,
-                                        initType: index === 0 ? 'File with multiple init calls' : `${index + 1}${getOrdinalSuffix(index + 1)} initialization call`
+                                    sdkVersions.find(sdk => sdk.multipleInitializations)?.initUrls?.map((item) => ({
+                                        url: item.url
                                     })) || [
                                         // Fallback data just in case
                                         {
-                                            url: 'Unknown source file',
-                                            count: 2,
-                                            initType: 'File with multiple init calls'
+                                            url: 'Unknown source file'
                                         }
                                     ]
                                 }
@@ -274,28 +270,12 @@ export function SidePanelSdkDoctor(): JSX.Element {
                                     {
                                         title: 'URL / Screen',
                                         dataIndex: 'url',
-                                        render: function RenderUrl(url, record, index) {
+                                        render: function RenderUrl(url) {
                                             return (
                                                 <code className="text-xs truncate max-w-48">
-                                                    {index > 0 ? '↳ ' : ''}{url}
+                                                    {url}
                                                 </code>
                                             )
-                                        }
-                                    },
-                                    {
-                                        title: 'Details',
-                                        dataIndex: 'initType',
-                                        render: function RenderType(initType) {
-                                            return <div className="text-muted text-sm">{initType}</div>
-                                        }
-                                    },
-                                    {
-                                        title: 'Init Count',
-                                        dataIndex: 'count',
-                                        align: 'right',
-                                        render: function RenderCount(count, record, index) {
-                                            // Only show count for the first row (the file)
-                                            return index === 0 ? <div className="text-right font-medium">{count}</div> : null
                                         }
                                     }
                                 ]}
