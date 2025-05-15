@@ -39,7 +39,7 @@ pub async fn insert_new_link_in_pg(
         created_at: Utc::now(),
         updated_at: Utc::now(),
         description: "".into(),
-        team_id: team_id,
+        team_id,
     };
     let mut conn = db_client.get_connection().await.unwrap();
     let row: (String,) = sqlx::query_as(
@@ -60,7 +60,7 @@ pub async fn insert_new_link_in_pg(
     .await?;
 
     Ok(LinkRow {
-        id: row.0.into(),
+        id: row.0,
         ..link_row
     })
 }

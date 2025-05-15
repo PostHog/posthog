@@ -52,7 +52,7 @@ pub async fn external_redirect_url(
         state.default_domain_for_public_store.clone(),
     );
 
-    match redirect_service.redirect_url(&origin_key, &host).await {
+    match redirect_service.redirect_url(&origin_key, host).await {
         Ok(redirect_url) => {
             let redirect_url = format!("https://{redirect_url}");
             (
@@ -81,8 +81,11 @@ pub struct ExternalStoreUrlRequest {
 
 #[derive(serde::Serialize)]
 struct ExternalStoreUrlResponse {
+    #[serde(rename = "shortUrl")]
     short_url: String,
+    #[serde(rename = "longUrl")]
     long_url: String,
+    #[serde(rename = "createdAt")]
     created_at: i64,
 }
 
