@@ -65,6 +65,7 @@ class AssistantContextualTool(StrEnum):
     SEARCH_SESSION_RECORDINGS = "search_session_recordings"
     GENERATE_HOGQL_QUERY = "generate_hogql_query"
     FIX_HOGQL_QUERY = "fix_hogql_query"
+    ANALYZE_USER_INTERVIEWS = "analyze_user_interviews"
 
 
 class AssistantDateRange(BaseModel):

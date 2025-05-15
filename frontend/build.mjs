@@ -102,11 +102,6 @@ await buildInParallel(
                                 deniedPatterns.some((pattern) => pattern.test(args.path))
 
                             if (shouldDeny) {
-                                console.log(
-                                    'replacing',
-                                    args.path,
-                                    'with empty module. it is not allowed in the toolbar bundle.'
-                                )
                                 return {
                                     path: args.path,
                                     namespace: 'empty-module',

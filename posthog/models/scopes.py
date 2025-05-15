@@ -40,6 +40,7 @@ APIScopeObject = Literal[
     "subscription",
     "survey",
     "user",
+    "user_interview_DO_NOT_USE",  # This is a super alpha product, so only exposing here for internal personal API key access
     "webhook",
     "logs",  # logs product
 ]

@@ -3,6 +3,7 @@
 // The imports are preserved between builds, so please update if any are missing or extra.
 
 import {
+    IconChat,
     IconDashboard,
     IconGraph,
     IconMegaphone,
@@ -57,6 +58,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     MessagingLibrary: () => import('../../products/messaging/frontend/library/MessageLibrary'),
     MessagingLibraryTemplate: () => import('../../products/messaging/frontend/library/MessageTemplate'),
     RevenueAnalytics: () => import('../../products/revenue_analytics/frontend/RevenueAnalyticsScene'),
+    UserInterviews: () => import('../../products/user_interviews/frontend/UserInterviews'),
+    UserInterview: () => import('../../products/user_interviews/frontend/UserInterview'),
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -85,6 +88,8 @@ export const productRoutes: Record<string, [string, string]> = {
         'messagingLibraryTemplateFromMessage',
     ],
     '/revenue_analytics': ['RevenueAnalytics', 'revenueAnalytics'],
+    '/user_interviews': ['UserInterviews', 'userInterviews'],
+    '/user_interviews/:id': ['UserInterview', 'userInterview'],
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -140,6 +145,8 @@ export const productConfiguration: Record<string, any> = {
         defaultDocsPath: '/docs/web-analytics/revenue-analytics',
         activityScope: 'RevenueAnalytics',
     },
+    UserInterviews: { name: 'User interviews', projectBased: true, activityScope: 'UserInterview' },
+    UserInterview: { name: 'User interview', projectBased: true, activityScope: 'UserInterview' },
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -286,6 +293,8 @@ export const productUrls = {
     surveys: (tab?: SurveysTabs): string => `/surveys${tab ? `?tab=${tab}` : ''}`,
     survey: (id: string): string => `/surveys/${id}`,
     surveyTemplates: (): string => '/survey_templates',
+    userInterviews: (): string => '/user_interviews',
+    userInterview: (id: string): string => `/user_interviews/${id}`,
     webAnalytics: (): string => `/web`,
     webAnalyticsWebVitals: (): string => `/web/web-vitals`,
     webAnalyticsPageReports: (): string => `/web/page-reports`,
@@ -305,6 +314,7 @@ export const fileSystemTypes = {
     notebook: { icon: <IconNotebook />, href: (ref: string) => urls.notebook(ref) },
     session_recording_playlist: { icon: <IconRewindPlay />, href: (ref: string) => urls.replayPlaylist(ref) },
     survey: { icon: <IconMessage />, href: (ref: string) => urls.survey(ref) },
+    user_interview: { icon: <IconChat />, href: (ref: string) => urls.userInterview(ref) },
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -360,6 +370,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     { path: 'Revenue settings', iconType: 'handMoney', href: urls.revenueSettings() },
     { path: 'Session replay', href: urls.replay(ReplayTabs.Home), type: 'session_recording_playlist' },
     { path: 'Surveys', type: 'survey', href: urls.surveys() },
+    { path: 'User interviews', href: urls.userInterviews(), type: 'user_interview' },
     { path: 'Web analytics', iconType: 'pieChart', href: urls.webAnalytics() },
 ]
 
@@ -378,4 +389,5 @@ export const getTreeFilterTypes = (): Record<string, FileSystemFilterType> => ({
     notebook: { name: 'Notebooks' },
     insight: { name: 'Insights' },
     session_recording_playlist: { name: 'Replay playlists' },
+    user_interview: { name: 'User interviews' },
 })

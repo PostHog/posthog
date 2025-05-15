@@ -98,6 +98,8 @@ export enum Scene {
     Wizard = 'Wizard',
     StartupProgram = 'StartupProgram',
     HogFunction = 'HogFunction',
+    UserInterviews = 'UserInterviews',
+    UserInterview = 'UserInterview',
     Game368 = 'Game368',
 }
 
