@@ -1,3 +1,4 @@
+use crate::log_record::LogRow;
 use crate::{auth::authenticate_request, clickhouse::ClickHouseWriter, config::Config};
 use opentelemetry_proto::tonic::collector::logs::v1::{
     logs_service_server::LogsService, ExportLogsServiceRequest, ExportLogsServiceResponse,
@@ -51,24 +52,36 @@ impl LogsService for Service {
         for resource_logs in export_request.resource_logs {
             // Convert resource to string for storing in ClickHouse
             let resource_str = json!(&resource_logs.resource).to_string();
-
+            let mut insert = match self.clickhouse_writer.client.insert("logs") {
+                Ok(insert) => insert,
+                Err(e) => {
+                    error!("Failed to create ClickHouse insert: {}", e);
+                    continue;
+                }
+            };
             for scope_logs in resource_logs.scope_logs {
                 for log_record in scope_logs.log_records {
-                    // Store log in ClickHouse
-                    if let Err(e) = self
-                        .clickhouse_writer
-                        .insert_log(
-                            team_id,
-                            log_record,
-                            resource_str.clone(),
-                            scope_logs.scope.clone(),
-                        )
-                        .await
-                    {
+                    let row = match LogRow::new(
+                        team_id,
+                        log_record,
+                        resource_str.clone(),
+                        scope_logs.scope.clone(),
+                    ) {
+                        Ok(row) => row,
+                        Err(e) => {
+                            error!("Failed to create LogRow: {}", e);
+                            continue;
+                        }
+                    };
+
+                    if let Err(e) = insert.write(&row).await {
                         error!("Failed to insert log into ClickHouse: {}", e);
                         // Continue processing other logs even if one fails
                     }
                 }
+            }
+            if let Err(e) = insert.end().await {
+                error!("Failed to end ClickHouse insert: {}", e);
             }
         }
 

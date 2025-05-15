@@ -3840,7 +3840,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "log_capture"
+name = "log-capture"
 version = "0.1.0"
 dependencies = [
  "anyhow",
