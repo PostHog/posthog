@@ -1,11 +1,15 @@
-use std::future::ready;
+use opentelemetry_proto::tonic::collector::logs::v1::logs_service_server::LogsServiceServer;
+use std::net::SocketAddr;
+use tonic::transport::Server;
 
 use axum::{routing::get, Router};
 use common_metrics::{serve, setup_metrics_routes};
 use log_capture::config::Config;
+use log_capture::service::Service;
+use std::future::ready;
 
 use health::HealthRegistry;
-use tracing::info;
+use tracing::{error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
 common_alloc::used!();
@@ -23,9 +27,9 @@ pub async fn index() -> &'static str {
     "log hog hogs logs
 
 .|||||||||.
-|||||||||||||  gimme your logs
+|||||||||||||  gimme ur logs 🔫
 |||||||||||' .\\
-`||||||||||_,__o                     (to /logs)
+`||||||||||_,__o
 "
 }
 
@@ -37,7 +41,6 @@ async fn main() {
     let config = Config::init_with_defaults().unwrap();
     let health_registry = HealthRegistry::new("liveness");
 
-    let config = config.clone();
     let router = Router::new()
         .route("/", get(index))
         .route("/_readiness", get(index))
@@ -47,8 +50,25 @@ async fn main() {
         );
     let router = setup_metrics_routes(router);
     let bind = format!("{}:{}", config.host, config.port);
-    println!("Listening on {}", bind);
-    serve(router, &bind)
+    info!("Healthcheck listening on {}", bind);
+    let server = serve(router, &bind);
+
+    let addr = SocketAddr::from(([0, 0, 0, 0], 4317)); // Standard OTLP gRPC port
+
+    // Initialize ClickHouse writer and logs service
+    let logs_service = match Service::new(config).await {
+        Ok(service) => service,
+        Err(e) => {
+            error!("Failed to initialize log service: {}", e);
+            panic!("Could not start log capture service: {}", e);
+        }
+    };
+
+    Server::builder()
+        .add_service(LogsServiceServer::new(logs_service))
+        .serve(addr)
         .await
-        .expect("failed to start serving metrics");
+        .unwrap();
+
+    server.await.unwrap();
 }

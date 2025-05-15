@@ -230,6 +230,7 @@ export type QuerySchema =
 
     // Misc
     | DatabaseSchemaQuery
+    | LogsQuery
 
     // AI
     | SuggestedQuestionsQuery
@@ -268,6 +269,7 @@ export type AnyResponseType =
     | EventsNode['response']
     | EventsQueryResponse
     | ErrorTrackingQueryResponse
+    | LogsQueryResponse
 
 /** @internal - no need to emit to schema.json. */
 export interface DataNode<R extends Record<string, any> = Record<string, any>> extends Node<R> {
@@ -1942,8 +1944,8 @@ export type CachedErrorTrackingQueryResponse = CachedQueryResponse<ErrorTracking
 
 export type LogSeverityLevel = 'debug' | 'info' | 'warn' | 'error'
 
-export interface LogsQuery {
-    response?: LogsQueryResponse
+export interface LogsQuery extends DataNode<LogsQueryResponse> {
+    kind: NodeKind.LogsQuery
     dateRange: DateRange
     limit?: integer
     offset?: integer
@@ -1953,7 +1955,7 @@ export interface LogsQuery {
     severityLevels: LogSeverityLevel[]
 }
 
-export interface LogsQueryResponse extends AnalyticsQueryResponseBase<LogMessage[]> {
+export interface LogsQueryResponse extends AnalyticsQueryResponseBase<unknown> {
     hasMore?: boolean
     limit?: integer
     offset?: integer
@@ -1963,15 +1965,19 @@ export type CachedLogsQueryResponse = CachedQueryResponse<LogsQueryResponse>
 
 export interface LogMessage {
     uuid: string
-    team_id: integer
+    // team_id: integer
     trace_id: string
     span_id: string
     body: string
-    attributes: Record<string, string>
-    timestamp: string
-    observed_timestamp: string
-    severity_text: LogSeverityLevel
-    resource: string
+    // attributes: Record<string, string>
+    // timestamp: string
+    // observed_timestamp: string
+    // severity_text: LogSeverityLevel
+    // severity_number: number
+    // level: LogSeverityLevelposthog/schema.py
+    // resource_id: string
+    // instrumentation_scope: string
+    // event_name: string
 }
 
 export interface FileSystemCount {

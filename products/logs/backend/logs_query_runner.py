@@ -1,5 +1,6 @@
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.schema import (
@@ -31,10 +32,14 @@ class LogsQueryRunner(QueryRunner):
             query=self.to_query(),
             modifiers=self.modifiers,
             team=self.team,
-            workload=Workload.ONLINE,
+            workload=Workload.LOGS,
             timings=self.timings,
             limit_context=self.limit_context,
+            filters=[self.query.dateRange],
+            settings=HogQLGlobalSettings(allow_experimental_object_type=False),
         )
+
+        print("ROSSLOG - response", response.clickhouse)
 
         return LogsQueryResponse(results=response.results, **self.paginator.response_params())
 
@@ -43,20 +48,36 @@ class LogsQueryRunner(QueryRunner):
             select=self.select(),
             select_from=ast.JoinExpr(table=ast.Field(chain=["logs"])),
             where=self.where(),
-            order_by=self.query.orderBy,
+            order_by=[
+                ast.OrderExpr(
+                    expr=ast.Field(chain=["timestamp"]),
+                    order="ASC" if self.query.orderBy == "earliest" else "DESC",
+                )
+            ],
         )
 
     def select(self) -> list[ast.Expr]:
         return [
-            ast.Field(chain=["uuid"]),
+            ast.Alias(
+                alias="uuid",
+                expr=ast.Call(name="toString", args=[ast.Field(chain=["uuid"])]),
+            ),
+            # ast.Field(chain=["uuid"]),
             ast.Field(chain=["trace_id"]),
             ast.Field(chain=["span_id"]),
             ast.Field(chain=["body"]),
-            ast.Field(chain=["attributes"]),
+            # ast.Alias(
+            #     alias="attributes",
+            #     expr=ast.Call(name="toJSONString", args=[ast.Field(chain=["attributes"])]),
+            # ),
             ast.Field(chain=["timestamp"]),
             ast.Field(chain=["observed_timestamp"]),
             ast.Field(chain=["severity_text"]),
-            ast.Field(chain=["resource"]),
+            ast.Field(chain=["severity_number"]),
+            ast.Field(chain=["level"]),
+            ast.Field(chain=["resource_id"]),
+            ast.Field(chain=["instrumentation_scope"]),
+            ast.Field(chain=["event_name"]),
         ]
 
     def where(self):
@@ -77,22 +98,27 @@ class LogsQueryRunner(QueryRunner):
                 )
             )
 
-        if self.query.resource is not None:
-            exprs.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.Eq,
-                    left=ast.Field(chain=["resource"]),
-                    right=ast.Constant(value=self.query.resource),
-                )
-            )
+        # if self.query.resource is not None:
+        #     exprs.append(
+        #         ast.CompareOperation(
+        #             op=ast.CompareOperationOp.Eq,
+        #             left=ast.Field(chain=["resource"]),
+        #             right=ast.Constant(value=self.query.resource),
+        #         )
+        #     )
 
-        if (self.query.severityLevels) > 0:
-            exprs.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.In,
-                    left=ast.Field(chain=["severity_level"]),
-                    right=ast.Constant(value=self.query.severityLevels),
-                )
-            )
+        # if len(self.query.severityLevels) > 0:
+        #     exprs.append(
+        #         ast.CompareOperation(
+        #             op=ast.CompareOperationOp.In,
+        #             # TODO - change to level?
+        #             left=ast.Field(chain=["severity_text"]),
+        #             right=ast.Constant(value=self.query.severityLevels),
+        #         )
+        #     )
+        if len(exprs) == 0:
+            return ast.Constant(value=True)
+        elif len(exprs) == 1:
+            return exprs[0]
 
-        return ast.Or(exprs=exprs)
+        return ast.And(exprs=exprs)
