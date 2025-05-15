@@ -212,7 +212,11 @@ class ExternalEventJobWorkflow(PostHogWorkflow):
 
                 total_processed_events += chunk_processed_events
 
-                cleanup_temp_dir(temp_dir)
+                try:
+                    cleanup_temp_dir(temp_dir)
+                except Exception as e:
+                    logger = bind_temporal_worker_logger_sync(team_id=inputs.team_id)
+                    logger.warning(f"Failed to clean up temporary directory {temp_dir}: {str(e)}")
 
                 current_start = current_end
 
@@ -222,7 +226,11 @@ class ExternalEventJobWorkflow(PostHogWorkflow):
             raise
         finally:
             if temp_dir:
-                cleanup_temp_dir(temp_dir)
+                try:
+                    cleanup_temp_dir(temp_dir)
+                except Exception as e:
+                    logger = bind_temporal_worker_logger_sync(team_id=inputs.team_id)
+                    logger.warning(f"Failed to clean up temporary directory {temp_dir}: {str(e)}")
 
         return total_processed_events
 
