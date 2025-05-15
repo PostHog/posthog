@@ -1,7 +1,8 @@
 import json
 import datetime as dt
 import structlog
-from typing import Optional, Any
+import requests
+from typing import Optional, Any, List, Dict
 
 logger = structlog.get_logger()
 
@@ -145,3 +146,45 @@ def parse_amplitude_json(entry: dict[str, Any]) -> Optional[dict[str, Any]]:
         "timestamp": timestamp.isoformat(),  # Ensure timestamp is in ISO format for the batch API
     }
     return payload
+
+def send_event_batch(batch: List[Dict[str, Any]], posthog_api_key: str, posthog_domain: Optional[str] = None) -> int:
+    """
+    Sends a batch of events to PostHog.
+    
+    Args:
+        batch: List of events to send
+        posthog_api_key: PostHog API key
+        posthog_domain: PostHog domain (defaults to 'https://app.dev.posthog.com')
+        
+    Returns:
+        Number of events processed
+    """
+    if not batch:
+        return 0
+        
+    logger = structlog.get_logger()
+    
+    url = f"{posthog_domain or 'https://app.dev.posthog.com'}/batch/"
+    headers = {"Content-Type": "application/json"}
+    payload = {
+        "api_key": posthog_api_key,
+        "historical_migration": True,
+        "batch": batch
+    }
+    
+    try:
+        response = requests.post(url, headers=headers, json=payload)
+        response.raise_for_status()
+        
+        if len(batch) > 1:
+            logger.info(f"Sent batch of {len(batch)} events to PostHog. Status: {response.status_code}")
+        else:
+            logger.info(f"Sent final event to PostHog. Status: {response.status_code}")
+            
+        logger.debug(f"API response: {response.text[:200]}..." if len(response.text) > 200 else f"API response: {response.text}")
+        return len(batch)
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Failed to send batch to PostHog: {str(e)}")
+        if hasattr(e, 'response') and e.response:
+            logger.error(f"Response status: {e.response.status_code}, Response body: {e.response.text[:500]}")
+        return 0
