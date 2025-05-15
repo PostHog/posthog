@@ -5,6 +5,7 @@ import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 import products.early_access_features.backend.api as early_access_feature
 from products.editor.backend.api import LLMProxyViewSet, MaxToolsViewSet
 from products.messaging.backend.api import MessageTemplatesViewSet
+from products.chat.backend.api import ChatConversationViewSet, ChatMessageViewSet
 from posthog.api import data_color_theme, metalytics, project, wizard
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.batch_exports import http as batch_exports
@@ -181,6 +182,7 @@ project_features_router = projects_router.register(
     ["project_id"],
 )
 projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["project_id"])
+projects_router.register(r"chat", ChatConversationViewSet, "project_chat", ["project_id"])
 
 projects_router.register(
     r"dashboard_templates",
