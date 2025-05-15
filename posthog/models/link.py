@@ -24,7 +24,6 @@ class Link(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     description = models.TextField(null=True, blank=True)
     tags = models.TextField(null=True, blank=True)
-    comments = models.TextField(null=True, blank=True)
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["id", "team_id"], name="unique_link_id_per_team")]

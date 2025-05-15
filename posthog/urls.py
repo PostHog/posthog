@@ -29,7 +29,6 @@ from posthog.api import (
     capture,
     decide,
     hog_function_template,
-    link,
     remote_config,
     router,
     sharing,
@@ -179,7 +178,6 @@ urlpatterns = [
     path("api/unsubscribe", unsubscribe.unsubscribe),
     path("api/", include(router.urls)),
     path("", include(tf_urls)),
-    # link redirect endpoint (no auth required)
     opt_slash_path("api/user/redirect_to_site", user.redirect_to_site),
     opt_slash_path("api/user/redirect_to_website", user.redirect_to_website),
     opt_slash_path("api/user/test_slack_webhook", user.test_slack_webhook),
