@@ -18,6 +18,7 @@ from temporalio.common import RetryPolicy
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
 from products.managed_migrations.backend.api.models import ManagedMigration
+from posthog.warehouse.util import database_sync_to_async
 
 
 @dataclasses.dataclass
@@ -266,7 +267,7 @@ async def fetch_amplitude_data_activity(inputs: FetchAmplitudeDataActivityInputs
         logger.info(f"Download complete. Total size: {total_size / (1024*1024):.2f} MB")
         return inputs.file_path
     else:
-        logger.error(f"Failed to fetch data from Amplitude: {response.status_code} {response.text}")
+        logger.exception(f"Failed to fetch data from Amplitude: {response.status_code} {response.text}")
         raise Exception(f"Failed to fetch data from Amplitude: {response.status_code} {response.text}")
 
 
@@ -342,30 +343,39 @@ async def update_migration_status_activity(inputs: UpdateMigrationStatusActivity
     """
     Updates the ManagedMigration model status based on workflow state.
     """
-
     logger = bind_temporal_worker_logger_sync(team_id=inputs.team_id)
     logger.info(f"Updating migration status for job {inputs.job_id}")
 
     try:
-        migration = ManagedMigration.objects.get(id=inputs.job_id)
-        migration.status = inputs.status
+        # Define a function to perform the synchronous database operations
+        def update_migration():
+            try:
+                migration = ManagedMigration.objects.get(id=inputs.job_id)
+                migration.status = inputs.status
 
-        if inputs.status in [
-            ManagedMigration.Status.COMPLETED,
-            ManagedMigration.Status.FAILED,
-            ManagedMigration.Status.CANCELLED,
-        ]:
-            migration.finished_at = dt.datetime.now()
-        if inputs.error:
-            migration.error = inputs.error
-        migration.save()
+                if inputs.status in [
+                    ManagedMigration.Status.COMPLETED,
+                    ManagedMigration.Status.FAILED,
+                    ManagedMigration.Status.CANCELLED,
+                ]:
+                    migration.finished_at = dt.datetime.now()
+                if inputs.error:
+                    migration.error = inputs.error
+                migration.save()
+                return True
+            except ManagedMigration.DoesNotExist:
+                logger.warning(f"Migration with job_id {inputs.job_id} does not exist")
+                return True
+            except Exception as e:
+                logger.exception(f"Failed to update migration in database: {str(e)}")
+                return False
+
+        # Execute the database operation using database_sync_to_async
+        result = await database_sync_to_async(update_migration)()
 
         logger.info(f"Migration status updated to {inputs.status}")
-        return True
+        return result
 
-    except ManagedMigration.DoesNotExist:
-        logger.exception(f"Migration with job_id {inputs.job_id} does not exist")
-        return True
     except Exception as e:
         logger.exception(f"Failed to update migration status: {str(e)}")
         return False
