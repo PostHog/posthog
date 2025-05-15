@@ -2012,6 +2012,53 @@ email@example.org,
             "Special Folder/Cohorts" in fs_entry.path
         ), f"Expected path to include 'Special Folder/Cohorts', got '{fs_entry.path}'."
 
+    @patch("posthog.api.cohort.report_user_action")
+    def test_behavioral_filter_with_hogql_event_filter_and_null_value(self, patch_capture):
+        payload = {
+            "name": "Cohort with HogQL Event Filter and Null Value",
+            "filters": {
+                "properties": {  # CohortFilters.properties -> Group
+                    "type": "OR",
+                    "values": [  # Group.values -> list[Union[PropertyFilter, Group]]
+                        {
+                            "type": "OR",  # Inner Group
+                            "values": [
+                                {  # PropertyFilter -> BehavioralFilter
+                                    "type": "behavioral",
+                                    "value": "performed_event",
+                                    "negation": False,
+                                    "key": "PaymentSuccess",
+                                    "event_type": "events",
+                                    "event_filters": [  # BehavioralFilter.event_filters
+                                        {
+                                            "key": "to_date(timestamp) = current_date() - INTERVAL '3 days'",
+                                            "type": "hogql",  # HogQLFilter
+                                            "value": None,  # Testing this null value
+                                        },
+                                        {
+                                            "key": "planId",
+                                            "type": "event",  # EventPropFilter
+                                            "value": ["UPSC26STARTERV1"],
+                                            "operator": "exact",
+                                        },
+                                    ],
+                                    "explicit_datetime": "-30d",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        }
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data=payload,
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201, response.json())
+        cohort_data = response.json()
+        self.assertIsNotNone(cohort_data.get("id"))
+
 
 def create_cohort(client: Client, team_id: int, name: str, groups: list[dict[str, Any]]):
     return client.post(f"/api/projects/{team_id}/cohorts", {"name": name, "groups": json.dumps(groups)})

@@ -1,4 +1,3 @@
-import { IconAI } from '@posthog/icons'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
@@ -63,8 +62,8 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'LLM observability',
-            icon: <IconAI />,
-            href: () => urls.llmObservabilityDashboard(),
+            iconType: 'ai',
+            href: urls.llmObservabilityDashboard(),
             flag: FEATURE_FLAGS.LLM_OBSERVABILITY,
         },
     ],

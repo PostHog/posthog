@@ -14,7 +14,7 @@ const VALID_REVENUE_SOURCES: ExternalDataSource['source_type'][] = ['Stripe']
 export function ExternalDataSourceConfiguration({
     buttonRef,
 }: {
-    buttonRef: React.RefObject<HTMLButtonElement>
+    buttonRef?: React.RefObject<HTMLButtonElement>
 }): JSX.Element {
     const { dataWarehouseSources } = useValues(revenueEventsSettingsLogic)
     const { updateSource } = useActions(revenueEventsSettingsLogic)

@@ -80,6 +80,7 @@ export enum NodeKind {
     RevenueExampleEventsQuery = 'RevenueExampleEventsQuery',
     RevenueExampleDataWarehouseTablesQuery = 'RevenueExampleDataWarehouseTablesQuery',
     ErrorTrackingQuery = 'ErrorTrackingQuery',
+    LogsQuery = 'LogsQuery',
 
     // Interface nodes
     DataTableNode = 'DataTableNode',
@@ -161,6 +162,7 @@ export type AnyDataNode =
     | RevenueExampleEventsQuery
     | RevenueExampleDataWarehouseTablesQuery
     | ErrorTrackingQuery
+    | LogsQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
     | RecordingsQuery
@@ -228,6 +230,7 @@ export type QuerySchema =
 
     // Misc
     | DatabaseSchemaQuery
+    | LogsQuery
 
     // AI
     | SuggestedQuestionsQuery
@@ -266,6 +269,7 @@ export type AnyResponseType =
     | EventsNode['response']
     | EventsQueryResponse
     | ErrorTrackingQueryResponse
+    | LogsQueryResponse
 
 /** @internal - no need to emit to schema.json. */
 export interface DataNode<R extends Record<string, any> = Record<string, any>> extends Node<R> {
@@ -1442,7 +1446,7 @@ export type ClickhouseQueryProgress = {
     rows_read: integer
     estimated_rows_total: integer
     time_elapsed: integer
-    memory_usage: integer
+    active_cpu_time: integer
 }
 
 export type QueryStatus = {
@@ -1938,6 +1942,40 @@ export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<E
 }
 export type CachedErrorTrackingQueryResponse = CachedQueryResponse<ErrorTrackingQueryResponse>
 
+export type LogSeverityLevel = 'debug' | 'info' | 'warn' | 'error'
+
+export interface LogsQuery extends DataNode<LogsQueryResponse> {
+    kind: NodeKind.LogsQuery
+    dateRange: DateRange
+    limit?: integer
+    offset?: integer
+    orderBy: 'latest' | 'earliest'
+    searchTerm?: string
+    resource?: string
+    severityLevels: LogSeverityLevel[]
+}
+
+export interface LogsQueryResponse extends AnalyticsQueryResponseBase<LogMessage[]> {
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+    columns?: string[]
+}
+export type CachedLogsQueryResponse = CachedQueryResponse<LogsQueryResponse>
+
+export interface LogMessage {
+    uuid: string
+    team_id: integer
+    trace_id: string
+    span_id: string
+    body: string
+    attributes: Record<string, string>
+    timestamp: string
+    observed_timestamp: string
+    severity_text: LogSeverityLevel
+    resource: string
+}
+
 export interface FileSystemCount {
     count: number
 }
@@ -1963,11 +2001,10 @@ export interface FileSystemEntry {
     _loading?: boolean
 }
 
-export interface FileSystemImport extends Omit<FileSystemEntry, 'href' | 'id'> {
-    icon?: any // Setting as "any" to keep Python schema.py in check
+export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
+    iconType?: string
     flag?: string
-    href: (ref?: string) => string
 }
 
 export type InsightQueryNode =

@@ -96,6 +96,7 @@ class EventPropFilter(BaseModel, extra="forbid"):
 class HogQLFilter(BaseModel, extra="forbid"):
     type: Literal["hogql"]
     key: str
+    value: Any | None = None
 
 
 class BehavioralFilter(BaseModel, extra="forbid"):
