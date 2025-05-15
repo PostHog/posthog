@@ -67,26 +67,3 @@ class EarlyAccessFeature(FileSystemSyncMixin, RootTeamMixin, UUIDModel):
             },
             should_delete=False,
         )
-
-
-#     def override_error_tracking_issue_fingerprint(
-#     team_id: int,
-#     fingerprint: str,
-#     issue_id: UUID,
-#     version=0,
-#     is_deleted: bool = False,
-#     sync: bool = False,
-# ) -> None:
-#     p = ClickhouseProducer()
-#     p.produce(
-#         topic=KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT,
-#         sql=INSERT_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES,
-#         data={
-#             "team_id": team_id,
-#             "fingerprint": fingerprint,
-#             "issue_id": str(issue_id),
-#             "version": version,
-#             "is_deleted": int(is_deleted),
-#         },
-#         sync=sync,
-#     )
