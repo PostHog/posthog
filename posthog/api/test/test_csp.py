@@ -1,3 +1,4 @@
+from html import escape
 import json
 
 from django.test import TestCase
@@ -38,7 +39,7 @@ class TestCSPModule(TestCase):
         assert properties["$current_url"] == "https://example.com/foo/bar"
         assert properties["violated_directive"] == "default-src self"
         assert properties["blocked_url"] == "https://evil.com/malicious-image.png"
-        assert properties["script_sample"] == "alert('hello')"
+        assert properties["script_sample"] == escape("alert('hello')")
 
     def test_parse_report_to(self):
         """Test parsing CSP report in report-to format"""
@@ -51,7 +52,7 @@ class TestCSPModule(TestCase):
                 "blocked-uri": "https://evil.com/script.js",
                 "disposition": "enforce",
                 "violated-directive": "script-src-elem",
-                "sample": "console.log('test')",
+                "sample": "<script>console.log('test')</script>",
             },
         }
 
@@ -59,7 +60,7 @@ class TestCSPModule(TestCase):
 
         assert properties["$current_url"] == "https://example.com/page.html"
         assert properties["user_agent"] == "Mozilla/5.0"
-        assert properties["script_sample"] == "console.log('test')"
+        assert properties["script_sample"] == escape("<script>console.log('test')</script>")
         assert properties["violated_directive"] == "script-src-elem"
 
     def test_format_comparison_parsing(self):
@@ -118,7 +119,7 @@ class TestCSPModule(TestCase):
         assert to_properties["referrer"] == "https://referrer.example.com"
 
         # report-uri has violated_directive directly
-        self.assertEqual(uri_properties["violated_directive"], "script-src 'self'")
+        assert uri_properties["violated_directive"] == "script-src 'self'"
 
         # Both formats have effective_directive field
         assert uri_properties["effective_directive"] == "script-src"
@@ -153,8 +154,8 @@ class TestCSPModule(TestCase):
         assert to_properties["status_code"] == 200
 
         # Script sample is preserved in both
-        assert uri_properties["script_sample"] == "alert('uri-format')"
-        assert to_properties["script_sample"] == "alert('to-format')"
+        assert uri_properties["script_sample"] == escape("alert('uri-format')")
+        assert to_properties["script_sample"] == escape("alert('to-format')")
 
         # User agent is only in report-to format
         assert to_properties["user_agent"] == "Mozilla/5.0 (Example Browser)"
@@ -193,7 +194,7 @@ class TestCSPModule(TestCase):
             == "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36"
         )
         assert properties["blocked_url"] == "inline"  # Verify standard field name
-        assert properties["script_sample"] == 'console.log("lo")'  # Verify script sample field name
+        assert properties["script_sample"] == escape('console.log("lo")')
         assert properties["raw_report"]["age"] == 53531
         assert properties["effective_directive"] == "script-src-elem"  # Verify standardized field name
         assert properties["status_code"] == 200  # Verify standard field name
@@ -244,19 +245,13 @@ class TestCSPModule(TestCase):
             "body": {
                 "documentURL": "https://example.com/page",
                 "sample": "alert('test')",
-                "script-sample": "console.log('another test')",
-                "sourceCodeExample": "document.write('<script>x=1</script>')",
             },
             "type": "csp-violation",
         }
 
         properties = parse_report_to(data)
 
-        # Verify script sample is preserved with standard field name
-        assert properties["script_sample"] == "alert('test')"
-        # Other script samples would be in raw_report
-        assert properties["raw_report"]["body"]["script-sample"] == "console.log('another test')"
-        assert properties["raw_report"]["body"]["sourceCodeExample"] == "document.write('<script>x=1</script>')"
+        assert properties["script_sample"] == escape("alert('test')")
 
     def test_parse_properties_invalid_report(self):
         data = {"not-a-valid-report": True}

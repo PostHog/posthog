@@ -5,6 +5,8 @@ from posthog.exceptions import generate_exception_response
 from posthog.utils_cors import cors_response
 from posthog.models.utils import uuid7
 
+from django.utils.html import escape
+
 logger = structlog.get_logger(__name__)
 
 """
@@ -30,6 +32,9 @@ logger = structlog.get_logger(__name__)
 # https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/report-uri
 def parse_report_uri(data: dict) -> dict:
     report_uri_data = data["csp-report"]
+
+    report_uri_data["script-sample"] = escape(report_uri_data.get("script-sample"))
+
     # Map report-uri format to normalized keys
     properties = {
         "report_type": "csp-violation",
@@ -56,10 +61,11 @@ def parse_report_uri(data: dict) -> dict:
 def parse_report_to(data: dict) -> dict:
     report_to_data = data.get("body", {})
     user_agent = data.get("user_agent") or report_to_data.get("user-agent")
-    report_type = data.get("type")
 
+    report_to_data["sample"] = escape(report_to_data.get("sample"))
+    report_to_data["script-sample"] = escape(report_to_data.get("sample"))
     properties = {
-        "report_type": report_type,
+        "report_type": data.get("type"),
         "$current_url": report_to_data.get("documentURL") or report_to_data.get("document-uri") or data.get("url"),
         "document_url": report_to_data.get("documentURL") or report_to_data.get("document-uri"),
         "referrer": report_to_data.get("referrer"),
@@ -110,8 +116,8 @@ def process_csp_report(request):
 
         csp_data = json.loads(request.body)
 
-        distinct_id = request.GET.get("distinct_id") or request.GET.get("id") or str(uuid7())
-        session_id = request.GET.get("session_id") or request.GET.get("id") or str(uuid7())
+        distinct_id = request.GET.get("distinct_id") or str(uuid7())
+        session_id = request.GET.get("session_id") or str(uuid7())
         version = request.GET.get("v") or "unknown"
 
         properties = parse_properties(csp_data)
