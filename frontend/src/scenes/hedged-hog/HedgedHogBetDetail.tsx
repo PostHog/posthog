@@ -7,7 +7,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { BillingLineGraph } from 'scenes/billing/BillingLineGraph'
 
 import { hedgedHogBetDefinitionsLogic } from './hedgedHogBetDefinitionsLogic'
@@ -16,8 +16,8 @@ import { hedgedHogLogic } from './hedgedHogLogic'
 interface BetFlowProps {
     amount: number
     setAmount: (amount: number) => void
-    betType: string
-    setBetType: (type: string) => void
+    selectedBucket: { min: number; max: number; probability: number } | null
+    setSelectedBucket: (bucket: { min: number; max: number; probability: number } | null) => void
     showConfirmation: boolean
     setShowConfirmation: (show: boolean) => void
     handlePlaceBet: () => void
@@ -27,8 +27,8 @@ interface BetFlowProps {
 const BetFlow = ({
     amount,
     setAmount,
-    betType,
-    setBetType,
+    selectedBucket,
+    setSelectedBucket,
     showConfirmation,
     setShowConfirmation,
     handlePlaceBet,
@@ -52,7 +52,7 @@ const BetFlow = ({
                                             type="primary"
                                             size="small"
                                             onClick={() => {
-                                                setBetType(`${bucket.min}-${bucket.max}`)
+                                                setSelectedBucket(bucket)
                                                 setShowConfirmation(true)
                                             }}
                                             disabledReason={amount === 0 && 'The amount must be greater than 0'}
@@ -77,7 +77,6 @@ const BetFlow = ({
                             <LemonInput
                                 className="text-2xl font-bold"
                                 type="text"
-                                prefix={<span className="text-muted">$</span>}
                                 value={amount.toString()}
                                 onChange={(value) => setAmount(Number(value) || 0)}
                             />
@@ -85,7 +84,7 @@ const BetFlow = ({
                             <Separator className="my-2" />
 
                             <div className="flex flex-col gap-2">
-                                {['+$1', '+$20', '+$100'].map((amt) => (
+                                {['+1', '+20', '+100'].map((amt) => (
                                     <LemonButton
                                         size="small"
                                         fullWidth
@@ -104,7 +103,7 @@ const BetFlow = ({
                 ) : (
                     <div className="bg-bg-light">
                         <div className="flex justify-between items-center mb-4">
-                            <h3 className="font-semibold text-lg mb-0">Confirm Your Bet</h3>
+                            <h3 className="font-semibold text-lg mb-0">Confirm your bet</h3>
                             <LemonButton size="small" type="secondary" onClick={() => setShowConfirmation(false)}>
                                 <IconX />
                             </LemonButton>
@@ -112,35 +111,25 @@ const BetFlow = ({
                         <div className="space-y-4 mb-8">
                             <div className="flex justify-between items-center">
                                 <span className="text-muted">Range:</span>
-                                <span className="text-lg font-semibold">{betType}</span>
+                                <span className="text-lg font-semibold">
+                                    {selectedBucket
+                                        ? `${Math.round(selectedBucket.min)}-${Math.round(
+                                              selectedBucket.max
+                                          )} (${Math.round(selectedBucket.probability * 100)}%)`
+                                        : ''}
+                                </span>
                             </div>
                             <div className="flex justify-between items-center">
                                 <span className="text-muted">Amount:</span>
-                                <span className="text-lg font-semibold">${amount.toFixed(2)}</span>
-                            </div>
-                            <div className="flex justify-between items-center">
-                                <span className="text-muted">Price:</span>
-                                <span className="text-lg font-semibold">
-                                    {getPrice(
-                                        bucketRanges.find((b) => `${b.min}-${b.max}` === betType)?.probability || 0
-                                    )}
-                                    ¢
-                                </span>
+                                <span className="text-lg font-semibold">{amount.toFixed(2)}</span>
                             </div>
                             <LemonDivider className="my-4" />
                             <div className="flex justify-between items-center">
                                 <span className="font-semibold">Potential Payout:</span>
                                 <span className="text-success text-lg font-bold">
-                                    $
-                                    {(
-                                        amount /
-                                        Number(
-                                            getPrice(
-                                                bucketRanges.find((b) => `${b.min}-${b.max}` === betType)
-                                                    ?.probability || 0
-                                            )
-                                        )
-                                    ).toFixed(2)}
+                                    {selectedBucket
+                                        ? (amount / Number(getPrice(selectedBucket.probability))).toFixed(2)
+                                        : '0.00'}
                                 </span>
                             </div>
                         </div>
@@ -158,15 +147,23 @@ const BetFlow = ({
 export function BetDetailContent(): JSX.Element {
     const { betId } = useValues(hedgedHogLogic)
     const { betDefinitions, betDefinitionsLoading } = useValues(hedgedHogBetDefinitionsLogic)
-    // const { estimateBetPayout } = useActions(hedgedHogBetDefinitionsLogic)
-    const { allBets, userBets, allBetsLoading, userBetsLoading } = useValues(hedgedHogLogic)
+    const { allBets, allBetsLoading } = useValues(hedgedHogLogic)
     const { loadAllBets, loadUserBets, goBackToBets, placeBet } = useActions(hedgedHogLogic)
+    const { userBets, userBetsLoading } = useValues(hedgedHogLogic)
 
     const [amount, setAmount] = useState<number>(20)
     const [timeRange, setTimeRange] = useState<string>('ALL')
     const [showConfirmation, setShowConfirmation] = useState<boolean>(false)
-    const [betType, setBetType] = useState<string>('')
+    const [selectedBucket, setSelectedBucket] = useState<{ min: number; max: number; probability: number } | null>(null)
     const [activeTab, setActiveTab] = useState<string>('all')
+
+    useEffect(() => {
+        if (betId) {
+            loadAllBets(betId)
+        }
+    }, [betId, loadAllBets])
+
+    const tradingVolume = allBets.reduce((sum: number, b: any) => sum + Number(b.amount), 0)
 
     const bet = betDefinitions.find((b) => b.id === betId)
 
@@ -188,9 +185,8 @@ export function BetDetailContent(): JSX.Element {
     const latestDistribution = bet.latest_distribution
 
     const handlePlaceBet = (): void => {
-        if (betId) {
-            const [min, max] = betType.split('-').map(Number)
-            placeBet(betId, amount, (min + max) / 2) // Use the midpoint of the range as the predicted value
+        if (betId && selectedBucket) {
+            placeBet(betId, amount, (selectedBucket.min + selectedBucket.max) / 2) // Use the midpoint of the range as the predicted value
         }
         setShowConfirmation(false)
     }
@@ -247,10 +243,6 @@ export function BetDetailContent(): JSX.Element {
                     <div className="text-sm text-muted">Type</div>
                     <div>{bet.type}</div>
                 </div>
-                <div className="space-y-1 border-r pr-4">
-                    <div className="text-sm text-muted">Closing Date</div>
-                    <div>{new Date(bet.closing_date).toLocaleDateString()}</div>
-                </div>
                 <div className="space-y-1">
                     <div className="text-sm text-muted">Status</div>
                     <div className={`${bet.status === 'active' ? 'text-success' : 'text-danger'}`}>{bet.status}</div>
@@ -264,16 +256,16 @@ export function BetDetailContent(): JSX.Element {
                             <div className="w-1/4 p-6 bg-bg-light space-y-4 bg-surface-secondary rounded-l-md">
                                 <div>
                                     <div className="text-sm text-muted mb-1">Volume</div>
-                                    <div className="font-semibold">$5,343,183</div>
+                                    <div className="font-semibold">{tradingVolume.toLocaleString()}</div>
                                 </div>
                                 <div>
-                                    <div className="text-sm text-muted mb-1">Deadline</div>
+                                    <div className="text-sm text-muted mb-1">Closing date</div>
                                     <div className="font-semibold">
                                         {new Date(bet.closing_date).toLocaleDateString()}
                                     </div>
                                 </div>
                                 <div>
-                                    <div className="text-sm text-muted mb-1">Time Remaining</div>
+                                    <div className="text-sm text-muted mb-1">Time remaining</div>
                                     <div>
                                         <span className="font-semibold">
                                             {Math.ceil(
@@ -322,8 +314,8 @@ export function BetDetailContent(): JSX.Element {
                     <BetFlow
                         amount={amount}
                         setAmount={setAmount}
-                        betType={betType}
-                        setBetType={setBetType}
+                        selectedBucket={selectedBucket}
+                        setSelectedBucket={setSelectedBucket}
                         showConfirmation={showConfirmation}
                         setShowConfirmation={setShowConfirmation}
                         handlePlaceBet={handlePlaceBet}
