@@ -229,9 +229,11 @@ export const hedgedHogLogic = kea<hedgedHogLogicType>([
                 actions.loadWalletBalance()
             }
         },
-        initializeWallet: async () => {
-            actions.loadTransactions()
+        initializeWallet: async (_, breakpoint) => {
+            await breakpoint(200)
             actions.loadWalletBalance()
+            actions.loadTransactions()
+            actions.setActiveTab('wallet')
         },
         setActiveTab: ({ tab }) => {
             const { push } = router.actions
