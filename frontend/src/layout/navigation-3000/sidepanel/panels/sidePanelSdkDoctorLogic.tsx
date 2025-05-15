@@ -63,11 +63,11 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                     console.log('[SDK Doctor] Loading latest SDK versions')
                     
                     // Map SDK types to their GitHub repositories
-                    const sdkRepoMap: Record<SdkType, { repo: string, versionPrefix?: string }> = {
+                    const sdkRepoMap: Record<SdkType, { repo: string, versionPrefix?: string, subdirectory?: string }> = {
                         'web': { repo: 'posthog-js' },
                         'ios': { repo: 'posthog-ios' },
                         'android': { repo: 'posthog-android' },
-                        'node': { repo: 'posthog-node' },
+                        'node': { repo: 'posthog-js-lite', subdirectory: 'posthog-node' },
                         'python': { repo: 'posthog-python' },
                         'php': { repo: 'posthog-php' },
                         'ruby': { repo: 'posthog-ruby' },
@@ -82,17 +82,28 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                     // Create an array of promises for each SDK type
                     const promises = Object.entries(sdkRepoMap)
                         .filter(([_, { repo }]) => !!repo) // Skip entries with empty repos
-                        .map(async ([sdkType, { repo }]) => {
+                        .map(async ([sdkType, { repo, subdirectory }]) => {
                             try {
                                 // Using the same approach as versionCheckerLogic
+                                // For Node.js SDK we need special handling since it's in a subdirectory of posthog-js-lite
+                                const isNodeSdk = sdkType === 'node'
                                 const tagsPromise = fetch(`https://api.github.com/repos/PostHog/${repo}/tags`)
                                     .then((r) => r.json())
                                     .then((tags) => {
                                         if (tags && Array.isArray(tags) && tags.length > 0) {
                                             // Extract versions from tags
-                                            const versions = tags
+                                            let versions = tags
                                                 .map((tag: any) => {
                                                     const name = tag.name.replace(/^v/, '')
+                                                    // For Node.js SDK, only consider tags with the "node-" prefix
+                                                    if (isNodeSdk) {
+                                                        if (tag.name.startsWith('node-')) {
+                                                            // Remove the "node-" prefix for comparison
+                                                            const nodeVersion = tag.name.replace(/^node-/, '')
+                                                            return tryParseVersion(nodeVersion) ? nodeVersion : null
+                                                        }
+                                                        return null
+                                                    }
                                                     return tryParseVersion(name) ? name : null
                                                 })
                                                 .filter(isNotNil)

@@ -84,7 +84,7 @@ const sdkDocsLinks: Record<SdkType, { releases: string; docs: string }> = {
         docs: 'https://posthog.com/docs/libraries/android'
     },
     node: { 
-        releases: 'https://github.com/PostHog/posthog-node/releases',
+        releases: 'https://github.com/PostHog/posthog-js-lite/blob/main/posthog-node/CHANGELOG.md',
         docs: 'https://posthog.com/docs/libraries/node'
     },
     python: { 
