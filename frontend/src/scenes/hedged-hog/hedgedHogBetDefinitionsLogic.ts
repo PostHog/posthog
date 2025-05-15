@@ -26,10 +26,20 @@ export interface BetDefinition {
         id: string
         created_at: string
         buckets: Array<{
-            value: number
+            min: number
+            max: number
             probability: number
         }>
     }
+    probability_distributions: Array<{
+        id: string
+        created_at: string
+        buckets: Array<{
+            min: number
+            max: number
+            probability: number
+        }>
+    }>
     final_value?: any
 }
 

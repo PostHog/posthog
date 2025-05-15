@@ -85,9 +85,9 @@ class TestBettingAPI(APIBaseTest):
 
         # Create a probability distribution
         distribution_data = [
-            {"value": 100, "probability": 0.2},
-            {"value": 200, "probability": 0.5},
-            {"value": 300, "probability": 0.3},
+            {"min": 0, "max": 150, "probability": 0.2},
+            {"min": 151, "max": 250, "probability": 0.5},
+            {"min": 251, "max": 350, "probability": 0.3},
         ]
         prob_dist = ProbabilityDistribution.objects.create(
             bet_definition=bet_definition,
@@ -137,9 +137,9 @@ class TestBettingAPI(APIBaseTest):
         )
 
         distribution_data = [
-            {"value": 100, "probability": 0.2},
-            {"value": 200, "probability": 0.5},
-            {"value": 300, "probability": 0.3},
+            {"min": 0, "max": 150, "probability": 0.2},
+            {"min": 151, "max": 250, "probability": 0.5},
+            {"min": 251, "max": 350, "probability": 0.3},
         ]
 
         response = self.client.post(
@@ -173,9 +173,9 @@ class TestBettingAPI(APIBaseTest):
         )
 
         distribution_data = [
-            {"value": 100, "probability": 0.2},
-            {"value": 200, "probability": 0.5},
-            {"value": 300, "probability": 0.3},
+            {"min": 0, "max": 150, "probability": 0.2},
+            {"min": 151, "max": 250, "probability": 0.5},
+            {"min": 251, "max": 350, "probability": 0.3},
         ]
         prob_dist = ProbabilityDistribution.objects.create(
             bet_definition=bet_definition,
@@ -226,9 +226,9 @@ class TestBettingAPI(APIBaseTest):
         )
 
         distribution_data = [
-            {"value": 100, "probability": 0.2},
-            {"value": 200, "probability": 0.5},
-            {"value": 300, "probability": 0.3},
+            {"min": 0, "max": 150, "probability": 0.2},
+            {"min": 151, "max": 250, "probability": 0.5},
+            {"min": 251, "max": 350, "probability": 0.3},
         ]
         ProbabilityDistribution.objects.create(
             bet_definition=bet_definition,
@@ -332,9 +332,9 @@ class TestBettingAPI(APIBaseTest):
         )
 
         distribution_data = [
-            {"value": 100, "probability": 0.2},
-            {"value": 200, "probability": 0.5},
-            {"value": 300, "probability": 0.3},
+            {"min": 0, "max": 150, "probability": 0.2},
+            {"min": 151, "max": 250, "probability": 0.5},
+            {"min": 251, "max": 350, "probability": 0.3},
         ]
         prob_dist = ProbabilityDistribution.objects.create(
             bet_definition=bet_definition,
@@ -371,9 +371,9 @@ class TestBettingAPI(APIBaseTest):
         )
 
         distribution_data = [
-            {"value": 100, "probability": 0.2},
-            {"value": 200, "probability": 0.5},
-            {"value": 300, "probability": 0.3},
+            {"min": 0, "max": 150, "probability": 0.2},
+            {"min": 151, "max": 250, "probability": 0.5},
+            {"min": 251, "max": 350, "probability": 0.3},
         ]
         prob_dist = ProbabilityDistribution.objects.create(
             bet_definition=bet_definition,

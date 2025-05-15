@@ -15,6 +15,7 @@ from posthog.models.betting import (
 
 class BetDefinitionSerializer(serializers.ModelSerializer):
     latest_distribution = serializers.SerializerMethodField()
+    probability_distributions = serializers.SerializerMethodField()
 
     class Meta:
         model = BetDefinition
@@ -30,9 +31,10 @@ class BetDefinitionSerializer(serializers.ModelSerializer):
             "description",
             "created_at",
             "latest_distribution",
+            "probability_distributions",
             "final_value",
         ]
-        read_only_fields = ["id", "created_at", "latest_distribution", "team"]
+        read_only_fields = ["id", "created_at", "latest_distribution", "team", "probability_distributions"]
 
     def get_latest_distribution(self, obj):
         latest = obj.latest_probability_distribution
@@ -43,6 +45,17 @@ class BetDefinitionSerializer(serializers.ModelSerializer):
                 "buckets": latest.buckets,
             }
         return None
+
+    def get_probability_distributions(self, obj):
+        distributions = obj.probability_distributions.order_by("created_at")
+        return [
+            {
+                "id": str(dist.id),
+                "created_at": dist.created_at,
+                "buckets": dist.buckets,
+            }
+            for dist in distributions
+        ]
 
     def validate(self, data):
         if data.get("closing_date") and data["closing_date"] < timezone.now():
@@ -199,29 +212,6 @@ class BetDefinitionViewSet(
     def perform_create(self, serializer, **kwargs):
         # Set the team to the current team
         serializer.save(team_id=self.request.user.current_team.id)
-
-        # Get the created bet definition
-        bet_definition = serializer.instance
-
-        # Create a probability distribution for the bet definition
-        self._create_demo_distribution(bet_definition, **kwargs)
-
-    def _create_demo_distribution(self, bet_definition, **kwargs):
-        """
-        Create a demo probability distribution for the bet definition.
-        In a real implementation, this would be replaced with actual data.
-        """
-        # Create a simple distribution with 3 buckets
-        distribution_data = [
-            {"value": 100, "probability": 0.2},
-            {"value": 200, "probability": 0.5},
-            {"value": 300, "probability": 0.3},
-        ]
-
-        ProbabilityDistribution.objects.create(
-            bet_definition=bet_definition,
-            distribution_data=distribution_data,
-        )
 
     @action(detail=True, methods=["post"])
     def settle(self, request, pk=None, **kwargs):

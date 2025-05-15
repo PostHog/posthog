@@ -403,7 +403,7 @@ def create_probability_distribution(bet_definition: BetDefinition) -> Optional[P
 
             # Create 5 buckets centered around the predicted value
             # Use a large number instead of infinity for JSON compatibility
-            MAX_VALUE = 1000000
+            MAX_VALUE = 1000000000000  # 1 trillion
             bucket_definitions = [
                 {"min": 0, "max": predicted_value - 2 * std_dev},  # Low probability of being below trend
                 {"min": predicted_value - 2 * std_dev, "max": predicted_value - std_dev},  # Below trend
@@ -419,28 +419,28 @@ def create_probability_distribution(bet_definition: BetDefinition) -> Optional[P
             # Create distribution data with probabilities
             distribution_data = [
                 {
-                    "value": bucket_definitions[0]["min"]
-                    + (bucket_definitions[0]["max"] - bucket_definitions[0]["min"]) / 2,
+                    "min": bucket_definitions[0]["min"],
+                    "max": bucket_definitions[0]["max"],
                     "probability": 0.05,
                 },  # Low probability
                 {
-                    "value": bucket_definitions[1]["min"]
-                    + (bucket_definitions[1]["max"] - bucket_definitions[1]["min"]) / 2,
+                    "min": bucket_definitions[1]["min"],
+                    "max": bucket_definitions[1]["max"],
                     "probability": 0.15,
                 },  # Below trend
                 {
-                    "value": bucket_definitions[2]["min"]
-                    + (bucket_definitions[2]["max"] - bucket_definitions[2]["min"]) / 2,
+                    "min": bucket_definitions[2]["min"],
+                    "max": bucket_definitions[2]["max"],
                     "probability": 0.60,
                 },  # Around trend
                 {
-                    "value": bucket_definitions[3]["min"]
-                    + (bucket_definitions[3]["max"] - bucket_definitions[3]["min"]) / 2,
+                    "min": bucket_definitions[3]["min"],
+                    "max": bucket_definitions[3]["max"],
                     "probability": 0.15,
                 },  # Above trend
                 {
-                    "value": bucket_definitions[4]["min"]
-                    + (bucket_definitions[4]["max"] - bucket_definitions[4]["min"]) / 2,
+                    "min": bucket_definitions[4]["min"],
+                    "max": bucket_definitions[4]["max"],
                     "probability": 0.05,
                 },  # High probability
             ]
