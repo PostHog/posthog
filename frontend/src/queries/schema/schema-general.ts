@@ -1951,11 +1951,11 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
     offset?: integer
     orderBy: 'latest' | 'earliest'
     searchTerm?: string
-    resource?: string
+    // resource?: string
     severityLevels: LogSeverityLevel[]
 }
 
-export interface LogsQueryResponse extends AnalyticsQueryResponseBase<LogMessage[]> {
+export interface LogsQueryResponse extends AnalyticsQueryResponseBase<unknown> {
     hasMore?: boolean
     limit?: integer
     offset?: integer
@@ -1965,15 +1965,19 @@ export type CachedLogsQueryResponse = CachedQueryResponse<LogsQueryResponse>
 
 export interface LogMessage {
     uuid: string
-    team_id: integer
+    // team_id: integer
     trace_id: string
     span_id: string
     body: string
-    attributes: Record<string, string>
-    timestamp: string
-    observed_timestamp: string
-    severity_text: LogSeverityLevel
-    resource: string
+    // attributes: Record<string, string>
+    // timestamp: string
+    // observed_timestamp: string
+    // severity_text: LogSeverityLevel
+    // severity_number: number
+    // level: LogSeverityLevel
+    // resource_id: string
+    // instrumentation_scope: string
+    // event_name: string
 }
 
 export interface FileSystemCount {

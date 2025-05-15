@@ -214,6 +214,13 @@ def get_pool(
     ) and settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST is not None:
         return make_ch_pool(host=settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST, verify=False, user=user, password=password)
 
+    if workload == Workload.LOGS:
+        return make_ch_pool(
+            host=settings.CLICKHOUSE_LOGS_CLUSTER_HOST,
+            user=settings.CLICKHOUSE_LOGS_CLUSTER_USER,
+            password=settings.CLICKHOUSE_LOGS_CLUSTER_PASSWORD,
+        )
+
     return make_ch_pool(user=user, password=password)
 
 

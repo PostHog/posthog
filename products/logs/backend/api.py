@@ -23,7 +23,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         except Exception as e:
             capture_exception(e)
-            return Response({"error": "Something went wrong"}, status=500)
+            return Response({"error": "Something went wrong"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         if response is None:
             return Response({"error": "Failed to fetch logs"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

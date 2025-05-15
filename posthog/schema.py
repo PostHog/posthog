@@ -1350,6 +1350,16 @@ class LifecycleToggle(StrEnum):
     DORMANT = "dormant"
 
 
+class LogMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    body: str
+    span_id: str
+    trace_id: str
+    uuid: str
+
+
 class LogSeverityLevel(StrEnum):
     DEBUG = "debug"
     INFO = "info"
@@ -2855,22 +2865,6 @@ class LifecycleFilterLegacy(BaseModel):
     show_legend: Optional[bool] = None
     show_values_on_series: Optional[bool] = None
     toggledLifecycles: Optional[list[LifecycleToggle]] = None
-
-
-class LogMessage(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    attributes: dict[str, str]
-    body: str
-    observed_timestamp: str
-    resource: str
-    severity_text: LogSeverityLevel
-    span_id: str
-    team_id: int
-    timestamp: str
-    trace_id: str
-    uuid: str
 
 
 class MatchedRecording(BaseModel):
@@ -4520,7 +4514,7 @@ class CachedLogsQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: list[LogMessage]
+    results: Any
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -5921,7 +5915,7 @@ class LogsQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: list[LogMessage]
+    results: Any
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -8185,7 +8179,6 @@ class LogsQuery(BaseModel):
     limit: Optional[int] = None
     offset: Optional[int] = None
     orderBy: OrderBy1
-    resource: Optional[str] = None
     response: Optional[LogsQueryResponse] = None
     searchTerm: Optional[str] = None
     severityLevels: list[LogSeverityLevel]
