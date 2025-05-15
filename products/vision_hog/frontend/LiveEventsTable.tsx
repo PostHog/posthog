@@ -6,6 +6,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { EventDetails } from 'scenes/activity/explore/EventDetails'
 
 import { EventCopyLinkButton } from '~/queries/nodes/DataTable/EventRowActions'
 import type { LiveEvent } from '~/types'
@@ -76,6 +77,14 @@ export function LiveEventsTable(): JSX.Element {
                 rowKey="uuid"
                 dataSource={events}
                 useURLForSorting={false}
+                expandable={{
+                    expandedRowRender: (record) => (
+                        <div className="p-4">
+                            <EventDetails event={record} />
+                        </div>
+                    ),
+                    rowExpandable: () => true,
+                }}
                 emptyState={
                     <div className="flex flex-col justify-center items-center gap-4 p-6">
                         {!streamPaused ? (
