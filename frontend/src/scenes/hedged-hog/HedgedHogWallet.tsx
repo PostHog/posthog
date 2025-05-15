@@ -7,6 +7,7 @@ import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import hogecoin from 'public/hedgehog/hodgecoin.png'
 import { userLogic } from 'scenes/userLogic'
 
 import { hedgedHogLogic } from './hedgedHogLogic'
@@ -33,7 +34,8 @@ export const WalletContent = (): JSX.Element => {
                                     }}
                                 >
                                     {/* Card logo */}
-                                    <div className="flex justify-end items-center mb-6">
+                                    <div className="flex justify-between items-center mb-6">
+                                        <img src={hogecoin} alt="Hogecoin" className="h-16 w-auto" />
                                         <img
                                             src="/static/posthog-logo.svg"
                                             alt="PostHog"

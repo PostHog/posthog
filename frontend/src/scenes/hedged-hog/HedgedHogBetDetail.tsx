@@ -7,6 +7,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import hogecoin from 'public/hedgehog/hodgecoin.png'
 import { useEffect, useState } from 'react'
 import { BillingLineGraph } from 'scenes/billing/BillingLineGraph'
 
@@ -82,7 +83,11 @@ const BetFlow = ({
                             <LemonInput
                                 className="text-2xl font-bold"
                                 type="text"
-                                prefix={<div>$</div>}
+                                prefix={
+                                    <div>
+                                        <img src={hogecoin} alt="Hogecoin" className="h-8 w-auto" />
+                                    </div>
+                                }
                                 value={amount.toString()}
                                 onChange={(value) => setAmount(Number(value) || 0)}
                             />
