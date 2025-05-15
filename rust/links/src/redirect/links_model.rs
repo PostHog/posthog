@@ -11,5 +11,5 @@ pub struct LinkRow {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub description: String,
-    pub team_id: i32
+    pub team_id: i32,
 }

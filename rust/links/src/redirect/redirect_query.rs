@@ -49,15 +49,14 @@ mod tests {
         let origin_domain = "phog.gg";
         let origin_key = "test_key";
         let destination = "https://example.com";
-        let team_id = 1;
 
-        insert_new_team_in_pg(db_client.clone(), Some(team_id)).await?;
+        let team = insert_new_team_in_pg(db_client.clone(), None).await?;
         let row = insert_new_link_in_pg(
             db_client.clone(),
             origin_domain,
             origin_key,
             destination,
-            team_id,
+            team.id,
         )
         .await?;
 

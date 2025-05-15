@@ -33,3 +33,9 @@ impl ServerHandle {
         Self { addr, shutdown }
     }
 }
+
+impl Drop for ServerHandle {
+    fn drop(&mut self) {
+        self.shutdown.notify_one()
+    }
+}

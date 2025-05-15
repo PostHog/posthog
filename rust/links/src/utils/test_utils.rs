@@ -5,7 +5,7 @@ use chrono::Utc;
 use common_database::{get_pool, Client};
 use common_types::{ProjectId, TeamId};
 use once_cell::sync::Lazy;
-use rand::Rng;
+use rand::{distributions::Alphanumeric, Rng};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use sqlx::types::Json;
@@ -87,7 +87,7 @@ pub async fn insert_new_team_in_pg(
         Some(value) => value,
         None => rand::thread_rng().gen_range(0..10_000_000),
     };
-    let token = "phc_1231".to_string();
+    let token = random_string("phc_", 12);
     let team = Team {
         id,
         project_id: id as i64,
@@ -211,4 +211,13 @@ mod option_i16_as_i16 {
     {
         Option::<i16>::deserialize(deserializer).map(|opt| opt.unwrap_or(0))
     }
+}
+
+pub fn random_string(prefix: &str, length: usize) -> String {
+    let suffix: String = rand::thread_rng()
+        .sample_iter(Alphanumeric)
+        .take(length)
+        .map(char::from)
+        .collect();
+    format!("{}{}", prefix, suffix)
 }

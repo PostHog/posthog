@@ -64,9 +64,10 @@ impl InternalRedirectService {
         // If redis set fails, we shouldn't fail the retrieval and just log
         if let Err(error) = self
             .redis_client
-            .set(
+            .set_nx_ex(
                 RedisRedirectKeyPrefix::Internal.get_redis_key_for_url(origin_domain, origin_key),
                 redirect_url.clone(),
+                60 * 60 * 24, // 1 day
             )
             .await
         {
@@ -130,8 +131,12 @@ impl RedirectServiceTrait for InternalRedirectService {
 
 #[cfg(test)]
 mod tests {
+    use crate::utils::test_utils::{insert_new_link_in_pg, insert_new_team_in_pg, setup_pg_client};
+
     use super::*;
+    use anyhow::Result;
     use common_redis::MockRedisClient;
+
     use std::sync::Arc;
 
     #[tokio::test]
@@ -153,7 +158,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_should_return_link_not_found_for_internal() {
+    async fn test_should_return_link_not_found_for_external() {
         let mut redis_client = MockRedisClient::new();
         let key = "p2dsws3";
         let origin_domain = "example.com";
@@ -167,5 +172,43 @@ mod tests {
         if !matches!(result, Err(RedirectError::LinkNotFound)) {
             panic!("Expected LinkNotFound error");
         }
+    }
+
+    #[tokio::test]
+    async fn test_should_redirect_internal_url_if_in_redis() {
+        let mut redis_client = MockRedisClient::new();
+        let db_client = setup_pg_client(None).await;
+        let key = "p2dsws3";
+        let origin_domain = "example.com";
+        let redirect_url = "https://example.com".to_string();
+        let ret = Ok(redirect_url.clone());
+        redis_client.get_ret(
+            &RedisRedirectKeyPrefix::Internal.get_redis_key_for_url(origin_domain, key),
+            ret,
+        );
+        let service = InternalRedirectService::new(db_client, Arc::new(redis_client));
+        let result = service.redirect_url(key, origin_domain).await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), redirect_url);
+    }
+
+    #[tokio::test]
+    async fn test_should_redirect_internal_url_if_in_database() -> Result<()> {
+        let redis_client = MockRedisClient::new();
+        let db_client = setup_pg_client(None).await;
+        let key = "p2dsws3";
+        let origin_domain = "example.com";
+        let destination = "https://example.com".to_string();
+
+        let team = insert_new_team_in_pg(db_client.clone(), None).await?;
+        let row =
+            insert_new_link_in_pg(db_client.clone(), origin_domain, key, &destination, team.id)
+                .await?;
+
+        let service = InternalRedirectService::new(db_client, Arc::new(redis_client));
+        let result = service.redirect_url(key, origin_domain).await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), destination);
+        Ok(())
     }
 }

@@ -17,6 +17,9 @@ pub struct Config {
 
     #[envconfig(default = "redis://localhost:6379/")]
     pub internal_link_redis_url: String,
+
+    #[envconfig(default = "86400")] // 1 day
+    pub redis_internal_ttl_seconds: u64,
 }
 
 impl Default for Config {
@@ -44,5 +47,7 @@ mod tests {
         );
         assert_eq!(config.external_link_redis_url, "redis://localhost:6379/");
         assert_eq!(config.internal_link_redis_url, "redis://localhost:6379/");
+        assert_eq!(config.max_pg_connections, 10);
+        assert_eq!(config.redis_internal_ttl_seconds, 86400);
     }
 }

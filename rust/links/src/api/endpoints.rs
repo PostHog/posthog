@@ -3,11 +3,10 @@ use axum::{
     http::StatusCode,
     response::IntoResponse,
 };
-use tracing::instrument;
 
 use crate::{
     redirect::redirect_service::{
-        ExternalRedirectService, InternalRedirectService, RedirectServiceTrait,
+        ExternalRedirectService, InternalRedirectService, RedirectError, RedirectServiceTrait,
     },
     router::AppState,
 };
@@ -37,13 +36,11 @@ pub async fn internal_redirect_url(
     }
 }
 
-#[instrument(skip_all)]
 pub async fn external_redirect_url(
     state: State<AppState>,
     Path(origin_key): Path<String>,
     Host(host): Host,
 ) -> impl IntoResponse {
-    tracing::info!("External redirect for key: {origin_key} and domain: {host}");
     // Convert the host to lowercase and remove the "www." prefix
     let lowcase_host = host.to_lowercase();
     let host = lowcase_host.strip_prefix("www.").unwrap_or(&lowcase_host);
@@ -60,7 +57,13 @@ pub async fn external_redirect_url(
         }
         Err(error) => {
             tracing::error!("Error: {error}");
-            (StatusCode::NOT_FOUND, "Link not found").into_response()
+            match error {
+                RedirectError::LinkNotFound => (StatusCode::NOT_FOUND).into_response(),
+                _ => {
+                    tracing::error!("Unexpected error: {error}");
+                    (StatusCode::INTERNAL_SERVER_ERROR).into_response()
+                }
+            }
         }
     }
 }
