@@ -47,8 +47,15 @@ impl LogRow {
             None => "".to_string(),
         };
 
-        // Extract severity text
-        let severity_text = record.severity_text;
+        let mut severity_text = normalize_severity_text(record.severity_text);
+        let mut severity_number = record.severity_number;
+
+        // severity_number takes priority if both provided
+        if record.severity_number > 0 {
+            severity_text = convert_severity_number_to_text(record.severity_number);
+        } else {
+            severity_number = convert_severity_text_to_number(&severity_text);
+        }
 
         // Attributes as JSON
         let attributes = attributes_to_json(record.attributes);
@@ -80,7 +87,7 @@ impl LogRow {
             body,
             _attributes,
             severity_text,
-            severity_number: record.severity_number,
+            severity_number,
             _resource: resource_str,
             instrumentation_scope,
             event_name,
@@ -116,6 +123,61 @@ fn extract_span_id(input: &[u8]) -> [u8; 8] {
         bytes
     } else {
         [0; 8]
+    }
+}
+
+fn normalize_severity_text(severity_text: String) -> String {
+    match severity_text.to_lowercase().as_str() {
+        "critical" | "fatal" | "crit" | "alert" | "emerg" => "fatal".to_string(),
+        "error" | "err" | "eror" => "error".to_string(),
+        "warn" | "warning" => "warn".to_string(),
+        "info" | "information" | "informational" => "info".to_string(),
+        "debug" | "dbug" => "debug".to_string(),
+        "trace" => "trace".to_string(),
+        "" => "info".to_string(),
+        _ => severity_text,
+    }
+}
+
+fn convert_severity_text_to_number(severity_text: &str) -> i32 {
+    match severity_text {
+        "trace" => 1,
+        "debug" => 5,
+        "info" => 9,
+        "warn" => 13,
+        "error" => 17,
+        "fatal" => 21,
+        _ => 0,
+    }
+}
+
+fn convert_severity_number_to_text(severity_number: i32) -> String {
+    match severity_number {
+        1 => "trace".to_string(),
+        2 => "trace".to_string(),
+        3 => "trace".to_string(),
+        4 => "trace".to_string(),
+        5 => "debug".to_string(),
+        6 => "debug".to_string(),
+        7 => "debug".to_string(),
+        8 => "debug".to_string(),
+        9 => "info".to_string(),
+        10 => "info".to_string(),
+        11 => "info".to_string(),
+        12 => "info".to_string(),
+        13 => "warn".to_string(),
+        14 => "warn".to_string(),
+        15 => "warn".to_string(),
+        16 => "warn".to_string(),
+        17 => "error".to_string(),
+        18 => "error".to_string(),
+        19 => "error".to_string(),
+        20 => "error".to_string(),
+        21 => "fatal".to_string(),
+        22 => "fatal".to_string(),
+        23 => "fatal".to_string(),
+        24 => "fatal".to_string(),
+        _ => "unknown".to_string(),
     }
 }
 
