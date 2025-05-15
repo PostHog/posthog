@@ -16,7 +16,7 @@ export const userInterviewLogic = kea<userInterviewLogicType>([
     path(['products', 'user_interviews', 'frontend', 'userInterviewLogic']),
     props({} as UserInterviewLogicProps),
     key((props) => props.id),
-    loaders({
+    loaders(({ props }) => ({
         userInterview: [
             userInterviewsLogic.findMounted()?.values.userInterviews.find((interview) => interview.id === props.id) ||
                 null,
@@ -28,9 +28,12 @@ export const userInterviewLogic = kea<userInterviewLogicType>([
                         return null
                     }
                 },
+                updateUserInterview: async (data: Pick<UserInterviewType, 'summary'>): Promise<UserInterviewType> => {
+                    return await api.userInterviews.update(props.id, data)
+                },
             },
         ],
-    }),
+    })),
     selectors(({ props }) => ({
         breadcrumbs: [
             (s) => [s.userInterview],

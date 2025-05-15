@@ -1,7 +1,7 @@
 import json
 import re
 from rest_framework import viewsets
-from rest_framework.parsers import MultiPartParser
+from rest_framework.parsers import MultiPartParser, JSONParser
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from .models import UserInterview
@@ -117,4 +117,4 @@ class UserInterviewViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "user_interview"
     queryset = UserInterview.objects.order_by("-created_at").select_related("created_by").all()
     serializer_class = UserInterviewSerializer
-    parser_classes = [MultiPartParser]
+    parser_classes = [MultiPartParser, JSONParser]

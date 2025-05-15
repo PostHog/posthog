@@ -1,11 +1,13 @@
-import { LemonTag, Spinner } from '@posthog/lemon-ui'
-import { LemonSkeleton } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { IconCheck, IconPencil, IconX } from '@posthog/icons'
+import { LemonButton, LemonSkeleton, LemonTag, LemonTextAreaMarkdown } from '@posthog/lemon-ui'
+import { useAsyncActions, useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonWidget } from 'lib/lemon-ui/LemonWidget/LemonWidget'
+import posthog from 'posthog-js'
+import { useState } from 'react'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -21,6 +23,9 @@ export const scene: SceneExport = {
 
 export function UserInterview(): JSX.Element {
     const { userInterview, userInterviewLoading } = useValues(userInterviewLogic)
+    const { updateUserInterview } = useAsyncActions(userInterviewLogic)
+
+    const [summaryInEditing, setSummaryInEditing] = useState<string | null>(null)
 
     if (userInterviewLoading && !userInterview) {
         return (
@@ -55,10 +60,6 @@ export function UserInterview(): JSX.Element {
         )
     }
 
-    if (userInterviewLoading) {
-        return <Spinner />
-    }
-
     if (!userInterview) {
         return <NotFound object="user interview" />
     }
@@ -67,19 +68,59 @@ export function UserInterview(): JSX.Element {
         <div className="@container">
             <PageHeader caption={<InterviewMetadata interview={userInterview} />} />
             <div className="grid grid-cols-1 items-start gap-4 @4xl:grid-cols-3">
-                <LemonWidget title="Summary" className="col-span-2">
-                    {userInterview.summary ? (
-                        <LemonMarkdown className="p-3">{userInterview.summary}</LemonMarkdown>
+                <LemonWidget
+                    title="Summary"
+                    className="col-span-2"
+                    actions={
+                        summaryInEditing !== null ? (
+                            <>
+                                {!userInterviewLoading && (
+                                    <LemonButton
+                                        size="xsmall"
+                                        icon={<IconX />}
+                                        tooltip="Cancel"
+                                        onClick={() => setSummaryInEditing(null)}
+                                    />
+                                )}
+                                <LemonButton
+                                    size="xsmall"
+                                    icon={<IconCheck />}
+                                    tooltip="Save"
+                                    onClick={() => {
+                                        updateUserInterview({ summary: summaryInEditing })
+                                            .then(() => {
+                                                setSummaryInEditing(null)
+                                            })
+                                            .catch((e) => posthog.captureException(e))
+                                    }}
+                                    loading={userInterviewLoading}
+                                />
+                            </>
+                        ) : (
+                            <LemonButton
+                                size="xsmall"
+                                icon={<IconPencil />}
+                                onClick={() => setSummaryInEditing(userInterview.summary || '')}
+                            />
+                        )
+                    }
+                >
+                    {summaryInEditing !== null ? (
+                        <LemonTextAreaMarkdown
+                            value={summaryInEditing}
+                            onChange={(newValue) => setSummaryInEditing(newValue)}
+                            className="pb-2 px-3"
+                        />
                     ) : (
-                        <div className="text-muted-alt">No summary available.</div>
+                        <LemonMarkdown className="p-3">
+                            {userInterview.summary || '_No summary available._'}
+                        </LemonMarkdown>
                     )}
                 </LemonWidget>
                 <LemonWidget title="Transcript" className="col-span-1">
-                    {userInterview.transcript ? (
-                        <LemonMarkdown className="p-3">{userInterview.transcript}</LemonMarkdown>
-                    ) : (
-                        <div className="text-muted-alt p-3">No transcript available.</div>
-                    )}
+                    <LemonMarkdown className="p-3">
+                        {userInterview.transcript || '_No transcript available._'}
+                    </LemonMarkdown>
                 </LemonWidget>
             </div>
         </div>

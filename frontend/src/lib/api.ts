@@ -2748,6 +2748,12 @@ const api = {
         async get(id: UserInterviewType['id']): Promise<UserInterviewType> {
             return await new ApiRequest().userInterview(id).get()
         },
+        async update(
+            id: UserInterviewType['id'],
+            data: Pick<UserInterviewType, 'summary'>
+        ): Promise<UserInterviewType> {
+            return await new ApiRequest().userInterview(id).update({ data })
+        },
     },
 
     surveys: {

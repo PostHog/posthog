@@ -3,6 +3,7 @@
     "peerDependencies": {
         "@posthog/icons": "*",
         "@types/react": "*",
+        "posthog-js": "*",
         "clsx": "*",
         "kea": "*",
         "kea-loaders": "*",
