@@ -65,6 +65,7 @@ class AssistantContextualTool(StrEnum):
     SEARCH_SESSION_RECORDINGS = "search_session_recordings"
     GENERATE_HOGQL_QUERY = "generate_hogql_query"
     FIX_HOGQL_QUERY = "fix_hogql_query"
+    ANALYZE_USER_INTERVIEWS = "analyze_user_interviews"
 
 
 class AssistantDateRange(BaseModel):
@@ -2861,14 +2862,17 @@ class LogMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    attributes: dict[str, str]
+    attributes: str
     body: str
-    observed_timestamp: str
+    event_name: str
+    instrumentation_scope: str
+    level: LogSeverityLevel
+    observed_timestamp: datetime
     resource: str
+    severity_number: float
     severity_text: LogSeverityLevel
     span_id: str
-    team_id: int
-    timestamp: str
+    timestamp: datetime
     trace_id: str
     uuid: str
 
@@ -4520,7 +4524,7 @@ class CachedLogsQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: list[LogMessage]
+    results: Any
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -5921,7 +5925,7 @@ class LogsQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: list[LogMessage]
+    results: Any
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -6806,7 +6810,7 @@ class QueryResponseAlternative56(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: list[LogMessage]
+    results: Any
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )

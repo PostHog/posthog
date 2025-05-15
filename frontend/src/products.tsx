@@ -3,6 +3,7 @@
 // The imports are preserved between builds, so please update if any are missing or extra.
 
 import {
+    IconChat,
     IconDashboard,
     IconGraph,
     IconMegaphone,
@@ -47,6 +48,7 @@ import {
 export const productScenes: Record<string, () => Promise<any>> = {
     EarlyAccessFeatures: () => import('../../products/early_access_features/frontend/EarlyAccessFeatures'),
     EarlyAccessFeature: () => import('../../products/early_access_features/frontend/EarlyAccessFeature'),
+    Game368Hedgehogs: () => import('../../products/games/368Hedgehogs/368Hedgehogs'),
     LLMObservability: () => import('../../products/llm_observability/frontend/LLMObservabilityScene'),
     LLMObservabilityTrace: () => import('../../products/llm_observability/frontend/LLMObservabilityTraceScene'),
     LLMObservabilityUsers: () => import('../../products/llm_observability/frontend/LLMObservabilityUsers'),
@@ -56,12 +58,15 @@ export const productScenes: Record<string, () => Promise<any>> = {
     MessagingLibrary: () => import('../../products/messaging/frontend/library/MessageLibrary'),
     MessagingLibraryTemplate: () => import('../../products/messaging/frontend/library/MessageTemplate'),
     RevenueAnalytics: () => import('../../products/revenue_analytics/frontend/RevenueAnalyticsScene'),
+    UserInterviews: () => import('../../products/user_interviews/frontend/UserInterviews'),
+    UserInterview: () => import('../../products/user_interviews/frontend/UserInterview'),
 }
 
 /** This const is auto-generated, as is the whole file */
 export const productRoutes: Record<string, [string, string]> = {
     '/early_access_features': ['EarlyAccessFeatures', 'earlyAccessFeatures'],
     '/early_access_features/:id': ['EarlyAccessFeature', 'earlyAccessFeature'],
+    '/games/368hedgehogs': ['Game368Hedgehogs', 'game368Hedgehogs'],
     '/llm-observability': ['LLMObservability', 'llmObservability'],
     '/llm-observability/dashboard': ['LLMObservability', 'llmObservabilityDashboard'],
     '/llm-observability/generations': ['LLMObservability', 'llmObservabilityGenerations'],
@@ -83,6 +88,8 @@ export const productRoutes: Record<string, [string, string]> = {
         'messagingLibraryTemplateFromMessage',
     ],
     '/revenue_analytics': ['RevenueAnalytics', 'revenueAnalytics'],
+    '/user_interviews': ['UserInterviews', 'userInterviews'],
+    '/user_interviews/:id': ['UserInterview', 'userInterview'],
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -105,6 +112,7 @@ export const productConfiguration: Record<string, any> = {
         defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
         activityScope: 'EarlyAccessFeature',
     },
+    Game368Hedgehogs: { name: '368Hedgehogs', projectBased: true, activityScope: 'Games' },
     LLMObservability: {
         projectBased: true,
         name: 'LLM observability',
@@ -137,6 +145,8 @@ export const productConfiguration: Record<string, any> = {
         defaultDocsPath: '/docs/web-analytics/revenue-analytics',
         activityScope: 'RevenueAnalytics',
     },
+    UserInterviews: { name: 'User interviews', projectBased: true, activityScope: 'UserInterview' },
+    UserInterview: { name: 'User interview', projectBased: true, activityScope: 'UserInterview' },
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -175,6 +185,7 @@ export const productUrls = {
     featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
     featureFlag: (id: string | number): string => `/feature_flags/${id}`,
     featureFlagDuplicate: (sourceId: number | string | null): string => `/feature_flags/new?sourceId=${sourceId}`,
+    game368hedgehogs: (): string => `/games/368hedgehogs`,
     groups: (groupTypeIndex: string | number): string => `/groups/${groupTypeIndex}`,
     group: (groupTypeIndex: string | number, groupKey: string, encode: boolean = true, tab?: string | null): string =>
         `/groups/${groupTypeIndex}/${encode ? encodeURIComponent(groupKey) : groupKey}${tab ? `/${tab}` : ''}`,
@@ -282,6 +293,8 @@ export const productUrls = {
     surveys: (tab?: SurveysTabs): string => `/surveys${tab ? `?tab=${tab}` : ''}`,
     survey: (id: string): string => `/surveys/${id}`,
     surveyTemplates: (): string => '/survey_templates',
+    userInterviews: (): string => '/user_interviews',
+    userInterview: (id: string): string => `/user_interviews/${id}`,
     webAnalytics: (): string => `/web`,
     webAnalyticsWebVitals: (): string => `/web/web-vitals`,
     webAnalyticsPageReports: (): string => `/web/page-reports`,
@@ -301,6 +314,7 @@ export const fileSystemTypes = {
     notebook: { icon: <IconNotebook />, href: (ref: string) => urls.notebook(ref) },
     session_recording_playlist: { icon: <IconRewindPlay />, href: (ref: string) => urls.replayPlaylist(ref) },
     survey: { icon: <IconMessage />, href: (ref: string) => urls.survey(ref) },
+    user_interview: { icon: <IconChat />, href: (ref: string) => urls.userInterview(ref) },
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -356,8 +370,12 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     { path: 'Revenue settings', iconType: 'handMoney', href: urls.revenueSettings() },
     { path: 'Session replay', href: urls.replay(ReplayTabs.Home), type: 'session_recording_playlist' },
     { path: 'Surveys', type: 'survey', href: urls.surveys() },
+    { path: 'User interviews', href: urls.userInterviews(), type: 'user_interview' },
     { path: 'Web analytics', iconType: 'pieChart', href: urls.webAnalytics() },
 ]
+
+/** This const is auto-generated, as is the whole file */
+export const getTreeItemsGames = (): FileSystemImport[] => [{ path: '368 Hedgehogs', href: urls.game368hedgehogs() }]
 
 /** This const is auto-generated, as is the whole file */
 export const getTreeFilterTypes = (): Record<string, FileSystemFilterType> => ({
@@ -371,4 +389,5 @@ export const getTreeFilterTypes = (): Record<string, FileSystemFilterType> => ({
     notebook: { name: 'Notebooks' },
     insight: { name: 'Insights' },
     session_recording_playlist: { name: 'Replay playlists' },
+    user_interview: { name: 'User interviews' },
 })

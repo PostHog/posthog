@@ -3,7 +3,7 @@ use crate::{auth::authenticate_request, clickhouse::ClickHouseWriter, config::Co
 use opentelemetry_proto::tonic::collector::logs::v1::{
     logs_service_server::LogsService, ExportLogsServiceRequest, ExportLogsServiceResponse,
 };
-use serde_json::json;
+
 use tonic::{Request, Response, Status};
 use tracing::error;
 
@@ -49,22 +49,24 @@ impl LogsService for Service {
 
         let export_request = request.into_inner();
 
+        let mut insert = match self.clickhouse_writer.client.insert("logs") {
+            Ok(insert) => insert,
+            Err(e) => {
+                error!("Failed to create ClickHouse insert: {}", e);
+                return Err(Status::internal(format!(
+                    "Failed to create ClickHouse insert: {}",
+                    e
+                )));
+            }
+        };
         for resource_logs in export_request.resource_logs {
             // Convert resource to string for storing in ClickHouse
-            let resource_str = json!(&resource_logs.resource).to_string();
-            let mut insert = match self.clickhouse_writer.client.insert("logs") {
-                Ok(insert) => insert,
-                Err(e) => {
-                    error!("Failed to create ClickHouse insert: {}", e);
-                    continue;
-                }
-            };
             for scope_logs in resource_logs.scope_logs {
                 for log_record in scope_logs.log_records {
                     let row = match LogRow::new(
                         team_id,
                         log_record,
-                        resource_str.clone(),
+                        resource_logs.resource.clone(),
                         scope_logs.scope.clone(),
                     ) {
                         Ok(row) => row,
@@ -80,9 +82,9 @@ impl LogsService for Service {
                     }
                 }
             }
-            if let Err(e) = insert.end().await {
-                error!("Failed to end ClickHouse insert: {}", e);
-            }
+        }
+        if let Err(e) = insert.end().await {
+            error!("Failed to end ClickHouse insert: {}", e);
         }
 
         // A successful OTLP export expects an ExportLogsServiceResponse.
