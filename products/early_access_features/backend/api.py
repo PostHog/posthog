@@ -7,6 +7,7 @@ from posthog.exceptions import generate_exception_response
 from rest_framework import serializers, viewsets
 from rest_framework.request import Request
 from rest_framework import status
+from posthog.models.utils import uuid7
 
 from .models import EarlyAccessFeature
 
@@ -17,6 +18,7 @@ from django.views.decorators.csrf import csrf_exempt
 
 from posthog.utils_cors import cors_response
 from typing import Any
+from posthog.cdp.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
 
 
 class MinimalEarlyAccessFeatureSerializer(serializers.ModelSerializer):
@@ -99,6 +101,24 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
                     "super_groups": None,
                 }
                 related_feature_flag.save()
+
+        if stage != instance.stage:
+            produce_internal_event(
+                team_id=instance.team_id,
+                event=InternalEventEvent(
+                    event="$early_access_feature_status_updated",
+                    distinct_id=str(uuid7()),
+                    properties={
+                        "previous_stage": instance.stage,
+                        "next_stage": stage,
+                        "name": instance.name,
+                    },
+                ),
+                person=InternalEventPerson(
+                    id=self.user.id,
+                    properties={"name": self.user.first_name, "email": self.user.email},
+                ),
+            )
 
         return super().update(instance, validated_data)
 
