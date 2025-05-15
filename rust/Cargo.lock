@@ -3813,7 +3813,6 @@ dependencies = [
  "health",
  "once_cell",
  "rand 0.8.5",
- "reqwest 0.12.3",
  "rust_decimal",
  "serde",
  "serde_json",

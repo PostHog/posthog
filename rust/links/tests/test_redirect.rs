@@ -1,20 +1,22 @@
-// use anyhow::Result;
-// use links::config::Config;
+use anyhow::Result;
+use links::config::Config;
 
-// use crate::helpers::ServerHandle;
+use crate::helpers::*;
 
-// #[tokio::test]
-// async fn should_return_404_for_nonexistent_link() -> Result<()> {
-//     let config = Config::default_for_test();
-//     let server_handle = ServerHandle::for_config(config).await;
-//     let client = reqwest::Client::new();
+pub mod helpers;
 
-//     let response = client
-//         .get(format!("http://{}/nonexistent_key", server_handle.addr))
-//         .send()
-//         .await?;
+#[tokio::test]
+async fn should_return_404_for_nonexistent_link() -> Result<()> {
+    let config = Config::default_for_test();
+    let server_handle = ServerHandle::for_config(config).await;
+    let client = reqwest::Client::new();
 
-//     assert_eq!(response.status(), 404);
+    let response = client
+        .get(format!("http://{}/nonexistent_key", server_handle.addr))
+        .send()
+        .await?;
 
-//     Ok(())
-// }
+    assert_eq!(response.status(), 404);
+
+    Ok(())
+}

@@ -32,7 +32,7 @@ pub async fn insert_new_link_in_pg(
     team_id: i32,
 ) -> Result<LinkRow, Error> {
     let link_row = LinkRow {
-        id: uuid::Uuid::new_v4().into(),
+        id: uuid::Uuid::new_v4(),
         redirect_url: redirect_url.into(),
         short_code: short_code.into(),
         short_link_domain: short_link_domain.into(),
@@ -47,7 +47,7 @@ pub async fn insert_new_link_in_pg(
         VALUES ($1, $2, $3, $4, $5, $6, $7)
         RETURNING id"#,
     )
-    .bind(&link_row.id)
+    .bind(link_row.id)
     .bind(&link_row.redirect_url)
     .bind(&link_row.short_code)
     .bind(&link_row.short_link_domain)
