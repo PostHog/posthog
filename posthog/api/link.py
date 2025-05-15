@@ -18,6 +18,7 @@ logger = structlog.get_logger(__name__)
 
 class LinkSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
+    short_code = serializers.CharField(required=True, allow_null=False)
 
     class Meta:
         model = Link
@@ -43,7 +44,7 @@ class LinkSerializer(serializers.ModelSerializer):
             team=team,
             redirect_url=validated_data["redirect_url"],
             short_link_domain=validated_data["short_link_domain"],
-            short_code=validated_data.get("short_code"),
+            short_code=validated_data["short_code"],
             description=validated_data.get("description"),
             created_by=self.context["request"].user,
         )
