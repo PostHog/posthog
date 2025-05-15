@@ -62,8 +62,8 @@ class TestBettingUtils(TestCase):
         self.bet_definition.refresh_from_db()
         self.assertGreater(len(self.bet_definition.bucket_definitions), 0)
 
-        # Verify sync_execute was called with the correct parameters
-        mock_sync_execute.assert_called_once()
+        # Verify sync_execute was called twice - once for bucket definitions and once for distribution
+        self.assertEqual(mock_sync_execute.call_count, 2)
 
     @patch("posthog.betting.betting_utils.sync_execute")
     def test_bucket_definitions_preserved_on_refresh(self, mock_sync_execute):
@@ -191,7 +191,7 @@ class TestBettingUtils(TestCase):
             self.assertEqual(len(calls), 1)
 
             # Get the prediction_intervals argument from the call
-            _, _, kwargs = calls[0]
+            args, kwargs = calls[0]
             prediction_intervals = kwargs.get("prediction_intervals", 0)
 
             # Verify it's in the expected range (should be around 168 hours)
