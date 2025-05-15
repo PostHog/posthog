@@ -114,6 +114,7 @@ export const PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE: Record<Propert
         [PropertyFilterType.DataWarehousePersonProperty]: TaxonomicFilterGroupType.DataWarehousePersonProperties,
         [PropertyFilterType.Recording]: TaxonomicFilterGroupType.Replay,
         [PropertyFilterType.LogEntry]: TaxonomicFilterGroupType.LogEntries,
+        [PropertyFilterType.ReplayURL]: TaxonomicFilterGroupType.Replay,
         [PropertyFilterType.ErrorTrackingIssue]: TaxonomicFilterGroupType.ErrorTrackingIssues,
     }
 

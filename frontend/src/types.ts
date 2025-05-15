@@ -851,6 +851,7 @@ export enum PropertyFilterType {
     Cohort = 'cohort',
     Recording = 'recording',
     LogEntry = 'log_entry',
+    ReplayURL = 'replay_url',
     Group = 'group',
     HogQL = 'hogql',
     DataWarehouse = 'data_warehouse',
@@ -955,6 +956,7 @@ export type AnyPropertyFilter =
     | CohortPropertyFilter
     | RecordingPropertyFilter
     | LogEntryPropertyFilter
+    | ReplayURLFilter
     | GroupPropertyFilter
     | FeaturePropertyFilter
     | HogQLPropertyFilter
@@ -1157,6 +1159,11 @@ export interface RecordingDurationFilter extends RecordingPropertyFilter {
 
 export interface LogEntryPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.LogEntry
+    operator: PropertyOperator
+}
+
+export interface ReplayURLFilter extends BasePropertyFilter {
+    type: PropertyFilterType.ReplayURL
     operator: PropertyOperator
 }
 
