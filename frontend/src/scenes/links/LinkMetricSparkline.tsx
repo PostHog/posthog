@@ -15,7 +15,7 @@ export function LinkMetricSparkline({ id }: Props): JSX.Element {
     const displayData: SparklineTimeSeries[] = [
         {
             color: 'success',
-            name: 'Success',
+            name: 'Clicks',
             values: sparklineData?.results[0].data || [],
         },
     ]

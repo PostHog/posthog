@@ -45,7 +45,11 @@ export function LinkScene({ id }: { id?: string } = {}): JSX.Element {
                 <div className="flex gap-8">
                     <div className="flex-1 space-y-6">
                         <LemonField name="redirect_url" label="Destination URL">
-                            <LemonInput placeholder="https://posthog.com/links" fullWidth autoWidth={false} />
+                            <LemonInput
+                                placeholder="https://posthog.com/blog/how-we-built-posthog-links"
+                                fullWidth
+                                autoWidth={false}
+                            />
                         </LemonField>
 
                         <div className="flex flex-col gap-2">
@@ -53,11 +57,10 @@ export function LinkScene({ id }: { id?: string } = {}): JSX.Element {
                             <div className="flex gap-2">
                                 <LemonField name="short_link_domain">
                                     <LemonSelect
-                                        disabledReason="More domains coming soon"
                                         options={[
-                                            { label: 'postho.gg', value: 'postho.gg/' },
+                                            // { label: 'postho.gg', value: 'postho.gg/' },
                                             { label: 'phog.gg', value: 'phog.gg/' },
-                                            { label: 'hog.gg', value: 'hog.gg/' },
+                                            // { label: 'hog.gg', value: 'hog.gg/' },
                                         ]}
                                         className="text-muted"
                                     />

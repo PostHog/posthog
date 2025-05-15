@@ -11,7 +11,7 @@ import { ErrorTrackingAssignmentRule } from 'scenes/error-tracking/configuration
 import { LinkType } from 'scenes/links/linkConfigurationLogic'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
-import { SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
+import { LINK_PAGE_SIZE, SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
@@ -2297,7 +2297,7 @@ const api = {
                 offset?: number
                 search?: string
             } = {
-                limit: SURVEY_PAGE_SIZE,
+                limit: LINK_PAGE_SIZE,
             }
         ): Promise<CountedPaginatedResponse<LinkType>> {
             return await new ApiRequest().links().withQueryString(args).get()

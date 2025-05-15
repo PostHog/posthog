@@ -102,13 +102,13 @@ export function LinksScene(): JSX.Element {
                             dropdown: {
                                 overlay: (
                                     <>
-                                        <LemonButton fullWidth onClick={() => {}}>
+                                        <LemonButton disabledReason="Coming soon" fullWidth onClick={() => {}}>
                                             Import from Bit.ly
                                         </LemonButton>
-                                        <LemonButton fullWidth onClick={() => {}}>
+                                        <LemonButton disabledReason="Coming soon" fullWidth onClick={() => {}}>
                                             Import from Dub.co
                                         </LemonButton>
-                                        <LemonButton fullWidth onClick={() => {}}>
+                                        <LemonButton disabledReason="Coming soon" fullWidth onClick={() => {}}>
                                             Import from CSV
                                         </LemonButton>
                                     </>

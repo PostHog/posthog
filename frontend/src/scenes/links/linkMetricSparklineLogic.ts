@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
 import { NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
-import { ChartDisplayType, PropertyFilterType, PropertyOperator } from '~/types'
+import { ChartDisplayType } from '~/types'
 
 import type { linkMetricSparklineLogicType } from './linkMetricSparklineLogicType'
 
@@ -31,14 +31,14 @@ export const linkMetricSparklineLogic = kea<linkMetricSparklineLogicType>([
                                 kind: NodeKind.EventsNode,
                                 event: '$pageview',
                                 name: '$pageview',
-                                properties: [
-                                    {
-                                        key: '$current_url',
-                                        value: ['http://localhost:8000/project/1/feature_flags/136'],
-                                        operator: PropertyOperator.Exact,
-                                        type: PropertyFilterType.Event,
-                                    },
-                                ],
+                                // properties: [
+                                //     {
+                                //         key: '$current_url',
+                                //         value: ['http://localhost:8000/project/1/feature_flags/136'],
+                                //         operator: PropertyOperator.Exact,
+                                //         type: PropertyFilterType.Event,
+                                //     },
+                                // ],
                             },
                         ],
                     }
