@@ -347,7 +347,7 @@ async def update_migration_status_activity(inputs: UpdateMigrationStatusActivity
             ManagedMigration.Status.FAILED,
             ManagedMigration.Status.CANCELLED,
         ]:
-            migration.finshed_at = dt.datetime.now()
+            migration.finished_at = dt.datetime.now()
         if inputs.error:
             migration.error = inputs.error
         migration.save()
