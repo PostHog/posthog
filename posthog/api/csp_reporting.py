@@ -55,7 +55,7 @@ class CSPReportingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def explain(self, request: request.Request, *args, **kwargs) -> response.Response:
         properties = request.data.get("properties")
         if not properties:
-            return response.Response({"error": "prompt is required"}, status=400)
+            return response.Response({"error": "properties is required"}, status=400)
 
         llm_response = openai.chat.completions.create(
             model="gpt-4.1-2025-04-14",
