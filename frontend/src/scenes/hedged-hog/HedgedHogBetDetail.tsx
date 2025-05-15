@@ -5,8 +5,10 @@ import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useState } from 'react'
 import { BillingLineGraph } from 'scenes/billing/BillingLineGraph'
+import { urls } from 'scenes/urls'
 
 import { hedgedHogBetDefinitionsLogic } from './hedgedHogBetDefinitionsLogic'
 import { hedgedHogLogic } from './hedgedHogLogic'
@@ -16,11 +18,14 @@ export function BetDetailContent(): JSX.Element {
     const { betDefinitions, betDefinitionsLoading } = useValues(hedgedHogBetDefinitionsLogic)
     const { estimateBetPayout } = useActions(hedgedHogBetDefinitionsLogic)
     const { push } = useActions(router)
+    const { allBets, userBets, allBetsLoading, userBetsLoading } = useValues(hedgedHogLogic)
+    const { loadAllBets, loadUserBets } = useActions(hedgedHogLogic)
 
     const [amount, setAmount] = useState<number>(20)
     const [timeRange, setTimeRange] = useState<string>('ALL')
     const [showConfirmation, setShowConfirmation] = useState<boolean>(false)
     const [betType, setBetType] = useState<string>('')
+    const [activeTab, setActiveTab] = useState<string>('all')
 
     const bet = betDefinitions.find((b) => b.id === betId)
 
@@ -32,7 +37,7 @@ export function BetDetailContent(): JSX.Element {
         return (
             <div className="text-center">
                 <h2>Bet not found</h2>
-                <LemonButton type="primary" onClick={() => push('/hedged-hog')}>
+                <LemonButton type="primary" onClick={() => push(urls.hedgedHog())}>
                     Back to Bets
                 </LemonButton>
             </div>
@@ -44,11 +49,20 @@ export function BetDetailContent(): JSX.Element {
         setShowConfirmation(false)
     }
 
+    const handleTabChange = (tab: string): void => {
+        setActiveTab(tab)
+        if (tab === 'all' && betId) {
+            loadAllBets(betId)
+        } else if (tab === 'user' && betId) {
+            loadUserBets(betId)
+        }
+    }
+
     return (
         <div className="space-y-4">
             <div className="flex justify-between items-center">
                 <h2 className="text-xl">{bet.title}</h2>
-                <LemonButton type="primary" onClick={() => push('/hedged-hog')}>
+                <LemonButton type="primary" onClick={() => push(urls.hedgedHog())}>
                     Back to Bets
                 </LemonButton>
             </div>
@@ -294,45 +308,117 @@ export function BetDetailContent(): JSX.Element {
                 </div>
             </div>
 
-            <LemonTable
-                dataSource={[
-                    { id: 1, date: 'May 8, 2023 14:32', betType: 'Yes', price: 0.39, betAmount: 19.5 },
-                    { id: 2, date: 'May 7, 2023 08:15', betType: 'No', price: 0.62, betAmount: 15.5 },
-                    { id: 3, date: 'May 5, 2023 19:42', betType: 'Yes', price: 0.35, betAmount: 35.0 },
-                    { id: 4, date: 'May 2, 2023 11:07', betType: 'Yes', price: 0.33, betAmount: 9.9 },
+            <LemonTabs
+                activeKey={activeTab}
+                onChange={handleTabChange}
+                tabs={[
+                    {
+                        key: 'all',
+                        label: 'All Bets',
+                        content: (
+                            <LemonTable
+                                dataSource={allBets || []}
+                                columns={[
+                                    {
+                                        title: 'Date',
+                                        dataIndex: 'created_at',
+                                        key: 'created_at',
+                                        render: function RenderDate(date: string) {
+                                            return new Date(date).toLocaleDateString()
+                                        },
+                                    },
+                                    {
+                                        title: 'Bet Type',
+                                        dataIndex: 'predicted_value',
+                                        key: 'predicted_value',
+                                        render: function RenderType(value: any) {
+                                            const prediction = typeof value === 'object' ? value.value : value
+                                            return (
+                                                <span className={prediction === 1 ? 'text-success' : 'text-danger'}>
+                                                    {prediction === 1 ? 'Yes' : 'No'}
+                                                </span>
+                                            )
+                                        },
+                                    },
+                                    {
+                                        title: 'Amount',
+                                        dataIndex: 'amount',
+                                        key: 'amount',
+                                        render: function RenderAmount(amount: number) {
+                                            return `$${amount.toFixed(2)}`
+                                        },
+                                    },
+                                    {
+                                        title: 'Potential Payout',
+                                        dataIndex: 'potential_payout',
+                                        key: 'potential_payout',
+                                        render: function RenderPayout(payout: number) {
+                                            return `$${payout.toFixed(2)}`
+                                        },
+                                    },
+                                ]}
+                                rowKey="id"
+                                embedded
+                                nouns={['bet', 'bets']}
+                                emptyState="No bets placed yet"
+                                loading={allBetsLoading}
+                            />
+                        ),
+                    },
+                    {
+                        key: 'user',
+                        label: 'My Bets',
+                        content: (
+                            <LemonTable
+                                dataSource={userBets || []}
+                                columns={[
+                                    {
+                                        title: 'Date',
+                                        dataIndex: 'created_at',
+                                        key: 'created_at',
+                                        render: function RenderDate(date: string) {
+                                            return new Date(date).toLocaleDateString()
+                                        },
+                                    },
+                                    {
+                                        title: 'Bet Type',
+                                        dataIndex: 'predicted_value',
+                                        key: 'predicted_value',
+                                        render: function RenderType(value: any) {
+                                            const prediction = typeof value === 'object' ? value.value : value
+                                            return (
+                                                <span className={prediction === 1 ? 'text-success' : 'text-danger'}>
+                                                    {prediction === 1 ? 'Yes' : 'No'}
+                                                </span>
+                                            )
+                                        },
+                                    },
+                                    {
+                                        title: 'Amount',
+                                        dataIndex: 'amount',
+                                        key: 'amount',
+                                        render: function RenderAmount(amount: number) {
+                                            return `$${amount.toFixed(2)}`
+                                        },
+                                    },
+                                    {
+                                        title: 'Potential Payout',
+                                        dataIndex: 'potential_payout',
+                                        key: 'potential_payout',
+                                        render: function RenderPayout(payout: number) {
+                                            return `$${payout.toFixed(2)}`
+                                        },
+                                    },
+                                ]}
+                                rowKey="id"
+                                embedded
+                                nouns={['bet', 'bets']}
+                                emptyState="No bets placed yet"
+                                loading={userBetsLoading}
+                            />
+                        ),
+                    },
                 ]}
-                columns={[
-                    {
-                        title: 'Date',
-                        dataIndex: 'date',
-                        key: 'date',
-                    },
-                    {
-                        title: 'Bet Type',
-                        dataIndex: 'betType',
-                        key: 'betType',
-                        render: function RenderType(betType: string | number | undefined) {
-                            return <span className={betType === 'Yes' ? 'text-success' : 'text-danger'}>{betType}</span>
-                        },
-                    },
-                    {
-                        title: 'Bet Amount',
-                        dataIndex: 'price',
-                        key: 'price',
-                        render: function RenderPrice(price: string | number | undefined) {
-                            return `${(Number(price) * 100).toFixed(0)}¢`
-                        },
-                    },
-                    {
-                        title: 'Payout Potential',
-                        dataIndex: 'betAmount',
-                        key: 'betAmount',
-                    },
-                ]}
-                rowKey="id"
-                embedded
-                nouns={['trade', 'trades']}
-                emptyState="No trades for Analytics events prediction yet"
             />
         </div>
     )

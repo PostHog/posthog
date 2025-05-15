@@ -13,6 +13,7 @@ import { BetDetailContent } from './HedgedHogBetDetail'
 import { BettingContent } from './HedgedHogBetting'
 import { LeaderboardContent } from './HedgedHogLeaderboard'
 import { hedgedHogLogic } from './hedgedHogLogic'
+import { MyBetsContent } from './HedgedHogMyBets'
 import { WalletContent } from './HedgedHogWallet'
 
 export const scene: SceneExport = {
@@ -20,7 +21,7 @@ export const scene: SceneExport = {
     logic: hedgedHogLogic,
 }
 
-type Tab = 'betting' | 'wallet' | 'leaderboard'
+type Tab = 'betting' | 'wallet' | 'leaderboard' | 'my-bets'
 
 export function HedgedHogScene(): JSX.Element {
     const { location, searchParams } = useValues(router)
@@ -30,7 +31,7 @@ export function HedgedHogScene(): JSX.Element {
 
     // Get the active tab from URL query parameters or default to 'betting'
     const tabFromUrl = searchParams.tab as Tab
-    const activeTab: Tab = ['betting', 'wallet', 'leaderboard'].includes(tabFromUrl) ? tabFromUrl : 'betting'
+    const activeTab: Tab = ['betting', 'wallet', 'leaderboard', 'my-bets'].includes(tabFromUrl) ? tabFromUrl : 'betting'
 
     // Update the URL when tab changes
     const setActiveTab = (tab: Tab): void => {
@@ -86,6 +87,11 @@ export function HedgedHogScene(): JSX.Element {
                             key: 'betting',
                             label: 'Betting',
                             content: <BettingContent />,
+                        },
+                        {
+                            key: 'my-bets',
+                            label: 'My Bets',
+                            content: <MyBetsContent />,
                         },
                         {
                             key: 'wallet',

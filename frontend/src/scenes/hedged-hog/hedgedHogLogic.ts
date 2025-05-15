@@ -1,7 +1,9 @@
 import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 import api from 'lib/api'
+import { urls } from 'scenes/urls'
 
 import type { hedgedHogLogicType } from './hedgedHogLogicType'
 
@@ -51,7 +53,7 @@ export const hedgedHogLogic = kea<hedgedHogLogicType>([
         loadTransactions: () => ({}),
         setActiveTab: (tab: string) => ({ tab }),
         loadLeaderboard: (leaderboardType: LeaderboardType = 'balance') => ({ leaderboardType }),
-        setBetId: (betId: string | null) => ({ betId }),
+        setBetId: (betId: number | null) => ({ betId }),
         initializeWallet: true,
     }),
 
@@ -82,7 +84,6 @@ export const hedgedHogLogic = kea<hedgedHogLogicType>([
                 initializeWalletSuccess: () => true,
                 initializeWalletFailure: (state, { error }) => {
                     // If the error is "User already onboarded", we consider the user as onboarded
-                    // @ts-expect-error
                     if (error?.detail === 'User already onboarded') {
                         return true
                     }
@@ -91,7 +92,7 @@ export const hedgedHogLogic = kea<hedgedHogLogicType>([
             },
         ],
         activeTab: [
-            '',
+            'betting',
             {
                 setActiveTab: (_, { tab }) => tab,
             },
@@ -117,7 +118,7 @@ export const hedgedHogLogic = kea<hedgedHogLogicType>([
             },
         ],
         betId: [
-            null as string | null,
+            null as number | null,
             {
                 setBetId: (_, { betId }) => betId,
             },
@@ -127,9 +128,8 @@ export const hedgedHogLogic = kea<hedgedHogLogicType>([
     loaders(() => ({
         hedgedHogData: {
             loadHedgedHogData: async () => {
-                // Replace with actual API call when ready
-                await new Promise((resolve) => setTimeout(resolve, 500))
-                return { name: 'Loaded HedgedHog', value: Math.floor(Math.random() * 100) }
+                const response = await api.get('api/projects/@current/hedged-hog/')
+                return response
             },
         },
         transactions: {
@@ -150,6 +150,18 @@ export const hedgedHogLogic = kea<hedgedHogLogicType>([
             initializeWallet: async () => {
                 const response = await api.create(`api/projects/@current/onboarding/initialize/`)
                 return response as OnboardingResponse
+            },
+        },
+        allBets: {
+            loadAllBets: async (betDefinitionId: number) => {
+                const response = await api.get(`api/projects/@current/bets/all/${betDefinitionId}/`)
+                return response
+            },
+        },
+        userBets: {
+            loadUserBets: async (betDefinitionId: number) => {
+                const response = await api.get(`api/projects/@current/bets/user/${betDefinitionId}/`)
+                return response
             },
         },
         leaderboard: {
@@ -174,6 +186,20 @@ export const hedgedHogLogic = kea<hedgedHogLogicType>([
                 actions.loadWalletBalance()
             }
         },
+        initializeWallet: async () => {
+            actions.loadTransactions()
+            actions.loadWalletBalance()
+        },
+        setActiveTab: ({ tab }) => {
+            const { push } = router.actions
+            if (tab === 'betting') {
+                push(urls.hedgedHog())
+            } else if (tab === 'wallet') {
+                push(urls.hedgedHogWallet())
+            } else if (tab === 'my-bets') {
+                push(urls.hedgedHogMyBets())
+            }
+        },
     })),
 
     events(({ actions }) => ({
@@ -185,6 +211,11 @@ export const hedgedHogLogic = kea<hedgedHogLogicType>([
     })),
 
     urlToAction(({ actions, values }) => ({
+        '/hedged-hog': (_, searchParams) => {
+            if (searchParams.tab) {
+                actions.setActiveTab(searchParams.tab)
+            }
+        },
         '/hedged-hog/bet/:betId': ({ betId }) => {
             if (betId !== values.betId) {
                 actions.setBetId(betId ?? null)

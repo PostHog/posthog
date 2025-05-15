@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
 import { dayjs } from 'lib/dayjs'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
@@ -88,14 +87,14 @@ export function BettingContent(): JSX.Element {
         <div className="space-y-4">
             <div className="flex justify-between items-center mb-4">
                 <h2 className="text-xl">Available Bets</h2>
-                <LemonButton type="primary" onClick={() => setShowNewForm(true)} icon={<IconOpenInNew />}>
-                    Create New Bet
+                <LemonButton type="primary" onClick={() => setShowNewForm(true)}>
+                    Create bet definition
                 </LemonButton>
             </div>
 
             {showNewForm && (
                 <LemonCard className="mb-4" hoverEffect={false}>
-                    <h2 className="mb-4 text-xl">Create New Bet Definition</h2>
+                    <h2 className="mb-4 text-xl">Create</h2>
                     <BetDefinitionForm />
                 </LemonCard>
             )}
