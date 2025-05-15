@@ -1,10 +1,10 @@
+use crate::{auth::authenticate_request, clickhouse::ClickHouseWriter, config::Config};
 use opentelemetry_proto::tonic::collector::logs::v1::{
     logs_service_server::LogsService, ExportLogsServiceRequest, ExportLogsServiceResponse,
 };
+use serde_json::json;
 use tonic::{Request, Response, Status};
 use tracing::error;
-
-use crate::{auth::authenticate_request, clickhouse::ClickHouseWriter, config::Config};
 
 pub struct Service {
     config: Config,
@@ -50,16 +50,7 @@ impl LogsService for Service {
 
         for resource_logs in export_request.resource_logs {
             // Convert resource to string for storing in ClickHouse
-            let resource_str = match &resource_logs.resource {
-                Some(resource) => {
-                    let mut attributes = Vec::new();
-                    for attr in &resource.attributes {
-                        attributes.push(format!("{}={:?}", attr.key, attr.value));
-                    }
-                    attributes.join(", ")
-                }
-                None => "".to_string(),
-            };
+            let resource_str = json!(&resource_logs.resource).to_string();
 
             for scope_logs in resource_logs.scope_logs {
                 for log_record in scope_logs.log_records {

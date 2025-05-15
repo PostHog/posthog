@@ -9,23 +9,19 @@ use opentelemetry_proto::tonic::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
-use uuid::Uuid;
 
 #[derive(Row, Debug, Serialize, Deserialize)]
 pub struct LogRow {
-    id: Uuid,
     team_id: i32,
-    #[serde(with = "serde_bytes")]
     trace_id: [u8; 16],
-    #[serde(with = "serde_bytes")]
     span_id: [u8; 8],
     trace_flags: u8,
-    time_unix_nano: u64,
+    timestamp: u64,
     body: String,
-    attributes: HashMap<String, JsonValue>,
-    severity: String,
-    severity_num: i32,
-    resource_str: String,
+    _attributes: String,
+    severity_text: String,
+    severity_number: i32,
+    _resource: String,
     instrumentation_scope: String,
     event_name: String,
 }
@@ -72,19 +68,20 @@ impl LogRow {
 
         // Trace flags
         let trace_flags = record.flags as u8;
+        let _attributes = json!(attributes).to_string();
 
         Ok(Self {
-            id: Uuid::now_v7(),
+            // uuid: Uuid::now_v7(),
             team_id,
             trace_id,
             span_id,
             trace_flags,
-            time_unix_nano: record.time_unix_nano,
+            timestamp: record.time_unix_nano,
             body,
-            attributes,
-            severity: severity_text,
-            severity_num: record.severity_number,
-            resource_str,
+            _attributes,
+            severity_text,
+            severity_number: record.severity_number,
+            _resource: resource_str,
             instrumentation_scope,
             event_name,
         })

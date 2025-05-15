@@ -20,7 +20,6 @@ serde = { workspace = true }
 serde_derive = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
-# ClickHouse client dependencies
 clickhouse = { workspace = true }
 uuid = { workspace = true, features = ["v4", "serde"] }
 serde_json = { workspace = true }

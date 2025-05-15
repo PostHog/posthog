@@ -11,7 +11,7 @@ pub struct Config {
     #[envconfig(from = "JWT_SECRET")]
     pub jwt_secret: String,
 
-    #[envconfig(default = "http://localhost:8000")]
+    #[envconfig()]
     pub clickhouse_url: String,
 
     #[envconfig(from = "CLICKHOUSE_DATABASE", default = "default")]
