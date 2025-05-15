@@ -2,6 +2,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Optional
 
+from django.utils import timezone
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models.betting import BetDefinition, ProbabilityDistribution
 from posthog.clickhouse.client.connection import Workload
@@ -73,7 +74,7 @@ def load_pageview_probability_distribution(
     """
 
     # Prepare parameters for the query
-    end_date = datetime.now()
+    end_date = timezone.now()
     start_date = end_date - timedelta(days=interval_days)
 
     params = {
@@ -345,7 +346,7 @@ def create_probability_distribution(bet_definition: BetDefinition) -> Optional[P
         query += " GROUP BY date ORDER BY date"
 
         # Look back 30 days
-        end_date = datetime.now()
+        end_date = timezone.now()
         start_date = end_date - timedelta(days=30)
 
         params = {
