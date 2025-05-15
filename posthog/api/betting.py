@@ -75,7 +75,16 @@ class BetSerializer(serializers.ModelSerializer):
             "status",
             "created_at",
         ]
-        read_only_fields = ["id", "created_at", "potential_payout", "status", "bet_definition_title", "user", "team"]
+        read_only_fields = [
+            "id",
+            "created_at",
+            "potential_payout",
+            "status",
+            "bet_definition_title",
+            "user",
+            "team",
+            "probability_distribution",
+        ]
 
     def validate(self, data):
         # Validate bet definition is active
@@ -83,10 +92,13 @@ class BetSerializer(serializers.ModelSerializer):
         if not bet_definition.is_active:
             raise serializers.ValidationError("Cannot place bet on inactive bet definition")
 
-        # Validate probability distribution belongs to bet definition
-        prob_dist = data.get("probability_distribution")
-        if prob_dist and prob_dist.bet_definition.id != bet_definition.id:
-            raise serializers.ValidationError("Probability distribution does not belong to this bet definition")
+        # Get the latest probability distribution
+        latest_distribution = bet_definition.latest_probability_distribution
+        if not latest_distribution:
+            raise serializers.ValidationError("No probability distribution available for this bet definition")
+
+        # Set the probability distribution to the latest one
+        data["probability_distribution"] = latest_distribution
 
         # Validate user has sufficient funds
         request = self.context.get("request")

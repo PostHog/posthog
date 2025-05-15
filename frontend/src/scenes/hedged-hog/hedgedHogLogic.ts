@@ -70,6 +70,11 @@ export const hedgedHogLogic = kea<hedgedHogLogicType>([
         setBetId: (betId: string | null) => ({ betId }),
         initializeWallet: true,
         goBackToBets: true,
+        placeBet: (betDefinitionId: string, amount: number, predictedValue: number) => ({
+            betDefinitionId,
+            amount,
+            predictedValue,
+        }),
     }),
 
     reducers({
@@ -138,6 +143,13 @@ export const hedgedHogLogic = kea<hedgedHogLogicType>([
                 setBetId: (_, { betId }) => betId,
             },
         ],
+        betPlaced: [
+            false,
+            {
+                placeBetSuccess: () => true,
+                setBetId: () => false,
+            },
+        ],
     }),
 
     loaders(() => ({
@@ -197,6 +209,16 @@ export const hedgedHogLogic = kea<hedgedHogLogicType>([
                 return response as LeaderboardEntry[]
             },
         },
+        bet: {
+            placeBet: async ({ betDefinitionId, amount, predictedValue }) => {
+                const response = await api.create('api/projects/@current/bets/', {
+                    bet_definition: betDefinitionId,
+                    amount,
+                    predicted_value: predictedValue,
+                })
+                return response
+            },
+        },
     })),
 
     selectors({
@@ -232,6 +254,11 @@ export const hedgedHogLogic = kea<hedgedHogLogicType>([
         goBackToBets: () => {
             actions.setBetId(null)
             router.actions.push(urls.hedgedHog())
+        },
+        placeBetSuccess: () => {
+            actions.loadTransactions()
+            actions.loadWalletBalance()
+            actions.goBackToBets()
         },
     })),
 
