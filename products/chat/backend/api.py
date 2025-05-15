@@ -59,6 +59,13 @@ class ChatConversationSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        request = self.context.get("request")
+        if request and request.method == "POST":
+            self.fields["person_uuid"].required = False
+
 
 class ChatConversationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "chat_conversation"
@@ -89,9 +96,22 @@ class ChatConversationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(serializer.data)
 
     def perform_create(self, serializer):
-        person_uuid = serializer.validated_data.get("person_uuid")
-        if not person_uuid:
-            raise serializers.ValidationError("Person UUID is required")
+        distinct_id = self.request.data["distinct_id"]  # serializer.validated_data.get("person_uuid")
+        if not distinct_id:
+            raise serializers.ValidationError("Distinct id UUID is required")
+
+        persons = get_persons_by_distinct_ids(team_id=self.team.id, distinct_ids=[distinct_id])
+        if not persons.exists():
+            return cors_response(
+                request,
+                JsonResponse(
+                    {"status": "error", "message": f"Person with distinct_id {distinct_id} not found"},
+                    status=status.HTTP_404_NOT_FOUND,
+                ),
+            )
+        person = persons.first()
+
+        person_uuid = person.uuid
 
         try:
             Person.objects.get(uuid=person_uuid, team_id=self.team_id)
