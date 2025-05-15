@@ -412,7 +412,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         settings: [
             {
                 id: 'csp-reporting',
-                title: 'CSP Reporting',
+                title: 'CSP reporting',
                 component: <CSPReportingSettings />,
                 flag: 'CSP_REPORTING',
             },
