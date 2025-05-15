@@ -13204,16 +13204,8 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
-                "kind": {
-                    "const": "LogsQuery",
-                    "type": "string"
-                },
                 "limit": {
                     "$ref": "#/definitions/integer"
-                },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
                 },
                 "offset": {
                     "$ref": "#/definitions/integer"
