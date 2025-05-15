@@ -21,6 +21,7 @@ interface BetFlowProps {
     showConfirmation: boolean
     setShowConfirmation: (show: boolean) => void
     handlePlaceBet: () => void
+    bucketRanges: Array<{ min: number; max: number; probability: number }>
 }
 
 const BetFlow = ({
@@ -31,7 +32,10 @@ const BetFlow = ({
     showConfirmation,
     setShowConfirmation,
     handlePlaceBet,
+    bucketRanges,
 }: BetFlowProps): JSX.Element => {
+    const getPrice = (probability: number): string => (1 / probability).toFixed(2)
+
     return (
         <LemonCard className="h-full" hoverEffect={false}>
             <div>
@@ -40,32 +44,30 @@ const BetFlow = ({
                         <div>
                             <h3 className="font-semibold mb-4">Place a bet</h3>
                             <div className="space-y-3">
-                                <LemonButton
-                                    fullWidth
-                                    center
-                                    type="primary"
-                                    size="small"
-                                    onClick={() => {
-                                        setBetType('Yes')
-                                        setShowConfirmation(true)
-                                    }}
-                                    disabledReason={amount === 0 && 'The amount must be greater than 0'}
-                                >
-                                    Yes 39¢
-                                </LemonButton>
-                                <LemonButton
-                                    fullWidth
-                                    center
-                                    type="primary"
-                                    size="small"
-                                    onClick={() => {
-                                        setBetType('No')
-                                        setShowConfirmation(true)
-                                    }}
-                                    disabledReason={amount === 0 && 'The amount must be greater than 0'}
-                                >
-                                    No 62¢
-                                </LemonButton>
+                                {bucketRanges.map((bucket, index) => (
+                                    <div key={index} className="flex items-center gap-2">
+                                        <LemonButton
+                                            fullWidth
+                                            center
+                                            type="primary"
+                                            size="small"
+                                            onClick={() => {
+                                                setBetType(`${bucket.min}-${bucket.max}`)
+                                                setShowConfirmation(true)
+                                            }}
+                                            disabledReason={amount === 0 && 'The amount must be greater than 0'}
+                                        >
+                                            <span>
+                                                {index === 0
+                                                    ? `≤${Math.round(bucket.max)}`
+                                                    : index === bucketRanges.length - 1
+                                                    ? `≥${Math.round(bucket.min)}`
+                                                    : `${Math.round(bucket.min)}-${Math.round(bucket.max)}`}
+                                                ({Math.round(bucket.probability * 100)}%) Bet
+                                            </span>
+                                        </LemonButton>
+                                    </div>
+                                ))}
                             </div>
                         </div>
 
@@ -109,14 +111,8 @@ const BetFlow = ({
                         </div>
                         <div className="space-y-4 mb-8">
                             <div className="flex justify-between items-center">
-                                <span className="text-muted">Bet Type:</span>
-                                <span
-                                    className={`text-lg font-semibold ${
-                                        betType === 'Yes' ? 'text-success' : 'text-danger'
-                                    }`}
-                                >
-                                    {betType}
-                                </span>
+                                <span className="text-muted">Range:</span>
+                                <span className="text-lg font-semibold">{betType}</span>
                             </div>
                             <div className="flex justify-between items-center">
                                 <span className="text-muted">Amount:</span>
@@ -124,13 +120,27 @@ const BetFlow = ({
                             </div>
                             <div className="flex justify-between items-center">
                                 <span className="text-muted">Price:</span>
-                                <span className="text-lg font-semibold">{betType === 'Yes' ? '39¢' : '62¢'}</span>
+                                <span className="text-lg font-semibold">
+                                    {getPrice(
+                                        bucketRanges.find((b) => `${b.min}-${b.max}` === betType)?.probability || 0
+                                    )}
+                                    ¢
+                                </span>
                             </div>
                             <LemonDivider className="my-4" />
                             <div className="flex justify-between items-center">
                                 <span className="font-semibold">Potential Payout:</span>
                                 <span className="text-success text-lg font-bold">
-                                    ${betType === 'Yes' ? (amount / 0.39).toFixed(2) : (amount / 0.62).toFixed(2)}
+                                    $
+                                    {(
+                                        amount /
+                                        Number(
+                                            getPrice(
+                                                bucketRanges.find((b) => `${b.min}-${b.max}` === betType)
+                                                    ?.probability || 0
+                                            )
+                                        )
+                                    ).toFixed(2)}
                                 </span>
                             </div>
                         </div>
@@ -175,9 +185,12 @@ export function BetDetailContent(): JSX.Element {
         )
     }
 
+    const latestDistribution = bet.latest_distribution
+
     const handlePlaceBet = (): void => {
         if (betId) {
-            placeBet(betId, amount, betType === 'Yes' ? 1 : 0)
+            const [min, max] = betType.split('-').map(Number)
+            placeBet(betId, amount, (min + max) / 2) // Use the midpoint of the range as the predicted value
         }
         setShowConfirmation(false)
     }
@@ -190,6 +203,30 @@ export function BetDetailContent(): JSX.Element {
             loadUserBets(betId)
         }
     }
+
+    // Transform probability distributions for the chart
+    const chartData = bet.probability_distributions.map((dist) => ({
+        date: new Date(dist.created_at).toLocaleDateString(),
+        ranges: dist.buckets.map((bucket, index) => ({
+            range:
+                index === 0
+                    ? `≤${Math.round(bucket.max)}`
+                    : index === dist.buckets.length - 1
+                    ? `≥${Math.round(bucket.min)}`
+                    : `${Math.round(bucket.min)}-${Math.round(bucket.max)}`,
+            probability: bucket.probability * 100,
+        })),
+    }))
+
+    // Get unique range labels for the series
+    const rangeLabels =
+        latestDistribution?.buckets.map((bucket, index) =>
+            index === 0
+                ? `≤${Math.round(bucket.max)}`
+                : index === latestDistribution.buckets.length - 1
+                ? `≥${Math.round(bucket.min)}`
+                : `${Math.round(bucket.min)}-${Math.round(bucket.max)}`
+        ) || []
 
     return (
         <div className="space-y-4">
@@ -231,19 +268,19 @@ export function BetDetailContent(): JSX.Element {
                                 </div>
                                 <div>
                                     <div className="text-sm text-muted mb-1">Deadline</div>
-                                    <div className="font-semibold">May 21, 2025</div>
+                                    <div className="font-semibold">
+                                        {new Date(bet.closing_date).toLocaleDateString()}
+                                    </div>
                                 </div>
                                 <div>
                                     <div className="text-sm text-muted mb-1">Time Remaining</div>
                                     <div>
-                                        <span className="font-semibold">12 hours</span>
-                                    </div>
-                                </div>
-                                <div>
-                                    <div className="text-sm text-muted mb-1">Current probability</div>
-                                    <div>
-                                        <span className="text-2xl font-bold">39%</span>
-                                        <span className="text-sm text-success ml-2">↑ 20%</span>
+                                        <span className="font-semibold">
+                                            {Math.ceil(
+                                                (new Date(bet.closing_date).getTime() - Date.now()) / (1000 * 60 * 60)
+                                            )}{' '}
+                                            hours
+                                        </span>
                                     </div>
                                 </div>
                             </div>
@@ -251,59 +288,18 @@ export function BetDetailContent(): JSX.Element {
                                 <div className="h-96">
                                     <BillingLineGraph
                                         containerClassName="h-full"
-                                        series={[
-                                            {
-                                                id: 1,
-                                                label: 'Yes',
-                                                data: [85, 75, 80, 70, 60, 70, 55, 45, 35, 40],
-                                                dates: [
-                                                    'Jan 8',
-                                                    'Jan 19',
-                                                    'Jan 31',
-                                                    'Feb 11',
-                                                    'Feb 28',
-                                                    'Mar 11',
-                                                    'Mar 31',
-                                                    'Apr 11',
-                                                    'Apr 30',
-                                                    'May 11',
-                                                ],
-                                            },
-                                            {
-                                                id: 2,
-                                                label: 'No',
-                                                data: [15, 25, 20, 35, 40, 30, 45, 55, 65, 60],
-                                                dates: [
-                                                    'Jan 8',
-                                                    'Jan 19',
-                                                    'Jan 31',
-                                                    'Feb 11',
-                                                    'Feb 28',
-                                                    'Mar 11',
-                                                    'Mar 31',
-                                                    'Apr 11',
-                                                    'Apr 30',
-                                                    'May 11',
-                                                ],
-                                            },
-                                        ]}
-                                        dates={[
-                                            'Jan 8',
-                                            'Jan 19',
-                                            'Jan 31',
-                                            'Feb 11',
-                                            'Feb 28',
-                                            'Mar 11',
-                                            'Mar 31',
-                                            'Apr 11',
-                                            'Apr 30',
-                                            'May 11',
-                                        ]}
+                                        series={rangeLabels.map((range, index) => ({
+                                            id: index + 1,
+                                            label: range,
+                                            data: chartData.map((d) => d.ranges[index].probability),
+                                            dates: chartData.map((d) => d.date),
+                                        }))}
+                                        dates={chartData.map((d) => d.date)}
                                         hiddenSeries={[]}
                                         valueFormatter={(value) => `${value}%`}
                                         interval="day"
                                         max={100}
-                                        showLegend={false}
+                                        showLegend={true}
                                     />
                                 </div>
                                 <div className="w-full flex justify-between mt-4">
@@ -331,6 +327,7 @@ export function BetDetailContent(): JSX.Element {
                         showConfirmation={showConfirmation}
                         setShowConfirmation={setShowConfirmation}
                         handlePlaceBet={handlePlaceBet}
+                        bucketRanges={latestDistribution?.buckets || []}
                     />
                 </div>
             </div>
