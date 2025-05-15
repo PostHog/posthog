@@ -34,8 +34,8 @@ class ChatConversation(FileSystemSyncMixin, UUIDModel):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    # Which page/url the conversation started on
-    source_url = models.URLField(max_length=2000, blank=True, null=True)
+    # Which page/url the conversation started on - can be any string now
+    source_url = models.CharField(max_length=2000, blank=True, null=True)
 
     # Unread message count
     unread_count = models.PositiveIntegerField(default=0)
