@@ -67,6 +67,7 @@
         "@posthog/products-early-access-features": "workspace:*",
         "@posthog/products-experiments": "workspace:*",
         "@posthog/products-feature-flags": "workspace:*",
+        "@posthog/products-games": "workspace:*",
         "@posthog/products-groups": "workspace:*",
         "@posthog/products-llm-observability": "workspace:*",
         "@posthog/products-logs": "workspace:*",

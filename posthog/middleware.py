@@ -702,3 +702,30 @@ class AutoLogoutImpersonateMiddleware:
                 return redirect("/admin/")
 
         return self.get_response(request)
+
+
+class Fix204Middleware:
+    """
+    Remove the 'Content-Type' and 'X-Content-Type-Options: nosniff' headers and set content to empty string for HTTP 204 response (and only those).
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        response = self.get_response(request)
+
+        if response.status_code != 204:
+            return response
+
+        # Remove the 'Content-Type' and 'X-Content-Type-Options: nosniff' headers
+        for h in ["Content-Type", "X-Content-Type-Options"]:
+            if h in response.headers:
+                del response.headers[h]
+
+        response.headers["Content-Length"] = "0"
+
+        # Set content to empty string
+        response.content = b""
+
+        return response

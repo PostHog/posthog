@@ -263,6 +263,7 @@ export const FEATURE_FLAGS = {
     ALWAYS_QUERY_BLOCKING: 'always-query-blocking', // owner: @timgl
     GET_HOG_TEMPLATES_FROM_DB: 'get-hog-templates-from-db', // owner: @meikel #team-cdp
     LINK: 'link', // owner: @marconlp #team-link
+    GAME_CENTER: 'game-center', // owner: everybody
     LOGS: 'logs', // owner: @david @frank @olly @ross
     CSP_REPORTING: 'mexicspo', // owner @pauldambra @lricoy @robbiec
 } as const
