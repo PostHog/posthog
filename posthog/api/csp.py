@@ -117,7 +117,7 @@ def process_csp_report(request):
         return {
             "event": "$csp_violation",
             "distinct_id": distinct_id,
-            "properties": {**properties, "$session_id": session_id, "csp_version": version},
+            "properties": {"$session_id": session_id, "csp_version": version, **properties},
         }, None
 
     # In order to be safe, we want to keep the ingestion pipeline working as it was
