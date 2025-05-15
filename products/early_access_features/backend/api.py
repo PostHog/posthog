@@ -29,7 +29,7 @@ class MinimalEarlyAccessFeatureSerializer(serializers.ModelSerializer):
     """
 
     documentationUrl = serializers.URLField(source="documentation_url")
-    flagKey = serializers.CharField(source="feature_flag.key")
+    flagKey = serializers.CharField(source="feature_flag.key", allow_null=True)
 
     class Meta:
         model = EarlyAccessFeature
