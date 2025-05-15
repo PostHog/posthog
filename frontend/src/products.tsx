@@ -45,6 +45,8 @@ import {
 
 /** This const is auto-generated, as is the whole file */
 export const productScenes: Record<string, () => Promise<any>> = {
+    ChatList: () => import('../../products/chat/frontend/scenes/ChatList'),
+    Chat: () => import('../../products/chat/frontend/scenes/Chat'),
     EarlyAccessFeatures: () => import('../../products/early_access_features/frontend/EarlyAccessFeatures'),
     EarlyAccessFeature: () => import('../../products/early_access_features/frontend/EarlyAccessFeature'),
     LLMObservability: () => import('../../products/llm_observability/frontend/LLMObservabilityScene'),
@@ -60,6 +62,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
 
 /** This const is auto-generated, as is the whole file */
 export const productRoutes: Record<string, [string, string]> = {
+    '/chat': ['ChatList', 'chatList'],
+    '/chat/:id': ['Chat', 'chat'],
     '/early_access_features': ['EarlyAccessFeatures', 'earlyAccessFeatures'],
     '/early_access_features/:id': ['EarlyAccessFeature', 'earlyAccessFeature'],
     '/llm-observability': ['LLMObservability', 'llmObservability'],
@@ -93,6 +97,18 @@ export const productRedirects: Record<
 
 /** This const is auto-generated, as is the whole file */
 export const productConfiguration: Record<string, any> = {
+    ChatList: {
+        name: 'Chat List',
+        projectBased: true,
+        defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
+        activityScope: 'ChatList',
+    },
+    Chat: {
+        name: 'Chat',
+        projectBased: true,
+        defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
+        activityScope: 'Chat',
+    },
     EarlyAccessFeatures: {
         name: 'Early Access Features',
         projectBased: true,
@@ -148,6 +164,8 @@ export const productUrls = {
     },
     action: (id: string | number): string => `/data-management/actions/${id}`,
     actions: (): string => '/data-management/actions',
+    chatList: (): string => '/chat',
+    chat: (id: string): string => `/chat/${id}`,
     cohort: (id: string | number): string => `/cohorts/${id}`,
     cohorts: (): string => '/cohorts',
     dashboards: (): string => '/dashboard',
@@ -290,6 +308,7 @@ export const productUrls = {
 /** This const is auto-generated, as is the whole file */
 export const fileSystemTypes = {
     action: { icon: <IconRocket />, href: (ref: string) => urls.action(ref) },
+    chat_feature: { icon: <IconChat />, href: (ref: string) => urls.chat(ref) },
     cohort: { icon: <IconPeople />, href: (ref: string) => urls.cohort(ref) },
     dashboard: { icon: <IconDashboard />, href: (ref: string) => urls.dashboard(ref) },
     early_access_feature: { icon: <IconRocket />, href: (ref: string) => urls.earlyAccessFeature(ref) },
@@ -318,6 +337,7 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
         href: urls.messagingCampaignNew(),
         flag: FEATURE_FLAGS.MESSAGING_AUTOMATION,
     },
+    { path: `Chat`, type: 'chat_feature', href: urls.chat('new') },
     { path: `Cohort`, type: 'cohort', href: urls.cohort('new') },
     { path: `Dashboard`, type: 'dashboard', href: urls.dashboards() + '#newDashboard=modal' },
     { path: `Early access feature`, type: 'early_access_feature', href: urls.earlyAccessFeature('new') },
@@ -338,6 +358,7 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
 export const getTreeItemsProducts = (): FileSystemImport[] => [
     { path: 'Broadcasts', href: urls.messagingBroadcasts(), type: 'hog_function/broadcast' },
     { path: 'Campaigns', href: urls.messagingCampaigns(), type: 'hog_function/campaign' },
+    { path: 'Chat', type: 'chat_feature', href: urls.chatList() },
     { path: 'Cohorts', type: 'cohort', href: urls.cohorts() },
     { path: 'Early access features', type: 'early_access_feature', href: urls.earlyAccessFeatures() },
     { path: `Experiments`, type: 'experiment', href: urls.experiments() },
@@ -362,6 +383,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
 /** This const is auto-generated, as is the whole file */
 export const getTreeFilterTypes = (): Record<string, FileSystemFilterType> => ({
     action: { name: 'Actions' },
+    chat_feature: { name: 'Chat' },
     dashboard: { name: 'Dashboards' },
     early_access_feature: { name: 'Early access features' },
     experiment: { name: 'Experiments' },
