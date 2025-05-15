@@ -25,7 +25,7 @@ export function LinkMetricSparkline({ id }: Props): JSX.Element {
     ) : (
         <Sparkline
             loading={sparklineDataLoading}
-            labels={sparklineData?.results[0].labels}
+            labels={sparklineData?.results?.[0]?.labels}
             data={displayData}
             className="h-8 max-w-24"
             maximumIndicator={false}
