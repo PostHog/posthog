@@ -7,3 +7,4 @@ T = TypeVar("T", bound=BaseModel)
 
 class SchemaGeneratorOutput(BaseModel, Generic[T]):
     query: Optional[T] = None
+    title: str

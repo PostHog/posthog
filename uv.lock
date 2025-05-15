@@ -2532,23 +2532,20 @@ wheels = [
 
 [[package]]
 name = "langchain"
-version = "0.3.9"
+version = "0.3.25"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "aiohttp" },
     { name = "langchain-core" },
     { name = "langchain-text-splitters" },
     { name = "langsmith" },
-    { name = "numpy" },
     { name = "pydantic" },
     { name = "pyyaml" },
     { name = "requests" },
     { name = "sqlalchemy" },
-    { name = "tenacity" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/88/9e/7cf5c9653d545461b8e29d70cb2e029dbd5d10cd771968f342a35d324b8f/langchain-0.3.9.tar.gz", hash = "sha256:4950c4ad627d0aa95ce6bda7de453e22059b7e7836b562a8f781fb0b05d7294c", size = 419365 }
+sdist = { url = "https://files.pythonhosted.org/packages/fc/f9/a256609096a9fc7a1b3a6300a97000091efabdf21555a97988f93d4d9258/langchain-0.3.25.tar.gz", hash = "sha256:a1d72aa39546a23db08492d7228464af35c9ee83379945535ceef877340d2a3a", size = 10225045 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/7d/04/1990e724a3cc3cc858f48f524facabbcab6857b5690ddf1f747899e0baab/langchain-0.3.9-py3-none-any.whl", hash = "sha256:ade5a1fee2f94f2e976a6c387f97d62cc7f0b9f26cfe0132a41d2bda761e1045", size = 1008401 },
+    { url = "https://files.pythonhosted.org/packages/ed/5c/5c0be747261e1f8129b875fa3bfea736bc5fe17652f9d5e15ca118571b6f/langchain-0.3.25-py3-none-any.whl", hash = "sha256:931f7d2d1eaf182f9f41c5e3272859cfe7f94fc1f7cef6b3e5a46024b4884c21", size = 1011008 },
 ]
 
 [[package]]
@@ -2567,11 +2564,12 @@ wheels = [
 
 [[package]]
 name = "langchain-community"
-version = "0.3.2"
+version = "0.3.24"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiohttp" },
     { name = "dataclasses-json" },
+    { name = "httpx-sse" },
     { name = "langchain" },
     { name = "langchain-core" },
     { name = "langsmith" },
@@ -2582,9 +2580,9 @@ dependencies = [
     { name = "sqlalchemy" },
     { name = "tenacity" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/86/6e/119bbbd4d55ab14dc6fc4a82a2466b88f7ddb989bdbdfcf96327c5daba4e/langchain_community-0.3.2.tar.gz", hash = "sha256:469bf5357a08c915cebc4c506dca4617eec737d82a9b6e340df5f3b814dc89bc", size = 1608524 }
+sdist = { url = "https://files.pythonhosted.org/packages/01/f6/4892d1f1cf6d3e89da6ee6cfb0eb82b908c706c58bde7df28367ee76a93f/langchain_community-0.3.24.tar.gz", hash = "sha256:62d9e8cf9aadf35182ec3925f9ec1c8e5e84fb4f199f67a01aee496d289dc264", size = 33233643 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/cc/57/a8b4826eaa29d3663c957251ab32275a0c178bdb0e262a1204ed820f430c/langchain_community-0.3.2-py3-none-any.whl", hash = "sha256:fffcd484c7674e81ceaa72a809962338bfb17ec8f9e0377ce4e9d884e6fe8ca5", size = 2367818 },
+    { url = "https://files.pythonhosted.org/packages/d5/cb/582f22d74d69f4dbd41e98d361ee36922b79a245a9411383327bd4b63747/langchain_community-0.3.24-py3-none-any.whl", hash = "sha256:b6cdb376bf1c2f4d2503aca20f8f35f2d5b3d879c52848277f20ce1950e7afaf", size = 2528335 },
 ]
 
 [[package]]
@@ -2621,14 +2619,14 @@ wheels = [
 
 [[package]]
 name = "langchain-text-splitters"
-version = "0.3.0"
+version = "0.3.8"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "langchain-core" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/57/35/08ac1ca01c58da825f070bd1fdc9192a9ff52c0a048f74c93b05df70c127/langchain_text_splitters-0.3.0.tar.gz", hash = "sha256:f9fe0b4d244db1d6de211e7343d4abc4aa90295aa22e1f0c89e51f33c55cd7ce", size = 20234 }
+sdist = { url = "https://files.pythonhosted.org/packages/e7/ac/b4a25c5716bb0103b1515f1f52cc69ffb1035a5a225ee5afe3aed28bf57b/langchain_text_splitters-0.3.8.tar.gz", hash = "sha256:116d4b9f2a22dda357d0b79e30acf005c5518177971c66a9f1ab0edfdb0f912e", size = 42128 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/da/6a/d1303b722a3fa7a0a8c2f8f5307e42f0bdbded46d99cca436f3db0df5294/langchain_text_splitters-0.3.0-py3-none-any.whl", hash = "sha256:e84243e45eaff16e5b776cd9c81b6d07c55c010ebcb1965deb3d1792b7358e83", size = 25543 },
+    { url = "https://files.pythonhosted.org/packages/8b/a3/3696ff2444658053c01b6b7443e761f28bb71217d82bb89137a978c5f66f/langchain_text_splitters-0.3.8-py3-none-any.whl", hash = "sha256:e75cc0f4ae58dcf07d9f18776400cf8ade27fadd4ff6d264df6278bb302f6f02", size = 32440 },
 ]
 
 [[package]]
@@ -3745,6 +3743,7 @@ dependencies = [
     { name = "langchain" },
     { name = "langchain-anthropic" },
     { name = "langchain-community" },
+    { name = "langchain-core" },
     { name = "langchain-openai" },
     { name = "langgraph" },
     { name = "lxml" },
@@ -3941,9 +3940,10 @@ requires-dist = [
     { name = "jsonref", specifier = "==1.1.0" },
     { name = "kafka-python", specifier = "==2.0.2" },
     { name = "kombu", specifier = "==5.3.2" },
-    { name = "langchain", specifier = "==0.3.9" },
+    { name = "langchain", specifier = "==0.3.25" },
     { name = "langchain-anthropic", specifier = ">=0.3.12" },
-    { name = "langchain-community", specifier = "==0.3.2" },
+    { name = "langchain-community", specifier = "==0.3.24" },
+    { name = "langchain-core", specifier = ">=0.3.59" },
     { name = "langchain-openai", specifier = "==0.2.11" },
     { name = "langgraph", specifier = "==0.2.56" },
     { name = "lxml", specifier = "==5.2.1" },

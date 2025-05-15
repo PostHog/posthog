@@ -200,6 +200,7 @@ class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
     ) -> PartialAssistantState:
         intermediate_steps = state.intermediate_steps or []
         action = intermediate_steps[-1]
+        print(action)
         tool_call = parse_langchain_message(action).tool_calls[0]
         assert tool_call is not None
 
@@ -226,7 +227,9 @@ class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
 
             # The agent has requested help, so we return a message to the root node.
             if tool_call.name == "ask_user_for_help":
-                return self._get_reset_state(state, REACT_HELP_REQUEST_PROMPT.format(request=input.arguments))
+                return self._get_reset_state(
+                    state, REACT_HELP_REQUEST_PROMPT.format(request=tool_call.args["question"])
+                )
 
         # If we're still here, the final prompt hasn't helped.
         if len(intermediate_steps) >= self.MAX_ITERATIONS:

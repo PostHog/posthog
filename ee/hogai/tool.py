@@ -93,3 +93,30 @@ class MaxTool(BaseTool):
             key: (json.dumps(value) if isinstance(value, dict | list) else value) for key, value in context.items()
         }
         return self.root_system_prompt_template.format(**formatted_context)
+
+
+class message_ask_user(BaseModel):
+    """
+    Ask user a question and wait for response. Use for requesting clarification, asking for confirmation, or gathering additional information.
+    """
+
+    text: str = Field(description="Question text to present to user")
+
+
+class replan(BaseModel):
+    """
+    If you are faced a problem that you cannot solve with the existing plan and tools, request creating a new plan.
+    """
+
+
+class analyze_session_replay(BaseModel):
+    """
+    Analyze session recordings for a given insight to get insights into the user's behavior. Specify particular area you want to analyze.
+    """
+
+    insight_id: int = Field(description="The ID of the insight to analyze")
+    focus_area: str = Field(description="The area of the insight to analyze")
+    funnel_drop_off: bool | None = Field(
+        default=None, description="Whether to include dropped off sessions in the analysis of a funnel"
+    )
+    funnel_step: int | None = Field(default=None, description="The step of the funnel to analyze starting from zero.")

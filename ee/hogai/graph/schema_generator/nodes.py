@@ -3,10 +3,10 @@ from functools import cached_property
 from typing import Generic, Optional, TypeVar
 from uuid import uuid4
 
-from langchain_core.agents import AgentAction
 from langchain_core.messages import (
     AIMessage as LangchainAssistantMessage,
     BaseMessage,
+    ToolMessage as LangchainToolMessage,
     merge_message_runs,
 )
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
@@ -14,6 +14,15 @@ from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 
+from ee.hogai.utils.helpers import find_start_message
+from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.schema import (
+    FailureMessage,
+    VisualizationMessage,
+)
+
+from ..base import AssistantNode
 from .parsers import (
     PydanticOutputParserException,
     parse_pydantic_structured_output,
@@ -27,14 +36,6 @@ from .prompts import (
     QUESTION_PROMPT,
 )
 from .utils import SchemaGeneratorOutput
-from ee.hogai.utils.helpers import find_start_message
-from ..base import AssistantNode
-from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.schema import (
-    FailureMessage,
-    VisualizationMessage,
-)
 
 Q = TypeVar("Q", bound=BaseModel)
 
@@ -70,7 +71,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         start_id = state.start_id
         generated_plan = state.plan or ""
         intermediate_steps = state.intermediate_steps or []
-        validation_error_message = intermediate_steps[-1][1] if intermediate_steps else None
+        validation_error_message = str(intermediate_steps[-1].content) if intermediate_steps else None
 
         generation_prompt = prompt + self._construct_messages(state, validation_error_message=validation_error_message)
         merger = merge_message_runs()
@@ -102,7 +103,16 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
             return PartialAssistantState(
                 intermediate_steps=[
                     *intermediate_steps,
-                    (AgentAction("handle_incorrect_response", e.llm_output, e.validation_message), None),
+                    LangchainAssistantMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "name": "handle_incorrect_response",
+                                "id": "error",
+                                "args": {"llm_output": e.llm_output, "validation_message": e.validation_message},
+                            }
+                        ],
+                    ),
                 ],
             )
 
@@ -111,6 +121,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
             plan=generated_plan,
             answer=message.query,
             initiator=start_id,
+            title=message.title,
             id=str(uuid4()),
         )
 
@@ -185,6 +196,11 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
             )
         )
 
+        if state.intermediate_steps:
+            for m in state.intermediate_steps:
+                if isinstance(m, LangchainToolMessage):
+                    conversation.append(LangchainAssistantMessage(content=m.content))
+
         # Retries must be added to the end of the conversation.
         if validation_error_message:
             conversation.append(
@@ -214,16 +230,18 @@ class SchemaGeneratorToolsNode(AssistantNode):
         if not intermediate_steps:
             return PartialAssistantState()
 
-        action, _ = intermediate_steps[-1]
+        action = intermediate_steps[-1]
+        args = action.tool_calls[0]["args"]
+
         prompt = (
             ChatPromptTemplate.from_template(FAILOVER_OUTPUT_PROMPT, template_format="mustache")
-            .format_messages(output=action.tool_input, exception_message=action.log)[0]
+            .format_messages(output=args["llm_output"], exception_message=args["validation_message"])[0]
             .content
         )
 
         return PartialAssistantState(
             intermediate_steps=[
-                *intermediate_steps[:-1],
-                (action, str(prompt)),
+                *intermediate_steps,
+                LangchainToolMessage(tool_call_id=action.tool_calls[0]["id"], content=prompt),
             ]
         )

@@ -121,6 +121,12 @@ class _SharedAssistantState(BaseModel):
     The context for taxonomy agent.
     """
 
+    mode: Optional[str] = Field(default=None)
+    """
+    The mode of the assistant.
+    """
+    session_replay_analysis: Optional[dict] = Field(default=None)
+
 
 class AssistantState(_SharedAssistantState):
     messages: Annotated[Sequence[AssistantMessageUnion], add_and_merge_messages]
@@ -183,6 +189,7 @@ class AssistantNodeName(StrEnum):
     INSIGHT_RAG_CONTEXT = "insight_rag_context"
     INSIGHTS_SUBGRAPH = "insights_subgraph"
     TITLE_GENERATOR = "title_generator"
+    SESSION_REPLAY_ANALYZER = "session_replay_analyzer"
 
 
 class AssistantMode(StrEnum):

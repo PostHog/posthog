@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 import posthoganalytics
 import structlog
 from langchain_core.callbacks.base import BaseCallbackHandler
-from langchain_core.messages import AIMessageChunk
+from langchain_core.messages import AIMessage, AIMessageChunk
 from langchain_core.runnables.config import RunnableConfig
 from langgraph.errors import GraphRecursionError
 from langgraph.graph.state import CompiledStateGraph
@@ -89,6 +89,18 @@ VERBOSE_NODES = STREAMING_NODES | {
 logger = structlog.get_logger(__name__)
 
 
+def process_chunk(chunk: AIMessageChunk) -> str:
+    if isinstance(chunk.content, list):
+        chunks = []
+        for subchunk in chunk.content:
+            if isinstance(subchunk, str):
+                chunks.append(subchunk)
+            elif isinstance(subchunk, dict) and "text" in subchunk:
+                chunks.append(subchunk["text"])
+        return "".join(chunks)
+    return chunk.content
+
+
 class Assistant:
     _team: Team
     _graph: CompiledStateGraph
@@ -129,7 +141,7 @@ class Assistant:
                 self._graph = InsightsAssistantGraph(team).compile_full_graph()
             case _:
                 raise ValueError(f"Invalid assistant mode: {mode}")
-        self._chunks = AIMessageChunk(content="")
+        self._chunks = AIMessageChunk(content=[])
         self._tool_call_partial_state = tool_call_partial_state
         self._state = None
         self._callback_handler = (
@@ -223,14 +235,16 @@ class Assistant:
     @property
     def _initial_state(self) -> AssistantState:
         if self._latest_message and self._mode == AssistantMode.ASSISTANT:
-            return AssistantState(messages=[self._latest_message], start_id=self._latest_message.id)
+            return AssistantState(
+                messages=[self._latest_message], start_id=self._latest_message.id, mode="deep_research"
+            )
         else:
             return AssistantState(messages=[])
 
     def _get_config(self) -> RunnableConfig:
         callbacks = [self._callback_handler] if self._callback_handler else None
         config: RunnableConfig = {
-            "recursion_limit": 48,
+            "recursion_limit": 120,
             "callbacks": callbacks,
             "configurable": {
                 "thread_id": self._conversation.id,
@@ -238,6 +252,7 @@ class Assistant:
                 "distinct_id": self._user.distinct_id if self._user else None,
                 "contextual_tools": self._contextual_tools,
                 "team_id": self._team.id,
+                "user_id": self._user.id if self._user else None,
             },
         }
         return config
@@ -279,39 +294,33 @@ class Assistant:
                 | AssistantNodeName.SQL_PLANNER_TOOLS
             ):
                 substeps: list[str] = []
-                if input == 1:
+                if input:
                     if intermediate_steps := input.intermediate_steps:
                         for action in intermediate_steps:
-                            match action.tool:
+                            if not isinstance(action, AIMessage) or len(action.tool_calls) == 0:
+                                continue
+                            tool_call = action.tool_calls[-1]
+                            args = tool_call["args"]
+                            match tool_call["name"]:
                                 case "retrieve_event_properties":
-                                    substeps.append(f"Exploring `{action.tool_input}` event's properties")
+                                    substeps.append(f"Exploring `{args['event_name']}` event's properties")
                                 case "retrieve_entity_properties":
-                                    substeps.append(f"Exploring {action.tool_input} properties")
+                                    substeps.append(f"Exploring {args['entity']} properties")
                                 case "retrieve_event_property_values":
-                                    assert isinstance(action.tool_input, dict)
                                     substeps.append(
-                                        f"Analyzing `{action.tool_input['property_name']}` event's property `{action.tool_input['event_name']}`"
+                                        f"Analyzing `{args['property_name']}` event's property `{args['event_name']}`"
                                     )
                                 case "retrieve_entity_property_values":
-                                    assert isinstance(action.tool_input, dict)
-                                    substeps.append(
-                                        f"Analyzing {action.tool_input['entity']} property `{action.tool_input['property_name']}`"
-                                    )
+                                    substeps.append(f"Analyzing {args['entity']} property `{args['property_name']}`")
                                 case "retrieve_action_properties" | "retrieve_action_property_values":
-                                    id = (
-                                        action.tool_input
-                                        if isinstance(action.tool_input, str)
-                                        else action.tool_input["action_id"]
-                                    )
+                                    id = args["action_id"]
                                     try:
                                         action_model = Action.objects.get(pk=id, team__project_id=self._team.project_id)
-                                        if action.tool == "retrieve_action_properties":
+                                        if tool_call["name"] == "retrieve_action_properties":
                                             substeps.append(f"Exploring `{action_model.name}` action properties")
-                                        elif action.tool == "retrieve_action_property_values" and isinstance(
-                                            action.tool_input, dict
-                                        ):
+                                        elif tool_call["name"] == "retrieve_action_property_values":
                                             substeps.append(
-                                                f"Analyzing `{action.tool_input['property_name']}` action property of `{action_model.name}`"
+                                                f"Analyzing `{args['property_name']}` action property of `{action_model.name}`"
                                             )
                                     except Action.DoesNotExist:
                                         pass
@@ -368,7 +377,7 @@ class Assistant:
         ) = VISUALIZATION_NODES if self._mode == AssistantMode.ASSISTANT else VISUALIZATION_NODES_TOOL_CALL_MODE
         if intersected_nodes := state_update.keys() & visualization_nodes.keys():
             # Reset chunks when schema validation fails.
-            self._chunks = AIMessageChunk(content="")
+            self._chunks = AIMessageChunk(content=[])
 
             node_name = intersected_nodes.pop()
             node_val = state_update[node_name]
@@ -382,7 +391,7 @@ class Assistant:
         for node_name in VERBOSE_NODES:
             if node_val := state_update.get(node_name):
                 if isinstance(node_val, PartialAssistantState) and node_val.messages:
-                    self._chunks = AIMessageChunk(content="")
+                    self._chunks = AIMessageChunk(content=[])
                     for candidate_message in node_val.messages:
                         if should_output_assistant_message(candidate_message):
                             return candidate_message
@@ -404,7 +413,7 @@ class Assistant:
                         )
                 if self._chunks.content:
                     # Only return an in-progress message if there is already some content (and not e.g. just tool calls)
-                    return AssistantMessage(content=self._chunks.content)
+                    return AssistantMessage(content=process_chunk(self._chunks))
         return None
 
     def _process_task_started_update(self, update: GraphTaskStartedUpdateTuple) -> BaseModel | None:

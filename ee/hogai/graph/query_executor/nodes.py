@@ -15,6 +15,7 @@ from posthog.errors import ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.models import Insight
 from posthog.schema import (
     AssistantFunnelsQuery,
     AssistantHogQLQuery,
@@ -59,6 +60,15 @@ class QueryExecutorNode(AssistantNode):
         tool_call_id = state.root_tool_call_id
         if not tool_call_id:
             return None
+
+        insight = Insight.objects.create(
+            name=viz_message.title,
+            team=self._team,
+            derived_name=viz_message.title,
+            query=viz_message.answer.model_dump(mode="json", exclude_unset=False, exclude_none=False),
+            saved=True,
+            created_by=self._get_user(config),
+        )
 
         try:
             results_response = process_query_dict(  # type: ignore
@@ -130,7 +140,7 @@ class QueryExecutorNode(AssistantNode):
             project_timezone=self.project_timezone,
         )
 
-        formatted_query_result = f"{example_prompt}\n\n{query_result}"
+        formatted_query_result = f"Saved insight ID: {insight.id}\n\n{example_prompt}\n\n{query_result}"
         if isinstance(viz_message.answer, AssistantHogQLQuery):
             formatted_query_result = f"{example_prompt}\n\n{SQL_QUERY_PROMPT.format(query=viz_message.answer.query)}\n\n{formatted_query_result}"
 

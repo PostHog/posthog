@@ -2139,10 +2139,6 @@ class AssistantFunnelsFilter(BaseModel):
             " onboarding, the exclusion step would be the event `$pageleave` with start index 2 and end index 3."
         ),
     )
-    funnelAggregateByHogQL: Literal["properties.$session_id"] = Field(
-        default="properties.$session_id",
-        description="Use this field only if the user explicitly asks to aggregate the funnel by unique sessions.",
-    )
     funnelOrderType: Optional[StepOrderValue] = Field(
         default=StepOrderValue.ORDERED,
         description=(
@@ -2159,8 +2155,8 @@ class AssistantFunnelsFilter(BaseModel):
             "Whether conversion shown in the graph should be across all steps or just relative to the previous step."
         ),
     )
-    funnelVizType: Optional[FunnelVizType] = Field(
-        default=FunnelVizType.STEPS,
+    funnelVizType: Literal["steps"] = Field(
+        default="steps",
         description=(
             "Defines the type of visualization to use. The `steps` option is recommended. `steps` - shows a"
             " step-by-step funnel. Perfect to show a conversion rate of a sequence of events (default)."
@@ -7047,6 +7043,7 @@ class VisualizationMessage(BaseModel):
     initiator: Optional[str] = None
     plan: Optional[str] = None
     query: Optional[str] = ""
+    title: Optional[str] = None
     type: Literal["ai/viz"] = "ai/viz"
 
 

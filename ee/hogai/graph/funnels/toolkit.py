@@ -66,6 +66,10 @@ def generate_funnel_schema() -> dict:
             "type": "object",
             "properties": {
                 "query": dereference_schema(schema),
+                "title": {
+                    "type": "string",
+                    "description": "Name of the insight. Use the sentence case starting from a captial letter.",
+                },
             },
             "additionalProperties": False,
             "required": ["query"],

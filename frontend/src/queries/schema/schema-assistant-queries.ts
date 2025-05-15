@@ -392,7 +392,7 @@ export interface AssistantFunnelsFilter {
      * `trends` - shows trends of the conversion rate of the whole sequence over time.
      * @default steps
      */
-    funnelVizType?: FunnelsFilterLegacy['funnel_viz_type']
+    funnelVizType?: 'steps'
     /**
      * Users may want to use exclusion events to filter out conversions in which a particular event occurred between specific steps. These events must not be included in the main sequence.
      * You must include start and end indexes for each exclusion where the minimum index is one and the maximum index is the number of steps in the funnel.
@@ -428,7 +428,7 @@ export interface AssistantFunnelsFilter {
     /**
      * Use this field only if the user explicitly asks to aggregate the funnel by unique sessions.
      */
-    funnelAggregateByHogQL?: 'properties.$session_id'
+    // funnelAggregateByHogQL?: 'properties.$session_id'
 }
 
 export type AssistantFunnelsBreakdownType = Extract<BreakdownType, 'person' | 'event' | 'group' | 'session'>

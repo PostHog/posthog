@@ -5,6 +5,7 @@ from langchain_core.runnables.base import RunnableLike
 from langgraph.graph.state import StateGraph
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
+from ee.hogai.graph.session_replay_analyzer.nodes import SessionReplayAnalyzerNode
 from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from posthog.models.team.team import Team
@@ -311,6 +312,7 @@ class AssistantGraph(BaseAssistantGraph):
             "search_documentation": AssistantNodeName.INKEEP_DOCS,
             "root": AssistantNodeName.ROOT,
             "end": AssistantNodeName.END,
+            "session_replay": AssistantNodeName.SESSION_REPLAY_ANALYZER,
         }
         root_node = RootNode(self._team)
         builder.add_node(AssistantNodeName.ROOT, root_node)
@@ -412,6 +414,15 @@ class AssistantGraph(BaseAssistantGraph):
         builder.add_edge(AssistantNodeName.TITLE_GENERATOR, end_node)
         return self
 
+    def add_session_replay_analyzer(self, end_node: AssistantNodeName = AssistantNodeName.ROOT):
+        builder = self._graph
+        self._has_start_node = True
+
+        session_replay_analyzer = SessionReplayAnalyzerNode(self._team)
+        builder.add_node(AssistantNodeName.SESSION_REPLAY_ANALYZER, session_replay_analyzer)
+        builder.add_edge(AssistantNodeName.SESSION_REPLAY_ANALYZER, end_node)
+        return self
+
     def compile_full_graph(self):
         return (
             self.add_title_generator()
@@ -421,5 +432,6 @@ class AssistantGraph(BaseAssistantGraph):
             .add_root()
             .add_insights()
             .add_inkeep_docs()
+            .add_session_replay_analyzer()
             .compile()
         )

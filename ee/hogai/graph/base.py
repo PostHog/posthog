@@ -9,7 +9,7 @@ from langchain_core.runnables import RunnableConfig
 
 from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.models import Conversation, CoreMemory
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.schema import AssistantMessage, AssistantToolCall
 
 from ..utils.types import AssistantMessageUnion, AssistantState, PartialAssistantState
@@ -125,5 +125,14 @@ class AssistantNode(ABC):
         """
         try:
             return config["configurable"]["trace_id"]
+        except KeyError:
+            return None
+
+    def _get_user(self, config: RunnableConfig) -> Any | None:
+        """
+        Extracts the user from the runnable config.
+        """
+        try:
+            return User.objects.get(id=config["configurable"]["user_id"])
         except KeyError:
             return None

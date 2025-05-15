@@ -67,6 +67,7 @@ export interface VisualizationMessage extends BaseAssistantMessage {
     plan?: string
     answer: AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
     initiator?: string
+    title?: string
 }
 
 export interface FailureMessage extends BaseAssistantMessage {
