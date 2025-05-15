@@ -130,17 +130,15 @@ impl RedirectServiceTrait for ExternalRedirectService {
             .get_redis_key_for_url(&self.default_domain_for_public_store, short_string);
 
         // First check if the key exists
-        match self.redis_client.get(key.clone()).await {
-            Ok(_) => Err(RedirectError::InvalidOperation(
+        match self
+            .redis_client
+            .set_nx_ex(key, destination.to_string(), TWENTY_FOUR_HOURS_IN_SECONDS)
+            .await
+        {
+            Ok(true) => Ok(short_string.to_string()),
+            Ok(false) => Err(RedirectError::InvalidOperation(
                 "Redirect URL already exists".into(),
             )),
-            Err(CustomRedisError::NotFound) => {
-                // Key doesn't exist, we can set it
-                self.redis_client
-                    .set_nx_ex(key, destination.to_string(), TWENTY_FOUR_HOURS_IN_SECONDS)
-                    .await?;
-                Ok(short_string.to_string())
-            }
             Err(e) => Err(e.into()),
         }
     }
