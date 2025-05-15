@@ -144,8 +144,8 @@ class BetSerializer(serializers.ModelSerializer):
         predicted_value = validated_data.get("predicted_value")
 
         if bet_definition and prob_dist and amount and predicted_value is not None:
-            if isinstance(predicted_value, dict) and "value" in predicted_value:
-                value_to_check = predicted_value["value"]
+            if isinstance(predicted_value, dict) and "min" in predicted_value and "max" in predicted_value:
+                value_to_check = predicted_value["min"]
             else:
                 value_to_check = predicted_value
 

@@ -196,7 +196,7 @@ export function BetDetailContent(): JSX.Element {
 
     const handlePlaceBet = (): void => {
         if (betId && selectedBucket) {
-            placeBet(betId, amount, (selectedBucket.min + selectedBucket.max) / 2) // Use the midpoint of the range as the predicted value
+            placeBet(betId, amount, { min: selectedBucket.min, max: selectedBucket.max })
         }
         setShowConfirmation(false)
     }
@@ -346,7 +346,7 @@ export function BetDetailContent(): JSX.Element {
                                 dataSource={allBets || []}
                                 columns={[
                                     {
-                                        title: 'Date',
+                                        title: 'Timestamp',
                                         dataIndex: 'created_at',
                                         key: 'created_at',
                                         render: function RenderDate(_, record) {
@@ -354,18 +354,17 @@ export function BetDetailContent(): JSX.Element {
                                         },
                                     },
                                     {
-                                        title: 'Bet Type',
+                                        title: 'Prediction',
                                         dataIndex: 'predicted_value',
                                         key: 'predicted_value',
                                         render: function RenderType(_, record) {
-                                            const value = record.predicted_value
-                                            // @ts-expect-error
-                                            const prediction = typeof value === 'object' ? value.value : value
-                                            return (
-                                                <span className={prediction === 1 ? 'text-success' : 'text-danger'}>
-                                                    {prediction === 1 ? 'Yes' : 'No'}
-                                                </span>
-                                            )
+                                            const range = record.predicted_value
+                                            return range &&
+                                                typeof range === 'object' &&
+                                                'min' in range &&
+                                                'max' in range
+                                                ? `${Math.round(range.min)}-${Math.round(range.max)}`
+                                                : ''
                                         },
                                     },
                                     {
@@ -405,7 +404,7 @@ export function BetDetailContent(): JSX.Element {
                                 dataSource={userBets || []}
                                 columns={[
                                     {
-                                        title: 'Date',
+                                        title: 'Timestamp',
                                         dataIndex: 'created_at',
                                         key: 'created_at',
                                         render: function RenderDate(_, record) {
@@ -413,18 +412,17 @@ export function BetDetailContent(): JSX.Element {
                                         },
                                     },
                                     {
-                                        title: 'Bet Type',
+                                        title: 'Prediction',
                                         dataIndex: 'predicted_value',
                                         key: 'predicted_value',
                                         render: function RenderType(_, record) {
-                                            const value = record.predicted_value
-                                            // @ts-expect-error
-                                            const prediction = typeof value === 'object' ? value.value : value
-                                            return (
-                                                <span className={prediction === 1 ? 'text-success' : 'text-danger'}>
-                                                    {prediction === 1 ? 'Yes' : 'No'}
-                                                </span>
-                                            )
+                                            const range = record.predicted_value
+                                            return range &&
+                                                typeof range === 'object' &&
+                                                'min' in range &&
+                                                'max' in range
+                                                ? `${Math.round(range.min)}-${Math.round(range.max)}`
+                                                : ''
                                         },
                                     },
                                     {
