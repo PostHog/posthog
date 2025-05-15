@@ -186,10 +186,10 @@ class ChatMessageViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
 
 @csrf_exempt
-def public_chat_endpoint(request: Request):
+def chat_endpoints(request: Request):
     """
-    This endpoint is intended to be called from the client-side widget.
-    It handles creating/updating conversations and messages from external users.
+    This endpoint is the unified entry point for chat functionality, handling both
+    internal authenticated requests and external client-side widget requests.
     """
     token = get_token(None, request)
     if request.method == "OPTIONS":
@@ -349,6 +349,7 @@ def public_chat_endpoint(request: Request):
                             "content": message.content,
                             "created_at": message.created_at.isoformat(),
                             "read": message.read,
+                            "is_assistant": message.is_assistant,
                         }
                     )
 
@@ -387,6 +388,23 @@ def public_chat_endpoint(request: Request):
                 request,
                 JsonResponse({"status": "error", "message": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR),
             )
+    elif request.method == "GET":
+        # Return basic chat data that might be needed by clients
+        conversations = ChatConversation.objects.filter(team=team).order_by("-updated_at")
+        conversations_data = []
+
+        for conversation in conversations[:20]:  # Limit to most recent 20
+            conversations_data.append(
+                {
+                    "id": str(conversation.id),
+                    "title": conversation.title,
+                    "created_at": conversation.created_at.isoformat(),
+                    "updated_at": conversation.updated_at.isoformat(),
+                    "unread_count": conversation.unread_count,
+                }
+            )
+
+        return cors_response(request, JsonResponse({"status": "success", "conversations": conversations_data}))
 
     return cors_response(
         request,

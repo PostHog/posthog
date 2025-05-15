@@ -42,6 +42,7 @@ from .api.web_experiment import web_experiments
 from .api.utils import hostname_in_allowed_url_list
 from products.early_access_features.backend.api import early_access_features
 from posthog.api.survey import surveys
+from posthog.products.chat.backend.api import chat_endpoints
 from posthog.constants import PERMITTED_FORUM_DOMAINS
 from posthog.demo.legacy import demo_route
 from posthog.models import User
@@ -185,6 +186,7 @@ urlpatterns = [
     opt_slash_path("api/early_access_features", early_access_features),
     opt_slash_path("api/web_experiments", web_experiments),
     opt_slash_path("api/surveys", surveys),
+    opt_slash_path("api/chat", chat_endpoints),
     opt_slash_path("api/signup", signup.SignupViewset.as_view()),
     opt_slash_path("api/social_signup", signup.SocialSignupViewset.as_view()),
     path("api/signup/<str:invite_id>/", signup.InviteSignupViewset.as_view()),
