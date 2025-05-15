@@ -1,5 +1,6 @@
 import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
 import api from 'lib/api'
+import { PersonPropType } from 'scenes/persons/person-utils'
 
 import type { chatListLogicType } from './chatListLogicType'
 
@@ -7,6 +8,7 @@ export type Chat = {
     id?: string
     person_uuid?: string // email or user id, for dummy data
     distinct_id?: string // email or user id, for dummy data
+    person?: PersonPropType
     team: string // team id, for dummy data
     title?: string | null
     created_at: string

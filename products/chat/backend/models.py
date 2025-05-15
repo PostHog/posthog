@@ -1,3 +1,4 @@
+from functools import cached_property
 from typing import TYPE_CHECKING
 import uuid
 
@@ -39,6 +40,13 @@ class ChatConversation(FileSystemSyncMixin, UUIDModel):
 
     # Unread message count
     unread_count = models.PositiveIntegerField(default=0)
+
+    @cached_property
+    def person(self) -> Person | None:
+        try:
+            return Person.objects.get(uuid=self.person_uuid)
+        except Person.DoesNotExist:
+            return None
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team") -> QuerySet["ChatConversation"]:

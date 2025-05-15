@@ -4,6 +4,7 @@ from typing import cast
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from loginas.utils import is_impersonated_session
+from posthog.api.person import PersonSerializer
 from rest_framework import request, serializers, status, viewsets, filters
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -44,12 +45,14 @@ class ChatMessageSerializer(serializers.ModelSerializer):
 class ChatConversationSerializer(serializers.ModelSerializer):
     messages = ChatMessageSerializer(many=True, read_only=True)
     person_uuid = serializers.UUIDField()
+    person = PersonSerializer(read_only=True)
 
     class Meta:
         model = ChatConversation
         fields = [
             "id",
             "title",
+            "person",
             "person_uuid",
             "created_at",
             "updated_at",

@@ -2,8 +2,10 @@ import { IconCornerDownRight } from '@posthog/icons'
 import { TZLabel } from 'lib/components/TZLabel'
 import IconZendesk from 'public/services/zendesk.png'
 
+import { PersonPropType } from 'scenes/persons/person-utils'
+import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 export function ChatListItem({
-    user,
+    person,
     message,
     subject = '',
     source_url = '',
@@ -13,7 +15,7 @@ export function ChatListItem({
     isUnread,
     isReply,
 }: {
-    user: string
+    person: PersonPropType
     message: string
     subject: string
     source_url: string
@@ -28,7 +30,9 @@ export function ChatListItem({
             className={`py-2 px-3 cursor-pointer ${isActive ? 'border-l-2 border-l-red-500' : 'hover:bg-gray-200'}`}
             onClick={onClick}
         >
-            <div className="font-medium text-sm mb-1">{user}</div>
+            <div className="font-medium text-sm mb-1">
+                <PersonDisplay person={person} withIcon />
+            </div>
             <TZLabel
                 className="overflow-hidden text-ellipsis text-xs text-secondary shrink-0"
                 time={date}
