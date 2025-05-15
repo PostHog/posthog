@@ -3001,8 +3001,8 @@ const api = {
         },
         async update(
             shortId: string,
-            data: Pick<Spreadsheet, 'data' | 'data_updated_at'>
-        ): Promise<DataWarehouseViewLink> {
+            data: Pick<Spreadsheet, 'data' | 'data_updated_at' | 'settings' | 'formatting'>
+        ): Promise<Spreadsheet> {
             return await new ApiRequest().spreadsheet(shortId).update({ data })
         },
     },

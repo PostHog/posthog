@@ -15,6 +15,8 @@ class SpreadsheetsSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "data",
+            "formatting",
+            "settings",
             "data_updated_at",
             "created_at",
             "updated_at",

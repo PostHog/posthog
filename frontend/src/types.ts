@@ -4417,9 +4417,20 @@ export interface DataWarehouseViewLink {
     }
 }
 
+export interface SpreadsheetCellFormatting {
+    bold?: boolean
+}
+
+export interface SpreadsheetSettings {
+    columnWidths?: (number | null)[]
+    columnCount?: number
+    rowCount?: number
+}
 export interface Spreadsheet {
     id?: string
-    data?: Record<string, any>
+    data?: any[]
+    formatting?: (SpreadsheetCellFormatting | null)[][]
+    settings?: SpreadsheetSettings
     data_updated_at?: string
     created_at?: string | null
     updated_at?: UserBasicType | null

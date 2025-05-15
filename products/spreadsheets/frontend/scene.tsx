@@ -4,7 +4,8 @@ import 'handsontable/styles/ht-theme-main.min.css'
 import { HotTable, HotTableRef } from '@handsontable/react-wrapper'
 import Handsontable from 'handsontable'
 import { CellChange, ChangeSource } from 'handsontable/common'
-// Import HyperFormula and its necessary types
+import { BaseRenderer } from 'handsontable/renderers'
+import { CellMeta } from 'handsontable/settings'
 import {
     CellValue,
     DetailedCellError,
@@ -15,10 +16,10 @@ import {
 } from 'hyperformula'
 import { useActions, useValues } from 'kea'
 import api from 'lib/api'
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
 import { FormulaBar } from './components/FormulaBar'
-import { spreadsheetsSceneLogic } from './spreadsheetsSceneLogic'
+import { DEFAULT_COLUMN_WIDTH, DEFAULT_COLUMNS_COUNT, spreadsheetsSceneLogic } from './spreadsheetsSceneLogic'
 
 // Interface for SqlPlugin remains useful for this.hot, this.hf if needed by other methods,
 // but sheetId, row, col might not be needed in customSql if args are pre-evaluated.
@@ -237,9 +238,17 @@ try {
 export const SpreadsheetsScene = (): JSX.Element => {
     // Generate an empty 100 rows x (26 * 2) columns dataset
     const hotRef = useRef<HotTableRef>(null)
-    const { data } = useValues(spreadsheetsSceneLogic)
-    const { setCurrentCellValue, setCurrentCellMeta, setData, setHotRef, saveDataToServer } =
-        useActions(spreadsheetsSceneLogic)
+    const formulaContainerRef = useRef<HTMLDivElement>(null)
+    const { data, settings, formatting } = useValues(spreadsheetsSceneLogic)
+    const {
+        setCurrentCellValue,
+        setCurrentCellMeta,
+        setData,
+        setHotRef,
+        saveDataToServer,
+        updateColumnWidth,
+        toggleBoldCell,
+    } = useActions(spreadsheetsSceneLogic)
 
     useEffect(() => {
         const currentHotRef = hotRef.current
@@ -257,6 +266,45 @@ export const SpreadsheetsScene = (): JSX.Element => {
         }
     }, [hotRef, setHotRef]) // Effect runs when hotRef.current is populated.
 
+    useEffect(() => {
+        const hot = hotRef.current?.hotInstance
+        if (!hot) {
+            return
+        }
+
+        const shortcutManager = hot.getShortcutManager()
+        const gridContext = shortcutManager.getContext('grid')
+
+        if (!gridContext) {
+            return
+        }
+
+        gridContext.addShortcut({
+            keys: [
+                ['Control', 'B'],
+                ['Meta', 'B'],
+            ],
+            callback: () => {
+                const selected = hot.getSelected()
+
+                if (!selected) {
+                    return
+                }
+
+                selected.forEach(([rowStart, colStart, rowEnd, colEnd]) => {
+                    for (let row = rowStart; row <= rowEnd; row++) {
+                        for (let col = colStart; col <= colEnd; col++) {
+                            toggleBoldCell(row, col)
+                        }
+                    }
+                })
+
+                hot.render()
+            },
+            group: 'customBoldFormatting',
+        })
+    }, [hotRef.current])
+
     const handleAfterChange = (changes: CellChange[] | null, source: ChangeSource): void => {
         if ((source === 'edit' || source === 'updateData') && changes) {
             const newData = [...data]
@@ -268,13 +316,36 @@ export const SpreadsheetsScene = (): JSX.Element => {
             })
 
             setData(newData)
-            saveDataToServer(newData)
+            saveDataToServer({ data: newData })
         }
     }
 
+    const cellRenderer: BaseRenderer = (instance, td, row, column, ...rest) => {
+        Handsontable.renderers.TextRenderer(instance, td, row, column, ...rest)
+
+        if (!formatting) {
+            return
+        }
+
+        const bold = formatting[row]?.[column]?.bold
+        if (bold === true) {
+            td.style.fontWeight = 'bold'
+        }
+        // td.style.color = 'green'
+        // td.style.background = '#CEC'
+    }
+
+    const spreadsheetHeight = useMemo(() => {
+        if (formulaContainerRef?.current) {
+            return `calc(100vh - ${formulaContainerRef.current.offsetHeight}px)`
+        }
+
+        return '100vh'
+    }, [formulaContainerRef?.current])
+
     return (
         <>
-            <FormulaBar />
+            <FormulaBar ref={formulaContainerRef} />
             <div className="ht-theme-main-dark-auto">
                 <HotTable
                     afterChange={handleAfterChange}
@@ -284,18 +355,29 @@ export const SpreadsheetsScene = (): JSX.Element => {
                         const cellMeta = hotRef.current?.hotInstance?.getCellMeta(rowIndex, columnIndex)
                         setCurrentCellMeta(cellMeta ?? null)
                     }}
+                    cells={() => {
+                        const cellProperties: CellMeta = {}
+                        cellProperties.renderer = cellRenderer
+                        return cellProperties
+                    }}
                     data={data} // Use the empty 100x26 dataset
                     rowHeaders={true}
                     colHeaders={true}
                     manualColumnResize={true}
-                    colWidths={100}
+                    colWidths={(
+                        settings.columnWidths ?? Array(settings.columnCount ?? DEFAULT_COLUMNS_COUNT).fill(null)
+                    ).map((n) => n ?? DEFAULT_COLUMN_WIDTH)}
                     minRows={50} // Ensure a minimum of 100 rows
                     minCols={26} // Ensure a minimum of 26 columns (A-Z)
                     minSpareRows={0} // No extra blank rows beyond the 100
                     minSpareCols={0} // No extra blank columns beyond the 26
-                    height="auto" // Consider setting a fixed height e.g., 500 or '80vh' for large grids
-                    autoWrapRow={true}
-                    autoWrapCol={true}
+                    height={spreadsheetHeight}
+                    autoWrapRow={false}
+                    wordWrap={false}
+                    autoWrapCol={false}
+                    afterColumnResize={(size, columnIndex) => {
+                        updateColumnWidth(size, columnIndex)
+                    }}
                     licenseKey="non-commercial-and-evaluation" // for non-commercial use only
                     formulas={{
                         engine: HyperFormula,
