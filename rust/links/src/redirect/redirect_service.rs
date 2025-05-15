@@ -277,9 +277,7 @@ mod tests {
         let destination = "https://example.com".to_string();
 
         let team = insert_new_team_in_pg(db_client.clone(), None).await?;
-        let _row =
-            insert_new_link_in_pg(db_client.clone(), origin_domain, key, &destination, team.id)
-                .await?;
+        insert_new_link_in_pg(db_client.clone(), origin_domain, key, &destination, team.id).await?;
 
         let service = InternalRedirectService::new(db_client, Arc::new(redis_client));
         let result = service.redirect_url(key, origin_domain).await;
