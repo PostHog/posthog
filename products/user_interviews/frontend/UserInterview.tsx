@@ -78,7 +78,7 @@ export function UserInterview(): JSX.Element {
                                     <LemonButton
                                         size="xsmall"
                                         icon={<IconX />}
-                                        tooltip="Cancel"
+                                        tooltip="Discard changes"
                                         onClick={() => setSummaryInEditing(null)}
                                     />
                                 )}
@@ -117,11 +117,29 @@ export function UserInterview(): JSX.Element {
                         </LemonMarkdown>
                     )}
                 </LemonWidget>
-                <LemonWidget title="Transcript" className="col-span-1">
-                    <LemonMarkdown className="p-3">
-                        {userInterview.transcript || '_No transcript available._'}
-                    </LemonMarkdown>
-                </LemonWidget>
+                <div className="col-span-1 flex flex-col gap-y-4">
+                    <LemonWidget title="Participants">
+                        <div className="p-3 flex flex-col gap-y-2">
+                            {userInterview.interviewee_emails.map((interviewee_email) => (
+                                <PersonDisplay
+                                    key={interviewee_email}
+                                    person={{
+                                        properties: {
+                                            email: interviewee_email,
+                                        },
+                                        distinct_id: interviewee_email,
+                                    }}
+                                    withIcon
+                                />
+                            ))}
+                        </div>
+                    </LemonWidget>
+                    <LemonWidget title="Transcript">
+                        <LemonMarkdown className="p-3">
+                            {userInterview.transcript || '_No transcript available._'}
+                        </LemonMarkdown>
+                    </LemonWidget>
+                </div>
             </div>
         </div>
     )
@@ -131,19 +149,9 @@ function InterviewMetadata({ interview }: { interview: UserInterviewType }): JSX
     return (
         <header className="flex gap-x-2 gap-y-1 flex-wrap items-center">
             {interview.created_at && (
-                <LemonTag type="default">Created: {dayjs(interview.created_at).format('YYYY-MM-DD HH:mm')}</LemonTag>
-            )}
-            {interview.created_by && (
-                <LemonTag type="default">
-                    By:{' '}
-                    <PersonDisplay
-                        person={{ ...interview.created_by, id: String(interview.created_by.id) }}
-                        withIcon={false}
-                    />
+                <LemonTag className="bg-bg-light">
+                    Created: {dayjs(interview.created_at).format('YYYY-MM-DD HH:mm')}
                 </LemonTag>
-            )}
-            {interview.interviewee_emails && interview.interviewee_emails.length > 0 && (
-                <LemonTag type="highlight">Interviewees: {interview.interviewee_emails.join(', ')}</LemonTag>
             )}
         </header>
     )
