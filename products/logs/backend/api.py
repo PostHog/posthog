@@ -35,7 +35,4 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
         assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
 
-        if response is None:
-            return Response({"error": "Failed to fetch logs"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
         return Response({"query": query, "results": response.results}, status=200)
