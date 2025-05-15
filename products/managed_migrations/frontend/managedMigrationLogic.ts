@@ -38,9 +38,12 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
     }),
     actions({
         editManagedMigration: (id: string | null) => ({ id }),
+        startPolling: true,
+        stopPolling: true,
     }),
     reducers({
         managedMigrationId: [null as string | null, { editManagedMigration: (_, { id }) => id }],
+        isPolling: [false, { startPolling: () => true, stopPolling: () => false }],
     }),
     loaders(() => ({
         migrations: [
@@ -109,7 +112,7 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
     })),
     selectors({
         breadcrumbs: [
-            (s, p) => [p.managedMigrationId],
+            (_, p) => [p.managedMigrationId],
             (managedMigrationId): Breadcrumb[] => [
                 {
                     key: 'managed-migrations',
@@ -128,7 +131,7 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
             ],
         ],
         projectTreeRef: [
-            (s, p) => [p.managedMigrationId],
+            (_, p) => [p.managedMigrationId],
             (managedMigrationId): ProjectTreeRef => ({
                 type: 'managed-migration',
                 ref: managedMigrationId,

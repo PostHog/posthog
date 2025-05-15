@@ -248,7 +248,7 @@ export function ManagedMigrations(): JSX.Element {
                     },
                     {
                         title: 'Progress',
-                        dataIndex: 'progress',
+                        key: 'progress',
                         render: (_, migration) => {
                             const { progress, completed, total } = calculateProgress(migration)
                             return (
@@ -286,14 +286,22 @@ export function ManagedMigrations(): JSX.Element {
                     {
                         title: 'Created',
                         dataIndex: 'created_at',
-                        render: function Render(created_at) {
-                            return created_at ? (
-                                <div className="whitespace-nowrap text-right">
-                                    <TZLabel time={created_at} />
-                                </div>
-                            ) : (
-                                <span className="text-secondary">—</span>
-                            )
+                        render: function Render(
+                            dataValue:
+                                | string
+                                | string[]
+                                | { id: number; uuid: string; distinct_id: string; first_name: string; email: string }
+                                | null
+                                | undefined
+                        ) {
+                            if (typeof dataValue === 'string') {
+                                return (
+                                    <div className="whitespace-nowrap text-right">
+                                        <TZLabel time={dayjs(dataValue)} />
+                                    </div>
+                                )
+                            }
+                            return <span className="text-secondary">—</span>
                         },
                         align: 'right',
                     },
