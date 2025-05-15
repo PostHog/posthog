@@ -64,6 +64,7 @@ class Command(BaseCommand):
         GROUP BY
             fo.fingerprint, fo.team_id, fo.max_version
         """
+        logger.info("executing clickhouse query")
         fingerprints = sync_execute(
             query,
             {"exception_start_date": exception_start_date, "fingerprint_start_date": fingerprint_start_date},
@@ -71,14 +72,19 @@ class Command(BaseCommand):
         fingerprint_rows = [
             {"fingerprint": row[0], "team_id": row[1], "version": row[2], "timestamp": row[3]} for row in fingerprints
         ]
+        logger.info(f"clickhouse query executed. {len(fingerprint_rows)} fingerprints found")
         found_issues_count = 0
         not_found_fingerprints = []
 
         for fingerprint in fingerprint_rows:
+            logger.info("getting postgres fingerprint")
             postgres_fingerprint: ErrorTrackingIssueFingerprintV2 | None = (
-                ErrorTrackingIssueFingerprintV2.objects.filter(fingerprint=fingerprint["fingerprint"]).first()
+                ErrorTrackingIssueFingerprintV2.objects.filter(
+                    fingerprint=fingerprint["fingerprint"], team_id=fingerprint["team_id"]
+                ).first()
             )
             if postgres_fingerprint is not None:
+                logger.info("fingerprint found")
                 max_version = max(fingerprint["version"], postgres_fingerprint.version)
                 new_version = max_version + 1
                 override = {
@@ -96,6 +102,7 @@ class Command(BaseCommand):
                     override_error_tracking_issue_fingerprint(**override)
                 found_issues_count += 1
             else:
+                logger.info("fingerprint not found")
                 not_found_fingerprints.append(fingerprint["fingerprint"])
 
         logger.info(f"fingerprint overriden {found_issues_count}")
