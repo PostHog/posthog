@@ -14,6 +14,7 @@ export const logsLogic = kea<logsLogicType>([
     path(['products', 'logs', 'frontend', 'logsLogic']),
 
     actions({
+        runQuery: true,
         setDateRange: (dateRange: DateRange) => ({ dateRange }),
         setOrderBy: (orderBy: LogsQuery['orderBy']) => ({ orderBy }),
         setSearchTerm: (searchTerm: LogsQuery['searchTerm']) => ({ searchTerm }),
@@ -97,16 +98,39 @@ export const logsLogic = kea<logsLogicType>([
                 },
             },
         ],
+        sparkline: [
+            [] as any[],
+            {
+                fetchSparkline: async () => {
+                    const response = await api.logs.sparkline({
+                        query: {
+                            limit: 100,
+                            offset: values.logs.length,
+                            orderBy: values.orderBy,
+                            dateRange: values.dateRange,
+                            searchTerm: values.searchTerm,
+                            resource: values.resource,
+                            severityLevels: values.severityLevels,
+                        },
+                    })
+                    return response
+                },
+            },
+        ],
     })),
 
     listeners(({ values, actions }) => {
         const maybeRefreshLogs = (): void => {
             if (values.hasRunQuery) {
-                actions.fetchLogs()
+                actions.runQuery()
             }
         }
 
         return {
+            runQuery: () => {
+                actions.fetchLogs()
+                actions.fetchSparkline()
+            },
             setDateRange: maybeRefreshLogs,
             setOrderBy: maybeRefreshLogs,
             // TODO: debounce

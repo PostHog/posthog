@@ -39,7 +39,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
         return Response({"query": query, "results": response.results}, status=200)
 
-    @action(detail=False, methods=["GET"], required_scopes=["error_tracking:read"])
+    @action(detail=False, methods=["POST"], required_scopes=["error_tracking:read"])
     def sparkline(self, request: Request, *args, **kwargs) -> Response:
         results = sync_execute(
             """
@@ -54,7 +54,7 @@ DESC LIMIT 1000;
             team_id=self.team.id,
         )
 
-        return Response(results[0][0], status=status.HTTP_200_OK)
+        return Response(results, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=["GET"], required_scopes=["error_tracking:read"])
     def attributes(self, request: Request, *args, **kwargs) -> Response:
