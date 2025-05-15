@@ -9,6 +9,8 @@ import { urls } from 'scenes/urls'
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { UserBasicType } from '~/types'
 
+import type { linkConfigurationLogicType } from './linkConfigurationLogicType'
+
 export interface LinkType {
     id: string
     destination: string
@@ -19,7 +21,6 @@ export interface LinkType {
     custom_key?: string
     tags?: string
     description?: string
-    comments?: string
     folder?: string
     expiration_date?: string
     password?: string
@@ -34,7 +35,7 @@ export interface Props {
     id: string
 }
 
-export const linkConfigurationLogic = kea([
+export const linkConfigurationLogic = kea<linkConfigurationLogicType>([
     path((id) => ['scenes', 'links', 'linkConfigurationLogic', id]),
     props({} as Props),
     key(({ id }: Props) => id),
@@ -43,7 +44,7 @@ export const linkConfigurationLogic = kea([
             null as LinkType | null,
             {
                 loadLink: async ({ id }: { id: string }) => {
-                    return await api.get(`api/links/${id}`)
+                    return await api.links.get(id)
                 },
             },
         ],
@@ -79,7 +80,6 @@ export const linkConfigurationLogic = kea([
                 destination: '',
                 description: '',
                 tags: '',
-                comments: '',
             },
 
             errors: ({ destination }) => ({
@@ -87,7 +87,7 @@ export const linkConfigurationLogic = kea([
             }),
 
             submit: async ({ id, ...link }, breakpoint) => {
-                const updatedLink = id ? await api.update(`api/links/${id}`, link) : await api.create(`api/links`, link)
+                const updatedLink = id ? await api.links.update(id, link) : await api.links.create(link)
                 breakpoint()
 
                 actions.resetLink(updatedLink)

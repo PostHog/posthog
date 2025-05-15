@@ -2,17 +2,17 @@ import { afterMount, kea, path } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
-import type { linkConfigurationLogicType } from './linksLogicType'
+import type { linksLogicType } from './linksLogicType'
 import { LinkType } from './linkConfigurationLogic'
 
-export const linksLogic = kea<linkConfigurationLogicType>([
+export const linksLogic = kea<linksLogicType>([
     path(() => ['scenes', 'links', 'linksLogic']),
     loaders(() => ({
         links: [
             [] as LinkType[],
             {
                 loadLinks: async () => {
-                    const response = await api.get('api/links')
+                    const response = await api.links.list()
                     return response.results
                 },
             },

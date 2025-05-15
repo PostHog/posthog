@@ -5,11 +5,13 @@ import api from 'lib/api'
 import { NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { ChartDisplayType, PropertyFilterType, PropertyOperator } from '~/types'
 
+import type { linkMetricSparklineLogicType } from './linkMetricSparklineLogicType'
+
 export type Props = {
     id: string
 }
 
-export const linkMetricSparklineLogic = kea([
+export const linkMetricSparklineLogic = kea<linkMetricSparklineLogicType>([
     props({} as Props),
     key(({ id }: Props) => id),
     path((id) => ['scenes', 'links', 'linkMetricSparklineLogic', id]),
