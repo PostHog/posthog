@@ -472,6 +472,10 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: true,
         name: 'Hog function',
     },
+    [Scene.Game368]: {
+        name: '368 Hedgehogs',
+        projectBased: true,
+    },
     ...productConfiguration,
 }
 

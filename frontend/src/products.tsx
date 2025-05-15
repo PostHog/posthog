@@ -47,6 +47,7 @@ import {
 export const productScenes: Record<string, () => Promise<any>> = {
     EarlyAccessFeatures: () => import('../../products/early_access_features/frontend/EarlyAccessFeatures'),
     EarlyAccessFeature: () => import('../../products/early_access_features/frontend/EarlyAccessFeature'),
+    Game368Hedgehogs: () => import('../../products/games/368Hedgehogs/368Hedgehogs'),
     LLMObservability: () => import('../../products/llm_observability/frontend/LLMObservabilityScene'),
     LLMObservabilityTrace: () => import('../../products/llm_observability/frontend/LLMObservabilityTraceScene'),
     LLMObservabilityUsers: () => import('../../products/llm_observability/frontend/LLMObservabilityUsers'),
@@ -62,6 +63,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
 export const productRoutes: Record<string, [string, string]> = {
     '/early_access_features': ['EarlyAccessFeatures', 'earlyAccessFeatures'],
     '/early_access_features/:id': ['EarlyAccessFeature', 'earlyAccessFeature'],
+    '/games/368hedgehogs': ['Game368Hedgehogs', 'game368Hedgehogs'],
     '/llm-observability': ['LLMObservability', 'llmObservability'],
     '/llm-observability/dashboard': ['LLMObservability', 'llmObservabilityDashboard'],
     '/llm-observability/generations': ['LLMObservability', 'llmObservabilityGenerations'],
@@ -105,6 +107,7 @@ export const productConfiguration: Record<string, any> = {
         defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
         activityScope: 'EarlyAccessFeature',
     },
+    Game368Hedgehogs: { name: '368Hedgehogs', projectBased: true, activityScope: 'Games' },
     LLMObservability: {
         projectBased: true,
         name: 'LLM observability',
@@ -175,6 +178,7 @@ export const productUrls = {
     featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
     featureFlag: (id: string | number): string => `/feature_flags/${id}`,
     featureFlagDuplicate: (sourceId: number | string | null): string => `/feature_flags/new?sourceId=${sourceId}`,
+    game368hedgehogs: (): string => `/games/368hedgehogs`,
     groups: (groupTypeIndex: string | number): string => `/groups/${groupTypeIndex}`,
     group: (groupTypeIndex: string | number, groupKey: string, encode: boolean = true, tab?: string | null): string =>
         `/groups/${groupTypeIndex}/${encode ? encodeURIComponent(groupKey) : groupKey}${tab ? `/${tab}` : ''}`,
@@ -358,6 +362,9 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     { path: 'Surveys', type: 'survey', href: urls.surveys() },
     { path: 'Web analytics', iconType: 'pieChart', href: urls.webAnalytics() },
 ]
+
+/** This const is auto-generated, as is the whole file */
+export const getTreeItemsGames = (): FileSystemImport[] => [{ path: '368 Hedgehogs', href: urls.game368hedgehogs() }]
 
 /** This const is auto-generated, as is the whole file */
 export const getTreeFilterTypes = (): Record<string, FileSystemFilterType> => ({
