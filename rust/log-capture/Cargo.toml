@@ -21,11 +21,9 @@ serde_derive = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 clickhouse = { workspace = true }
-uuid = { workspace = true, features = ["v4", "serde"] }
 serde_json = { workspace = true }
 futures = { workspace = true }
 base64 = { workspace = true }
-serde_bytes = { workspace = true }
 
 [dev-dependencies]
 
