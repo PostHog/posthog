@@ -25,6 +25,7 @@ jest.mock('./providers', () => {
                 model: 'gemini-2.5-pro-preview:large',
                 cost: { prompt_token: 0.8, completion_token: 0.8 },
             },
+            'gpt-4.1': { model: 'gpt-4.1', cost: { prompt_token: 0.9, completion_token: 0.9 } },
         },
     }
 })
@@ -360,6 +361,19 @@ describe('processAiEvent()', () => {
             const gpt4Cost = costsByModel['gpt-4'].cost // p:0.2, c:0.2
             const expectedInputCost = inputTokens * gpt4Cost.prompt_token // 100 * 0.2
             const expectedOutputCost = outputTokens * gpt4Cost.completion_token // 50 * 0.2
+
+            expect(result.properties!.$ai_input_cost_usd).toBe(expectedInputCost)
+            expect(result.properties!.$ai_output_cost_usd).toBe(expectedOutputCost)
+            expect(result.properties!.$ai_total_cost_usd).toBe(expectedInputCost + expectedOutputCost)
+        })
+
+        it('correctly prioritizes 4.1 over 4 in long case', () => {
+            event.properties!.$ai_model = 'gpt-4.1-preview-0502'
+            const result = processAiEvent(event)
+
+            const gpt41Cost = costsByModel['gpt-4.1'].cost // p:0.9, c:0.9
+            const expectedInputCost = inputTokens * gpt41Cost.prompt_token // 100 * 0.9
+            const expectedOutputCost = outputTokens * gpt41Cost.completion_token // 50 * 0.9
 
             expect(result.properties!.$ai_input_cost_usd).toBe(expectedInputCost)
             expect(result.properties!.$ai_output_cost_usd).toBe(expectedOutputCost)

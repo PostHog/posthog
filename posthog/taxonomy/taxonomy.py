@@ -445,6 +445,17 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Sentry tags",
             "description": "Tags sent to Sentry along with the exception.",
         },
+        "$exception_types": {
+            "label": "Exception type",
+            "description": "The type of the exception.",
+            "examples": ["TypeError"],
+        },
+        "$exception_functions": {
+            "label": "Exception function",
+            "description": "A function contained in the exception.",
+        },
+        "$exception_values": {"label": "Exception message", "description": "The description of the exception."},
+        "$exception_sources": {"label": "Exception source", "description": "A source file included in the exception."},
         "$exception_list": {
             "label": "Exception list",
             "description": "List of one or more associated exceptions.",
@@ -1823,15 +1834,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "assignee": {"label": "Issue assignee", "description": "The current assignee of an issue."},
         "name": {"label": "Issue name", "description": "The name of an issue."},
         "issue_description": {"label": "Issue description", "description": "The description of an issue."},
-    },
-    "error_tracking_issue_properties": {
-        "$exception_types": {"label": "Exception type", "description": "The type of the exception."},
-        "$exception_messages": {"label": "Exception message", "description": "The description of the exception."},
-        "$exception_functions": {
-            "label": "Exception function",
-            "description": "A function contained in the exception.",
-        },
-        "$exception_sources": {"label": "Exception source", "description": "A source file included in the exception."},
     },
 }
 
