@@ -70,6 +70,24 @@ class ChatConversationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def safely_get_queryset(self, queryset):
         return queryset.filter(team_id=self.team_id).order_by("-updated_at")
 
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        is_assistant = request.query_params.get("is_assistant", None)
+
+        # Mark messages from the opposite side as read
+        if is_assistant is not None:
+            is_assistant_bool = is_assistant.lower() == "true"
+            # Update messages from the opposite side
+            instance.messages.filter(is_assistant=not is_assistant_bool, read=False).update(read=True)
+
+            # Reset unread count if needed
+            if instance.unread_count > 0:
+                instance.unread_count = 0
+                instance.save(update_fields=["unread_count"])
+
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
+
     def perform_create(self, serializer):
         person_uuid = serializer.validated_data.get("person_uuid")
         if not person_uuid:
@@ -351,6 +369,7 @@ def chat_endpoints(request: Request):
 
             elif action == "get_messages":
                 conversation_id = data.get("conversation_id")
+                is_assistant = data.get("is_assistant")
 
                 if not conversation_id:
                     return cors_response(
@@ -385,8 +404,17 @@ def chat_endpoints(request: Request):
                         }
                     )
 
-                ChatMessage.objects.filter(conversation=conversation, read=False).update(read=True)
+                # Mark messages as read based on is_assistant flag
+                if is_assistant is not None:
+                    is_assistant_bool = is_assistant is True or (
+                        isinstance(is_assistant, str) and is_assistant.lower() == "true"
+                    )
+                    # Update messages from the opposite side
+                    ChatMessage.objects.filter(
+                        conversation=conversation, is_assistant=not is_assistant_bool, read=False
+                    ).update(read=True)
 
+                # Reset unread count
                 conversation.unread_count = 0
                 conversation.save(update_fields=["unread_count"])
 
