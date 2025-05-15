@@ -34,7 +34,7 @@ export const linkConfigurationLogic = kea<linkConfigurationLogicType>([
     connect(() => ({
         values: [projectLogic, ['currentProjectId']],
     })),
-    loaders(() => ({
+    loaders({
         link: [
             null as LinkType | null,
             {
@@ -43,7 +43,7 @@ export const linkConfigurationLogic = kea<linkConfigurationLogicType>([
                 },
             },
         ],
-    })),
+    }),
     actions({
         deleteLink: (link: LinkType) => ({ link }),
     }),
