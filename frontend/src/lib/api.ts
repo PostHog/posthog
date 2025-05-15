@@ -23,6 +23,8 @@ import {
     FileSystemEntry,
     HogCompileResponse,
     HogQLVariable,
+    LogMessage,
+    LogsQuery,
     QuerySchema,
     QueryStatusResponse,
     RecordingsQuery,
@@ -496,6 +498,11 @@ class ApiRequest {
 
     public tags(projectId?: ProjectType['id']): ApiRequest {
         return this.projectsDetail(projectId).addPathComponent('tags')
+    }
+
+    // # Logs
+    public logsQuery(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('logs').addPathComponent('query')
     }
 
     // # Data management
@@ -1585,6 +1592,15 @@ const api = {
 
         async getCount(params: Partial<CommentType>): Promise<number> {
             return (await new ApiRequest().comments().withAction('count').withQueryString(params).get()).count
+        },
+    },
+
+    logs: {
+        async query({ query }: { query: Omit<LogsQuery, 'kind'> }): Promise<LogMessage[]> {
+            return new ApiRequest()
+                .logsQuery()
+                .withQueryString(toParams({ data: { query } }))
+                .get()
         },
     },
 
