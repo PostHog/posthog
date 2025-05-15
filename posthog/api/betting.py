@@ -116,10 +116,13 @@ class BetSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         request = self.context.get("request")
         user = request.user if request else None
+        team = request.user.current_team if request else None
 
-        # Set the user from the request
+        # Set the user and team from the request
         if user and "user" not in validated_data:
             validated_data["user"] = user
+        if team and "team" not in validated_data:
+            validated_data["team"] = team
 
         # Calculate potential payout
         bet_definition = validated_data.get("bet_definition")
@@ -128,7 +131,6 @@ class BetSerializer(serializers.ModelSerializer):
         predicted_value = validated_data.get("predicted_value")
 
         if bet_definition and prob_dist and amount and predicted_value is not None:
-            # Get payout multiplier
             if isinstance(predicted_value, dict) and "value" in predicted_value:
                 value_to_check = predicted_value["value"]
             else:
@@ -138,14 +140,22 @@ class BetSerializer(serializers.ModelSerializer):
             potential_payout = float(amount) * payout_multiplier
             validated_data["potential_payout"] = potential_payout
 
-        # Create the bet
-        bet = super().create(validated_data)
+        # Create the bet and handle the transaction in a single atomic transaction
+        with transaction.atomic():
+            try:
+                # Create the bet
+                bet = super().create(validated_data)
 
-        # Deduct the amount from the user's wallet
-        if user:
-            Wallet.place_bet(user, bet)
+                # Deduct the amount from the user's wallet
+                if user:
+                    try:
+                        Wallet.place_bet(user, bet)
+                    except Exception as e:
+                        raise serializers.ValidationError(f"Failed to process bet transaction: {str(e)}")
 
-        return bet
+                return bet
+            except Exception:
+                raise
 
 
 class TransactionLedgerSerializer(serializers.ModelSerializer):
@@ -282,6 +292,16 @@ class BetViewSet(
     permission_classes = [IsAuthenticated]
     queryset = Bet.objects.all()
     serializer_class = BetSerializer
+
+    def create(self, request, *args, **kwargs):
+        try:
+            serializer = self.get_serializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            self.perform_create(serializer)
+            headers = self.get_success_headers(serializer.data)
+            return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+        except Exception:
+            raise
 
     def get_queryset(self, **kwargs):
         queryset = super().get_queryset()

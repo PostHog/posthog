@@ -35,8 +35,9 @@ export function MyBetsContent(): JSX.Element {
                         title: 'Amount',
                         dataIndex: 'amount',
                         key: 'amount',
-                        render: function RenderAmount(amount: number) {
-                            return `$${amount.toFixed(2)}`
+                        render: function RenderAmount(amount: number | string) {
+                            const numAmount = typeof amount === 'string' ? parseFloat(amount) : amount
+                            return `${numAmount.toFixed(2)} Hogecoins`
                         },
                     },
                     {
@@ -52,8 +53,9 @@ export function MyBetsContent(): JSX.Element {
                         title: 'Potential Payout',
                         dataIndex: 'potential_payout',
                         key: 'potential_payout',
-                        render: function RenderPayout(payout: number) {
-                            return `$${payout.toFixed(2)}`
+                        render: function RenderPayout(payout: number | string) {
+                            const numPayout = typeof payout === 'string' ? parseFloat(payout) : payout
+                            return `${numPayout.toFixed(2)} Hogecoins`
                         },
                     },
                     {

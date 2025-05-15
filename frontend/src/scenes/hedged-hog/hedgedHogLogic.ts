@@ -3,7 +3,6 @@ import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { urls } from 'scenes/urls'
 
 import type { hedgedHogLogicType } from './hedgedHogLogicType'
 
@@ -103,7 +102,7 @@ export const hedgedHogLogic = kea<hedgedHogLogicType>([
                 loadTransactionsSuccess: (_, { transactions }) => transactions.length > 0,
                 initializeWalletSuccess: () => true,
                 initializeWalletFailure: (state, { error }) => {
-                    // If the error is "User already onboarded", we consider the user as onboarded
+                    // @ts-expect-error
                     if (error?.detail === 'User already onboarded') {
                         return true
                     }
@@ -219,6 +218,12 @@ export const hedgedHogLogic = kea<hedgedHogLogicType>([
                 return response
             },
         },
+        bets: {
+            loadBets: async () => {
+                const response = await api.get('api/projects/@current/bets/')
+                return response.results as Bet[]
+            },
+        },
     })),
 
     selectors({
@@ -243,17 +248,22 @@ export const hedgedHogLogic = kea<hedgedHogLogicType>([
         },
         setActiveTab: ({ tab }) => {
             const { push } = router.actions
-            if (tab === 'betting') {
-                push(urls.hedgedHog())
-            } else if (tab === 'wallet') {
-                push(urls.hedgedHogWallet())
-            } else if (tab === 'my-bets') {
-                push(urls.hedgedHogMyBets())
+            const { searchParams } = router.values
+
+            // Only push if the tab is different from current
+            if (tab !== searchParams.tab) {
+                if (tab === 'betting') {
+                    push('/hedged-hog')
+                } else if (tab === 'wallet') {
+                    push('/hedged-hog?tab=wallet')
+                } else if (tab === 'my-bets') {
+                    push('/hedged-hog?tab=my-bets')
+                }
             }
         },
         goBackToBets: () => {
             actions.setBetId(null)
-            router.actions.push(urls.hedgedHog())
+            router.actions.push('/hedged-hog')
         },
         placeBetSuccess: () => {
             actions.loadTransactions()
@@ -267,6 +277,7 @@ export const hedgedHogLogic = kea<hedgedHogLogicType>([
             // Load transactions and wallet balance on mount
             actions.loadTransactions()
             actions.loadWalletBalance()
+            actions.loadBets()
             const { betId } = router.values.hashParams
             if (betId) {
                 actions.setBetId(betId)
@@ -282,7 +293,7 @@ export const hedgedHogLogic = kea<hedgedHogLogicType>([
         },
         '/hedged-hog/bet/:betId': ({ betId }) => {
             if (betId !== values.betId) {
-                actions.setBetId(betId)
+                actions.setBetId(betId ?? null)
             }
         },
     })),

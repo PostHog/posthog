@@ -374,7 +374,8 @@ export function BetDetailContent(): JSX.Element {
                                         key: 'amount',
                                         render: function RenderAmount(_, record) {
                                             const amount = record.amount
-                                            return `$${amount.toFixed(2)}`
+                                            const numAmount = typeof amount === 'string' ? parseFloat(amount) : amount
+                                            return `${numAmount.toFixed(2)} Hogecoins`
                                         },
                                     },
                                     {
@@ -383,7 +384,8 @@ export function BetDetailContent(): JSX.Element {
                                         key: 'potential_payout',
                                         render: function RenderPayout(_, record) {
                                             const payout = record.potential_payout
-                                            return `$${payout.toFixed(2)}`
+                                            const numPayout = typeof payout === 'string' ? parseFloat(payout) : payout
+                                            return `${numPayout.toFixed(2)} Hogecoins`
                                         },
                                     },
                                 ]}
@@ -431,7 +433,8 @@ export function BetDetailContent(): JSX.Element {
                                         key: 'amount',
                                         render: function RenderAmount(_, record) {
                                             const amount = record.amount
-                                            return `$${amount.toFixed(2)}`
+                                            const numAmount = typeof amount === 'string' ? parseFloat(amount) : amount
+                                            return `${numAmount.toFixed(2)} Hogecoins`
                                         },
                                     },
                                     {
@@ -440,7 +443,8 @@ export function BetDetailContent(): JSX.Element {
                                         key: 'potential_payout',
                                         render: function RenderPayout(_, record) {
                                             const payout = record.potential_payout
-                                            return `$${payout.toFixed(2)}`
+                                            const numPayout = typeof payout === 'string' ? parseFloat(payout) : payout
+                                            return `${numPayout.toFixed(2)} Hogecoins`
                                         },
                                     },
                                 ]}
