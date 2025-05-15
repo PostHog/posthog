@@ -281,6 +281,42 @@ class BetViewSet(
         team = self.request.user.current_team
         serializer.save(user=self.request.user, team=team)
 
+    @action(detail=False, methods=["get"])
+    def by_definition(self, request, **kwargs):
+        """
+        Get all bets for a specific bet definition.
+        """
+        bet_definition_id = request.query_params.get("bet_definition_id")
+        if not bet_definition_id:
+            return Response({"error": "bet_definition_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            bets = Bet.objects.filter(
+                team_id=request.user.current_team.id, bet_definition_id=bet_definition_id
+            ).order_by("-created_at")
+            serializer = BetSerializer(bets, many=True)
+            return Response(serializer.data)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=["get"])
+    def my_bets(self, request, **kwargs):
+        """
+        Get user's bets for a specific bet definition.
+        """
+        bet_definition_id = request.query_params.get("bet_definition_id")
+        if not bet_definition_id:
+            return Response({"error": "bet_definition_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            bets = Bet.objects.filter(
+                team_id=request.user.current_team.id, bet_definition_id=bet_definition_id, user=request.user
+            ).order_by("-created_at")
+            serializer = BetSerializer(bets, many=True)
+            return Response(serializer.data)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
     @action(detail=False, methods=["post"])
     def estimate(self, request, **kwargs):
         """

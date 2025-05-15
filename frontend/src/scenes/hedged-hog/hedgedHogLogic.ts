@@ -45,6 +45,20 @@ export interface LeaderboardEntry {
 
 export type LeaderboardType = 'balance' | 'win_rate' | 'volume'
 
+export interface Bet {
+    id: string
+    bet_definition: string
+    bet_definition_title: string
+    amount: number
+    predicted_value: number
+    potential_payout: number
+    created_at: string
+    user: {
+        id: string
+        email: string
+    }
+}
+
 export const hedgedHogLogic = kea<hedgedHogLogicType>([
     path(['scenes', 'hedged-hog', 'hedgedHogLogic']),
 
@@ -55,6 +69,7 @@ export const hedgedHogLogic = kea<hedgedHogLogicType>([
         loadLeaderboard: (leaderboardType: LeaderboardType = 'balance') => ({ leaderboardType }),
         setBetId: (betId: string | null) => ({ betId }),
         initializeWallet: true,
+        goBackToBets: true,
     }),
 
     reducers({
@@ -118,7 +133,7 @@ export const hedgedHogLogic = kea<hedgedHogLogicType>([
             },
         ],
         betId: [
-            null as number | null,
+            null as string | null,
             {
                 setBetId: (_, { betId }) => betId,
             },
@@ -152,18 +167,28 @@ export const hedgedHogLogic = kea<hedgedHogLogicType>([
                 return response as OnboardingResponse
             },
         },
-        allBets: {
-            loadAllBets: async (betDefinitionId: number) => {
-                const response = await api.get(`api/projects/@current/bets/all/${betDefinitionId}/`)
-                return response
+        allBets: [
+            [] as Bet[],
+            {
+                loadAllBets: async (betDefinitionId: string) => {
+                    const response = await api.get(
+                        `api/projects/@current/bets/by_definition/?bet_definition_id=${betDefinitionId}`
+                    )
+                    return response
+                },
             },
-        },
-        userBets: {
-            loadUserBets: async (betDefinitionId: number) => {
-                const response = await api.get(`api/projects/@current/bets/user/${betDefinitionId}/`)
-                return response
+        ],
+        userBets: [
+            [] as Bet[],
+            {
+                loadUserBets: async (betDefinitionId: string) => {
+                    const response = await api.get(
+                        `api/projects/@current/bets/my_bets/?bet_definition_id=${betDefinitionId}`
+                    )
+                    return response
+                },
             },
-        },
+        ],
         leaderboard: {
             loadLeaderboard: async ({ leaderboardType }) => {
                 const response = await api.get(
@@ -177,6 +202,10 @@ export const hedgedHogLogic = kea<hedgedHogLogicType>([
     selectors({
         dataMessage: [(s) => [s.hedgedHogData], (data: HedgedHogData) => `${data.name}: ${data.value}`],
         hasTransactions: [(s) => [s.transactions], (transactions) => transactions.length > 0],
+        currentBet: [
+            (s) => [s.allBets, s.betId],
+            (allBets: Bet[], betId: string | null) => allBets.find((bet) => bet.id === betId),
+        ],
     }),
 
     listeners(({ actions }) => ({
@@ -200,6 +229,10 @@ export const hedgedHogLogic = kea<hedgedHogLogicType>([
                 push(urls.hedgedHogMyBets())
             }
         },
+        goBackToBets: () => {
+            actions.setBetId(null)
+            router.actions.push(urls.hedgedHog())
+        },
     })),
 
     events(({ actions }) => ({
@@ -207,6 +240,10 @@ export const hedgedHogLogic = kea<hedgedHogLogicType>([
             // Load transactions and wallet balance on mount
             actions.loadTransactions()
             actions.loadWalletBalance()
+            const { betId } = router.values.hashParams
+            if (betId) {
+                actions.setBetId(betId)
+            }
         },
     })),
 
@@ -218,7 +255,7 @@ export const hedgedHogLogic = kea<hedgedHogLogicType>([
         },
         '/hedged-hog/bet/:betId': ({ betId }) => {
             if (betId !== values.betId) {
-                actions.setBetId(betId ?? null)
+                actions.setBetId(betId)
             }
         },
     })),
