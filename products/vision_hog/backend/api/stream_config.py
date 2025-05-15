@@ -81,7 +81,7 @@ If no specific events are identifiable, return an empty array []."""
     def _save_prompt(self, prompt: str):
         try:
             response = requests.post(
-                "http://192.168.168.86:8000/prompt", json={"prompt": prompt, "emit_events": True}, timeout=5
+                "http://127.0.0.1:8069/prompt", json={"prompt": prompt, "emit_events": True}, timeout=5
             )
             response.raise_for_status()
         except requests.RequestException:
@@ -90,9 +90,16 @@ If no specific events are identifiable, return an empty array []."""
     def create(self, validated_data):
         team_id = self.context["team_id"]
         validated_data["team_id"] = team_id
+        logger.info(f"Creating stream config with events: {validated_data['events']}")
         prompt = self._generate_analysis_prompt(validated_data["events"])
         self._save_prompt(prompt)
         return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        logger.info(f"Updating stream config with events: {validated_data['events']}")
+        prompt = self._generate_analysis_prompt(validated_data["events"])
+        self._save_prompt(prompt)
+        return super().update(instance, validated_data)
 
 
 class StreamConfigViewSet(
