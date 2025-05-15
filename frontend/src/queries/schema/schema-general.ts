@@ -1955,7 +1955,7 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
     severityLevels: LogSeverityLevel[]
 }
 
-export interface LogsQueryResponse extends AnalyticsQueryResponseBase<LogMessage[]> {
+export interface LogsQueryResponse extends AnalyticsQueryResponseBase<unknown> {
     hasMore?: boolean
     limit?: integer
     offset?: integer
@@ -1965,15 +1965,20 @@ export type CachedLogsQueryResponse = CachedQueryResponse<LogsQueryResponse>
 
 export interface LogMessage {
     uuid: string
-    team_id: integer
     trace_id: string
     span_id: string
     body: string
-    attributes: Record<string, string>
+    attributes: string
+    /**  @format date-time */
     timestamp: string
+    /**  @format date-time */
     observed_timestamp: string
     severity_text: LogSeverityLevel
+    severity_number: number
+    level: LogSeverityLevel
     resource: string
+    instrumentation_scope: string
+    event_name: string
 }
 
 export interface FileSystemCount {

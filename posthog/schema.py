@@ -1523,6 +1523,7 @@ class PropertyFilterType(StrEnum):
     DATA_WAREHOUSE = "data_warehouse"
     DATA_WAREHOUSE_PERSON_PROPERTY = "data_warehouse_person_property"
     ERROR_TRACKING_ISSUE = "error_tracking_issue"
+    LOG = "log"
 
 
 class PropertyMathType(StrEnum):
@@ -1854,6 +1855,7 @@ class TaxonomicFilterGroupType(StrEnum):
     NOTEBOOKS = "notebooks"
     LOG_ENTRIES = "log_entries"
     ERROR_TRACKING_ISSUES = "error_tracking_issues"
+    LOGS = "logs"
     REPLAY = "replay"
     RESOURCES = "resources"
 
@@ -2861,14 +2863,17 @@ class LogMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    attributes: dict[str, str]
+    attributes: str
     body: str
-    observed_timestamp: str
+    event_name: str
+    instrumentation_scope: str
+    level: LogSeverityLevel
+    observed_timestamp: datetime
     resource: str
+    severity_number: float
     severity_text: LogSeverityLevel
     span_id: str
-    team_id: int
-    timestamp: str
+    timestamp: datetime
     trace_id: str
     uuid: str
 
@@ -4520,7 +4525,7 @@ class CachedLogsQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: list[LogMessage]
+    results: Any
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -5921,7 +5926,7 @@ class LogsQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: list[LogMessage]
+    results: Any
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -6806,7 +6811,7 @@ class QueryResponseAlternative56(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: list[LogMessage]
+    results: Any
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
