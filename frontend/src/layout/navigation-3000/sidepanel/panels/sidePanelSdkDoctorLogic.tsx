@@ -19,6 +19,50 @@ export type SdkVersionInfo = {
 }
 export type SdkHealthStatus = 'healthy' | 'warning' | 'critical'
 
+// Add a cache utility for GitHub API responses
+const GITHUB_CACHE_KEY = 'posthog_sdk_versions_cache'
+const GITHUB_CACHE_EXPIRY = 24 * 60 * 60 * 1000 // 24 hours in milliseconds
+
+interface GitHubCache {
+    timestamp: number
+    data: Record<SdkType, { latestVersion: string; versions: string[] }>
+}
+
+// Utility functions for the GitHub API cache
+const getGitHubCache = (): GitHubCache | null => {
+    try {
+        const cachedData = localStorage.getItem(GITHUB_CACHE_KEY)
+        if (!cachedData) return null
+
+        const parsedCache = JSON.parse(cachedData) as GitHubCache
+        const now = Date.now()
+        
+        // Check if cache is expired
+        if (now - parsedCache.timestamp > GITHUB_CACHE_EXPIRY) {
+            localStorage.removeItem(GITHUB_CACHE_KEY)
+            return null
+        }
+        
+        return parsedCache
+    } catch (error) {
+        console.error('[SDK Doctor] Error reading GitHub cache:', error)
+        localStorage.removeItem(GITHUB_CACHE_KEY)
+        return null
+    }
+}
+
+const setGitHubCache = (data: Record<SdkType, { latestVersion: string; versions: string[] }>): void => {
+    try {
+        const cacheData: GitHubCache = {
+            timestamp: Date.now(),
+            data
+        }
+        localStorage.setItem(GITHUB_CACHE_KEY, JSON.stringify(cacheData))
+    } catch (error) {
+        console.error('[SDK Doctor] Error saving GitHub cache:', error)
+    }
+}
+
 export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelSdkDoctorLogic']),
 
@@ -62,6 +106,15 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                 loadLatestSdkVersions: async () => {
                     console.log('[SDK Doctor] Loading latest SDK versions')
                     
+                    // Check cache first
+                    const cachedData = getGitHubCache()
+                    if (cachedData) {
+                        console.log('[SDK Doctor] Using cached GitHub data')
+                        return cachedData.data
+                    }
+                    
+                    console.log('[SDK Doctor] No valid cache found, fetching from GitHub API')
+                    
                     // Map SDK types to their GitHub repositories
                     const sdkRepoMap: Record<SdkType, { repo: string, versionPrefix?: string, subdirectory?: string }> = {
                         'web': { repo: 'posthog-js' },
@@ -87,8 +140,22 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                 // Using the same approach as versionCheckerLogic
                                 // For Node.js SDK we need special handling since it's in a subdirectory of posthog-js-lite
                                 const isNodeSdk = sdkType === 'node'
-                                const tagsPromise = fetch(`https://api.github.com/repos/PostHog/${repo}/tags`)
-                                    .then((r) => r.json())
+                                
+                                // Add cache busting parameter to avoid GitHub's aggressive caching
+                                const cacheBuster = Date.now()
+                                const tagsPromise = fetch(`https://api.github.com/repos/PostHog/${repo}/tags?_=${cacheBuster}`, {
+                                    headers: {
+                                        'Accept': 'application/vnd.github.v3+json'
+                                    }
+                                })
+                                    .then((r) => {
+                                        // Check for rate limiting
+                                        if (r.status === 403) {
+                                            console.error(`[SDK Doctor] GitHub API rate limit hit for ${sdkType}`)
+                                            throw new Error('GitHub API rate limit exceeded')
+                                        }
+                                        return r.json()
+                                    })
                                     .then((tags) => {
                                         if (tags && Array.isArray(tags) && tags.length > 0) {
                                             // Extract versions from tags
@@ -143,6 +210,11 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                             }
                         }
                     })
+                    
+                    // Save to cache if we have data
+                    if (Object.keys(result).length > 0) {
+                        setGitHubCache(result)
+                    }
                     
                     return result
                 },
