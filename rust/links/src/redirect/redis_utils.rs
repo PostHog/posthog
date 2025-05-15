@@ -12,7 +12,8 @@ impl RedisRedirectKeyPrefix {
     }
 
     pub fn get_redis_key_for_url(self, origin_domain: &str, origin_key: &str) -> String {
-        format!("{}{}/{}", self.get_prefix(), origin_domain, origin_key)
+        let key = format!("{}{}/{}", self.get_prefix(), origin_domain, origin_key);
+        key
     }
 }
 

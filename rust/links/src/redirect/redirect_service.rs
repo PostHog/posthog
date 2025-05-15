@@ -85,6 +85,11 @@ impl RedirectServiceTrait for ExternalRedirectService {
         origin_domain: &str,
     ) -> Result<String, RedirectError> {
         // Try Redis first
+        tracing::info!(
+            "Fetching redirect URL from Redis for key {} and domain {}",
+            origin_key,
+            origin_domain
+        );
         match self
             .redis_client
             .get(RedisRedirectKeyPrefix::External.get_redis_key_for_url(origin_domain, origin_key))

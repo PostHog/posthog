@@ -1,4 +1,5 @@
 use envconfig::Envconfig;
+use links::server::serve;
 use tokio::signal;
 use tracing_subscriber::fmt;
 use tracing_subscriber::fmt::format::FmtSpan;
@@ -46,9 +47,9 @@ async fn main() {
     tracing_subscriber::registry().with(fmt_layer).init();
 
     // Open the TCP port and start the server
-    // let listener = tokio::net::TcpListener::bind(config.address)
-    //     .await
-    //     .expect("could not bind port");
-    //serve(config, listener, shutdown()).await;
-    //unreachable!("Server exited unexpectedly");
+    let listener = tokio::net::TcpListener::bind(config.address)
+        .await
+        .expect("could not bind port");
+    serve(config, listener, shutdown()).await;
+    unreachable!("Server exited unexpectedly");
 }

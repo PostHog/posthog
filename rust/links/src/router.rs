@@ -36,10 +36,10 @@ where
         Router::new().route("/_liveness", get(move || ready(liveness.get_status())));
 
     let links_router = Router::new()
-        .route("/{link_hash}", get(internal_redirect_url))
-        .route("/{link_hash}/", get(internal_redirect_url))
-        .route("/pr/{link_hash}", get(external_redirect_url))
-        .route("/pr/{link_hash}/", get(external_redirect_url));
+        .route("/pr/:origin_key", get(external_redirect_url))
+        .route("/pr/:origin_key/", get(external_redirect_url))
+        .route("/:origin_key", get(internal_redirect_url))
+        .route("/:origin_key/", get(internal_redirect_url));
 
     let router = Router::new()
         .merge(status_router)
