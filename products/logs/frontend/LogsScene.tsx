@@ -1,26 +1,30 @@
-import { LemonTable, LemonTag, LemonTagType } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { LemonButton, LemonCheckbox, LemonSegmentedButton, LemonTable, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { Sparkline } from 'lib/components/Sparkline'
+import { IconRefresh } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { DEFAULT_LOGS, logsLogic } from './logsLogic'
-import { LogMessage } from './types'
+import { LogMessage } from '~/queries/schema/schema-general'
+
+import { DateRangeFilter } from './filters/DateRangeFilter'
+import { ResourceFilter } from './filters/ResourceFilter'
+import { SearchTermFilter } from './filters/SearchTermFilter'
+import { SeverityLevelsFilter } from './filters/SeverityLevelsFilter'
+import { logsLogic } from './logsLogic'
 
 export const scene: SceneExport = {
     component: LogsScene,
 }
 
 export function LogsScene(): JSX.Element {
-    // TODO: figure out why this breaks frontend rendering
-    const { wrapBody } = useValues(logsLogic)
-    // const wrapBody = true
-
-    const logs = DEFAULT_LOGS
+    const { wrapBody, logs } = useValues(logsLogic)
 
     return (
         <div className="flex flex-col gap-y-2 h-screen">
+            <Filters />
             <Sparkline labels={['bucket 1']} data={[1]} className="w-full" />
+            <DisplayOptions />
             <div className="flex-1">
                 <LemonTable
                     hideScrollbar
@@ -87,4 +91,52 @@ const LogTag = ({ level }: { level: LogMessage['severity_text'] }): JSX.Element 
     )[level]
 
     return <LemonTag type={type}>{level}</LemonTag>
+}
+
+const Filters = (): JSX.Element => {
+    const { fetchLogs } = useActions(logsLogic)
+
+    return (
+        <div className="flex flex-col gap-y-1.5">
+            <div className="flex justify-between gap-y-2">
+                <div className="flex gap-x-1">
+                    <ResourceFilter />
+                    <SeverityLevelsFilter />
+                </div>
+                <div className="flex gap-x-1">
+                    <DateRangeFilter />
+                    <LemonButton size="small" icon={<IconRefresh />} type="secondary" onClick={fetchLogs}>
+                        Refresh
+                    </LemonButton>
+                </div>
+            </div>
+            <SearchTermFilter />
+        </div>
+    )
+}
+
+const DisplayOptions = (): JSX.Element => {
+    const { orderBy, wrapBody } = useValues(logsLogic)
+    const { setOrderBy, setWrapBody } = useActions(logsLogic)
+
+    return (
+        <div className="flex gap-x-2">
+            <LemonSegmentedButton
+                value={orderBy}
+                onChange={setOrderBy}
+                options={[
+                    {
+                        value: 'earliest',
+                        label: 'Earliest',
+                    },
+                    {
+                        value: 'latest',
+                        label: 'Latest',
+                    },
+                ]}
+                size="small"
+            />
+            <LemonCheckbox checked={wrapBody} bordered onChange={setWrapBody} label="Wrap message" size="small" />
+        </div>
+    )
 }

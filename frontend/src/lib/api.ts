@@ -24,6 +24,7 @@ import {
     FileSystemEntry,
     HogCompileResponse,
     HogQLVariable,
+    LogsQuery,
     QuerySchema,
     QueryStatusResponse,
     RecordingsQuery,
@@ -1595,7 +1596,7 @@ const api = {
     },
 
     logs: {
-        async query({ query }: { params: LogsQuery }): Promise<LogMessage[]> {
+        async query({ query }: { query: LogsQuery }): Promise<LogMessage[]> {
             return new ApiRequest()
                 .logsQuery()
                 .withQueryString(toParams({ data: { query } }))
