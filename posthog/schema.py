@@ -8182,14 +8182,17 @@ class LogsQuery(BaseModel):
         extra="forbid",
     )
     dateRange: DateRange
+    kind: Literal["LogsQuery"] = "LogsQuery"
     limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
     offset: Optional[int] = None
     orderBy: OrderBy1
     resource: Optional[str] = None
     response: Optional[LogsQueryResponse] = None
     searchTerm: Optional[str] = None
     severityLevels: list[LogSeverityLevel]
-    kind: Literal["LogsQuery"] = "LogsQuery"
 
 
 class PersonsNode(BaseModel):

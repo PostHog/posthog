@@ -12045,8 +12045,16 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "kind": {
+                    "const": "LogsQuery",
+                    "type": "string"
+                },
                 "limit": {
                     "$ref": "#/definitions/integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
                 },
                 "offset": {
                     "$ref": "#/definitions/integer"
@@ -12071,7 +12079,7 @@
                     "type": "array"
                 }
             },
-            "required": ["dateRange", "orderBy", "severityLevels"],
+            "required": ["dateRange", "kind", "orderBy", "severityLevels"],
             "type": "object"
         },
         "LogsQueryResponse": {
