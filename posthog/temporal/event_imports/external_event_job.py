@@ -4,7 +4,7 @@ import datetime as dt
 import dataclasses
 import requests
 
-from posthog.temporal.event_imports.utils import parse_amplitude_event, send_event_batch
+from posthog.temporal.event_imports.sources.amplitude.parse import parse_amplitude_event
 from posthog.temporal.event_imports.sources.amplitude.file import (
     extract_zip_file,
     extract_gzipped_files,
@@ -15,6 +15,7 @@ from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.event_imports.utils import send_event_batch
 from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
 from posthog.products.managed_migrations.models import ManagedMigration
 
