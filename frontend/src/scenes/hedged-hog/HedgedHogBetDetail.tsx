@@ -4,6 +4,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { useState } from 'react'
 import { BillingLineGraph } from 'scenes/billing/BillingLineGraph'
@@ -25,7 +26,7 @@ export function BetDetailContent(): JSX.Element {
     const bet = betDefinitions.find((b) => b.id === betId)
 
     if (betDefinitionsLoading) {
-        return <div>Loading...</div>
+        return <LemonSkeleton className="h-80" />
     }
 
     if (!bet) {
@@ -47,47 +48,13 @@ export function BetDetailContent(): JSX.Element {
     return (
         <div className="space-y-4">
             <div className="flex justify-between items-center">
-                <h2 className="text-xl">{bet.title}</h2>
+                <h2 className="text-xl mb-0">{bet.title}</h2>
                 <LemonButton type="primary" onClick={() => push('/hedged-hog')}>
                     Back to Bets
                 </LemonButton>
             </div>
 
-            <LemonCard className="mb-4" hoverEffect={false}>
-                <div className="space-y-4">
-                    <div>
-                        <h3 className="text-lg font-semibold mb-2">Description</h3>
-                        <p>{bet.description}</p>
-                    </div>
-
-                    <LemonDivider />
-
-                    <div>
-                        <h3 className="text-lg font-semibold mb-2">Bet Details</h3>
-                        <div className="grid grid-cols-2 gap-4">
-                            <div>
-                                <div className="text-sm text-muted">Type</div>
-                                <div>{bet.type}</div>
-                            </div>
-                            <div>
-                                <div className="text-sm text-muted">Closing Date</div>
-                                <div>{new Date(bet.closing_date).toLocaleDateString()}</div>
-                            </div>
-                            <div>
-                                <div className="text-sm text-muted">Status</div>
-                                <div>{bet.status}</div>
-                            </div>
-                            <div>
-                                <div className="text-sm text-muted">Parameters</div>
-                                <div className="font-mono text-sm">{JSON.stringify(bet.bet_parameters, null, 2)}</div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </LemonCard>
-
             <div className="grid grid-cols-5 gap-4">
-                {/* Left info column - 1/5 of the grid */}
                 <div className="col-span-1 pr-2">
                     <div className="mb-4">
                         <div className="text-sm text-muted mb-1">Volume</div>
@@ -217,10 +184,8 @@ export function BetDetailContent(): JSX.Element {
                         )}
                     </div>
                 </div>
-
-                {/* Middle chart column - 3/5 of the grid */}
-                <div className="col-span-3 rounded-md relative">
-                    <div className="h-full w-full p-2">
+                <div className="col-span-4">
+                    <div className="h-full w-full">
                         <div>
                             <BillingLineGraph
                                 containerClassName="h-80"
@@ -334,6 +299,38 @@ export function BetDetailContent(): JSX.Element {
                 nouns={['trade', 'trades']}
                 emptyState="No trades for Analytics events prediction yet"
             />
+            <LemonCard className="mb-4" hoverEffect={false}>
+                <div className="space-y-4">
+                    <div>
+                        <h3 className="text-lg font-semibold mb-2">Description</h3>
+                        <p>{bet.description}</p>
+                    </div>
+
+                    <LemonDivider />
+
+                    <div>
+                        <h3 className="text-lg font-semibold mb-2">Bet Details</h3>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <div className="text-sm text-muted">Type</div>
+                                <div>{bet.type}</div>
+                            </div>
+                            <div>
+                                <div className="text-sm text-muted">Closing Date</div>
+                                <div>{new Date(bet.closing_date).toLocaleDateString()}</div>
+                            </div>
+                            <div>
+                                <div className="text-sm text-muted">Status</div>
+                                <div>{bet.status}</div>
+                            </div>
+                            <div>
+                                <div className="text-sm text-muted">Parameters</div>
+                                <div className="font-mono text-sm">{JSON.stringify(bet.bet_parameters, null, 2)}</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </LemonCard>
         </div>
     )
 }

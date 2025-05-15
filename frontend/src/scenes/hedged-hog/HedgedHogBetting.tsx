@@ -8,6 +8,7 @@ import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { Link } from 'lib/lemon-ui/Link'
 import { BillingLineGraph } from 'scenes/billing/BillingLineGraph'
@@ -87,7 +88,7 @@ export function BettingContent(): JSX.Element {
     return (
         <div className="space-y-4">
             <div className="flex justify-between items-center mb-4">
-                <h2 className="text-xl">Available Bets</h2>
+                <h2 className="text-xl mb-0">Available Bets</h2>
                 <LemonButton type="primary" onClick={() => setShowNewForm(true)} icon={<IconOpenInNew />}>
                     Create New Bet
                 </LemonButton>
@@ -101,16 +102,26 @@ export function BettingContent(): JSX.Element {
             )}
 
             {betDefinitionsLoading ? (
-                <div className="text-center">Loading...</div>
-            ) : betDefinitions.length > 0 ? (
+                <div className="flex space-x-4">
+                    <LemonSkeleton className="h-[440px] w-full" />
+                    <LemonSkeleton className="h-[440px] w-full" />
+                    <LemonSkeleton className="h-[440px] w-full" />
+                </div>
+            ) : betDefinitions.length > 0 && !showNewForm ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {betDefinitions.map((bet: BetDefinition) => (
-                        <Link key={bet.id} to={`/hedged-hog/bet/${bet.id}`} className="no-underline">
-                            <LemonCard className="h-full hover:border-primary" hoverEffect={false}>
+                        <Link
+                            key={bet.id}
+                            to={`/hedged-hog/bet/${bet.id}`}
+                            className="no-underline hover:border-primary"
+                        >
+                            <div className="h-full border rounded-md p-4 hover:bg-surface-secondary transition duration-200">
                                 <div className="flex flex-col h-full">
                                     <div className="flex-grow">
-                                        <h4 className="text-lg font-semibold mb-2">{bet.title}</h4>
-                                        <p className="text-muted mb-4">{bet.description}</p>
+                                        <h4 className="text-lg font-semibold mb-2 truncate">{bet.title}</h4>
+                                        <p className="text-muted mb-4 truncate">
+                                            {bet.description || 'No description'}
+                                        </p>
 
                                         <div className="mb-4">
                                             <div className="text-sm text-muted mb-1">Current probability</div>
@@ -162,7 +173,7 @@ export function BettingContent(): JSX.Element {
                                         </div>
                                     </div>
                                 </div>
-                            </LemonCard>
+                            </div>
                         </Link>
                     ))}
                 </div>
