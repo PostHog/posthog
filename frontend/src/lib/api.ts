@@ -6,6 +6,7 @@ import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { objectClean, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
+import { LogMessage } from 'products/logs/frontend/types'
 import { MessageTemplate } from 'products/messaging/frontend/library/messageTemplatesLogic'
 import { ErrorTrackingAssignmentRule } from 'scenes/error-tracking/configuration/auto-assignment/errorTrackingAutoAssignmentLogic'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
@@ -496,6 +497,11 @@ class ApiRequest {
 
     public tags(projectId?: ProjectType['id']): ApiRequest {
         return this.projectsDetail(projectId).addPathComponent('tags')
+    }
+
+    // # Logs
+    public logsQuery(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('logs').addPathComponent('query')
     }
 
     // # Data management
@@ -1585,6 +1591,15 @@ const api = {
 
         async getCount(params: Partial<CommentType>): Promise<number> {
             return (await new ApiRequest().comments().withAction('count').withQueryString(params).get()).count
+        },
+    },
+
+    logs: {
+        async query({ query }: { params: LogsQuery }): Promise<LogMessage[]> {
+            return new ApiRequest()
+                .logsQuery()
+                .withQueryString(toParams({ data: { query } }))
+                .get()
         },
     },
 
