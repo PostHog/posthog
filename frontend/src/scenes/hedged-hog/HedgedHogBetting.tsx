@@ -146,6 +146,7 @@ export function BettingContent(): JSX.Element {
                                                 valueFormatter={(value) => `${value}%`}
                                                 interval="day"
                                                 max={100}
+                                                showLegend={false}
                                             />
                                         </div>
                                     </div>

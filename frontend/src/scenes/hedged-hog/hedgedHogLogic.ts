@@ -282,6 +282,10 @@ export const hedgedHogLogic = kea<hedgedHogLogicType>([
         '/betting/:betId': ({ betId }) => {
             if (betId !== values.betId) {
                 actions.setBetId(betId ?? null)
+                if (betId) {
+                    actions.loadAllBets(betId)
+                    actions.loadUserBets(betId)
+                }
             }
         },
     })),

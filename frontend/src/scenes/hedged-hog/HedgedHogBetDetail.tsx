@@ -303,6 +303,7 @@ export function BetDetailContent(): JSX.Element {
                                         valueFormatter={(value) => `${value}%`}
                                         interval="day"
                                         max={100}
+                                        showLegend={false}
                                     />
                                 </div>
                                 <div className="w-full flex justify-between mt-4">
