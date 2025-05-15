@@ -34,7 +34,8 @@ const BetFlow = ({
     handlePlaceBet,
     bucketRanges,
 }: BetFlowProps): JSX.Element => {
-    const getPrice = (probability: number): string => (1 / probability).toFixed(2)
+    const getOdds = (probability: number): number => (probability > 0 ? 1 / probability : 0)
+    const getPotentialPayout = (amount: number, probability: number): number => amount * getOdds(probability)
 
     return (
         <LemonCard className="h-full" hoverEffect={false}>
@@ -123,12 +124,18 @@ const BetFlow = ({
                                 <span className="text-muted">Amount:</span>
                                 <span className="text-lg font-semibold">{amount.toFixed(2)}</span>
                             </div>
+                            <div className="flex justify-between items-center">
+                                <span className="text-muted">Odds:</span>
+                                <span className="text-lg font-semibold">
+                                    {selectedBucket ? `${getOdds(selectedBucket.probability).toFixed(2)}x` : '--'}
+                                </span>
+                            </div>
                             <LemonDivider className="my-4" />
                             <div className="flex justify-between items-center">
                                 <span className="font-semibold">Potential Payout:</span>
                                 <span className="text-success text-lg font-bold">
                                     {selectedBucket
-                                        ? (amount / Number(getPrice(selectedBucket.probability))).toFixed(2)
+                                        ? getPotentialPayout(amount, selectedBucket.probability).toFixed(2)
                                         : '0.00'}
                                 </span>
                             </div>
