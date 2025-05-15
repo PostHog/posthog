@@ -219,7 +219,7 @@ export function SidePanelSdkDoctor(): JSX.Element {
             </SidePanelPaneHeader>
             <div className="p-3 overflow-y-auto flex-1">
                 {sdkHealth !== 'healthy' ? (
-                    <Section title="Outdated SDKs Found">
+                    <Section title="Outdated SDKs found">
                         <div className="p-3 bg-warning/10 rounded border border-warning/20">
                             <div className="flex items-start">
                                 <IconWarning className="text-warning text-xl mt-0.5 mr-2 flex-shrink-0" />
@@ -229,8 +229,8 @@ export function SidePanelSdkDoctor(): JSX.Element {
                                     </p>
                                     <p className="text-sm mt-1">
                                         {outdatedSdkCount === 1 
-                                            ? `${numberToWord(outdatedSdkCount)} outdated SDK means you're missing out on the latest features and performance boosts.` 
-                                            : `${numberToWord(outdatedSdkCount)} outdated SDKs mean you're missing out on the latest features and performance boosts.`
+                                            ? `${numberToWord(outdatedSdkCount)} outdated SDK means you're missing out on the latest features.` 
+                                            : `${numberToWord(outdatedSdkCount)} outdated SDKs mean you're missing out on the latest features.`
                                         } Check the links below to catch up.
                                     </p>
                                 </div>

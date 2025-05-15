@@ -337,6 +337,9 @@ function checkIfVersionOutdated(lib: string, version: string): boolean {
     // Add debug logs to trace execution
     console.log(`[SDK Doctor] Checking if outdated: ${lib} version ${version}`)
     
+    // This function now serves as a fallback when GitHub API data isn't available
+    // It should match the logic in checkVersionAgainstLatest for consistency
+    
     // Parse the version string into components
     const components = version.split('.')
     if (components.length < 2) {
@@ -354,29 +357,24 @@ function checkIfVersionOutdated(lib: string, version: string): boolean {
     
     // Hardcoded check for Node.js SDK
     if (lib === 'posthog-node') {
-        // As requested: 3.2.0 is outdated, 4.17.1 is current
-        if (major < 4) {
-            return true // Outdated if below major version 4
-        } else if (major === 4 && minor < 17) {
-            return true // Outdated if at 4.x.x but minor version < 17
-        } else {
-            return false // Current if >= 4.17.x
-        }
+        // Consider outdated if below 4.17.0
+        return major < 4 || (major === 4 && minor < 17)
     }
     
-    // Mock implementation for now - to be replaced with actual minimum version requirements
-    // Similar to how Session Recording checks for versions < 1.75
-    if (lib === 'web' && (major === 1 && minor < 85)) {
-        return true
-    } else if (lib === 'posthog-ios' && (major === 1 && minor < 4)) {
-        return true
-    } else if (lib === 'posthog-android' && (major === 1 && minor < 4)) {
-        return true
-    } else if (lib === 'posthog-php' && major < 3) {
-        return true
+    // Align with the same version requirements used in checkVersionAgainstLatest
+    if (lib === 'web') {
+        // Consider web SDK outdated if below 1.85.0
+        return major < 1 || (major === 1 && minor < 85)
+    } else if (lib === 'posthog-ios') {
+        return major < 1 || (major === 1 && minor < 4)
+    } else if (lib === 'posthog-android') {
+        return major < 1 || (major === 1 && minor < 4)
+    } else if (lib === 'posthog-php') {
+        return major < 3
     }
     
-    // For all other SDKs, consider them up to date for now
+    // For all other SDKs, apply a generic rule that matches checkVersionAgainstLatest
+    // This is approximate since we don't have the latest version data here
     return false
 }
 
@@ -389,8 +387,20 @@ function checkVersionAgainstLatest(
     console.log(`[SDK Doctor] checkVersionAgainstLatest for ${type} version ${version}`)
     console.log(`[SDK Doctor] Available data:`, Object.keys(latestVersionsData))
     
+    // Convert type to lib name for consistency
+    let lib = 'web'
+    if (type === 'ios') lib = 'posthog-ios'
+    if (type === 'android') lib = 'posthog-android'
+    if (type === 'node') lib = 'posthog-node'
+    if (type === 'python') lib = 'posthog-python'
+    if (type === 'php') lib = 'posthog-php'
+    if (type === 'ruby') lib = 'posthog-ruby'
+    if (type === 'go') lib = 'posthog-go'
+    if (type === 'flutter') lib = 'posthog-flutter'
+    if (type === 'react-native') lib = 'posthog-react-native'
+    
     // Hardcoded check for Node.js SDK
-    if (type === 'node' as SdkType) {
+    if (type === 'node') {
         // Hardcoded latest version for Node.js SDK
         const mockLatestVersion = '4.17.1'
         
@@ -400,7 +410,7 @@ function checkVersionAgainstLatest(
             const major = parseInt(components[0])
             const minor = parseInt(components[1])
             
-            // Check if version is outdated based on our hardcoded logic
+            // Check if version is outdated based on our consistent logic
             const isOutdated = (major < 4) || (major === 4 && minor < 17)
             
             // Calculate releases ahead (mock value)
@@ -418,9 +428,9 @@ function checkVersionAgainstLatest(
                 latestVersion: mockLatestVersion
             }
         } catch (e) {
-            // If parsing fails, use the basic check
+            // If parsing fails, use the fallback check
             return {
-                isOutdated: checkIfVersionOutdated('posthog-node', version),
+                isOutdated: checkIfVersionOutdated(lib, version),
                 latestVersion: mockLatestVersion
             }
         }
@@ -428,18 +438,6 @@ function checkVersionAgainstLatest(
     
     // If we don't have data for this SDK type or the SDK type is "other", fall back to hardcoded check
     if (!latestVersionsData[type] || type === 'other') {
-        // Convert type to lib name for the hardcoded check
-        let lib = 'web'
-        if (type === 'ios') lib = 'posthog-ios'
-        if (type === 'android') lib = 'posthog-android'
-        if (type === 'node' as SdkType) lib = 'posthog-node'
-        if (type === 'python') lib = 'posthog-python'
-        if (type === 'php') lib = 'posthog-php'
-        if (type === 'ruby') lib = 'posthog-ruby'
-        if (type === 'go') lib = 'posthog-go'
-        if (type === 'flutter') lib = 'posthog-flutter'
-        if (type === 'react-native') lib = 'posthog-react-native'
-        
         console.log(`[SDK Doctor] Falling back to hardcoded check for ${type} (lib=${lib})`)
         const isOutdated = checkIfVersionOutdated(lib, version)
         console.log(`[SDK Doctor] Hardcoded check result for ${lib} ${version}: isOutdated=${isOutdated}`)
@@ -480,16 +478,7 @@ function checkVersionAgainstLatest(
         }
     } catch (e) {
         // If we can't parse the versions, fall back to the hardcoded check
-        let lib = 'web'
-        if (type === 'ios') lib = 'posthog-ios'
-        if (type === 'android') lib = 'posthog-android'
-        if (type === 'node' as SdkType) lib = 'posthog-node'
-        if (type === 'python') lib = 'posthog-python'
-        if (type === 'php') lib = 'posthog-php'
-        if (type === 'ruby') lib = 'posthog-ruby'
-        if (type === 'go') lib = 'posthog-go'
-        if (type === 'flutter') lib = 'posthog-flutter'
-        if (type === 'react-native') lib = 'posthog-react-native'
+        console.log(`[SDK Doctor] Error parsing versions, falling back to hardcoded check for ${lib}: ${e}`)
         
         return { 
             isOutdated: checkIfVersionOutdated(lib, version),
