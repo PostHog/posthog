@@ -17,7 +17,7 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { linksLogic } from './linksLogic'
 
-export function linksScene(): JSX.Element {
+export function LinksScene(): JSX.Element {
     const { links, linksLoading } = useValues(linksLogic())
 
     const columns = [
@@ -149,6 +149,6 @@ export function linksScene(): JSX.Element {
 }
 
 export const scene: SceneExport = {
-    component: linksScene,
-    // logic: linksLogic,
+    component: LinksScene,
+    logic: linksLogic,
 }
