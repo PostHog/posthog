@@ -42,7 +42,7 @@ class ManagedMigrationSerializer(serializers.ModelSerializer):
 
 
 class ManagedMigrationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    scope_object = "managed_migration"
+    scope_object = "INTERNAL"
     queryset = ManagedMigration.objects.all()
     serializer_class = ManagedMigrationSerializer
     ordering = "-created_at"
