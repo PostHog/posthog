@@ -18,7 +18,9 @@ export function ChatsList(): JSX.Element {
 
     const displayableChats = chats.filter((chat) => chat.messages && chat.messages.length > 0)
 
-    if (displayableChats.length === 0) {
+    const hasMessagesInDisplayableChats = displayableChats.some((chat) => chat.messages.length > 0)
+
+    if (displayableChats.length === 0 || !hasMessagesInDisplayableChats) {
         return <div className="flex flex-col items-center justify-center h-full">No chats with messages yet</div>
     }
 
