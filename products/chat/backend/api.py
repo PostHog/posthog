@@ -19,11 +19,12 @@ from posthog.models.activity_logging.activity_log import (
     log_activity,
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
-from posthog.models.chat import ChatConversation, ChatMessage
 from posthog.models.person.person import Person
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.utils_cors import cors_response
+
+from .models import ChatConversation, ChatMessage
 
 
 class ChatMessageSerializer(serializers.ModelSerializer):
@@ -64,9 +65,8 @@ class ChatConversationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     filter_backends = [filters.SearchFilter]
     search_fields = ["title", "person__properties"]
 
-    def get_queryset(self):
-        queryset = super().get_queryset().filter(team_id=self.team_id)
-        return queryset.order_by("-updated_at")
+    def safely_get_queryset(self, queryset):
+        return queryset.filter(team_id=self.team_id).order_by("-updated_at")
 
     def perform_create(self, serializer):
         person_id = serializer.validated_data.pop("person", None)
@@ -165,8 +165,7 @@ class ChatMessageViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = ChatMessage.objects.all()
     serializer_class = ChatMessageSerializer
 
-    def get_queryset(self):
-        queryset = super().get_queryset()
+    def safely_get_queryset(self, queryset):
         conversation_id = self.request.query_params.get("conversation_id", None)
 
         if conversation_id:
