@@ -421,7 +421,7 @@ def lib_version_from_query_params(request) -> str:
 
 
 @csrf_exempt
-@timed("posthog_cloud_event_endpoint")
+@timed("posthog_cloud_csp_event_endpoint")
 def get_csp_event(request):
     # Explicit mark for get_event pipeline to handle CSP reports on this flow
     return get_event(request, is_csp_report_ingestion=True)
