@@ -45,6 +45,10 @@ services:
                         reverse_proxy feature-flags:3001
                     }
 
+                    handle @links {
+                        reverse_proxy links:3001
+                    }
+
                     handle {
                         reverse_proxy web:8000
                     }
@@ -243,6 +247,19 @@ services:
             CLICKHOUSE_SECURE: 'false'
             CLICKHOUSE_VERIFY: 'false'
 
+    links:
+        image: ghcr.io/posthog/posthog/links:master
+        build:
+            context: rust/
+            args:
+                BIN: links
+        restart: on-failure
+        environment:
+            READ_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            INTERNAL_REDIS_URL: 'redis://redis:6379/'
+            EXTERNAL_REDIS_URL: 'redis://redis:6379/'
+            ADDRESS: '0.0.0.0:3001'
+
     livestream:
         image: 'ghcr.io/posthog/livestream:main'
         restart: on-failure
@@ -252,11 +269,7 @@ services:
 
     migrate:
         <<: *worker
-        command: sh -c "
-            python manage.py migrate
-            && python manage.py migrate_clickhouse
-            && python manage.py run_async_migrations
-            "
+        command: sh -c " python manage.py migrate && python manage.py migrate_clickhouse && python manage.py run_async_migrations "
         restart: 'no'
         deploy:
             replicas: 0
