@@ -59,6 +59,10 @@ class Link(CreatedMetaFields, UpdatedMetaFields, models.Model):
             short_link_domain: The domain of the short link
             short_code: The short code of the link
         """
+        if team_id is None:
+            logger.error("Team ID is required but was None")
+            return None
+
         try:
             filters = {"team_id": team_id}
 
@@ -96,6 +100,10 @@ class Link(CreatedMetaFields, UpdatedMetaFields, models.Model):
         Returns:
             A queryset of links for the team
         """
+        if team_id is None:
+            logger.error("Team ID is required but was None")
+            return cls.objects.none()
+
         try:
             return cls.objects.filter(team_id=team_id).order_by("-created_at")[offset : offset + limit]
         except Exception as e:
