@@ -115,6 +115,7 @@ export const PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE: Record<Propert
         [PropertyFilterType.Recording]: TaxonomicFilterGroupType.Replay,
         [PropertyFilterType.LogEntry]: TaxonomicFilterGroupType.LogEntries,
         [PropertyFilterType.ErrorTrackingIssue]: TaxonomicFilterGroupType.ErrorTrackingIssues,
+        [PropertyFilterType.Log]: TaxonomicFilterGroupType.Logs,
     }
 
 export function formatPropertyLabel(
@@ -310,6 +311,7 @@ const propertyFilterMapping: Partial<Record<PropertyFilterType, TaxonomicFilterG
     [PropertyFilterType.HogQL]: TaxonomicFilterGroupType.HogQLExpression,
     [PropertyFilterType.Recording]: TaxonomicFilterGroupType.Replay,
     [PropertyFilterType.ErrorTrackingIssue]: TaxonomicFilterGroupType.ErrorTrackingIssues,
+    [PropertyFilterType.Log]: TaxonomicFilterGroupType.Logs,
 }
 
 export const filterToTaxonomicFilterType = (
@@ -396,6 +398,10 @@ export function taxonomicFilterTypeToPropertyFilterType(
 
     if (filterType == TaxonomicFilterGroupType.ErrorTrackingIssues) {
         return PropertyFilterType.ErrorTrackingIssue
+    }
+
+    if (filterType == TaxonomicFilterGroupType.Logs) {
+        return PropertyFilterType.Log
     }
 
     return Object.entries(propertyFilterMapping).find(([, v]) => v === filterType)?.[0] as

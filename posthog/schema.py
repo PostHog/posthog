@@ -1580,6 +1580,7 @@ class PropertyFilterType(StrEnum):
     DATA_WAREHOUSE = "data_warehouse"
     DATA_WAREHOUSE_PERSON_PROPERTY = "data_warehouse_person_property"
     ERROR_TRACKING_ISSUE = "error_tracking_issue"
+    LOG = "log"
 
 
 class PropertyMathType(StrEnum):
@@ -1921,6 +1922,7 @@ class TaxonomicFilterGroupType(StrEnum):
     NOTEBOOKS = "notebooks"
     LOG_ENTRIES = "log_entries"
     ERROR_TRACKING_ISSUES = "error_tracking_issues"
+    LOGS = "logs"
     REPLAY = "replay"
     RESOURCES = "resources"
 

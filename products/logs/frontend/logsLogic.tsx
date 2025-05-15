@@ -1,8 +1,10 @@
-import { actions, kea, path, reducers } from 'kea'
+import { actions, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 
 import { DateRange, LogMessage, LogsQuery } from '~/queries/schema/schema-general'
+import { UniversalFiltersGroup } from '~/types'
 
 import type { logsLogicType } from './logsLogicType'
 
@@ -18,6 +20,7 @@ export const logsLogic = kea<logsLogicType>([
         setResource: (resource: LogsQuery['resource']) => ({ resource }),
         setSeverityLevels: (severityLevels: LogsQuery['severityLevels']) => ({ severityLevels }),
         setWrapBody: (wrapBody: boolean) => ({ wrapBody }),
+        setFilterGroup: (filterGroup: UniversalFiltersGroup) => ({ filterGroup }),
     }),
 
     reducers({
@@ -51,11 +54,25 @@ export const logsLogic = kea<logsLogicType>([
                 setSeverityLevels: (_, { severityLevels }) => severityLevels,
             },
         ],
+        filterGroup: [
+            DEFAULT_UNIVERSAL_GROUP_FILTER,
+            { persist: false },
+            {
+                setFilterGroup: (_, { filterGroup }) => filterGroup,
+            },
+        ],
 
         wrapBody: [
             true as boolean,
             {
                 setWrapBody: (_, { wrapBody }) => wrapBody,
+            },
+        ],
+        hasRunQuery: [
+            false as boolean,
+            {
+                fetchLogsSuccess: () => true,
+                fetchLogsFailure: () => true,
             },
         ],
     }),
@@ -81,4 +98,23 @@ export const logsLogic = kea<logsLogicType>([
             },
         ],
     })),
+
+    listeners(({ values, actions }) => {
+        const maybeRefreshLogs = (): void => {
+            if (values.hasRunQuery) {
+                actions.fetchLogs()
+            }
+        }
+
+        return {
+            setDateRange: maybeRefreshLogs,
+            setOrderBy: maybeRefreshLogs,
+            // TODO: debounce
+            // setSearchTerm: maybeRefreshLogs,
+            setResource: maybeRefreshLogs,
+            setSeverityLevels: maybeRefreshLogs,
+            setWrapBody: maybeRefreshLogs,
+            setFilterGroup: maybeRefreshLogs,
+        }
+    }),
 ])

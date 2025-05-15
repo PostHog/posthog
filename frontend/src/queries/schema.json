@@ -12983,7 +12983,8 @@
                 "hogql",
                 "data_warehouse",
                 "data_warehouse_person_property",
-                "error_tracking_issue"
+                "error_tracking_issue",
+                "log"
             ],
             "type": "string"
         },
@@ -18171,6 +18172,7 @@
                 "notebooks",
                 "log_entries",
                 "error_tracking_issues",
+                "logs",
                 "replay",
                 "resources"
             ],
