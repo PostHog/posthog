@@ -39,7 +39,7 @@ export const LeaderboardContent = (): JSX.Element => {
     return (
         <div className="mt-4">
             <div className="flex items-center justify-between mb-4">
-                <h3 className="m-0">Leaderboard</h3>
+                <h3 className="m-0 text-xl">Leaderboard</h3>
                 <LemonSelect
                     value={currentLeaderboardType}
                     onChange={(value) => loadLeaderboard(value as LeaderboardType)}

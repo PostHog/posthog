@@ -81,7 +81,7 @@ export const BetDefinitionsContent = (): JSX.Element => {
     return (
         <div className="mt-4">
             <div className="flex justify-between items-center mb-4">
-                <h3>Available Bets</h3>
+                <h2 className="text-xl">Available Bets</h2>
                 <LemonButton type="primary" onClick={() => setShowNewForm(true)} icon={<IconOpenInNew />}>
                     Create New Bet
                 </LemonButton>
@@ -89,7 +89,7 @@ export const BetDefinitionsContent = (): JSX.Element => {
 
             {showNewForm && (
                 <LemonCard className="mb-4" hoverEffect={false}>
-                    <h4 className="mb-4">Create New Bet Definition</h4>
+                    <h2 className="mb-4 text-xl">Create New Bet Definition</h2>
                     <BetDefinitionForm />
                 </LemonCard>
             )}

@@ -110,6 +110,7 @@ export function HomeContent(): JSX.Element {
                                                 setBetType('Yes')
                                                 setShowConfirmation(true)
                                             }}
+                                            disabledReason={amount === 0 && 'The amount must be greater than 0'}
                                         >
                                             Yes 39¢
                                         </LemonButton>
@@ -121,6 +122,7 @@ export function HomeContent(): JSX.Element {
                                                 setBetType('No')
                                                 setShowConfirmation(true)
                                             }}
+                                            disabledReason={amount === 0 && 'The amount must be greater than 0'}
                                         >
                                             No 62¢
                                         </LemonButton>
@@ -257,7 +259,7 @@ export function HomeContent(): JSX.Element {
                             },
                         },
                         {
-                            title: 'Price',
+                            title: 'Bet Amount',
                             dataIndex: 'price',
                             key: 'price',
                             render: function RenderPrice(price: string | number | undefined) {
@@ -265,7 +267,7 @@ export function HomeContent(): JSX.Element {
                             },
                         },
                         {
-                            title: 'Bet Amount',
+                            title: 'Payout Potential',
                             dataIndex: 'betAmount',
                             key: 'betAmount',
                         },
