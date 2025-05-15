@@ -93,6 +93,7 @@ from .user_group import UserGroup, UserGroupMembership
 from .user_scene_personalisation import UserScenePersonalisation
 from .web_experiment import WebExperiment
 from products.early_access_features.backend.models import EarlyAccessFeature
+from products.chat.backend.models import ChatMessage, ChatConversation
 
 __all__ = [
     "AlertConfiguration",
@@ -196,6 +197,8 @@ __all__ = [
     "ScheduledChange",
     "WebExperiment",
     "Comment",
+    "ChatMessage",
+    "ChatConversation",
     # Deprecated models here for backwards compatibility
     "Prompt",
     "PromptSequence",
