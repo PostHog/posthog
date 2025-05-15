@@ -30,9 +30,6 @@ pub enum AuthError {
     #[error("Invalid Authorization header format")]
     InvalidHeaderFormat,
 
-    #[error("Invalid token: {0}")]
-    InvalidToken(String),
-
     #[error("JWT error: {0}")]
     JwtError(#[from] jsonwebtoken::errors::Error),
 }
@@ -83,7 +80,7 @@ pub fn authenticate_request(
             AuthError::MissingHeader | AuthError::InvalidHeaderFormat => {
                 Status::unauthenticated("Invalid or missing Authorization header")
             }
-            AuthError::InvalidToken(_) | AuthError::JwtError(_) => {
+            AuthError::JwtError(_) => {
                 Status::unauthenticated(format!("Invalid JWT token: {}", err))
             }
         }
