@@ -68,7 +68,7 @@ class ReplaySummarizer:
 
     def summarize_recordings(
         self, session_summaries: list[str], extra_summary_context: ExtraSummaryContext | None = None
-    ) -> Generator[str, None, None]:
+    ) -> str | None:
         if extra_summary_context is None:
             extra_summary_context = ExtraSummaryContext()
         combined_session_summaries = "\n\n".join(session_summaries)
