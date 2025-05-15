@@ -1,4 +1,5 @@
 from typing import TYPE_CHECKING
+import uuid
 
 from django.db import models
 from django.db.models import QuerySet
@@ -6,6 +7,7 @@ from django.db.models import QuerySet
 from posthog.models.utils import UUIDModel
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+from posthog.models.person.person import Person
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -17,12 +19,7 @@ class ChatConversation(FileSystemSyncMixin, UUIDModel):
         # No need for the unique constraint since we removed conversation_id
         pass
 
-    person = models.ForeignKey(
-        "posthog.Person",
-        on_delete=models.CASCADE,
-        related_name="chat_conversations",
-        related_query_name="chat_conversation",
-    )
+    person_uuid = models.UUIDField(default=uuid.uuid4)  # Add a default value for migration
 
     team = models.ForeignKey(
         "posthog.Team",
@@ -49,16 +46,22 @@ class ChatConversation(FileSystemSyncMixin, UUIDModel):
         return cls._filter_unfiled_queryset(base_qs, team, type="chat_conversation", ref_field="id")
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
+        # Try to get the person by UUID
+        try:
+            person = Person.objects.get(uuid=self.person_uuid, team_id=self.team_id)
+            person_name = person.properties.get("name") or person.properties.get("email") or f"Person {person.uuid}"
+        except Person.DoesNotExist:
+            person_name = f"Person {self.person_uuid}"
+
         return FileSystemRepresentation(
             base_folder=self._create_in_folder or "Unfiled/Chats",
             type="chat_conversation",
             ref=str(self.pk),
-            name=self.title
-            or f"Chat with {self.person.properties.get('name') or self.person.properties.get('email') or f'Person {self.person.id}'}",
+            name=self.title or f"Chat with {person_name}",
             href=f"/chat/{self.pk}",
             meta={
                 "created_at": str(self.created_at),
-                "person_id": str(self.person.id),
+                "person_uuid": str(self.person_uuid),
             },
             should_delete=False,
         )

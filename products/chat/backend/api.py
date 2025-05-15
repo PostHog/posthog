@@ -43,13 +43,14 @@ class ChatMessageSerializer(serializers.ModelSerializer):
 
 class ChatConversationSerializer(serializers.ModelSerializer):
     messages = ChatMessageSerializer(many=True, read_only=True)
+    person_uuid = serializers.UUIDField()
 
     class Meta:
         model = ChatConversation
         fields = [
             "id",
             "title",
-            "person",
+            "person_uuid",
             "created_at",
             "updated_at",
             "source_url",
@@ -64,23 +65,22 @@ class ChatConversationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = ChatConversation.objects.all()
     serializer_class = ChatConversationSerializer
     filter_backends = [filters.SearchFilter]
-    search_fields = ["title", "person__properties"]
+    search_fields = ["title"]
 
     def safely_get_queryset(self, queryset):
         return queryset.filter(team_id=self.team_id).order_by("-updated_at")
 
     def perform_create(self, serializer):
-        person_id = serializer.validated_data.pop("person", None)
-        if not person_id:
-            raise serializers.ValidationError("Person ID is required")
+        person_uuid = serializer.validated_data.get("person_uuid")
+        if not person_uuid:
+            raise serializers.ValidationError("Person UUID is required")
 
         try:
-            person = Person.objects.get(id=person_id, team_id=self.team_id)
+            Person.objects.get(uuid=person_uuid, team_id=self.team_id)
         except Person.DoesNotExist:
             raise serializers.ValidationError("Person not found")
 
         serializer.save(
-            person=person,
             team_id=self.team_id,
         )
 
@@ -178,7 +178,6 @@ class ChatMessageViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         conversation_id = self.kwargs.get("conversation_pk")
         conversation = ChatConversation.objects.get(id=conversation_id, team_id=self.team_id)
 
-        # Update conversation's updated_at timestamp
         conversation.updated_at = datetime.now(UTC)
         conversation.save(update_fields=["updated_at"])
 
@@ -191,10 +190,8 @@ def chat_endpoints(request: Request):
     This endpoint is the unified entry point for chat functionality, handling both
     internal authenticated requests and external client-side widget requests.
     """
-    # For GET requests, token comes from URL parameters
     token = get_token(None, request)
 
-    # For POST requests, the token might be in the body
     if not token and request.method == "POST":
         try:
             if request.content_type == "application/json":
@@ -203,7 +200,7 @@ def chat_endpoints(request: Request):
                 body_data = json.loads(request.body)
                 token = body_data.get("token") or body_data.get("api_key")
         except Exception:
-            pass  # If JSON parsing fails, we'll just continue with token=None
+            pass
 
     if request.method == "OPTIONS":
         return cors_response(request, HttpResponse(""))
@@ -251,7 +248,6 @@ def chat_endpoints(request: Request):
                         ),
                     )
 
-                # Find person for this distinct_id (but don't create one)
                 try:
                     persons = get_persons_by_distinct_ids(team_id=team.id, distinct_ids=[distinct_id])
                     if not persons.exists():
@@ -263,6 +259,8 @@ def chat_endpoints(request: Request):
                             ),
                         )
                     person = persons.first()
+
+                    person_uuid = person.uuid
                 except Exception as e:
                     return cors_response(
                         request,
@@ -276,15 +274,13 @@ def chat_endpoints(request: Request):
                 title = data.get("title")
                 source_url = data.get("source_url")
 
-                # Create conversation
                 conversation = ChatConversation.objects.create(
                     team=team,
-                    person=person,
+                    person_uuid=person_uuid,
                     title=title,
                     source_url=source_url,
                 )
 
-                # Add initial message if provided
                 if initial_message:
                     ChatMessage.objects.create(
                         conversation=conversation,
@@ -318,11 +314,9 @@ def chat_endpoints(request: Request):
                         ),
                     )
 
-                # Reset unread count when user sends a message
                 conversation.unread_count = 0
                 conversation.save(update_fields=["unread_count", "updated_at"])
 
-                # Create message
                 chat_message = ChatMessage.objects.create(
                     conversation=conversation,
                     content=message,
@@ -375,10 +369,8 @@ def chat_endpoints(request: Request):
                         }
                     )
 
-                # Mark all unread messages as read when user gets messages
                 ChatMessage.objects.filter(conversation=conversation, read=False).update(read=True)
 
-                # Reset unread count when user gets messages
                 conversation.unread_count = 0
                 conversation.save(update_fields=["unread_count"])
 
@@ -392,6 +384,7 @@ def chat_endpoints(request: Request):
                                 "id": str(conversation.id),
                                 "created_at": conversation.created_at.isoformat(),
                                 "updated_at": conversation.updated_at.isoformat(),
+                                "person_uuid": str(conversation.person_uuid),
                             },
                         }
                     ),
@@ -411,11 +404,10 @@ def chat_endpoints(request: Request):
                 JsonResponse({"status": "error", "message": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR),
             )
     elif request.method == "GET":
-        # Return basic chat data that might be needed by clients
         conversations = ChatConversation.objects.filter(team=team).order_by("-updated_at")
         conversations_data = []
 
-        for conversation in conversations[:20]:  # Limit to most recent 20
+        for conversation in conversations[:20]:
             conversations_data.append(
                 {
                     "id": str(conversation.id),
@@ -423,6 +415,7 @@ def chat_endpoints(request: Request):
                     "created_at": conversation.created_at.isoformat(),
                     "updated_at": conversation.updated_at.isoformat(),
                     "unread_count": conversation.unread_count,
+                    "person_uuid": str(conversation.person_uuid),
                 }
             )
 
