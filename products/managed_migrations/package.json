@@ -1,5 +1,5 @@
 {
-    "name": "@posthog/products-data-import",
+    "name": "@posthog/managed-migrations",
     "dependencies": {
         "@posthog/icons": "*",
         "kea-forms": "^3.2.0",

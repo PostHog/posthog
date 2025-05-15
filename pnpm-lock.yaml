@@ -566,6 +566,9 @@ importers:
       '@posthog/icons':
         specifier: 0.13.1
         version: 0.13.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@posthog/managed-migrations':
+        specifier: workspace:*
+        version: link:../products/managed_migrations
       '@posthog/plugin-scaffold':
         specifier: ^1.4.4
         version: 1.4.4
