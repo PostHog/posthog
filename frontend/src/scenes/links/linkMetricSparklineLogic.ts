@@ -11,13 +11,18 @@ export type Props = {
     id: string
 }
 
+export type SparklineDataResponse = {
+    data: number[]
+    labels: string[]
+}
+
 export const linkMetricSparklineLogic = kea<linkMetricSparklineLogicType>([
     props({} as Props),
     key(({ id }: Props) => id),
-    path((id) => ['scenes', 'links', 'linkMetricSparklineLogic', id]),
-    loaders(() => ({
+    path(['scenes', 'links', 'linkMetricSparklineLogic', 'id']),
+    loaders({
         sparklineData: [
-            null,
+            null as SparklineDataResponse | null,
             {
                 loadSparklineData: async () => {
                     const query: TrendsQuery = {
@@ -42,12 +47,13 @@ export const linkMetricSparklineLogic = kea<linkMetricSparklineLogicType>([
                             },
                         ],
                     }
-                    return await api.query(query)
+                    const response = await api.query(query)
+                    return response.results[0] as SparklineDataResponse
                 },
             },
         ],
-    })),
-    afterMount(({ actions, props }) => {
-        actions.loadSparklineData({ id: props.id })
+    }),
+    afterMount(({ actions }) => {
+        actions.loadSparklineData()
     }),
 ])

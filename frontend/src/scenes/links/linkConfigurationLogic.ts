@@ -1,9 +1,10 @@
-import { actions, afterMount, kea, key, listeners, path, props } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
@@ -30,6 +31,9 @@ export const linkConfigurationLogic = kea<linkConfigurationLogicType>([
     path((id) => ['scenes', 'links', 'linkConfigurationLogic', id]),
     props({} as Props),
     key(({ id }: Props) => id),
+    connect(() => ({
+        values: [projectLogic, ['currentProjectId']],
+    })),
     loaders(() => ({
         link: [
             null as LinkType | null,
@@ -55,8 +59,8 @@ export const linkConfigurationLogic = kea<linkConfigurationLogicType>([
                     } else {
                         deleteFromTree('link', String(link.id))
                     }
-                    // Load latest change so a backwards navigation shows the flag as deleted
-                    actions.loadLink()
+                    // Load latest change so a backwards navigation shows the link as deleted
+                    actions.loadLink({ id: link.id })
                     router.actions.push(urls.links())
                 },
             })
@@ -70,7 +74,7 @@ export const linkConfigurationLogic = kea<linkConfigurationLogicType>([
                 short_code: '',
                 redirect_url: '',
                 description: '',
-            },
+            } as LinkType,
 
             errors: ({ redirect_url }) => ({
                 redirect_url: !redirect_url ? 'Must have a destination url' : undefined,

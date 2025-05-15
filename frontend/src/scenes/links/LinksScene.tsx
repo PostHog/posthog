@@ -1,5 +1,5 @@
 import { IconPlus } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTableColumn, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTableColumn, LemonTableColumns, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -135,7 +135,7 @@ export function LinksScene(): JSX.Element {
             ) : (
                 <LemonTable
                     dataSource={links}
-                    columns={columns}
+                    columns={columns as LemonTableColumns<LinkType>}
                     loading={linksLoading}
                     rowKey="id"
                     pagination={{ pageSize: 100 }}
