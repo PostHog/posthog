@@ -217,7 +217,7 @@ export function BetDetailContent(): JSX.Element {
 
     // Transform probability distributions for the chart
     const chartData = bet.probability_distributions.map((dist) => ({
-        date: new Date(dist.created_at).toLocaleDateString(),
+        date: new Date(dist.created_at).toLocaleString(),
         ranges: dist.buckets.map((bucket, index) => ({
             range:
                 index === 0
@@ -275,9 +275,7 @@ export function BetDetailContent(): JSX.Element {
                                 </div>
                                 <div>
                                     <div className="text-sm text-muted mb-1">Closing date</div>
-                                    <div className="font-semibold">
-                                        {new Date(bet.closing_date).toLocaleDateString()}
-                                    </div>
+                                    <div className="font-semibold">{new Date(bet.closing_date).toLocaleString()}</div>
                                 </div>
                                 <div>
                                     <div className="text-sm text-muted mb-1">Time remaining</div>
@@ -355,7 +353,7 @@ export function BetDetailContent(): JSX.Element {
                                         dataIndex: 'created_at',
                                         key: 'created_at',
                                         render: function RenderDate(_, record) {
-                                            return new Date(record.created_at).toLocaleDateString()
+                                            return new Date(record.created_at).toLocaleString()
                                         },
                                     },
                                     {
@@ -413,7 +411,7 @@ export function BetDetailContent(): JSX.Element {
                                         dataIndex: 'created_at',
                                         key: 'created_at',
                                         render: function RenderDate(_, record) {
-                                            return new Date(record.created_at).toLocaleDateString()
+                                            return new Date(record.created_at).toLocaleString()
                                         },
                                     },
                                     {

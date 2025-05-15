@@ -370,10 +370,10 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="sync all remote configs",
     )
 
-    # Refresh probability distributions for betting app every 10 minutes
+    # Refresh probability distributions for betting app every 30 seconds
     add_periodic_task_with_expiry(
         sender,
-        600,  # 10 minutes in seconds
+        30,  # 30 seconds
         refresh_all_probability_distributions.s(),
         name="refresh betting probability distributions",
     )

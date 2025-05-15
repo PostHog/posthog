@@ -78,7 +78,7 @@ export function MyBetsContent(): JSX.Element {
                         dataIndex: 'created_at',
                         key: 'created_at',
                         render: function RenderDate(date: string) {
-                            return new Date(date).toLocaleDateString()
+                            return new Date(date).toLocaleString()
                         },
                     },
                 ]}

@@ -405,30 +405,26 @@ def create_probability_distribution(bet_definition: BetDefinition) -> Optional[P
             # Use a large number instead of infinity for JSON compatibility
             MAX_VALUE = 1000000000000  # 1 trillion
 
-            # Calculate bucket ranges ensuring no negative values and proper distribution
             lower_bound = max(0, predicted_value - 2 * std_dev)
             mid_lower = max(0, predicted_value - std_dev)
             mid_upper = predicted_value + std_dev
             upper_bound = predicted_value + 2 * std_dev
 
-            bucket_definitions = [
-                {"min": 0, "max": lower_bound},  # Low probability of being below trend
-                {"min": lower_bound, "max": mid_lower},  # Below trend
-                {"min": mid_lower, "max": mid_upper},  # Around trend
-                {"min": mid_upper, "max": upper_bound},  # Above trend
-                {"min": upper_bound, "max": MAX_VALUE},  # High probability of being above trend
+            new_bucket_definitions = [
+                {"min": 0, "max": lower_bound},
+                {"min": lower_bound, "max": mid_lower},
+                {"min": mid_lower, "max": mid_upper},
+                {"min": mid_upper, "max": upper_bound},
+                {"min": upper_bound, "max": MAX_VALUE},
             ]
 
-            # Ensure no overlapping ranges and proper ordering
-            for i in range(1, len(bucket_definitions)):
-                if bucket_definitions[i]["min"] <= bucket_definitions[i - 1]["max"]:
-                    bucket_definitions[i]["min"] = bucket_definitions[i - 1]["max"] + 1
-                if bucket_definitions[i]["min"] >= bucket_definitions[i]["max"]:
-                    bucket_definitions[i]["max"] = bucket_definitions[i]["min"] + 1
-
-            # Save bucket definitions to bet definition
-            bet_definition.bucket_definitions = bucket_definitions
-            bet_definition.save(update_fields=["bucket_definitions"])
+            # Only set bucket definitions if they don't already exist
+            if not bet_definition.bucket_definitions:
+                bet_definition.bucket_definitions = new_bucket_definitions
+                bet_definition.save(update_fields=["bucket_definitions"])
+                bucket_definitions = new_bucket_definitions
+            else:
+                bucket_definitions = bet_definition.bucket_definitions
 
             # Create distribution data with probabilities
             distribution_data = [
@@ -436,27 +432,27 @@ def create_probability_distribution(bet_definition: BetDefinition) -> Optional[P
                     "min": bucket_definitions[0]["min"],
                     "max": bucket_definitions[0]["max"],
                     "probability": 0.05,
-                },  # Low probability
+                },
                 {
                     "min": bucket_definitions[1]["min"],
                     "max": bucket_definitions[1]["max"],
                     "probability": 0.15,
-                },  # Below trend
+                },
                 {
                     "min": bucket_definitions[2]["min"],
                     "max": bucket_definitions[2]["max"],
                     "probability": 0.60,
-                },  # Around trend
+                },
                 {
                     "min": bucket_definitions[3]["min"],
                     "max": bucket_definitions[3]["max"],
                     "probability": 0.15,
-                },  # Above trend
+                },
                 {
                     "min": bucket_definitions[4]["min"],
                     "max": bucket_definitions[4]["max"],
                     "probability": 0.05,
-                },  # High probability
+                },
             ]
 
             # Create and save the probability distribution
