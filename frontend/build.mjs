@@ -93,6 +93,7 @@ await buildInParallel(
                             /queries\/QueryEditor\/QueryEditor/,
                             /scenes\/billing/,
                             /scenes\/data-warehouse/,
+                            /LineGraph/,
                         ]
 
                         build.onResolve({ filter: /.*/ }, (args) => {
