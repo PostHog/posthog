@@ -28,10 +28,10 @@ class ExternalEventWorkflowInputs:
     secret_key: str
     posthog_api_key: str
     source: str
-    job_id: Optional[str] = None
-    start_date: Optional[str] = None
-    end_date: Optional[str] = None
-    posthog_domain: Optional[str] = None
+    job_id: str
+    start_date: str
+    end_date: str
+    posthog_domain: str = "https://app.dev.posthog.com"
 
 
 @dataclasses.dataclass
