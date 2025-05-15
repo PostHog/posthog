@@ -1,10 +1,15 @@
 import 'handsontable/styles/handsontable.min.css'
 import 'handsontable/styles/ht-theme-main.min.css'
 
-import { HotTable } from '@handsontable/react-wrapper'
-import Handsontable from 'handsontable'
+import { HotTable, HotTableRef } from '@handsontable/react-wrapper'
+import { CellChange, ChangeSource } from 'handsontable/common'
 // Import HyperFormula and its necessary types
 import { FunctionArgumentType, FunctionPlugin, HyperFormula } from 'hyperformula'
+import { useActions, useValues } from 'kea'
+import { useEffect, useRef } from 'react'
+
+import { FormulaBar } from './components/FormulaBar'
+import { spreadsheetsSceneLogic } from './spreadsheetsSceneLogic'
 
 // 1. Create a function plugin for SQL
 class SqlPlugin extends FunctionPlugin {
@@ -61,29 +66,61 @@ try {
 }
 
 export const SpreadsheetsScene = (): JSX.Element => {
-    // Generate an empty 100 rows x 26 columns dataset
-    const emptyData = Handsontable.helper.createEmptySpreadsheetData(50, 26)
+    // Generate an empty 100 rows x (26 * 2) columns dataset
+    const hotRef = useRef<HotTableRef>(null)
+    const { data } = useValues(spreadsheetsSceneLogic)
+    const { setCurrentCellValue, setCurrentCellMeta, setData, setHotRef } = useActions(spreadsheetsSceneLogic)
+
+    useEffect(() => {
+        setHotRef(hotRef.current)
+    }, [setHotRef, hotRef.current])
+
+    const handleAfterChange = (changes: CellChange[] | null, source: ChangeSource): void => {
+        if (source === 'edit' && changes) {
+            const newData = [...data]
+
+            changes.forEach(([row, col, oldValue, newValue]) => {
+                if (oldValue !== newValue) {
+                    newData[row][col] = newValue
+                }
+            })
+
+            setData(newData)
+        }
+    }
 
     return (
-        <div className="ht-theme-main-dark-auto">
-            <HotTable
-                data={emptyData} // Use the empty 100x26 dataset
-                rowHeaders={true}
-                colHeaders={true}
-                minRows={50} // Ensure a minimum of 100 rows
-                minCols={26} // Ensure a minimum of 26 columns (A-Z)
-                minSpareRows={0} // No extra blank rows beyond the 100
-                minSpareCols={0} // No extra blank columns beyond the 26
-                height="auto" // Consider setting a fixed height e.g., 500 or '80vh' for large grids
-                autoWrapRow={true}
-                autoWrapCol={true}
-                licenseKey="non-commercial-and-evaluation" // for non-commercial use only
-                formulas={{
-                    engine: HyperFormula,
-                }}
-                // Enable context menu for add/remove rows/columns and other operations
-                contextMenu={true}
-            />
-        </div>
+        <>
+            <FormulaBar />
+            <div className="ht-theme-main-dark-auto">
+                <HotTable
+                    afterChange={handleAfterChange}
+                    ref={hotRef}
+                    afterSelection={(rowIndex, columnIndex) => {
+                        setCurrentCellValue(data[rowIndex][columnIndex])
+                        const cellMeta = hotRef.current?.hotInstance?.getCellMeta(rowIndex, columnIndex)
+                        setCurrentCellMeta(cellMeta ?? null)
+                    }}
+                    data={data} // Use the empty 100x26 dataset
+                    rowHeaders={true}
+                    colHeaders={true}
+                    manualColumnResize={true}
+                    colWidths={100}
+                    minRows={50} // Ensure a minimum of 100 rows
+                    minCols={26} // Ensure a minimum of 26 columns (A-Z)
+                    minSpareRows={0} // No extra blank rows beyond the 100
+                    minSpareCols={0} // No extra blank columns beyond the 26
+                    height="auto" // Consider setting a fixed height e.g., 500 or '80vh' for large grids
+                    autoWrapRow={true}
+                    autoWrapCol={true}
+                    licenseKey="non-commercial-and-evaluation" // for non-commercial use only
+                    formulas={{
+                        engine: HyperFormula,
+                    }}
+                    // Enable context menu for add/remove rows/columns and other operations
+                    contextMenu={true}
+                />
+            </div>
+        </>
     )
 }
