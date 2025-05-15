@@ -10,6 +10,7 @@ from ee.session_recordings.session_summary.input_data import (
     get_session_events,
     get_session_metadata,
 )
+from ee.session_recordings.session_summary.llm.call import call_llm
 from ee.session_recordings.session_summary.llm.consume import stream_llm_session_summary
 from ee.session_recordings.session_summary.prompt_data import SessionSummaryPromptData
 from ee.session_recordings.session_summary.utils import load_custom_template, serialize_to_sse_event, shorten_url
@@ -64,6 +65,41 @@ class ReplaySummarizer:
             },
         )
         return summary_prompt, system_prompt
+
+    def summarize_recordings(
+        self, session_summaries: list[str], extra_summary_context: ExtraSummaryContext | None = None
+    ) -> Generator[str, None, None]:
+        if extra_summary_context is None:
+            extra_summary_context = ExtraSummaryContext()
+        combined_session_summaries = "\n\n".join(session_summaries)
+        # Render all templates
+        template_dir = Path(__file__).parent / "templates" / "summary-of-summaries"
+        system_prompt = load_custom_template(
+            template_dir,
+            f"system-prompt.djt",
+            {
+                "FOCUS_AREA": extra_summary_context.focus_area,
+            },
+        )
+        summary_example = load_custom_template(template_dir, f"example.md")
+        summary_prompt = load_custom_template(
+            template_dir,
+            f"prompt.djt",
+            {
+                "SESSION_SUMMARIES": combined_session_summaries,
+                "SUMMARY_EXAMPLE": summary_example,
+                "FOCUS_AREA": extra_summary_context.focus_area,
+            },
+        )
+        # Get summary from LLM (no validation as we expect pure text output)
+        response = call_llm(
+            input_prompt=summary_prompt,
+            user_key=self.user.pk,
+            session_id=self.session_id,
+            system_prompt=system_prompt,
+        )
+        content = response.choices[0].message.content
+        return content
 
     def summarize_recording(self, extra_summary_context: ExtraSummaryContext) -> Generator[str, None, None]:
         timer = ServerTimingsGathered()
@@ -148,10 +184,7 @@ class ReplaySummarizer:
 
     def stream_recording_summary(self, extra_summary_context: ExtraSummaryContext | None = None):
         if extra_summary_context is None:
-            extra_summary_context = ExtraSummaryContext(
-                # TODO: Remove after test
-                focus_area="new error tracking product?"
-            )
+            extra_summary_context = ExtraSummaryContext()
         if SERVER_GATEWAY_INTERFACE == "ASGI":
             return self._astream(extra_summary_context)
         return self.summarize_recording(extra_summary_context)
