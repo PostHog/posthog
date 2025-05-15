@@ -2750,7 +2750,10 @@ const api = {
             return await new ApiRequest().chat().get()
         },
         async get(conversationId: ChatConversation['id']): Promise<ChatConversation> {
-            return await new ApiRequest().chatConversation(conversationId).get()
+            return await new ApiRequest()
+                .chatConversation(conversationId)
+                .withQueryString(toParams({ is_assitant: true }))
+                .get()
         },
         async create(data: Partial<ChatConversation>): Promise<ChatConversation> {
             return await new ApiRequest().chat().create({ data })

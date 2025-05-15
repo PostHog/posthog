@@ -31,7 +31,7 @@ export function ChatListItem({
             <div className="text-sm flex items-center gap-1">
                 {isUnread && <span className="w-2 h-2 bg-red-500 rounded-full inline-block mr-1" />}
                 {isReply && <IconCornerDownRight className="w-4 h-4 text-gray-400 rotate-180" />}
-                <span>{message}</span>
+                <span className="truncate">{message}</span>
             </div>
         </div>
     )

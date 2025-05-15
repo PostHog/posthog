@@ -15,9 +15,11 @@ export function ChatWindow(): JSX.Element {
                 <div className="flex items-center justify-end border-b border-gray-200 pb-2 mb-2">
                     <LemonButton icon={<IconX />} size="xsmall" onClick={() => setSelectedChatId(null)} />
                 </div>
-                {(chats.find((c) => c.id === selectedChatId)?.messages as ChatMessage[]).map((msg) => (
-                    <Message key={msg.id} msg={msg} />
-                ))}
+                <div className="overflow-y-auto h-full">
+                    {(chats.find((c) => c.id === selectedChatId)?.messages as ChatMessage[]).map((msg) => (
+                        <Message key={msg.id} msg={msg} />
+                    ))}
+                </div>
             </div>
             <ChatInput />
         </div>

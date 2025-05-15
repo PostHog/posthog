@@ -16,7 +16,7 @@ export type Chat = {
 }
 
 export type ChatMessage = {
-    id: string
+    id?: string
     content: string
     created_at: string
     read: boolean
@@ -31,7 +31,8 @@ export const chatListLogic = kea<chatListLogicType>([
         sendMessage: (message: string) => ({ message }),
         setMessage: (message: string) => ({ message }),
         loadChats: true,
-        loadChatMessages: (conversationId: string) => ({ conversationId }),
+        loadChat: (chatId: string) => ({ chatId }),
+        createZendDeskTicket: (subject: string, uuid: string, message: string) => ({ subject, uuid, message }),
     }),
     reducers({
         chats: [
@@ -66,15 +67,7 @@ export const chatListLogic = kea<chatListLogicType>([
                     }
 
                     await api.chat.sendMessage(values.selectedChatId, newMessage)
-
-                    actions.setChats(
-                        values.chats.map((chat) => {
-                            if (chat.id === values.selectedChatId) {
-                                return { ...chat, messages: [...chat.messages, newMessage] }
-                            }
-                            return chat
-                        })
-                    )
+                    actions.loadChats()
                     actions.setMessage('')
                 }
             }
@@ -90,7 +83,7 @@ export const chatListLogic = kea<chatListLogicType>([
                     })
                 )
             }
-            //actions.loadChatMessages(selectedChatId)
+            actions.loadChat(selectedChatId)
         },
         loadChats: async () => {
             const chats = await api.chat.list()
@@ -98,8 +91,27 @@ export const chatListLogic = kea<chatListLogicType>([
                 actions.setChats(chats.results)
             }
         },
-        loadChatMessages: async ({ conversationId }) => {
-            await api.chat.listMessages(conversationId)
+        loadChat: async ({ chatId }) => {
+            // basically we mark the messages as read
+            await api.chat.get(chatId)
+        },
+        createZendDeskTicket: async ({ subject, uuid, message }) => {
+            const chat = await api.chat.create({
+                person_uuid: uuid, //hardcode your own, e..g 'e3a558b1-99c1-5119-b407-62f7e747d46b',
+                title: subject,
+                source_url: 'zendesk',
+            })
+            if (chat && chat.id) {
+                const newMessage: ChatMessage = {
+                    content: message,
+                    created_at: new Date().toISOString(),
+                    read: false,
+                    is_assistant: false,
+                }
+
+                await api.chat.sendMessage(chat.id, newMessage)
+                actions.loadChats()
+            }
         },
     })),
     afterMount(({ actions }) => {
