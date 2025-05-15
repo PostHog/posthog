@@ -28,7 +28,7 @@ def extract_gzipped_files(directory: str) -> None:
     logger = structlog.get_logger()
     logger.info(f"Checking for gzipped files in {directory}")
 
-    for root, files in os.walk(directory):
+    for root, _dirnames, files in os.walk(directory):
         for file in files:
             if file.endswith(".gz"):
                 gz_file_path = os.path.join(root, file)
