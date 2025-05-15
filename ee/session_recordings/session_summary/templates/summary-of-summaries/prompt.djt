@@ -20,8 +20,8 @@ Each session represents a single user journey. Use the summaries to identify pat
 CRITICAL WARNING: DO NOT hallucinate errors. Only summarize errors when there is EXPLICIT evidence that errors occurred.
 
 You will analyze multiple user session summaries to identify patterns, trends, pain points, and user behaviors across all sessions. Your goal is to create a concise meta-summary with actionable insights about user interactions.
-{% if FOCUS_AREA %}
 
+{% if FOCUS_AREA %}
 # Step 0: Focus Area
 
 IMPORTANT: While analyzing these session summaries, pay special attention to this focus area:
@@ -45,6 +45,8 @@ Keep this focus area in mind throughout your analysis, but still follow the stru
 - Note common entry points and exit points
 - Identify typical sequences in successful journeys
 - Observe differences between completed vs abandoned journeys
+- Include ONLY 3-4 most significant journeys, described in 15 words maximum
+- AGGRESSIVELY consolidate similar journeys into higher-level patterns
 {% if FOCUS_AREA %}
 - Particularly highlight journeys related to the focus area
 - Pay special attention to how users navigate toward or around areas relevant to the focus
@@ -55,6 +57,8 @@ Keep this focus area in mind throughout your analysis, but still follow the stru
 - Note areas where confusion indicators appear (dead clicks, repeated actions)
 - Identify where users commonly abandon tasks
 - Observe signs of workflow disruption (timeout messages, exceptions)
+- List NO MORE THAN 3-4 critical issues, each described in 15 words maximum
+- Combine related issues into broader categories rather than listing each specific instance
 {% if FOCUS_AREA %}
 - Prioritize friction points directly related to the focus area
 - Analyze how these specific pain points impact the user journey elements mentioned in the focus
@@ -62,9 +66,10 @@ Keep this focus area in mind throughout your analysis, but still follow the stru
 
 # Step 3: Recognize Success Patterns
 - Identify common paths leading to successful outcomes
-- Note user strategies for overcoming obstacles
+- Note user strategies for overcoming obstacles 
 - Observe unexpected or creative user behaviors
 - Identify key differences between successful and unsuccessful journeys
+- Include only 3-4 KEY success patterns, each described in 15 words maximum
 {% if FOCUS_AREA %}
 - Highlight success patterns specifically related to the focus area
 - Identify what differentiates successful from unsuccessful interactions within the focus domain
@@ -75,6 +80,8 @@ Keep this focus area in mind throughout your analysis, but still follow the stru
 - Suggest workflow optimizations for frequently used paths
 - Propose improvements to enhance user success rates
 - Identify opportunities to streamline navigation
+- Limit to 3-4 HIGHEST-IMPACT recommendations, each 15 words maximum
+- Prioritize actionable suggestions over general observations
 {% if FOCUS_AREA %}
 - Prioritize improvement suggestions that directly address the focus area
 - Provide more detailed recommendations for focus-related issues
@@ -85,6 +92,8 @@ Keep this focus area in mind throughout your analysis, but still follow the stru
 - Focus on quality over quantity - prioritize impactful observations
 - Include both common patterns and notable exceptions
 - Avoid making numerical claims unless explicitly evident in the data
+- Create the MINIMUM necessary number of observations to accurately represent the data
+- For each section, if you exceed the word limits, AGGRESSIVELY consolidate and simplify
 {% if FOCUS_AREA %}
 - Verify that your meta-summary adequately addresses the focus area
 - Ensure your most prominent insights relate to the focus area
