@@ -2391,18 +2391,18 @@ class TestCapture(BaseTest):
             content_type="application/csp-report",
         )
 
-        self.assertEqual(status.HTTP_204_NO_CONTENT, response.status_code)
-        self.assertEqual(kafka_produce.call_count, 1)
+        assert status.HTTP_204_NO_CONTENT == response.status_code
+        assert kafka_produce.call_count == 1
 
         kafka_produce_call = kafka_produce.call_args_list[0].kwargs
 
         # Verify data
         event_data = json.loads(kafka_produce_call["data"]["data"])
 
-        self.assertEqual(event_data["event"], "$csp_violation")
-        self.assertEqual(event_data["properties"]["document_url"], "https://example.com/foo/bar")
-        self.assertEqual(event_data["properties"]["violated_directive"], "default-src self")
-        self.assertEqual(event_data["properties"]["blocked_url"], "https://evil.com/malicious-image.png")
+        assert event_data["event"] == "$csp_violation"
+        assert event_data["properties"]["document_url"] == "https://example.com/foo/bar"
+        assert event_data["properties"]["violated_directive"] == "default-src self"
+        assert event_data["properties"]["blocked_url"] == "https://evil.com/malicious-image.png"
 
     def test_capture_csp_invalid_json_gives_invalid_csp_payload(self):
         response = self.client.post(
@@ -2411,9 +2411,9 @@ class TestCapture(BaseTest):
             content_type="application/csp-report",
         )
 
-        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
-        self.assertIn("Invalid CSP report format", response.json()["detail"])
-        self.assertEqual(response.json()["code"], "invalid_csp_payload")
+        assert status.HTTP_400_BAD_REQUEST == response.status_code
+        assert "Invalid CSP report format" in response.json()["detail"]
+        assert response.json()["code"] == "invalid_csp_payload"
 
     def test_capture_csp_invalid_report_format_gives_invalid_csp_payload(self):
         invalid_csp_report = {"not-a-csp-report": "invalid format"}
@@ -2424,9 +2424,9 @@ class TestCapture(BaseTest):
             content_type="application/csp-report",
         )
 
-        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
-        self.assertIn("Invalid CSP report properties provided", response.json()["detail"])
-        self.assertEqual(response.json()["code"], "invalid_csp_payload")
+        assert status.HTTP_400_BAD_REQUEST == response.status_code
+        assert "Invalid CSP report properties provided" in response.json()["detail"]
+        assert response.json()["code"] == "invalid_csp_payload"
 
     def test_integration_csp_report_invalid_json_gives_invalid_csp_payload(self):
         response = self.client.post(
@@ -2435,9 +2435,9 @@ class TestCapture(BaseTest):
             content_type="application/csp-report",
         )
 
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("Invalid CSP report format", response.json()["detail"])
-        self.assertEqual(response.json()["code"], "invalid_csp_payload")
+        assert status.HTTP_400_BAD_REQUEST == response.status_code
+        assert "Invalid CSP report format" in response.json()["detail"]
+        assert response.json()["code"] == "invalid_csp_payload"
 
     def test_integration_csp_report_invalid_format(self):
         invalid_format = {
@@ -2452,9 +2452,9 @@ class TestCapture(BaseTest):
             content_type="application/csp-report",
         )
 
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("Invalid CSP report properties provided", response.json()["detail"])
-        self.assertEqual(response.json()["code"], "invalid_csp_payload")
+        assert status.HTTP_400_BAD_REQUEST == response.status_code
+        assert "Invalid CSP report properties provided" in response.json()["detail"]
+        assert response.json()["code"] == "invalid_csp_payload"
 
     def test_integration_csp_report_sent_as_json_without_content_type_is_handled_as_regular_event(self):
         valid_csp_report = {
@@ -2471,9 +2471,9 @@ class TestCapture(BaseTest):
             content_type="application/json",  # Not application/csp-report
         )
 
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["code"], "invalid_payload")
-        self.assertIn("All events must have the event name field", response.json()["detail"])
+        assert status.HTTP_400_BAD_REQUEST == response.status_code
+        assert response.json()["code"] == "invalid_payload"
+        assert "All events must have the event name field" in response.json()["detail"]
 
     def test_integration_csp_report_with_report_to_format_returns_204(self):
         report_to_format = {
@@ -2498,8 +2498,8 @@ class TestCapture(BaseTest):
             content_type="application/reports+json",
         )
 
-        self.assertEqual(response.status_code, 204)
-        self.assertEqual(response.content, b"")
+        assert status.HTTP_204_NO_CONTENT == response.status_code
+        assert response.content == b""
 
     def test_regular_event_endpoint_with_invalid_json(self):
         """
@@ -2513,8 +2513,8 @@ class TestCapture(BaseTest):
             content_type="application/json",
         )
 
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["code"], "invalid_payload")  # instead of invalid_csp_payload
+        assert status.HTTP_400_BAD_REQUEST == response.status_code
+        assert response.json()["code"] == "invalid_payload"  # instead of invalid_csp_payload
 
     def test_regular_event_endpoint_with_csp_content_type(self):
         """
@@ -2537,5 +2537,5 @@ class TestCapture(BaseTest):
         )
 
         # Should return 400 as usual - the /e/ endpoint doesn't handle CSP content types
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["code"], "no_data")
+        assert status.HTTP_400_BAD_REQUEST == response.status_code
+        assert response.json()["code"] == "no_data"
