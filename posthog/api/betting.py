@@ -170,23 +170,19 @@ class BetDefinitionViewSet(
     queryset = BetDefinition.objects.all()
     serializer_class = BetDefinitionSerializer
 
-    @property
-    def team_id(self):
-        return self.kwargs.get("parent_lookup_team_id") or self.kwargs.get("team_id")
-
     def get_queryset(self, **kwargs):
         queryset = super().get_queryset()
-        return queryset.filter(team_id=self.team_id).order_by("-created_at")
+        return queryset.filter(team_id=self.request.user.current_team.id).order_by("-created_at")
 
     def perform_create(self, serializer, **kwargs):
         # Set the team to the current team
-        team = self.request.user.current_team
-        serializer.save(team=team)
+        serializer.save(team_id=self.request.user.current_team.id)
 
-        # Create an initial probability distribution if interval is specified
+        # Get the created bet definition
         bet_definition = serializer.instance
-        if bet_definition.probability_distribution_interval > 0:
-            self._create_demo_distribution(bet_definition)
+
+        # Create a probability distribution for the bet definition
+        self._create_demo_distribution(bet_definition, **kwargs)
 
     def _create_demo_distribution(self, bet_definition, **kwargs):
         """
@@ -250,10 +246,6 @@ class ProbabilityDistributionViewSet(
     queryset = ProbabilityDistribution.objects.all()
     serializer_class = ProbabilityDistributionSerializer
 
-    @property
-    def team_id(self):
-        return self.kwargs.get("parent_lookup_team_id") or self.kwargs.get("team_id")
-
     def get_queryset(self, **kwargs):
         queryset = super().get_queryset()
 
@@ -262,7 +254,7 @@ class ProbabilityDistributionViewSet(
         if bet_definition_id:
             queryset = queryset.filter(bet_definition_id=bet_definition_id)
 
-        return queryset.filter(bet_definition__team_id=self.team_id).order_by("-created_at")
+        return queryset.filter(bet_definition__team_id=self.request.user.current_team.id).order_by("-created_at")
 
 
 class BetViewSet(
@@ -279,13 +271,11 @@ class BetViewSet(
     queryset = Bet.objects.all()
     serializer_class = BetSerializer
 
-    @property
-    def team_id(self):
-        return self.kwargs.get("parent_lookup_team_id") or self.kwargs.get("team_id")
-
     def get_queryset(self, **kwargs):
         queryset = super().get_queryset()
-        return queryset.filter(team_id=self.team_id, user=self.request.user).order_by("-created_at")
+        return queryset.filter(team_id=self.request.user.current_team.id, user=self.request.user).order_by(
+            "-created_at"
+        )
 
     def perform_create(self, serializer):
         team = self.request.user.current_team
@@ -296,46 +286,35 @@ class BetViewSet(
         """
         Estimate potential payout for a bet without creating it.
         """
-
         bet_definition_id = request.data.get("bet_definition")
-        predicted_value = request.data.get("predicted_value")
         amount = request.data.get("amount")
+        predicted_value = request.data.get("predicted_value")
 
-        if not all([bet_definition_id, predicted_value is not None, amount is not None]):
-            return Response(
-                {"error": "bet_definition, predicted_value, and amount are required"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        if not bet_definition_id or not amount or predicted_value is None:
+            return Response({"error": "Missing required parameters"}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            bet_definition = BetDefinition.objects.get(id=bet_definition_id, team_id=self.team_id)
+            # Get the bet definition
+            bet_definition = BetDefinition.objects.get(id=bet_definition_id, team_id=request.user.current_team.id)
+
+            # Get the latest probability distribution
+            prob_dist = bet_definition.latest_probability_distribution
+
+            if not prob_dist:
+                return Response({"error": "No probability distribution available"}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Calculate potential payout
+            potential_payout = Bet.calculate_potential_payout(bet_definition, prob_dist, float(amount), predicted_value)
+
         except BetDefinition.DoesNotExist:
             return Response({"error": "Bet definition not found"}, status=status.HTTP_404_NOT_FOUND)
-
-        if not bet_definition.is_active:
-            return Response(
-                {"error": "Cannot place bet on inactive bet definition"}, status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # Get latest probability distribution
-        prob_dist = bet_definition.latest_probability_distribution
-        if not prob_dist:
-            return Response({"error": "No probability distribution available"}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Calculate potential payout
-        if isinstance(predicted_value, dict) and "value" in predicted_value:
-            value_to_check = predicted_value["value"]
-        else:
-            value_to_check = predicted_value
-
-        payout_multiplier = prob_dist.get_payout_for_value(float(value_to_check))
-        potential_payout = float(amount) * payout_multiplier
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
         return Response(
             {
                 "amount": amount,
                 "predicted_value": predicted_value,
-                "payout_multiplier": payout_multiplier,
                 "potential_payout": potential_payout,
             }
         )
@@ -363,20 +342,18 @@ class TransactionViewSet(
     queryset = TransactionLedger.objects.all()
     serializer_class = TransactionLedgerSerializer
 
-    @property
-    def team_id(self):
-        return self.kwargs.get("parent_lookup_team_id") or self.kwargs.get("team_id")
-
     def get_queryset(self, **kwargs):
         queryset = super().get_queryset()
-        return queryset.filter(team_id=self.team_id, user=self.request.user).order_by("-created_at")
+        return queryset.filter(team_id=str(self.request.user.current_team.id), user=self.request.user).order_by(
+            "-created_at"
+        )
 
     @action(detail=False, methods=["get"])
     def wallet_balance(self, request, **kwargs):
         """
         Get the current wallet balance for the user in this team.
         """
-        balance = Wallet.get_balance(request.user, str(self.team_id))
+        balance = Wallet.get_balance(request.user, str(request.user.current_team.id))
         return Response({"balance": balance})
 
     @action(detail=False, methods=["get"])
@@ -391,7 +368,7 @@ class TransactionViewSet(
         # Get all users in the current team
         from posthog.models.user import User
 
-        team_id = str(self.team_id)
+        team_id = str(request.user.current_team.id)
 
         if leaderboard_type == "balance":
             # Get users with their wallet balances
@@ -473,17 +450,13 @@ class OnboardingViewSet(viewsets.ViewSet):
 
     permission_classes = [IsAuthenticated]
 
-    @property
-    def team_id(self):
-        return self.kwargs.get("parent_lookup_team_id") or self.kwargs.get("team_id")
-
     @action(detail=False, methods=["post"])
     def initialize(self, request, **kwargs):
         """
         Initialize a user's wallet with the onboarding bonus.
         """
         user = request.user
-        team_id = str(self.team_id)
+        team_id = str(request.user.current_team.id)
 
         # Check if user already has transactions
         if TransactionLedger.objects.filter(user=user, team_id=team_id).exists():

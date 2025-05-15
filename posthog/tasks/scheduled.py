@@ -15,6 +15,7 @@ from posthog.tasks.alerts.checks import (
 )
 from posthog.tasks.integrations import refresh_integrations
 from posthog.tasks.periodic_digest import send_all_periodic_digest_reports
+from posthog.tasks.betting_tasks import refresh_all_probability_distributions
 from posthog.tasks.tasks import (
     calculate_cohort,
     calculate_decide_usage,
@@ -367,4 +368,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="0", minute=str(randrange(0, 40))),
         sync_all_remote_configs.s(),
         name="sync all remote configs",
+    )
+
+    # Refresh probability distributions for betting app every 10 minutes
+    add_periodic_task_with_expiry(
+        sender,
+        600,  # 10 minutes in seconds
+        refresh_all_probability_distributions.s(),
+        name="refresh betting probability distributions",
     )
