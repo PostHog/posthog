@@ -1,4 +1,4 @@
-import { actions, kea, path, reducers, selectors, listeners, afterMount, connect } from 'kea'
+import { actions, kea, path, reducers, selectors, listeners, afterMount, connect, beforeUnmount } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { parseVersion, diffVersions, versionToString, tryParseVersion, isEqualVersion } from 'lib/utils/semver'
@@ -38,18 +38,18 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                 loadRecentEvents: async () => {
                     // Force a fresh reload of events
                     const params: EventsListQueryParams = {
-                        limit: 50,
+                        limit: 15,
                         orderBy: ['-timestamp'],
                         after: '-24h',
                     }
                     // Use a default team ID if currentTeamId is null
                     const teamId = values.currentTeamId || undefined
                     try {
-                        const response = await api.events.list(params, 50, teamId)
+                        const response = await api.events.list(params, 15, teamId)
                         return response.results
                     } catch (error) {
                         console.error('Error loading events:', error)
-                        return [] // Return empty array on error
+                        return values.recentEvents || [] // Return existing data on error
                     }
                 },
             },
@@ -154,7 +154,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
         sdkVersionsMap: [
             {} as Record<string, SdkVersionInfo>,
             {
-                loadRecentEvents: () => ({}), // Clear the map when loading starts to ensure fresh data
+                loadRecentEvents: (state) => state, // Keep existing state while loading
                 loadRecentEventsSuccess: (state, { recentEvents }) => {
                     console.log('[SDK Doctor] Processing recent events:', recentEvents.length)
                     const sdkVersionsMap: Record<string, SdkVersionInfo> = {}
@@ -188,11 +188,17 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                             else if (lib === 'posthog-flutter') type = 'flutter'
                             else if (lib === 'posthog-react-native') type = 'react-native'
                             
+                            // Copy existing data for this version if it exists
+                            const existingData = state[key] || {}
+                            
                             // We'll update the isOutdated value after checking with latest versions
                             // For now, use the existing function as a fallback
-                            const isOutdated = checkIfVersionOutdated(lib, libVersion)
+                            const isOutdated = existingData.isOutdated !== undefined 
+                                ? existingData.isOutdated 
+                                : checkIfVersionOutdated(lib, libVersion)
                             
                             sdkVersionsMap[key] = {
+                                ...existingData,
                                 type,
                                 version: libVersion,
                                 isOutdated,
@@ -304,12 +310,25 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
         loadRecentEventsSuccess: () => {
             // Once we have loaded events, fetch the latest versions to compare against
             actions.loadLatestSdkVersions()
-        }
+        },
     })),
     
-    afterMount(({ actions }) => {
+    afterMount(({ actions, cache }) => {
         // Load recent events when the logic is mounted
         actions.loadRecentEvents()
+        
+        // Start polling every 5 seconds
+        cache.pollingInterval = window.setInterval(() => {
+            actions.loadRecentEvents()
+        }, 5000)
+    }),
+    
+    beforeUnmount(({ cache }) => {
+        // Clean up the interval when unmounting
+        if (cache.pollingInterval) {
+            window.clearInterval(cache.pollingInterval)
+            cache.pollingInterval = null
+        }
     }),
 ])
 
