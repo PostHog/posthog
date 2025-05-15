@@ -17,9 +17,8 @@ export const StoriesModal = (): JSX.Element | null => {
         activeGroup,
         activeStoryIndex,
         activeStory,
-        isStoryViewed,
     } = useValues(storiesLogic)
-    const { setOpenStoriesModal, setActiveStoryIndex, setActiveGroupIndex, markStoryAsViewed, markGroupAsViewed } =
+    const { setOpenStoriesModal, setActiveStoryIndex, setActiveGroupIndex, markStoryAsViewed } =
         useActions(storiesLogic)
 
     // Mark story as viewed when it becomes active
@@ -28,13 +27,6 @@ export const StoriesModal = (): JSX.Element | null => {
             markStoryAsViewed(activeStory.id)
         }
     }, [activeStory, markStoryAsViewed, openStoriesModal])
-
-    // Mark group as viewed when all stories are viewed
-    useEffect(() => {
-        if (activeGroup && activeGroup.stories.every((story) => isStoryViewed(story.id))) {
-            markGroupAsViewed(activeGroup.id)
-        }
-    }, [activeGroup, markGroupAsViewed, isStoryViewed])
 
     const maxStoryIndex = useMemo(() => {
         return activeGroup?.stories.length || 0
@@ -103,6 +95,7 @@ export const StoriesModal = (): JSX.Element | null => {
                 stories={stories}
                 defaultInterval={1500}
                 width="100%"
+                height="100%"
                 currentIndex={activeStoryIndex}
                 onNext={() => setActiveStoryIndex(Math.min(activeStoryIndex + 1, maxStoryIndex))}
                 onPrevious={handlePrevious}
@@ -112,10 +105,8 @@ export const StoriesModal = (): JSX.Element | null => {
                 }}
                 onStoryStart={handleStoryStart}
                 storyContainerStyles={{
-                    width: '100%',
-                    height: '100%',
                     maxWidth: '400px',
-                    minWidth: '400px',
+                    maxHeight: '711px',
                 }}
             />
         </LemonModal>

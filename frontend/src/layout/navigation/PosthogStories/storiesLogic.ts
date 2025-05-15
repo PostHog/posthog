@@ -19,7 +19,6 @@ export const storiesLogic = kea<storiesLogicType>([
         setActiveStoryIndex: (storyIndex: number) => ({ storyIndex }),
         setOpenStoriesModal: (openStoriesModal: boolean) => ({ openStoriesModal }),
         markStoryAsViewed: (storyId: string) => ({ storyId }),
-        markGroupAsViewed: (groupId: string) => ({ groupId }),
         loadViewedStories: true,
     }),
 
@@ -73,17 +72,6 @@ export const storiesLogic = kea<storiesLogicType>([
                 actions.loadViewedStories()
             }
         },
-        markGroupAsViewed: async ({ groupId }) => {
-            const current = values.viewedStories
-            if (!current.groupIds.includes(groupId)) {
-                const updated = {
-                    ...current,
-                    groupIds: [...current.groupIds, groupId],
-                }
-                localStorage.setItem(STORAGE_KEY, JSON.stringify(updated))
-                actions.loadViewedStories()
-            }
-        },
     })),
 
     selectors({
@@ -102,15 +90,6 @@ export const storiesLogic = kea<storiesLogicType>([
         isStoryViewed: [
             (s) => [s.viewedStories],
             (viewedStories: ViewedStories) => (storyId: string) => viewedStories.storyIds.includes(storyId),
-        ],
-        isGroupViewed: [
-            (s) => [s.viewedStories],
-            (viewedStories: ViewedStories) => (groupId: string) => viewedStories.groupIds.includes(groupId),
-        ],
-        isGroupFullyViewed: [
-            (s) => [s.activeGroup, s.isStoryViewed],
-            (activeGroup: storyGroup | null, isStoryViewed: (id: string) => boolean) =>
-                activeGroup ? activeGroup.stories.every((story) => isStoryViewed(story.id)) : false,
         ],
     }),
 
