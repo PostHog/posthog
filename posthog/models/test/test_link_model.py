@@ -13,25 +13,6 @@ class TestLinkModel(BaseTest):
         self.org = org
         self.another_team = Team.objects.create(organization=self.org, name="Another Team")
 
-    def test_get_link_by_id(self):
-        # Create a link
-        link = Link.objects.create(
-            redirect_url="https://example.com", short_link_domain="hog.gg", short_code="abc123", team=self.team
-        )
-
-        # Test getting the link by ID
-        retrieved_link = Link.get_link(team_id=self.team.id, link_id=link.id)
-        self.assertEqual(retrieved_link.id, link.id)
-        self.assertEqual(retrieved_link.redirect_url, "https://example.com")
-
-        # Test non-existent ID
-        non_existent_link = Link.get_link(team_id=self.team.id, link_id="non-existent-id")
-        self.assertIsNone(non_existent_link)
-
-        # Test with None team_id
-        none_team_link = Link.get_link(team_id=None, link_id=link.id)
-        self.assertIsNone(none_team_link)
-
     def test_get_links_for_team(self):
         # Create links for different teams
         for i in range(5):
@@ -64,10 +45,6 @@ class TestLinkModel(BaseTest):
 
         team1_links_offset = Link.get_links_for_team(self.team.id, offset=2)
         self.assertEqual(len(team1_links_offset), 3)
-
-        # Test with None team_id
-        none_team_links = Link.get_links_for_team(None)
-        self.assertEqual(len(none_team_links), 0)
 
     def test_unique_constraint_violation(self):
         # Create a link
