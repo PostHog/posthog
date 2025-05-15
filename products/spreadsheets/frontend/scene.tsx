@@ -258,7 +258,7 @@ export const SpreadsheetsScene = (): JSX.Element => {
     }, [hotRef, setHotRef]) // Effect runs when hotRef.current is populated.
 
     const handleAfterChange = (changes: CellChange[] | null, source: ChangeSource): void => {
-        if (source === 'edit' && changes) {
+        if ((source === 'edit' || source === 'updateData') && changes) {
             const newData = [...data]
 
             changes.forEach(([row, col, oldValue, newValue]) => {
@@ -268,10 +268,7 @@ export const SpreadsheetsScene = (): JSX.Element => {
             })
 
             setData(newData)
-
-            if (hotRef.current?.hotInstance) {
-                saveDataToServer(hotRef.current.hotInstance.getData())
-            }
+            saveDataToServer(newData)
         }
     }
 

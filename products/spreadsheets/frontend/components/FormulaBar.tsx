@@ -15,7 +15,7 @@ export const FormulaBar = (): JSX.Element => {
                     : '-'}
             </span>
             <LemonInput
-                value={currentCellValue}
+                value={currentCellValue ?? ''}
                 onChange={(value) => {
                     if (!currentCellMeta) {
                         return
