@@ -124,12 +124,14 @@ export const BetDefinitionsContent = (): JSX.Element => {
                     ))}
                 </div>
             ) : (
-                <LemonCard className="p-6" hoverEffect={false}>
-                    <div className="text-center">
-                        <h3 className="text-lg font-semibold">No Bets Available</h3>
-                        <p className="text-muted mt-2">Create your first bet definition to get started.</p>
-                    </div>
-                </LemonCard>
+                !showNewForm && (
+                    <LemonCard className="p-6" hoverEffect={false}>
+                        <div className="text-center">
+                            <h3 className="text-lg font-semibold">No Bets Available</h3>
+                            <p className="text-muted mt-2">Create your first bet definition to get started.</p>
+                        </div>
+                    </LemonCard>
+                )
             )}
         </div>
     )
