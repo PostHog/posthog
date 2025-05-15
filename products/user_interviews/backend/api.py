@@ -12,7 +12,6 @@ from posthoganalytics.ai.openai import OpenAI
 
 
 elevenlabs_client = ElevenLabs()
-openai_client = OpenAI(posthog_client=posthoganalytics)
 
 
 class UserInterviewSerializer(serializers.ModelSerializer):
@@ -46,7 +45,7 @@ class UserInterviewSerializer(serializers.ModelSerializer):
         return transcript.text
 
     def _summarize_transcript(self, transcript: str):
-        summary_response = openai_client.responses.create(
+        summary_response = OpenAI(posthog_client=posthoganalytics).responses.create(
             model="gpt-4.1-mini",
             input=[
                 {
