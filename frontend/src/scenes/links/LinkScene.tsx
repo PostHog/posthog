@@ -4,7 +4,6 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { QRCodeSVG } from 'qrcode.react'
@@ -74,7 +73,7 @@ export function LinkScene({ id }: { id?: string } = {}): JSX.Element {
                             </div>
                         </div>
 
-                        <LemonField name="tags" label="Tags">
+                        {/* <LemonField name="tags" label="Tags">
                             <LemonInputSelect
                                 placeholder="Select tags..."
                                 mode="multiple"
@@ -82,10 +81,10 @@ export function LinkScene({ id }: { id?: string } = {}): JSX.Element {
                                 fullWidth
                                 autoWidth={false}
                             />
-                        </LemonField>
+                        </LemonField> */}
 
-                        <LemonField name="description" label="Comments">
-                            <LemonTextArea placeholder="Add comments" minRows={2} />
+                        <LemonField name="description" label="Description">
+                            <LemonTextArea placeholder="Add description" minRows={2} />
                         </LemonField>
                     </div>
 
