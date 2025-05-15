@@ -12,7 +12,7 @@ use tracing::info;
 use crate::{config::Config, log_record::LogRow};
 
 pub struct ClickHouseWriter {
-    client: Client,
+    pub client: Client,
     _sink: mpsc::Sender<InsertTask>,
 }
 
@@ -30,14 +30,6 @@ impl ClickHouseWriter {
             .with_password(config.clickhouse_password.clone())
             .with_option("async_insert", "1")
             .with_option("wait_for_async_insert", "0");
-
-        info!(
-            "url at {}, {}, {}, {}",
-            config.clickhouse_url,
-            config.clickhouse_database,
-            config.clickhouse_user,
-            config.clickhouse_password
-        );
 
         // Verify connection
         client
