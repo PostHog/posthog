@@ -19,6 +19,7 @@ from django.views.decorators.csrf import csrf_exempt
 from posthog.utils_cors import cors_response
 from typing import Any
 from posthog.cdp.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
+from posthog.api.shared import UserBasicSerializer
 
 
 class MinimalEarlyAccessFeatureSerializer(serializers.ModelSerializer):
@@ -60,6 +61,7 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "feature_flag", "created_at"]
 
     def update(self, instance: EarlyAccessFeature, validated_data: Any) -> EarlyAccessFeature:
+        request = self.context["request"]
         stage = validated_data.get("stage", None)
 
         if instance.stage not in EarlyAccessFeature.ReleaseStage and stage in EarlyAccessFeature.ReleaseStage:
@@ -102,25 +104,33 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
                 }
                 related_feature_flag.save()
 
-        if stage != instance.stage:
-            produce_internal_event(
-                team_id=instance.team_id,
-                event=InternalEventEvent(
-                    event="$early_access_feature_status_updated",
-                    distinct_id=str(uuid7()),
-                    properties={
-                        "previous_stage": instance.stage,
-                        "next_stage": stage,
-                        "name": instance.name,
-                    },
-                ),
-                person=InternalEventPerson(
-                    id=self.user.id,
-                    properties={"name": self.user.first_name, "email": self.user.email},
-                ),
-            )
+        serialized_previous = MinimalEarlyAccessFeatureSerializer(instance).data
+        updated_instance = super().update(instance, validated_data)
+        serialized_next = MinimalEarlyAccessFeatureSerializer(updated_instance).data
 
-        return super().update(instance, validated_data)
+        user_data = UserBasicSerializer(request.user).data if request.user else None
+
+        produce_internal_event(
+            team_id=instance.team_id,
+            event=InternalEventEvent(
+                event="$early_access_feature_updated",
+                distinct_id=str(uuid7()),
+                properties={
+                    "previous": serialized_previous,
+                    "next": serialized_next,
+                },
+            ),
+            person=(
+                InternalEventPerson(
+                    id=user_data["id"],
+                    properties=user_data,
+                )
+                if user_data
+                else None
+            ),
+        )
+
+        return updated_instance
 
 
 class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
