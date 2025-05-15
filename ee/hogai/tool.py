@@ -95,14 +95,6 @@ class MaxTool(BaseTool):
         return self.root_system_prompt_template.format(**formatted_context)
 
 
-class message_ask_user(BaseModel):
-    """
-    Ask user a question and wait for response. Use for requesting clarification, asking for confirmation, or gathering additional information.
-    """
-
-    text: str = Field(description="Question text to present to user")
-
-
 class replan(BaseModel):
     """
     If you are faced a problem that you cannot solve with the existing plan and tools, request creating a new plan.

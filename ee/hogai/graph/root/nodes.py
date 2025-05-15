@@ -23,7 +23,6 @@ from ee.hogai.tool import (
     CONTEXTUAL_TOOL_NAME_TO_TOOL,
     analyze_session_replay,
     create_and_query_insight,
-    message_ask_user,
     replan,
     search_documentation,
 )
@@ -53,7 +52,9 @@ for module_info in pkgutil.iter_modules(products.__path__):
     except ModuleNotFoundError:
         pass  # Skip if backend or max_tools doesn't exist - note that the product's dir needs a top-level __init__.py
 
-RouteName = Literal["insights", "root", "end", "search_documentation", "session_recordings_filters", "session_replay"]
+RouteName = Literal[
+    "insights", "root", "end", "search_documentation", "session_recordings_filters", "session_replay", "replan"
+]
 
 RootMessageUnion = HumanMessage | AssistantMessage | FailureMessage | AssistantToolCallMessage
 T = TypeVar("T", RootMessageUnion, BaseMessage)
@@ -98,6 +99,7 @@ class RootNode(AssistantNode):
 
         utc_now = datetime.datetime.now(datetime.UTC)
         project_now = utc_now.astimezone(self._team.timezone_info)
+        deep_research_plan = state.deep_research_plan
 
         message = chain.invoke(
             {
@@ -105,14 +107,11 @@ class RootNode(AssistantNode):
                 "utc_datetime_display": utc_now.strftime("%Y-%m-%d %H:%M:%S"),
                 "project_datetime_display": project_now.strftime("%Y-%m-%d %H:%M:%S"),
                 "project_timezone": self._team.timezone_info.tzname(utc_now),
-                "plan": """1. Analyze the conversion rate of form submissions
-2. Watch session replays of the dropped off customers from the funnel
-3. Aggregate the information""",
+                "plan": deep_research_plan,
             },
             config,
         )
         message = cast(LangchainAIMessage, message)
-        print(message.content)
         return PartialAssistantState(
             root_conversation_start_id=new_window_id,
             messages=[
@@ -141,7 +140,6 @@ class RootNode(AssistantNode):
 
         available_tools: list[type[BaseModel]] = [
             create_and_query_insight,
-            message_ask_user,
             analyze_session_replay,
             replan,
         ]
@@ -275,7 +273,6 @@ class RootNodeTools(AssistantNode):
         if len(tools_calls) != 1:
             raise ValueError("Expected exactly one tool call.")
         tool_call = tools_calls[0]
-        print(tool_call)
         if tool_call.name == "create_and_query_insight":
             return PartialAssistantState(
                 root_tool_call_id=tool_call.id,
@@ -290,18 +287,13 @@ class RootNodeTools(AssistantNode):
                 root_tool_insight_type=None,  # No insight type here
                 root_tool_calls_count=tool_call_count + 1,
             )
-        elif tool_call.name == "message_ask_user":
-            return PartialAssistantState(
-                messages=[AssistantMessage(content=tool_call.args["text"])],
-                root_tool_call_id=None,  # Tool handled already
-                root_tool_insight_plan=None,  # No insight plan here
-                root_tool_insight_type=None,  # No insight type here
-                root_tool_calls_count=0,
-            )
         elif tool_call.name == "replan":
-            raise NotImplementedError
+            return PartialAssistantState(
+                messages=[AssistantToolCallMessage(content="replan", id=str(uuid4()), tool_call_id=tool_call.id)],
+                root_tool_insight_plan=None,
+                root_tool_insight_type=None,
+            )
         elif tool_call.name == "analyze_session_replay":
-            print("session replay")
             return PartialAssistantState(
                 session_replay_analysis=tool_call.args,
                 root_tool_calls_count=tool_call_count + 1,
@@ -329,13 +321,12 @@ class RootNodeTools(AssistantNode):
 
     def router(self, state: AssistantState) -> RouteName:
         last_message = state.messages[-1]
-        print("router")
         if isinstance(last_message, AssistantToolCallMessage):
+            if last_message.content == "replan":
+                return "replan"
             return "root"  # Let the root either proceed or finish, since it now can see the tool call result
-        print("router 2")
         if state.root_tool_call_id:
             if state.session_replay_analysis:
-                print("router 3")
                 return "session_replay"
             return "insights" if state.root_tool_insight_type else "search_documentation"
 

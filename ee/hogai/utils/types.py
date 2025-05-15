@@ -86,6 +86,10 @@ class _SharedAssistantState(BaseModel):
     """
     The insight generation plan.
     """
+    deep_research_plan: Optional[str] = Field(default=None)
+    """
+    The deep research plan.
+    """
 
     memory_updated: Optional[bool] = Field(default=None)
     """
@@ -190,6 +194,9 @@ class AssistantNodeName(StrEnum):
     INSIGHTS_SUBGRAPH = "insights_subgraph"
     TITLE_GENERATOR = "title_generator"
     SESSION_REPLAY_ANALYZER = "session_replay_analyzer"
+    DEEP_RESEARCH_SUBGRAPH = "deep_research_subgraph"
+    DEEP_RESEARCH_PLANNER = "deep_research_planner"
+    DEEP_RESEARCH_PLANNER_TOOLS = "deep_research_planner_tools"
 
 
 class AssistantMode(StrEnum):

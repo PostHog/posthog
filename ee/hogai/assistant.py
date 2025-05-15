@@ -82,6 +82,7 @@ STREAMING_NODES: set[AssistantNodeName] = {
 VERBOSE_NODES = STREAMING_NODES | {
     AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT,
     AssistantNodeName.ROOT_TOOLS,
+    AssistantNodeName.DEEP_RESEARCH_PLANNER_TOOLS,
 }
 """Nodes that can send messages to the client."""
 

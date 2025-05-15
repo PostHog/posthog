@@ -6,6 +6,7 @@ from langgraph.graph.state import StateGraph
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph.session_replay_analyzer.nodes import SessionReplayAnalyzerNode
+from ee.hogai.graph.deep_research.nodes import DeepResearchPlannerNode, DeepResearchPlannerToolsNode
 from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from posthog.models.team.team import Team
@@ -313,6 +314,7 @@ class AssistantGraph(BaseAssistantGraph):
             "root": AssistantNodeName.ROOT,
             "end": AssistantNodeName.END,
             "session_replay": AssistantNodeName.SESSION_REPLAY_ANALYZER,
+            "replan": AssistantNodeName.DEEP_RESEARCH_PLANNER,
         }
         root_node = RootNode(self._team)
         builder.add_node(AssistantNodeName.ROOT, root_node)
@@ -332,7 +334,7 @@ class AssistantGraph(BaseAssistantGraph):
         builder.add_edge(AssistantNodeName.INSIGHTS_SUBGRAPH, next_node)
         return self
 
-    def add_memory_initializer(self, next_node: AssistantNodeName = AssistantNodeName.ROOT):
+    def add_memory_initializer(self, next_node: AssistantNodeName = AssistantNodeName.DEEP_RESEARCH_PLANNER):
         builder = self._graph
         self._has_start_node = True
 
@@ -423,12 +425,31 @@ class AssistantGraph(BaseAssistantGraph):
         builder.add_edge(AssistantNodeName.SESSION_REPLAY_ANALYZER, end_node)
         return self
 
+    def add_deep_research_planner(self):
+        builder = self._graph
+        self._has_start_node = True
+
+        deep_research_planner = DeepResearchPlannerNode(self._team)
+        deep_research_planner_tools = DeepResearchPlannerToolsNode(self._team)
+        builder.add_edge(AssistantNodeName.START, AssistantNodeName.DEEP_RESEARCH_PLANNER)
+        builder.add_node(AssistantNodeName.DEEP_RESEARCH_PLANNER, deep_research_planner)
+        builder.add_node(AssistantNodeName.DEEP_RESEARCH_PLANNER_TOOLS, deep_research_planner_tools)
+        builder.add_edge(AssistantNodeName.DEEP_RESEARCH_PLANNER, AssistantNodeName.DEEP_RESEARCH_PLANNER_TOOLS)
+        builder.add_conditional_edges(
+            AssistantNodeName.DEEP_RESEARCH_PLANNER_TOOLS,
+            deep_research_planner_tools.router,
+            path_map={"continue": AssistantNodeName.ROOT, "end": AssistantNodeName.END},
+        )
+
+        return self
+
     def compile_full_graph(self):
         return (
             self.add_title_generator()
             .add_memory_initializer()
             .add_memory_collector()
             .add_memory_collector_tools()
+            .add_deep_research_planner()
             .add_root()
             .add_insights()
             .add_inkeep_docs()
