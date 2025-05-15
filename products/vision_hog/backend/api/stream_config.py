@@ -48,7 +48,7 @@ Return the output as a valid JSON array of objects that follows PostHog's event 
 - "event": String - The specific customer action (e.g., {', '.join(events)})
 - "properties": Object containing:
   - "timestamp": "HH:MM:SS" (String format for hours, minutes, seconds)
-  - "distinct_id": String - A unique identifier for the customer, prefixed with "camera_" (e.g., "camera_customer_1", "camera_customer_2")
+  - "distinct_id": String - A unique identifier for the customer, prefixed with "camera:" (e.g., "camera:customer_1", "camera:customer_2")
   - "description": String - A concise description of what the customer did
   - "duration_seconds": Number - Approximate duration of the activity in seconds
   - "interaction_type": String - Type of activity (e.g., "person_in_frame", "person_out_of_frame" ect)
@@ -61,7 +61,7 @@ Example of expected JSON output:
     "event": "{events[0] if events else 'example_event'}",
     "properties": {{
       "timestamp": "00:00:15",
-      "distinct_id": "camera_customer_1",
+      "distinct_id": "camera:customer_1",
       "description": "Customer enters through the main entrance",
       "duration_seconds": 5,
       "interaction_type": "entry_exit",
