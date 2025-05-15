@@ -8,6 +8,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { Link } from 'lib/lemon-ui/Link'
 import { BillingLineGraph } from 'scenes/billing/BillingLineGraph'
@@ -108,23 +109,24 @@ export function BettingContent(): JSX.Element {
             </LemonModal>
 
             {betDefinitionsLoading ? (
-                <div className="text-center">Loading...</div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <LemonSkeleton className="h-[440px]" />
+                    <LemonSkeleton className="h-[440px]" />
+                    <LemonSkeleton className="h-[440px]" />
+                </div>
             ) : betDefinitions.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {betDefinitions.map((bet: BetDefinition) => (
                         <Link key={bet.id} to={`/hedged-hog/bet/${bet.id}`} className="no-underline">
-                            <LemonCard className="h-full hover:border-primary" hoverEffect={false}>
+                            <div className="border rounded p-6 relative border-primary h-full hover:bg-surface-primary transition-colors duration-200">
                                 <div className="flex flex-col h-full">
                                     <div className="flex-grow">
                                         <h4 className="text-lg font-semibold mb-2">{bet.title}</h4>
                                         <p className="text-muted mb-4">{bet.description}</p>
 
                                         <div className="mb-4">
-                                            <div className="text-sm text-muted mb-1">Current probability</div>
-                                            <div>
-                                                <span className="text-2xl font-bold">39%</span>
-                                                <span className="text-sm text-success ml-2">↑ 20%</span>
-                                            </div>
+                                            <span className="text-2xl font-bold">39%</span>
+                                            <span className="text-sm text-success ml-2">↑ 20%</span>
                                         </div>
 
                                         <div className="h-40 mb-4">
@@ -169,7 +171,7 @@ export function BettingContent(): JSX.Element {
                                         </div>
                                     </div>
                                 </div>
-                            </LemonCard>
+                            </div>
                         </Link>
                     ))}
                 </div>
