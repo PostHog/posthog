@@ -1,3 +1,5 @@
+import json
+import re
 from rest_framework import viewsets
 from rest_framework.parsers import MultiPartParser
 
@@ -41,8 +43,23 @@ class UserInterviewSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
     def _transcribe_audio(self, audio: File):
-        transcript = elevenlabs_client.speech_to_text.convert(model_id="scribe_v1", diarize=True, file=audio)
-        return transcript.text
+        transcript = elevenlabs_client.speech_to_text.convert(
+            model_id="scribe_v1",
+            file=audio,
+            num_speakers=10,  # Maximum number of speakers, not expected one
+            diarize=True,
+            tag_audio_events=False,
+            additional_formats=json.dumps(
+                [
+                    {
+                        "format": "txt",
+                        "include_timestamps": False,
+                        "segment_on_silence_longer_than_s": 10,
+                    }
+                ]
+            ),
+        )
+        return re.sub(r"\[speaker_(\d+)\]", "#### Speaker \\1", transcript.additional_formats[0].content)
 
     def _summarize_transcript(self, transcript: str):
         summary_response = OpenAI(posthog_client=posthoganalytics).responses.create(
