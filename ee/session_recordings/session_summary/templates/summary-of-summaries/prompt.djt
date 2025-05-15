@@ -64,30 +64,19 @@ Keep this focus area in mind throughout your analysis, but still follow the stru
 - Analyze how these specific pain points impact the user journey elements mentioned in the focus
 {% endif %}
 
-# Step 3: Recognize Success Patterns
-- Identify common paths leading to successful outcomes
-- Note user strategies for overcoming obstacles 
-- Observe unexpected or creative user behaviors
-- Identify key differences between successful and unsuccessful journeys
-- Include only 3-4 KEY success patterns, each described in 15 words maximum
+# Step 3: Identify Interesting Edge Cases
+- Document unusual but noteworthy behaviors that don't fit common patterns
+- Look for unexpected workflows or feature usage that might reveal innovative use cases
+- Identify sessions with uncommon time patterns (extremely quick or unusually long)
+- Note any rare but significant error states or recovery patterns
+- Include NO MORE THAN 3-4 edge cases, each described in 15 words maximum
+- Only include edge cases if they provide meaningful insights - this section can be shorter or omitted if no unusual behaviors exist
 {% if FOCUS_AREA %}
-- Highlight success patterns specifically related to the focus area
-- Identify what differentiates successful from unsuccessful interactions within the focus domain
+- Consider how these edge cases might relate to or challenge assumptions about the focus area
+- Identify any unusual behaviors that might represent undocumented use cases related to the focus
 {% endif %}
 
-# Step 4: Suggest Improvements
-- Recommend solutions for common errors and friction points
-- Suggest workflow optimizations for frequently used paths
-- Propose improvements to enhance user success rates
-- Identify opportunities to streamline navigation
-- Limit to 3-4 HIGHEST-IMPACT recommendations, each 15 words maximum
-- Prioritize actionable suggestions over general observations
-{% if FOCUS_AREA %}
-- Prioritize improvement suggestions that directly address the focus area
-- Provide more detailed recommendations for focus-related issues
-{% endif %}
-
-# Step 5: Before Finalizing
+# Step 4: Before Finalizing
 - Ensure insights are directly supported by specific events in the data
 - Focus on quality over quantity - prioritize impactful observations
 - Include both common patterns and notable exceptions
@@ -103,6 +92,7 @@ Keep this focus area in mind throughout your analysis, but still follow the stru
 
 <output_format>
 Format your meta-summary as a markdown. Don't replicate the data, or comments, or logic of the example, or the number of example entries. Use it ONLY to understand the format.
+</output_format>
 
 <output_example>
 ```
