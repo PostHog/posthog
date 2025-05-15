@@ -64,6 +64,11 @@ class ReplacingMergeTree(MergeTreeEngine):
     REPLICATED_ENGINE = "ReplicatedReplacingMergeTree('{zk_path}', '{replica_key}', {ver})"
 
 
+class ReplacingMergeTreeDeleted(MergeTreeEngine):
+    ENGINE = "ReplacingMergeTree({ver}, {is_deleted})"
+    REPLICATED_ENGINE = "ReplicatedReplacingMergeTree('{zk_path}', '{replica_key}', {ver}, {is_deleted})"
+
+
 class CollapsingMergeTree(MergeTreeEngine):
     ENGINE = "CollapsingMergeTree({ver})"
     REPLICATED_ENGINE = "ReplicatedCollapsingMergeTree('{zk_path}', '{replica_key}', {ver})"
