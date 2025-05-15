@@ -262,8 +262,7 @@ export function buildPartialResponsesFilter(survey: Survey): string {
     )`
     }
 
-    return `--- Filter to ensure we only get one response per ${SurveyEventProperties.SURVEY_SUBMISSION_ID}
-    AND uuid in (
+    return `AND uuid in (
         SELECT
             argMax(uuid, timestamp)
         FROM events
@@ -279,5 +278,5 @@ export function buildPartialResponsesFilter(survey: Survey): string {
                 JSONExtractString(properties, '${SurveyEventProperties.SURVEY_SUBMISSION_ID}'),
                 toString(uuid)
             )
-    )`
+    ) --- Filter to ensure we only get one response per ${SurveyEventProperties.SURVEY_SUBMISSION_ID}`
 }

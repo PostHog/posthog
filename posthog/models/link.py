@@ -1,36 +1,55 @@
+import structlog
+
 from django.db import models
-from django.utils import timezone
 from posthog.models.team import Team
-import uuid
+from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
+
+logger = structlog.get_logger(__name__)
 
 
-def generate_uuid():
-    return str(uuid.uuid4())
-
-
-class Link(models.Model):
+class Link(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     """
     Links that redirect to a specified destination URL.
     These are used for sharing URLs across the application.
     """
 
-    id = models.CharField(max_length=36, primary_key=True, default=generate_uuid)
-    destination = models.URLField(max_length=2048)
-    origin_domain = models.CharField(max_length=255)
-    origin_key = models.CharField(max_length=255)
-    team = models.ForeignKey(Team, on_delete=models.CASCADE)
-    created_at = models.DateTimeField(default=timezone.now)
-    created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    redirect_url = models.URLField(max_length=2048)
+    short_link_domain = models.CharField(max_length=255, help_text="Domain where the short link is hosted, e.g. hog.gg")
+    short_code = models.CharField(
+        max_length=255, help_text="The unique code/path that identifies the short link, e.g. 'abc123'"
+    )
+    team = models.ForeignKey(
+        Team,
+        on_delete=models.CASCADE,
+        help_text="Team that owns this link",
+    )
     description = models.TextField(null=True, blank=True)
-    tags = models.TextField(null=True, blank=True)
+
+    # created_at, created_by, updated_at are inherited from CreatedMetaFields and UpdatedMetaFields
 
     class Meta:
-        constraints = [models.UniqueConstraint(fields=["id", "team_id"], name="unique_link_id_per_team")]
         indexes = [
-            models.Index(fields=["team_id", "id"]),
-            models.Index(fields=["team_id", "created_at"]),
+            models.Index(fields=["short_link_domain", "short_code"]),
+            models.Index(fields=["team_id"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["short_link_domain", "short_code"], name="unique_short_link_domain_short_code"
+            )
         ]
 
     def __str__(self):
-        return f"{self.id} -> {self.destination}"
+        return f"{self.id} -> {self.redirect_url}"
+
+    @classmethod
+    def get_links_for_team(cls, team_id, limit=100, offset=0):
+        """
+        Get all links for a team with pagination.
+        Args:
+            team_id: The team ID to get links for
+            limit: Maximum number of links to return
+            offset: Offset for pagination
+        Returns:
+            A queryset of links for the team
+        """
+        return cls.objects.filter(team_id=team_id).order_by("-created_at")[offset : offset + limit]

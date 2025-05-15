@@ -634,6 +634,15 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   tooltipDocLink: 'https://posthog.com/docs/ai-engineering/dashboard',
                               }
                             : null,
+                        featureFlags[FEATURE_FLAGS.LOGS]
+                            ? {
+                                  identifier: 'Logs',
+                                  label: 'Logs',
+                                  icon: <IconLive />,
+                                  to: urls.logs(),
+                                  tag: 'alpha' as const,
+                              }
+                            : null,
                         {
                             identifier: Scene.ErrorTracking,
                             label: 'Error tracking',

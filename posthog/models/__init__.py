@@ -54,6 +54,7 @@ from .group_type_mapping import GroupTypeMapping
 from .host_definition import HostDefinition
 from .hog_functions import HogFunction
 from .hog_function_template import HogFunctionTemplate
+from .link import Link
 from .insight import Insight, InsightViewed
 from .insight_caching_state import InsightCachingState
 from .insight_variable import InsightVariable
@@ -82,7 +83,6 @@ from .proxy_record import ProxyRecord
 from .remote_config import RemoteConfig
 from .scheduled_change import ScheduledChange
 from .sharing_configuration import SharingConfiguration
-from .link import Link
 from .subscription import Subscription
 from .tag import Tag
 from .tagged_item import TaggedItem
@@ -141,6 +141,7 @@ __all__ = [
     "GroupTypeMapping",
     "HogFunction",
     "HogFunctionTemplate",
+    "Link",
     "HostDefinition",
     "Insight",
     "InsightCachingState",

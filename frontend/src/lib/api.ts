@@ -8,6 +8,7 @@ import { objectClean, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
 import { MessageTemplate } from 'products/messaging/frontend/library/messageTemplatesLogic'
 import { ErrorTrackingAssignmentRule } from 'scenes/error-tracking/configuration/auto-assignment/errorTrackingAutoAssignmentLogic'
+import { LinkType } from 'scenes/links/linkConfigurationLogic'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
@@ -23,6 +24,8 @@ import {
     FileSystemEntry,
     HogCompileResponse,
     HogQLVariable,
+    LogMessage,
+    LogsQuery,
     QuerySchema,
     QueryStatusResponse,
     RecordingsQuery,
@@ -152,7 +155,6 @@ import {
     LOGS_PORTION_LIMIT,
 } from './constants'
 import type { ProductIntentProperties } from './utils/product-intents'
-import { LinkType } from 'scenes/links/linkConfigurationLogic'
 
 /**
  * WARNING: Be very careful importing things here. This file is heavily used and can trigger a lot of cyclic imports
@@ -506,6 +508,11 @@ class ApiRequest {
 
     public tags(projectId?: ProjectType['id']): ApiRequest {
         return this.projectsDetail(projectId).addPathComponent('tags')
+    }
+
+    // # Logs
+    public logsQuery(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('logs').addPathComponent('query')
     }
 
     // # Data management
@@ -1595,6 +1602,15 @@ const api = {
 
         async getCount(params: Partial<CommentType>): Promise<number> {
             return (await new ApiRequest().comments().withAction('count').withQueryString(params).get()).count
+        },
+    },
+
+    logs: {
+        async query({ query }: { query: Omit<LogsQuery, 'kind'> }): Promise<LogMessage[]> {
+            return new ApiRequest()
+                .logsQuery()
+                .withQueryString(toParams({ data: { query } }))
+                .get()
         },
     },
 

@@ -1,1 +1,1 @@
-0734_link_link_unique_link_id_per_team
+0734_add_links_model
