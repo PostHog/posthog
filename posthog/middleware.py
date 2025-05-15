@@ -720,7 +720,6 @@ class Fix204Middleware:
 
         response.content = b""
         for h in ["Content-Type", "X-Content-Type-Options"]:
-            if h in response.headers:
-                del response.headers[h]
+            response.headers.pop(h, None)
 
         return response
