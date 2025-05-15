@@ -620,6 +620,9 @@ importers:
       '@posthog/products-surveys':
         specifier: workspace:*
         version: link:../products/surveys
+      '@posthog/products-user-interviews':
+        specifier: workspace:*
+        version: link:../products/user_interviews
       '@posthog/products-web-analytics':
         specifier: workspace:*
         version: link:../products/web_analytics
