@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 use crate::{config::Config, redirect::links_model::LinkRow};
 
-pub static DEFAULT_TEST_CONFIG: Lazy<Config> = Lazy::new(Config::default);
+pub static DEFAULT_TEST_CONFIG: Lazy<Config> = Lazy::new(Config::default_for_test);
 
 pub async fn setup_pg_client(config: Option<&Config>) -> Arc<dyn Client + Send + Sync> {
     let config = config.unwrap_or(&DEFAULT_TEST_CONFIG);

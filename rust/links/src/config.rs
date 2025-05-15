@@ -1,5 +1,5 @@
 use envconfig::Envconfig;
-use std::net::SocketAddr;
+use std::{net::SocketAddr, str::FromStr};
 
 #[derive(Envconfig, Clone, Debug)]
 pub struct Config {
@@ -28,6 +28,20 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Config::init_from_env().expect("Failed to load config from env or defaults")
+    }
+}
+
+impl Config {
+    pub fn default_for_test() -> Self {
+        Config {
+            address: SocketAddr::from_str("127.0.0.1:0").unwrap(),
+            read_database_url: "postgres://posthog:posthog@localhost:5432/test_posthog".to_string(),
+            max_pg_connections: 10,
+            external_link_redis_url: "redis://localhost:6379/".to_string(),
+            internal_link_redis_url: "redis://localhost:6379/".to_string(),
+            redis_internal_ttl_seconds: 86400,
+            default_domain_for_public_store: "phog.gg".to_string(),
+        }
     }
 }
 
