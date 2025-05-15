@@ -35,7 +35,8 @@ const BetFlow = ({
     bucketRanges,
 }: BetFlowProps): JSX.Element => {
     const getOdds = (probability: number): number => (probability > 0 ? 1 / probability : 0)
-    const getPotentialPayout = (amount: number, probability: number): number => amount * getOdds(probability)
+    const getPotentialPayout = (amount: number, probability: number): string =>
+        `$${(amount * getOdds(probability)).toFixed(2)}`
 
     return (
         <LemonCard className="h-full" hoverEffect={false}>
@@ -44,12 +45,22 @@ const BetFlow = ({
                     <div className="space-y-6">
                         <div>
                             <h3 className="font-semibold mb-4">Place a bet</h3>
-                            <div className="space-y-3">
+                            <div className="space-y-1">
                                 {bucketRanges.map((bucket, index) => (
-                                    <div key={index} className="flex items-center gap-2">
+                                    <div key={index} className="flex items-center gap-2 py-2 border-b last:border-b-0">
+                                        <div className="flex-grow">
+                                            <div className="font-medium">
+                                                {index === 0
+                                                    ? `≤${Math.round(bucket.max)}`
+                                                    : index === bucketRanges.length - 1
+                                                    ? `≥${Math.round(bucket.min)}`
+                                                    : `${Math.round(bucket.min)}-${Math.round(bucket.max)}`}
+                                            </div>
+                                            <div className="text-sm text-muted">
+                                                {Math.round(bucket.probability * 100)}% probability
+                                            </div>
+                                        </div>
                                         <LemonButton
-                                            fullWidth
-                                            center
                                             type="primary"
                                             size="small"
                                             onClick={() => {
@@ -58,14 +69,7 @@ const BetFlow = ({
                                             }}
                                             disabledReason={amount === 0 && 'The amount must be greater than 0'}
                                         >
-                                            <span>
-                                                {index === 0
-                                                    ? `≤${Math.round(bucket.max)}`
-                                                    : index === bucketRanges.length - 1
-                                                    ? `≥${Math.round(bucket.min)}`
-                                                    : `${Math.round(bucket.min)}-${Math.round(bucket.max)}`}
-                                                ({Math.round(bucket.probability * 100)}%) Bet
-                                            </span>
+                                            Bet
                                         </LemonButton>
                                     </div>
                                 ))}
@@ -78,6 +82,7 @@ const BetFlow = ({
                             <LemonInput
                                 className="text-2xl font-bold"
                                 type="text"
+                                prefix={<div>$</div>}
                                 value={amount.toString()}
                                 onChange={(value) => setAmount(Number(value) || 0)}
                             />
@@ -134,9 +139,7 @@ const BetFlow = ({
                             <div className="flex justify-between items-center">
                                 <span className="font-semibold">Potential Payout:</span>
                                 <span className="text-success text-lg font-bold">
-                                    {selectedBucket
-                                        ? getPotentialPayout(amount, selectedBucket.probability).toFixed(2)
-                                        : '0.00'}
+                                    {selectedBucket ? getPotentialPayout(amount, selectedBucket.probability) : '$0.00'}
                                 </span>
                             </div>
                         </div>
@@ -262,7 +265,7 @@ export function BetDetailContent(): JSX.Element {
                         <div className="flex">
                             <div className="w-1/4 p-6 bg-bg-light space-y-4 bg-surface-secondary rounded-l-md">
                                 <div>
-                                    <div className="text-sm text-muted mb-1">Volume</div>
+                                    <div className="text-sm text-muted mb-1">Trading Volume</div>
                                     <div className="font-semibold">{tradingVolume.toLocaleString()}</div>
                                 </div>
                                 <div>
@@ -284,7 +287,7 @@ export function BetDetailContent(): JSX.Element {
                                 </div>
                             </div>
                             <div className="p-6 w-3/4">
-                                <div className="h-96">
+                                <div className="h-132">
                                     <BillingLineGraph
                                         containerClassName="h-full"
                                         series={rangeLabels.map((range, index) => ({
@@ -298,7 +301,7 @@ export function BetDetailContent(): JSX.Element {
                                         valueFormatter={(value) => `${value}%`}
                                         interval="day"
                                         max={100}
-                                        showLegend={true}
+                                        showLegend={false}
                                     />
                                 </div>
                                 <div className="w-full flex justify-between mt-4">
