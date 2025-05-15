@@ -26,7 +26,7 @@ class ExternalEventWorkflowInputs:
     start_date: str = None
     end_date: str = None
     posthog_domain: str = None
-    source: str = "amplitude"  # Default to amplitude for backward compatibility
+    source: str
 
 
 @dataclasses.dataclass
@@ -69,12 +69,10 @@ class ExternalEventJobWorkflow(PostHogWorkflow):
         end_dt = dt.datetime.fromisoformat(inputs.end_date)
         logger = bind_temporal_worker_logger_sync(team_id=inputs.team_id)
 
-        # Dictionary mapping sources to their handler methods
         source_handlers = {
             "amplitude": self._handle_amplitude_import
         }
         
-        # Get the appropriate handler function based on source
         source = inputs.source.lower()
         handler = source_handlers.get(source)
         
@@ -82,7 +80,6 @@ class ExternalEventJobWorkflow(PostHogWorkflow):
             logger.error(f"External event import source '{inputs.source}' is not supported")
             return 0
         
-        # Call the appropriate handler function
         return await handler(inputs, start_dt, end_dt)
 
     async def _handle_amplitude_import(self, inputs: ExternalEventWorkflowInputs, start_dt: dt.datetime, end_dt: dt.datetime) -> int:
@@ -136,7 +133,6 @@ class ExternalEventJobWorkflow(PostHogWorkflow):
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
 
-                # create inputs for the processing events activity
                 process_inputs = ProcessEventsActivityInputs(
                     team_id=inputs.team_id,
                     job_id=inputs.job_id,
@@ -169,7 +165,6 @@ class ExternalEventJobWorkflow(PostHogWorkflow):
         except Exception as e:
             raise
         finally:
-            # Clean up temp files
             try:
                 import shutil
                 shutil.rmtree(temp_dir)
@@ -261,19 +256,14 @@ async def process_events_activity(inputs: ProcessEventsActivityInputs) -> int:
     total_processed = 0
 
     directory_contents = os.listdir(inputs.file_path)
-    logger.info(f"Directory contents: {directory_contents}")
     
-    # Get all files in the directory
     file_paths = [os.path.join(inputs.file_path, f) for f in directory_contents 
             if os.path.isfile(os.path.join(inputs.file_path, f))]
 
-    # If no files but we have subdirectories, check the first subdirectory
     if not file_paths and directory_contents and os.path.isdir(os.path.join(inputs.file_path, directory_contents[0])):
         subdirectory = os.path.join(inputs.file_path, directory_contents[0])
-        logger.info(f"Checking subdirectory: {subdirectory}")
         
         subdirectory_contents = os.listdir(subdirectory)
-        logger.info(f"Subdirectory contents: {subdirectory_contents}")
         
         file_paths = [os.path.join(subdirectory, f) for f in subdirectory_contents 
                     if os.path.isfile(os.path.join(subdirectory, f))]
@@ -287,15 +277,12 @@ async def process_events_activity(inputs: ProcessEventsActivityInputs) -> int:
 
     
     for file_idx, file_path in enumerate(file_paths):
-        logger.info(f"Processing file {file_idx + 1}/{len(file_paths)}: {os.path.basename(file_path)}")
         batch = []
         line_count = 0
         total_processed = 0
         with open(file_path, 'r') as f:
             for line in f:
                 line_count += 1
-                if line_count % 1 == 0:
-                    logger.debug(f"Processed {line_count} lines from file {os.path.basename(file_path)}")
                 
                 if not line.strip():
                     continue
@@ -304,7 +291,6 @@ async def process_events_activity(inputs: ProcessEventsActivityInputs) -> int:
                 if ph_event:
                     batch.append(ph_event)
 
-                # Send batch when it reaches the desired size
                 if len(batch) >= inputs.batch_size:
                     url = f"{inputs.posthog_domain or 'https://app.dev.posthog.com'}/batch/"
                     headers = {"Content-Type": "application/json"}
@@ -317,8 +303,6 @@ async def process_events_activity(inputs: ProcessEventsActivityInputs) -> int:
                     try:
                         response = requests.post(url, headers=headers, json=payload)
                         response.raise_for_status()
-                        logger.info(f"Sent batch of {len(batch)} events to PostHog. Status: {response.status_code}")
-                        logger.debug(f"API response: {response.text[:200]}..." if len(response.text) > 200 else f"API response: {response.text}")
                     except requests.exceptions.RequestException as e:
                         logger.error(f"Failed to send batch to PostHog: {str(e)}")
                         if hasattr(e, 'response') and e.response:
@@ -327,7 +311,6 @@ async def process_events_activity(inputs: ProcessEventsActivityInputs) -> int:
                     total_processed += len(batch)
                     batch = []
             
-            # Send any remaining events in the batch
             if batch:
                 url = f"{inputs.posthog_domain or 'https://app.dev.posthog.com'}/batch/"
                 headers = {"Content-Type": "application/json"}
@@ -349,7 +332,6 @@ async def process_events_activity(inputs: ProcessEventsActivityInputs) -> int:
                 
                 total_processed += len(batch)
 
-        logger.info(f"Completed file {file_idx + 1}/{len(file_paths)}, processed {line_count} lines")
         
     logger.info(f"Job {inputs.job_id} completed. Total events processed: {total_processed}")
     return total_processed
