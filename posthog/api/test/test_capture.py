@@ -2501,21 +2501,23 @@ class TestCapture(BaseTest):
         assert "All events must have the event name field" in response.json()["detail"]
 
     def test_integration_csp_report_with_report_to_format_returns_204(self):
-        report_to_format = {
-            "type": "csp-violation",
-            "body": {
-                "documentURL": "https://example.com/foo/bar",
-                "referrer": "https://www.google.com/",
-                "effectiveDirective": "img-src",
-                "originalPolicy": "default-src 'self'; img-src 'self' https://img.example.com",
-                "disposition": "enforce",
-                "blockedURL": "https://evil.com/malicious-image.png",
-                "lineNumber": 10,
-                "sourceFile": "https://example.com/foo/bar.html",
-                "statusCode": 0,
-                "sample": "",
-            },
-        }
+        report_to_format = [
+            {
+                "type": "csp-violation",
+                "body": {
+                    "documentURL": "https://example.com/foo/bar",
+                    "referrer": "https://www.google.com/",
+                    "effectiveDirective": "img-src",
+                    "originalPolicy": "default-src 'self'; img-src 'self' https://img.example.com",
+                    "disposition": "enforce",
+                    "blockedURL": "https://evil.com/malicious-image.png",
+                    "lineNumber": 10,
+                    "sourceFile": "https://example.com/foo/bar.html",
+                    "statusCode": 0,
+                    "sample": "",
+                },
+            }
+        ]
 
         response = self.client.post(
             f"/csp/?token={self.team.api_token}",

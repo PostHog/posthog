@@ -87,13 +87,17 @@ def parse_report_to(data: dict) -> dict:
     return properties
 
 
-def parse_properties(data: dict) -> dict:
-    if "csp-report" in data:
-        return parse_report_uri(data)
-    elif "type" in data and data["type"] == "csp-violation":
-        return parse_report_to(data)
-    else:
-        raise ValueError("Invalid CSP report")
+def build_csp_event(props: dict, distinct_id: str, session_id: str, version: str) -> dict:
+    return {
+        "event": "$csp_violation",
+        "distinct_id": distinct_id,
+        "properties": {
+            "$session_id": session_id,
+            "csp_version": version,
+            "$process_person_profile": False,
+            **props,
+        },
+    }
 
 
 def process_csp_report(request):
@@ -120,18 +124,26 @@ def process_csp_report(request):
         session_id = request.GET.get("session_id") or str(uuid7())
         version = request.GET.get("v") or "unknown"
 
-        properties = parse_properties(csp_data)
+        if request.content_type == "application/csp-report" and "csp-report" in csp_data:
+            return (
+                build_csp_event(
+                    parse_report_uri(csp_data),
+                    distinct_id,
+                    session_id,
+                    version,
+                ),
+                None,
+            )
 
-        return {
-            "event": "$csp_violation",
-            "distinct_id": distinct_id,
-            "properties": {
-                "$session_id": session_id,
-                "csp_version": version,
-                "$process_person_profile": False,
-                **properties,
-            },
-        }, None
+        if request.content_type == "application/reports+json" and isinstance(csp_data, list):
+            violations_props = [
+                parse_report_to(item) for item in csp_data if "type" in item and item["type"] == "csp-violation"
+            ]
+
+            return [build_csp_event(prop, distinct_id, session_id, version) for prop in violations_props], None
+
+        else:
+            raise ValueError("Invalid CSP report")
 
     except json.JSONDecodeError:
         return None, cors_response(

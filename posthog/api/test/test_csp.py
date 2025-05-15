@@ -8,7 +8,6 @@ from posthog.api.csp import (
     process_csp_report,
     parse_report_uri,
     parse_report_to,
-    parse_properties,
 )
 
 
@@ -252,12 +251,6 @@ class TestCSPModule(TestCase):
         properties = parse_report_to(data)
 
         assert properties["script_sample"] == escape("alert('test')")
-
-    def test_parse_properties_invalid_report(self):
-        data = {"not-a-valid-report": True}
-
-        with self.assertRaises(ValueError):
-            parse_properties(data)
 
     def test_process_csp_report_from_query_params(self):
         csp_data = {
