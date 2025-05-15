@@ -27,17 +27,12 @@ export function HedgedHogScene(): JSX.Element {
     const { betId, isOnboarded } = useValues(hedgedHogLogic)
     const { initializeWallet } = useActions(hedgedHogLogic)
 
-    // Get the active tab from URL query parameters or default to 'betting'
     const tabFromUrl = searchParams.tab as Tab
     const activeTab: Tab = ['betting', 'wallet', 'leaderboard', 'my-bets'].includes(tabFromUrl) ? tabFromUrl : 'betting'
 
-    // Update the URL when tab changes
     const setActiveTab = (tab: Tab): void => {
-        // Create a new URLSearchParams object
         const newParams = new URLSearchParams(searchParams as Record<string, string>)
         newParams.set('tab', tab)
-
-        // Use replace with the current pathname and the new search string
         replace(`${location.pathname}?${newParams.toString()}`)
     }
 

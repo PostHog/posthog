@@ -5,23 +5,18 @@ import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { useEffect } from 'react'
 
 import { hedgedHogLogic, LeaderboardEntry, LeaderboardType } from './hedgedHogLogic'
+
+const leaderboardOptions = [
+    { label: 'Balance', value: 'balance' },
+    { label: 'Win Rate', value: 'win_rate' },
+    { label: 'Trading Volume', value: 'volume' },
+]
 
 export const LeaderboardContent = (): JSX.Element => {
     const { leaderboard, leaderboardLoading, currentLeaderboardType } = useValues(hedgedHogLogic)
     const { loadLeaderboard } = useActions(hedgedHogLogic)
-
-    useEffect(() => {
-        loadLeaderboard(currentLeaderboardType)
-    }, [currentLeaderboardType])
-
-    const leaderboardOptions = [
-        { label: 'Balance', value: 'balance' },
-        { label: 'Win Rate', value: 'win_rate' },
-        { label: 'Trading Volume', value: 'volume' },
-    ]
 
     const getRankIcon = (index: number): JSX.Element | null => {
         if (index === 0) {

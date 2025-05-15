@@ -497,7 +497,16 @@ class TransactionViewSet(
                 total_volume = sum(t.amount for t in transactions)
 
                 if total_volume > 0:
-                    users_with_volume.append({"user_email": user.email, "total_volume": total_volume})
+                    users_with_volume.append(
+                        {
+                            "user_email": user.email,
+                            "total_volume": total_volume,
+                            "balance": None,
+                            "win_rate": None,
+                            "total_bets": None,
+                            "total_wins": None,
+                        }
+                    )
 
             # Sort by volume descending
             leaderboard = sorted(users_with_volume, key=lambda x: x["total_volume"], reverse=True)[:limit]

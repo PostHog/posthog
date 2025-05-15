@@ -265,6 +265,7 @@ export const hedgedHogLogic = kea<hedgedHogLogicType>([
             actions.loadTransactions()
             actions.loadWalletBalance()
             actions.loadBets()
+            actions.loadLeaderboard()
             const { betId } = router.values.hashParams
             if (betId) {
                 actions.setBetId(betId)
