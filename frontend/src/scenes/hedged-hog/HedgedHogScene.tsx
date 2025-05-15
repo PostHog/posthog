@@ -19,7 +19,7 @@ export const scene: SceneExport = {
     logic: hedgedHogLogic,
 }
 
-type Tab = 'betting' | 'wallet' | 'leaderboard' | 'my-bets'
+type Tab = 'betting' | 'my-bets' | 'wallet' | 'leaderboard'
 
 export function HedgedHogScene(): JSX.Element {
     const { location, searchParams } = useValues(router)
@@ -47,10 +47,10 @@ export function HedgedHogScene(): JSX.Element {
 
             {!isOnboarded ? (
                 <ProductIntroduction
-                    productName="Hedged Hog"
+                    productName="Hedged Hog bet"
                     productKey={ProductKey.HEDGED_HOG}
-                    thingName="hedged hog"
-                    description="Welcome to the bright new future of betting on your own growth"
+                    thingName="betting wallet"
+                    description="Get Hedged with the Hedged Hot betting platform."
                     isEmpty={true}
                     action={() => initializeWallet()}
                 />
