@@ -2,6 +2,7 @@ use axum::{
     extract::{Host, Path, State},
     http::StatusCode,
     response::IntoResponse,
+    Json,
 };
 
 use crate::{
@@ -9,6 +10,7 @@ use crate::{
         ExternalRedirectService, InternalRedirectService, RedirectError, RedirectServiceTrait,
     },
     router::AppState,
+    utils::generator::generate_base62_string,
 };
 
 pub async fn internal_redirect_url(
@@ -64,6 +66,44 @@ pub async fn external_redirect_url(
                     (StatusCode::INTERNAL_SERVER_ERROR).into_response()
                 }
             }
+        }
+    }
+}
+
+#[derive(serde::Deserialize)]
+pub struct ExternalStoreUrlRequest {
+    destination: String,
+}
+
+#[derive(serde::Serialize)]
+struct ExternalStoreUrlResponse {
+    short_url: String,
+    long_url: String,
+    created_at: i64,
+}
+
+pub async fn external_store_url(
+    state: State<AppState>,
+    Json(payload): Json<ExternalStoreUrlRequest>,
+) -> impl IntoResponse {
+    let redirect_service = ExternalRedirectService::new(state.external_redis_client.clone());
+    let short_string = generate_base62_string();
+
+    match redirect_service
+        .store_url(&payload.destination, &short_string)
+        .await
+    {
+        Ok(redirect_url) => {
+            let response = ExternalStoreUrlResponse {
+                long_url: payload.destination,
+                short_url: redirect_url,
+                created_at: chrono::Utc::now().timestamp(),
+            };
+            (StatusCode::OK, Json(response)).into_response()
+        }
+        Err(error) => {
+            tracing::error!("Error: {error}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "Error storing link").into_response()
         }
     }
 }

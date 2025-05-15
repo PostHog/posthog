@@ -3814,7 +3814,7 @@ dependencies = [
  "health",
  "moka",
  "once_cell",
- "rand",
+ "rand 0.8.5",
  "rust_decimal",
  "serde",
  "serde_json",
@@ -3872,7 +3872,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "log_capture"
+name = "log-capture"
 version = "0.1.0"
 dependencies = [
  "anyhow",

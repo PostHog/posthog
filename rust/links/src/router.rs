@@ -1,4 +1,7 @@
-use axum::{routing::get, Router};
+use axum::{
+    routing::{get, post},
+    Router,
+};
 use health::HealthRegistry;
 use std::{future::ready, sync::Arc};
 
@@ -7,7 +10,7 @@ use common_metrics::{setup_metrics_recorder, track_metrics};
 use common_redis::Client as RedisClient;
 use tower_http::trace::TraceLayer;
 
-use crate::api::endpoints::{external_redirect_url, internal_redirect_url};
+use crate::api::endpoints::{external_redirect_url, external_store_url, internal_redirect_url};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -35,15 +38,20 @@ where
     let status_router =
         Router::new().route("/_liveness", get(move || ready(liveness.get_status())));
 
-    let links_router = Router::new()
-        .route("/pr/:origin_key", get(external_redirect_url))
-        .route("/pr/:origin_key/", get(external_redirect_url))
+    let links_public_router = Router::new()
+        .route("/ph/:origin_key", get(external_redirect_url))
+        .route("/ph/:origin_key/", get(external_redirect_url))
+        .route("/ph", post(external_store_url))
+        .route("/ph/", post(external_store_url));
+
+    let links_private_router = Router::new()
         .route("/:origin_key", get(internal_redirect_url))
         .route("/:origin_key/", get(internal_redirect_url));
 
     let router = Router::new()
         .merge(status_router)
-        .merge(links_router)
+        .merge(links_public_router)
+        .merge(links_private_router)
         .layer(TraceLayer::new_for_http())
         .layer(axum::middleware::from_fn(track_metrics))
         .with_state(state);

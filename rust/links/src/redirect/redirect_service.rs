@@ -17,6 +17,8 @@ pub enum RedirectError {
     RedisError(#[from] CustomRedisError),
     #[error("Database Unavailable")]
     DatabaseUnavailable,
+    #[error("Invalid operation: {0}")]
+    InvalidOperation(String),
 }
 
 #[async_trait]
@@ -25,6 +27,12 @@ pub trait RedirectServiceTrait {
         &self,
         origin_key: &str,
         origin_domain: &str,
+    ) -> Result<String, RedirectError>;
+
+    async fn store_url(
+        &self,
+        destination: &str,
+        short_string: &str,
     ) -> Result<String, RedirectError>;
 }
 
@@ -78,6 +86,9 @@ impl InternalRedirectService {
     }
 }
 
+const TWENTY_FOUR_HOURS_IN_SECONDS: u64 = 60 * 60 * 24;
+const PHOG_GG_DOMAIN: &str = "phog.gg";
+
 #[async_trait]
 impl RedirectServiceTrait for ExternalRedirectService {
     async fn redirect_url(
@@ -101,6 +112,30 @@ impl RedirectServiceTrait for ExternalRedirectService {
                 CustomRedisError::NotFound => Err(RedirectError::LinkNotFound),
                 error => Err(error.into()),
             },
+        }
+    }
+
+    async fn store_url(
+        &self,
+        destination: &str,
+        short_string: &str,
+    ) -> Result<String, RedirectError> {
+        let key =
+            RedisRedirectKeyPrefix::External.get_redis_key_for_url(PHOG_GG_DOMAIN, short_string);
+
+        // First check if the key exists
+        match self.redis_client.get(key.clone()).await {
+            Ok(_) => Err(RedirectError::InvalidOperation(
+                "Redirect URL already exists".into(),
+            )),
+            Err(CustomRedisError::NotFound) => {
+                // Key doesn't exist, we can set it
+                self.redis_client
+                    .set_nx_ex(key, destination.to_string(), TWENTY_FOUR_HOURS_IN_SECONDS)
+                    .await?;
+                Ok(short_string.to_string())
+            }
+            Err(e) => Err(e.into()),
         }
     }
 }
@@ -127,6 +162,16 @@ impl RedirectServiceTrait for InternalRedirectService {
             },
         }
     }
+
+    async fn store_url(
+        &self,
+        _destination: &str,
+        _short_string: &str,
+    ) -> Result<String, RedirectError> {
+        Err(RedirectError::InvalidOperation(
+            "store_url not supported for internal redirects".into(),
+        ))
+    }
 }
 
 #[cfg(test)]
@@ -134,6 +179,7 @@ mod tests {
     use crate::utils::test_utils::{insert_new_link_in_pg, insert_new_team_in_pg, setup_pg_client};
 
     use super::*;
+    use crate::utils::generator::generate_base62_string;
     use anyhow::Result;
     use common_redis::MockRedisClient;
 
@@ -193,6 +239,25 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_should_store_external_url() {
+        let mut redis_client = MockRedisClient::new();
+        let destination = "https://example.com";
+        let redirect_url = generate_base62_string();
+        let key =
+            RedisRedirectKeyPrefix::External.get_redis_key_for_url(PHOG_GG_DOMAIN, &redirect_url);
+
+        // First get should return NotFound
+        // Then set should succeed
+        redis_client.get_ret(&key, Err(CustomRedisError::NotFound));
+        redis_client.set_nx_ex_ret(&key, Ok(true));
+
+        let service = ExternalRedirectService::new(Arc::new(redis_client));
+        let result = service.store_url(destination, &redirect_url).await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), redirect_url);
+    }
+
+    #[tokio::test]
     async fn test_should_redirect_internal_url_if_in_database() -> Result<()> {
         let redis_client = MockRedisClient::new();
         let db_client = setup_pg_client(None).await;
@@ -210,5 +275,38 @@ mod tests {
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), destination);
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_should_fail_store_on_redis_error() {
+        let mut redis_client = MockRedisClient::new();
+        let destination = "https://example.com";
+        let short_string = generate_base62_string();
+        let key =
+            RedisRedirectKeyPrefix::External.get_redis_key_for_url(PHOG_GG_DOMAIN, &short_string);
+
+        redis_client.get_ret(&key, Err(CustomRedisError::NotFound));
+        redis_client.set_nx_ex_ret(&key, Err(CustomRedisError::NotFound));
+
+        let service = ExternalRedirectService::new(Arc::new(redis_client));
+        let result = service.store_url(destination, &short_string).await;
+        assert!(result.is_err());
+        assert!(matches!(result, Err(RedirectError::RedisError(_))));
+    }
+
+    #[tokio::test]
+    async fn test_should_fail_when_url_exists() {
+        let mut redis_client = MockRedisClient::new();
+        let destination = "https://example.com";
+        let short_string = generate_base62_string();
+        let key =
+            RedisRedirectKeyPrefix::External.get_redis_key_for_url(PHOG_GG_DOMAIN, &short_string);
+
+        redis_client.get_ret(&key, Ok("existing_url".to_string()));
+
+        let service = ExternalRedirectService::new(Arc::new(redis_client));
+        let result = service.store_url(destination, &short_string).await;
+        assert!(result.is_err());
+        assert!(matches!(result, Err(RedirectError::InvalidOperation(_))));
     }
 }
