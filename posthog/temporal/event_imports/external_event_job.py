@@ -13,6 +13,7 @@ from temporalio.common import RetryPolicy
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
+from posthog.products.managed_migrations.models import ManagedMigration
 
 
 @dataclasses.dataclass
@@ -54,6 +55,14 @@ class ProcessEventsActivityInputs:
     posthog_domain: str
     batch_size: int = 20
 
+@dataclasses.dataclass
+class UpdateMigrationStatusActivityInputs:
+    team_id: int
+    job_id: str
+    status: str
+    error: str = None
+    events_processed: int = 0
+
 
 @workflow.defn(name="external-event-job")
 class ExternalEventJobWorkflow(PostHogWorkflow):
@@ -77,9 +86,51 @@ class ExternalEventJobWorkflow(PostHogWorkflow):
         
         if not handler:
             logger.error(f"External event import source '{inputs.source}' is not supported")
+
+            await workflow.execute_activity(
+                update_migration_status_activity,
+                UpdateMigrationStatusActivityInputs(
+                    team_id=inputs.team_id,
+                    job_id=inputs.job_id,
+                    status=ManagedMigration.Status.FAILED,
+                    error=f"Data source '{inputs.source}' is not supported",
+                ),
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
             return 0
         
-        return await handler(inputs, start_dt, end_dt)
+        try:
+            events_processed = await handler(inputs, start_dt, end_dt)
+
+            await workflow.execute_activity(
+                update_migration_status_activity,
+                UpdateMigrationStatusActivityInputs(
+                    team_id=inputs.team_id,
+                    job_id=inputs.job_id,
+                    status=ManagedMigration.Status.COMPLETED,
+                    events_processed=events_processed,
+                ),
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+
+            return events_processed
+        
+        except Exception as e:
+            await workflow.execute_activity(
+                update_migration_status_activity,
+                UpdateMigrationStatusActivityInputs(
+                    team_id=inputs.team_id,
+                    job_id=inputs.job_id,
+                    status=ManagedMigration.Status.FAILED,
+                    error="Processing failed",
+                ),
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+            raise
+            
 
     async def _handle_amplitude_import(self, inputs: ExternalEventWorkflowInputs, start_dt: dt.datetime, end_dt: dt.datetime) -> int:
         """Handler for Amplitude data imports"""
@@ -268,3 +319,35 @@ async def process_events_activity(inputs: ProcessEventsActivityInputs) -> int:
         
     logger.info(f"Job {inputs.job_id} completed. Total events processed: {total_processed}")
     return total_processed
+
+@activity.defn
+async def update_migration_status_activity(inputs: UpdateMigrationStatusActivityInputs) -> bool:
+    """
+    Updates the ManagedMigration model status based on workflow state.
+    """
+
+    logger = bind_temporal_worker_logger_sync(team_id=inputs.team_id)
+    logger.info(f"Updating migration status for job {inputs.job_id}")
+
+
+    try:
+        migration = ManagedMigration.objects.get(id=inputs.job_id)
+        migration.status = inputs.status
+
+        if inputs.status in [ManagedMigration.Status.COMPLETED, ManagedMigration.Status.FAILED, ManagedMigration.Status.CANCELLED]
+            migration.finshed_at = dt.datetime.now()
+        if inputs.error:
+            migration.error = inputs.error
+        
+        migration.save()
+
+        logger.info(f"Migration status updated to {inputs.status}")
+        return True
+
+    except ManagedMigration.DoesNotExist:
+        logger.error(f"Migration with job_id {inputs.job_id} does not exist")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to update migration status: {str(e)}")
+        return False
+            
