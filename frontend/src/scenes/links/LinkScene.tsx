@@ -1,16 +1,16 @@
-import { IconDownload, IconCopy } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonDivider, LemonSelect } from '@posthog/lemon-ui'
+import { IconCopy, IconDownload } from '@posthog/icons'
+import { LemonButton, LemonDivider, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
 import { PageHeader } from 'lib/components/PageHeader'
-import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { SceneExport } from 'scenes/sceneTypes'
-import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
-import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
+import { QRCodeSVG } from 'qrcode.react'
+import { SceneExport } from 'scenes/sceneTypes'
 
 import { linkConfigurationLogic } from './linkConfigurationLogic'
-import { QRCodeSVG } from 'qrcode.react'
-import { Form } from 'kea-forms'
 
 export function LinkScene({ id }: { id?: string } = {}): JSX.Element {
     const logic = linkConfigurationLogic({ id: id ?? 'new' })
@@ -20,9 +20,9 @@ export function LinkScene({ id }: { id?: string } = {}): JSX.Element {
     const isNew = id === 'new'
     const buttonText = isNew ? 'Create link' : 'Update link'
 
-    const fullLink = link?.id ? 
-        `${window.location.protocol}//${link.origin_domain}/${link.origin_key}` : 
-        "https://phog.gg/"
+    const fullLink = link?.id
+        ? `${window.location.protocol}//${link.origin_domain}/${link.origin_key}`
+        : 'https://phog.gg/'
 
     return (
         <Form
@@ -36,11 +36,7 @@ export function LinkScene({ id }: { id?: string } = {}): JSX.Element {
             <PageHeader
                 delimited
                 buttons={
-                    <LemonButton
-                        type="primary"
-                        onClick={submitLink}
-                        loading={isLinkSubmitting}
-                    >
+                    <LemonButton type="primary" onClick={submitLink} loading={isLinkSubmitting}>
                         {buttonText}
                     </LemonButton>
                 }
@@ -50,11 +46,7 @@ export function LinkScene({ id }: { id?: string } = {}): JSX.Element {
                 <div className="flex gap-8">
                     <div className="flex-1 space-y-6">
                         <LemonField name="destination" label="Destination URL">
-                            <LemonInput
-                                placeholder="https://posthog.com/links"
-                                fullWidth
-                                autoWidth={false}
-                            />
+                            <LemonInput placeholder="https://posthog.com/links" fullWidth autoWidth={false} />
                         </LemonField>
 
                         <div className="flex flex-col gap-2">
@@ -62,10 +54,11 @@ export function LinkScene({ id }: { id?: string } = {}): JSX.Element {
                             <div className="flex gap-2">
                                 <LemonField name="origin_domain">
                                     <LemonSelect
+                                        disabledReason="More domains coming soon"
                                         options={[
                                             { label: 'postho.gg', value: 'postho.gg/' },
                                             { label: 'phog.gg', value: 'phog.gg/' },
-                                            { label: 'hog.gg', value: 'hog.gg/' }
+                                            { label: 'hog.gg', value: 'hog.gg/' },
                                         ]}
                                         className="text-muted"
                                     />
@@ -80,34 +73,29 @@ export function LinkScene({ id }: { id?: string } = {}): JSX.Element {
                                 </LemonField>
                             </div>
                         </div>
-                        
+
                         <LemonField name="tags" label="Tags">
-                                <LemonInputSelect
-                                    placeholder="Select tags..."
-                                    mode="multiple"
-                                    allowCustomValues
-                                    fullWidth
-                                    autoWidth={false}
-                                />
+                            <LemonInputSelect
+                                placeholder="Select tags..."
+                                mode="multiple"
+                                allowCustomValues
+                                fullWidth
+                                autoWidth={false}
+                            />
                         </LemonField>
 
                         <LemonField name="description" label="Comments">
-                            <LemonTextArea
-                                placeholder="Add comments"
-                                minRows={2}
-                            />
+                            <LemonTextArea placeholder="Add comments" minRows={2} />
                         </LemonField>
                     </div>
 
                     <LemonDivider vertical />
-                    
+
                     <div className="flex-1 space-y-6 max-w-80">
                         <div>
                             <div className="flex justify-between items-center">
                                 <LemonLabel>
-                                    <span className="flex items-center gap-1">
-                                        QR Code
-                                    </span>
+                                    <span className="flex items-center gap-1">QR Code</span>
                                 </LemonLabel>
                                 <div className="flex flex-row">
                                     <LemonButton
@@ -124,17 +112,17 @@ export function LinkScene({ id }: { id?: string } = {}): JSX.Element {
                                     />
                                 </div>
                             </div>
-                            
+
                             <div className="border rounded-md p-4 mt-2 bg-bg-light flex items-center justify-center">
                                 <div className="text-center">
-                                    <QRCodeSVG 
-                                        size={128} 
+                                    <QRCodeSVG
+                                        size={128}
                                         value={fullLink}
                                         imageSettings={{
                                             src: '/static/posthog-icon.svg',
                                             height: 40,
                                             width: 40,
-                                            excavate: true
+                                            excavate: true,
                                         }}
                                     />
                                 </div>
@@ -150,5 +138,5 @@ export function LinkScene({ id }: { id?: string } = {}): JSX.Element {
 export const scene: SceneExport = {
     component: LinkScene,
     logic: linkConfigurationLogic,
-    paramsToProps: ({ params }): (typeof linkConfigurationLogic)['props'] => ({ id: params.id })
+    paramsToProps: ({ params }): (typeof linkConfigurationLogic)['props'] => ({ id: params.id }),
 }
