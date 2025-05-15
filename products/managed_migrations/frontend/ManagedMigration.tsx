@@ -3,6 +3,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { LemonTable, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import api, { ApiConfig } from 'lib/api'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
@@ -17,6 +18,25 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { managedMigrationLogic } from './managedMigrationLogic'
+
+interface Migration {
+    id: string
+    source: string
+    status: 'Cancelled' | 'Completed' | 'Failed' | 'Running' | 'Starting'
+    start_date: string
+    end_date: string
+    created_by: {
+        id: number
+        uuid: string
+        distinct_id: string
+        first_name: string
+        email: string
+    }
+    created_at: string
+    error: string | null
+    event_names_mode: 'all' | 'allow' | 'deny'
+    event_names: string[] | null
+}
 
 const STATUS_COLORS = {
     starting: 'warning',
@@ -121,12 +141,23 @@ export function ManagedMigration(): JSX.Element {
 
 export function ManagedMigrations(): JSX.Element {
     const { managedMigrationId, migrations, migrationsLoading } = useValues(managedMigrationLogic)
+    const { loadMigrations } = useActions(managedMigrationLogic)
 
-    const calculateProgress = (migration: any): { progress: number; completed: number; total: number } => {
-        if (!migration.start_date || !migration.end_date || migration.status === 'completed') {
+    const handleCancel = async (migrationId: string): Promise<void> => {
+        try {
+            const projectId = ApiConfig.getCurrentProjectId()
+            await api.create(`api/projects/${projectId}/managed_migrations/${migrationId}/cancel`)
+            loadMigrations()
+        } catch (error) {
+            console.error('Failed to cancel migration:', error)
+        }
+    }
+
+    const calculateProgress = (migration: Migration): { progress: number; completed: number; total: number } => {
+        if (!migration.start_date || !migration.end_date || migration.status === 'Completed') {
             return { progress: 100, completed: 0, total: 0 }
         }
-        if (migration.status === 'failed' || migration.status === 'cancelled') {
+        if (migration.status === 'Failed' || migration.status === 'Cancelled') {
             return { progress: 0, completed: 0, total: 0 }
         }
 
@@ -215,14 +246,14 @@ export function ManagedMigrations(): JSX.Element {
                                 <div className="flex flex-col gap-1">
                                     <LemonProgress
                                         percent={progress}
-                                        strokeColor={migration.status === 'failed' ? 'var(--danger)' : undefined}
+                                        strokeColor={migration.status === 'Failed' ? 'var(--danger)' : undefined}
                                     />
                                     <span className="text-xs text-muted">
-                                        {migration.status === 'completed'
+                                        {migration.status === 'Completed'
                                             ? 'Complete'
-                                            : migration.status === 'failed'
+                                            : migration.status === 'Failed'
                                             ? 'Failed'
-                                            : migration.status === 'cancelled'
+                                            : migration.status === 'Cancelled'
                                             ? 'Cancelled'
                                             : `${completed}/${total}`}
                                     </span>
@@ -261,6 +292,22 @@ export function ManagedMigrations(): JSX.Element {
                         title: 'Error',
                         dataIndex: 'error',
                         render: (_, migration) => migration.error || '-',
+                    },
+                    {
+                        title: 'Actions',
+                        key: 'actions',
+                        render: (_, migration: Migration): JSX.Element | null =>
+                            migration.status === 'Running' || migration.status === 'Starting' ? (
+                                <LemonButton
+                                    status="danger"
+                                    size="small"
+                                    onClick={() => {
+                                        void handleCancel(migration.id)
+                                    }}
+                                >
+                                    Cancel
+                                </LemonButton>
+                            ) : null,
                     },
                 ]}
                 emptyState="No migrations found. Create a new migration to get started."

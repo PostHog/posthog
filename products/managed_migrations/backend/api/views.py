@@ -107,11 +107,17 @@ class ManagedMigrationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         try:
-            # TODO: Implement cancel logic
-            return Response(
-                {"error": "Cancel logic not implemented"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+            # Cancel the Temporal workflow if it exists
+            if migration.workflow_id:
+                client = sync_connect()
+                handle = client.get_workflow_handle(workflow_id=migration.workflow_id)
+                asyncio.run(handle.cancel())
+
+            # Update migration status
+            migration.status = ManagedMigration.Status.CANCELLED
+            migration.save()
+
+            return Response({"status": "success"})
 
         except Exception as e:
             return Response(
