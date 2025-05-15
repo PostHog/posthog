@@ -104,7 +104,7 @@ impl LogRow {
             _attributes,
             severity_text,
             severity_number,
-            _resource: json!(attributes).to_string(),
+            _resource: json!(resource_attributes).to_string(),
             instrumentation_scope,
             event_name,
             resource_id,
@@ -207,10 +207,8 @@ fn try_extract_message(body: &str) -> Option<String> {
     };
 
     for key in MESSAGE_KEYS {
-        if let Some(value) = value.get(key) {
-            if let JsonValue::String(s) = value {
-                return Some(s.clone());
-            }
+        if let Some(JsonValue::String(s)) = value.get(key) {
+            return Some(s.clone());
         }
     }
 
@@ -246,14 +244,14 @@ fn extract_resource_id(resource: &Option<Resource>) -> String {
 }
 
 // TODO - pull this from PG
-const SEVERITY_LEYS: [&str; 4] = ["level", "severity", "log.level", "config.log_level"];
+const SEVERITY_KEYS: [&str; 4] = ["level", "severity", "log.level", "config.log_level"];
 
 fn try_extract_severity(body: &str) -> Option<String> {
     let Ok(val) = serde_json::from_str::<JsonValue>(body) else {
         return None;
     };
 
-    for key in SEVERITY_LEYS {
+    for key in SEVERITY_KEYS {
         if let Some(severity) = val.get(key) {
             let Some(found) = severity.as_str() else {
                 continue;
