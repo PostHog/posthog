@@ -4516,7 +4516,7 @@ class CachedLogsQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: list[LogMessage]
+    results: Any
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -5917,7 +5917,7 @@ class LogsQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: list[LogMessage]
+    results: Any
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -6802,7 +6802,7 @@ class QueryResponseAlternative56(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: list[LogMessage]
+    results: Any
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )

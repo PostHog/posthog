@@ -3680,12 +3680,7 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
-                "results": {
-                    "items": {
-                        "$ref": "#/definitions/LogMessage"
-                    },
-                    "type": "array"
-                },
+                "results": {},
                 "timezone": {
                     "type": "string"
                 },
@@ -12092,12 +12087,7 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
-                "results": {
-                    "items": {
-                        "$ref": "#/definitions/LogMessage"
-                    },
-                    "type": "array"
-                },
+                "results": {},
                 "timings": {
                     "description": "Measured timings for different parts of the query generation process",
                     "items": {
@@ -15586,12 +15576,7 @@
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
-                        "results": {
-                            "items": {
-                                "$ref": "#/definitions/LogMessage"
-                            },
-                            "type": "array"
-                        },
+                        "results": {},
                         "timings": {
                             "description": "Measured timings for different parts of the query generation process",
                             "items": {

@@ -1955,7 +1955,7 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
     severityLevels: LogSeverityLevel[]
 }
 
-export interface LogsQueryResponse extends AnalyticsQueryResponseBase<LogMessage[]> {
+export interface LogsQueryResponse extends AnalyticsQueryResponseBase<unknown> {
     hasMore?: boolean
     limit?: integer
     offset?: integer

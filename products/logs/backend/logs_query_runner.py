@@ -3,12 +3,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner
-from posthog.schema import (
-    CachedLogsQueryResponse,
-    LogsQuery,
-    LogsQueryResponse,
-)
-from posthog.hogql.constants import LimitContext
+from posthog.schema import CachedLogsQueryResponse, LogsQuery, LogsQueryResponse
 
 
 class LogsQueryRunner(QueryRunner):
@@ -39,22 +34,7 @@ class LogsQueryRunner(QueryRunner):
             settings=HogQLGlobalSettings(allow_experimental_object_type=False),
         )
 
-        print("ROSSLOG - response", response.clickhouse)
-
-        results = []
-        for result in response.results:
-            results.append(
-                {
-                    "uuid": result[0],
-                    "trace_id": result[1],
-                    "span_id": result[2],
-                    "body": result[3],
-                    "timestamp": result[4],
-                    "observed_timestamp": result[5],
-                }
-            )
-
-        return LogsQueryResponse(results=results, **self.paginator.response_params())
+        return LogsQueryResponse(results=response.results, **self.paginator.response_params())
 
     def to_query(self) -> ast.SelectQuery:
         return ast.SelectQuery(
@@ -75,7 +55,6 @@ class LogsQueryRunner(QueryRunner):
                 alias="uuid",
                 expr=ast.Call(name="toString", args=[ast.Field(chain=["uuid"])]),
             ),
-            # ast.Field(chain=["uuid"]),
             ast.Field(chain=["trace_id"]),
             ast.Field(chain=["span_id"]),
             ast.Field(chain=["body"]),
@@ -85,7 +64,7 @@ class LogsQueryRunner(QueryRunner):
             ast.Field(chain=["severity_text"]),
             ast.Field(chain=["severity_number"]),
             ast.Field(chain=["level"]),
-            ast.Field(chain=["resource_id"]),
+            ast.Alias(alias="resource", expr=ast.Field(chain=["_resource"])),
             ast.Field(chain=["instrumentation_scope"]),
             ast.Field(chain=["event_name"]),
         ]
