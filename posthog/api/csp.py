@@ -1,4 +1,6 @@
 import json
+from typing import Optional
+
 import structlog
 
 from posthog.exceptions import generate_exception_response
@@ -87,7 +89,7 @@ def parse_report_to(data: dict) -> dict:
     return properties
 
 
-def build_csp_event(props: dict, distinct_id: str, session_id: str, version: str) -> dict:
+def build_csp_event(props: dict, distinct_id: str, session_id: str, version: str, user_agent: Optional[str]) -> dict:
     return {
         "event": "$csp_violation",
         "distinct_id": distinct_id,
@@ -95,6 +97,7 @@ def build_csp_event(props: dict, distinct_id: str, session_id: str, version: str
             "$session_id": session_id,
             "csp_version": version,
             "$process_person_profile": False,
+            "$raw_user_agent": user_agent,
             **props,
         },
     }
@@ -123,15 +126,11 @@ def process_csp_report(request):
         distinct_id = request.GET.get("distinct_id") or str(uuid7())
         session_id = request.GET.get("session_id") or str(uuid7())
         version = request.GET.get("v") or "unknown"
+        user_agent = request.headers.get("User-Agent")
 
         if request.content_type == "application/csp-report" and "csp-report" in csp_data:
             return (
-                build_csp_event(
-                    parse_report_uri(csp_data),
-                    distinct_id,
-                    session_id,
-                    version,
-                ),
+                build_csp_event(parse_report_uri(csp_data), distinct_id, session_id, version, user_agent),
                 None,
             )
 
@@ -140,7 +139,9 @@ def process_csp_report(request):
                 parse_report_to(item) for item in csp_data if "type" in item and item["type"] == "csp-violation"
             ]
 
-            return [build_csp_event(prop, distinct_id, session_id, version) for prop in violations_props], None
+            return [
+                build_csp_event(prop, distinct_id, session_id, version, user_agent) for prop in violations_props
+            ], None
 
         else:
             raise ValueError("Invalid CSP report")
