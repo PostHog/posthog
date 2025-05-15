@@ -72,6 +72,15 @@ export function ManagedMigration(): JSX.Element {
                                 </div>
                             ),
                         },
+                        {
+                            value: 'mixpanel',
+                            label: (
+                                <div className="flex items-center gap-2">
+                                    <img src="https://mixpanel.com/favicon.ico" alt="Mixpanel" className="w-4 h-4" />
+                                    Mixpanel
+                                </div>
+                            ),
+                        },
                     ]}
                 />
             </LemonField>
