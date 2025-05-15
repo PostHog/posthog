@@ -125,7 +125,7 @@ const SdkLinks = ({ sdkType }: { sdkType: SdkType }): JSX.Element => {
     return (
         <div className="flex justify-between items-center py-2 text-sm border-t border-border mt-2">
             <Link to={links.releases} target="_blank" targetBlankIcon>
-                {sdkName} SDK Releases
+                {sdkName} SDK releases
             </Link>
             <Link to={links.docs} target="_blank" targetBlankIcon>
                 {sdkName} SDK docs
