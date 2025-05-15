@@ -27,6 +27,7 @@ import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { PathsV2 } from 'scenes/paths-v2/PathsV2'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { TrendInsight } from 'scenes/trends/Trends'
+import { EventsHeatMapContainer } from 'scenes/web-analytics/CalendarHeatMap/EventsHeatMapContainer'
 
 import { QueryContext } from '~/queries/types'
 import { ExporterFormat, FunnelVizType, InsightType, ItemMode } from '~/types'
@@ -148,6 +149,8 @@ export function InsightVizDisplay({
                         inSharedMode={inSharedMode}
                     />
                 )
+            case InsightType.CALENDAR_HEATMAP:
+                return <EventsHeatMapContainer context={context} />
             case InsightType.FUNNELS:
                 return <Funnel inCardView={embedded} inSharedMode={inSharedMode} showPersonsModal={!inSharedMode} />
             case InsightType.RETENTION:

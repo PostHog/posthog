@@ -49,6 +49,7 @@ from posthog.schema import (
     InsightActorsQuery,
     InsightActorsQueryOptions,
     LifecycleQuery,
+    CalendarHeatmapQuery,
     PathsQuery,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
@@ -216,6 +217,17 @@ def get_query_runner(
 
         return EventsHeatMapQueryRunner(
             query=cast(EventsHeatMapQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+        )
+
+    if kind == "CalendarHeatmapQuery":
+        from .insights.trends.calendar_heatmap_query_runner import CalendarHeatmapQueryRunner
+
+        return CalendarHeatmapQueryRunner(
+            query=cast(CalendarHeatmapQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,

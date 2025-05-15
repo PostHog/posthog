@@ -28,7 +28,7 @@ import {
 
 interface WebActiveHoursHeatmapProps {
     query: EventsHeatMapQuery
-    context: QueryContext
+    context?: QueryContext
     cachedResults?: AnyResponseType
 }
 
@@ -39,7 +39,7 @@ export function WebActiveHoursHeatmap(props: WebActiveHoursHeatmapProps): JSX.El
         dataNodeLogic({
             query: props.query,
             key: 'active-hours-heatmap',
-            dataNodeCollectionId: props.context.insightProps?.dataNodeCollectionId,
+            dataNodeCollectionId: props.context?.insightProps?.dataNodeCollectionId,
             cachedResults: props.cachedResults,
         })
     )
@@ -49,7 +49,7 @@ export function WebActiveHoursHeatmap(props: WebActiveHoursHeatmapProps): JSX.El
     if (responseLoading) {
         return (
             <InsightsWrapper>
-                <InsightLoadingState queryId={queryId} key={queryId} insightProps={props.context.insightProps ?? {}} />
+                <InsightLoadingState queryId={queryId} key={queryId} insightProps={props.context?.insightProps ?? {}} />
             </InsightsWrapper>
         )
     }

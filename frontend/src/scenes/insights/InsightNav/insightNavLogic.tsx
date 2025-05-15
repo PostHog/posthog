@@ -198,6 +198,11 @@ export const insightNavLogic = kea<insightNavLogicType>([
                         type: InsightType.SQL,
                         dataAttr: 'insight-sql-tab',
                     },
+                    {
+                        label: 'Calendar Heatmap',
+                        type: InsightType.CALENDAR_HEATMAP,
+                        dataAttr: 'insight-calendar-heatmap-tab',
+                    },
                 ]
 
                 if (featureFlags[FEATURE_FLAGS.HOG] || activeView === InsightType.HOG) {
