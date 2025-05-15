@@ -25,13 +25,18 @@ def clamp_to_range(
             logger.warning(f"{label}: min cannot be greater than max")
         min_val = max_val
 
-    if not isinstance(value, float):
-        if label:
-            logger.warning(
-                f"{label} must be a number. Using max or fallback. max: {max_val}, fallback: {fallback_value}"
-            )
-        return clamp_to_range(fallback_value if fallback_value is not None else max_val, min_val, max_val, label)
-    elif value > max_val:
+    try:
+        if not isinstance(value, int | float):
+            if label:
+                logger.warning(
+                    f"{label} must be a number. Using max or fallback. max: {max_val}, fallback: {fallback_value}"
+                )
+            value = float(fallback_value if fallback_value is not None else max_val)
+    except (TypeError, ValueError):
+        value = float(fallback_value if fallback_value is not None else max_val)
+
+    # Now clamp the value
+    if value > max_val:
         if label:
             logger.warning(f"{label} cannot be greater than max: {max_val}. Using max value instead.")
         return max_val
@@ -40,7 +45,7 @@ def clamp_to_range(
             logger.warning(f"{label} cannot be less than min: {min_val}. Using min value instead.")
         return min_val
     else:
-        return value
+        return float(value)
 
 
 def simple_hash(s: str | None) -> int:

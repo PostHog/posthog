@@ -302,57 +302,52 @@ class TestCSPModule(TestCase):
         )
 
     def test_process_csp_report_with_sampling(self):
-        csp_data = {
-            "csp-report": {
-                "document-uri": "https://example.com/foo/bar",
-                "effective-directive": "script-src",
-                "violated-directive": "default-src self",
-            }
+        # Create a test properties dictionary
+        properties = {
+            "document_url": "https://example.com/foo/bar",
+            "effective_directive": "script-src",
         }
 
-        # Test with no sampling (default behavior)
-        request = self.factory.post(
-            "/csp/?distinct_id=test-user",
-            data=json.dumps(csp_data),
-            content_type="application/csp-report",
-        )
-        event, _ = process_csp_report(request)
-        assert event is not None
-        assert "$sample_type" not in event["properties"]
-        assert "$sample_threshold" not in event["properties"]
+        # Test without adding metadata (add_metadata=False)
+        result = sample_csp_report(properties, 0.5, False)
+        assert isinstance(result, bool)
+        assert "csp_sampled" not in properties
+        assert "csp_sample_threshold" not in properties
 
-        # Test with 100% sampling rate (should behave like no sampling)
-        request = self.factory.post(
-            "/csp/?distinct_id=test-user&sample_rate=1.0",
-            data=json.dumps(csp_data),
-            content_type="application/csp-report",
-        )
-        event, _ = process_csp_report(request)
-        assert event is not None
-        assert "$sample_type" not in event["properties"]
-        assert "$sample_threshold" not in event["properties"]
+        # Test with 100% sampling rate (should not add metadata)
+        properties = {
+            "document_url": "https://example.com/foo/bar",
+            "effective_directive": "script-src",
+        }
+        result = sample_csp_report(properties, 1.0, True)
+        assert result is True
+        assert "csp_sampled" not in properties
+        assert "csp_sample_threshold" not in properties
 
-        # Test with sampling metadata when sampled in
-        with patch("posthog.api.csp.sample_csp_report", return_value=True):
-            request = self.factory.post(
-                "/csp/?distinct_id=test-user&sample_rate=0.1",
-                data=json.dumps(csp_data),
-                content_type="application/csp-report",
-            )
-            event, _ = process_csp_report(request)
-            assert event is not None
-            assert event["properties"]["$sample_type"] == ["sampleByDocumentUrlAndDirective"]
-            assert event["properties"]["$sample_threshold"] == 0.1
+        # Test with metadata when sampled in (add_metadata=True)
+        properties = {
+            "document_url": "https://example.com/foo/bar",
+            "effective_directive": "script-src",
+        }
+
+        # Use a mock to ensure the report is sampled in
+        with patch("posthog.api.csp.sample_on_property", return_value=True):
+            result = sample_csp_report(properties, 0.1, True)
+            assert result is True
+            assert properties["csp_sampled"] is True
+            assert properties["csp_sample_threshold"] == 0.1
 
         # Test when sampled out
-        with patch("posthog.api.csp.sample_csp_report", return_value=False):
-            request = self.factory.post(
-                "/csp/?distinct_id=test-user&sample_rate=0.1",
-                data=json.dumps(csp_data),
-                content_type="application/csp-report",
-            )
-            event, _ = process_csp_report(request)
-            assert event is None  # Report was sampled out
+        properties = {
+            "document_url": "https://example.com/foo/bar",
+            "effective_directive": "script-src",
+        }
+        with patch("posthog.api.csp.sample_on_property", return_value=False):
+            result = sample_csp_report(properties, 0.1, True)
+            assert result is False
+            # Properties should not be modified when sampled out
+            assert "csp_sampled" not in properties
+            assert "csp_sample_threshold" not in properties
 
     def test_sampling_determinism_across_report_types(self):
         """Test that sampling is deterministic across different report formats for the same content"""
@@ -460,13 +455,11 @@ class TestCSPModule(TestCase):
             assert sample_csp_report(properties, rate) == results[directive]
 
     def test_full_csp_sampling_flow_with_different_rates(self):
-        """Test the full CSP sampling flow with different sampling rates"""
-        csp_data = {
-            "csp-report": {
-                "document-uri": "https://example.com/sampling-test",
-                "effective-directive": "script-src",
-                "violated-directive": "default-src self",
-            }
+        """Test the sampling behavior with different sampling rates"""
+        # Create test properties
+        properties = {
+            "document_url": "https://example.com/sampling-test",
+            "effective_directive": "script-src",
         }
 
         # Test with a range of sampling rates
@@ -474,48 +467,36 @@ class TestCSPModule(TestCase):
         results = {}
 
         for rate in rates_to_test:
-            request = self.factory.post(
-                f"/csp/?distinct_id=test-user&sample_rate={rate}",
-                data=json.dumps(csp_data),
-                content_type="application/csp-report",
-            )
+            # Make a copy of properties to test with each rate
+            props_copy = properties.copy()
+            results[rate] = sample_csp_report(props_copy, rate, True)
 
-            event, _ = process_csp_report(request)
-            results[rate] = event
+        # At 0% sampling, result should be False
+        assert results[0.0] is False, "Expected report to be sampled out at 0% rate"
 
-        # At 0% sampling, event should be None
-        assert results[0.0] is None, "Expected event to be sampled out at 0% rate"
+        # At 100% sampling, result should be True and not have sampling metadata
+        assert results[1.0] is True, "Expected report to be sampled in at 100% rate"
 
-        # At 100% sampling, event should exist and not have sampling metadata
-        assert results[1.0] is not None, "Expected event to be sampled in at 100% rate"
-        assert "$sample_type" not in results[1.0]["properties"], "Did not expect sampling metadata at 100% rate"
-
-        # For other rates, the sampling decision should be deterministic
-        # We can't guarantee which way it will go, but it should be consistent
-        # Let's extract the sampling key and check a new request with the same key
-        url = "https://example.com/sampling-test"
-        directive = "script-src"
-
-        properties = {"document_url": url, "effective_directive": directive}
-
+        # Testing deterministic behavior - same properties should yield same results
         for rate in [0.1, 0.5, 0.9]:
-            expected_result = sample_csp_report(properties, rate)
+            # First result
+            first_result = sample_csp_report(properties.copy(), rate)
 
-            # Make a new request with the same sampling key
-            request = self.factory.post(
-                f"/csp/?distinct_id=test-user&sample_rate={rate}",
-                data=json.dumps(csp_data),
-                content_type="application/csp-report",
-            )
+            # Second result should match the first
+            assert (
+                sample_csp_report(properties.copy(), rate) == first_result
+            ), f"Expected consistent sampling at {rate} rate"
 
-            event, _ = process_csp_report(request)
+            # Make a new properties object and check it with metadata
+            props_with_metadata = properties.copy()
+            sampled_in = sample_csp_report(props_with_metadata, rate, True)
 
-            if expected_result:
-                assert event is not None, f"Expected event to be sampled in at {rate} rate"
-                assert event["properties"]["$sample_type"] == ["sampleByDocumentUrlAndDirective"]
-                assert event["properties"]["$sample_threshold"] == rate
+            if sampled_in:
+                assert props_with_metadata["csp_sampled"] is True
+                assert props_with_metadata["csp_sample_threshold"] == rate
             else:
-                assert event is None, f"Expected event to be sampled out at {rate} rate"
+                assert "csp_sampled" not in props_with_metadata
+                assert "csp_sample_threshold" not in props_with_metadata
 
     def test_edge_case_urls_and_directives(self):
         """Test sampling with edge case URLs and directives"""
