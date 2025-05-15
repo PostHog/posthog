@@ -3,6 +3,7 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
@@ -14,14 +15,17 @@ from products.logs.backend.logs_query_runner import (
 )
 
 
-# TODO - add serializer/validation
-class LogsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
+class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     scope_object = "logs"
 
     @action(detail=False, methods=["POST"], required_scopes=["error_tracking:read"])
     def query(self, request: Request, *args, **kwargs) -> Response:
-        query = request.data.get("query", None)
-        runner = LogsQueryRunner(LogsQuery(**query), self.team)
+        query_data = request.data.get("query", None)
+        if query_data is None:
+            return Response({"error": "No query provided"}, status=status.HTTP_400_BAD_REQUEST)
+
+        query = self.get_model(query_data, LogsQuery)
+        runner = LogsQueryRunner(query, self.team)
 
         try:
             response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)

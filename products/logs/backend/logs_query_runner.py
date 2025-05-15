@@ -31,6 +31,7 @@ class LogsQueryRunner(QueryRunner):
             timings=self.timings,
             limit_context=self.limit_context,
             filters=[self.query.dateRange],
+            # needed for CH cloud
             settings=HogQLGlobalSettings(allow_experimental_object_type=False),
         )
 
@@ -96,15 +97,15 @@ class LogsQueryRunner(QueryRunner):
         #         )
         #     )
 
-        # if len(self.query.severityLevels) > 0:
-        #     exprs.append(
-        #         ast.CompareOperation(
-        #             op=ast.CompareOperationOp.In,
-        #             # TODO - change to level?
-        #             left=ast.Field(chain=["severity_text"]),
-        #             right=ast.Constant(value=self.query.severityLevels),
-        #         )
-        #     )
+        if len(self.query.severityLevels) > 0:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=ast.Field(chain=["level"]),
+                    right=ast.Constant(value=[str(level) for level in self.query.severityLevels]),
+                )
+            )
+
         if len(exprs) == 0:
             return ast.Constant(value=True)
         elif len(exprs) == 1:

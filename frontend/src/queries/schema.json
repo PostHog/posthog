@@ -11982,12 +11982,33 @@
         "LogMessage": {
             "additionalProperties": false,
             "properties": {
+                "attributes": {
+                    "type": "string"
+                },
                 "body": {
                     "type": "string"
+                },
+                "event_name": {
+                    "type": "string"
+                },
+                "instrumentation_scope": {
+                    "type": "string"
+                },
+                "level": {
+                    "$ref": "#/definitions/LogSeverityLevel"
                 },
                 "observed_timestamp": {
                     "format": "date-time",
                     "type": "string"
+                },
+                "resource": {
+                    "type": "string"
+                },
+                "severity_number": {
+                    "type": "number"
+                },
+                "severity_text": {
+                    "$ref": "#/definitions/LogSeverityLevel"
                 },
                 "span_id": {
                     "type": "string"
@@ -12003,7 +12024,21 @@
                     "type": "string"
                 }
             },
-            "required": ["uuid", "trace_id", "span_id", "body", "timestamp", "observed_timestamp"],
+            "required": [
+                "uuid",
+                "trace_id",
+                "span_id",
+                "body",
+                "attributes",
+                "timestamp",
+                "observed_timestamp",
+                "severity_text",
+                "severity_number",
+                "level",
+                "resource",
+                "instrumentation_scope",
+                "event_name"
+            ],
             "type": "object"
         },
         "LogSeverityLevel": {

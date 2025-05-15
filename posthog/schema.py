@@ -1350,18 +1350,6 @@ class LifecycleToggle(StrEnum):
     DORMANT = "dormant"
 
 
-class LogMessage(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    body: str
-    observed_timestamp: datetime
-    span_id: str
-    timestamp: datetime
-    trace_id: str
-    uuid: str
-
-
 class LogSeverityLevel(StrEnum):
     DEBUG = "debug"
     INFO = "info"
@@ -2867,6 +2855,25 @@ class LifecycleFilterLegacy(BaseModel):
     show_legend: Optional[bool] = None
     show_values_on_series: Optional[bool] = None
     toggledLifecycles: Optional[list[LifecycleToggle]] = None
+
+
+class LogMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    attributes: str
+    body: str
+    event_name: str
+    instrumentation_scope: str
+    level: LogSeverityLevel
+    observed_timestamp: datetime
+    resource: str
+    severity_number: float
+    severity_text: LogSeverityLevel
+    span_id: str
+    timestamp: datetime
+    trace_id: str
+    uuid: str
 
 
 class MatchedRecording(BaseModel):

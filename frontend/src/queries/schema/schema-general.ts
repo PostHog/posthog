@@ -1968,17 +1968,17 @@ export interface LogMessage {
     trace_id: string
     span_id: string
     body: string
+    attributes: string
     /**  @format date-time */
     timestamp: string
     /**  @format date-time */
     observed_timestamp: string
-    // attributes: Record<string, string>
-    // severity_text: LogSeverityLevel
-    // severity_number: number
-    // level: LogSeverityLevelposthog/schema.py
-    // resource_id: string
-    // instrumentation_scope: string
-    // event_name: string
+    severity_text: LogSeverityLevel
+    severity_number: number
+    level: LogSeverityLevel
+    resource: string
+    instrumentation_scope: string
+    event_name: string
 }
 
 export interface FileSystemCount {
