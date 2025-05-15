@@ -65,6 +65,19 @@ class BetDefinition(UUIDModel, CreatedMetaFields):
 
     __repr__ = sane_repr("team", "type", "title", "status")
 
+    def save(self, *args, **kwargs):
+        """Override save method to create initial probability distribution when a new bet definition is created."""
+        is_new = self.pk is None
+
+        # Let the model save first so we have an ID to work with
+        super().save(*args, **kwargs)
+
+        # Create initial probability distribution for new bet definitions
+        if is_new and self.status == self.Status.ACTIVE:
+            from posthog.betting.betting_utils import create_probability_distribution
+
+            create_probability_distribution(self)
+
     @property
     def is_active(self) -> bool:
         return self.status == BetDefinition.Status.ACTIVE and self.closing_date > timezone.now()
@@ -94,17 +107,13 @@ class ProbabilityDistribution(UUIDModel, CreatedMetaFields):
     )
     distribution_data = models.JSONField()  # Array of probability distribution buckets:
     # [
-    #   {"value": 100, "probability": 0.2},  # 20% chance of value being 100
-    #   {"value": 200, "probability": 0.5},  # 50% chance of value being 200
-    #   {"value": 300, "probability": 0.3}   # 30% chance of value being 300
+    #   {"value": 100, "min": 50, "max": 150, "probability": 0.2},  # 20% chance of value being between 50-150
+    #   {"value": 200, "min": 151, "max": 250, "probability": 0.5},  # 50% chance of value being between 151-250
+    #   {"value": 300, "min": 251, "max": 350, "probability": 0.3}   # 30% chance of value being between 251-350
     # ]
+    # The 'value' field represents the midpoint or representative value of the bucket
+    # The 'min' and 'max' fields define the range of the bucket
     # Probabilities should sum to 1.0
-    # Can be extended to support ranges:
-    # [
-    #   {"range": [0, 100], "probability": 0.3},    # 30% chance of value between 0-100
-    #   {"range": [101, 200], "probability": 0.4},  # 40% chance of value between 101-200
-    #   {"range": [201, 300], "probability": 0.3}   # 30% chance of value between 201-300
-    # ]``
 
     def __str__(self) -> str:
         return f"Distribution for {self.bet_definition.title} at {self.created_at}"
@@ -121,10 +130,14 @@ class ProbabilityDistribution(UUIDModel, CreatedMetaFields):
         Calculate the payout multiplier for a bet on a specific value.
         """
         for bucket in self.buckets:
-            if bucket["value"] == value:
-                # Payout is inverse of probability (minus house edge)
-                house_edge = 0.05  # 5% house edge
-                return (1 / bucket["probability"]) * (1 - house_edge)
+            # Check if value is in the bucket range
+            if "min" in bucket and "max" in bucket:
+                if bucket["min"] <= value <= bucket["max"]:
+                    # Payout is inverse of probability
+                    return 1 / bucket["probability"]
+            # Fallback to exact value match for backward compatibility
+            elif "value" in bucket and bucket["value"] == value:
+                return 1 / bucket["probability"]
         return 0.0
 
 
@@ -168,6 +181,30 @@ class Bet(UUIDModel, CreatedMetaFields):
         return f"Bet on {self.bet_definition.title} - {self.amount}"
 
     __repr__ = sane_repr("bet_definition", "user", "team", "amount", "status")
+
+    @staticmethod
+    def calculate_potential_payout(
+        bet_definition: BetDefinition, probability_distribution: ProbabilityDistribution, amount: float, predicted_value
+    ) -> float:
+        """
+        Calculate the potential payout for a bet based on the probability distribution.
+
+        Args:
+            bet_definition: The bet definition
+            probability_distribution: The probability distribution to use for calculating the payout
+            amount: The amount being wagered
+            predicted_value: The value being predicted (can be a number or a dict with prediction details)
+
+        Returns:
+            The potential payout amount (original bet amount + winnings)
+        """
+        # Get the payout multiplier from the probability distribution based on the predicted value
+        payout_multiplier = probability_distribution.get_payout_for_value(
+            predicted_value if isinstance(predicted_value, int | float) else predicted_value["value"]
+        )
+
+        # Calculate the potential payout (original amount + winnings)
+        return float(amount) * payout_multiplier
 
     def settle(self, final_value: float) -> None:
         """
