@@ -1,5 +1,8 @@
+from functools import cached_property
 import json
 import re
+from uuid import uuid4
+import posthoganalytics.ai.openai
 from rest_framework import viewsets
 from rest_framework.parsers import MultiPartParser, JSONParser
 
@@ -38,11 +41,11 @@ class UserInterviewSerializer(serializers.ModelSerializer):
         validated_data["created_by"] = request.user
         validated_data["team_id"] = self.context["team_id"]
         audio = validated_data.pop("audio")
-        validated_data["transcript"] = self._transcribe_audio(audio)
+        validated_data["transcript"] = self._transcribe_audio(audio, validated_data["interviewee_emails"])
         validated_data["summary"] = self._summarize_transcript(validated_data["transcript"])
         return super().create(validated_data)
 
-    def _transcribe_audio(self, audio: File):
+    def _transcribe_audio(self, audio: File, interviewee_emails: list[str]):
         transcript = elevenlabs_client.speech_to_text.convert(
             model_id="scribe_v1",
             file=audio,
@@ -59,11 +62,103 @@ class UserInterviewSerializer(serializers.ModelSerializer):
                 ]
             ),
         )
-        return re.sub(r"\[speaker_(\d+)\]", "#### Speaker \\1", transcript.additional_formats[0].content)
+
+        transcript_text = transcript.additional_formats[0].content.strip()
+
+        speaker_mapping = self._attempt_to_map_speaker_names(transcript_text, interviewee_emails)
+        if speaker_mapping:
+            for speaker_marker, speaker_name in speaker_mapping.items():
+                transcript_text = transcript_text.replace(speaker_marker, speaker_name)
+            formatted_transcript_text = re.sub(r"\[(.+)\]", "#### \\1", transcript_text)
+        else:
+            # Always fall back to formatting speaker numbers if we can't map names
+            formatted_transcript_text = re.sub(r"\[speaker_(\d+)\]", "#### Speaker \\1", transcript_text)
+
+        return formatted_transcript_text
+
+    def _attempt_to_map_speaker_names(self, transcript: str, interviewee_emails: list[str]) -> dict[str, str] | None:
+        participant_emails_joined = "\n".join(f"- {email}" for email in interviewee_emails)
+        assignment_response = OpenAI(posthog_client=posthoganalytics).responses.create(
+            model="gpt-4.1-mini",
+            posthog_trace_id=self._ai_trace_id,
+            posthog_distinct_id=self.context["request"].user.distinct_id,
+            input=[
+                {
+                    "role": "system",
+                    "content": """
+Your task is to map speakers in a transcript to the actual names of the people who spoke. Each speaker is identified by a number.
+Use clues such as who the speaker is calling out (e.g. they wouldn't greet themselves) or what they're talking about (e.g. how they use company names).
+
+Your output should be a JSON mapping between "speaker_<n>" and "<speaker name>".
+
+<handling_ambiguity>
+- Use just the person's display name if available, otherwise use their email. If two people with the same full name are present, include their email to disambiguate.
+- Likely many of the participants have spoken, but not necessarily all of them.
+- Keep in mind it's possible there were additional unexpected participants (though not that likely).
+- The transcript is not going to be perfect, so some names in the transcript may be slightly mangled compared to display names in participant emails.
+  E.g. the transcript may contain that an interviewer greeted "Jon", but if the participant emails only have a "John", it's safe to assume that the interviewer was talking to John.
+- If most of the speakers are entirely obvious, but only a small subset isn't, mark the unidentified speakers' names as "Unknown #1 (<candidate_1> or <candidate_2>)" etc. Don't leave any speaker unmarked.
+  If however you cannot infer a reliable mapping for most speakers (the transcript has no useful information or is too chaotic), return simply: null.
+</handling_ambiguity>
+
+<example>
+As an example, for transcript:
+
+<participant_emails>
+- Michael F. Doe <michael@x.com>
+- Steve Jobs <steve@apple.com>
+</participant_emails>
+<transcript>
+[speaker_0]
+Hi Michael! How big is your company?
+
+[speaker_1]
+Hey! We're about 200 people.
+
+[speaker_0]
+That's great!
+</transcript>
+
+Your output should be:
+
+{
+"speaker_0": "Steve Jobs",
+"speaker_1": "Michael F. Doe"
+}
+</example>
+
+<output_format>
+Output must always be valid JSON - either an object or null.
+</output_format>
+""".strip(),
+                },
+                {
+                    "role": "user",
+                    "content": f"""
+Map the speakers in the following transcript:
+
+<participant_emails>
+{participant_emails_joined}
+</participant_emails>
+
+<transcript>
+{transcript}
+</transcript>
+""".strip(),
+                },
+            ],
+        )
+        try:
+            return json.loads(assignment_response.output_text)
+        except json.JSONDecodeError:
+            posthoganalytics.capture_exception()
+            return None
 
     def _summarize_transcript(self, transcript: str):
         summary_response = OpenAI(posthog_client=posthoganalytics).responses.create(
             model="gpt-4.1-mini",
+            posthog_trace_id=self._ai_trace_id,
+            posthog_distinct_id=self.context["request"].user.distinct_id,
             input=[
                 {
                     "role": "system",
@@ -111,6 +206,10 @@ Record the agreed-upon next steps, including any additional actions that need to
             ],
         )
         return summary_response.output_text
+
+    @cached_property
+    def _ai_trace_id(self):
+        return str(uuid4())
 
 
 class UserInterviewViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
