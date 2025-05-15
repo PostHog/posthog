@@ -17,6 +17,7 @@ pub fn setup_tracing() {
 
 pub struct ServerHandle {
     pub addr: SocketAddr,
+    pub shutdown: Arc<Notify>,
 }
 
 impl ServerHandle {
@@ -24,11 +25,13 @@ impl ServerHandle {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let notify = Arc::new(Notify::new());
+        let shutdown = notify.clone();
 
         tokio::spawn(async move {
             serve(config, listener, async move { notify.notified().await }).await
         });
-        Self { addr }
+
+        Self { addr, shutdown }
     }
 }
 
