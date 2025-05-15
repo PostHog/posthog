@@ -10,6 +10,8 @@ export function HomeContent(): JSX.Element {
     const [amount, setAmount] = useState<number>(20)
     const [timeRange, setTimeRange] = useState<string>('ALL')
     const [activeTab, setActiveTab] = useState<string>('your-bets')
+    const [showConfirmation, setShowConfirmation] = useState<boolean>(false)
+    const [betType, setBetType] = useState<string>('')
 
     const mockData = {
         dates: ['Jan 8', 'Jan 19', 'Jan 31', 'Feb 11', 'Feb 28', 'Mar 11', 'Mar 31', 'Apr 11', 'Apr 30', 'May 11'],
@@ -40,14 +42,20 @@ export function HomeContent(): JSX.Element {
                         <div className="mb-4">
                             <div className="text-sm text-muted mb-1">Current probability</div>
                             <div>
-                                <span className="text-2xl font-bold text-blue-500">39%</span>
+                                <span className="text-2xl font-bold">39%</span>
                                 <span className="text-sm text-success ml-2">↑ 20%</span>
                             </div>
                         </div>
                         <div className="mb-4">
                             <div className="text-sm text-muted mb-1">Time Remaining</div>
                             <div>
-                                <span className="text-2xl font-bold text-blue-500">12 hours </span>
+                                <span className="text-2xl font-bold">12 hours </span>
+                            </div>
+                        </div>
+                        <div className="mb-4">
+                            <div className="text-sm text-muted mb-1" />
+                            <div>
+                                <span className="text-2xl font-bold">12 hours </span>
                             </div>
                         </div>
                     </div>
@@ -97,51 +105,119 @@ export function HomeContent(): JSX.Element {
 
                     <div className="col-span-1 pl-2">
                         <div className="mt-4 space-y-4">
-                            <div className="space-y-2">
-                                <LemonButton fullWidth center type="primary">
-                                    Yes 39¢
-                                </LemonButton>
-                                <LemonButton fullWidth center type="primary">
-                                    No 62¢
-                                </LemonButton>
-                            </div>
+                            {!showConfirmation ? (
+                                <>
+                                    <div className="space-y-2">
+                                        <LemonButton
+                                            fullWidth
+                                            center
+                                            type="primary"
+                                            onClick={() => {
+                                                setBetType('Yes')
+                                                setShowConfirmation(true)
+                                            }}
+                                        >
+                                            Yes 39¢
+                                        </LemonButton>
+                                        <LemonButton
+                                            fullWidth
+                                            center
+                                            type="primary"
+                                            onClick={() => {
+                                                setBetType('No')
+                                                setShowConfirmation(true)
+                                            }}
+                                        >
+                                            No 62¢
+                                        </LemonButton>
+                                    </div>
 
-                            <div>
-                                <h3 className="font-semibold mb-2">Amount</h3>
-                                <div className="relative">
-                                    <LemonInput
-                                        className="text-2xl font-bold"
-                                        type="text"
-                                        prefix={<span className="text-muted">$</span>}
-                                        value={amount.toString()}
-                                        onChange={(value) => setAmount(Number(value) || 0)}
-                                    />
-                                </div>
-                            </div>
+                                    <div>
+                                        <h3 className="font-semibold mb-2">Amount</h3>
+                                        <div className="relative">
+                                            <LemonInput
+                                                className="text-2xl font-bold"
+                                                type="text"
+                                                prefix={<span className="text-muted">$</span>}
+                                                value={amount.toString()}
+                                                onChange={(value) => setAmount(Number(value) || 0)}
+                                            />
+                                        </div>
+                                    </div>
 
-                            <div className="flex justify-between">
-                                {['+$1', '+$20', '+$100'].map((amt) => (
-                                    <LemonButton
-                                        key={amt}
-                                        type="secondary"
-                                        className="text-center"
-                                        onClick={() => setAmount(Number(amount + Number(amt.replace('+$', ''))))}
-                                    >
-                                        {amt}
-                                    </LemonButton>
-                                ))}
-                            </div>
+                                    <div className="flex justify-between">
+                                        {['+$1', '+$20', '+$100'].map((amt) => (
+                                            <LemonButton
+                                                key={amt}
+                                                type="secondary"
+                                                className="text-center"
+                                                onClick={() =>
+                                                    setAmount(Number(amount + Number(amt.replace('+$', ''))))
+                                                }
+                                            >
+                                                {amt}
+                                            </LemonButton>
+                                        ))}
+                                    </div>
+                                </>
+                            ) : (
+                                <div className="bg-bg-light rounded p-4 border">
+                                    <h3 className="font-semibold text-lg mb-4">Confirm Your Bet</h3>
 
-                            <div>
-                                <div className="flex justify-between text-sm mb-1">
-                                    <span>To win</span>
-                                    <span className="text-green-500 font-bold">$87.18</span>
+                                    <div className="space-y-3 mb-6">
+                                        <div className="flex justify-between">
+                                            <span>Bet Type:</span>
+                                            <span
+                                                className={
+                                                    betType === 'Yes'
+                                                        ? 'text-success font-bold'
+                                                        : 'text-danger font-bold'
+                                                }
+                                            >
+                                                {betType}
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span>Amount:</span>
+                                            <span className="font-bold">${amount.toFixed(2)}</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span>Price:</span>
+                                            <span className="font-bold">{betType === 'Yes' ? '39¢' : '62¢'}</span>
+                                        </div>
+                                        <div className="flex justify-between border-t pt-2 mt-2">
+                                            <span className="font-semibold">Potential Payout:</span>
+                                            <span className="text-green-500 font-bold">
+                                                $
+                                                {betType === 'Yes'
+                                                    ? (amount / 0.39).toFixed(2)
+                                                    : (amount / 0.62).toFixed(2)}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex space-x-2">
+                                        <LemonButton
+                                            size="small"
+                                            type="secondary"
+                                            onClick={() => setShowConfirmation(false)}
+                                        >
+                                            Back
+                                        </LemonButton>
+                                        <LemonButton
+                                            size="small"
+                                            type="primary"
+                                            onClick={() => {
+                                                // Place bet logic here
+                                                // Then reset the form
+                                                setShowConfirmation(false)
+                                            }}
+                                        >
+                                            Confirm
+                                        </LemonButton>
+                                    </div>
                                 </div>
-                                <div className="flex justify-between text-xs text-muted">
-                                    <span>Avg. Price</span>
-                                    <span>39¢</span>
-                                </div>
-                            </div>
+                            )}
                         </div>
                     </div>
                 </div>
