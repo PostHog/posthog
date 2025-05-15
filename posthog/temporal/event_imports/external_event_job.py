@@ -17,7 +17,7 @@ from temporalio.common import RetryPolicy
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
-from posthog.products.managed_migrations.models import ManagedMigration
+from products.managed_migrations.backend.api.models import ManagedMigration
 
 
 @dataclasses.dataclass
