@@ -1,8 +1,12 @@
+import datetime as dt
+
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import CachedLogsQueryResponse, LogsQuery, LogsQueryResponse
 
 
@@ -30,7 +34,6 @@ class LogsQueryRunner(QueryRunner):
             workload=Workload.LOGS,
             timings=self.timings,
             limit_context=self.limit_context,
-            filters=[self.query.dateRange],
             # needed for CH cloud
             settings=HogQLGlobalSettings(allow_experimental_object_type=False),
         )
@@ -90,8 +93,27 @@ class LogsQueryRunner(QueryRunner):
             ast.Field(chain=["event_name"]),
         ]
 
+    def date_filter_expr(self) -> ast.Expr:
+        field_to_compare = ast.Field(chain=["logs", "timestamp"])
+        return ast.And(
+            exprs=[
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=field_to_compare,
+                    right=self.query_date_range.date_from_to_start_of_interval_hogql(),
+                ),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.LtEq,
+                    left=field_to_compare,
+                    right=self.query_date_range.date_to_as_hogql(),
+                ),
+            ]
+        )
+
     def where(self):
         exprs: list[ast.Expr] = []
+
+        exprs.append(self.date_filter_expr())
 
         if self.query.searchTerm is not None:
             exprs.append(
@@ -108,15 +130,6 @@ class LogsQueryRunner(QueryRunner):
                 )
             )
 
-        # if self.query.resource is not None:
-        #     exprs.append(
-        #         ast.CompareOperation(
-        #             op=ast.CompareOperationOp.Eq,
-        #             left=ast.Field(chain=["resource"]),
-        #             right=ast.Constant(value=self.query.resource),
-        #         )
-        #     )
-
         if len(self.query.severityLevels) > 0:
             exprs.append(
                 ast.CompareOperation(
@@ -126,9 +139,22 @@ class LogsQueryRunner(QueryRunner):
                 )
             )
 
+        # TODO
+        # for filter in self.query.attribute_filters:
+        #     exprs.append(property_to_expr(filter, self.team))
+
         if len(exprs) == 0:
             return ast.Constant(value=True)
         elif len(exprs) == 1:
             return exprs[0]
 
         return ast.And(exprs=exprs)
+
+    @cached_property
+    def query_date_range(self) -> QueryDateRange:
+        return QueryDateRange(
+            date_range=self.query.dateRange,
+            team=self.team,
+            interval=None,
+            now=dt.datetime.now(),
+        )
