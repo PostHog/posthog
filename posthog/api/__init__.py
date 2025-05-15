@@ -19,6 +19,7 @@ from posthog.warehouse.api import (
     query_tab_state,
     data_modeling_job,
 )
+from .churn_prediction import ChurnPredictionViewSet
 
 from ..heatmaps.heatmaps_api import HeatmapViewSet, LegacyHeatmapViewSet
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
@@ -674,5 +675,12 @@ environments_router.register(
     r"messaging_templates",
     MessageTemplatesViewSet,
     "environment_messaging_templates",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"churn_prediction",
+    ChurnPredictionViewSet,
+    "environment_churn_prediction",
     ["team_id"],
 )

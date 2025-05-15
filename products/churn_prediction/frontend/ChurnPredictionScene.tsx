@@ -1,6 +1,7 @@
 import { IconLeave, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonLabel, LemonTable } from '@posthog/lemon-ui'
 import { lemonToast } from '@posthog/lemon-ui'
+import api from 'lib/api'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { IconQueryEditor } from 'lib/lemon-ui/icons'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
@@ -44,13 +45,33 @@ export function ChurnPredictionScene(): JSX.Element {
 
     // Example records to show in the table for spot checking
     const [trainingDatasetPreview, setTrainingDatasetPreview] = useState<object[]>([])
-
+    const [trainingDatasetQuery, setTrainingDatasetQuery] = useState<string | undefined>(undefined)
     const [churnSignalDialogOpen, setChurnSignalDialogOpen] = useState<boolean>(false)
     const [customerBaseDialogOpen, setCustomerBaseDialogOpen] = useState<boolean>(false)
     const [churnInputDialogOpen, setChurnInputDialogOpen] = useState<boolean>(false)
     const [editingChurnSignal, setEditingChurnSignal] = useState<ChurnInput | undefined>(undefined)
     const [editingCustomerBase, setEditingCustomerBase] = useState<ChurnInput | undefined>(undefined)
     const [editingChurnInput, setEditingChurnInput] = useState<ChurnInput | undefined>(undefined)
+
+    const [trainingResults, setTrainingResults] = useState<
+        | {
+              metrics: {
+                  accuracy: number
+                  precision: number
+                  recall: number
+                  f1: number
+                  roc_auc: number
+                  classification_report: Record<string, any>
+              }
+              feature_importance: Record<string, number>
+              top_features: Array<{ Feature: string; Importance: number }>
+              class_distribution: Record<string, number>
+              categorical_features: string[]
+              total_features: number
+          }
+        | undefined
+    >(undefined)
+    const [trainingIsLoading, setTrainingIsLoading] = useState<boolean>(false)
 
     useEffect(() => {
         if (churnSignalQuery) {
@@ -103,11 +124,27 @@ export function ChurnPredictionScene(): JSX.Element {
 
         async function fetchTrainingDataset(query: string): Promise<void> {
             const response = await hogqlQuery(query, undefined, 'force_blocking')
+            setTrainingDatasetQuery(query)
             setTrainingDatasetPreview(response.results.slice(0, 10))
         }
 
         void fetchTrainingDataset(query)
     }, [churnSignalQuery, customerBaseQuery, churnInputQueries])
+
+    const trainModel = async (): Promise<void> => {
+        setTrainingIsLoading(true)
+
+        try {
+            const response = await api.create(`api/environments/1/churn_prediction/train_model/`, {
+                dataset_query: trainingDatasetQuery,
+            })
+            setTrainingResults(response)
+        } catch (error) {
+            lemonToast.error('Error training model: ' + (error as Error).message)
+        } finally {
+            setTrainingIsLoading(false)
+        }
+    }
 
     const hasChurnSignal = churnSignalQuery !== undefined
     const hasCustomerBase = customerBaseQuery !== undefined
@@ -362,8 +399,68 @@ export function ChurnPredictionScene(): JSX.Element {
                 </div>
             )}
 
+            {trainingResults && (
+                <div className="flex flex-col gap-4 w-full">
+                    <LemonLabel>Training results</LemonLabel>
+
+                    {/* Metrics */}
+                    <div className="border rounded p-4">
+                        <div className="font-semibold mb-2">Model Performance</div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <div className="text-muted">Accuracy</div>
+                                <div>{(trainingResults.metrics.accuracy * 100).toFixed(1)}%</div>
+                            </div>
+                            <div>
+                                <div className="text-muted">Precision</div>
+                                <div>{(trainingResults.metrics.precision * 100).toFixed(1)}%</div>
+                            </div>
+                            <div>
+                                <div className="text-muted">Recall</div>
+                                <div>{(trainingResults.metrics.recall * 100).toFixed(1)}%</div>
+                            </div>
+                            <div>
+                                <div className="text-muted">F1 Score</div>
+                                <div>{(trainingResults.metrics.f1 * 100).toFixed(1)}%</div>
+                            </div>
+                            <div>
+                                <div className="text-muted">ROC AUC</div>
+                                <div>{(trainingResults.metrics.roc_auc * 100).toFixed(1)}%</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Feature Importance */}
+                    <div className="border rounded p-4">
+                        <div className="font-semibold mb-2">Feature Importance</div>
+                        <LemonTable
+                            dataSource={trainingResults.top_features.map((feature) => ({
+                                ...feature,
+                                Feature: churnInputQueries[parseInt(feature.Feature)]?.name || feature.Feature,
+                            }))}
+                            columns={[
+                                {
+                                    title: 'Feature',
+                                    dataIndex: 'Feature',
+                                    key: 'Feature',
+                                },
+                                {
+                                    title: 'Importance',
+                                    dataIndex: 'Importance',
+                                    key: 'Importance',
+                                    render: (value: string | number | undefined) =>
+                                        typeof value === 'number' ? `${value.toFixed(2)}%` : '-',
+                                },
+                            ]}
+                        />
+                    </div>
+                </div>
+            )}
+
             <LemonButton
                 type="primary"
+                loading={trainingIsLoading}
+                onClick={() => void trainModel()}
                 disabledReason={
                     !hasChurnSignal || !hasCustomerBase || churnInputQueries.length === 0
                         ? 'Configure a churn signal, customer base and inputs above to train a churn model'
