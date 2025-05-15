@@ -6,39 +6,19 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { urls } from 'scenes/urls'
 
-import { ProductKey, UserBasicType } from '~/types'
+import { ProductKey } from '~/types'
 
-import { linksLogic } from './linksLogic'
+import { LinkType } from './linkConfigurationLogic'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { SceneExport } from 'scenes/sceneTypes'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import stringWithWBR from 'lib/utils/stringWithWBR'
-
-interface LinkType {
-    id: string
-    destination: string
-    created_at?: string
-    created_by?: UserBasicType
-    origin_domain?: string
-    origin_key?: string
-    custom_key?: string
-    tags?: string[] | string
-    description?: string
-    comments?: string
-    folder?: string
-    expiration_date?: string
-    password?: string
-    og_title?: string
-    og_description?: string
-    og_image?: string | File
-    utm_params?: Record<string, string>
-    targeting?: Record<string, any>
-}
+import { linksLogic } from './linksLogic'
 
 export function linksScene(): JSX.Element {
-    const { links, linksLoading } = useValues(linksLogic)
+    const { links, linksLoading } = useValues(linksLogic())
 
     const columns = [
         {
@@ -116,7 +96,7 @@ export function linksScene(): JSX.Element {
                     <LemonButton
                         type="primary"
                         icon={<IconPlus />}
-                        onClick={() => router.actions.push(urls.linkNew())}
+                        onClick={() => router.actions.push(urls.link('new'))}
                         sideAction={{
                             dropdown: {
                                 overlay: (
@@ -146,7 +126,7 @@ export function linksScene(): JSX.Element {
                     productName="Links"
                     thingName="link"
                     description="Start creating links for your marketing campaigns, referral programs, and more."
-                    action={() => router.actions.push(urls.linkNew())}
+                    action={() => router.actions.push(urls.link('new'))}
                     isEmpty={links.length === 0}
                     productKey={ProductKey.LINKS}
                 />
@@ -170,5 +150,5 @@ export function linksScene(): JSX.Element {
 
 export const scene: SceneExport = {
     component: linksScene,
-    logic: linksLogic,
+    // logic: linksLogic,
 }

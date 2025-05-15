@@ -446,9 +446,8 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: true,
         name: 'Links',
     },
-    [Scene.LinkNew]: {
+    [Scene.Link]: {
         projectBased: true,
-        name: 'New Link',
     },
     [Scene.SessionAttributionExplorer]: {
         projectBased: true,
@@ -676,7 +675,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.moveToPostHogCloud()]: [Scene.MoveToPostHogCloud, 'moveToPostHogCloud'],
     [urls.heatmaps()]: [Scene.Heatmaps, 'heatmaps'],
     [urls.links()]: [Scene.Links, 'links'],
-    [urls.linkNew()]: [Scene.LinkNew, 'linkNew'],
+    [urls.link(':id')]: [Scene.Link, 'link'],
     [urls.sessionAttributionExplorer()]: [Scene.SessionAttributionExplorer, 'sessionAttributionExplorer'],
     [urls.wizard()]: [Scene.Wizard, 'wizard'],
     [urls.startups()]: [Scene.StartupProgram, 'startupProgram'],

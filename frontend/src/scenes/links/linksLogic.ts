@@ -2,16 +2,14 @@ import { afterMount, kea, path } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
-import { forms } from 'kea-forms'
+import type { linkConfigurationLogicType } from './linksLogicType'
+import { LinkType } from './linkConfigurationLogic'
 
-import type { linksLogicType } from './linksLogicType'
-
-export const linksLogic = kea<linksLogicType>([
-    path(['scenes', 'links', 'linksLogic']),
-
+export const linksLogic = kea<linkConfigurationLogicType>([
+    path(() => ['scenes', 'links', 'linksLogic']),
     loaders(() => ({
         links: [
-            [],
+            [] as LinkType[],
             {
                 loadLinks: async () => {
                     const response = await api.get('api/links')
@@ -19,40 +17,6 @@ export const linksLogic = kea<linksLogicType>([
                 },
             },
         ],
-    })),
-
-    forms(({ actions }) => ({
-        link: {
-            defaults: {
-                id: '',
-                origin_domain: 'phog.gg',
-                origin_key: '',
-                destination: '',
-                description: '',
-                tags: '',
-                comments: '',
-            },
-
-            errors: ({ destination }) => ({
-                destination: !destination ? 'Must have a destination url' : undefined,
-            }),
-
-            submit: async ({ id, ...link }, breakpoint) => {
-                const updatedLink = id
-                    ? await api.update(`api/links/${id}`, link)
-                    : await api.create(`api/links`, link)
-                breakpoint()
-
-                actions.resetLink(updatedLink)
-
-                console.log('link saved')
-            },
-
-            options: {
-                showErrorsOnTouch: true,
-                alwaysShowErrors: false,
-            },
-        },
     })),
 
     afterMount(({ actions }) => {

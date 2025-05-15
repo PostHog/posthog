@@ -8,20 +8,28 @@ import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import { linksLogic } from './linksLogic'
+import { linkConfigurationLogic } from './linkConfigurationLogic'
 import { QRCodeSVG } from 'qrcode.react'
 import { Form } from 'kea-forms'
 
-export function LinkScene(): JSX.Element {
-    const { link } = useValues(linksLogic)
-    const { submitLink } = useActions(linksLogic)
+export function LinkScene({ id }: { id?: string } = {}): JSX.Element {
+    const logic = linkConfigurationLogic({ id: id ?? 'new' })
+    const { link, isLinkSubmitting } = useValues(logic)
+    const { submitLink } = useActions(logic)
+
+    const isNew = id === 'new'
+    const buttonText = isNew ? 'Create link' : 'Update link'
+
+    const fullLink = link?.id ? 
+        `${window.location.protocol}//${link.origin_domain}/${link.origin_key}` : 
+        "https://phog.gg/"
 
     return (
         <Form
             id="link"
             formKey="link"
-            logic={linksLogic}
-            props={{ link }}
+            logic={linkConfigurationLogic}
+            props={{ id: id ?? 'new' }}
             className="deprecated-space-y-4"
             enableFormOnSubmit
         >
@@ -31,8 +39,9 @@ export function LinkScene(): JSX.Element {
                     <LemonButton
                         type="primary"
                         onClick={submitLink}
+                        loading={isLinkSubmitting}
                     >
-                        Create link
+                        {buttonText}
                     </LemonButton>
                 }
             />
@@ -120,7 +129,7 @@ export function LinkScene(): JSX.Element {
                                 <div className="text-center">
                                     <QRCodeSVG 
                                         size={128} 
-                                        value="https://reactjs.org/"
+                                        value={fullLink}
                                         imageSettings={{
                                             src: '/static/posthog-icon.svg',
                                             height: 40,
@@ -140,5 +149,6 @@ export function LinkScene(): JSX.Element {
 
 export const scene: SceneExport = {
     component: LinkScene,
-    logic: linksLogic,
+    logic: linkConfigurationLogic,
+    paramsToProps: ({ params }): (typeof linkConfigurationLogic)['props'] => ({ id: params.id })
 }
