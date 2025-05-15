@@ -33,6 +33,11 @@ export function ChurnPredictionScene(): JSX.Element {
             ? JSON.parse(localStorage.getItem('churn_signal_query') || '')
             : undefined
     )
+    const [customerBaseQuery, setCustomerBaseQuery] = useState<ChurnInput | undefined>(
+        localStorage.getItem('customer_base_query')
+            ? JSON.parse(localStorage.getItem('customer_base_query') || '')
+            : undefined
+    )
     const [churnInputQueries, setChurnInputQueries] = useState<ChurnInput[]>(
         localStorage.getItem('churn_input_queries') ? JSON.parse(localStorage.getItem('churn_input_queries') || '') : []
     )
@@ -41,23 +46,31 @@ export function ChurnPredictionScene(): JSX.Element {
     const [trainingDatasetPreview, setTrainingDatasetPreview] = useState<object[]>([])
 
     const [churnSignalDialogOpen, setChurnSignalDialogOpen] = useState<boolean>(false)
+    const [customerBaseDialogOpen, setCustomerBaseDialogOpen] = useState<boolean>(false)
     const [churnInputDialogOpen, setChurnInputDialogOpen] = useState<boolean>(false)
     const [editingChurnSignal, setEditingChurnSignal] = useState<ChurnInput | undefined>(undefined)
+    const [editingCustomerBase, setEditingCustomerBase] = useState<ChurnInput | undefined>(undefined)
     const [editingChurnInput, setEditingChurnInput] = useState<ChurnInput | undefined>(undefined)
 
     useEffect(() => {
         if (churnSignalQuery) {
             localStorage.setItem('churn_signal_query', JSON.stringify(churnSignalQuery))
         }
+        if (customerBaseQuery) {
+            localStorage.setItem('customer_base_query', JSON.stringify(customerBaseQuery))
+        }
         if (churnInputQueries.length) {
             localStorage.setItem('churn_input_queries', JSON.stringify(churnInputQueries))
         }
 
-        if (!churnSignalQuery || !churnInputQueries.length) {
+        if (!churnSignalQuery || !customerBaseQuery || !churnInputQueries.length) {
             return
         }
 
         const query = `
+            WITH ${customerBaseQuery.id} as (
+                ${customerBaseQuery.query}
+            ),
             ${churnSignalQuery.id} as (
                 ${churnSignalQuery.query}
             ),
@@ -70,39 +83,54 @@ export function ChurnPredictionScene(): JSX.Element {
                 .join(', ')}
                 
             SELECT 
-                ${churnInputQueries.map((input) => `${input.id}.*`).join(', ')},
-                ${churnSignalQuery.id}.*
+                ${customerBaseQuery.id}.distinct_id as ID,
+                ${churnInputQueries
+                    .map((input) => `${input.id}.value as ${input.name.replaceAll(' ', '_')}`)
+                    .join(', ')},
+                ${churnSignalQuery.id}.value as churned
             FROM
-                ${churnSignalQuery.id}
+                ${customerBaseQuery.id}
+            LEFT JOIN ${churnSignalQuery.id} ON ${customerBaseQuery.id}.${customerBaseQuery.joinKey} = ${
+            churnSignalQuery.id
+        }.${churnSignalQuery.joinKey}
             ${churnInputQueries
                 .map(
                     (input) =>
-                        `LEFT JOIN ${input.id} ON ${churnSignalQuery.id}.${churnSignalQuery.joinKey} = ${input.id}.${input.joinKey}`
+                        `LEFT JOIN ${input.id} ON ${customerBaseQuery.id}.${customerBaseQuery.joinKey} = ${input.id}.${input.joinKey}`
                 )
                 .join(' ')}
         `
 
-        console.log(query)
-
         async function fetchTrainingDataset(query: string): Promise<void> {
             const response = await hogqlQuery(query, undefined, 'force_blocking')
-            setTrainingDatasetPreview(response.results.slice(0, 5))
+            setTrainingDatasetPreview(response.results.slice(0, 10))
         }
 
         void fetchTrainingDataset(query)
-    }, [churnSignalQuery, churnInputQueries])
+    }, [churnSignalQuery, customerBaseQuery, churnInputQueries])
 
     const hasChurnSignal = churnSignalQuery !== undefined
+    const hasCustomerBase = customerBaseQuery !== undefined
 
-    const queryDialog = (churnSignalDialogOpen || churnInputDialogOpen) && (
+    const queryDialog = (churnSignalDialogOpen || customerBaseDialogOpen || churnInputDialogOpen) && (
         <QueryDialog
-            input={churnSignalDialogOpen ? editingChurnSignal : editingChurnInput}
-            type={churnSignalDialogOpen ? 'churn_signal' : 'churn_input'}
+            input={
+                churnSignalDialogOpen
+                    ? editingChurnSignal
+                    : customerBaseDialogOpen
+                    ? editingCustomerBase
+                    : editingChurnInput
+            }
+            type={churnSignalDialogOpen ? 'churn_signal' : customerBaseDialogOpen ? 'customer_base' : 'churn_input'}
             onSubmit={(input) => {
                 if (churnSignalDialogOpen) {
                     input && setChurnSignalQuery(input)
                     setChurnSignalDialogOpen(false)
                     setEditingChurnSignal(undefined)
+                } else if (customerBaseDialogOpen) {
+                    input && setCustomerBaseQuery(input)
+                    setCustomerBaseDialogOpen(false)
+                    setEditingCustomerBase(undefined)
                 } else if (editingChurnInput) {
                     input &&
                         setChurnInputQueries(churnInputQueries.map((i) => (i.id === editingChurnInput.id ? input : i)))
@@ -116,7 +144,7 @@ export function ChurnPredictionScene(): JSX.Element {
         />
     )
 
-    if (!hasChurnSignal && !churnInputQueries.length) {
+    if (!hasChurnSignal && !hasCustomerBase && !churnInputQueries.length) {
         return (
             <>
                 {queryDialog}
@@ -129,6 +157,16 @@ export function ChurnPredictionScene(): JSX.Element {
                     titleOverride="Set up churn analysis"
                     actionElementOverride={
                         <div className="flex flex-col gap-2">
+                            <LemonButton
+                                type="primary"
+                                icon={<IconPlus />}
+                                onClick={() => {
+                                    setCustomerBaseDialogOpen(true)
+                                }}
+                                data-attr="create-customer-base"
+                            >
+                                Set up customer base
+                            </LemonButton>
                             <LemonButton
                                 type="primary"
                                 icon={<IconPlus />}
@@ -149,6 +187,57 @@ export function ChurnPredictionScene(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4 items-start">
+            <div className="flex flex-col gap-2 w-full mb-8">
+                <div className="flex justify-between items-center">
+                    <LemonLabel>Customer base</LemonLabel>
+                    {!hasCustomerBase && (
+                        <LemonButton
+                            type="primary"
+                            onClick={() => {
+                                setCustomerBaseDialogOpen(true)
+                            }}
+                            icon={<IconPlus />}
+                        >
+                            Add customer base
+                        </LemonButton>
+                    )}
+                </div>
+
+                {customerBaseQuery ? (
+                    <div className="border rounded p-4 w-full">
+                        <div className="flex justify-between items-center">
+                            <div className="flex flex-col gap-1">
+                                <div className="font-semibold">{customerBaseQuery.name}</div>
+                                <div className="text-muted">Join key: {customerBaseQuery.joinKey}</div>
+                            </div>
+                            <div className="flex">
+                                <LemonButton
+                                    icon={<IconQueryEditor />}
+                                    onClick={() => {
+                                        setEditingCustomerBase(customerBaseQuery)
+                                        setCustomerBaseDialogOpen(true)
+                                    }}
+                                    data-attr="edit-customer-base"
+                                >
+                                    Edit
+                                </LemonButton>
+                                <LemonButton
+                                    icon={<IconTrash />}
+                                    onClick={() => {
+                                        setCustomerBaseQuery(undefined)
+                                    }}
+                                    data-attr="delete-customer-base"
+                                >
+                                    Remove
+                                </LemonButton>
+                            </div>
+                        </div>
+                    </div>
+                ) : (
+                    <div className="text-muted">No customer base set</div>
+                )}
+            </div>
+
             <div className="flex flex-col gap-2 w-full mb-8">
                 <div className="flex justify-between items-center">
                     <LemonLabel>Churn signal</LemonLabel>
@@ -245,32 +334,39 @@ export function ChurnPredictionScene(): JSX.Element {
                 </div>
             ))}
 
-            <LemonLabel>Churn model data</LemonLabel>
+            <LemonLabel className="mt-8">Churn model training data preview</LemonLabel>
             {churnInputQueries.length > 0 ? (
                 <LemonTable<Record<string, any>>
                     columns={[
                         {
-                            title: 'Churn',
-                            dataIndex: 'churn',
-                            key: 'churn',
+                            title: 'ID',
+                            dataIndex: '0',
+                            key: '0',
                         },
-                        ...churnInputQueries.map((input) => ({
+                        ...churnInputQueries.map((input, idx) => ({
                             title: input.name,
-                            dataIndex: input.name,
-                            key: input.id,
+                            dataIndex: `${idx + 1}`,
+                            key: `${idx + 1}`,
                         })),
+                        {
+                            title: 'Churn',
+                            dataIndex: `${churnInputQueries.length + 1}`,
+                            key: `${churnInputQueries.length + 1}`,
+                        },
                     ]}
                     dataSource={trainingDatasetPreview}
                 />
             ) : (
-                <div className="text-muted">Configure a churn signal and inputs above to see model data</div>
+                <div className="text-muted">
+                    Configure a churn signal, customer base and inputs above to see model data
+                </div>
             )}
 
             <LemonButton
                 type="primary"
                 disabledReason={
-                    !hasChurnSignal || churnInputQueries.length === 0
-                        ? 'Configure a churn signal and inputs above to train a churn model'
+                    !hasChurnSignal || !hasCustomerBase || churnInputQueries.length === 0
+                        ? 'Configure a churn signal, customer base and inputs above to train a churn model'
                         : undefined
                 }
             >
@@ -298,7 +394,7 @@ function QueryDialog({
 }: {
     input?: ChurnInput
     onSubmit: (input?: ChurnInput) => void
-    type: 'churn_signal' | 'churn_input'
+    type: 'churn_signal' | 'churn_input' | 'customer_base'
 }): JSX.Element {
     const [id] = useState<string>(input?.id || createRandomString(10))
     const [name, setName] = useState<string>(input?.name || '')
@@ -307,11 +403,19 @@ function QueryDialog({
 
     return (
         <LemonDialog
-            title={type === 'churn_signal' ? 'Add churn signal' : 'Add churn input'}
+            title={
+                type === 'churn_signal'
+                    ? 'Add churn signal'
+                    : type === 'customer_base'
+                    ? 'Add customer base'
+                    : 'Add churn input'
+            }
             width={750}
             description={
                 type === 'churn_signal'
                     ? 'A churn signal is a query that returns a single boolean value for each customer. This value should represent whether or not the customer is churning.'
+                    : type === 'customer_base'
+                    ? 'A customer base is a query that returns a list of customers to analyze. Filter out users that should not be analyzed. This defines the population of customers to predict churn for.'
                     : 'A churn input is a query that returns a single value for each customer. This value will be used to predict churn.'
             }
             content={
@@ -344,6 +448,8 @@ function QueryDialog({
                         <span className="text-sm text-muted">
                             {type === 'churn_signal'
                                 ? 'Write a Data warehouse query to return a boolean value for each customer representing whether the customer has churned. Make sure to return the distinct ID or group ID in the query.'
+                                : type === 'customer_base'
+                                ? 'Write a Data warehouse query to return a list of customers to analyze. Make sure to return the distinct ID or group ID in the query.'
                                 : 'Write a Data warehouse query to return a single value for each customer. Make sure to return the distinct ID or group ID in the query.'}
                         </span>
                     </div>
@@ -393,7 +499,7 @@ function QueryResultsTable({ query }: { query: string }): JSX.Element | null {
                     setResults([])
                     setColumns([])
                 } else if (response.results && response.results.length > 0) {
-                    setResults(response.results.slice(0, 5))
+                    setResults(response.results.slice(0, 10))
                     setColumns(
                         (response.columns || []).map((column, idx) => ({
                             title: column,
@@ -426,13 +532,7 @@ function QueryResultsTable({ query }: { query: string }): JSX.Element | null {
         <div className="flex flex-col gap-2">
             <LemonLabel>Preview results</LemonLabel>
             {results.length > 0 ? (
-                <LemonTable
-                    dataSource={results}
-                    columns={columns}
-                    loading={loading}
-                    emptyState="No results found"
-                    pagination={{ pageSize: 5 }}
-                />
+                <LemonTable dataSource={results} columns={columns} loading={loading} emptyState="No results found" />
             ) : (
                 <div className="text-muted">No results found</div>
             )}
