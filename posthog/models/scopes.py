@@ -40,7 +40,7 @@ APIScopeObject = Literal[
     "survey",
     "user",
     "webhook",
-    "logs",
+    "logs",  # logs product
 ]
 
 APIScopeActions = Literal[

@@ -681,9 +681,4 @@ environments_router.register(
 )
 
 # Logs endpoints
-environments_router.register(
-    r"logs",
-    logs.LogsViewSet,
-    "environment_logs",
-    ["team_id"],
-)
+register_grandfathered_environment_nested_viewset(r"logs", logs.LogsViewSet, "environment_logs", ["team_id"])
