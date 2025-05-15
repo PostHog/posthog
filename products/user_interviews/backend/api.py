@@ -213,7 +213,7 @@ Record the agreed-upon next steps, including any additional actions that need to
 
 
 class UserInterviewViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    scope_object = "INTERNAL"
+    scope_object = "user_interview_DO_NOT_USE"
     queryset = UserInterview.objects.order_by("-created_at").select_related("created_by").all()
     serializer_class = UserInterviewSerializer
     parser_classes = [MultiPartParser, JSONParser]
