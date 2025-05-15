@@ -67,7 +67,7 @@ class BetDefinition(UUIDModel, CreatedMetaFields):
 
     def save(self, *args, **kwargs):
         """Override save method to create initial probability distribution when a new bet definition is created."""
-        is_new = self.pk is None
+        is_new = self._state.adding
 
         # Let the model save first so we have an ID to work with
         super().save(*args, **kwargs)

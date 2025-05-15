@@ -91,7 +91,7 @@ def load_pageview_probability_distribution(
 
         if not results:
             logger.warning(f"No pageview data found for bet definition {bet_definition.id}")
-            return []
+            return None
 
         # Process results into time series data
         intervals = []
@@ -101,10 +101,16 @@ def load_pageview_probability_distribution(
             # Convert interval to hours since start for regression
             if isinstance(interval_start, str):
                 interval_dt = datetime.strptime(interval_start, "%Y-%m-%d %H:%M:%S")
+                # Make interval_dt timezone-aware using UTC
+                interval_dt = interval_dt.replace(tzinfo=timezone.utc)
             else:
                 interval_dt = interval_start
 
-            hours_since_start = (interval_dt - start_date.replace(tzinfo=None)).total_seconds() / 3600
+            # Make start_date timezone-aware if it isn't already
+            if start_date.tzinfo is None:
+                start_date = start_date.replace(tzinfo=timezone.utc)
+
+            hours_since_start = (interval_dt - start_date).total_seconds() / 3600
             intervals.append(hours_since_start)
             interval_counts.append(count)
 
@@ -124,7 +130,7 @@ def load_pageview_probability_distribution(
 
     except Exception as e:
         logger.exception(f"Error loading pageview data for bet definition {bet_definition.id}: {e}")
-        return []
+        return None
 
 
 def predict_future_values(intervals: list[float], values: list[int], prediction_intervals: int = 24) -> list[int]:
@@ -304,7 +310,7 @@ def create_distribution_buckets_from_definition(
 def create_probability_distribution(bet_definition: BetDefinition) -> Optional[ProbabilityDistribution]:
     """
     Create a probability distribution for a bet definition based on its type.
-    Always generates bucket definitions based on actual data distribution.
+    Uses linear regression to predict the final value at the closing date.
 
     Args:
         bet_definition: The bet definition to create a probability distribution for
@@ -322,60 +328,122 @@ def create_probability_distribution(bet_definition: BetDefinition) -> Optional[P
             f"Bet type '{bet_definition.type}' is not supported. Supported types: {', '.join(supported_types)}"
         )
 
-    # First get historical data to base the buckets on
+    # First get historical data to base the prediction on
     if bet_definition.type == BetDefinition.BetType.PAGEVIEWS:
-        # Query raw data to generate buckets
+        # Query raw data to get historical trend
         team_id = bet_definition.team_id
         bet_params = bet_definition.bet_parameters
         url_pattern = bet_params.get("url", None)
 
-        # Simple query to get recent pageview counts
+        # Query to get historical pageview counts by interval
         query = """
             SELECT
-                toDate(timestamp) AS date,
+                toStartOfInterval(timestamp, INTERVAL %(interval_seconds)s SECOND) AS interval_start,
                 count() AS pageview_count
             FROM events
             WHERE team_id = %(team_id)s
                 AND event = '$pageview'
                 AND timestamp >= %(start_date)s
+                AND timestamp < %(end_date)s
         """
 
         if url_pattern:
             query += " AND properties.$current_url LIKE %(url_pattern)s"
 
-        query += " GROUP BY date ORDER BY date"
+        query += " GROUP BY interval_start ORDER BY interval_start"
 
-        # Look back 30 days
+        # Look back 7 days for historical data
         end_date = timezone.now()
-        start_date = end_date - timedelta(days=30)
+        start_date = end_date - timedelta(days=7)
 
         params = {
             "team_id": team_id,
-            "start_date": start_date.strftime("%Y-%m-%d"),
+            "start_date": start_date.strftime("%Y-%m-%d %H:%M:%S"),
+            "end_date": end_date.strftime("%Y-%m-%d %H:%M:%S"),
+            "interval_seconds": bet_definition.probability_distribution_interval,
             **({"url_pattern": f"%{url_pattern}%"} if url_pattern else {}),
         }
 
         try:
             results = sync_execute(query, params, workload=Workload.ONLINE, team_id=team_id)
-            daily_counts = [count for _, count in results]
-
-            # Only generate and save bucket definitions if they don't already exist
-            # This ensures we maintain consistent buckets across refreshes
-            if not bet_definition.bucket_definitions:
-                # Generate bucket definitions based on the data distribution
-                # Use 5 buckets as requested
-                bucket_definitions = generate_bucket_definitions(daily_counts, num_buckets=5)
-
-                # Save the bucket definitions to the bet definition
-                bet_definition.bucket_definitions = bucket_definitions
-                bet_definition.save(update_fields=["bucket_definitions"])
-
-            # Now create the probability distribution using these bucket definitions
-            distribution_data = load_pageview_probability_distribution(bet_definition)
-
-            if not distribution_data:
-                logger.warning(f"Failed to create probability distribution for bet definition {bet_definition.id}")
+            if not results:
+                logger.warning(f"No pageview data found for bet definition {bet_definition.id}")
                 return None
+
+            # Process results into time series data
+            intervals = []
+            interval_counts = []
+
+            for interval_start, count in results:
+                # Convert interval to hours since start for regression
+                if isinstance(interval_start, str):
+                    interval_dt = datetime.strptime(interval_start, "%Y-%m-%d %H:%M:%S")
+                    # Make interval_dt timezone-aware using UTC
+                    interval_dt = interval_dt.replace(tzinfo=timezone.utc)
+                else:
+                    interval_dt = interval_start
+
+                # Make start_date timezone-aware if it isn't already
+                if start_date.tzinfo is None:
+                    start_date = start_date.replace(tzinfo=timezone.utc)
+
+                hours_since_start = (interval_dt - start_date).total_seconds() / 3600
+                intervals.append(hours_since_start)
+                interval_counts.append(count)
+
+            # Calculate how many intervals to predict until the closing date
+            hours_until_closing = max(0, (bet_definition.closing_date - end_date).total_seconds() / 3600)
+
+            # Use linear regression to predict the final value
+            predicted_value = predict_final_value(intervals, interval_counts, hours_until_closing)
+
+            # Create probability distribution buckets around the predicted value
+            # Use standard deviation of historical data to determine bucket ranges
+            std_dev = calculate_standard_deviation(interval_counts)
+
+            # Create 5 buckets centered around the predicted value
+            # Use a large number instead of infinity for JSON compatibility
+            MAX_VALUE = 1000000
+            bucket_definitions = [
+                {"min": 0, "max": predicted_value - 2 * std_dev},  # Low probability of being below trend
+                {"min": predicted_value - 2 * std_dev, "max": predicted_value - std_dev},  # Below trend
+                {"min": predicted_value - std_dev, "max": predicted_value + std_dev},  # Around trend
+                {"min": predicted_value + std_dev, "max": predicted_value + 2 * std_dev},  # Above trend
+                {"min": predicted_value + 2 * std_dev, "max": MAX_VALUE},  # High probability of being above trend
+            ]
+
+            # Save bucket definitions to bet definition
+            bet_definition.bucket_definitions = bucket_definitions
+            bet_definition.save(update_fields=["bucket_definitions"])
+
+            # Create distribution data with probabilities
+            distribution_data = [
+                {
+                    "value": bucket_definitions[0]["min"]
+                    + (bucket_definitions[0]["max"] - bucket_definitions[0]["min"]) / 2,
+                    "probability": 0.05,
+                },  # Low probability
+                {
+                    "value": bucket_definitions[1]["min"]
+                    + (bucket_definitions[1]["max"] - bucket_definitions[1]["min"]) / 2,
+                    "probability": 0.15,
+                },  # Below trend
+                {
+                    "value": bucket_definitions[2]["min"]
+                    + (bucket_definitions[2]["max"] - bucket_definitions[2]["min"]) / 2,
+                    "probability": 0.60,
+                },  # Around trend
+                {
+                    "value": bucket_definitions[3]["min"]
+                    + (bucket_definitions[3]["max"] - bucket_definitions[3]["min"]) / 2,
+                    "probability": 0.15,
+                },  # Above trend
+                {
+                    "value": bucket_definitions[4]["min"]
+                    + (bucket_definitions[4]["max"] - bucket_definitions[4]["min"]) / 2,
+                    "probability": 0.05,
+                },  # High probability
+            ]
 
             # Create and save the probability distribution
             probability_distribution = ProbabilityDistribution.objects.create(
@@ -384,29 +452,67 @@ def create_probability_distribution(bet_definition: BetDefinition) -> Optional[P
             return probability_distribution
 
         except Exception as e:
-            logger.exception(f"Error generating bucket definitions for bet definition {bet_definition.id}: {e}")
-            # Use default bucket definitions if we couldn't get data
-            bucket_definitions = generate_bucket_definitions([], num_buckets=5)
-            bet_definition.bucket_definitions = bucket_definitions
-            bet_definition.save(update_fields=["bucket_definitions"])
-
-    # Handle other bet types here as they are supported
-
-    # If we get here, either we have a non-pageview bet type or there was an error
-    # Try to create a distribution anyway
-    try:
-        if bet_definition.type == BetDefinition.BetType.PAGEVIEWS:
-            distribution_data = load_pageview_probability_distribution(bet_definition)
-
-            if distribution_data:
-                probability_distribution = ProbabilityDistribution.objects.create(
-                    bet_definition=bet_definition, distribution_data=distribution_data
-                )
-                return probability_distribution
-    except Exception as e:
-        logger.exception(f"Error saving probability distribution for bet definition {bet_definition.id}: {e}")
+            logger.exception(f"Error creating probability distribution for bet definition {bet_definition.id}: {e}")
+            return None
 
     return None
+
+
+def predict_final_value(intervals: list[float], values: list[int], hours_until_closing: float) -> float:
+    """
+    Use linear regression to predict the final value at the closing date.
+
+    Args:
+        intervals: List of time intervals (as floats, e.g., hours since start)
+        values: List of historical values corresponding to intervals
+        hours_until_closing: Number of hours until the closing date
+
+    Returns:
+        Predicted value at the closing date
+    """
+    if not intervals or not values or len(intervals) < 2:
+        return values[-1] if values else 0  # Not enough data for regression
+
+    # Simple linear regression to find slope and intercept
+    n = len(intervals)
+    sum_x = sum(intervals)
+    sum_y = sum(values)
+    sum_xy = sum(x * y for x, y in zip(intervals, values))
+    sum_xx = sum(x * x for x in intervals)
+
+    # Calculate slope and intercept
+    denominator = n * sum_xx - sum_x * sum_x
+    if denominator == 0:  # Avoid division by zero
+        slope = 0
+    else:
+        slope = (n * sum_xy - sum_x * sum_y) / denominator
+
+    intercept = (sum_y - slope * sum_x) / n if n > 0 else 0
+
+    # Predict the final value
+    final_interval = max(intervals) + hours_until_closing
+    predicted_value = max(0, slope * final_interval + intercept)
+
+    return predicted_value
+
+
+def calculate_standard_deviation(values: list[int]) -> float:
+    """
+    Calculate the standard deviation of a list of values.
+
+    Args:
+        values: List of values to calculate standard deviation for
+
+    Returns:
+        Standard deviation of the values
+    """
+    if not values or len(values) < 2:
+        return 1.0  # Default to 1 if not enough data
+
+    mean = sum(values) / len(values)
+    squared_diff_sum = sum((x - mean) ** 2 for x in values)
+    variance = squared_diff_sum / (len(values) - 1)
+    return variance**0.5
 
 
 def refresh_probability_distribution(bet_definition_id: str) -> Optional[ProbabilityDistribution]:
