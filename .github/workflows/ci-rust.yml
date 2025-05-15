@@ -167,7 +167,7 @@ jobs:
               if: needs.changes.outputs.rust == 'true'
               run: |
                   echo "Starting cargo test"
-                  RUST_BACKTRACE=1 cargo test --all-features ${{ matrix.package == 'feature-flags' && ('--package feature-flags') || '--workspace --exclude feature-flags,links' }}
+                  RUST_BACKTRACE=1 cargo test --all-features ${{ matrix.package == 'feature-flags' && ('--package feature-flags') || '--workspace --exclude feature-flags --exclude links' }}
                   echo "Cargo test completed"
 
             - name: Run cargo test for links
