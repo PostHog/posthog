@@ -197,7 +197,7 @@ jobs:
                               sha: '${{ needs.build.outputs.hook-migrator_digest }}'
                     - release: log-capture
                       values:
-                          image::
+                          image:
                               sha: '${{ needs.build.outputs.log-capture_digest }}'
         steps:
             - name: get deployer token
