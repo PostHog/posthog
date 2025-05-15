@@ -49,13 +49,7 @@ export function HomeContent(): JSX.Element {
                         <div className="mb-4">
                             <div className="text-sm text-muted mb-1">Time Remaining</div>
                             <div>
-                                <span className="text-2xl font-bold">12 hours </span>
-                            </div>
-                        </div>
-                        <div className="mb-4">
-                            <div className="text-sm text-muted mb-1" />
-                            <div>
-                                <span className="text-2xl font-bold">12 hours </span>
+                                <span className="text-2xl font-bold">12 hours</span>
                             </div>
                         </div>
                     </div>
