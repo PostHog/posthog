@@ -143,12 +143,7 @@ export const VideoStreamPlayer: React.FC<VideoStreamPlayerProps> = ({ videoUrl, 
             ) : videoError ? (
                 <div className="text-red-500 text-center my-16">{videoError}</div>
             ) : (
-                <video
-                    ref={videoRef}
-                    controls
-                    onError={handleVideoError}
-                    className="rounded shadow w-full max-w-[600px] max-h-[340px]"
-                />
+                <video ref={videoRef} controls onError={handleVideoError} className="rounded shadow w-full" />
             )}
         </div>
     )

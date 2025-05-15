@@ -6,7 +6,6 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { LemonEventName } from 'scenes/actions/EventName'
 
 import { EventCopyLinkButton } from '~/queries/nodes/DataTable/EventRowActions'
 import type { LiveEvent } from '~/types'
@@ -48,19 +47,13 @@ const columns: LemonTableColumns<LiveEvent> = [
 ]
 
 export function LiveEventsTable(): JSX.Element {
-    const { events, streamPaused, filters } = useValues(liveEventsTableLogic)
-    const { pauseStream, resumeStream, setFilters } = useActions(liveEventsTableLogic)
+    const { events, streamPaused } = useValues(liveEventsTableLogic)
+    const { pauseStream, resumeStream } = useActions(liveEventsTableLogic)
 
     return (
         <div data-attr="manage-events-table">
             <div className="mb-4 flex w-full justify-between items-center">
                 <div className="flex gap-2">
-                    <LemonEventName
-                        value={filters.eventType}
-                        onChange={(value) => setFilters({ ...filters, eventType: value })}
-                        placeholder="Filter by event"
-                        allEventsOption="clear"
-                    />
                     <LemonButton
                         icon={
                             streamPaused ? (

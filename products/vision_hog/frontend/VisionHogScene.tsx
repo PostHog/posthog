@@ -28,10 +28,10 @@ export function VisionHogScene(): JSX.Element {
                         key: 'video',
                         label: 'Video',
                         content: (
-                            <div className="flex flex-row w-full max-w-5xl mx-auto gap-8">
+                            <div className="flex flex-row w-full mx-auto gap-8">
                                 {/* Left: Video */}
-                                <div className="flex-1 w-[640px]">
-                                    <div className="w-full flex flex-col items-center border rounded bg-gray-50 p-4 min-h-[640px]">
+                                <div className="flex-1 w-[800px]">
+                                    <div className="w-full flex flex-col justify-center items-center min-h-[640px]">
                                         {videoUrl ? (
                                             <VideoStreamPlayer videoUrl={videoUrl} className="w-full" />
                                         ) : (
@@ -42,7 +42,7 @@ export function VisionHogScene(): JSX.Element {
                                     </div>
                                 </div>
                                 {/* Right: Events */}
-                                <div className="flex-1 border rounded bg-white p-4 min-h-[640px] overflow-y-auto">
+                                <div className="border rounded bg-white p-4 min-w-[400px] min-h-[640px] overflow-y-auto">
                                     <EventStream />
                                 </div>
                             </div>

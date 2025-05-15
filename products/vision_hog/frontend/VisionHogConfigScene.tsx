@@ -154,7 +154,7 @@ export function VisionHogConfigScene(): JSX.Element {
                             )}
                             <div className="flex flex-row items-center gap-2">
                                 <LemonButton type="secondary" icon={<IconPlus />} size="small" onClick={handleAddEvent}>
-                                    Add event
+                                    New event
                                 </LemonButton>
                                 <LemonButton
                                     type="secondary"
@@ -272,7 +272,7 @@ export function VisionHogConfigScene(): JSX.Element {
 
             {/* Sticky button at the bottom */}
             {shouldShowSaveButton && (
-                <div className="fixed bottom-6 left-1/2 transform pop-up-animation z-10">
+                <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 pop-up-animation z-10">
                     <LemonButton type="primary" size="large" className="shadow-lg" onClick={saveStreamConfig}>
                         {configState === ConfigState.CREATE ? 'Save stream' : 'Update stream'}
                     </LemonButton>
