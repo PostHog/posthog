@@ -40,19 +40,7 @@ This focus area should guide your analysis throughout all steps, particularly af
 Keep this focus area in mind throughout your analysis, but still follow the structured approach below.
 {% endif %}
 
-# Step 1: Identify Common User Journeys
-- Group sessions by similar goals and paths
-- Note common entry points and exit points
-- Identify typical sequences in successful journeys
-- Observe differences between completed vs abandoned journeys
-- Include ONLY 3-4 most significant journeys, described in 15 words maximum
-- AGGRESSIVELY consolidate similar journeys into higher-level patterns
-{% if FOCUS_AREA %}
-- Particularly highlight journeys related to the focus area
-- Pay special attention to how users navigate toward or around areas relevant to the focus
-{% endif %}
-
-# Step 2: Detect Pain Points and Friction
+# Step 1: Detect Pain Points and Friction
 - Identify features where users frequently encounter errors
 - Note areas where confusion indicators appear (dead clicks, repeated actions)
 - Identify where users commonly abandon tasks
@@ -62,6 +50,18 @@ Keep this focus area in mind throughout your analysis, but still follow the stru
 {% if FOCUS_AREA %}
 - Prioritize friction points directly related to the focus area
 - Analyze how these specific pain points impact the user journey elements mentioned in the focus
+{% endif %}
+
+# Step 2: Identify Common User Journeys
+- Group sessions by similar goals and paths
+- Note common entry points and exit points
+- Identify typical sequences in successful journeys
+- Observe differences between completed vs abandoned journeys
+- Include ONLY 3-4 most significant journeys, described in 15 words maximum
+- AGGRESSIVELY consolidate similar journeys into higher-level patterns
+{% if FOCUS_AREA %}
+- Particularly highlight journeys related to the focus area
+- Pay special attention to how users navigate toward or around areas relevant to the focus
 {% endif %}
 
 # Step 3: Identify Interesting Edge Cases

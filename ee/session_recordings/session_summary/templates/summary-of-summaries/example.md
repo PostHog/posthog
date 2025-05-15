@@ -1,9 +1,3 @@
-## General Summary
-- High-level observation about user behavior pattern
-- Observation about feature usage frequency
-- Observation about common technical issue
-<!-- Note: The actual number of summary observations should be based on your analysis of the sessions -->
-
 ## Critical Issues
 <!-- Highlight the most important problems users encountered -->
 - Issue related to interruption
@@ -24,3 +18,9 @@
 - Time-related edge case
 - Unexpected workflow pattern
 <!-- Note: The actual number of edge cases should be based on your analysis of the sessions (0, if sessions don't display any unusual behaviors) -->
+
+## General Summary
+- High-level observation about user behavior pattern
+- Observation about feature usage frequency
+- Observation about common technical issue
+<!-- Note: The actual number of summary observations should be based on your analysis of the sessions -->
