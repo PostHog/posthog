@@ -61,8 +61,11 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "feature_flag", "created_at"]
 
     def update(self, instance: EarlyAccessFeature, validated_data: Any) -> EarlyAccessFeature:
-        request = self.context["request"]
         stage = validated_data.get("stage", None)
+
+        request = self.context["request"]
+        user_data = UserBasicSerializer(request.user).data if request.user else None
+        serialized_previous = MinimalEarlyAccessFeatureSerializer(instance).data
 
         if instance.stage not in EarlyAccessFeature.ReleaseStage and stage in EarlyAccessFeature.ReleaseStage:
             super_conditions = lambda feature_flag_key: [
@@ -104,12 +107,9 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
                 }
                 related_feature_flag.save()
 
-        serialized_previous = MinimalEarlyAccessFeatureSerializer(instance).data
         updated_instance = super().update(instance, validated_data)
+
         serialized_next = MinimalEarlyAccessFeatureSerializer(updated_instance).data
-
-        user_data = UserBasicSerializer(request.user).data if request.user else None
-
         produce_internal_event(
             team_id=instance.team_id,
             event=InternalEventEvent(
