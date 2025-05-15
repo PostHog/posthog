@@ -2,7 +2,7 @@ import './368Hedgehogs.scss'
 
 import { IconInfo } from '@posthog/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { useCallback, useRef,useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 // ==========================================================================
 export type Hog = 'hog1' | 'hog2' | 'hog3' | 'hog4'
 export type Orientation = 'horizontal' | 'vertical'
@@ -229,7 +229,7 @@ const CritterMatchGame: React.FC = () => {
                     {gameOver ? '🎉 All the hogs are safe! Well done you! 🎉' : `${pointsLeft} hogs remaining`}
                     {!gameOver ? (
                         <Tooltip
-                            title='Drag the hogs onto the board. Get 3 in a row to save them. Heavily inspired by 368chickens.com'
+                            title="Drag the hogs onto the board. Get 3 in a row to save them. Heavily inspired by 368chickens.com"
                             delayMs={0}
                         >
                             <IconInfo className="ml-2" />
