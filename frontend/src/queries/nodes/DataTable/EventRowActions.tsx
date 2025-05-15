@@ -61,7 +61,7 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                         }
                         data-attr="events-table-usage"
                     />
-                    <ViewVideoButton fullWidth data-attr="events-table-usage" />
+                    <ViewVideoButton event={event} fullWidth data-attr="events-table-usage" />
                     {event.event === '$exception' && '$exception_issue_id' in event.properties ? (
                         <LemonButton
                             fullWidth

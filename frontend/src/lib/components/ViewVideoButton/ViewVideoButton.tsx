@@ -6,17 +6,6 @@ import { useState } from 'react'
 
 import { EventType } from '~/types'
 
-import { VideoPlayerModal } from './VideoPlayerModal'
-
-// Define VideoStreamPlayer interface for TypeScript
-declare global {
-    interface Window {
-        VideoStreamPlayer?: {
-            loadVideo: (videoUrl: string) => void
-        }
-    }
-}
-
 interface ViewVideoButtonProps
     extends Pick<
         LemonButtonProps,
@@ -27,8 +16,8 @@ interface ViewVideoButtonProps
 }
 
 export default function ViewVideoButton({ event, onClick, ...props }: ViewVideoButtonProps): JSX.Element {
-    const { reportVideoViewed } = useActions(eventUsageLogic)
-    const [isModalOpen, setIsModalOpen] = useState(false)
+    // const { reportVideoViewed } = useActions(eventUsageLogic)
+    // const [isModalOpen, setIsModalOpen] = useState(false)
 
     const handleClick = (e: React.MouseEvent<HTMLButtonElement>): void => {
         if (onClick) {
@@ -38,15 +27,8 @@ export default function ViewVideoButton({ event, onClick, ...props }: ViewVideoB
 
         if (event?.properties?.video_clip) {
             // Report video view event
-            reportVideoViewed(event)
-
-            // Send video_clip to VideoStreamPlayer if available
-            if (window.VideoStreamPlayer) {
-                window.VideoStreamPlayer.loadVideo(event.properties.video_clip)
-            }
-
-            // Open the video player modal
-            setIsModalOpen(true)
+            // reportVideoViewed(event)
+            
         }
     }
 
@@ -64,8 +46,6 @@ export default function ViewVideoButton({ event, onClick, ...props }: ViewVideoB
                     <span>View Video</span>
                 </div>
             </LemonButton>
-
-            <VideoPlayerModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} event={event} />
         </>
     )
 }
