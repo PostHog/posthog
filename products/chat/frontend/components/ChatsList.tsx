@@ -27,7 +27,7 @@ export function ChatsList(): JSX.Element {
             {displayableChats.map((chat) => (
                 <ChatListItem
                     key={chat.id}
-                    user={chat.person_uuid}
+                    user={chat.person_uuid ?? chat.distinct_id ?? ''}
                     message={chat.messages.length ? chat.messages[chat.messages.length - 1].content : ''}
                     subject={chat.title ?? ''}
                     source_url={chat.source_url ?? ''}
