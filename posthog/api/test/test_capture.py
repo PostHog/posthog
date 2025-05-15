@@ -2404,6 +2404,31 @@ class TestCapture(BaseTest):
         assert event_data["properties"]["violated_directive"] == "default-src self"
         assert event_data["properties"]["blocked_url"] == "https://evil.com/malicious-image.png"
 
+    def test_capture_csp_no_trailing_slash(self):
+        csp_report = {
+            "csp-report": {
+                "document-uri": "https://example.com/foo/bar",
+                "referrer": "https://www.google.com/",
+                "violated-directive": "default-src self",
+                "effective-directive": "img-src",
+                "original-policy": "default-src 'self'; img-src 'self' https://img.example.com",
+                "disposition": "enforce",
+                "blocked-uri": "https://evil.com/malicious-image.png",
+                "line-number": 10,
+                "source-file": "https://example.com/foo/bar.html",
+                "status-code": 0,
+                "script-sample": "",
+            }
+        }
+
+        response = self.client.post(
+            f"/csp?token={self.team.api_token}",
+            data=json.dumps(csp_report),
+            content_type="application/csp-report",
+        )
+
+        assert status.HTTP_204_NO_CONTENT == response.status_code
+
     def test_capture_csp_invalid_json_gives_invalid_csp_payload(self):
         response = self.client.post(
             f"/csp/?token={self.team.api_token}",
