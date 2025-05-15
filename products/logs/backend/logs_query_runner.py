@@ -41,7 +41,20 @@ class LogsQueryRunner(QueryRunner):
 
         print("ROSSLOG - response", response.clickhouse)
 
-        return LogsQueryResponse(results=response.results, **self.paginator.response_params())
+        results = []
+        for result in response.results:
+            results.append(
+                {
+                    "uuid": result[0],
+                    "trace_id": result[1],
+                    "span_id": result[2],
+                    "body": result[3],
+                    "timestamp": result[4],
+                    "observed_timestamp": result[5],
+                }
+            )
+
+        return LogsQueryResponse(results=results, **self.paginator.response_params())
 
     def to_query(self) -> ast.SelectQuery:
         return ast.SelectQuery(
@@ -66,10 +79,7 @@ class LogsQueryRunner(QueryRunner):
             ast.Field(chain=["trace_id"]),
             ast.Field(chain=["span_id"]),
             ast.Field(chain=["body"]),
-            # ast.Alias(
-            #     alias="attributes",
-            #     expr=ast.Call(name="toJSONString", args=[ast.Field(chain=["attributes"])]),
-            # ),
+            ast.Alias(alias="attributes", expr=ast.Field(chain=["_attributes"])),
             ast.Field(chain=["timestamp"]),
             ast.Field(chain=["observed_timestamp"]),
             ast.Field(chain=["severity_text"]),

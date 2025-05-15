@@ -1955,7 +1955,7 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
     severityLevels: LogSeverityLevel[]
 }
 
-export interface LogsQueryResponse extends AnalyticsQueryResponseBase<unknown> {
+export interface LogsQueryResponse extends AnalyticsQueryResponseBase<LogMessage[]> {
     hasMore?: boolean
     limit?: integer
     offset?: integer
@@ -1965,13 +1965,14 @@ export type CachedLogsQueryResponse = CachedQueryResponse<LogsQueryResponse>
 
 export interface LogMessage {
     uuid: string
-    // team_id: integer
     trace_id: string
     span_id: string
     body: string
+    /**  @format date-time */
+    timestamp: string
+    /**  @format date-time */
+    observed_timestamp: string
     // attributes: Record<string, string>
-    // timestamp: string
-    // observed_timestamp: string
     // severity_text: LogSeverityLevel
     // severity_number: number
     // level: LogSeverityLevelposthog/schema.py

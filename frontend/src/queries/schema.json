@@ -11990,7 +11990,15 @@
                 "body": {
                     "type": "string"
                 },
+                "observed_timestamp": {
+                    "format": "date-time",
+                    "type": "string"
+                },
                 "span_id": {
+                    "type": "string"
+                },
+                "timestamp": {
+                    "format": "date-time",
                     "type": "string"
                 },
                 "trace_id": {
@@ -12000,7 +12008,7 @@
                     "type": "string"
                 }
             },
-            "required": ["uuid", "trace_id", "span_id", "body"],
+            "required": ["uuid", "trace_id", "span_id", "body", "timestamp", "observed_timestamp"],
             "type": "object"
         },
         "LogSeverityLevel": {
@@ -12013,14 +12021,25 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "kind": {
+                    "const": "LogsQuery",
+                    "type": "string"
+                },
                 "limit": {
                     "$ref": "#/definitions/integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
                 },
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
                 "orderBy": {
                     "enum": ["latest", "earliest"],
+                    "type": "string"
+                },
+                "resource": {
                     "type": "string"
                 },
                 "response": {
@@ -12037,142 +12056,6 @@
                 }
             },
             "required": ["dateRange", "kind", "orderBy", "severityLevels"],
-            "type": "object"
-        },
-        "LogsQueryResponse": {
-            "additionalProperties": false,
-            "properties": {
-                "columns": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
-                "error": {
-                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-                    "type": "string"
-                },
-                "hasMore": {
-                    "type": "boolean"
-                },
-                "hogql": {
-                    "description": "Generated HogQL query.",
-                    "type": "string"
-                },
-                "limit": {
-                    "$ref": "#/definitions/integer"
-                },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
-                },
-                "offset": {
-                    "$ref": "#/definitions/integer"
-                },
-                "query_status": {
-                    "$ref": "#/definitions/QueryStatus",
-                    "description": "Query status indicates whether next to the provided data, a query is still running."
-                },
-                "results": {},
-                "timings": {
-                    "description": "Measured timings for different parts of the query generation process",
-                    "items": {
-                        "$ref": "#/definitions/QueryTiming"
-                    },
-                    "type": "array"
-                }
-            },
-            "required": ["results"],
-            "type": "object"
-        },
-        "LogMessage": {
-            "additionalProperties": false,
-            "properties": {
-                "attributes": {
-                    "additionalProperties": {
-                        "type": "string"
-                    },
-                    "type": "object"
-                },
-                "body": {
-                    "type": "string"
-                },
-                "observed_timestamp": {
-                    "type": "string"
-                },
-                "resource": {
-                    "type": "string"
-                },
-                "severity_text": {
-                    "$ref": "#/definitions/LogSeverityLevel"
-                },
-                "span_id": {
-                    "type": "string"
-                },
-                "team_id": {
-                    "$ref": "#/definitions/integer"
-                },
-                "timestamp": {
-                    "type": "string"
-                },
-                "trace_id": {
-                    "type": "string"
-                },
-                "uuid": {
-                    "type": "string"
-                }
-            },
-            "required": [
-                "uuid",
-                "team_id",
-                "trace_id",
-                "span_id",
-                "body",
-                "attributes",
-                "timestamp",
-                "observed_timestamp",
-                "severity_text",
-                "resource"
-            ],
-            "type": "object"
-        },
-        "LogSeverityLevel": {
-            "enum": ["debug", "info", "warn", "error"],
-            "type": "string"
-        },
-        "LogsQuery": {
-            "additionalProperties": false,
-            "properties": {
-                "dateRange": {
-                    "$ref": "#/definitions/DateRange"
-                },
-                "limit": {
-                    "$ref": "#/definitions/integer"
-                },
-                "offset": {
-                    "$ref": "#/definitions/integer"
-                },
-                "orderBy": {
-                    "enum": ["latest", "earliest"],
-                    "type": "string"
-                },
-                "resource": {
-                    "type": "string"
-                },
-                "response": {
-                    "$ref": "#/definitions/LogsQueryResponse"
-                },
-                "searchTerm": {
-                    "type": "string"
-                },
-                "severityLevels": {
-                    "items": {
-                        "$ref": "#/definitions/LogSeverityLevel"
-                    },
-                    "type": "array"
-                }
-            },
-            "required": ["dateRange", "orderBy", "severityLevels"],
             "type": "object"
         },
         "LogsQueryResponse": {

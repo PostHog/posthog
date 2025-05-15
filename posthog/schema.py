@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from enum import Enum, StrEnum
+from enum import Enum, StrEnum, StrEnum
 from typing import Any, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel
@@ -1348,6 +1348,18 @@ class LifecycleToggle(StrEnum):
     RESURRECTING = "resurrecting"
     RETURNING = "returning"
     DORMANT = "dormant"
+
+
+class LogMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    body: str
+    observed_timestamp: datetime
+    span_id: str
+    timestamp: datetime
+    trace_id: str
+    uuid: str
 
 
 class LogSeverityLevel(StrEnum):
@@ -2855,22 +2867,6 @@ class LifecycleFilterLegacy(BaseModel):
     show_legend: Optional[bool] = None
     show_values_on_series: Optional[bool] = None
     toggledLifecycles: Optional[list[LifecycleToggle]] = None
-
-
-class LogMessage(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    attributes: dict[str, str]
-    body: str
-    observed_timestamp: str
-    resource: str
-    severity_text: LogSeverityLevel
-    span_id: str
-    team_id: int
-    timestamp: str
-    trace_id: str
-    uuid: str
 
 
 class MatchedRecording(BaseModel):
@@ -8182,7 +8178,11 @@ class LogsQuery(BaseModel):
         extra="forbid",
     )
     dateRange: DateRange
+    kind: Literal["LogsQuery"] = "LogsQuery"
     limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
     offset: Optional[int] = None
     orderBy: OrderBy1
     resource: Optional[str] = None
