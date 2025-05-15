@@ -1,20 +1,21 @@
 import { IconPlus } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTableColumn } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTableColumn, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import stringWithWBR from 'lib/utils/stringWithWBR'
+import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/types'
 
 import { LinkType } from './linkConfigurationLogic'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
-import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { SceneExport } from 'scenes/sceneTypes'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import stringWithWBR from 'lib/utils/stringWithWBR'
+import { LinkMetricSparkline } from './LinkMetricSparkline'
 import { linksLogic } from './linksLogic'
 
 export function LinksScene(): JSX.Element {
@@ -44,28 +45,26 @@ export function LinksScene(): JSX.Element {
         createdAtColumn<LinkType>() as LemonTableColumn<LinkType, keyof LinkType | undefined>,
         {
             title: 'Last 7 days',
-            render: function RenderSuccessRate(date: any, record: LinkType) {
+            render: function RenderSuccessRate(_: any, link: LinkType) {
                 return (
-                    <span>sparkline for clicks in the last 7 days</span>
-                    // <Link
-                    //     to={urls.pipelineNode(
-                    //         hogFunctionTypeToPipelineStage(destination.stage),
-                    //         destination.id,
-                    //         PipelineNodeTab.Metrics
-                    //     )}
-                    // >
-                    //     {destination.backend === PipelineBackend.HogFunction ? (
-                    //         <HogFunctionMetricSparkLine id={destination.hog_function.id} />
-                    //     ) : (
-                    //         <AppMetricSparkLine pipelineNode={destination} />
-                    //     )}
-                    // </Link>
+                    <Link
+                        to={
+                            '/insights'
+                            //     urls.pipelineNode(
+                            //     hogFunctionTypeToPipelineStage(destination.stage),
+                            //     destination.id,
+                            //     PipelineNodeTab.Metrics
+                            // )
+                        }
+                    >
+                        <LinkMetricSparkline id={link.id} />
+                    </Link>
                 )
             },
         },
         {
             width: 0,
-            render: function Render(_: any, record: LinkType) {
+            render: function Render(_: any, link: LinkType) {
                 return (
                     <More
                         overlay={
@@ -73,7 +72,7 @@ export function LinksScene(): JSX.Element {
                                 items={[
                                     {
                                         label: `Edit link`,
-                                        onClick: () => router.actions.push(urls.link(record.id)),
+                                        onClick: () => router.actions.push(urls.link(link.id)),
                                     },
                                     {
                                         label: `Delete link`,

@@ -1,11 +1,13 @@
-import { afterMount, kea, key, path, props } from 'kea'
-import { loaders } from 'kea-loaders'
-import api from 'lib/api'
+import { actions, afterMount, kea, key, listeners, path, props } from 'kea'
 import { forms } from 'kea-forms'
-
-import { UserBasicType } from '~/types'
+import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import api from 'lib/api'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { urls } from 'scenes/urls'
+
+import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { UserBasicType } from '~/types'
 
 export interface LinkType {
     id: string
@@ -46,6 +48,28 @@ export const linkConfigurationLogic = kea([
             },
         ],
     })),
+    actions({
+        deleteLink: (link: LinkType) => ({ link }),
+    }),
+    listeners(({ actions, values }) => ({
+        deleteLink: async ({ link }) => {
+            await deleteWithUndo({
+                endpoint: `projects/${values.currentProjectId}/links`,
+                object: { name: link.origin_domain + '/' + link.origin_key, id: link.id },
+                callback: (undo) => {
+                    link.id && actions.deleteLink(link)
+                    if (undo) {
+                        refreshTreeItem('link', String(link.id))
+                    } else {
+                        deleteFromTree('link', String(link.id))
+                    }
+                    // Load latest change so a backwards navigation shows the flag as deleted
+                    actions.loadLink()
+                    router.actions.push(urls.links())
+                },
+            })
+        },
+    })),
     forms(({ actions }) => ({
         link: {
             defaults: {
@@ -79,7 +103,7 @@ export const linkConfigurationLogic = kea([
     })),
     afterMount(({ actions, props }) => {
         if (props.id !== 'new') {
-            actions.loadLink({ id: props.id})
+            actions.loadLink({ id: props.id })
         }
     }),
 ])
