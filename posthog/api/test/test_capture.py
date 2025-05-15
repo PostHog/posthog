@@ -2528,6 +2528,75 @@ class TestCapture(BaseTest):
         assert status.HTTP_204_NO_CONTENT == response.status_code
         assert response.content == b""
 
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_capture_csp_report_to_violation(self, kafka_produce):
+        report_to_format = [
+            {
+                "age": 53531,
+                "body": {
+                    "blockedURL": "inline",
+                    "columnNumber": 39,
+                    "disposition": "enforce",
+                    "documentURL": "https://example.com/csp-report-1",
+                    "effectiveDirective": "script-src-elem",
+                    "lineNumber": 121,
+                    "originalPolicy": "default-src 'self'; report-to csp-endpoint-name",
+                    "referrer": "https://www.google.com/",
+                    "sample": 'console.log("lo")',
+                    "sourceFile": "https://example.com/csp-report-1",
+                    "statusCode": 200,
+                },
+                "type": "csp-violation",
+                "url": "https://example.com/csp-report-1",
+                "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36",
+            },
+            {
+                "age": 12345,
+                "body": {
+                    "blockedURL": "https://malicious-site.com/script.js",
+                    "columnNumber": 15,
+                    "disposition": "enforce",
+                    "documentURL": "https://example.com/csp-report-2",
+                    "effectiveDirective": "script-src",
+                    "lineNumber": 42,
+                    "originalPolicy": "default-src 'self'; script-src 'self'; report-to csp-endpoint-name",
+                    "referrer": "https://another-site.com/",
+                    "sample": "",
+                    "sourceFile": "https://example.com/csp-report-2",
+                    "statusCode": 200,
+                },
+                "type": "csp-violation",
+                "url": "https://example.com/csp-report-2",
+                "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+            },
+        ]
+
+        response = self.client.post(
+            f"/csp/?token={self.team.api_token}",
+            data=json.dumps(report_to_format),
+            content_type="application/reports+json",
+        )
+
+        assert status.HTTP_204_NO_CONTENT == response.status_code
+        # Verify we processed both events
+        assert kafka_produce.call_count == 2
+
+        # Verify first event data
+        first_event_call = kafka_produce.call_args_list[0].kwargs
+        first_event_data = json.loads(first_event_call["data"]["data"])
+
+        assert first_event_data["properties"]["source_file"] == "https://example.com/csp-report-1"
+        assert first_event_data["properties"]["line_number"] == 121
+        assert first_event_data["properties"]["column_number"] == 39
+
+        # Verify second event data
+        second_event_call = kafka_produce.call_args_list[1].kwargs
+        second_event_data = json.loads(second_event_call["data"]["data"])
+
+        assert second_event_data["properties"]["source_file"] == "https://example.com/csp-report-2"
+        assert second_event_data["properties"]["line_number"] == 42
+        assert second_event_data["properties"]["column_number"] == 15
+
     def test_regular_event_endpoint_with_invalid_json(self):
         """
         Test that the regular event endpoint (/e/) properly handles invalid JSON
