@@ -80,6 +80,7 @@ export enum NodeKind {
     RevenueExampleEventsQuery = 'RevenueExampleEventsQuery',
     RevenueExampleDataWarehouseTablesQuery = 'RevenueExampleDataWarehouseTablesQuery',
     ErrorTrackingQuery = 'ErrorTrackingQuery',
+    LogsQuery = 'LogsQuery',
 
     // Interface nodes
     DataTableNode = 'DataTableNode',
@@ -161,6 +162,7 @@ export type AnyDataNode =
     | RevenueExampleEventsQuery
     | RevenueExampleDataWarehouseTablesQuery
     | ErrorTrackingQuery
+    | LogsQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
     | RecordingsQuery
@@ -1937,6 +1939,26 @@ export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<E
     columns?: string[]
 }
 export type CachedErrorTrackingQueryResponse = CachedQueryResponse<ErrorTrackingQueryResponse>
+
+export interface LogsQuery extends DataNode<LogsQueryResponse> {
+    kind: NodeKind.LogsQuery
+    dateRange: DateRange
+    limit?: integer
+    offset?: integer
+}
+
+export interface LogsQueryResponse extends AnalyticsQueryResponseBase<LogMessage[]> {
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+    columns?: string[]
+}
+export type CachedLogsQueryResponse = CachedQueryResponse<LogsQueryResponse>
+
+export interface LogMessage {
+    uuid: string
+    body: string
+}
 
 export interface FileSystemCount {
     count: number

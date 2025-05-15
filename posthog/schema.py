@@ -1350,6 +1350,14 @@ class LifecycleToggle(StrEnum):
     DORMANT = "dormant"
 
 
+class LogMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    body: str
+    uuid: str
+
+
 class MatchedRecordingEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1387,6 +1395,7 @@ class NodeKind(StrEnum):
     REVENUE_EXAMPLE_EVENTS_QUERY = "RevenueExampleEventsQuery"
     REVENUE_EXAMPLE_DATA_WAREHOUSE_TABLES_QUERY = "RevenueExampleDataWarehouseTablesQuery"
     ERROR_TRACKING_QUERY = "ErrorTrackingQuery"
+    LOGS_QUERY = "LogsQuery"
     DATA_TABLE_NODE = "DataTableNode"
     DATA_VISUALIZATION_NODE = "DataVisualizationNode"
     SAVED_INSIGHT_NODE = "SavedInsightNode"
@@ -4464,6 +4473,40 @@ class CachedLifecycleQueryResponse(BaseModel):
     )
 
 
+class CachedLogsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[datetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: datetime
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    next_allowed_client_refresh: datetime
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[LogMessage]
+    timezone: str
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
 class CachedPathsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5837,6 +5880,31 @@ class LogEntryPropertyFilter(BaseModel):
     value: Optional[
         Union[list[Union[str, float, ErrorTrackingIssueAssignee]], Union[str, float, ErrorTrackingIssueAssignee]]
     ] = None
+
+
+class LogsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[LogMessage]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
 
 
 class MultipleBreakdownOptions(BaseModel):
@@ -8062,6 +8130,20 @@ class InsightActorsQueryOptionsResponse(BaseModel):
     status: Optional[list[StatusItem]] = None
 
 
+class LogsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: DateRange
+    kind: Literal["LogsQuery"] = "LogsQuery"
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    response: Optional[LogsQueryResponse] = None
+
+
 class PersonsNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -10043,114 +10125,6 @@ class HasPropertiesNode(RootModel[Union[EventsNode, EventsQuery, PersonsNode]]):
     root: Union[EventsNode, EventsQuery, PersonsNode]
 
 
-class LogsQueryResult(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    # distinct_id: str
-    # event: str
-    level: str
-    msg: str
-    # namespace: Optional[str] = None
-    # properties: str
-    # session_id: Optional[str] = None
-    timestamp: str
-    # uuid: str
-
-
-class LogsQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    error: Optional[str] = Field(
-        default=None,
-        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-    )
-    hasMore: Optional[bool] = None
-    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
-    limit: Optional[int] = None
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    offset: Optional[int] = None
-    results: list[LogsQueryResult]
-    timings: Optional[list[QueryTiming]] = Field(
-        default=None, description="Measured timings for different parts of the query generation process"
-    )
-
-
-class CachedLogsQueryResponse(LogsQueryResponse):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    cache_key: str
-    cache_target_age: Optional[datetime] = None
-    calculation_trigger: Optional[str] = Field(
-        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
-    )
-    error: Optional[str] = Field(
-        default=None,
-        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-    )
-    hasMore: Optional[bool] = None
-    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
-    is_cached: bool
-    last_refresh: datetime
-    limit: Optional[int] = None
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    next_allowed_client_refresh: datetime
-    offset: Optional[int] = None
-    query_status: Optional[QueryStatus] = Field(
-        default=None, description="Query status indicates whether next to the provided data, a query is still running."
-    )
-    results: list[LogsQueryResult]
-    timezone: str
-    timings: Optional[list[QueryTiming]] = Field(
-        default=None, description="Measured timings for different parts of the query generation process"
-    )
-
-
-class LogsQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    after: Optional[str] = Field(default=None, description="Only fetch logs that happened after this timestamp")
-    before: Optional[str] = Field(default=None, description="Only fetch logs that happened before this timestamp")
-    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
-    kind: Literal["LogsQuery"] = "LogsQuery"
-    limit: Optional[int] = Field(default=None, description="Number of rows to return")
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    offset: Optional[int] = Field(default=None, description="Number of rows to skip before returning rows")
-    # TODO
-    # properties: Optional[
-    #     Union[
-    #         list[
-    #             Union[
-    #                 EventPropertyFilter,
-    #                 PersonPropertyFilter,
-    #                 ElementPropertyFilter,
-    #                 SessionPropertyFilter,
-    #                 CohortPropertyFilter,
-    #                 RecordingDurationFilter,
-    #                 GroupPropertyFilter,
-    #                 FeaturePropertyFilter,
-    #                 HogQLPropertyFilter,
-    #                 EmptyPropertyFilter,
-    #                 DataWarehousePropertyFilter,
-    #                 DataWarehousePersonPropertyFilter,
-    #             ]
-    #         ],
-    #         PropertyGroupFilter,
-    #     ]
-    # ] = Field(default=None, description="Property filters for all series")
-    response: Optional[LogsQueryResponse] = None
-    searchTerm: Optional[str] = Field(default=None, description="Text to filter the logs by")
-
-
 class DataTableNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -10291,6 +10265,7 @@ class HogQLAutocomplete(BaseModel):
             RevenueExampleEventsQuery,
             RevenueExampleDataWarehouseTablesQuery,
             ErrorTrackingQuery,
+            LogsQuery,
             ExperimentFunnelsQuery,
             ExperimentTrendsQuery,
             RecordingsQuery,
@@ -10347,6 +10322,7 @@ class HogQLMetadata(BaseModel):
             RevenueExampleEventsQuery,
             RevenueExampleDataWarehouseTablesQuery,
             ErrorTrackingQuery,
+            LogsQuery,
             ExperimentFunnelsQuery,
             ExperimentTrendsQuery,
             RecordingsQuery,
