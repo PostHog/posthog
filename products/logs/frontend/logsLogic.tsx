@@ -1,6 +1,6 @@
 import { actions, kea, path, reducers } from 'kea'
+import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { loaders } from 'node_modules/kea-loaders/lib'
 
 import { DateRange, LogMessage, LogsQuery } from '~/queries/schema/schema-general'
 
