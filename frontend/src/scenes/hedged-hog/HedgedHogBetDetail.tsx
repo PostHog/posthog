@@ -1,7 +1,6 @@
 import { IconX } from '@posthog/icons'
 import { Separator } from '@radix-ui/react-dropdown-menu'
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -10,7 +9,6 @@ import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useState } from 'react'
 import { BillingLineGraph } from 'scenes/billing/BillingLineGraph'
-import { urls } from 'scenes/urls'
 
 import { hedgedHogBetDefinitionsLogic } from './hedgedHogBetDefinitionsLogic'
 import { hedgedHogLogic } from './hedgedHogLogic'
@@ -40,7 +38,7 @@ const BetFlow = ({
                 {!showConfirmation ? (
                     <div className="space-y-6">
                         <div>
-                            <h3 className="font-semibold mb-4">Place Your Bet</h3>
+                            <h3 className="font-semibold mb-4">Place a bet</h3>
                             <div className="space-y-3">
                                 <LemonButton
                                     fullWidth
@@ -150,10 +148,9 @@ const BetFlow = ({
 export function BetDetailContent(): JSX.Element {
     const { betId } = useValues(hedgedHogLogic)
     const { betDefinitions, betDefinitionsLoading } = useValues(hedgedHogBetDefinitionsLogic)
-    const { estimateBetPayout } = useActions(hedgedHogBetDefinitionsLogic)
-    const { push } = useActions(router)
+    // const { estimateBetPayout } = useActions(hedgedHogBetDefinitionsLogic)
     const { allBets, userBets, allBetsLoading, userBetsLoading } = useValues(hedgedHogLogic)
-    const { loadAllBets, loadUserBets } = useActions(hedgedHogLogic)
+    const { loadAllBets, loadUserBets, goBackToBets, placeBet } = useActions(hedgedHogLogic)
 
     const [amount, setAmount] = useState<number>(20)
     const [timeRange, setTimeRange] = useState<string>('ALL')
@@ -171,15 +168,17 @@ export function BetDetailContent(): JSX.Element {
         return (
             <div className="text-center">
                 <h2>Bet not found</h2>
-                <LemonButton type="primary" onClick={() => push(urls.hedgedHog())}>
-                    Back to Bets
+                <LemonButton type="primary" onClick={goBackToBets}>
+                    Back to bets
                 </LemonButton>
             </div>
         )
     }
 
     const handlePlaceBet = (): void => {
-        estimateBetPayout(amount, betType === 'Yes' ? 1 : 0)
+        if (betId) {
+            placeBet(betId, amount, betType === 'Yes' ? 1 : 0)
+        }
         setShowConfirmation(false)
     }
 
@@ -201,8 +200,8 @@ export function BetDetailContent(): JSX.Element {
                         <p className="text-xs text-muted">{bet.description}</p>
                     </div>
                 </div>
-                <LemonButton type="primary" onClick={() => push(urls.hedgedHog())}>
-                    Back to Bets
+                <LemonButton type="primary" onClick={goBackToBets}>
+                    Back to bets
                 </LemonButton>
             </div>
 
@@ -350,15 +349,17 @@ export function BetDetailContent(): JSX.Element {
                                         title: 'Date',
                                         dataIndex: 'created_at',
                                         key: 'created_at',
-                                        render: function RenderDate(date: string) {
-                                            return new Date(date).toLocaleDateString()
+                                        render: function RenderDate(_, record) {
+                                            return new Date(record.created_at).toLocaleDateString()
                                         },
                                     },
                                     {
                                         title: 'Bet Type',
                                         dataIndex: 'predicted_value',
                                         key: 'predicted_value',
-                                        render: function RenderType(value: any) {
+                                        render: function RenderType(_, record) {
+                                            const value = record.predicted_value
+                                            // @ts-expect-error
                                             const prediction = typeof value === 'object' ? value.value : value
                                             return (
                                                 <span className={prediction === 1 ? 'text-success' : 'text-danger'}>
@@ -371,7 +372,8 @@ export function BetDetailContent(): JSX.Element {
                                         title: 'Amount',
                                         dataIndex: 'amount',
                                         key: 'amount',
-                                        render: function RenderAmount(amount: number) {
+                                        render: function RenderAmount(_, record) {
+                                            const amount = record.amount
                                             return `$${amount.toFixed(2)}`
                                         },
                                     },
@@ -379,7 +381,8 @@ export function BetDetailContent(): JSX.Element {
                                         title: 'Potential Payout',
                                         dataIndex: 'potential_payout',
                                         key: 'potential_payout',
-                                        render: function RenderPayout(payout: number) {
+                                        render: function RenderPayout(_, record) {
+                                            const payout = record.potential_payout
                                             return `$${payout.toFixed(2)}`
                                         },
                                     },
@@ -403,15 +406,17 @@ export function BetDetailContent(): JSX.Element {
                                         title: 'Date',
                                         dataIndex: 'created_at',
                                         key: 'created_at',
-                                        render: function RenderDate(date: string) {
-                                            return new Date(date).toLocaleDateString()
+                                        render: function RenderDate(_, record) {
+                                            return new Date(record.created_at).toLocaleDateString()
                                         },
                                     },
                                     {
                                         title: 'Bet Type',
                                         dataIndex: 'predicted_value',
                                         key: 'predicted_value',
-                                        render: function RenderType(value: any) {
+                                        render: function RenderType(_, record) {
+                                            const value = record.predicted_value
+                                            // @ts-expect-error
                                             const prediction = typeof value === 'object' ? value.value : value
                                             return (
                                                 <span className={prediction === 1 ? 'text-success' : 'text-danger'}>
@@ -424,7 +429,8 @@ export function BetDetailContent(): JSX.Element {
                                         title: 'Amount',
                                         dataIndex: 'amount',
                                         key: 'amount',
-                                        render: function RenderAmount(amount: number) {
+                                        render: function RenderAmount(_, record) {
+                                            const amount = record.amount
                                             return `$${amount.toFixed(2)}`
                                         },
                                     },
@@ -432,7 +438,8 @@ export function BetDetailContent(): JSX.Element {
                                         title: 'Potential Payout',
                                         dataIndex: 'potential_payout',
                                         key: 'potential_payout',
-                                        render: function RenderPayout(payout: number) {
+                                        render: function RenderPayout(_, record) {
+                                            const payout = record.potential_payout
                                             return `$${payout.toFixed(2)}`
                                         },
                                     },

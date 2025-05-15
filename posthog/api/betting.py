@@ -75,7 +75,16 @@ class BetSerializer(serializers.ModelSerializer):
             "status",
             "created_at",
         ]
-        read_only_fields = ["id", "created_at", "potential_payout", "status", "bet_definition_title", "user", "team"]
+        read_only_fields = [
+            "id",
+            "created_at",
+            "potential_payout",
+            "status",
+            "bet_definition_title",
+            "user",
+            "team",
+            "probability_distribution",
+        ]
 
     def validate(self, data):
         # Validate bet definition is active
@@ -83,10 +92,13 @@ class BetSerializer(serializers.ModelSerializer):
         if not bet_definition.is_active:
             raise serializers.ValidationError("Cannot place bet on inactive bet definition")
 
-        # Validate probability distribution belongs to bet definition
-        prob_dist = data.get("probability_distribution")
-        if prob_dist and prob_dist.bet_definition.id != bet_definition.id:
-            raise serializers.ValidationError("Probability distribution does not belong to this bet definition")
+        # Get the latest probability distribution
+        latest_distribution = bet_definition.latest_probability_distribution
+        if not latest_distribution:
+            raise serializers.ValidationError("No probability distribution available for this bet definition")
+
+        # Set the probability distribution to the latest one
+        data["probability_distribution"] = latest_distribution
 
         # Validate user has sufficient funds
         request = self.context.get("request")
@@ -280,6 +292,42 @@ class BetViewSet(
     def perform_create(self, serializer):
         team = self.request.user.current_team
         serializer.save(user=self.request.user, team=team)
+
+    @action(detail=False, methods=["get"])
+    def by_definition(self, request, **kwargs):
+        """
+        Get all bets for a specific bet definition.
+        """
+        bet_definition_id = request.query_params.get("bet_definition_id")
+        if not bet_definition_id:
+            return Response({"error": "bet_definition_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            bets = Bet.objects.filter(
+                team_id=request.user.current_team.id, bet_definition_id=bet_definition_id
+            ).order_by("-created_at")
+            serializer = BetSerializer(bets, many=True)
+            return Response(serializer.data)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=["get"])
+    def my_bets(self, request, **kwargs):
+        """
+        Get user's bets for a specific bet definition.
+        """
+        bet_definition_id = request.query_params.get("bet_definition_id")
+        if not bet_definition_id:
+            return Response({"error": "bet_definition_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            bets = Bet.objects.filter(
+                team_id=request.user.current_team.id, bet_definition_id=bet_definition_id, user=request.user
+            ).order_by("-created_at")
+            serializer = BetSerializer(bets, many=True)
+            return Response(serializer.data)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
     @action(detail=False, methods=["post"])
     def estimate(self, request, **kwargs):
