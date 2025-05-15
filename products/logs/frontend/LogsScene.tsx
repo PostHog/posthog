@@ -1,5 +1,6 @@
 import { LemonButton, LemonCheckbox, LemonSegmentedButton, LemonTable, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconRefresh } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
@@ -18,20 +19,21 @@ export const scene: SceneExport = {
 }
 
 export function LogsScene(): JSX.Element {
-    const { wrapBody, logs } = useValues(logsLogic)
-    const { fetchLogs } = useActions(logsLogic)
+    const { wrapBody, logs, sparkline, logsLoading, hasRunQuery } = useValues(logsLogic)
 
-    useEffect(() => {
-        fetchLogs()
-    }, [])
-    const { wrapBody, logs, logsLoading, hasRunQuery } = useValues(logsLogic)
+    const labels: string[] = []
+    const counts: number[] = []
+    sparkline.forEach(([label, count]) => {
+        labels.push(label)
+        counts.push(count)
+    })
 
     return (
         <div className="flex flex-col gap-y-2 h-screen">
             <Filters />
             {hasRunQuery ? (
                 <>
-                    {/* <Sparkline labels={['bucket 1']} data={[1]} className="w-full" /> */}
+                    {sparkline.length > 0 && <Sparkline labels={labels} data={counts} className="w-full" />}
                     <DisplayOptions />
                     <div className="flex-1">
                         <LemonTable
@@ -119,7 +121,7 @@ const LogTag = ({ level }: { level: LogMessage['severity_text'] }): JSX.Element 
 
 const Filters = (): JSX.Element => {
     const { hasRunQuery, logsLoading } = useValues(logsLogic)
-    const { fetchLogs } = useActions(logsLogic)
+    const { runQuery } = useActions(logsLogic)
 
     return (
         <div className="flex flex-col gap-y-1.5">
@@ -134,7 +136,7 @@ const Filters = (): JSX.Element => {
                         size="small"
                         icon={hasRunQuery ? <IconRefresh /> : <IconRefresh />}
                         type="secondary"
-                        onClick={fetchLogs}
+                        onClick={runQuery}
                         loading={logsLoading}
                     >
                         {hasRunQuery ? 'Refresh' : 'Run'}
