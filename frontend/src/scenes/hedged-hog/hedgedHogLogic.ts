@@ -53,7 +53,7 @@ export const hedgedHogLogic = kea<hedgedHogLogicType>([
         loadTransactions: () => ({}),
         setActiveTab: (tab: string) => ({ tab }),
         loadLeaderboard: (leaderboardType: LeaderboardType = 'balance') => ({ leaderboardType }),
-        setBetId: (betId: number | null) => ({ betId }),
+        setBetId: (betId: string | null) => ({ betId }),
         initializeWallet: true,
     }),
 

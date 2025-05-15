@@ -6,6 +6,7 @@ import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { Link } from 'lib/lemon-ui/Link'
@@ -64,10 +65,6 @@ const BetDefinitionForm = (): JSX.Element => {
             <Field name="probability_distribution_interval" label="Distribution Update Interval (seconds)">
                 <LemonInput type="number" min={60} />
             </Field>
-
-            <LemonButton type="primary" htmlType="submit">
-                Create Bet Definition
-            </LemonButton>
         </Form>
     )
 }
@@ -86,18 +83,29 @@ export function BettingContent(): JSX.Element {
     return (
         <div className="space-y-4">
             <div className="flex justify-between items-center mb-4">
-                <h2 className="text-xl">Available Bets</h2>
+                <div />
                 <LemonButton type="primary" onClick={() => setShowNewForm(true)}>
                     Create bet definition
                 </LemonButton>
             </div>
 
-            {showNewForm && (
-                <LemonCard className="mb-4" hoverEffect={false}>
-                    <h2 className="mb-4 text-xl">Create</h2>
-                    <BetDefinitionForm />
-                </LemonCard>
-            )}
+            <LemonModal
+                isOpen={showNewForm}
+                onClose={() => setShowNewForm(false)}
+                title="Create Bet Definition"
+                footer={
+                    <div className="flex justify-between items-center">
+                        <LemonButton type="secondary" onClick={() => setShowNewForm(false)}>
+                            Cancel
+                        </LemonButton>
+                        <LemonButton type="primary" form="betDefinition" htmlType="submit">
+                            Create
+                        </LemonButton>
+                    </div>
+                }
+            >
+                <BetDefinitionForm />
+            </LemonModal>
 
             {betDefinitionsLoading ? (
                 <div className="text-center">Loading...</div>
