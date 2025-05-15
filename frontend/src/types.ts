@@ -5373,6 +5373,7 @@ export interface ProductManifest {
     fileSystemTypes?: Record<string, FileSystemType>
     treeItemsNew?: FileSystemImport[]
     treeItemsProducts?: FileSystemImport[]
+    treeItemsGames?: FileSystemImport[]
     fileSystemFilterTypes?: Record<string, FileSystemFilterType>
 }
 

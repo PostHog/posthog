@@ -4,8 +4,6 @@ use anyhow::{Context, Result};
 
 use clickhouse::Client;
 use futures::FutureExt;
-use opentelemetry_proto::tonic::common::v1::InstrumentationScope;
-use opentelemetry_proto::tonic::logs::v1::LogRecord;
 use tokio::sync::{mpsc, oneshot};
 use tracing::info;
 
@@ -91,22 +89,6 @@ impl ClickHouseWriter {
         }
 
         inserter.end().await?;
-        Ok(())
-    }
-
-    pub async fn insert_log(
-        &self,
-        team_id: i32,
-        log_record: LogRecord,
-        resource_str: String,
-        scope: Option<InstrumentationScope>,
-    ) -> Result<()> {
-        // FormatGenerate query with parameters
-        let row = LogRow::new(team_id, log_record, resource_str, scope)?;
-
-        let mut insert = self.client.insert("logs")?;
-        insert.write(&row).await?;
-        insert.end().await?;
         Ok(())
     }
 }

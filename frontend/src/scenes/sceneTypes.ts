@@ -98,6 +98,7 @@ export enum Scene {
     HogFunction = 'HogFunction',
     UserInterviews = 'UserInterviews',
     UserInterview = 'UserInterview',
+    Game368 = 'Game368',
 }
 
 export type SceneProps = Record<string, any>
