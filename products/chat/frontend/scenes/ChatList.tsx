@@ -1,4 +1,5 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { ChatsList } from '../components/ChatsList'
@@ -14,10 +15,28 @@ export const scene: SceneExport = {
 
 export function ChatList(): JSX.Element {
     const { selectedChatId, chats } = useValues(chatListLogic)
+    const { loadChats } = useActions(chatListLogic)
+
+    const displayableChats = chats.filter((chat) => chat.messages && chat.messages.length > 0)
+
+    const hasMessagesInDisplayableChats = displayableChats.some((chat) => chat.messages.length > 0)
+
+    useEffect(() => {
+        const intervalId = setInterval(() => {
+            loadChats()
+        }, 1000)
+
+        return () => clearInterval(intervalId)
+    }, [])
 
     /** If there are no chats, show the empty state */
-    if (chats.length === 0) {
-        return <EmptyState />
+    if (chats.length === 0 || !hasMessagesInDisplayableChats) {
+        return (
+            <>
+                <ChatTabs activeTab="chat-list" />
+                <EmptyState />
+            </>
+        )
     }
 
     return (

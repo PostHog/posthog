@@ -1,26 +1,15 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
 
 import { chatListLogic } from '../scenes/chatListLogic'
 import { ChatListItem } from './ChatListItem'
 
 export function ChatsList(): JSX.Element {
     const { selectedChatId, chats } = useValues(chatListLogic)
-    const { setSelectedChatId, loadChats } = useActions(chatListLogic)
-
-    useEffect(() => {
-        const intervalId = setInterval(() => {
-            loadChats()
-        }, 1000)
-
-        return () => clearInterval(intervalId)
-    }, [])
+    const { setSelectedChatId } = useActions(chatListLogic)
 
     const displayableChats = chats.filter((chat) => chat.messages && chat.messages.length > 0)
 
-    const hasMessagesInDisplayableChats = displayableChats.some((chat) => chat.messages.length > 0)
-
-    if (displayableChats.length === 0 || !hasMessagesInDisplayableChats) {
+    if (displayableChats.length === 0) {
         return <div className="flex flex-col items-center justify-center h-full">No chats with messages yet</div>
     }
 
