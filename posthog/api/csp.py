@@ -33,7 +33,7 @@ logger = structlog.get_logger(__name__)
 def parse_report_uri(data: dict) -> dict:
     report_uri_data = data["csp-report"]
 
-    report_uri_data["script-sample"] = escape(report_uri_data.get("script-sample"))
+    report_uri_data["script-sample"] = escape(report_uri_data.get("script-sample") or "")
 
     # Map report-uri format to normalized keys
     properties = {
@@ -62,8 +62,8 @@ def parse_report_to(data: dict) -> dict:
     report_to_data = data.get("body", {})
     user_agent = data.get("user_agent") or report_to_data.get("user-agent")
 
-    report_to_data["sample"] = escape(report_to_data.get("sample"))
-    report_to_data["script-sample"] = escape(report_to_data.get("sample"))
+    report_to_data["sample"] = escape(report_to_data.get("sample") or "")
+    report_to_data["script-sample"] = escape(report_to_data.get("sample") or "")
     properties = {
         "report_type": data.get("type"),
         "$current_url": report_to_data.get("documentURL") or report_to_data.get("document-uri") or data.get("url"),
