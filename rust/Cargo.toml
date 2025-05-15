@@ -26,6 +26,7 @@ members = [
     "common/geoip",
     "common/hogvm",
     "log-capture",
+    "links",
 ]
 
 [workspace.lints.rust]
