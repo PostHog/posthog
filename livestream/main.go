@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"time"
@@ -18,6 +19,7 @@ import (
 )
 
 func main() {
+	fmt.Println("Starting livestream")
 	configs.InitConfigs("configs", "./configs")
 
 	config, err := configs.LoadConfig()

@@ -108,7 +108,6 @@ func (c *PostHogKafkaConsumer) Consume() {
 			// TODO capture error to PostHog
 			continue
 		}
-
 		metrics.MsgConsumed.With(prometheus.Labels{"partition": strconv.Itoa(int(msg.TopicPartition.Partition))}).Inc()
 		c.incoming <- msg.Value
 	}

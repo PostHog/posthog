@@ -160,6 +160,9 @@ services:
         extends:
             file: docker-compose.base.yml
             service: livestream
+        build:
+            context: livestream
+            dockerfile: Dockerfile
         environment:
             - LIVESTREAM_JWT_SECRET=${SECRET_KEY}
         ports:

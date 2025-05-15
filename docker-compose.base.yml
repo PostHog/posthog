@@ -12,7 +12,7 @@ services:
             - /root/.caddy
         environment:
             CADDYFILE: |
-                http://localhost:8000 {
+                :8000 {
                     @replay-capture {
                         path /s
                         path /s/*
@@ -46,7 +46,7 @@ services:
                     }
 
                     handle {
-                        reverse_proxy web:8000
+                        reverse_proxy host.docker.internal:8000
                     }
                 }
 
