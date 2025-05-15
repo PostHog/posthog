@@ -74,14 +74,13 @@ export function UserInterview(): JSX.Element {
                     actions={
                         summaryInEditing !== null ? (
                             <>
-                                {!userInterviewLoading && (
-                                    <LemonButton
-                                        size="xsmall"
-                                        icon={<IconX />}
-                                        tooltip="Discard changes"
-                                        onClick={() => setSummaryInEditing(null)}
-                                    />
-                                )}
+                                <LemonButton
+                                    size="xsmall"
+                                    icon={<IconX />}
+                                    tooltip="Discard changes"
+                                    onClick={() => setSummaryInEditing(null)}
+                                    disabledReason={userInterviewLoading ? 'Saving…' : undefined}
+                                />
                                 <LemonButton
                                     size="xsmall"
                                     icon={<IconCheck />}
