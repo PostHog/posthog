@@ -28,6 +28,9 @@ pub struct Config {
     #[envconfig(default = "false")]
     pub enable_metrics: bool,
 
+    #[envconfig(default = "clickhouse_events_json")]
+    pub events_topic: String,
+
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,
 }
@@ -47,6 +50,7 @@ impl Config {
             external_link_redis_url: "redis://localhost:6379/".to_string(),
             internal_link_redis_url: "redis://localhost:6379/".to_string(),
             redis_internal_ttl_seconds: 86400,
+            events_topic: "clickhouse_events_json".to_string(),
             kafka: KafkaConfig {
                 kafka_producer_linger_ms: 0,
                 kafka_producer_queue_mib: 50,

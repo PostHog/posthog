@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT team_id, redirect_url\n        FROM posthog_link\n        WHERE short_code = $1 AND short_link_domain = $2\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "team_id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "redirect_url",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "ba7c7643c6ddb580102386533cd2b1a69860e3f5571cb928408ba875857630ab"
+}
