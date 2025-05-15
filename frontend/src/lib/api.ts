@@ -23,6 +23,8 @@ import {
     FileSystemEntry,
     HogCompileResponse,
     HogQLVariable,
+    LogMessage,
+    LogsQuery,
     QuerySchema,
     QueryStatusResponse,
     RecordingsQuery,
@@ -43,6 +45,7 @@ import {
     BatchExportService,
     CohortType,
     CommentType,
+    ConversationDetail,
     CoreMemory,
     DashboardCollaboratorType,
     DashboardTemplateEditorType,
@@ -495,6 +498,11 @@ class ApiRequest {
 
     public tags(projectId?: ProjectType['id']): ApiRequest {
         return this.projectsDetail(projectId).addPathComponent('tags')
+    }
+
+    // # Logs
+    public logsQuery(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('logs').addPathComponent('query')
     }
 
     // # Data management
@@ -1037,10 +1045,6 @@ class ApiRequest {
             return apiRequest.withQueryString('show_progress=true')
         }
         return apiRequest
-    }
-
-    public queryAwaited(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('query_awaited')
     }
 
     // Conversations
@@ -1588,6 +1592,15 @@ const api = {
 
         async getCount(params: Partial<CommentType>): Promise<number> {
             return (await new ApiRequest().comments().withAction('count').withQueryString(params).get()).count
+        },
+    },
+
+    logs: {
+        async query({ query }: { query: Omit<LogsQuery, 'kind'> }): Promise<LogMessage[]> {
+            return new ApiRequest()
+                .logsQuery()
+                .withQueryString(toParams({ data: { query } }))
+                .get()
         },
     },
 
@@ -3279,32 +3292,6 @@ const api = {
         })
     },
 
-    async queryAwaited<T extends Record<string, any> = QuerySchema>(
-        query: T,
-        options?: ApiMethodOptions,
-        queryId?: string,
-        refresh?: RefreshType,
-        filtersOverride?: DashboardFilter | null,
-        variablesOverride?: Record<string, HogQLVariable> | null
-    ): Promise<
-        T extends { [response: string]: any }
-            ? T['response'] extends infer P | undefined
-                ? P
-                : T['response']
-            : Record<string, any>
-    > {
-        return await new ApiRequest().queryAwaited().create({
-            ...options,
-            data: {
-                query,
-                client_query_id: queryId,
-                refresh,
-                filters_override: filtersOverride,
-                variables_override: variablesOverride,
-            },
-        })
-    },
-
     conversations: {
         async stream(
             data: {
@@ -3320,6 +3307,14 @@ const api = {
 
         cancel(conversationId: string): Promise<void> {
             return new ApiRequest().conversation(conversationId).withAction('cancel').update()
+        },
+
+        list(): Promise<PaginatedResponse<ConversationDetail>> {
+            return new ApiRequest().conversations().get()
+        },
+
+        get(conversationId: string): Promise<ConversationDetail> {
+            return new ApiRequest().conversation(conversationId).get()
         },
     },
 

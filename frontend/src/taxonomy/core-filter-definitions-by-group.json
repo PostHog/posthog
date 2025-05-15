@@ -20,24 +20,6 @@
             "label": "Text"
         }
     },
-    "error_tracking_issue_properties": {
-        "$exception_functions": {
-            "description": "A function contained in the exception.",
-            "label": "Exception function"
-        },
-        "$exception_messages": {
-            "description": "The description of the exception.",
-            "label": "Exception message"
-        },
-        "$exception_sources": {
-            "description": "A source file included in the exception.",
-            "label": "Exception source"
-        },
-        "$exception_types": {
-            "description": "The type of the exception.",
-            "label": "Exception type"
-        }
-    },
     "error_tracking_issues": {
         "assignee": {
             "description": "The current assignee of an issue.",
@@ -500,6 +482,10 @@
             "description": "A fingerprint used to group issues, can be set clientside.",
             "label": "Exception fingerprint"
         },
+        "$exception_functions": {
+            "description": "A function contained in the exception.",
+            "label": "Exception function"
+        },
         "$exception_handled": {
             "description": "Whether this was a handled or unhandled exception.",
             "label": "Exception was handled"
@@ -543,6 +529,10 @@
             "examples": ["JS file"],
             "label": "Exception source"
         },
+        "$exception_sources": {
+            "description": "A source file included in the exception.",
+            "label": "Exception source"
+        },
         "$exception_stack_trace_raw": {
             "description": "The exceptions stack trace, as a string.",
             "label": "Exception raw stack trace"
@@ -551,6 +541,15 @@
             "description": "Exception categorized into types.",
             "examples": ["Error"],
             "label": "Exception type"
+        },
+        "$exception_types": {
+            "description": "The type of the exception.",
+            "examples": ["TypeError"],
+            "label": "Exception type"
+        },
+        "$exception_values": {
+            "description": "The description of the exception.",
+            "label": "Exception message"
         },
         "$feature_flag": {
             "description": "The feature flag that was called.\n\nWarning! This only works in combination with the $feature_flag_called event. If you want to filter other events, try \"Active feature flags\".",
@@ -2181,6 +2180,10 @@
             "description": "A fingerprint used to group issues, can be set clientside.",
             "label": "Exception fingerprint"
         },
+        "$exception_functions": {
+            "description": "A function contained in the exception.",
+            "label": "Exception function"
+        },
         "$exception_handled": {
             "description": "Whether this was a handled or unhandled exception.",
             "label": "Exception was handled"
@@ -2224,6 +2227,10 @@
             "examples": ["JS file"],
             "label": "Exception source"
         },
+        "$exception_sources": {
+            "description": "A source file included in the exception.",
+            "label": "Exception source"
+        },
         "$exception_stack_trace_raw": {
             "description": "The exceptions stack trace, as a string.",
             "label": "Exception raw stack trace"
@@ -2232,6 +2239,15 @@
             "description": "Exception categorized into types.",
             "examples": ["Error"],
             "label": "Exception type"
+        },
+        "$exception_types": {
+            "description": "The type of the exception.",
+            "examples": ["TypeError"],
+            "label": "Exception type"
+        },
+        "$exception_values": {
+            "description": "The description of the exception.",
+            "label": "Exception message"
         },
         "$feature_flag": {
             "description": "The feature flag that was called.\n\nWarning! This only works in combination with the $feature_flag_called event. If you want to filter other events, try \"Active feature flags\".",
