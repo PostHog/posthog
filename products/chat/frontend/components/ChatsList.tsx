@@ -18,6 +18,8 @@ export function ChatsList(): JSX.Element {
                     key={chat.id}
                     user={chat.person_uuid}
                     message={chat.messages.length ? chat.messages[chat.messages.length - 1].content : ''}
+                    subject={chat.title ?? ''}
+                    source_url={chat.source_url ?? ''}
                     isActive={selectedChatId === chat.id}
                     onClick={() => setSelectedChatId(chat.id ?? null)}
                     date={chat.messages.length ? chat.messages[chat.messages.length - 1].created_at : ''}

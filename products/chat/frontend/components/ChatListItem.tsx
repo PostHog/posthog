@@ -1,8 +1,12 @@
 import { IconCornerDownRight } from '@posthog/icons'
 import { TZLabel } from 'lib/components/TZLabel'
+import IconZendesk from 'public/services/zendesk.png'
+
 export function ChatListItem({
     user,
     message,
+    subject = '',
+    source_url = '',
     isActive,
     onClick,
     date,
@@ -11,6 +15,8 @@ export function ChatListItem({
 }: {
     user: string
     message: string
+    subject: string
+    source_url: string
     isActive: boolean
     onClick: () => void
     date: string
@@ -31,7 +37,8 @@ export function ChatListItem({
             <div className="text-sm flex items-center gap-1">
                 {isUnread && <span className="w-2 h-2 bg-red-500 rounded-full inline-block mr-1" />}
                 {isReply && <IconCornerDownRight className="w-4 h-4 text-gray-400 rotate-180" />}
-                <span className="truncate">{message}</span>
+                {source_url && source_url === 'zendesk' && <img src={IconZendesk} className="w-4 h-4" />}
+                <span className="truncate">{subject ? `${subject} - ${message}` : message}</span>
             </div>
         </div>
     )
