@@ -18,6 +18,7 @@ export type SdkVersionInfo = {
     latestVersion?: string
     multipleInitializations?: boolean
     initCount?: number
+    initUrls?: {url: string, count: number}[]  // Add this to track actual URLs
 }
 export type SdkHealthStatus = 'healthy' | 'warning' | 'critical'
 
@@ -266,21 +267,45 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                     const isTimeCompressed = recentTimestamps.length >= 2 && 
                         (Math.max(...recentTimestamps) - Math.min(...recentTimestamps) < 2000)
                     
-                    // For the demo, we'll hardcode detection for simplicity
-                    // This can be enhanced with proper heuristics later
-                    const forceDetection = webEvents.length > 0 && (hasDuplicateInit || isTimeCompressed)
+                    // Group by distinct_id to find users with high event concentration
+                    const distinctIds = [...new Set(webEvents.map(e => e.distinct_id))]
                     
-                    // New check - look for file:///Users/slshults/Documents/Tests/test.htm in URLs
-                    // This ensures we only show the warning for our test file
-                    const hasTestHtmlEvent = limitedEvents.some(e => 
-                        e.properties?.$current_url?.includes('test.htm') && 
-                        !e.properties?.$current_url?.includes('test-corrected-init.htm')
-                    )
+                    // Track initialization URLs
+                    const urlCounts: Record<string, number> = {}
                     
-                    // Only show the warning for our test.htm file for the demo
-                    const shouldShowWarning = forceDetection && hasTestHtmlEvent
+                    // For each user, count events and check timing patterns
+                    const userWithMultipleInits = distinctIds.some(id => {
+                        const userEvents = webEvents.filter(e => e.distinct_id === id)
+                        
+                        // Check if user has several events in a short time span (< 2 sec)
+                        // This is a good heuristic for multiple initializations
+                        if (userEvents.length >= 3) {
+                            const timestamps = userEvents.map(e => new Date(e.timestamp).getTime())
+                            const timeSpan = Math.max(...timestamps) - Math.min(...timestamps)
+                            
+                            // Count URLs where initialization happens
+                            userEvents.forEach(event => {
+                                const url = event.properties?.$current_url || 'Unknown URL'
+                                urlCounts[url] = (urlCounts[url] || 0) + 1
+                            })
+                            
+                            // If events are clustered in time, likely multiple inits
+                            if (timeSpan < 3000) {
+                                return true
+                            }
+                        }
+                        return false
+                    })
                     
-                    console.log(`[SDK Doctor] Web events: ${webEvents.length}, Force detection: ${forceDetection}, Has test.htm: ${hasTestHtmlEvent}`)
+                    // For the demo, we'll use reasonable heuristics
+                    const shouldShowWarning = hasDuplicateInit || isTimeCompressed || userWithMultipleInits
+                    
+                    // Get initialization URLs sorted by frequency (most frequent first)
+                    const initUrlsSorted = Object.entries(urlCounts)
+                        .sort(([, countA], [, countB]) => countB - countA)
+                        .map(([url, count]) => ({ url, count }))
+                    
+                    console.log(`[SDK Doctor] Web events: ${webEvents.length}, Should show warning: ${shouldShowWarning}, URLs:`, initUrlsSorted)
                     
                     for (const event of limitedEvents) {
                         const lib = event.properties?.$lib
@@ -324,6 +349,8 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                 // For web SDK, apply our detection logic
                                 multipleInitializations: type === 'web' ? shouldShowWarning : false,
                                 initCount: type === 'web' && shouldShowWarning ? 3 : undefined,
+                                // Include detected URLs
+                                initUrls: type === 'web' && shouldShowWarning ? initUrlsSorted : undefined,
                             }
                         } else {
                             sdkVersionsMap[key].count += 1

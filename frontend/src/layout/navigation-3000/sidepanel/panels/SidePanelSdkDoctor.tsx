@@ -130,6 +130,17 @@ const SdkLinks = ({ sdkType }: { sdkType: SdkType }): JSX.Element => {
     )
 }
 
+// Helper function to get ordinal suffix
+const getOrdinalSuffix = (n: number): string => {
+    if (n > 3 && n < 21) return 'th';
+    switch (n % 10) {
+        case 1: return 'st';
+        case 2: return 'nd';
+        case 3: return 'rd';
+        default: return 'th';
+    }
+}
+
 export function SidePanelSdkDoctor(): JSX.Element {
     const { sdkVersions, sdkHealth, recentEventsLoading, outdatedSdkCount } = useValues(sidePanelSdkDoctorLogic)
     const { loadRecentEvents } = useActions(sidePanelSdkDoctorLogic)
@@ -244,25 +255,30 @@ export function SidePanelSdkDoctor(): JSX.Element {
                         <div className="mt-3">
                             <h4 className="text-sm font-semibold mb-2">Sources of multiple initialization</h4>
                             <LemonTable
-                                dataSource={[
-                                    {
-                                        url: 'file:///Users/slshults/Documents/Tests/test.htm',
-                                        count: 2,
-                                        initType: 'File with multiple init calls'
-                                    },
-                                    {
-                                        url: '↳ setTimeout callback (line 36)',
-                                        count: null,
-                                        initType: '2nd initialization call'
-                                    }
-                                ]}
+                                dataSource={
+                                    // Use the actual URLs from the events, or fallback to a default if none found
+                                    sdkVersions.find(sdk => sdk.multipleInitializations)?.initUrls?.map((item, index) => ({
+                                        url: item.url,
+                                        count: item.count,
+                                        initType: index === 0 ? 'File with multiple init calls' : `${index + 1}${getOrdinalSuffix(index + 1)} initialization call`
+                                    })) || [
+                                        // Fallback data just in case
+                                        {
+                                            url: 'Unknown source file',
+                                            count: 2,
+                                            initType: 'File with multiple init calls'
+                                        }
+                                    ]
+                                }
                                 columns={[
                                     {
                                         title: 'URL / Screen',
                                         dataIndex: 'url',
-                                        render: function RenderUrl(url) {
+                                        render: function RenderUrl(url, record, index) {
                                             return (
-                                                <code className="text-xs truncate max-w-48">{url}</code>
+                                                <code className="text-xs truncate max-w-48">
+                                                    {index > 0 ? '↳ ' : ''}{url}
+                                                </code>
                                             )
                                         }
                                     },
@@ -277,8 +293,9 @@ export function SidePanelSdkDoctor(): JSX.Element {
                                         title: 'Init Count',
                                         dataIndex: 'count',
                                         align: 'right',
-                                        render: function RenderCount(count) {
-                                            return count ? <div className="text-right font-medium">{count}</div> : null
+                                        render: function RenderCount(count, record, index) {
+                                            // Only show count for the first row (the file)
+                                            return index === 0 ? <div className="text-right font-medium">{count}</div> : null
                                         }
                                     }
                                 ]}
