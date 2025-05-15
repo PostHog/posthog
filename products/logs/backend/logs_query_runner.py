@@ -3,7 +3,12 @@ from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner
-from posthog.schema import CachedLogsQueryResponse, LogsQuery, LogsQueryResponse
+from posthog.schema import (
+    CachedLogsQueryResponse,
+    LogsQuery,
+    LogsQueryResponse,
+    OrderBy1,
+)
 
 
 class LogsQueryRunner(QueryRunner):
@@ -27,9 +32,10 @@ class LogsQueryRunner(QueryRunner):
             query=self.to_query(),
             modifiers=self.modifiers,
             team=self.team,
-            workload=Workload.ONLINE,
+            workload=Workload.LOGS,
             timings=self.timings,
             limit_context=self.limit_context,
+            filters=[self.query.dateRange],
         )
 
         return LogsQueryResponse(results=response.results, **self.paginator.response_params())
@@ -39,7 +45,12 @@ class LogsQueryRunner(QueryRunner):
             select=self.select(),
             select_from=ast.JoinExpr(table=ast.Field(chain=["logs"])),
             where=self.where(),
-            order_by=self.query.orderBy,
+            order_by=[
+                ast.OrderExpr(
+                    expr=ast.Field(chain=["timestamp"]),
+                    order="ASC" if self.query.orderBy == OrderBy1.EARLIEST else "DESC",
+                )
+            ],
         )
 
     def select(self) -> list[ast.Expr]:
@@ -82,7 +93,7 @@ class LogsQueryRunner(QueryRunner):
                 )
             )
 
-        if (self.query.severityLevels) > 0:
+        if len(self.query.severityLevels) > 0:
             exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.In,
