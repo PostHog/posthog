@@ -195,7 +195,7 @@ export function SidePanelSdkDoctor(): JSX.Element {
                                     rel="noopener noreferrer"
                                     className="text-primary hover:text-primary-dark"
                                 >
-                                    Releases page on GitHub
+                                    Web SDK Releases
                                 </a>
                             </li>
                             <li>
@@ -228,6 +228,30 @@ export function SidePanelSdkDoctor(): JSX.Element {
                                             className="text-primary hover:text-primary-dark"
                                         >
                                             PHP SDK docs
+                                        </a>
+                                    </li>
+                                </>
+                            )}
+                            {outdatedSdkCount > 0 && sdkVersions.some(sdk => sdk.type === 'python' && sdk.isOutdated) && (
+                                <>
+                                    <li>
+                                        <a 
+                                            href="https://github.com/PostHog/posthog-python/releases" 
+                                            target="_blank" 
+                                            rel="noopener noreferrer"
+                                            className="text-primary hover:text-primary-dark"
+                                        >
+                                            Python SDK Releases
+                                        </a>()
+                                    </li>
+                                    <li>
+                                        <a 
+                                            href="https://posthog.com/docs/libraries/python" 
+                                            target="_blank" 
+                                            rel="noopener noreferrer"
+                                            className="text-primary hover:text-primary-dark"
+                                        >
+                                            Python SDK docs
                                         </a>
                                     </li>
                                 </>
