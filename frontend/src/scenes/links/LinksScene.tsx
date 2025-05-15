@@ -79,6 +79,7 @@ export function LinksScene(): JSX.Element {
                                     {
                                         label: `Delete link`,
                                         status: 'danger' as const,
+                                        disabledReason: 'Coming soon',
                                         onClick: () => {},
                                     },
                                 ]}

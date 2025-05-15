@@ -19,9 +19,7 @@ export function LinkScene({ id }: { id?: string } = {}): JSX.Element {
     const isNew = id === 'new'
     const buttonText = isNew ? 'Create link' : 'Update link'
 
-    const fullLink = link?.id
-        ? `${window.location.protocol}//${link.short_link_domain}/${link.short_code}`
-        : 'https://phog.gg/'
+    const fullLink = link?.id ? `https://${link.short_link_domain}/${link.short_code}` : 'https://phog.gg/'
 
     return (
         <Form
