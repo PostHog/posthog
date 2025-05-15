@@ -77,12 +77,6 @@ export const hedgedHogLogic = kea<hedgedHogLogicType>([
     }),
 
     reducers({
-        hedgedHogData: [
-            { name: 'Sample HedgedHog', value: 42 } as HedgedHogData,
-            {
-                setData: (_, { data }) => data,
-            },
-        ],
         transactions: [
             [] as Transaction[],
             {
@@ -152,12 +146,6 @@ export const hedgedHogLogic = kea<hedgedHogLogicType>([
     }),
 
     loaders(() => ({
-        hedgedHogData: {
-            loadHedgedHogData: async () => {
-                const response = await api.get('api/projects/@current/hedged-hog/')
-                return response
-            },
-        },
         transactions: {
             loadTransactions: async () => {
                 const response = await api.get(`api/projects/@current/transactions/`)
@@ -227,7 +215,6 @@ export const hedgedHogLogic = kea<hedgedHogLogicType>([
     })),
 
     selectors({
-        dataMessage: [(s) => [s.hedgedHogData], (data: HedgedHogData) => `${data.name}: ${data.value}`],
         hasTransactions: [(s) => [s.transactions], (transactions) => transactions.length > 0],
         currentBet: [
             (s) => [s.allBets, s.betId],
@@ -253,17 +240,17 @@ export const hedgedHogLogic = kea<hedgedHogLogicType>([
             // Only push if the tab is different from current
             if (tab !== searchParams.tab) {
                 if (tab === 'betting') {
-                    push('/hedged-hog')
+                    push('/betting')
                 } else if (tab === 'wallet') {
-                    push('/hedged-hog?tab=wallet')
+                    push('/betting?tab=wallet')
                 } else if (tab === 'my-bets') {
-                    push('/hedged-hog?tab=my-bets')
+                    push('/betting?tab=my-bets')
                 }
             }
         },
         goBackToBets: () => {
             actions.setBetId(null)
-            router.actions.push('/hedged-hog')
+            router.actions.push('/betting')
         },
         placeBetSuccess: () => {
             actions.loadTransactions()
@@ -286,12 +273,12 @@ export const hedgedHogLogic = kea<hedgedHogLogicType>([
     })),
 
     urlToAction(({ actions, values }) => ({
-        '/hedged-hog': (_, searchParams) => {
+        '/betting': (_, searchParams) => {
             if (searchParams.tab) {
                 actions.setActiveTab(searchParams.tab)
             }
         },
-        '/hedged-hog/bet/:betId': ({ betId }) => {
+        '/betting/:betId': ({ betId }) => {
             if (betId !== values.betId) {
                 actions.setBetId(betId ?? null)
             }

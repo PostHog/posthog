@@ -475,7 +475,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.HedgedHog]: {
         projectBased: true,
         name: 'Hedged Hog',
-        defaultDocsPath: '/docs/hedged-hog',
     },
     ...productConfiguration,
 }

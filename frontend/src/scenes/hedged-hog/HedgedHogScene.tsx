@@ -2,8 +2,6 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { IconRefresh } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -26,8 +24,8 @@ type Tab = 'betting' | 'wallet' | 'leaderboard' | 'my-bets'
 export function HedgedHogScene(): JSX.Element {
     const { location, searchParams } = useValues(router)
     const { replace } = useActions(router)
-    const { betId, isOnboarded, transactionsLoading, walletBalanceLoading } = useValues(hedgedHogLogic)
-    const { loadTransactions, loadWalletBalance, initializeWallet } = useActions(hedgedHogLogic)
+    const { betId, isOnboarded } = useValues(hedgedHogLogic)
+    const { initializeWallet } = useActions(hedgedHogLogic)
 
     // Get the active tab from URL query parameters or default to 'betting'
     const tabFromUrl = searchParams.tab as Tab
@@ -50,24 +48,7 @@ export function HedgedHogScene(): JSX.Element {
     return (
         <div className="px-4">
             <h1 className="mb-2">Hedged Hog</h1>
-            <PageHeader
-                caption="Place bets on key metrics and win rewards"
-                buttons={
-                    isOnboarded ? (
-                        <LemonButton
-                            type="primary"
-                            icon={<IconRefresh />}
-                            onClick={() => {
-                                loadTransactions()
-                                loadWalletBalance()
-                            }}
-                            loading={transactionsLoading || walletBalanceLoading}
-                        >
-                            Refresh
-                        </LemonButton>
-                    ) : undefined
-                }
-            />
+            <PageHeader caption="Place bets on key metrics and win rewards" />
 
             {!isOnboarded ? (
                 <ProductIntroduction

@@ -94,7 +94,7 @@ export const WalletContent = (): JSX.Element => {
                                 type="primary"
                                 onClick={() => {
                                     if (user) {
-                                        router.actions.push('/hedged-hog', { tab: 'bet-definitions' })
+                                        router.actions.push('/betting', { tab: 'bet-definitions' })
                                     }
                                 }}
                             >
@@ -198,8 +198,10 @@ export const WalletContent = (): JSX.Element => {
                                                 isIncoming ? 'text-success' : isOutgoing ? 'text-danger' : ''
                                             }`}
                                         >
-                                            {isIncoming ? '+' : isOutgoing ? '-' : ''}
-                                            {parseFloat(amount?.toString() || '0').toLocaleString()} Hogecoins
+                                            <span>
+                                                {isIncoming ? '+' : isOutgoing ? '-' : ''}
+                                                {parseFloat(amount?.toString() || '0').toLocaleString()} Hogecoins
+                                            </span>
                                         </span>
                                     )
                                 },

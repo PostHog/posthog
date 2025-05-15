@@ -16,7 +16,7 @@ import { BillingLineGraph } from 'scenes/billing/BillingLineGraph'
 import { hedgedHogBetDefinitionsLogic } from './hedgedHogBetDefinitionsLogic'
 import { BetDefinition } from './hedgedHogBetDefinitionsLogic'
 
-const BetDefinitionForm = (): JSX.Element => {
+const BetDefinitionForm = ({ setShowNewForm }: { setShowNewForm: (show: boolean) => void }): JSX.Element => {
     return (
         <Form logic={hedgedHogBetDefinitionsLogic} formKey="betDefinition" enableFormOnSubmit className="space-y-4">
             <Field name="title" label="Title">
@@ -31,7 +31,7 @@ const BetDefinitionForm = (): JSX.Element => {
                 <LemonSelect options={[{ value: 'pageviews', label: 'Page Views' }]} />
             </Field>
 
-            <Field
+            {/* <Field
                 name="bet_parameters"
                 label="Bet Parameters"
                 help="Enter the parameters as a JSON object, e.g. {'url': '/path', 'filters': {...}}"
@@ -51,7 +51,7 @@ const BetDefinitionForm = (): JSX.Element => {
                         rows={4}
                     />
                 )}
-            </Field>
+            </Field> */}
 
             <Field name="closing_date" label="Closing Date">
                 {({ value, onChange }) => (
@@ -66,6 +66,15 @@ const BetDefinitionForm = (): JSX.Element => {
             <Field name="probability_distribution_interval" label="Distribution Update Interval (seconds)">
                 <LemonInput type="number" min={60} />
             </Field>
+
+            <div className="flex justify-between items-center pt-4">
+                <LemonButton type="secondary" onClick={() => setShowNewForm(false)}>
+                    Cancel
+                </LemonButton>
+                <LemonButton type="primary" htmlType="submit">
+                    Create
+                </LemonButton>
+            </div>
         </Form>
     )
 }
@@ -90,22 +99,8 @@ export function BettingContent(): JSX.Element {
                 </LemonButton>
             </div>
 
-            <LemonModal
-                isOpen={showNewForm}
-                onClose={() => setShowNewForm(false)}
-                title="Create Bet Definition"
-                footer={
-                    <div className="flex justify-between items-center">
-                        <LemonButton type="secondary" onClick={() => setShowNewForm(false)}>
-                            Cancel
-                        </LemonButton>
-                        <LemonButton type="primary" form="betDefinition" htmlType="submit">
-                            Create
-                        </LemonButton>
-                    </div>
-                }
-            >
-                <BetDefinitionForm />
+            <LemonModal isOpen={showNewForm} onClose={() => setShowNewForm(false)} title="Create Bet Definition">
+                <BetDefinitionForm setShowNewForm={setShowNewForm} />
             </LemonModal>
 
             {betDefinitionsLoading ? (
@@ -117,7 +112,7 @@ export function BettingContent(): JSX.Element {
             ) : betDefinitions.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {betDefinitions.map((bet: BetDefinition) => (
-                        <Link key={bet.id} to={`/hedged-hog/bet/${bet.id}`} className="no-underline">
+                        <Link key={bet.id} to={`/betting/${bet.id}`} className="no-underline">
                             <div className="border rounded p-6 relative border-primary h-full hover:bg-surface-primary transition-colors duration-200">
                                 <div className="flex flex-col h-full">
                                     <div className="flex-grow">
