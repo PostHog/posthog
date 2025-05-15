@@ -1,0 +1,1 @@
+"""Managed migrations product."""

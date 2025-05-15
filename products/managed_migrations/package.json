@@ -1,0 +1,20 @@
+{
+    "name": "@posthog/managed-migrations",
+    "dependencies": {
+        "@posthog/icons": "*",
+        "kea-forms": "^3.2.0",
+        "kea-loaders": "^3.0.0",
+        "kea-router": "^3.2.1"
+    },
+    "peerDependencies": {
+        "@posthog/icons": "*",
+        "@types/react": "*",
+        "clsx": "*",
+        "fuse.js": "*",
+        "kea": "*",
+        "kea-forms": "*",
+        "kea-loaders": "*",
+        "kea-router": "*",
+        "react": "*"
+    }
+}
