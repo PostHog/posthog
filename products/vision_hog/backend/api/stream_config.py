@@ -17,8 +17,19 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+class EventPropertyConfig(BaseModel):
+    name: str
+    description: str
+
+
+class EventConfig(BaseModel):
+    name: str
+    description: str
+    properties: list[EventPropertyConfig]
+
+
 class EventSuggestions(BaseModel):
-    event_suggestions: list[str]
+    event_suggestions: list[EventConfig]
 
 
 GENERATE_EVENT_SUGGESTIONS_SYSTEM_PROMPT = """
@@ -40,12 +51,23 @@ class StreamConfigSerializer(serializers.ModelSerializer):
         model = StreamConfig
         fields = ["id", "team_id", "stream_url", "events"]
 
-    def _generate_analysis_prompt(self, events: list[str]) -> str:
+    def _generate_analysis_prompt(self, events: list[EventConfig]) -> str:
+        # Build event examples string separately for clarity
+        event_examples = []
+        for event in events:
+            event_text = f"{event['name']} ({event['description']})"
+            if event["properties"]:
+                props = ", ".join([f"{prop['name']} ({prop['description']})" for prop in event["properties"]])
+                event_text += f" with properties: {props}"
+            event_examples.append(event_text)
+
+        event_examples_str = ", ".join(event_examples)
+
         base_prompt = f"""Analyze this video of environment and identify key customer events and interactions.
 For each event, provide a description and its approximate timestamp in the video.
 Return the output as a valid JSON array of objects that follows PostHog's event schema. Each object must have the following fields:
 
-- "event": String - The specific customer action (e.g., {', '.join(events)})
+- "event": String - The specific customer action (e.g., {event_examples_str})
 - "properties": Object containing:
   - "timestamp": "HH:MM:SS" (String format for hours, minutes, seconds)
   - "distinct_id": String - A unique identifier for the customer, prefixed with "camera:" (e.g., "camera:customer_1", "camera:customer_2")
@@ -58,7 +80,7 @@ Return the output as a valid JSON array of objects that follows PostHog's event 
 Example of expected JSON output:
 [
   {{
-    "event": "{events[0] if events else 'example_event'}",
+    "event": "{events[0]['name'] if events else 'example_event'}",
     "properties": {{
       "timestamp": "00:00:15",
       "distinct_id": "camera:customer_1",
@@ -74,7 +96,7 @@ Ensure the output is only the JSON array and nothing else.
 If no specific events are identifiable, return an empty array []."""
 
         # Add events from config to prompt
-        events_prompt = f"\n\nTrack these specific events (and nothing else): {', '.join(events)}" if events else ""
+        events_prompt = f"\n\nTrack these specific events (and nothing else): {event_examples_str}" if events else ""
 
         return base_prompt + events_prompt
 
