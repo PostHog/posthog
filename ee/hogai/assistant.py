@@ -125,6 +125,7 @@ class Assistant:
         is_new_conversation: bool = False,
         trace_id: Optional[str | UUID] = None,
         tool_call_partial_state: Optional[AssistantState] = None,
+        deep_research_mode: bool = False,
     ):
         self._team = team
         self._contextual_tools = contextual_tools or {}
@@ -159,6 +160,7 @@ class Assistant:
             else None
         )
         self._trace_id = trace_id
+        self._deep_research_mode = deep_research_mode
 
     def stream(self):
         if SERVER_GATEWAY_INTERFACE == "ASGI":
@@ -237,7 +239,9 @@ class Assistant:
     def _initial_state(self) -> AssistantState:
         if self._latest_message and self._mode == AssistantMode.ASSISTANT:
             return AssistantState(
-                messages=[self._latest_message], start_id=self._latest_message.id, mode="deep_research"
+                messages=[self._latest_message],
+                start_id=self._latest_message.id,
+                mode="deep_research" if self._deep_research_mode else None,
             )
         else:
             return AssistantState(messages=[])

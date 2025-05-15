@@ -3283,6 +3283,7 @@ const api = {
                 contextual_tools?: Record<string, any>
                 conversation?: string | null
                 trace_id: string
+                deep_research_mode?: boolean
             },
             options?: ApiMethodOptions
         ): Promise<Response> {

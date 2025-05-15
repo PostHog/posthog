@@ -1,5 +1,5 @@
 import { IconArrowRight, IconStopFilled } from '@posthog/icons'
-import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { IconTools } from 'lib/lemon-ui/icons'
@@ -16,8 +16,8 @@ interface QuestionInputProps {
 
 export function QuestionInput({ isFloating }: QuestionInputProps): JSX.Element {
     const { tools } = useValues(maxGlobalLogic)
-    const { question, threadLoading, inputDisabled, submissionDisabledReason } = useValues(maxLogic)
-    const { askMax, setQuestion, stopGeneration } = useActions(maxLogic)
+    const { question, threadLoading, inputDisabled, submissionDisabledReason, deepResearchMode } = useValues(maxLogic)
+    const { askMax, setQuestion, stopGeneration, setDeepResearchMode } = useActions(maxLogic)
 
     const textAreaRef = useRef<HTMLTextAreaElement | null>(null)
 
@@ -90,6 +90,16 @@ export function QuestionInput({ isFloating }: QuestionInputProps): JSX.Element {
                             icon={threadLoading ? <IconStopFilled /> : <IconArrowRight />}
                         />
                     </div>
+                </div>
+                <div className="flex justify-end gap-1 w-full p-1">
+                    <LemonSwitch
+                        checked={deepResearchMode}
+                        label="Think harder"
+                        disabled={threadLoading}
+                        onChange={(checked) => setDeepResearchMode(checked)}
+                        size="xxsmall"
+                        tooltip="This will make Max think harder about your question"
+                    />
                 </div>
                 {tools.length > 0 && (
                     <div

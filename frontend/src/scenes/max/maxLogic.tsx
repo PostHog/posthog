@@ -97,6 +97,7 @@ export const maxLogic = kea<maxLogicType>([
         pollConversation: (currentRecursionDepth: number = 0) => ({ currentRecursionDepth }),
         goBack: true,
         setBackScreen: (screen: 'history') => ({ screen }),
+        setDeepResearchMode: (deepResearchMode: boolean) => ({ deepResearchMode }),
     }),
 
     reducers({
@@ -193,6 +194,13 @@ export const maxLogic = kea<maxLogicType>([
                 startNewConversation: () => null,
             },
         ],
+
+        deepResearchMode: [
+            false,
+            {
+                setDeepResearchMode: (_, { deepResearchMode }) => deepResearchMode,
+            },
+        ],
     }),
 
     loaders({
@@ -282,6 +290,7 @@ export const maxLogic = kea<maxLogicType>([
                         contextual_tools: Object.fromEntries(values.tools.map((tool) => [tool.name, tool.context])),
                         conversation: values.conversation?.id,
                         trace_id: traceId,
+                        deep_research_mode: values.deepResearchMode,
                     },
                     {
                         signal: cache.generationController.signal,

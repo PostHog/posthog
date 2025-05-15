@@ -28,6 +28,7 @@ class MessageSerializer(serializers.Serializer):
     conversation = serializers.UUIDField(required=False)
     contextual_tools = serializers.DictField(required=False, child=serializers.JSONField())
     trace_id = serializers.UUIDField(required=True)
+    deep_research_mode = serializers.BooleanField(required=False, default=False)
 
     def validate(self, data):
         try:
@@ -95,6 +96,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             is_new_conversation=not conversation_id,
             trace_id=serializer.validated_data["trace_id"],
             mode=AssistantMode.ASSISTANT,
+            deep_research_mode=serializer.validated_data.get("deep_research_mode", False),
         )
         return StreamingHttpResponse(assistant.stream(), content_type=ServerSentEventRenderer.media_type)
 
