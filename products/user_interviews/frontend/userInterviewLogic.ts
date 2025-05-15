@@ -31,10 +31,10 @@ export const userInterviewLogic = kea<userInterviewLogicType>([
             },
         ],
     }),
-    selectors(({ props, values }) => ({
+    selectors(({ props }) => ({
         breadcrumbs: [
-            () => [],
-            (): Breadcrumb[] => [
+            (s) => [s.userInterview],
+            (userInterview): Breadcrumb[] => [
                 {
                     key: 'UserInterviews',
                     name: 'User interviews',
@@ -42,7 +42,7 @@ export const userInterviewLogic = kea<userInterviewLogicType>([
                 },
                 {
                     key: props.id,
-                    name: values.userInterview?.interviewee_emails.join(', ') || props.id,
+                    name: userInterview?.interviewee_emails.join(', '),
                     path: urls.userInterview(props.id),
                 },
             ],

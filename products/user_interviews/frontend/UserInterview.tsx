@@ -1,4 +1,5 @@
-import { LemonButton, LemonTag, Spinner } from '@posthog/lemon-ui'
+import { LemonTag, Spinner } from '@posthog/lemon-ui'
+import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -21,6 +22,39 @@ export const scene: SceneExport = {
 export function UserInterview(): JSX.Element {
     const { userInterview, userInterviewLoading } = useValues(userInterviewLogic)
 
+    if (userInterviewLoading && !userInterview) {
+        return (
+            <div className="@container">
+                <PageHeader caption={<LemonSkeleton.Text className="w-48 h-4" />} />
+                <div className="grid grid-cols-1 items-start gap-4 @4xl:grid-cols-3">
+                    <LemonWidget title="Summary" className="col-span-2">
+                        <div className="space-y-1.5 p-3">
+                            <LemonSkeleton.Text className="h-6 w-[20%]" />
+                            <LemonSkeleton.Text className="h-3 w-[60%]" />
+                            <LemonSkeleton.Text className="h-3 w-[70%]" />
+                            <LemonSkeleton.Text className="h-3 w-[80%]" />
+                            <LemonSkeleton.Text className="h-3 w-[40%]" />
+                            <LemonSkeleton.Text className="h-3 w-[55%]" />
+                            <LemonSkeleton.Text className="h-3 w-[65%]" />
+                        </div>
+                    </LemonWidget>
+                    <LemonWidget title="Transcript" className="col-span-1">
+                        <div className="space-y-1.5 p-3">
+                            <LemonSkeleton.Text className="h-3 w-[80%]" />
+                            <LemonSkeleton.Text className="h-3 w-[40%]" />
+                            <LemonSkeleton.Text className="h-3 w-[60%]" />
+                            <LemonSkeleton.Text className="h-3 w-[70%]" />
+                            <LemonSkeleton.Text className="h-3 w-[80%]" />
+                            <LemonSkeleton.Text className="h-3 w-[40%]" />
+                            <LemonSkeleton.Text className="h-3 w-[60%]" />
+                            <LemonSkeleton.Text className="h-3 w-[70%]" />
+                        </div>
+                    </LemonWidget>
+                </div>
+            </div>
+        )
+    }
+
     if (userInterviewLoading) {
         return <Spinner />
     }
@@ -30,77 +64,23 @@ export function UserInterview(): JSX.Element {
     }
 
     return (
-        <div className="space-y-4">
-            <PageHeader
-                caption={<InterviewMetadata interview={userInterview} />}
-                buttons={
-                    <LemonButton type="secondary" to="/user_interviews">
-                        Back to list
-                    </LemonButton>
-                }
-            />
-
-            <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="md:col-span-2 space-y-4">
-                    {/* Summary */}
-                    <LemonWidget title="Summary">
-                        {userInterview.summary ? (
-                            <LemonMarkdown className="p-3" lowKeyHeadings>
-                                {userInterview.summary}
-                            </LemonMarkdown>
-                        ) : (
-                            <div className="text-muted-alt">No summary available.</div>
-                        )}
-                    </LemonWidget>
-                    <LemonWidget title="Transcript">
-                        {userInterview.transcript ? (
-                            <LemonMarkdown className="p-3" lowKeyHeadings>
-                                {userInterview.transcript}
-                            </LemonMarkdown>
-                        ) : (
-                            <div className="text-muted-alt p-3">No transcript available.</div>
-                        )}
-                    </LemonWidget>
-                </div>
-
-                <div className="space-y-4">
-                    <LemonWidget title="Details">
-                        <div className="p-3">
-                            <p>
-                                <strong>ID:</strong> {userInterview.id}
-                            </p>
-                            {userInterview.created_at && (
-                                <p>
-                                    <strong>Created At:</strong>{' '}
-                                    {dayjs(userInterview.created_at).format('MMMM D, YYYY h:mm A')}
-                                </p>
-                            )}
-                            {userInterview.created_by && (
-                                <p>
-                                    <strong>Created By:</strong>{' '}
-                                    <PersonDisplay
-                                        person={{
-                                            ...userInterview.created_by,
-                                            id: String(userInterview.created_by.id),
-                                        }}
-                                        withIcon
-                                    />
-                                </p>
-                            )}
-                            {userInterview.interviewee_emails && userInterview.interviewee_emails.length > 0 && (
-                                <p>
-                                    <strong>Interviewees:</strong> {userInterview.interviewee_emails.join(', ')}
-                                </p>
-                            )}
-                        </div>
-                    </LemonWidget>
-
-                    <LemonWidget title="Notes / Analysis">
-                        <div className="h-48 flex items-center justify-center text-muted-alt p-3">
-                            Notes Area (TODO)
-                        </div>
-                    </LemonWidget>
-                </div>
+        <div className="@container">
+            <PageHeader caption={<InterviewMetadata interview={userInterview} />} />
+            <div className="grid grid-cols-1 items-start gap-4 @4xl:grid-cols-3">
+                <LemonWidget title="Summary" className="col-span-2">
+                    {userInterview.summary ? (
+                        <LemonMarkdown className="p-3">{userInterview.summary}</LemonMarkdown>
+                    ) : (
+                        <div className="text-muted-alt">No summary available.</div>
+                    )}
+                </LemonWidget>
+                <LemonWidget title="Transcript" className="col-span-1">
+                    {userInterview.transcript ? (
+                        <LemonMarkdown className="p-3">{userInterview.transcript}</LemonMarkdown>
+                    ) : (
+                        <div className="text-muted-alt p-3">No transcript available.</div>
+                    )}
+                </LemonWidget>
             </div>
         </div>
     )
