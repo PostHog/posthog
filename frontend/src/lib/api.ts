@@ -508,7 +508,7 @@ class ApiRequest {
 
     // # Logs
     public logsQuery(projectId?: ProjectType['id']): ApiRequest {
-        return this.projectsDetail(projectId).addPathComponent('logs').addPathComponent('query')
+        return this.environmentsDetail(projectId).addPathComponent('logs').addPathComponent('query')
     }
 
     // # Data management
@@ -1607,11 +1607,8 @@ const api = {
     },
 
     logs: {
-        async query({ query }: { query: Omit<LogsQuery, 'kind'> }): Promise<LogMessage[]> {
-            return new ApiRequest()
-                .logsQuery()
-                .withQueryString(toParams({ data: { query } }))
-                .get()
+        async query({ query }: { query: Omit<LogsQuery, 'kind'> }): Promise<{ results: LogMessage[] }> {
+            return new ApiRequest().logsQuery().create({ data: { query } })
         },
     },
 

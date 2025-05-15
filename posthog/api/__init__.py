@@ -3,27 +3,30 @@ from rest_framework_extensions.routers import NestedRegistryItem
 
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 import products.early_access_features.backend.api as early_access_feature
-from products.editor.backend.api import LLMProxyViewSet, MaxToolsViewSet
-from products.messaging.backend.api import MessageTemplatesViewSet
+import products.logs.backend.api as logs
 from posthog.api import data_color_theme, metalytics, project, wizard
+from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.batch_exports import http as batch_exports
 from posthog.settings import EE_AVAILABLE
 from posthog.warehouse.api import (
+    data_modeling_job,
     external_data_schema,
     external_data_source,
     modeling,
+    query_tab_state,
     saved_query,
     table,
     view_link,
-    query_tab_state,
-    data_modeling_job,
 )
-from posthog.api.csp_reporting import CSPReportingViewSet
+from products.editor.backend.api import LLMProxyViewSet, MaxToolsViewSet
+from products.messaging.backend.api import MessageTemplatesViewSet
 
 from ..heatmaps.heatmaps_api import HeatmapViewSet, LegacyHeatmapViewSet
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
-from ..session_recordings.session_recording_playlist_api import SessionRecordingPlaylistViewSet
+from ..session_recordings.session_recording_playlist_api import (
+    SessionRecordingPlaylistViewSet,
+)
 from ..taxonomy import property_definition_api
 from . import (
     activity_log,
@@ -677,6 +680,9 @@ environments_router.register(
     "environment_messaging_templates",
     ["team_id"],
 )
+
+# Logs endpoints
+register_grandfathered_environment_nested_viewset(r"logs", logs.LogsViewSet, "environment_logs", ["team_id"])
 
 environments_router.register(
     r"csp-reporting",

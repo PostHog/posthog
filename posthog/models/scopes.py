@@ -1,6 +1,5 @@
 from typing import Literal, get_args
 
-
 ## API Scopes
 # These are the scopes that are used to define the permissions of the API tokens.
 # Not every model needs a scope - it should more be for top-level things
@@ -41,6 +40,7 @@ APIScopeObject = Literal[
     "survey",
     "user",
     "webhook",
+    "logs",  # logs product
 ]
 
 APIScopeActions = Literal[
