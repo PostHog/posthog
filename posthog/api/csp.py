@@ -90,12 +90,14 @@ def parse_report_to(data: dict) -> dict:
 
 
 def build_csp_event(props: dict, distinct_id: str, session_id: str, version: str, user_agent: Optional[str]) -> dict:
+    props = {f"$csp_{k}": v for k, v in props.items() if k not in ["$current_url"]}
+
     return {
         "event": "$csp_violation",
         "distinct_id": distinct_id,
         "properties": {
             "$session_id": session_id,
-            "csp_version": version,
+            "$csp_version": version,
             "$process_person_profile": False,
             "$raw_user_agent": user_agent,
             **props,
