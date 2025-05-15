@@ -17,12 +17,14 @@ pub struct AppState {
     pub db_reader_client: Arc<dyn DatabaseClient + Send + Sync>,
     pub external_redis_client: Arc<dyn RedisClient + Send + Sync>,
     pub internal_redis_client: Arc<dyn RedisClient + Send + Sync>,
+    pub default_domain_for_public_store: String,
 }
 
 pub fn router<D, R>(
     db_reader_client: Arc<D>,
     external_redis_client: Arc<R>,
     internal_redis_client: Arc<R>,
+    default_domain_for_public_store: String,
     liveness: HealthRegistry,
 ) -> Router
 where
@@ -33,6 +35,7 @@ where
         db_reader_client,
         external_redis_client,
         internal_redis_client,
+        default_domain_for_public_store,
     };
 
     let status_router =

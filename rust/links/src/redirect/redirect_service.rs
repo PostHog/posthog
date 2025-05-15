@@ -38,11 +38,18 @@ pub trait RedirectServiceTrait {
 
 pub struct ExternalRedirectService {
     redis_client: Arc<dyn RedisClient + Send + Sync>,
+    default_domain_for_public_store: String,
 }
 
 impl ExternalRedirectService {
-    pub fn new(redis_client: Arc<dyn RedisClient + Send + Sync>) -> Self {
-        Self { redis_client }
+    pub fn new(
+        redis_client: Arc<dyn RedisClient + Send + Sync>,
+        default_domain_for_public_store: String,
+    ) -> Self {
+        Self {
+            redis_client,
+            default_domain_for_public_store,
+        }
     }
 }
 
@@ -87,7 +94,6 @@ impl InternalRedirectService {
 }
 
 const TWENTY_FOUR_HOURS_IN_SECONDS: u64 = 60 * 60 * 24;
-const PHOG_GG_DOMAIN: &str = "phog.gg";
 
 #[async_trait]
 impl RedirectServiceTrait for ExternalRedirectService {
@@ -120,8 +126,8 @@ impl RedirectServiceTrait for ExternalRedirectService {
         destination: &str,
         short_string: &str,
     ) -> Result<String, RedirectError> {
-        let key =
-            RedisRedirectKeyPrefix::External.get_redis_key_for_url(PHOG_GG_DOMAIN, short_string);
+        let key = RedisRedirectKeyPrefix::External
+            .get_redis_key_for_url(&self.default_domain_for_public_store, short_string);
 
         // First check if the key exists
         match self.redis_client.get(key.clone()).await {
@@ -185,6 +191,8 @@ mod tests {
 
     use std::sync::Arc;
 
+    const PHOG_GG_DOMAIN: &str = "phog.gg";
+
     #[tokio::test]
     async fn test_should_redirect_external_url() {
         let mut redis_client = MockRedisClient::new();
@@ -197,7 +205,8 @@ mod tests {
             ret,
         );
 
-        let service = ExternalRedirectService::new(Arc::new(redis_client));
+        let service =
+            ExternalRedirectService::new(Arc::new(redis_client), PHOG_GG_DOMAIN.to_string());
         let result = service.redirect_url(key, origin_domain).await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), redirect_url);
@@ -213,7 +222,8 @@ mod tests {
             Err(CustomRedisError::NotFound),
         );
 
-        let service = ExternalRedirectService::new(Arc::new(redis_client));
+        let service =
+            ExternalRedirectService::new(Arc::new(redis_client), PHOG_GG_DOMAIN.to_string());
         let result = service.redirect_url(key, origin_domain).await;
         if !matches!(result, Err(RedirectError::LinkNotFound)) {
             panic!("Expected LinkNotFound error");
@@ -251,7 +261,8 @@ mod tests {
         redis_client.get_ret(&key, Err(CustomRedisError::NotFound));
         redis_client.set_nx_ex_ret(&key, Ok(true));
 
-        let service = ExternalRedirectService::new(Arc::new(redis_client));
+        let service =
+            ExternalRedirectService::new(Arc::new(redis_client), PHOG_GG_DOMAIN.to_string());
         let result = service.store_url(destination, &redirect_url).await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), redirect_url);
@@ -288,7 +299,8 @@ mod tests {
         redis_client.get_ret(&key, Err(CustomRedisError::NotFound));
         redis_client.set_nx_ex_ret(&key, Err(CustomRedisError::NotFound));
 
-        let service = ExternalRedirectService::new(Arc::new(redis_client));
+        let service =
+            ExternalRedirectService::new(Arc::new(redis_client), PHOG_GG_DOMAIN.to_string());
         let result = service.store_url(destination, &short_string).await;
         assert!(result.is_err());
         assert!(matches!(result, Err(RedirectError::RedisError(_))));
@@ -304,7 +316,8 @@ mod tests {
 
         redis_client.get_ret(&key, Ok("existing_url".to_string()));
 
-        let service = ExternalRedirectService::new(Arc::new(redis_client));
+        let service =
+            ExternalRedirectService::new(Arc::new(redis_client), PHOG_GG_DOMAIN.to_string());
         let result = service.store_url(destination, &short_string).await;
         assert!(result.is_err());
         assert!(matches!(result, Err(RedirectError::InvalidOperation(_))));

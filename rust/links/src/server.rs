@@ -51,7 +51,13 @@ where
     tokio::spawn(liveness_loop(simple_loop));
 
     tracing::info!("listening on {:?}", listener.local_addr().unwrap());
-    let app = router(reader, external_redis_client, internal_redis_client, health);
+    let app = router(
+        reader,
+        external_redis_client,
+        internal_redis_client,
+        config.default_domain_for_public_store,
+        health,
+    );
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),

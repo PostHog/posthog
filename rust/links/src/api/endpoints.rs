@@ -47,7 +47,11 @@ pub async fn external_redirect_url(
     let lowcase_host = host.to_lowercase();
     let host = lowcase_host.strip_prefix("www.").unwrap_or(&lowcase_host);
 
-    let redirect_service = ExternalRedirectService::new(state.external_redis_client.clone());
+    let redirect_service = ExternalRedirectService::new(
+        state.external_redis_client.clone(),
+        state.default_domain_for_public_store.clone(),
+    );
+
     match redirect_service.redirect_url(&origin_key, &host).await {
         Ok(redirect_url) => {
             let redirect_url = format!("https://{redirect_url}");
@@ -86,8 +90,11 @@ pub async fn external_store_url(
     state: State<AppState>,
     Json(payload): Json<ExternalStoreUrlRequest>,
 ) -> impl IntoResponse {
-    let redirect_service = ExternalRedirectService::new(state.external_redis_client.clone());
     let short_string = generate_base62_string();
+    let redirect_service = ExternalRedirectService::new(
+        state.external_redis_client.clone(),
+        state.default_domain_for_public_store.clone(),
+    );
 
     match redirect_service
         .store_url(&payload.destination, &short_string)
